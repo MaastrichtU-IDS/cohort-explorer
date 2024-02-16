@@ -1,0 +1,47 @@
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix loinc: <https://loinc.org/> .
+@prefix omop: <https://w3id.org/omop/ontology/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# Example SHACL shape for a Measurement, based on the ontology defined at https://vemonet.github.io/omop-cdm-owl
+
+omop:AlbuminInSerumMeasurementShape
+    a sh:NodeShape ;
+    sh:targetClass omop:Measurement ;
+    sh:message "Albumin in serum measurement must have a valid concept, unit, and numerical value." ;
+
+    sh:property [
+        sh:path omop:has_concept ;
+        sh:class omop:Concept ;
+        sh:hasValue loinc:1751-7 ;
+        sh:message "The measurement concept must be 'Albumin in serum' (loinc:1751-7)." ;
+    ] ;
+
+    sh:property [
+        sh:path omop:has_unit ;
+        sh:hasValue "g/dL" ;        # Should we use concepts from an existing ontologies for Units?
+        sh:message "Albumin measurements should use the unit g/dL." ;
+        sh:severity sh:Warning ;
+    ] ;
+
+    sh:property [
+        sh:path omop:date ;
+        sh:minCount 0 ;             # Optional
+        sh:maxCount 1 ;
+        sh:pattern "^[MWD]\\d+$" ;
+        sh:message "Date at which moment the measurement was taken (D1, W3, M6...)." ;
+    ] ;
+
+    sh:property [
+        sh:path omop:value_as_number ;      # Or omop:value
+        sh:datatype xsd:decimal ;
+        sh:minInclusive 0 ;
+        sh:message "The measurement value must be a non-negative decimal number." ;
+    ] ;
+
+    sh:property [
+        sh:path omop:has_status ;
+        sh:in ("hospitalized" "emergency" "unhospitalized") ;   # Example for categorical variables
+        sh:message "Status must be one of 'hospitalized', 'emergency', or 'unhospitalized'." ;
+    ]
+    .
