@@ -7,7 +7,7 @@ requires-python = ">=3.8"
 version = "0.0.1"
 name = "cohort-explorer-backend"
 description = "Backend for the iCare4CVD Cohort Explorer."
-readme = "README.md"
+# readme = "../README.md"
 license = { file = "../LICENSE.txt" }
 authors = [
     { name = "Vincent Emonet", email = "vincent.emonet@gmail.com" },
@@ -37,12 +37,13 @@ dependencies = [
     "fastapi",
     "uvicorn",
     "python-multipart",
-    "pydantic>=2.0.0",
-    "pydantic-settings",
+    # "pydantic>=2.0.0",
+    # "pydantic-settings",
     "pyyaml!=6.0.0,!=5.4.0,!=5.4.1", # https://github.com/yaml/pyyaml/issues/724
     "httpx",
     "oxrdflib",
-    "decentriq_platform",
+    # "decentriq_platform",
+    "decentriq_platform >=0.24.2", # TODO: conflict with pydantic 2
 ]
 
 

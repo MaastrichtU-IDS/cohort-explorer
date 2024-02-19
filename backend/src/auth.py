@@ -14,8 +14,8 @@ router = APIRouter()
 
 
 oauth2_scheme = OAuth2AuthorizationCodeBearer(
-    authorizationUrl=f"{settings.authorization_endpoint}?response_type=code&client_id={settings.client_id}&redirect_uri={settings.redirect_uri}&scope={settings.scope}",
-    tokenUrl=settings.token_endpoint,
+    authorizationUrl=f"{settings.authorization_endpoint()}?response_type=code&client_id={settings.client_id}&redirect_uri={settings.redirect_uri}&scope={settings.scope}",
+    tokenUrl=settings.token_endpoint(),
 )
 
 
@@ -24,7 +24,7 @@ async def get_user_info(token: Annotated[str, Depends(oauth2_scheme)]):
     async with httpx.AsyncClient() as client:
         try:
             resp = await client.get(
-                f"{settings.authorization_endpoint}/userinfo", headers={"Authorization": f"Bearer {token}"}
+                f"{settings.authorization_endpoint()}/userinfo", headers={"Authorization": f"Bearer {token}"}
             )
             # resp.raise_for_status()
             user_info = resp.json()
@@ -45,7 +45,7 @@ def login():
         "redirect_uri": settings.redirect_uri,
         "scope": settings.scope,
     }
-    query = f"{settings.authorization_endpoint}?{urlencode(data)}"
+    query = f"{settings.authorization_endpoint()}?{urlencode(data)}"
     return RedirectResponse(query)
 
 
@@ -60,7 +60,7 @@ async def auth_callback(code: str):
         "redirect_uri": settings.redirect_uri,
     }
     async with httpx.AsyncClient() as client:
-        response = await client.post(settings.token_endpoint, data=token_payload)
+        response = await client.post(settings.token_endpoint(), data=token_payload)
         response.raise_for_status()
         token = response.json()
         access_token = token["access_token"]
