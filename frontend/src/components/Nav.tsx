@@ -10,10 +10,10 @@ import {useCohorts} from '../components/CohortsContext';
 // https://github.com/nextauthjs/next-auth-example/blob/cc1c91a65c70e1a51bfbbb550dbc85e605f0e402/auth.ts
 
 export function Nav() {
-  const {dataCleanRoom, setDataCleanRoom, setCohortsData, userEmail, setUserEmail} = useCohorts();
+  const {dataCleanRoom, setDataCleanRoom, cohortsData, setCohortsData, userEmail, setUserEmail} = useCohorts();
   const [theme, setTheme] = useState('light');
   const [showModal, setShowModal] = useState(false);
-  const [sendCohortMsg, setSendCohortMsg] = useState('');
+  const [publishedDCR, setPublishedDCR]: any = useState(null);
   // const [cleanRoomData, setCleanRoomData]: any = useState(null);
   // const cleanRoomData = JSON.parse(sessionStorage.getItem('dataCleanRoom') || '{"cohorts": []}');
   // const cohortsCount = cleanRoomData.cohorts.length;
@@ -62,6 +62,12 @@ export function Nav() {
     // Replace with actual API endpoint and required request format
     console.log('Sending request to Decentriq', dataCleanRoom);
     const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+    const requestBody = { cohorts: {} };
+    for (const cohortId of dataCleanRoom.cohorts as string[]) {
+      // @ts-ignore
+      requestBody.cohorts[cohortId] = cohortsData[cohortId];
+    }
+    console.log('requestBody', requestBody);
     try {
       const response = await fetch(`${apiUrl}/create-dcr`, {
         method: 'POST',
@@ -69,11 +75,11 @@ export function Nav() {
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(dataCleanRoom)
+        body: JSON.stringify(requestBody)
       });
-      const result = await response.json();
-      console.log(result);
-      setSendCohortMsg(result.message);
+      const res = await response.json();
+      console.log(res);
+      setPublishedDCR(res);
       // Handle response
     } catch (error) {
       console.error('Error sending cohorts:', error);
@@ -84,7 +90,7 @@ export function Nav() {
   const clearCohortsList = () => {
     sessionStorage.setItem('dataCleanRoom', JSON.stringify({cohorts: []}));
     setDataCleanRoom({cohorts: []});
-    setSendCohortMsg('');
+    setPublishedDCR(null);
   };
 
   return (
@@ -185,9 +191,13 @@ export function Nav() {
                 Close
               </button>
             </div>
-            {sendCohortMsg && (
+            {publishedDCR && (
               <div className="card card-compact">
-                <p className="card-body bg-success mt-5 rounded-lg text-slate-900">{sendCohortMsg}</p>
+                <div className="card-body bg-success mt-5 rounded-lg text-slate-900">
+                  <p>
+                    Data Clean Room <a href={publishedDCR["dcr_url"]}><b>{publishedDCR["dcr_title"]}</b></a> published in Decentriq
+                  </p>
+                </div>
               </div>
             )}
           </div>

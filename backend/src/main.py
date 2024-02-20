@@ -32,9 +32,9 @@ g.bind("rdfs", RDFS)
 
 
 def parse_categorical_string(s):
-    """Categorical string format: "value1=label1, value2=label2" or "value1=label1; value2=label2"""
+    """Categorical string format: "value1=label1, value2=label2" or "value1=label1 | value2=label2"""
     # Split the string into items
-    split_char = "," if ";" not in s else ";"
+    split_char = "," if "|" not in s else "|"
     items = s.split(split_char)
     result = []
     for item in items:
@@ -101,12 +101,13 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str):
 
         # Add properties
         for column, value in row.items():
-            if value and column not in ["categories"]:
+            # if value and column not in ["categories"]:
+            if column not in ["categories"]:
                 property_uri = ICARE[column.replace(" ", "_").lower()]
                 g.add((variable_uri, property_uri, Literal(value)))
 
             # Handle Category
-            if value and column in ["categories"]:
+            if column in ["categories"]:
                 for index, category in enumerate(value):
                     cat_uri = URIRef(f"{variable_uri!s}/category/{index}")
                     g.add((variable_uri, ICARE["categories"], cat_uri))
@@ -166,7 +167,8 @@ PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 PREFIX dc: <http://purl.org/dc/elements/1.1/>
 PREFIX dcterms: <http://purl.org/dc/terms/>
 
-SELECT DISTINCT ?cohortId ?cohortInstitution ?cohortType ?cohortEmail ?variable ?varName ?varLabel ?varType ?index ?count ?max ?min ?units ?formula ?omopDomain ?conceptId ?timeFrame ?categoryValue ?categoryLabel WHERE {
+SELECT DISTINCT ?cohortId ?cohortInstitution ?cohortType ?cohortEmail ?variable ?varName ?varLabel ?varType ?index ?count ?na ?max ?min ?units ?formula ?definition ?omopDomain ?conceptId ?visits ?categoryValue ?categoryLabel
+WHERE {
     ?cohort a icare:Cohort ;
         dc:identifier ?cohortId ;
         icare:institution ?cohortInstitution .
@@ -183,13 +185,15 @@ SELECT DISTINCT ?cohortId ?cohortInstitution ?cohortType ?cohortEmail ?variable 
             icare:index ?index ;
             dcterms:isPartOf ?cohort .
         OPTIONAL { ?variable icare:count ?count }
+        OPTIONAL { ?variable icare:na ?na }
         OPTIONAL { ?variable icare:max ?max }
         OPTIONAL { ?variable icare:min ?min }
         OPTIONAL { ?variable icare:units ?units }
         OPTIONAL { ?variable icare:formula ?formula }
+        OPTIONAL { ?variable icare:definition ?definition }
         OPTIONAL { ?variable icare:concept_id ?conceptId }
         OPTIONAL { ?variable icare:omop ?omopDomain }
-        OPTIONAL { ?variable icare:time_frame ?timeFrame }
+        OPTIONAL { ?variable icare:visits ?visits }
         OPTIONAL {
             ?variable icare:categories ?category.
             ?category rdfs:label ?categoryLabel ;
@@ -225,10 +229,11 @@ def get_data_summary(
         # Initialize cohort data structure if not exists
         if cohort_id not in target_dict:
             target_dict[cohort_id] = {
-                "variables": {},
-                "institution": Literal(str(row.cohortInstitution)),
+                "cohort_id": cohort_id,
                 "cohort_type": str(row.cohortType) if row.cohortType else "",
                 "cohort_email": str(row.cohortEmail) if row.cohortEmail else "",
+                "institution": Literal(str(row.cohortInstitution)),
+                "variables": {},
             }
 
         # Process variables
@@ -237,12 +242,14 @@ def get_data_summary(
                 "VARIABLE NAME": var_id,
                 "VARIABLE LABEL": str(row.varLabel),
                 "VAR TYPE": str(row.varType),
-                "COUNT": str(row["count"]) if row.count else "",
+                "COUNT": int(row["count"]),
+                "NA": int(row["na"]),
                 "MAX": str(row.max) if row.max else "",
                 "MIN": str(row.min) if row.min else "",
                 "UNITS": str(row.units) if row.units else "",
-                "Time frame": str(row.timeFrame) if row.timeFrame else "",
+                "Visits": str(row.visits) if row.visits else "",
                 "Formula": str(row.formula) if row.formula else "",
+                "Definition": str(row.definition) if row.definition else "",
                 "concept_id": str(row.conceptId) if row.conceptId else "",
                 "OMOP": str(row.omopDomain) if row.omopDomain else "",
                 "index": int(row["index"]) if row["index"] else "",

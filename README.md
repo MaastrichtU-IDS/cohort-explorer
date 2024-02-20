@@ -21,6 +21,7 @@ Everything deployed in docker containers using docker compose.
 
 ## ☑️ To do
 
+- [ ] Improve validation of uploaded data dictionaries
 - [ ] Use a persistent triplestore
 - [ ] Save mappings to triplestore
 - [ ] Improve classes and predicates currently used to describe cohorts metadata files

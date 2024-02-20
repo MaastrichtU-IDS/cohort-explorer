@@ -180,7 +180,8 @@ export default function Mapping() {
                       Formula: <code className="p-1 bg-base-300 rounded-md">{variable['Formula']}</code>
                     </p>
                   )}
-                  {variable['Time frame'] && <p>Time frame: {variable['Time frame']}</p>}
+                  {variable['Definition'] && <p>Definition: {variable['Definition']}</p>}
+                  {variable['Visits'] && <p>Visit: {variable['Visits']}</p>}
                   {variable['Frequency'] && <p>Frequency: {variable['Frequency']}</p>}
                   {variable['Duration'] && <p>Duration: {variable['Duration']}</p>}
                   {variable['OMOP'] && (

@@ -21,6 +21,10 @@ body {
   background: linear-gradient(to bottom, transparent, rgb(var(--background-end-rgb))) rgb(var(--background-start-rgb));
 }
 
+a {
+  @apply inline text-blue-600 hover:text-blue-800 visited:text-blue-700
+}
+
 .flow {
   flex-grow: 1;
   font-size: 12px;

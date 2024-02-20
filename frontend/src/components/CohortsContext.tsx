@@ -39,8 +39,8 @@ export const CohortsProvider = ({children}: any) => {
   };
 
   return (
-    // @ts-ignore
     <CohortsContext.Provider
+      // @ts-ignore
       value={{cohortsData, setCohortsData, updateCohortData, dataCleanRoom, setDataCleanRoom, userEmail, setUserEmail}}
     >
       {children}
