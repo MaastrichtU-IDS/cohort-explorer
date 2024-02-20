@@ -182,7 +182,7 @@ export function Nav() {
             <ul>{dataCleanRoom?.cohorts.map((cohortId: any) => <li key={cohortId}>{cohortId}</li>)}</ul>
             <div className="modal-action">
               <button className="btn btn-neutral" onClick={sendCohortsToDecentriq}>
-                Access in Decentriq
+                Create Data Clean Room
               </button>
               <button className="btn btn-error" onClick={clearCohortsList}>
                 Clear cohorts

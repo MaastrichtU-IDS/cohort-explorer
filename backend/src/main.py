@@ -12,7 +12,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from src.auth import router as auth_router, get_user_info
 from src.config import settings
-from src.decentriq import router as decentriq_router
+from src.decentriq import router as decentriq_router, create_provision_dcr
 
 app = FastAPI(
     title="iCARE4CVD data upload",
@@ -146,15 +146,23 @@ async def upload_files(
     with open(metadata_path, "wb") as buffer:
         shutil.copyfileobj(cohort_dictionary.file, buffer)
 
-    load_cohort_dict_file(metadata_path, cohort_id)
+    try:
+        load_cohort_dict_file(metadata_path, cohort_id)
+    except Exception as e:
+        shutil.rmtree(dataset_folder)
+        raise e
+
+    data_dict = get_data_summary(user)
+    dcr_data = create_provision_dcr(user, data_dict[cohort_id])
+    # cohort_dict = data_dict[cohort_id]
+    print(dcr_data)
 
     # Save data file
     if cohort_data:
         file_path = os.path.join(dataset_folder, cohort_data.filename)
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(cohort_data.file, buffer)
-
-    return {"message": f"Cohort {cohort_id} uploaded successfully", "identifier": cohort_id}
+    return dcr_data
 
 
 get_variables_query = """PREFIX icare: <https://w3id.org/icare4cvd/>
@@ -201,7 +209,7 @@ WHERE {
 
 
 @app.get("/summary")
-def get_data_summary(user: Any = Depends(get_user_info)) -> JSONResponse:
+def get_data_summary(user: Any = Depends(get_user_info)) -> dict[str, Any]:
     """Returns all data dictionaries"""
     results = g.query(get_variables_query)
     cohorts_with_variables = {}
@@ -252,7 +260,8 @@ def get_data_summary(user: Any = Depends(get_user_info)) -> JSONResponse:
     # Merge dictionaries, cohorts with variables first
     merged_cohorts_data = {**cohorts_with_variables, **cohorts_without_variables}
     # print(merged_cohorts_data)
-    return JSONResponse(merged_cohorts_data)
+    # return JSONResponse(merged_cohorts_data)
+    return merged_cohorts_data
 
 
 @app.get("/", include_in_schema=False)

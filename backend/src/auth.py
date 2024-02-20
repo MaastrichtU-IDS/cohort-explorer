@@ -100,7 +100,7 @@ async def auth_callback(code: str):
 
         if payload["aud"] == "https://other-ihi-app" and "read:datasets-descriptions" in payload["permissions"]:
             # TODO: get user email from payload
-            user_email = "someone@decentriq.com"
+            user_email = settings.decentriq_email
             jwt_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
             jwt_token = create_access_token(
                 data={"email": user_email}, expires_delta=jwt_token_expires
