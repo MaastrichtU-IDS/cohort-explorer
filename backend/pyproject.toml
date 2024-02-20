@@ -37,6 +37,7 @@ dependencies = [
     "fastapi",
     "uvicorn",
     "python-multipart",
+    "python-jose[cryptography]",
     # "pydantic>=2.0.0",
     # "pydantic-settings",
     "pyyaml!=6.0.0,!=5.4.0,!=5.4.1", # https://github.com/yaml/pyyaml/issues/724

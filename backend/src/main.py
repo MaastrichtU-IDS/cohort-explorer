@@ -1,15 +1,16 @@
 import glob
 import os
 import shutil
+from typing import Annotated, Any
 
 import pandas as pd
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse, RedirectResponse
 from rdflib import DCTERMS, XSD, Graph, Literal, Namespace, URIRef
 from rdflib.namespace import DC, RDF, RDFS
 from starlette.middleware.cors import CORSMiddleware
 
-from src.auth import router as auth_router
+from src.auth import router as auth_router, get_user_info
 from src.config import settings
 from src.decentriq import router as decentriq_router
 
@@ -114,7 +115,6 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str):
                     g.add((cat_uri, RDF.type, ICARE.Category))
                     g.add((cat_uri, RDF.value, Literal(category["value"])))
                     g.add((cat_uri, RDFS.label, Literal(category["label"])))
-
     # print(g.serialize(format="turtle"))
 
 
@@ -124,16 +124,12 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str):
     response_model={},
 )
 async def upload_files(
-    # user: Annotated[Any, Depends(get_user_info)],
-    request: Request,
+    user: Any = Depends(get_user_info),
     cohort_id: str = Form(..., pattern="^[a-zA-Z0-9-_]+$"),
     cohort_dictionary: UploadFile = File(...),
     cohort_data: UploadFile | None = None,
 ) -> dict[str, str]:
     """Upload files to the server"""
-    token = request.cookies.get("token")
-    if not token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
     # Create directory named after cohort_id
     dataset_folder = os.path.join(settings.data_folder, cohort_id)
     os.makedirs(dataset_folder, exist_ok=True)
@@ -200,29 +196,20 @@ WHERE {
                 rdf:value ?categoryValue .
         }
     }
-} ORDER BY ?cohort ?variable ?index
+} ORDER BY ?cohort ?index
 """
 
 
 @app.get("/summary")
-def get_data_summary(
-    request: Request,
-    # user: Annotated[Any, Depends(get_user_info)]
-):
+def get_data_summary(user: Any = Depends(get_user_info)) -> JSONResponse:
     """Returns all data dictionaries"""
-    token = request.cookies.get("token")
-    if not token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
     results = g.query(get_variables_query)
-
     cohorts_with_variables = {}
     cohorts_without_variables = {}
-
-    print(f"Query results: {len(results)}")
+    # print(f"Query results: {len(results)}")
     for row in results:
         cohort_id = str(row.cohortId)
         var_id = str(row.varName)
-
         # Determine which dictionary to use
         target_dict = cohorts_with_variables if row.varName else cohorts_without_variables
 
@@ -269,7 +256,7 @@ def get_data_summary(
 
 
 @app.get("/", include_in_schema=False)
-def redirect_root_to_docs():
+def redirect_root_to_docs() -> RedirectResponse:
     """Redirect the route / to /docs"""
     return RedirectResponse(url="/docs")
 

@@ -195,7 +195,10 @@ export function Nav() {
               <div className="card card-compact">
                 <div className="card-body bg-success mt-5 rounded-lg text-slate-900">
                   <p>
-                    Data Clean Room <a href={publishedDCR["dcr_url"]}><b>{publishedDCR["dcr_title"]}</b></a> published in Decentriq
+                    Data Clean Room&nbsp;
+                    <a href={publishedDCR["dcr_url"]} className='link'>
+                      <b>{publishedDCR["dcr_title"]}</b>
+                    </a> published in Decentriq
                   </p>
                 </div>
               </div>
