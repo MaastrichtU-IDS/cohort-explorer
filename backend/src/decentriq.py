@@ -1,14 +1,14 @@
 from typing import Any
+
 import decentriq_platform as dq
 import decentriq_platform.sql as dqsql
-import decentriq_platform.container as dqc
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends
 
 from src.auth import get_user_info
 from src.config import settings
 
-
 router = APIRouter()
+
 
 def get_cohort_schema(cohort_dict: dict[str, Any]) -> list[tuple[str, dqsql.PrimitiveType, bool]]:
     """Convert cohort variables to Decentriq schema"""
@@ -33,10 +33,12 @@ def create_provision_dcr(user: Any, cohort_dict: dict[str, Any]) -> dict[str, An
 
     # Establish connection to an enclave
     client = dq.create_client(settings.decentriq_email, settings.decentriq_token)
-    enclave_specs = dq.enclave_specifications.versions([
-        "decentriq.driver:v20",
-        "decentriq.sql-worker:v12",
-    ])
+    enclave_specs = dq.enclave_specifications.versions(
+        [
+            "decentriq.driver:v20",
+            "decentriq.sql-worker:v12",
+        ]
+    )
     auth, _ = client.create_auth_using_decentriq_pki(enclave_specs)
     session = client.create_session(auth, enclave_specs)
 
@@ -44,15 +46,8 @@ def create_provision_dcr(user: Any, cohort_dict: dict[str, Any]) -> dict[str, An
     builder = dq.DataRoomBuilder(f"iCare4CVD DCR provision {cohort_dict['cohort_id']}", enclave_specs=enclave_specs)
 
     # Create data node for cohort
-    data_node_builder = dqsql.TabularDataNodeBuilder(
-        cohort_dict["cohort_id"],
-        schema=get_cohort_schema(cohort_dict)
-    )
-    data_node_builder.add_to_builder(
-        builder,
-        authentication=client.decentriq_pki_authentication,
-        users=users
-    )
+    data_node_builder = dqsql.TabularDataNodeBuilder(cohort_dict["cohort_id"], schema=get_cohort_schema(cohort_dict))
+    data_node_builder.add_to_builder(builder, authentication=client.decentriq_pki_authentication, users=users)
 
     # Build and publish DCR
     data_room = builder.build()
@@ -85,12 +80,14 @@ async def create_compute_dcr(
 
     # Establish connection to an enclave
     client = dq.create_client(settings.decentriq_email, settings.decentriq_token)
-    enclave_specs = dq.enclave_specifications.versions([
-        "decentriq.driver:v20",
-        "decentriq.sql-worker:v12",
-        # "decentriq.python-ml-worker-32-64:v21",
-        # "decentriq.r-latex-worker-32-32:v16",
-    ])
+    enclave_specs = dq.enclave_specifications.versions(
+        [
+            "decentriq.driver:v20",
+            "decentriq.sql-worker:v12",
+            # "decentriq.python-ml-worker-32-64:v21",
+            # "decentriq.r-latex-worker-32-32:v16",
+        ]
+    )
     auth, _ = client.create_auth_using_decentriq_pki(enclave_specs)
     session = client.create_session(auth, enclave_specs)
 
@@ -101,21 +98,12 @@ async def create_compute_dcr(
     # Convert cohort variables to decentriq schema
     for cohort_id, cohort_dict in cohorts_request["cohorts"].items():
         # Create data node for cohort
-        data_node_builder = dqsql.TabularDataNodeBuilder(
-            cohort_id,
-            schema=get_cohort_schema(cohort_dict)
-        )
-        data_node_builder.add_to_builder(
-            builder,
-            authentication=client.decentriq_pki_authentication,
-            users=users
-        )
+        data_node_builder = dqsql.TabularDataNodeBuilder(cohort_id, schema=get_cohort_schema(cohort_dict))
+        data_node_builder.add_to_builder(builder, authentication=client.decentriq_pki_authentication, users=users)
 
     # Add empty list of permissions
     builder.add_user_permission(
-        email=user["email"],
-        authentication_method=client.decentriq_pki_authentication,
-        permissions=[]
+        email=user["email"], authentication_method=client.decentriq_pki_authentication, permissions=[]
     )
 
     # Build and publish DCR

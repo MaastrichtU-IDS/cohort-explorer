@@ -62,7 +62,7 @@ export function Nav() {
     // Replace with actual API endpoint and required request format
     console.log('Sending request to Decentriq', dataCleanRoom);
     const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-    const requestBody = { cohorts: {} };
+    const requestBody = {cohorts: {}};
     for (const cohortId of dataCleanRoom.cohorts as string[]) {
       // @ts-ignore
       requestBody.cohorts[cohortId] = cohortsData[cohortId];
@@ -195,10 +195,11 @@ export function Nav() {
               <div className="card card-compact">
                 <div className="card-body bg-success mt-5 rounded-lg text-slate-900">
                   <p>
-                    Data Clean Room&nbsp;
-                    <a href={publishedDCR["dcr_url"]} className='link'>
-                      <b>{publishedDCR["dcr_title"]}</b>
-                    </a> published in Decentriq
+                    Data Clean Room{' '}
+                    <a href={publishedDCR['dcr_url']} className="link">
+                      <b>{publishedDCR['dcr_title']}</b>
+                    </a>{' '}
+                    published in Decentriq
                   </p>
                 </div>
               </div>

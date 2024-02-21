@@ -2,11 +2,11 @@ import base64
 import json
 import secrets
 from datetime import datetime, timedelta, timezone
-from typing import Annotated, Any
+from typing import Any
 from urllib.parse import urlencode
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Response, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2AuthorizationCodeBearer
 from jose import JWTError, jwt
@@ -17,15 +17,18 @@ router = APIRouter()
 
 
 oauth2_scheme = OAuth2AuthorizationCodeBearer(
-    authorizationUrl=f"{settings.authorization_endpoint()}?response_type=code&client_id={settings.client_id}&redirect_uri={settings.redirect_uri}&scope={settings.scope}",
-    tokenUrl=settings.token_endpoint(),
+    authorizationUrl=f"{settings.authorization_endpoint}?response_type=code&client_id={settings.client_id}&redirect_uri={settings.redirect_uri}&scope={settings.scope}",
+    tokenUrl=settings.token_endpoint,
 )
 
 SECRET_KEY = secrets.token_urlsafe(32)
+# Convenient to use a hardcoded secret for development (prevent the need to re-login every time the API restarts)
+# SECRET_KEY = "vCitcsPBwH4BMCwEqlO1aHJSIn--usrcyxPPRbeYdHM"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
-def create_access_token(data: dict, expires_delta: timedelta | None = None):
+
+def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=15))
     to_encode.update({"exp": expire})
@@ -33,9 +36,8 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None):
     return encoded_jwt
 
 
-# async def get_user_info(token: Annotated[str, Depends(oauth2_scheme)]):
-async def get_user_info(request: Request):
-    """Get the actual user using its token"""
+async def get_user_info(request: Request) -> dict[str, Any]:
+    """Get the actual user decoding its JWT token passed through HTTP-only cookie"""
     token = request.cookies.get("token")
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -47,23 +49,24 @@ async def get_user_info(request: Request):
         raise HTTPException(status_code=403, detail=str(e))
     return payload
 
-    # async with httpx.AsyncClient() as client:
-    #     try:
-    #         resp = await client.get(
-    #             f"{settings.authorization_endpoint()}/userinfo", headers={"Authorization": f"Bearer {token}"}
-    #         )
-    #         # resp.raise_for_status()
-    #         user_info = resp.json()
-    #     except Exception as e:
-    #         raise HTTPException(
-    #             status_code=403,
-    #             detail=str(e),
-    #         )
-    #     return user_info
+# async def get_user_info(token: Annotated[str, Depends(oauth2_scheme)]):
+#     async with httpx.AsyncClient() as client:
+#         try:
+#             resp = await client.get(
+#                 f"{settings.authorization_endpoint}/userinfo", headers={"Authorization": f"Bearer {token}"}
+#             )
+#             # resp.raise_for_status()
+#             user_info = resp.json()
+#         except Exception as e:
+#             raise HTTPException(
+#                 status_code=403,
+#                 detail=str(e),
+#             )
+#         return user_info
 
 
 @router.get("/login")
-def login():
+def login() -> RedirectResponse:
     data = {
         "audience": "https://other-ihi-app",
         "response_type": settings.response_type,
@@ -71,13 +74,13 @@ def login():
         "redirect_uri": settings.redirect_uri,
         "scope": settings.scope,
     }
-    query = f"{settings.authorization_endpoint()}?{urlencode(data)}"
+    query = f"{settings.authorization_endpoint}?{urlencode(data)}"
     return RedirectResponse(query)
 
 
 @router.get("/cb")
-async def auth_callback(code: str):
-    """Callback for auth. Redirect to frontend if successful"""
+async def auth_callback(code: str) -> RedirectResponse:
+    """Callback for auth. Generate JWT token and redirect to frontend if successful"""
     token_payload = {
         "client_id": settings.client_id,
         "client_secret": settings.client_secret,
@@ -86,7 +89,7 @@ async def auth_callback(code: str):
         "redirect_uri": settings.redirect_uri,
     }
     async with httpx.AsyncClient() as client:
-        response = await client.post(settings.token_endpoint(), data=token_payload)
+        response = await client.post(settings.token_endpoint, data=token_payload)
         response.raise_for_status()
         token = response.json()
         access_token = token["access_token"]
@@ -98,16 +101,16 @@ async def auth_callback(code: str):
                 detail="Invalid token",
             )
 
+        # Check in payload if logged in user has the required permissions
         if payload["aud"] == "https://other-ihi-app" and "read:datasets-descriptions" in payload["permissions"]:
             # TODO: get user email from payload
             user_email = settings.decentriq_email
             jwt_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-            jwt_token = create_access_token(
-                data={"email": user_email}, expires_delta=jwt_token_expires
-            )
+            jwt_token = create_access_token(data={"email": user_email}, expires_delta=jwt_token_expires)
 
             # NOTE: Redirect to react frontend
             nextjs_redirect_uri = f"{settings.frontend_url}/cohorts"
+            print("REDIR0", nextjs_redirect_uri)
             send_resp = RedirectResponse(url=nextjs_redirect_uri)
             send_resp.set_cookie(
                 key="token",
@@ -115,7 +118,7 @@ async def auth_callback(code: str):
                 httponly=True,
                 secure=True,
                 max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-                samesite="Lax"  # or 'Strict'
+                samesite="Lax",  # or 'Strict'
             )
             return send_resp
         else:
@@ -126,6 +129,6 @@ async def auth_callback(code: str):
 
 
 @router.post("/logout")
-def logout(response: Response):
+def logout(response: Response) -> dict[str, str]:
     response.delete_cookie(key="token")
     return {"message": "Logged out successfully"}

@@ -7,8 +7,7 @@ requires-python = ">=3.8"
 version = "0.0.1"
 name = "cohort-explorer-backend"
 description = "Backend for the iCare4CVD Cohort Explorer."
-# readme = "../README.md"
-license = { file = "../LICENSE.txt" }
+license = "MIT"
 authors = [
     { name = "Vincent Emonet", email = "vincent.emonet@gmail.com" },
 ]
@@ -36,15 +35,19 @@ dependencies = [
     "openpyxl",
     "fastapi",
     "uvicorn",
+    "gunicorn",
     "python-multipart",
     "python-jose[cryptography]",
-    # "pydantic>=2.0.0",
-    # "pydantic-settings",
-    "pyyaml!=6.0.0,!=5.4.0,!=5.4.1", # https://github.com/yaml/pyyaml/issues/724
+    "pyyaml !=6.0.0,!=5.4.0,!=5.4.1", # https://github.com/yaml/pyyaml/issues/724
     "httpx",
     "oxrdflib",
-    # "decentriq_platform",
+    "SPARQLWrapper",
+    "python-dotenv",
     "decentriq_platform >=0.24.2", # TODO: conflict with pydantic 2
+    # "protobuf ==4.21.9", # happens in docker https://stackoverflow.com/questions/72441758/typeerror-descriptors-cannot-not-be-created-directly
+    "oscrypto",
+    # "pydantic>=2.0.0",
+    # "pydantic-settings",
 ]
 
 
@@ -179,7 +182,7 @@ ignore = [
     "T201", # do not use print
     "B008", # do not perform function calls in argument defaults
     "E722", "S110", # Do not use bare `except`
-    "B904", "S104",
+    "B904", "S104", "S108",
 ]
 
 [tool.ruff.lint.per-file-ignores]

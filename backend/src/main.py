@@ -1,18 +1,22 @@
 import glob
 import os
 import shutil
-from typing import Annotated, Any
+from typing import Any
 
 import pandas as pd
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import JSONResponse, RedirectResponse
+import requests
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.responses import RedirectResponse
 from rdflib import DCTERMS, XSD, Graph, Literal, Namespace, URIRef
 from rdflib.namespace import DC, RDF, RDFS
+from SPARQLWrapper import JSON, SPARQLWrapper
 from starlette.middleware.cors import CORSMiddleware
 
-from src.auth import router as auth_router, get_user_info
+from src.auth import get_user_info
+from src.auth import router as auth_router
 from src.config import settings
-from src.decentriq import router as decentriq_router, create_provision_dcr
+from src.decentriq import create_provision_dcr
+from src.decentriq import router as decentriq_router
 
 app = FastAPI(
     title="iCARE4CVD data upload",
@@ -22,8 +26,10 @@ If you are facing issues, contact [vincent.emonet@maastrichtuniversity.nl](mailt
 )
 
 
-# g = Graph()
 g = Graph(store="Oxigraph")
+query_endpoint = SPARQLWrapper(f"{settings.sparql_endpoint}/query")
+query_endpoint.setReturnFormat(JSON)
+# /query or /update
 
 # Define the namespaces
 ICARE = Namespace("https://w3id.org/icare4cvd/")
@@ -32,7 +38,30 @@ g.bind("rdf", RDF)
 g.bind("rdfs", RDFS)
 
 
-def parse_categorical_string(s):
+def run_query(query) -> dict[str, Any]:
+    """Function to run a SPARQL query against a remote endpoint"""
+    query_endpoint.setQuery(query)
+    # print(sparql.query().convert())
+    return query_endpoint.query().convert()
+
+
+def publish_graph_to_endpoint(graph: Graph) -> bool:
+    """Insert the graph into the triplestore endpoint."""
+    url = f"{settings.sparql_endpoint}/store?default"
+    headers = {"Content-Type": "text/turtle"}
+    graph.serialize("/tmp/upload-data.ttl", format="ttl")
+    with open("/tmp/upload-data.ttl", "rb") as file:
+        response = requests.post(url, headers=headers, data=file, timeout=120)
+
+    # NOTE: Fails when we pass RDF as string directly
+    # response = requests.post(url, headers=headers, data=graph_data)
+    # Check response status and print result
+    if not response.ok:
+        print(f"Failed to upload data: {response.status_code}, {response.text}")
+    return response.ok
+
+
+def parse_categorical_string(s)-> list[dict[str, str]]:
     """Categorical string format: "value1=label1, value2=label2" or "value1=label1 | value2=label2"""
     # Split the string into items
     split_char = "," if "|" not in s else "|"
@@ -116,6 +145,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str):
                     g.add((cat_uri, RDF.value, Literal(category["value"])))
                     g.add((cat_uri, RDFS.label, Literal(category["label"])))
     # print(g.serialize(format="turtle"))
+    return g
 
 
 @app.post(
@@ -131,8 +161,8 @@ async def upload_files(
 ) -> dict[str, str]:
     """Upload files to the server"""
     # Create directory named after cohort_id
-    dataset_folder = os.path.join(settings.data_folder, cohort_id)
-    os.makedirs(dataset_folder, exist_ok=True)
+    cohorts_folder = os.path.join(settings.data_folder, "cohorts", cohort_id)
+    os.makedirs(cohorts_folder, exist_ok=True)
     # print("USER", user)
 
     # Make sure metadata file ends with -dictionary
@@ -142,24 +172,23 @@ async def upload_files(
         filename += "-dictionary"
 
     # Save metadata file
-    metadata_path = os.path.join(dataset_folder, filename + ext)
+    metadata_path = os.path.join(cohorts_folder, filename + ext)
     with open(metadata_path, "wb") as buffer:
         shutil.copyfileobj(cohort_dictionary.file, buffer)
 
     try:
-        load_cohort_dict_file(metadata_path, cohort_id)
+        g = load_cohort_dict_file(metadata_path, cohort_id)
+        publish_graph_to_endpoint(g)
     except Exception as e:
-        shutil.rmtree(dataset_folder)
+        shutil.rmtree(cohorts_folder)
         raise e
 
-    data_dict = get_data_summary(user)
-    dcr_data = create_provision_dcr(user, data_dict[cohort_id])
-    # cohort_dict = data_dict[cohort_id]
-    print(dcr_data)
-
+    cohorts_dict = get_cohorts_metadata()
+    dcr_data = create_provision_dcr(user, cohorts_dict[cohort_id])
+    # print(dcr_data)
     # Save data file
     if cohort_data:
-        file_path = os.path.join(dataset_folder, cohort_data.filename)
+        file_path = os.path.join(cohorts_folder, cohort_data.filename)
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(cohort_data.file, buffer)
     return dcr_data
@@ -207,54 +236,52 @@ WHERE {
 } ORDER BY ?cohort ?index
 """
 
-
-@app.get("/summary")
-def get_data_summary(user: Any = Depends(get_user_info)) -> dict[str, Any]:
-    """Returns all data dictionaries"""
-    results = g.query(get_variables_query)
+def get_cohorts_metadata() -> dict[str, Any]:
+    """Get all cohorts metadata from the SPARQL endpoint (infos, variables)"""
+    results = run_query(get_variables_query)["results"]["bindings"]
     cohorts_with_variables = {}
     cohorts_without_variables = {}
     # print(f"Query results: {len(results)}")
     for row in results:
-        cohort_id = str(row.cohortId)
-        var_id = str(row.varName)
+        cohort_id = str(row["cohortId"]["value"])
+        var_id = str(row["varName"]["value"]) if "varName" in row else ""
         # Determine which dictionary to use
-        target_dict = cohorts_with_variables if row.varName else cohorts_without_variables
+        target_dict = cohorts_with_variables if var_id else cohorts_without_variables
 
         # Initialize cohort data structure if not exists
-        if cohort_id not in target_dict:
+        if cohort_id and cohort_id not in target_dict:
             target_dict[cohort_id] = {
                 "cohort_id": cohort_id,
-                "cohort_type": str(row.cohortType) if row.cohortType else "",
-                "cohort_email": str(row.cohortEmail) if row.cohortEmail else "",
-                "institution": Literal(str(row.cohortInstitution)),
+                "cohort_type": str(row["cohortType"]["value"]) if "cohortType" in row else "",
+                "cohort_email": str(row["cohortEmail"]["value"]) if "cohortEmail" in row else "",
+                "institution": Literal(str(row["cohortInstitution"]["value"])),
                 "variables": {},
             }
 
         # Process variables
-        if row.varName and var_id not in target_dict[cohort_id]["variables"]:
+        if "varName" in row and var_id not in target_dict[cohort_id]["variables"]:
             target_dict[cohort_id]["variables"][var_id] = {
                 "VARIABLE NAME": var_id,
-                "VARIABLE LABEL": str(row.varLabel),
-                "VAR TYPE": str(row.varType),
-                "COUNT": int(row["count"]),
-                "NA": int(row["na"]),
-                "MAX": str(row.max) if row.max else "",
-                "MIN": str(row.min) if row.min else "",
-                "UNITS": str(row.units) if row.units else "",
-                "Visits": str(row.visits) if row.visits else "",
-                "Formula": str(row.formula) if row.formula else "",
-                "Definition": str(row.definition) if row.definition else "",
-                "concept_id": str(row.conceptId) if row.conceptId else "",
-                "OMOP": str(row.omopDomain) if row.omopDomain else "",
-                "index": int(row["index"]) if row["index"] else "",
+                "VARIABLE LABEL": str(row["varLabel"]["value"]),
+                "VAR TYPE": str(row["varType"]["value"]),
+                "COUNT": int(row["count"]["value"]),
+                "NA": int(row["na"]["value"]),
+                "MAX": str(row["max"]["value"]) if "max" in row else "",
+                "MIN": str(row["min"]["value"]) if "min" in row else "",
+                "UNITS": str(row["units"]["value"]) if "units" in row else "",
+                "Visits": str(row["visits"]["value"]) if "visits" in row else "",
+                "Formula": str(row["formula"]["value"]) if "formula" in row else "",
+                "Definition": str(row["definition"]["value"]) if "definition" in row else "",
+                "concept_id": str(row["conceptId"]["value"]) if "conceptId" in row else "",
+                "OMOP": str(row["omopDomain"]["value"]) if "omopDomain" in row else "",
+                "index": int(row["index"]["value"]) if "index" in row else "",
                 "categories": [],
             }
 
         # Process categories
-        if row.varName and row.categoryLabel and row.categoryValue:
+        if "varName" in row and "categoryLabel" in row and "categoryValue" in row:
             target_dict[cohort_id]["variables"][var_id]["categories"].append(
-                {"value": str(row.categoryValue), "label": str(row.categoryLabel)}
+                {"value": str(row["categoryValue"]["value"]), "label": str(row["categoryLabel"]["value"])}
             )
 
     # Merge dictionaries, cohorts with variables first
@@ -262,6 +289,12 @@ def get_data_summary(user: Any = Depends(get_user_info)) -> dict[str, Any]:
     # print(merged_cohorts_data)
     # return JSONResponse(merged_cohorts_data)
     return merged_cohorts_data
+
+
+@app.get("/summary")
+def get_data_summary(user: Any = Depends(get_user_info)) -> dict[str, Any]:
+    """Returns all data dictionaries"""
+    return get_cohorts_metadata()
 
 
 @app.get("/", include_in_schema=False)
@@ -281,14 +314,19 @@ app.add_middleware(
 
 def init_triplestore():
     """Initialize triplestore with the OMOP CDM ontology and the iCARE4CVD cohorts metadata."""
+    # If triples exist, skip initialization
+    if run_query("ASK WHERE { ?s ?p ?o . }")["boolean"]:
+        print("Triplestore already contains data. Skipping initialization.")
+        return
+
     g.parse("https://raw.githubusercontent.com/vemonet/omop-cdm-owl/main/omop_cdm_v6.ttl", format="turtle")
-    for folder in os.listdir(settings.data_folder):
-        folder_path = os.path.join(settings.data_folder, folder)
+    for folder in os.listdir(os.path.join(settings.data_folder, "cohorts")):
+        folder_path = os.path.join(settings.data_folder, "cohorts", folder)
         if os.path.isdir(folder_path):
             for file in glob.glob(os.path.join(folder_path, "*-dictionary.*")):
                 load_cohort_dict_file(file, folder)
 
-    df = pd.read_csv("../data/iCARE4CVD_Cohorts.csv")
+    df = pd.read_csv(f"{settings.data_folder}/iCARE4CVD_Cohorts.csv")
     df = df.fillna("")
 
     for _i, row in df.iterrows():
@@ -306,7 +344,9 @@ def init_triplestore():
         if row["Type"]:
             g.add((cohort_uri, ICARE.cohort_type, Literal(row["Type"])))
 
-    g.serialize("../data/cohort_explorer_triplestore.ttl", format="turtle")
+    # g.serialize(f"{settings.data_folder}/cohort_explorer_triplestore.ttl", format="turtle")
+    if publish_graph_to_endpoint(g):
+        print(f"Triplestore initialized successfully with {len(g)} triples.")
 
 
 init_triplestore()

@@ -1,40 +1,39 @@
 import os
 from dataclasses import dataclass, field
+
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
-load_dotenv('.env')
+load_dotenv(".env")
 
-def get_env_variable(key: str, default: str = None) -> str:
-    return os.getenv(key, default)
-
+# NOTE: using dataclass instead of pydantic due to dependency conflict preventing to use pydantic v2
 @dataclass
 class Settings:
-    # Define your settings with default values or from environment variables
-    frontend_url: str = field(default_factory=lambda: get_env_variable('FRONTEND_URL', 'http://localhost:3001'))
-    redirect_uri: str = field(default_factory=lambda: get_env_variable('REDIRECT_URI', 'http://localhost:3000/cb'))
+    frontend_url: str = field(default_factory=lambda: os.getenv("FRONTEND_URL", "http://localhost:3001"))
+    redirect_uri: str = field(default_factory=lambda: os.getenv("REDIRECT_URI", "http://localhost:3000/cb"))
+    sparql_endpoint: str = field(default_factory=lambda: os.getenv("SPARQL_ENDPOINT", "http://localhost:7878"))
 
-    auth_endpoint: str = field(default_factory=lambda: get_env_variable('AUTH_ENDPOINT', ''))
-    client_id: str = field(default_factory=lambda: get_env_variable('CLIENT_ID', ''))
-    client_secret: str = field(default_factory=lambda: get_env_variable('CLIENT_SECRET', ''))
-    response_type: str = field(default_factory=lambda: get_env_variable('RESPONSE_TYPE', 'code'))
-    scope: str = field(default_factory=lambda: get_env_variable('SCOPE', 'email read:datasets-descriptions'))
+    auth_endpoint: str = field(default_factory=lambda: os.getenv("AUTH_ENDPOINT", ""))
+    client_id: str = field(default_factory=lambda: os.getenv("CLIENT_ID", ""))
+    client_secret: str = field(default_factory=lambda: os.getenv("CLIENT_SECRET", ""))
+    response_type: str = field(default_factory=lambda: os.getenv("RESPONSE_TYPE", "code"))
+    scope: str = field(default_factory=lambda: os.getenv("SCOPE", "email read:datasets-descriptions"))
 
-    decentriq_email: str = field(default_factory=lambda: get_env_variable('DECENTRIQ_EMAIL', ''))
-    decentriq_token: str = field(default_factory=lambda: get_env_variable('DECENTRIQ_TOKEN', ''))
+    decentriq_email: str = field(default_factory=lambda: os.getenv("DECENTRIQ_EMAIL", ""))
+    decentriq_token: str = field(default_factory=lambda: os.getenv("DECENTRIQ_TOKEN", ""))
 
-    data_folder: str = field(default_factory=lambda: get_env_variable('DATA_FOLDER', '../data/cohorts'))
+    data_folder: str = field(default_factory=lambda: os.getenv("DATA_FOLDER", "../data"))
 
-    # Computed fields as regular methods
+    @property
     def authorization_endpoint(self) -> str:
         return f"{self.auth_endpoint}/authorize"
 
+    @property
     def token_endpoint(self) -> str:
         return f"{self.auth_endpoint}/oauth/token"
 
-# Instantiate the Settings
-settings = Settings()
 
+settings = Settings()
 
 
 # import warnings
