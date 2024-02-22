@@ -61,7 +61,7 @@ def publish_graph_to_endpoint(graph: Graph) -> bool:
     return response.ok
 
 
-def parse_categorical_string(s)-> list[dict[str, str]]:
+def parse_categorical_string(s) -> list[dict[str, str]]:
     """Categorical string format: "value1=label1, value2=label2" or "value1=label1 | value2=label2"""
     # Split the string into items
     split_char = "," if "|" not in s else "|"
@@ -235,6 +235,7 @@ WHERE {
     }
 } ORDER BY ?cohort ?index
 """
+
 
 def get_cohorts_metadata() -> dict[str, Any]:
     """Get all cohorts metadata from the SPARQL endpoint (infos, variables)"""

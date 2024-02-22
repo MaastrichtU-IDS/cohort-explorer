@@ -11,9 +11,6 @@ license = "MIT"
 authors = [
     { name = "Vincent Emonet", email = "vincent.emonet@gmail.com" },
 ]
-maintainers = [
-    { name = "Vincent Emonet", email = "vincent.emonet@gmail.com" },
-]
 keywords = [
     "RDF",
     "Data mapping",

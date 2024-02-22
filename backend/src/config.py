@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv(".env")
 
+
 # NOTE: using dataclass instead of pydantic due to dependency conflict preventing to use pydantic v2
 @dataclass
 class Settings:
@@ -18,6 +19,9 @@ class Settings:
     client_secret: str = field(default_factory=lambda: os.getenv("CLIENT_SECRET", ""))
     response_type: str = field(default_factory=lambda: os.getenv("RESPONSE_TYPE", "code"))
     scope: str = field(default_factory=lambda: os.getenv("SCOPE", "email read:datasets-descriptions"))
+    jwt_secret: str = field(
+        default_factory=lambda: os.getenv("JWT_SECRET", "vCitcsPBwH4BMCwEqlO1aHJSIn--usrcyxPPRbeYdHM")
+    )
 
     decentriq_email: str = field(default_factory=lambda: os.getenv("DECENTRIQ_EMAIL", ""))
     decentriq_token: str = field(default_factory=lambda: os.getenv("DECENTRIQ_TOKEN", ""))

@@ -1,6 +1,5 @@
 import base64
 import json
-import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urlencode
@@ -21,18 +20,17 @@ oauth2_scheme = OAuth2AuthorizationCodeBearer(
     tokenUrl=settings.token_endpoint,
 )
 
-SECRET_KEY = secrets.token_urlsafe(32)
-# Convenient to use a hardcoded secret for development (prevent the need to re-login every time the API restarts)
-# SECRET_KEY = "vCitcsPBwH4BMCwEqlO1aHJSIn--usrcyxPPRbeYdHM"
+# SECRET_KEY = secrets.token_urlsafe(32)
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
+    """Create a JWT token with the given data and expiration time"""
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=15))
     to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    encoded_jwt = jwt.encode(to_encode, settings.jwt_secret, algorithm=ALGORITHM)
     return encoded_jwt
 
 
@@ -42,12 +40,13 @@ async def get_user_info(request: Request) -> dict[str, Any]:
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, settings.jwt_secret, algorithms=[ALGORITHM])
         if payload.get("email") is None:
             raise HTTPException(status_code=403, detail="User email not found in token")
     except JWTError as e:
         raise HTTPException(status_code=403, detail=str(e))
     return payload
+
 
 # async def get_user_info(token: Annotated[str, Depends(oauth2_scheme)]):
 #     async with httpx.AsyncClient() as client:
@@ -110,7 +109,6 @@ async def auth_callback(code: str) -> RedirectResponse:
 
             # NOTE: Redirect to react frontend
             nextjs_redirect_uri = f"{settings.frontend_url}/cohorts"
-            print("REDIR0", nextjs_redirect_uri)
             send_resp = RedirectResponse(url=nextjs_redirect_uri)
             send_resp.set_cookie(
                 key="token",

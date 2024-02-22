@@ -46,6 +46,7 @@ Everything deployed in docker containers using docker compose.
    CLIENT_SECRET=BBB
    DECENTRIQ_EMAIL=ccc@ddd.com
    DECENTRIQ_TOKEN=EEE
+   JWT_SECRET=vCitcsPBwH4BMCwEqlO1aHJSIn--usrcyxPPRbeYdHM
    ```
 
 3. Put the spreadsheet with all cohorts metadata in `data/iCARE4CVD_Cohorts.csv`. Uploaded cohorts will go to `data/cohorts`
@@ -80,6 +81,12 @@ pnpm fmt
 
 Deploy on a server in production with docker compose
 
+Generate a secret key used to encode/decode JWT token:
+
+```bash
+python -c "import secrets ; print(secrets.token_urlsafe(32))"
+```
+
 Create a `.env` file with secret configuration:
 
 ```bash
@@ -88,6 +95,7 @@ CLIENT_ID=AAA
 CLIENT_SECRET=BBB
 DECENTRIQ_EMAIL=ccc@ddd.com
 DECENTRIQ_TOKEN=EEE
+JWT_SECRET=vCitcsPBwH4BMCwEqlO1aHJSIn--usrcyxPPRbeYdHM
 ```
 
 Deploy:
