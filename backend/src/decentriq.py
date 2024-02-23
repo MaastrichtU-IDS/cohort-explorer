@@ -49,6 +49,14 @@ def create_provision_dcr(user: Any, cohort_dict: dict[str, Any]) -> dict[str, An
     data_node_builder = dqsql.TabularDataNodeBuilder(cohort_dict["cohort_id"], schema=get_cohort_schema(cohort_dict))
     data_node_builder.add_to_builder(builder, authentication=client.decentriq_pki_authentication, users=users)
 
+    builder.add_user_permission(
+        email=user["email"],
+        authentication_method=client.decentriq_pki_authentication,
+        permissions=[
+            dq.Permissions.update_data_room_status() # To delete the DCR
+        ]
+    )
+
     # Build and publish DCR
     data_room = builder.build()
     data_room_id = session.publish_data_room(data_room)
@@ -103,8 +111,23 @@ async def create_compute_dcr(
 
     # Add empty list of permissions
     builder.add_user_permission(
-        email=user["email"], authentication_method=client.decentriq_pki_authentication, permissions=[]
+        email=user["email"],
+        authentication_method=client.decentriq_pki_authentication,
+        permissions=[
+            dq.Permissions.update_data_room_status(), # To delete the DCR
+        ]
     )
+
+    # builder.add_user_permission(
+    #     email=user_email,
+    #     authentication_method=client.decentriq_pki_authentication,
+    #     permissions=[
+    #         dq.Permissions.update_data_room_status()
+    #         dq.Permissions.leaf_crud(data_node_id),
+    #         dq.Permissions.execute_compute(uppercase_text_node_id),
+    #         dq.Permissions.retrieve_compute_result(uppercase_text_node_id),
+    #     ]
+    # )
 
     # Build and publish DCR
     data_room = builder.build()

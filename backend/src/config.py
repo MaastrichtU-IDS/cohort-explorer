@@ -18,7 +18,7 @@ class Settings:
     client_id: str = field(default_factory=lambda: os.getenv("CLIENT_ID", ""))
     client_secret: str = field(default_factory=lambda: os.getenv("CLIENT_SECRET", ""))
     response_type: str = field(default_factory=lambda: os.getenv("RESPONSE_TYPE", "code"))
-    scope: str = field(default_factory=lambda: os.getenv("SCOPE", "email read:datasets-descriptions"))
+    scope: str = field(default_factory=lambda: os.getenv("SCOPE", "openid email read:datasets-descriptions"))
     jwt_secret: str = field(
         default_factory=lambda: os.getenv("JWT_SECRET", "vCitcsPBwH4BMCwEqlO1aHJSIn--usrcyxPPRbeYdHM")
     )

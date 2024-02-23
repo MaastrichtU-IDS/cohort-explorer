@@ -91,19 +91,20 @@ async def auth_callback(code: str) -> RedirectResponse:
         response = await client.post(settings.token_endpoint, data=token_payload)
         response.raise_for_status()
         token = response.json()
-        access_token = token["access_token"]
         try:
-            payload = json.loads(base64.urlsafe_b64decode(access_token.split(".")[1] + "==="))
+            access_payload = json.loads(base64.urlsafe_b64decode(token["access_token"].split(".")[1] + "==="))
+            id_payload = json.loads(base64.urlsafe_b64decode(token["id_token"].split(".")[1] + "==="))
         except Exception as _e:
             raise HTTPException(
                 status_code=401,
                 detail="Invalid token",
             )
+        # print("ID PAYLOAD", id_payload)
+        # print("ACCESS PAYLOAD", access_payload)
 
         # Check in payload if logged in user has the required permissions
-        if payload["aud"] == "https://other-ihi-app" and "read:datasets-descriptions" in payload["permissions"]:
-            # TODO: get user email from payload
-            user_email = settings.decentriq_email
+        if "https://other-ihi-app" in access_payload["aud"] and "read:datasets-descriptions" in access_payload["permissions"]:
+            user_email = id_payload["email"]
             jwt_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
             jwt_token = create_access_token(data={"email": user_email}, expires_delta=jwt_token_expires)
 
