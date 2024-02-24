@@ -15,11 +15,11 @@ def get_cohort_schema(cohort_dict: dict[str, Any]) -> list[tuple[str, dqsql.Prim
     schema = []
     for variable_id, variable_info in cohort_dict["variables"].items():
         prim_type = dqsql.PrimitiveType.STRING
-        if variable_info["VAR TYPE"] == "FLOAT":
+        if variable_info["var_type"] == "FLOAT":
             prim_type = dqsql.PrimitiveType.FLOAT64
-        if variable_info["VAR TYPE"] == "INT":
+        if variable_info["var_type"] == "INT":
             prim_type = dqsql.PrimitiveType.INT64
-        nullable = variable_info["NA"] != 0
+        nullable = variable_info["na"] != 0
         schema.append((variable_id, prim_type, nullable))
     return schema
 

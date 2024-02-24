@@ -1,5 +1,6 @@
 'use client';
 
+import { Cohort } from '@/types';
 import React, {createContext, useState, useEffect, useContext} from 'react';
 
 const CohortsContext = createContext(null);
@@ -7,13 +8,13 @@ const CohortsContext = createContext(null);
 export const useCohorts = (): any => useContext(CohortsContext) || {};
 
 export const CohortsProvider = ({children}: any) => {
-  const [cohortsData, setCohortsData]: any = useState(null);
+  const [cohortsData, setCohortsData]: [{ [cohortId: string]: Cohort }, any] = useState({});
   const [dataCleanRoom, setDataCleanRoom] = useState({cohorts: []});
   const [userEmail, setUserEmail] = useState('');
 
   useEffect(() => {
     setDataCleanRoom(JSON.parse(sessionStorage.getItem('dataCleanRoom') || '{"cohorts": []}'));
-    if (!cohortsData) {
+    if (Object.keys(cohortsData).length === 0) {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL;
       fetch(`${apiUrl}/summary`, {
         credentials: 'include'

@@ -1,11 +1,12 @@
 import base64
 import json
+import time
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Annotated, Any
 from urllib.parse import urlencode
 
 import httpx
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2AuthorizationCodeBearer
 from jose import JWTError, jwt
@@ -20,15 +21,15 @@ oauth2_scheme = OAuth2AuthorizationCodeBearer(
     tokenUrl=settings.token_endpoint,
 )
 
-# SECRET_KEY = secrets.token_urlsafe(32)
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
+# SECRET_KEY = secrets.token_urlsafe(32)
 
 
-def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
+def create_access_token(data: dict, expires_timestamp: int) -> str:
     """Create a JWT token with the given data and expiration time"""
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=15))
+    expire = datetime.fromtimestamp(expires_timestamp, timezone.utc)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, settings.jwt_secret, algorithm=ALGORITHM)
     return encoded_jwt
@@ -46,22 +47,6 @@ async def get_user_info(request: Request) -> dict[str, Any]:
     except JWTError as e:
         raise HTTPException(status_code=403, detail=str(e))
     return payload
-
-
-# async def get_user_info(token: Annotated[str, Depends(oauth2_scheme)]):
-#     async with httpx.AsyncClient() as client:
-#         try:
-#             resp = await client.get(
-#                 f"{settings.authorization_endpoint}/userinfo", headers={"Authorization": f"Bearer {token}"}
-#             )
-#             # resp.raise_for_status()
-#             user_info = resp.json()
-#         except Exception as e:
-#             raise HTTPException(
-#                 status_code=403,
-#                 detail=str(e),
-#             )
-#         return user_info
 
 
 @router.get("/login")
@@ -99,14 +84,18 @@ async def auth_callback(code: str) -> RedirectResponse:
                 status_code=401,
                 detail="Invalid token",
             )
-        # print("ID PAYLOAD", id_payload)
-        # print("ACCESS PAYLOAD", access_payload)
+        print("ACCESS PAYLOAD", access_payload)
+        # NOTE: user info can be retrieved later from /userinfo endpoint using the provided access token if needed
+        # resp = await client.get(f"{settings.authorization_endpoint}/userinfo", headers={"Authorization": f"Bearer {token['access_token']}"})
+        # resp.raise_for_status()
+        # print("user_info", resp.json())
 
         # Check in payload if logged in user has the required permissions
         if "https://other-ihi-app" in access_payload["aud"] and "read:datasets-descriptions" in access_payload["permissions"]:
             user_email = id_payload["email"]
-            jwt_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-            jwt_token = create_access_token(data={"email": user_email}, expires_delta=jwt_token_expires)
+            # Reuse expiration time from decentriq Auth0 access token
+            exp_timestamp = access_payload["exp"]
+            jwt_token = create_access_token(data={"email": user_email, "access_token": token["access_token"]}, expires_timestamp=exp_timestamp)
 
             # NOTE: Redirect to react frontend
             nextjs_redirect_uri = f"{settings.frontend_url}/cohorts"
@@ -116,7 +105,7 @@ async def auth_callback(code: str) -> RedirectResponse:
                 value=jwt_token,
                 httponly=True,
                 secure=True,
-                max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+                max_age=exp_timestamp - int(time.time()),
                 samesite="Lax",  # or 'Strict'
             )
             return send_resp
