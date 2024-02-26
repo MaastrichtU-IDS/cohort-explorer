@@ -108,6 +108,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str):
     """Parse the cohort dictionary uploaded as excel or CSV spreadsheet, and load it to the triplestore"""
     # print(f"Loading dictionary {dict_path}")
     df = pd.read_csv(dict_path) if dict_path.endswith(".csv") else pd.read_excel(dict_path)
+    df = df.dropna(how="all")
     df = df.fillna("")
     df["categories"] = df["CATEGORICAL"].apply(parse_categorical_string)
     df["concept_id"] = df.apply(lambda row: create_curie_from_id(row), axis=1)
@@ -119,6 +120,8 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str):
     g.add((cohort_uri, DC.identifier, Literal(cohort_id), cohort_uri))
 
     for i, row in df.iterrows():
+        # if row.isnull().all():
+        #     continue
         # Check if required columns are present
         if not row["VARIABLE NAME"] or not row["VARIABLE LABEL"] or not row["VAR TYPE"]:
             raise HTTPException(
@@ -163,7 +166,8 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str):
 )
 async def upload_files(
     user: Any = Depends(get_user_info),
-    cohort_id: str = Form(..., pattern="^[a-zA-Z0-9-_]+$"),
+    # cohort_id: str = Form(..., pattern="^[a-zA-Z0-9-_]+$"),
+    cohort_id: str = Form(...),
     cohort_dictionary: UploadFile = File(...),
     cohort_data: UploadFile | None = None,
 ) -> dict[str, str]:
@@ -176,8 +180,8 @@ async def upload_files(
     # Make sure metadata file ends with -dictionary
     metadata_filename = cohort_dictionary.filename
     filename, ext = os.path.splitext(metadata_filename)
-    if not filename.endswith("-dictionary"):
-        filename += "-dictionary"
+    if not filename.endswith("_datadictionary"):
+        filename += "_datadictionary"
 
     # Save metadata file
     metadata_path = os.path.join(cohorts_folder, filename + ext)
