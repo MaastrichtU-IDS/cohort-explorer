@@ -1,0 +1,27 @@
+version: "3.3"
+# Base docker-compose file used by the dev and prod environments
+services:
+
+  backend:
+    build: ./backend
+    environment:
+      FRONTEND_URL: http://localhost:3001
+      SPARQL_ENDPOINT: "http://db:7878"
+      DATA_FOLDER: /data
+    volumes:
+      - ./data:/data
+    env_file:
+      - .env
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        - NEXT_PUBLIC_API_URL=http://localhost:3000
+    env_file:
+      - .env
+
+  db:
+    image: ghcr.io/oxigraph/oxigraph:latest
+    volumes:
+      - ./data/db:/data

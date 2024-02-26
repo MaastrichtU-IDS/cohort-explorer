@@ -12,7 +12,7 @@ import ReactFlow, {
   ConnectionLineType,
   MiniMap
 } from 'reactflow';
-import FlowNode from '../components/FlowNode';
+import FlowNode from '@/components/FlowNode';
 
 import 'reactflow/dist/style.css';
 
@@ -71,7 +71,7 @@ export default function MapFlow() {
         prepareNodes(data, selectedFile);
         // TODO: generate nodes from data dict
       });
-  }, []);
+  });
 
   return (
     <main className="w-full p-4">

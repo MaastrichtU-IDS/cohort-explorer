@@ -1,6 +1,6 @@
 'use client';
 
-import { Cohort } from '@/types';
+import {Cohort} from '@/types';
 import React, {createContext, useState, useEffect, useContext} from 'react';
 
 const CohortsContext = createContext(null);
@@ -8,7 +8,7 @@ const CohortsContext = createContext(null);
 export const useCohorts = (): any => useContext(CohortsContext) || {};
 
 export const CohortsProvider = ({children}: any) => {
-  const [cohortsData, setCohortsData]: [{ [cohortId: string]: Cohort }, any] = useState({});
+  const [cohortsData, setCohortsData]: [{[cohortId: string]: Cohort}, any] = useState({});
   const [dataCleanRoom, setDataCleanRoom] = useState({cohorts: []});
   const [userEmail, setUserEmail] = useState('');
 
@@ -28,7 +28,7 @@ export const CohortsProvider = ({children}: any) => {
           }
         });
     }
-  }, []);
+  }, [cohortsData]);
 
   const updateCohortData = (cohortId: string, updatedData: any) => {
     setCohortsData((prevData: any) => {

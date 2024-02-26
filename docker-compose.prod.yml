@@ -1,0 +1,32 @@
+version: "3.3"
+# Docker compose file for production
+services:
+
+  backend:
+    extends:
+      file: docker-compose.base.yml
+      service: backend
+    environment:
+      FRONTEND_URL: https://icare4cvd.com
+      VIRTUAL_HOST: api.icare4cvd.com
+      LETSENCRYPT_HOST: api.icare4cvd.com
+      VIRTUAL_PORT: 80
+    # volumes:
+    #   - ./data:/data
+
+  frontend:
+    extends:
+      file: docker-compose.base.yml
+      service: frontend
+    build:
+      args:
+        - NEXT_PUBLIC_API_URL=https://api.icare4cvd.com
+    environment:
+      VIRTUAL_HOST: icare4cvd.com
+      LETSENCRYPT_HOST: icare4cvd.com
+      VIRTUAL_PORT: 3000
+
+  db:
+    extends:
+      file: docker-compose.base.yml
+      service: db

@@ -3,7 +3,13 @@ export interface Cohort {
   cohort_type: string;
   cohort_email: string;
   institution: string;
-  variables: { [key: string]: Variable };
+  study_type: string;
+  study_participants: number;
+  study_population: string;
+  study_duration: string;
+  study_ongoing: string;
+  study_objective: string;
+  variables: {[key: string]: Variable};
 }
 
 export interface Variable {
@@ -22,10 +28,13 @@ export interface Variable {
   omop_domain: string;
   index: number;
   categories: Category[];
+  mapped_concept: string | null;
   [key: string]: any;
 }
 
 export interface Category {
   value: string;
   label: string;
+  concept_id: string;
+  mapped_concept: string | null;
 }

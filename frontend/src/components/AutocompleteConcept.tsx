@@ -1,6 +1,6 @@
 import React, {useState, useEffect} from 'react';
 
-const AutocompleteConcept = ({onSelect, query = '', value = '', domain = ''}: any) => {
+const AutocompleteConcept = ({onSelect, query = '', value = '', domain = '', index = ''}: any) => {
   const [filteredSuggestions, setFilteredSuggestions] = useState([]);
   const [inputValue, setInputValue] = useState(query);
   const [debouncedInput, setDebouncedInput] = useState('');
@@ -20,7 +20,53 @@ const AutocompleteConcept = ({onSelect, query = '', value = '', domain = ''}: an
 
   // Fetch suggestions from the API
   useEffect(() => {
-    const domainBit = domain ? `&domain=${domain}` : '';
+    const acceptedDomains = [
+      'Condition',
+      'Device',
+      'Drug',
+      'Geography',
+      'Meas Value',
+      'Measurement',
+      'Metadata',
+      'Observation',
+      'Procedure',
+      'Spec Anatomic Site',
+      'Specimen',
+      'Condition Status',
+      'Condition/Device',
+      'Condition/Meas',
+      'Condition/Obs',
+      'Condition/Procedure',
+      'Cost',
+      'Currency',
+      'Device/Drug',
+      'Device/Procedure',
+      'Drug/Procedure',
+      'Episode',
+      'Ethnicity',
+      'Gender',
+      'Language',
+      'Meas Value Operator',
+      'Meas/Procedure',
+      'Note',
+      'Obs/Procedure',
+      'Payer',
+      'Place of Service',
+      'Plan',
+      'Plan Stop Reason',
+      'Provider',
+      'Race',
+      'Regimen',
+      'Relationship',
+      'Revenue Code',
+      'Route',
+      'Spec Disease Status',
+      'Sponsor',
+      'Type Concept',
+      'Unit',
+      'Visit'
+    ];
+    const domainBit = domain && acceptedDomains.includes(domain) ? `&domain=${domain}` : '';
     // &conceptClass=Clinical Finding
     if (debouncedInput.length > 0 && isUserInteracted) {
       fetch(
@@ -46,20 +92,22 @@ const AutocompleteConcept = ({onSelect, query = '', value = '', domain = ''}: an
     onSelect(suggestion);
   };
 
+  const autocompleteModalId = `autocomplete_modal_${query}_${index}`;
+
   return (
     <div>
       <button
         className="btn"
         onClick={() => {
           // @ts-ignore
-          document.getElementById(`autocomplete_modal_${query}`)?.showModal();
+          document.getElementById(autocompleteModalId)?.showModal();
           setIsUserInteracted(true);
           if (query && !inputValue) setInputValue(query);
         }}
       >
         {value ? `🪪 ${value}` : 'Map to concept'}
       </button>
-      <dialog id={`autocomplete_modal_${query}`} className="modal">
+      <dialog id={autocompleteModalId} className="modal">
         <div className="modal-box space-y-2 max-w-none w-fit">
           <div className="justify-between items-start">
             <input
@@ -79,9 +127,9 @@ const AutocompleteConcept = ({onSelect, query = '', value = '', domain = ''}: an
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredSuggestions.map((suggestion: any, index: number) => (
+                  {filteredSuggestions.map((suggestion: any, i: number) => (
                     <tr
-                      key={index}
+                      key={i}
                       className="hover:bg-base-200 cursor-pointer"
                       onClick={() => handleSuggestionClick(suggestion)}
                     >

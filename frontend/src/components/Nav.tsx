@@ -2,7 +2,8 @@
 
 import React, {useState, useEffect} from 'react';
 import Link from 'next/link';
-import {useCohorts} from '../components/CohortsContext';
+import {useCohorts} from '@/components/CohortsContext';
+import {DarkThemeIcon, LightThemeIcon} from '@/components/icons';
 
 // Not used: Next Auth.js: https://authjs.dev/getting-started/providers/oauth-tutorial
 // Auth0: https://github.com/nextauthjs/next-auth/blob/main/packages/core/src/providers/auth0.ts
@@ -96,11 +97,13 @@ export function Nav() {
   return (
     <div className="navbar bg-base-300 min-h-0 p-0">
       <div className="navbar-start">
-        <ul className="menu menu-horizontal my-0 py-0 pl-6 hidden lg:flex">
+        <ul className="menu menu-horizontal gap-2 my-0 py-0 pl-6 hidden lg:flex">
           <li>
             <Link href="/upload">Upload</Link>
           </li>
-          {/* <li><a href="/admin">Admin</a></li> */}
+          <li>
+            <Link href="/cohorts">Explore</Link>
+          </li>
         </ul>
         {/* <div className="dropdown lg:hidden">
         <div tabindex="0" role="button" className="btn btn-ghost lg:hidden">
@@ -114,7 +117,7 @@ export function Nav() {
       </div>
 
       <div className="navbar-center">
-        <Link className="text-xl font-thin" href="/cohorts">
+        <Link className="text-xl font-thin" href="/">
           iCare4CVD Cohort Explorer
         </Link>
       </div>
@@ -138,35 +141,8 @@ export function Nav() {
               value={theme}
               className="toggle theme-controller bg-base-content row-start-1 col-start-1 col-span-2"
             />
-            <svg
-              className="col-start-1 row-start-1 stroke-base-100 fill-base-100"
-              xmlns="http://www.w3.org/2000/svg"
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <circle cx="12" cy="12" r="5" />
-              <path d="M12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4" />
-            </svg>
-            <svg
-              className="col-start-2 row-start-1 stroke-base-100 fill-base-100"
-              xmlns="http://www.w3.org/2000/svg"
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
-            </svg>
+            <LightThemeIcon />
+            <DarkThemeIcon />
           </label>
           {/* <a href="/docs" target="_blank" data-tooltip="OpenAPI documentation">
             <button className="p-1 rounded-lg hover:bg-gray-500">
@@ -175,6 +151,7 @@ export function Nav() {
         </a> */}
         </div>
       </div>
+      {/* Popup to publish a Data Clean Room with selected cohorts */}
       {showModal && (
         <div className="modal modal-open">
           <div className="modal-box">
@@ -195,12 +172,13 @@ export function Nav() {
               <div className="card card-compact">
                 <div className="card-body bg-success mt-5 rounded-lg text-slate-900">
                   <p>
-                    Data Clean Room{' '}
+                    ✅ Data Clean Room{' '}
                     <a href={publishedDCR['dcr_url']} className="link">
                       <b>{publishedDCR['dcr_title']}</b>
                     </a>{' '}
-                    published in Decentriq
+                    published in Decentriq.
                   </p>
+                  <p>You can now access it in Decentriq to request compute.</p>
                 </div>
               </div>
             )}

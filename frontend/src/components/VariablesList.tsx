@@ -1,45 +1,36 @@
 'use client';
 
 import React, {useState} from 'react';
-import {useRouter} from 'next/router';
 import {useCohorts} from '@/components/CohortsContext';
 import AutocompleteConcept from '@/components/AutocompleteConcept';
 import FilterByMetadata from '@/components/FilterByMetadata';
 import {Variable} from '@/types';
 import {InfoIcon} from '@/components/icons';
 
-export default function VariablesList() {
-  const router = useRouter();
-  const selectedFile = router.query.cohortId?.toString() || '';
-
+const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
   const {cohortsData, updateCohortData, dataCleanRoom, setDataCleanRoom} = useCohorts();
-  const [searchQuery, setSearchQuery] = useState('');
   const [selectedOMOPDomains, setSelectedOMOPDomains] = useState(new Set());
   const [selectedDataTypes, setSelectedDataTypes] = useState(new Set());
   const [includeCategorical, setIncludeCategorical] = useState(true);
   const [includeNonCategorical, setIncludeNonCategorical] = useState(true);
-
-  const handleSearchChange = (event: any) => {
-    setSearchQuery(event.target.value);
-  };
 
   const handleConceptSelect = (variableName: any, concept: any) => {
     console.log(`Selected concept for ${variableName}:`, concept);
     // const mapDict = cohortDict[selectedFile];
     // mapDict["@mapping"] = {}
     // mapDict["@mapping"][variableName] = concept
-    const updatedCohortData = {...cohortsData[selectedFile]};
+    const updatedCohortData = {...cohortsData[cohortId]};
     updatedCohortData.variables[variableName]['concept_id'] = `${concept.vocabulary}:${concept.id}`;
-    updateCohortData(selectedFile, updatedCohortData);
+    updateCohortData(cohortId, updatedCohortData);
     console.log('updatedCohortData:', updatedCohortData);
     // TODO: Store mappings in the triplestore
   };
 
   // Button to add cohort to data clean room
   const addToDataCleanRoom = () => {
-    if (!dataCleanRoom.cohorts.includes(selectedFile)) {
+    if (!dataCleanRoom.cohorts.includes(cohortId)) {
       const updatedCleanRoom = {...dataCleanRoom};
-      updatedCleanRoom.cohorts.push(selectedFile);
+      updatedCleanRoom.cohorts.push(cohortId);
       setDataCleanRoom(updatedCleanRoom);
       // cleanRoomData.cohorts.push(selectedFile);
       sessionStorage.setItem('dataCleanRoom', JSON.stringify(updatedCleanRoom));
@@ -50,26 +41,27 @@ export default function VariablesList() {
   // Collect unique OMOP domains and data types from variables for filtering options
   const omopDomains = new Set();
   const dataTypes: any = new Set();
-  Object.values(cohortsData[selectedFile]?.variables || {}).forEach((variable: any) => {
+  Object.values(cohortsData[cohortId]?.variables || {}).forEach((variable: any) => {
     omopDomains.add(variable.omop_domain);
     dataTypes.add(variable.var_type);
   });
 
   // Filter variables based on search query and selected filters
   let filteredVars: Variable[] = [];
-  if (cohortsData && cohortsData[selectedFile]) {
-    filteredVars = Object.entries(cohortsData[selectedFile]['variables'])
+  if (cohortsData && cohortsData[cohortId]) {
+    filteredVars = Object.entries(cohortsData[cohortId]['variables'])
       .filter(
         ([variableName, variableData]: any) =>
-          variableName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          variableData.var_label.toLowerCase().includes(searchQuery.toLowerCase())
+          variableName.toLowerCase().includes(searchFilters.searchQuery.toLowerCase()) ||
+          variableData.var_label.toLowerCase().includes(searchFilters.searchQuery.toLowerCase())
       )
       .filter(
         ([variableName, variableData]: any) =>
           (selectedOMOPDomains.size === 0 || selectedOMOPDomains.has(variableData.omop_domain)) &&
           (selectedDataTypes.size === 0 || selectedDataTypes.has(variableData.var_type)) &&
-          ((includeCategorical && variableData.categories.length > 0) ||
-            (includeNonCategorical && variableData.categories.length === 0))
+          ((includeCategorical && variableData.categories.length === 0) ||
+            (includeNonCategorical && variableData.categories.length !== 0) ||
+            (!includeNonCategorical && !includeCategorical))
       )
       .map(([variableName, variableData]: any) => ({...variableData, var_name: variableName}));
   }
@@ -88,89 +80,74 @@ export default function VariablesList() {
   };
 
   return (
-    <main className="w-full p-4 bg-base-200 flex">
-      <aside className="p-2">
+    <main className="flex">
+      <aside className="pr-4 text-center">
+        {filteredVars.length > 0 && !dataCleanRoom.cohorts.includes(cohortId) ? (
+          <button
+            onClick={addToDataCleanRoom}
+            className="btn btn-neutral btn-sm mb-2 hover:bg-slate-600 tooltip tooltip-right"
+            data-tip="Add to Data Clean Room"
+          >
+            Add to DCR
+          </button>
+        ) : (
+          <div />
+        )}
+        <span className="badge badge-ghost mb-2">
+          {Object.entries(cohortsData[cohortId]['variables']).length} variables
+        </span>
         <FilterByMetadata
-          label="Filter by OMOP Domain"
+          label="OMOP domains"
           metadata_id="omop_domain"
           options={[...omopDomains]}
           searchResults={filteredVars}
-          onFiltersChange={(newSelected: any) => setSelectedOMOPDomains(newSelected)}
+          onFiltersChange={(optionsSelected: any) => setSelectedOMOPDomains(optionsSelected)}
         />
         <FilterByMetadata
-          label="Filter by Data Type"
+          label="Data types"
           metadata_id="var_type"
           options={[...dataTypes]}
           searchResults={filteredVars}
-          onFiltersChange={(newSelected: any) => setSelectedDataTypes(newSelected)}
+          onFiltersChange={(optionsSelected: any) => setSelectedDataTypes(optionsSelected)}
         />
-
-        <div className="mb-4 space-y-1">
-          {/* Categorical Filters */}
-          <div className="space-y-1">
-            <h3 className="font-bold">Categorical Filter</h3>
-            <div className="form-control space-y-1">
-              <label className="label cursor-pointer p-0">
-                <span className="label-text text-xs">Categorical ({countMatches('categorical', null)})</span>
-                <input
-                  type="checkbox"
-                  checked={includeCategorical}
-                  onChange={() => setIncludeCategorical(!includeCategorical)}
-                  className="checkbox checkbox-xs"
-                />
-              </label>
-              <label className="label cursor-pointer p-0">
-                <span className="label-text text-xs">Non-Categorical ({countMatches('non_categorical', null)})</span>
-                <input
-                  type="checkbox"
-                  checked={includeNonCategorical}
-                  onChange={() => setIncludeNonCategorical(!includeNonCategorical)}
-                  className="checkbox checkbox-xs"
-                />
-              </label>
-            </div>
-          </div>
-        </div>
+        <FilterByMetadata
+          label="Categorical"
+          metadata_id="categorical"
+          options={['Categorical', 'Non-categorical']}
+          searchResults={filteredVars}
+          onFiltersChange={(optionsSelected: any) => {
+            // TODO: this bit could be improved
+            if (optionsSelected.has('Categorical')) {
+              setIncludeCategorical(false);
+            } else {
+              setIncludeCategorical(true);
+            }
+            if (optionsSelected.has('Non-categorical')) {
+              setIncludeNonCategorical(false);
+            } else {
+              setIncludeNonCategorical(true);
+            }
+          }}
+        />
       </aside>
 
+      {/* List of variables */}
       <div className="w-full">
-        <div className="mb-4 text-center flex justify-between items-center">
-          <div />
-          <h2 className="font-bold">{selectedFile}</h2>
-          {filteredVars.length > 0 && !dataCleanRoom.cohorts.includes(selectedFile) ? (
-            <button onClick={addToDataCleanRoom} className="btn btn-neutral btn-sm hover:bg-slate-600">
-              Add to Data Clean Room
-            </button>
-          ) : (
-            <div />
-          )}
-        </div>
-
-        <div className="mb-2">
-          <input
-            type="text"
-            placeholder="Search for variables..."
-            className="input input-bordered w-full"
-            value={searchQuery}
-            onChange={handleSearchChange}
-          />
-        </div>
-
         <div className="variable-list space-y-2">
           {filteredVars?.map((variable: any) => (
-            <div key={variable.var_name} className="card card-compact bg-base-100 shadow-xl">
+            <div key={variable.var_name} className="card card-compact card-bordered bg-base-100 shadow-xl">
               <div className="card-body flex flex-row">
                 <div className="mr-4">
                   <div className="flex items-center space-x-3">
                     <h2 className="font-bold text-lg">{variable.var_name}</h2>
                     {/* Badges for units and categorical variable */}
                     {variable.units && <span className="badge badge-ghost">{variable.units}</span>}
-                    {variable.formula && <span className="badge badge-outline">🧪 {variable.formula}</span>}
                     {variable.categories.length > 0 && (
                       <span className="badge badge-ghost">🏷️ {variable.categories.length} categories</span>
                     )}
-                    {variable.concept_id && <span className="badge badge-outline">{variable.concept_id}</span>}
-                    {variable.omop_domain && <span className="badge badge-ghost">{variable.omop_domain}</span>}
+                    {variable.omop_domain && <span className="badge badge-default">{variable.omop_domain}</span>}
+                    {variable.formula && <span className="badge badge-outline">🧪 {variable.formula}</span>}
+                    {variable.concept_id && <span className="badge badge-outline">🪪 {variable.concept_id}</span>}
                     <button
                       className="btn-sm hover:bg-base-300 rounded-lg"
                       // @ts-ignore
@@ -193,9 +170,9 @@ export default function VariablesList() {
                       <div className="map-autocomplete-top-right">
                         <AutocompleteConcept
                           query={variable.var_label}
-                          index={variable.index}
                           value={variable.concept_id}
                           domain={variable.omop_domain}
+                          index={variable.index}
                           onSelect={(concept: any) => handleConceptSelect(variable.var_name, concept)}
                         />
                       </div>
@@ -270,8 +247,8 @@ export default function VariablesList() {
                 {/* <div className='flex-grow'/>
                   <AutocompleteConcept
                     query={variable.var_label}
-                    domain={variable.omop_domain}
                     index={variable.index}
+                    domain={variable.omop_domain}
                     onSelect={(concept: any) => handleConceptSelect(variable["var_name"], concept)}
                   /> */}
               </div>
@@ -281,4 +258,6 @@ export default function VariablesList() {
       </div>
     </main>
   );
-}
+};
+
+export default VariablesList;

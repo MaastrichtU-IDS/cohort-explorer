@@ -1,12 +1,12 @@
 import base64
 import json
 import time
-from datetime import datetime, timedelta, timezone
-from typing import Annotated, Any
+from datetime import datetime, timezone
+from typing import Any
 from urllib.parse import urlencode
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2AuthorizationCodeBearer
 from jose import JWTError, jwt
@@ -91,11 +91,16 @@ async def auth_callback(code: str) -> RedirectResponse:
         # print("user_info", resp.json())
 
         # Check in payload if logged in user has the required permissions
-        if "https://other-ihi-app" in access_payload["aud"] and "read:datasets-descriptions" in access_payload["permissions"]:
+        if (
+            "https://other-ihi-app" in access_payload["aud"]
+            and "read:datasets-descriptions" in access_payload["permissions"]
+        ):
             user_email = id_payload["email"]
             # Reuse expiration time from decentriq Auth0 access token
             exp_timestamp = access_payload["exp"]
-            jwt_token = create_access_token(data={"email": user_email, "access_token": token["access_token"]}, expires_timestamp=exp_timestamp)
+            jwt_token = create_access_token(
+                data={"email": user_email, "access_token": token["access_token"]}, expires_timestamp=exp_timestamp
+            )
 
             # NOTE: Redirect to react frontend
             nextjs_redirect_uri = f"{settings.frontend_url}/cohorts"

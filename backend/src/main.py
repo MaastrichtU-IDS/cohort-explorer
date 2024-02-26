@@ -7,7 +7,7 @@ import pandas as pd
 import requests
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import RedirectResponse
-from rdflib import DCTERMS, XSD, Graph, Literal, Namespace, URIRef
+from rdflib import DCTERMS, XSD, Graph, Literal, Namespace, URIRef, Dataset
 from rdflib.namespace import DC, RDF, RDFS
 from SPARQLWrapper import JSON, SPARQLWrapper
 from starlette.middleware.cors import CORSMiddleware
@@ -26,16 +26,20 @@ If you are facing issues, contact [vincent.emonet@maastrichtuniversity.nl](mailt
 )
 
 
-g = Graph(store="Oxigraph")
+# g = Graph(store="Oxigraph")
 query_endpoint = SPARQLWrapper(f"{settings.sparql_endpoint}/query")
 query_endpoint.setReturnFormat(JSON)
 # /query or /update
 
 # Define the namespaces
 ICARE = Namespace("https://w3id.org/icare4cvd/")
-g.bind("icare", ICARE)
-g.bind("rdf", RDF)
-g.bind("rdfs", RDFS)
+def init_graph(default_graph: str | None = None) -> Dataset:
+    """Initialize a new RDF graph for nquads with the iCARE4CVD namespace bindings."""
+    g = Dataset(store="Oxigraph", default_graph_base=default_graph)
+    g.bind("icare", ICARE)
+    g.bind("rdf", RDF)
+    g.bind("rdfs", RDFS)
+    return g
 
 
 def run_query(query) -> dict[str, Any]:
@@ -45,12 +49,15 @@ def run_query(query) -> dict[str, Any]:
     return query_endpoint.query().convert()
 
 
-def publish_graph_to_endpoint(graph: Graph) -> bool:
+def publish_graph_to_endpoint(g: Graph, graph_uri: str | None = None) -> bool:
     """Insert the graph into the triplestore endpoint."""
-    url = f"{settings.sparql_endpoint}/store?default"
-    headers = {"Content-Type": "text/turtle"}
-    graph.serialize("/tmp/upload-data.ttl", format="ttl")
-    with open("/tmp/upload-data.ttl", "rb") as file:
+    # url = f"{settings.sparql_endpoint}/store?{graph_uri}"
+    url = f"{settings.sparql_endpoint}/store"
+    if graph_uri:
+        url += f"?graph={graph_uri}"
+    headers = {"Content-Type": "application/trig"}
+    g.serialize("/tmp/upload-data.trig", format="trig")
+    with open("/tmp/upload-data.trig", "rb") as file:
         response = requests.post(url, headers=headers, data=file, timeout=120)
 
     # NOTE: Fails when we pass RDF as string directly
@@ -99,16 +106,17 @@ def create_curie_from_id(row):
 
 def load_cohort_dict_file(dict_path: str, cohort_id: str):
     """Parse the cohort dictionary uploaded as excel or CSV spreadsheet, and load it to the triplestore"""
-    print(f"Loading dictionary {dict_path}")
+    # print(f"Loading dictionary {dict_path}")
     df = pd.read_csv(dict_path) if dict_path.endswith(".csv") else pd.read_excel(dict_path)
     df = df.fillna("")
     df["categories"] = df["CATEGORICAL"].apply(parse_categorical_string)
     df["concept_id"] = df.apply(lambda row: create_curie_from_id(row), axis=1)
 
     # TODO: add metadata about the cohort, dc:creator
-    cohort_uri = ICARE[f"cohort/{cohort_id}"]
-    g.add((cohort_uri, RDF.type, ICARE.Cohort))
-    g.add((cohort_uri, DC.identifier, Literal(cohort_id)))
+    cohort_uri = ICARE[f"cohort/{cohort_id.strip().replace(' ', '_')}"]
+    g = init_graph()
+    g.add((cohort_uri, RDF.type, ICARE.Cohort, cohort_uri))
+    g.add((cohort_uri, DC.identifier, Literal(cohort_id), cohort_uri))
 
     for i, row in df.iterrows():
         # Check if required columns are present
@@ -123,27 +131,27 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str):
         variable_uri = URIRef(f"{cohort_uri!s}/{row['VARIABLE NAME'].replace(' ', '_')}")
 
         # Add the type of the resource
-        g.add((variable_uri, RDF.type, ICARE.Variable))
-        g.add((variable_uri, DCTERMS.isPartOf, cohort_uri))
-        g.add((variable_uri, DC.identifier, Literal(row["VARIABLE NAME"])))
-        g.add((variable_uri, RDFS.label, Literal(row["VARIABLE LABEL"])))
-        g.add((variable_uri, ICARE["index"], Literal(i, datatype=XSD.integer)))
+        g.add((variable_uri, RDF.type, ICARE.Variable, cohort_uri))
+        g.add((variable_uri, DCTERMS.isPartOf, cohort_uri, cohort_uri))
+        g.add((variable_uri, DC.identifier, Literal(row["VARIABLE NAME"]), cohort_uri))
+        g.add((variable_uri, RDFS.label, Literal(row["VARIABLE LABEL"]), cohort_uri))
+        g.add((variable_uri, ICARE["index"], Literal(i, datatype=XSD.integer), cohort_uri))
 
         # Add properties
         for column, value in row.items():
             # if value and column not in ["categories"]:
-            if column not in ["categories"]:
+            if column not in ["categories"] and value:
                 property_uri = ICARE[column.replace(" ", "_").lower()]
-                g.add((variable_uri, property_uri, Literal(value)))
+                g.add((variable_uri, property_uri, Literal(value), cohort_uri))
 
             # Handle Category
             if column in ["categories"]:
                 for index, category in enumerate(value):
                     cat_uri = URIRef(f"{variable_uri!s}/category/{index}")
-                    g.add((variable_uri, ICARE["categories"], cat_uri))
-                    g.add((cat_uri, RDF.type, ICARE.Category))
-                    g.add((cat_uri, RDF.value, Literal(category["value"])))
-                    g.add((cat_uri, RDFS.label, Literal(category["label"])))
+                    g.add((variable_uri, ICARE["categories"], cat_uri, cohort_uri))
+                    g.add((cat_uri, RDF.type, ICARE.Category, cohort_uri))
+                    g.add((cat_uri, RDF.value, Literal(category["value"]), cohort_uri))
+                    g.add((cat_uri, RDFS.label, Literal(category["label"]), cohort_uri))
     # print(g.serialize(format="turtle"))
     return g
 
@@ -200,42 +208,50 @@ PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 PREFIX dc: <http://purl.org/dc/elements/1.1/>
 PREFIX dcterms: <http://purl.org/dc/terms/>
 
-SELECT DISTINCT ?cohortId ?cohortInstitution ?cohortType ?cohortEmail ?variable ?varName ?varLabel ?varType ?index ?count ?na ?max ?min ?units ?formula ?definition ?omopDomain ?conceptId ?visits ?categoryValue ?categoryLabel
+SELECT DISTINCT ?cohortId ?cohortInstitution ?cohortType ?cohortEmail ?study_type ?study_participants
+    ?study_duration ?study_ongoing ?study_population ?study_objective
+    ?variable ?varName ?varLabel ?varType ?index ?count ?na ?max ?min ?units ?formula ?definition
+    ?omopDomain ?conceptId ?visits ?categoryValue ?categoryLabel
 WHERE {
-    ?cohort a icare:Cohort ;
-        dc:identifier ?cohortId ;
-        icare:institution ?cohortInstitution .
-    OPTIONAL {
-        ?cohort icare:cohort_type ?cohortType .
-        ?cohort icare:email ?cohortEmail .
-    }
+    GRAPH ?g {
+        ?cohort a icare:Cohort ;
+            dc:identifier ?cohortId ;
+            icare:institution ?cohortInstitution .
+        OPTIONAL { ?cohort icare:cohort_type ?cohortType . }
+        OPTIONAL { ?cohort icare:email ?cohortEmail . }
+        OPTIONAL { ?cohort icare:study_type ?study_type . }
+        OPTIONAL { ?cohort icare:study_participants ?study_participants . }
+        OPTIONAL { ?cohort icare:study_duration ?study_duration . }
+        OPTIONAL { ?cohort icare:study_ongoing ?study_ongoing . }
+        OPTIONAL { ?cohort icare:study_population ?study_population . }
+        OPTIONAL { ?cohort icare:study_objective ?study_objective . }
 
-    OPTIONAL {
-        ?variable a icare:Variable ;
-            dc:identifier ?varName ;
-            rdfs:label ?varLabel ;
-            icare:var_type ?varType ;
-            icare:index ?index ;
-            dcterms:isPartOf ?cohort .
-        OPTIONAL { ?variable icare:count ?count }
-        OPTIONAL { ?variable icare:na ?na }
-        OPTIONAL { ?variable icare:max ?max }
-        OPTIONAL { ?variable icare:min ?min }
-        OPTIONAL { ?variable icare:units ?units }
-        OPTIONAL { ?variable icare:formula ?formula }
-        OPTIONAL { ?variable icare:definition ?definition }
-        OPTIONAL { ?variable icare:concept_id ?conceptId }
-        OPTIONAL { ?variable icare:omop ?omopDomain }
-        OPTIONAL { ?variable icare:visits ?visits }
         OPTIONAL {
-            ?variable icare:categories ?category.
-            ?category rdfs:label ?categoryLabel ;
-                rdf:value ?categoryValue .
+            ?variable a icare:Variable ;
+                dc:identifier ?varName ;
+                rdfs:label ?varLabel ;
+                icare:var_type ?varType ;
+                icare:index ?index ;
+                dcterms:isPartOf ?cohort .
+            OPTIONAL { ?variable icare:count ?count }
+            OPTIONAL { ?variable icare:na ?na }
+            OPTIONAL { ?variable icare:max ?max }
+            OPTIONAL { ?variable icare:min ?min }
+            OPTIONAL { ?variable icare:units ?units }
+            OPTIONAL { ?variable icare:formula ?formula }
+            OPTIONAL { ?variable icare:definition ?definition }
+            OPTIONAL { ?variable icare:concept_id ?conceptId }
+            OPTIONAL { ?variable icare:omop ?omopDomain }
+            OPTIONAL { ?variable icare:visits ?visits }
+            OPTIONAL {
+                ?variable icare:categories ?category.
+                ?category rdfs:label ?categoryLabel ;
+                    rdf:value ?categoryValue .
+            }
         }
     }
 } ORDER BY ?cohort ?index
 """
-
 
 def get_cohorts_metadata() -> dict[str, Any]:
     """Get all cohorts metadata from the SPARQL endpoint (infos, variables)"""
@@ -256,6 +272,12 @@ def get_cohorts_metadata() -> dict[str, Any]:
                 "cohort_type": str(row["cohortType"]["value"]) if "cohortType" in row else "",
                 "cohort_email": str(row["cohortEmail"]["value"]) if "cohortEmail" in row else "",
                 "institution": Literal(str(row["cohortInstitution"]["value"])),
+                "study_type": str(row["study_type"]["value"]) if "study_type" in row else "",
+                "study_participants": str(row["study_participants"]["value"]) if "study_participants" in row else "",
+                "study_duration": str(row["study_duration"]["value"]) if "study_duration" in row else "",
+                "study_ongoing": str(row["study_ongoing"]["value"]) if "study_ongoing" in row else "",
+                "study_population": str(row["study_population"]["value"]) if "study_population" in row else "",
+                "study_objective": str(row["study_objective"]["value"]) if "study_objective" in row else "",
                 "variables": {},
             }
 
@@ -266,7 +288,6 @@ def get_cohorts_metadata() -> dict[str, Any]:
                 "var_label": str(row["varLabel"]["value"]),
                 "var_type": str(row["varType"]["value"]),
                 "count": int(row["count"]["value"]),
-                "na": int(row["na"]["value"]),
                 "max": str(row["max"]["value"]) if "max" in row else "",
                 "min": str(row["min"]["value"]) if "min" in row else "",
                 "units": str(row["units"]["value"]) if "units" in row else "",
@@ -278,8 +299,10 @@ def get_cohorts_metadata() -> dict[str, Any]:
                 "index": int(row["index"]["value"]) if "index" in row else "",
                 "categories": [],
             }
+            if "na" in row:
+                target_dict[cohort_id]["variables"][var_id]["na"] = int(row["na"]["value"])
 
-        # Process categories
+        # Process categories of variables
         if "varName" in row and "categoryLabel" in row and "categoryValue" in row:
             target_dict[cohort_id]["variables"][var_id]["categories"].append(
                 {"value": str(row["categoryValue"]["value"]), "label": str(row["categoryLabel"]["value"])}
@@ -316,38 +339,66 @@ app.add_middleware(
 def init_triplestore():
     """Initialize triplestore with the OMOP CDM ontology and the iCARE4CVD cohorts metadata."""
     # If triples exist, skip initialization
-    if run_query("ASK WHERE { ?s ?p ?o . }")["boolean"]:
-        print("Triplestore already contains data. Skipping initialization.")
+    if run_query("ASK WHERE { GRAPH ?g {?s ?p ?o .} }")["boolean"]:
+        print("⏩ Triplestore already contains data. Skipping initialization.")
         return
+    # Load OMOP CDM ontology
+    onto_graph_uri = URIRef("https://w3id.org/icare4cvd/omop-cdm-v6")
+    g = init_graph(onto_graph_uri)
+    ntriple_g = init_graph()
+    ntriple_g.parse("https://raw.githubusercontent.com/vemonet/omop-cdm-owl/main/omop_cdm_v6.ttl", format="turtle")
+    # Trick to convert ntriples to nquads with a given graph
+    for s, p, o in ntriple_g.triples((None, None, None)):
+        g.add((s, p, o, onto_graph_uri))
+    # print(g.serialize(format="trig"))
+    if publish_graph_to_endpoint(g):
+        print(f"🦉 Triplestore initialization: added {len(g)} triples for the OMOP OWL ontology.")
 
-    g.parse("https://raw.githubusercontent.com/vemonet/omop-cdm-owl/main/omop_cdm_v6.ttl", format="turtle")
+    # Load cohorts data dictionaries already present in data/cohorts/
     for folder in os.listdir(os.path.join(settings.data_folder, "cohorts")):
         folder_path = os.path.join(settings.data_folder, "cohorts", folder)
         if os.path.isdir(folder_path):
-            for file in glob.glob(os.path.join(folder_path, "*-dictionary.*")):
-                load_cohort_dict_file(file, folder)
+            for file in glob.glob(os.path.join(folder_path, "*_datadictionary.*")):
+                g = load_cohort_dict_file(file, folder)
+                g.serialize(f"{settings.data_folder}/cohort_explorer_triplestore.trig", format="trig")
+                if publish_graph_to_endpoint(g):
+                    print(f"💾 Triplestore initialization: added {len(g)} triples for cohorts {file}.")
 
-    df = pd.read_csv(f"{settings.data_folder}/iCARE4CVD_Cohorts.csv")
+    # Load cohorts metadata
+    df = pd.read_excel(f"{settings.data_folder}/iCARE4CVD_Cohorts.xlsx", sheet_name="Descriptions")
     df = df.fillna("")
 
+    g = init_graph()
     for _i, row in df.iterrows():
-        cohort_id = str(row["Id"]).strip().replace(" ", "_")
+        cohort_id = str(row["Name of Study"]).strip()
         # print(cohort_id)
-        cohort_uri = ICARE[f"cohort/{cohort_id}"]
+        cohort_uri = ICARE[f"cohort/{cohort_id.replace(' ', '_')}"]
 
-        g.add((cohort_uri, RDF.type, ICARE.Cohort))
-        g.add((cohort_uri, DC.identifier, Literal(cohort_id)))
-        g.add((cohort_uri, ICARE.institution, Literal(row["Institution"])))
+        g.add((cohort_uri, RDF.type, ICARE.Cohort, cohort_uri))
+        g.add((cohort_uri, DC.identifier, Literal(cohort_id), cohort_uri))
+        g.add((cohort_uri, ICARE.institution, Literal(row["Institution"]), cohort_uri))
         if row["Contact partner"]:
-            g.add((cohort_uri, DC.creator, Literal(row["Contact partner"])))
+            g.add((cohort_uri, DC.creator, Literal(row["Contact partner"]), cohort_uri))
         if row["Email"]:
-            g.add((cohort_uri, ICARE.email, Literal(row["Email"])))
+            g.add((cohort_uri, ICARE.email, Literal(row["Email"]), cohort_uri))
         if row["Type"]:
-            g.add((cohort_uri, ICARE.cohort_type, Literal(row["Type"])))
+            g.add((cohort_uri, ICARE.cohort_type, Literal(row["Type"]), cohort_uri))
+        if row["Study type"]:
+            g.add((cohort_uri, ICARE.study_type, Literal(row["Study type"]), cohort_uri))
+        if row["N"]:
+            g.add((cohort_uri, ICARE.study_participants, Literal(row["N"]), cohort_uri))
+        if row["Study duration"]:
+            g.add((cohort_uri, ICARE.study_duration, Literal(row["Study duration"]), cohort_uri))
+        if row["Ongoing"]:
+            g.add((cohort_uri, ICARE.study_ongoing, Literal(row["Ongoing"]), cohort_uri))
+        if row["Patient population"]:
+            g.add((cohort_uri, ICARE.study_population, Literal(row["Patient population"]), cohort_uri))
+        if row["Primary objective"]:
+            g.add((cohort_uri, ICARE.study_objective, Literal(row["Primary objective"]), cohort_uri))
 
     # g.serialize(f"{settings.data_folder}/cohort_explorer_triplestore.ttl", format="turtle")
     if publish_graph_to_endpoint(g):
-        print(f"Triplestore initialized successfully with {len(g)} triples.")
+        print(f"🪪 Triplestore initialization: added {len(g)} triples for the cohorts metadata.")
 
 
 init_triplestore()

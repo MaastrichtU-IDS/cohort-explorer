@@ -1,39 +1,30 @@
 version: "3.3"
+# Docker compose file for development
 services:
 
   backend:
-    build: ./backend
-    environment:
-      FRONTEND_URL: http://localhost:3001
-      SPARQL_ENDPOINT: "http://db:7878"
-      DATA_FOLDER: /data
+    extends:
+      file: docker-compose.base.yml
+      service: backend
     volumes:
-      - ./data:/data
       - ./backend:/app
+    entrypoint: uvicorn src.main:app --host 0.0.0.0 --port 80 --reload --log-level debug
     ports:
       - 3000:80
-    env_file:
-      - .env
-    # entrypoint: "uvicorn src.main:app --host 0.0.0.0 --port 80 --reload --log-level debug"
-
 
   frontend:
-    build:
-      context: ./frontend
-      args:
-        - NEXT_PUBLIC_API_URL=http://localhost:3000
+    extends:
+      file: docker-compose.base.yml
+      service: frontend
+    volumes:
+      - ./frontend/src:/app/src
+    entrypoint: pnpm dev
     ports:
       - 3001:3000
-    volumes:
-      - ./data:/data
-      - ./frontend/src:/app/src
-    env_file:
-      - .env
-
 
   db:
-    image: ghcr.io/oxigraph/oxigraph:latest
-    volumes:
-      - ./data/db:/data
+    extends:
+      file: docker-compose.base.yml
+      service: db
     ports:
       - 7878:7878

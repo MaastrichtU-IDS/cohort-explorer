@@ -1,15 +1,25 @@
 import '@/styles/globals.css';
 import type {AppProps} from 'next/app';
 import React, {createContext, useState, useEffect, useContext} from 'react';
-import {Nav} from '../components/Nav';
-import {CohortsProvider} from '../components/CohortsContext';
+import Head from 'next/head'
+import {Nav} from '@/components/Nav';
+import {CohortsProvider} from '@/components/CohortsContext';
 
 export default function App({Component, pageProps}: AppProps) {
   return (
-    <CohortsProvider>
-      <Nav />
-      <Component {...pageProps} />
-    </CohortsProvider>
+    <>
+      <Head>
+        <meta charSet="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <link rel="icon" href="/icare4cvd_heart_logo.png" />
+        <meta name="description" content="Explore cohorts for the iCare4CVD project" />
+        <title>Cohort Explorer</title>
+      </Head>
+      <CohortsProvider>
+        <Nav />
+        <Component {...pageProps} />
+      </CohortsProvider>
+    </>
   );
 }
 

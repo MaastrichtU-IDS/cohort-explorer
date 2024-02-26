@@ -1,27 +1,27 @@
-import { Variable } from '@/types';
-import React, {useState, useEffect} from 'react';
+'use client';
 
-const FilterByMetadata = ({ label, options, onFiltersChange, metadata_id, searchResults = [] }: any) => {
+import React, {useState} from 'react';
 
-    const [selectedOptions, setSelectedOptions] = useState(new Set());
+const FilterByMetadata = ({label, options, onFiltersChange, metadata_id, searchResults = []}: any) => {
+  const [selectedOptions, setSelectedOptions] = useState(new Set());
 
-    const handleOptionChange = (option: string) => {
-        const newSet = new Set(selectedOptions);
-        if (newSet.has(option)) {
-            newSet.delete(option);
-        } else {
-            newSet.add(option);
-        }
-        setSelectedOptions(newSet);
-        onFiltersChange(newSet); // Callback to inform parent component about the change
-    };
+  const handleOptionChange = (option: string) => {
+    const newSet = new Set(selectedOptions);
+    if (newSet.has(option)) {
+      newSet.delete(option);
+    } else {
+      newSet.add(option);
+    }
+    setSelectedOptions(newSet);
+    onFiltersChange(newSet); // Callback to inform parent component about the change
+  };
 
-    // Function to count filtered vars based on filter type
+  // Function to count filtered vars based on filter type
   const countMatches = (filterType: string, item: string | null) => {
     return searchResults.filter((variable: any) => {
-      if (filterType === 'categorical') {
+      if (filterType === 'categorical' && item === 'Categorical') {
         return variable.categories.length > 0;
-      } else if (filterType === 'non_categorical') {
+      } else if (filterType === 'categorical' && item === 'Non-categorical') {
         return variable.categories.length === 0;
       } else {
         return variable[filterType] === item;
@@ -29,27 +29,26 @@ const FilterByMetadata = ({ label, options, onFiltersChange, metadata_id, search
     }).length;
   };
 
-    // countMatches('OMOP', domain)
-
-    return (
-        <div className='mb-3 space-y-1'>
-            <h3 className="font-bold">{label}</h3>
-            {options.map((option: any, index: number) => (
-                <div key={index} className="form-control">
-                    <label className="label cursor-pointer p-0">
-                        {/* <span className="label-text text-xs">{option} ({countMatches(metadata_id, null)})</span> */}
-                        <span className="label-text text-xs">{option} ({countMatches(metadata_id, option)})</span>
-                        <input
-                            type="checkbox"
-                            checked={selectedOptions.has(option)}
-                            onChange={() => handleOptionChange(option)}
-                            className="checkbox checkbox-xs"
-                        />
-                    </label>
-                </div>
-            ))}
+  return (
+    <div className="mb-3 space-y-1">
+      <h3 className="text-sm font-bold">{label}</h3>
+      {options.map((option: any, index: number) => (
+        <div key={index} className="form-control text-left">
+          <label className="label cursor-pointer p-0">
+            <span className="label-text text-xs">
+              {option} <span className="opacity-50">({countMatches(metadata_id, option)})</span>
+            </span>
+            <input
+              type="checkbox"
+              checked={selectedOptions.has(option)}
+              onChange={() => handleOptionChange(option)}
+              className="checkbox checkbox-xs"
+            />
+          </label>
         </div>
-    );
+      ))}
+    </div>
+  );
 };
 
 export default FilterByMetadata;

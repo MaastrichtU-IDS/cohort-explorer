@@ -19,7 +19,7 @@ def get_cohort_schema(cohort_dict: dict[str, Any]) -> list[tuple[str, dqsql.Prim
             prim_type = dqsql.PrimitiveType.FLOAT64
         if variable_info["var_type"] == "INT":
             prim_type = dqsql.PrimitiveType.INT64
-        nullable = variable_info["na"] != 0
+        nullable = bool("na" in variable_info and variable_info["na"] != 0)
         schema.append((variable_id, prim_type, nullable))
     return schema
 
@@ -52,9 +52,7 @@ def create_provision_dcr(user: Any, cohort_dict: dict[str, Any]) -> dict[str, An
     builder.add_user_permission(
         email=user["email"],
         authentication_method=client.decentriq_pki_authentication,
-        permissions=[
-            dq.Permissions.update_data_room_status() # To delete the DCR
-        ]
+        permissions=[dq.Permissions.update_data_room_status()],  # To delete the DCR
     )
 
     # Build and publish DCR
@@ -114,8 +112,8 @@ async def create_compute_dcr(
         email=user["email"],
         authentication_method=client.decentriq_pki_authentication,
         permissions=[
-            dq.Permissions.update_data_room_status(), # To delete the DCR
-        ]
+            dq.Permissions.update_data_room_status(),  # To delete the DCR
+        ],
     )
 
     # builder.add_user_permission(
