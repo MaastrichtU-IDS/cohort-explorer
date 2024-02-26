@@ -120,8 +120,6 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str):
     g.add((cohort_uri, DC.identifier, Literal(cohort_id), cohort_uri))
 
     for i, row in df.iterrows():
-        # if row.isnull().all():
-        #     continue
         # Check if required columns are present
         if not row["VARIABLE NAME"] or not row["VARIABLE LABEL"] or not row["VAR TYPE"]:
             raise HTTPException(

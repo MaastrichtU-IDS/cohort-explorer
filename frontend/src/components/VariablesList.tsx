@@ -96,6 +96,7 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
         <span className="badge badge-ghost mb-2">
           {Object.entries(cohortsData[cohortId]['variables']).length} variables
         </span>
+        {/* {cohortsData[cohortId].study_objective && <p>🎯 Objective: {cohortsData[cohortId].study_objective}</p>} */}
         <FilterByMetadata
           label="OMOP domains"
           metadata_id="omop_domain"
@@ -133,6 +134,9 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
 
       {/* List of variables */}
       <div className="w-full">
+        {cohortsData[cohortId].study_objective && <div className='card p-3 mb-3 bg-base-300'>
+          🎯 Study objective: {cohortsData[cohortId].study_objective}
+        </div>}
         <div className="variable-list space-y-2">
           {filteredVars?.map((variable: any) => (
             <div key={variable.var_name} className="card card-compact card-bordered bg-base-100 shadow-xl">
