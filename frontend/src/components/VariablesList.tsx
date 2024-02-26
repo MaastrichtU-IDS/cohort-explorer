@@ -5,7 +5,7 @@ import {useCohorts} from '@/components/CohortsContext';
 import AutocompleteConcept from '@/components/AutocompleteConcept';
 import FilterByMetadata from '@/components/FilterByMetadata';
 import {Variable} from '@/types';
-import {InfoIcon} from '@/components/icons';
+import {InfoIcon} from '@/components/Icons';
 
 const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
   const {cohortsData, updateCohortData, dataCleanRoom, setDataCleanRoom} = useCohorts();

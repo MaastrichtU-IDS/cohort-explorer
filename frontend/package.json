@@ -14,8 +14,7 @@
     "next": "14.0.4",
     "next-auth": "^4.24.5",
     "react": "^18",
-    "react-dom": "^18",
-    "reactflow": "^11.10.1"
+    "react-dom": "^18"
   },
   "devDependencies": {
     "@types/node": "^20",

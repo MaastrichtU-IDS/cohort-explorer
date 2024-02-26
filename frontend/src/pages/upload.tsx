@@ -2,7 +2,7 @@
 
 import React, {useState} from 'react';
 import {useCohorts} from '@/components/CohortsContext';
-import {TrashIcon} from '@/components/icons';
+import {TrashIcon} from '@/components/Icons';
 
 export default function UploadPage() {
   const {cohortsData} = useCohorts();

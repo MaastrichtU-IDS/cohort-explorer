@@ -3,7 +3,7 @@
 import React, {useState, useEffect} from 'react';
 import Link from 'next/link';
 import {useCohorts} from '@/components/CohortsContext';
-import {DarkThemeIcon, LightThemeIcon} from '@/components/icons';
+import {DarkThemeIcon, LightThemeIcon} from '@/components/Icons';
 
 // Not used: Next Auth.js: https://authjs.dev/getting-started/providers/oauth-tutorial
 // Auth0: https://github.com/nextauthjs/next-auth/blob/main/packages/core/src/providers/auth0.ts
