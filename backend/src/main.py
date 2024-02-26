@@ -7,7 +7,7 @@ import pandas as pd
 import requests
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import RedirectResponse
-from rdflib import DCTERMS, XSD, Graph, Literal, Namespace, URIRef, Dataset
+from rdflib import DCTERMS, XSD, Dataset, Graph, Literal, Namespace, URIRef
 from rdflib.namespace import DC, RDF, RDFS
 from SPARQLWrapper import JSON, SPARQLWrapper
 from starlette.middleware.cors import CORSMiddleware
@@ -33,6 +33,8 @@ query_endpoint.setReturnFormat(JSON)
 
 # Define the namespaces
 ICARE = Namespace("https://w3id.org/icare4cvd/")
+
+
 def init_graph(default_graph: str | None = None) -> Dataset:
     """Initialize a new RDF graph for nquads with the iCARE4CVD namespace bindings."""
     g = Dataset(store="Oxigraph", default_graph_base=default_graph)
@@ -254,6 +256,7 @@ WHERE {
     }
 } ORDER BY ?cohort ?index
 """
+
 
 def get_cohorts_metadata() -> dict[str, Any]:
     """Get all cohorts metadata from the SPARQL endpoint (infos, variables)"""

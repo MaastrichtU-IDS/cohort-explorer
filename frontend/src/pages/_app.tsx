@@ -1,7 +1,7 @@
 import '@/styles/globals.css';
 import type {AppProps} from 'next/app';
 import React, {createContext, useState, useEffect, useContext} from 'react';
-import Head from 'next/head'
+import Head from 'next/head';
 import {Nav} from '@/components/Nav';
 import {CohortsProvider} from '@/components/CohortsContext';
 

@@ -37,10 +37,8 @@ export default function CohortsList() {
   return (
     <main className="w-full p-4 bg-base-200 flex h-full min-h-screen">
       <aside className="p-4">
-        <div className='text-center mb-2'>
-          <span className="badge badge-outline">
-            {filteredCohorts.length} cohorts
-          </span>
+        <div className="text-center mb-2">
+          <span className="badge badge-outline">{filteredCohorts.length} cohorts</span>
         </div>
         <FilterByMetadata
           label="Filter by cohorts type"
@@ -91,10 +89,20 @@ export default function CohortsList() {
                   <span className="badge badge-outline mx-2">{cohortData.institution}</span>
                   {cohortData.study_type && <span className="badge badge-ghost mx-1">{cohortData.study_type}</span>}
                   {cohortData.cohort_type && <span className="badge badge-ghost mx-1">{cohortData.cohort_type}</span>}
-                  {(cohortData.study_participants || cohortData.study_population) && <span className="badge badge-ghost mx-1">👥 {cohortData.study_participants} {cohortData.study_population}</span>}
-                  {cohortData.study_duration && <span className="badge badge-default mx-1">⏱️ {cohortData.study_duration}</span>}
-                  {(cohortData.study_ongoing && cohortData.study_ongoing === "yes") && <span className="badge badge-default mx-1">Ongoing study</span>}
-                  {(cohortData.study_ongoing && cohortData.study_ongoing === "no") && <span className="badge badge-default mx-1">Completed study</span>}
+                  {(cohortData.study_participants || cohortData.study_population) && (
+                    <span className="badge badge-ghost mx-1">
+                      👥 {cohortData.study_participants} {cohortData.study_population}
+                    </span>
+                  )}
+                  {cohortData.study_duration && (
+                    <span className="badge badge-default mx-1">⏱️ {cohortData.study_duration}</span>
+                  )}
+                  {cohortData.study_ongoing && cohortData.study_ongoing === 'yes' && (
+                    <span className="badge badge-default mx-1">Ongoing study</span>
+                  )}
+                  {cohortData.study_ongoing && cohortData.study_ongoing === 'no' && (
+                    <span className="badge badge-default mx-1">Completed study</span>
+                  )}
                   {cohortData.cohort_email && <span className="badge mx-2">✉️ {cohortData.cohort_email}</span>}
                   {/* {cohortData.study_objective && <span className="badge badge-ghost">🎯 {cohortData.study_objective}</span>} */}
                 </div>

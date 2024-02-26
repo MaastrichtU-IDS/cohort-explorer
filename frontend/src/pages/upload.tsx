@@ -113,7 +113,11 @@ export default function UploadPage() {
         {/* Upload cohort metadata file */}
         <div className="flex items-center">
           <label htmlFor="metadataFile" className="block text-sm">
-            Cohort data dictionary <b><code>.csv</code></b> file (variables metadata)
+            Cohort data dictionary{' '}
+            <b>
+              <code>.csv</code>
+            </b>{' '}
+            file (variables metadata)
           </label>
           {metadataFile && (
             <button type="button" onClick={clearMetadataFile} className="ml-2 btn btn-xs btn-neutral">

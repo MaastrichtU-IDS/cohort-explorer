@@ -29,7 +29,9 @@ export default function Home() {
               -&gt;
             </span>
           </h2>
-          <p className={`m-0 max-w-[30ch] text-sm opacity-50`}>Upload a cohort data dictionary describing its variables</p>
+          <p className={`m-0 max-w-[30ch] text-sm opacity-50`}>
+            Upload a cohort data dictionary describing its variables
+          </p>
         </Link>
 
         <Link
@@ -42,7 +44,9 @@ export default function Home() {
               -&gt;
             </span>
           </h2>
-          <p className={`m-0 max-w-[30ch] text-sm opacity-50`}>Explore and search data dictionaries of available Cohorts</p>
+          <p className={`m-0 max-w-[30ch] text-sm opacity-50`}>
+            Explore and search data dictionaries of available Cohorts
+          </p>
         </Link>
       </div>
     </main>

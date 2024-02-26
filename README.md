@@ -4,14 +4,10 @@ Webapp built for the [iCare4CVD project](https://icare4cvd.eu).
 
 It aims to enable data owners and data scientists to:
 
-```python
-import t
-```
-
 *   🔐 Login with their [Decentriq](https://www.decentriq.com/) account (OAuth based authentication, can be easily switch to other providers). Only accounts with the required permissions will be able to access the webapp.
     *   ✉️ Contact [Decentriq](https://www.decentriq.com/) to request an account if you are part of the iCare4CVD project
 
-*   📤 Data owners upload CSV, or excel, cohort metadata files describing the variables of a study cohort
+*   📤 Data owners upload CSV cohort metadata files describing the variables of a study cohort
 
 *   🔎 Data scientists explore available cohorts and their variables through a web app:
     *   Full text search across all cohorts and variables
@@ -72,7 +68,7 @@ This platform is composed of 3 main components:
     JWT_SECRET=vCitcsPBwH4BMCwEqlO1aHJSIn--usrcyxPPRbeYdHM
     ```
 
-3.  Put the spreadsheet with all cohorts metadata in `data/iCARE4CVD_Cohorts.csv`. Uploaded cohorts will go to separated folders in `data/cohorts`
+3.  Put the excel spreadsheet with all cohorts metadata in `data/iCARE4CVD_Cohorts.xlsx`. Uploaded cohorts will go to separated folders in `data/cohorts/`
 
 > \[!WARNING]
 >
@@ -92,14 +88,14 @@ Start the database with docker:
 docker compose up db
 ```
 
-Start the backend:
+In a different terminal, start the backend:
 
 ```bash
 cd backend
 hatch run dev
 ```
 
-Start the frontend:
+In another terminal, start the frontend:
 
 ```bash
 cd frontend
@@ -124,7 +120,9 @@ Automatically format Python code with ruff and black, and TypeScript code with p
 
 ## 🐳 Deploy
 
-Deploy on a server in production with docker compose
+Deploy on a server in production with docker compose.
+
+Put the excel spreadsheet with all cohorts metadata in `data/iCARE4CVD_Cohorts.xlsx`. Uploaded cohorts will go to separated folders in `data/cohorts/`
 
 Generate a secret key used to encode/decode JWT token for a secure authentication system:
 

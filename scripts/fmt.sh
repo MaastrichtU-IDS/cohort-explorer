@@ -3,5 +3,5 @@
 cd backend
 hatch run fmt
 
-cd frontend
+cd ../frontend
 pnpm fmt
