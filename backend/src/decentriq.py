@@ -4,7 +4,7 @@ import decentriq_platform as dq
 import decentriq_platform.sql as dqsql
 from fastapi import APIRouter, Depends
 
-from src.auth import get_user_info
+from src.auth import get_current_user
 from src.config import settings
 
 router = APIRouter()
@@ -28,10 +28,8 @@ def get_cohort_schema(cohort_dict: dict[str, Any]) -> list[tuple[str, dqsql.Prim
 def create_provision_dcr(user: Any, cohort_dict: dict[str, Any]) -> dict[str, Any]:
     """Initialize a Data Clean Room in Decentriq when a new cohort is uploaded"""
     users = [user["email"]]
-    # TODO: Get user email, asked to Gaetan
-    # Might need to add field for user to provide their DQ API token?
 
-    # Establish connection to an enclave
+    # Establish connection to Decentriq
     client = dq.create_client(settings.decentriq_email, settings.decentriq_token)
     enclave_specs = dq.enclave_specifications.versions(
         [
@@ -79,12 +77,12 @@ def create_provision_dcr(user: Any, cohort_dict: dict[str, Any]) -> dict[str, An
 )
 async def create_compute_dcr(
     cohorts_request: dict[str, Any],
-    user: Any = Depends(get_user_info),
+    user: Any = Depends(get_current_user),
 ) -> dict[str, str]:
     """Create a Data Clean Room for computing with the cohorts requested using Decentriq SDK"""
     users = [user["email"]]
 
-    # Establish connection to an enclave
+    # Establish connection to Decentriq
     client = dq.create_client(settings.decentriq_email, settings.decentriq_token)
     enclave_specs = dq.enclave_specifications.versions(
         [
@@ -113,19 +111,11 @@ async def create_compute_dcr(
         authentication_method=client.decentriq_pki_authentication,
         permissions=[
             dq.Permissions.update_data_room_status(),  # To delete the DCR
+            # dq.Permissions.leaf_crud(data_node_id),
+            # dq.Permissions.execute_compute(uppercase_text_node_id),
+            # dq.Permissions.retrieve_compute_result(uppercase_text_node_id),
         ],
     )
-
-    # builder.add_user_permission(
-    #     email=user_email,
-    #     authentication_method=client.decentriq_pki_authentication,
-    #     permissions=[
-    #         dq.Permissions.update_data_room_status()
-    #         dq.Permissions.leaf_crud(data_node_id),
-    #         dq.Permissions.execute_compute(uppercase_text_node_id),
-    #         dq.Permissions.retrieve_compute_result(uppercase_text_node_id),
-    #     ]
-    # )
 
     # Build and publish DCR
     data_room = builder.build()

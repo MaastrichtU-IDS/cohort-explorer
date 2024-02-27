@@ -12,24 +12,21 @@ from rdflib.namespace import DC, RDF, RDFS
 from SPARQLWrapper import JSON, SPARQLWrapper
 from starlette.middleware.cors import CORSMiddleware
 
-from src.auth import get_user_info
+from src.auth import get_current_user
 from src.auth import router as auth_router
 from src.config import settings
 from src.decentriq import create_provision_dcr
 from src.decentriq import router as decentriq_router
 
 app = FastAPI(
-    title="iCARE4CVD data upload",
-    description="""Upload data files on Maastricht University servers for the [iCARE4CVD project](https://icare4cvd.eu/).
-
-If you are facing issues, contact [vincent.emonet@maastrichtuniversity.nl](mailto:vincent.emonet@maastrichtuniversity.nl)""",
+    title="iCARE4CVD API",
+    description="""Upload and explore cohorts metadata files for the [iCARE4CVD project](https://icare4cvd.eu/).""",
 )
+app.include_router(decentriq_router)
+app.include_router(auth_router, tags=["auth"])
 
-
-# g = Graph(store="Oxigraph")
 query_endpoint = SPARQLWrapper(f"{settings.sparql_endpoint}/query")
 query_endpoint.setReturnFormat(JSON)
-# /query or /update
 
 # Define the namespaces
 ICARE = Namespace("https://w3id.org/icare4cvd/")
@@ -165,7 +162,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str):
     response_model={},
 )
 async def upload_files(
-    user: Any = Depends(get_user_info),
+    user: Any = Depends(get_current_user),
     # cohort_id: str = Form(..., pattern="^[a-zA-Z0-9-_]+$"),
     cohort_id: str = Form(...),
     cohort_dictionary: UploadFile = File(...),
@@ -321,7 +318,7 @@ def get_cohorts_metadata() -> dict[str, Any]:
 
 
 @app.get("/summary")
-def get_data_summary(user: Any = Depends(get_user_info)) -> dict[str, Any]:
+def get_data_summary(user: Any = Depends(get_current_user)) -> dict[str, Any]:
     """Returns all data dictionaries"""
     return get_cohorts_metadata()
 
@@ -407,9 +404,6 @@ def init_triplestore():
 
 
 init_triplestore()
-
-app.include_router(decentriq_router)
-app.include_router(auth_router)
 
 if __name__ == "__main__":
     import uvicorn

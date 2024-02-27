@@ -2,69 +2,95 @@ import base64
 import json
 import time
 from datetime import datetime, timezone
-from typing import Any
+from typing import Optional
 from urllib.parse import urlencode
 
 import httpx
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2AuthorizationCodeBearer
 from jose import JWTError, jwt
+from starlette.status import HTTP_401_UNAUTHORIZED, HTTP_403_FORBIDDEN
 
 from src.config import settings
 
 router = APIRouter()
 
+JWT_ALGORITHM = "HS256"
 
-oauth2_scheme = OAuth2AuthorizationCodeBearer(
-    authorizationUrl=f"{settings.authorization_endpoint}?response_type=code&client_id={settings.client_id}&redirect_uri={settings.redirect_uri}&scope={settings.scope}",
+
+# Extend FastAPI auth scheme to use a HTTP-only cookie token
+class OAuth2AuthorizationCodeCookie(OAuth2AuthorizationCodeBearer):
+    """
+    OAuth2 flow for authentication using a HTTP-only cookie token obtained with an OAuth2 code
+    flow. An instance of it would be used as a dependency.
+    """
+
+    async def __call__(self, request: Request) -> Optional[str]:
+        token = request.cookies.get("token")
+        if not token:
+            if self.auto_error:
+                raise HTTPException(
+                    status_code=HTTP_401_UNAUTHORIZED,
+                    detail="Not authenticated",
+                    headers={"WWW-Authenticate": "Cookie"},
+                )
+            else:
+                return None
+        return token
+
+
+auth_params = {
+    "audience": "https://other-ihi-app",
+    "redirect_uri": settings.redirect_uri,
+}
+
+oauth2_scheme = OAuth2AuthorizationCodeCookie(
+    authorizationUrl=f"{settings.authorization_endpoint}?{urlencode(auth_params)}",
     tokenUrl=settings.token_endpoint,
+    scopes={
+        "openid": "OpenID Connect",
+        "email": "Access user email",
+        "read:datasets-descriptions": "Access datasets descriptions",
+    },
 )
-
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
-# SECRET_KEY = secrets.token_urlsafe(32)
-
-
-def create_access_token(data: dict, expires_timestamp: int) -> str:
-    """Create a JWT token with the given data and expiration time"""
-    to_encode = data.copy()
-    expire = datetime.fromtimestamp(expires_timestamp, timezone.utc)
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, settings.jwt_secret, algorithm=ALGORITHM)
-    return encoded_jwt
-
-
-async def get_user_info(request: Request) -> dict[str, Any]:
-    """Get the actual user decoding its JWT token passed through HTTP-only cookie"""
-    token = request.cookies.get("token")
-    if not token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    try:
-        payload = jwt.decode(token, settings.jwt_secret, algorithms=[ALGORITHM])
-        if payload.get("email") is None:
-            raise HTTPException(status_code=403, detail="User email not found in token")
-    except JWTError as e:
-        raise HTTPException(status_code=403, detail=str(e))
-    return payload
 
 
 @router.get("/login")
 def login() -> RedirectResponse:
-    data = {
-        "audience": "https://other-ihi-app",
-        "response_type": settings.response_type,
-        "client_id": settings.client_id,
-        "redirect_uri": settings.redirect_uri,
-        "scope": settings.scope,
-    }
-    query = f"{settings.authorization_endpoint}?{urlencode(data)}"
-    return RedirectResponse(query)
+    """Redirect to Auth0 login page to authenticate the user and get the code to exchange for a token"""
+    login_url = f"""{settings.authorization_endpoint}?{urlencode({
+        **auth_params,
+        'scope': settings.scope,
+        'response_type': settings.response_type,
+        'client_id': settings.client_id,
+    })}"""
+    return RedirectResponse(login_url)
+
+
+def create_access_token(data: dict[str, str], expires_timestamp: int) -> str:
+    """Create a JWT token with the given data and expiration time"""
+    to_encode = data.copy()
+    to_encode.update({"exp": datetime.fromtimestamp(expires_timestamp, timezone.utc)})
+    return jwt.encode(to_encode, settings.jwt_secret, algorithm=JWT_ALGORITHM)
+
+
+async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict[str, str]:
+    """Get the logged user decoding its JWT token passed through HTTP-only cookie"""
+    if not token:
+        raise HTTPException(status_code=HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+    try:
+        payload = jwt.decode(token, settings.jwt_secret, algorithms=[JWT_ALGORITHM])
+        if payload.get("email") is None:
+            raise HTTPException(status_code=HTTP_403_FORBIDDEN, detail="User email not found in token")
+    except JWTError as e:
+        raise HTTPException(status_code=HTTP_403_FORBIDDEN, detail=str(e))
+    return payload
 
 
 @router.get("/cb")
 async def auth_callback(code: str) -> RedirectResponse:
-    """Callback for auth. Generate JWT token and redirect to frontend if successful"""
+    """Callback for auth. Generates JWT token and redirects to frontend if successful"""
     token_payload = {
         "client_id": settings.client_id,
         "client_secret": settings.client_secret,
@@ -81,13 +107,12 @@ async def auth_callback(code: str) -> RedirectResponse:
             id_payload = json.loads(base64.urlsafe_b64decode(token["id_token"].split(".")[1] + "==="))
         except Exception as _e:
             raise HTTPException(
-                status_code=401,
+                status_code=HTTP_401_UNAUTHORIZED,
                 detail="Invalid token",
             )
-        print("ACCESS PAYLOAD", access_payload)
-        # NOTE: user info can be retrieved later from /userinfo endpoint using the provided access token if needed
+        # print("ACCESS PAYLOAD", access_payload)
+        # NOTE: if needed user info can be retrieved later from the /userinfo endpoint using the provided access token
         # resp = await client.get(f"{settings.authorization_endpoint}/userinfo", headers={"Authorization": f"Bearer {token['access_token']}"})
-        # resp.raise_for_status()
         # print("user_info", resp.json())
 
         # Check in payload if logged in user has the required permissions
@@ -105,6 +130,7 @@ async def auth_callback(code: str) -> RedirectResponse:
             # NOTE: Redirect to react frontend
             nextjs_redirect_uri = f"{settings.frontend_url}/cohorts"
             send_resp = RedirectResponse(url=nextjs_redirect_uri)
+            # Send JWT token as HTTP-only cookie to the frontend (will not be available to JS code in the frontend)
             send_resp.set_cookie(
                 key="token",
                 value=jwt_token,
@@ -116,12 +142,13 @@ async def auth_callback(code: str) -> RedirectResponse:
             return send_resp
         else:
             raise HTTPException(
-                status_code=403,
+                status_code=HTTP_403_FORBIDDEN,
                 detail="User is not authorized",
             )
 
 
 @router.post("/logout")
-def logout(response: Response) -> dict[str, str]:
-    response.delete_cookie(key="token")
+def logout(resp: Response) -> dict[str, str]:
+    """Log out the user by deleting the token HTTP-only cookie"""
+    resp.delete_cookie(key="token")
     return {"message": "Logged out successfully"}

@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 load_dotenv(".env")
 
 
-# NOTE: using dataclass instead of pydantic due to dependency conflict preventing to use pydantic v2
+# NOTE: using dataclass instead of pydantic due to dependency conflict with `decentriq_platform` preventing to use pydantic v2
 @dataclass
 class Settings:
     frontend_url: str = field(default_factory=lambda: os.getenv("FRONTEND_URL", "http://localhost:3001"))
@@ -47,7 +47,6 @@ settings = Settings()
 
 # warnings.simplefilter(action="ignore", category=UserWarning)
 
-
 # class Settings(BaseSettings):
 #     frontend_url: str = "http://localhost:3001"
 #     redirect_uri: str = "http://localhost:3000/cb"
@@ -73,6 +72,5 @@ settings = Settings()
 #     @computed_field()
 #     def token_endpoint(self) -> str:
 #         return f"{self.auth_endpoint}/oauth/token"
-
 
 # settings = Settings()
