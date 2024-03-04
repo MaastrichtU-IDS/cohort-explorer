@@ -66,6 +66,7 @@ This platform is composed of 3 main components:
     DECENTRIQ_EMAIL=ccc@ddd.com
     DECENTRIQ_TOKEN=EEE
     JWT_SECRET=vCitcsPBwH4BMCwEqlO1aHJSIn--usrcyxPPRbeYdHM
+    ADMINS=admin1@email.com,admin2@email.com
     ```
 
 3.  Put the excel spreadsheet with all cohorts metadata in `data/iCARE4CVD_Cohorts.xlsx`. Uploaded cohorts will go to separated folders in `data/cohorts/`
@@ -139,6 +140,7 @@ CLIENT_SECRET=BBB
 DECENTRIQ_EMAIL=ccc@ddd.com
 DECENTRIQ_TOKEN=EEE
 JWT_SECRET=vCitcsPBwH4BMCwEqlO1aHJSIn--usrcyxPPRbeYdHM
+ADMINS=admin1@email.com,admin2@email.com
 ```
 
 Deploy:

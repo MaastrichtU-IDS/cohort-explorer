@@ -117,11 +117,19 @@ def create_curie_from_id(row):
                 curies.append(f"{curie_columns[column]}:{str(row[column]).strip()}")
     return ", ".join(curies)
 
+accepted_datatypes = ["STR", "FLOAT", "INT", "DATETIME"]
+
 # TODO: add arg to get data owner email, and add it to the graph
 def load_cohort_dict_file(dict_path: str, cohort_id: str, owner_email: str):
     """Parse the cohort dictionary uploaded as excel or CSV spreadsheet, and load it to the triplestore"""
     # print(f"Loading dictionary {dict_path}")
-    df = pd.read_csv(dict_path) if dict_path.endswith(".csv") else pd.read_excel(dict_path)
+    # df = pd.read_csv(dict_path) if dict_path.endswith(".csv") else pd.read_excel(dict_path)
+    if not dict_path.endswith(".csv"):
+        raise HTTPException(
+            status_code=422,
+            detail=f"Only CSV files are supported. Please convert your file to CSV and try again.",
+        )
+    df = pd.read_csv(dict_path)
     df = df.dropna(how="all")
     df = df.fillna("")
     df["categories"] = df["CATEGORICAL"].apply(parse_categorical_string)
@@ -139,9 +147,14 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, owner_email: str):
         if not row["VARIABLE NAME"] or not row["VARIABLE LABEL"] or not row["VAR TYPE"]:
             raise HTTPException(
                 status_code=422,
-                detail="Row is missing required data: variable_name, variable_label, or var_type",
+                detail=f"Row {i} is missing required data: variable_name, variable_label, or var_type",
             )
-        # TODO: raise error when duplicate value for VARIABLE LABEL
+        if row["VAR TYPE"] not in accepted_datatypes:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Row {i} for variable {row['VARIABLE NAME']} is using a wrong datatype: {row['VAR TYPE']}. It should be one of: {', '.join(accepted_datatypes)}",
+            )
+        # TODO: raise error when duplicate value for VARIABLE LABEL?
 
         # Create a URI for the variable
         variable_uri = URIRef(f"{cohort_uri!s}/{row['VARIABLE NAME'].replace(' ', '_')}")
@@ -162,6 +175,11 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, owner_email: str):
 
             # Handle Category
             if column in ["categories"]:
+                if len(value) == 1:
+                    raise HTTPException(
+                        status_code=422,
+                        detail=f"Row {i} for variable {row['VARIABLE NAME']} has only one category {row['categories']}. It should have at least two.",
+                    )
                 for index, category in enumerate(value):
                     cat_uri = URIRef(f"{variable_uri!s}/category/{index}")
                     g.add((variable_uri, ICARE["categories"], cat_uri, cohort_uri))
@@ -179,7 +197,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, owner_email: str):
 )
 async def upload_files(
     user: Any = Depends(get_current_user),
-    # cohort_id: str = Form(..., pattern="^[a-zA-Z0-9-_]+$"),
+    # cohort_id: str = Form(..., pattern="^[a-zA-Z0-9-_\w]+$"),
     cohort_id: str = Form(...),
     cohort_dictionary: UploadFile = File(...),
     cohort_data: UploadFile | None = None,
@@ -188,15 +206,15 @@ async def upload_files(
     # Create directory named after cohort_id
     cohorts_folder = os.path.join(settings.data_folder, "cohorts", cohort_id)
     os.makedirs(cohorts_folder, exist_ok=True)
-    # print("USER", user)
-
+    owner_email = user["email"]
     cohorts_info = get_cohorts_metadata().get(cohort_id)
     # Check if cohort already uploaded
     if len(cohorts_info.get("variables")) > 0:
-        print("OWNER", cohorts_info.get("owner"))
-        print("USER EMAIL", user["email"])
-        if cohorts_info.get("owner") != user["email"]:
+        authorized_users = [*settings.admins_list, owner_email]
+        if user["email"] not in authorized_users:
             raise HTTPException(status_code=403, detail=f"You are not the owner of cohort {cohort_id}.")
+        # Make sure we keep the original owner in case an admin edits it
+        owner_email = cohorts_info.get("owner")
         # Check for existing data dictionary file and back it up
         for file_name in os.listdir(cohorts_folder):
             if file_name.endswith("_datadictionary.csv"):
@@ -207,11 +225,9 @@ async def upload_files(
                 # Rename (backup) the existing file
                 os.rename(existing_file_path, backup_file_path)
                 break  # Assuming there's only one data dictionary file per cohort
-
         # Delete graph for this file from triplestore
         cohort_uri = ICARE[f"cohort/{cohort_id.strip().replace(' ', '_')}"]
         delete_existing_triples(cohort_uri)
-
 
     # Make sure metadata file ends with _datadictionary
     metadata_filename = cohort_dictionary.filename
@@ -219,16 +235,16 @@ async def upload_files(
     if not filename.endswith("_datadictionary"):
         filename += "_datadictionary"
 
-    # Save metadata file
+    # Store metadata file on disk in the cohorts folder
     metadata_path = os.path.join(cohorts_folder, filename + ext)
     with open(metadata_path, "wb") as buffer:
         shutil.copyfileobj(cohort_dictionary.file, buffer)
 
     try:
-        g = load_cohort_dict_file(metadata_path, cohort_id, user["email"])
+        g = load_cohort_dict_file(metadata_path, cohort_id, owner_email)
         publish_graph_to_endpoint(g)
     except Exception as e:
-        shutil.rmtree(metadata_path)
+        os.remove(metadata_path)
         raise e
 
     cohorts_dict = get_cohorts_metadata()

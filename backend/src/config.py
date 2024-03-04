@@ -25,6 +25,7 @@ class Settings:
 
     decentriq_email: str = field(default_factory=lambda: os.getenv("DECENTRIQ_EMAIL", ""))
     decentriq_token: str = field(default_factory=lambda: os.getenv("DECENTRIQ_TOKEN", ""))
+    admins: str = field(default_factory=lambda: os.getenv("ADMINS", ""))
 
     data_folder: str = field(default_factory=lambda: os.getenv("DATA_FOLDER", "../data"))
 
@@ -36,6 +37,9 @@ class Settings:
     def token_endpoint(self) -> str:
         return f"{self.auth_endpoint}/oauth/token"
 
+    @property
+    def admins_list(self) -> list[str]:
+        return self.admins.split(",")
 
 settings = Settings()
 

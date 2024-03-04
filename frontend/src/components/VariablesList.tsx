@@ -115,10 +115,11 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
             Download CSV
           </button>
         }
-        <span className="badge badge-ghost mb-2">
-          {Object.entries(cohortsData[cohortId]['variables']).length} variables
-        </span>
-        {/* {cohortsData[cohortId].study_objective && <p>🎯 Objective: {cohortsData[cohortId].study_objective}</p>} */}
+        {filteredVars.length == Object.keys(cohortsData[cohortId]['variables']).length ? (
+          <span className="badge badge-ghost mb-2">{Object.keys(cohortsData).length} variables</span>
+        ) : (
+          <span className="badge badge-ghost mb-2">{filteredVars.length}/{Object.keys(cohortsData[cohortId]['variables']).length} variables</span>
+        )}
         <FilterByMetadata
           label="OMOP domains"
           metadata_id="omop_domain"
@@ -167,6 +168,7 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
                   <div className="flex items-center space-x-3">
                     <h2 className="font-bold text-lg">{variable.var_name}</h2>
                     {/* Badges for units and categorical variable */}
+                    <span className="badge badge-ghost">{variable.var_type}</span>
                     {variable.units && <span className="badge badge-ghost">{variable.units}</span>}
                     {variable.categories.length > 0 && (
                       <span className="badge badge-ghost">🏷️ {variable.categories.length} categories</span>

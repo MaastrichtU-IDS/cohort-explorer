@@ -1,7 +1,6 @@
 'use client';
 
-import React, {useState, useEffect} from 'react';
-import Link from 'next/link';
+import React, {useState} from 'react';
 import {useCohorts} from '@/components/CohortsContext';
 import FilterByMetadata from '@/components/FilterByMetadata';
 import {Cohort} from '@/types';
@@ -36,9 +35,13 @@ export default function CohortsList() {
 
   return (
     <main className="w-full p-4 bg-base-200 flex h-full min-h-screen">
-      <aside className="p-4">
+      <aside className="p-4 w-1/4">
         <div className="text-center mb-2">
-          <span className="badge badge-outline">{filteredCohorts.length} cohorts</span>
+          {filteredCohorts.length == Object.keys(cohortsData).length ? (
+            <span className="badge badge-outline">{Object.keys(cohortsData).length} cohorts</span>
+           ) : (
+            <span className="badge badge-outline">{filteredCohorts.length}/{Object.keys(cohortsData).length} cohorts</span>
+           )}
         </div>
         <FilterByMetadata
           label="Filter by cohorts type"
@@ -104,7 +107,6 @@ export default function CohortsList() {
                     <span className="badge badge-default mx-1">Completed study</span>
                   )}
                   {cohortData.cohort_email && <span className="badge mx-2">✉️ {cohortData.cohort_email}</span>}
-                  {/* {cohortData.study_objective && <span className="badge badge-ghost">🎯 {cohortData.study_objective}</span>} */}
                 </div>
               </div>
               <div className="collapse-content">
