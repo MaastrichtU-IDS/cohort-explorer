@@ -12,8 +12,12 @@ export default function UploadPage() {
   const [errorMessage, setErrorMessage] = useState('');
   const [publishedDCR, setPublishedDCR]: any = useState(null);
 
+  // const cohortsNoVariables = cohortsData
+  //   ? Object.keys(cohortsData).filter(cohortId => Object.keys(cohortsData[cohortId]['variables']).length === 0)
+  //   : [];
+  // Show all cohorts for now, in case people need to reupload
   const cohortsNoVariables = cohortsData
-    ? Object.keys(cohortsData).filter(cohortId => Object.keys(cohortsData[cohortId]['variables']).length === 0)
+    ? Object.keys(cohortsData).filter(cohortId => true)
     : [];
 
   const handleCohortIdChange = (event: any) => {

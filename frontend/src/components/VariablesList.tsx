@@ -66,6 +66,19 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
       .map(([variableName, variableData]: any) => ({...variableData, var_name: variableName}));
   }
 
+  // Function to handle downloading the cohort CSV
+  const downloadCohortCSV = () => {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+    const downloadUrl = `${apiUrl}/cohort-spreadsheet/${encodeURIComponent(cohortId)}`;
+    // Create a temporary anchor element and trigger a download
+    const a = document.createElement("a");
+    a.href = downloadUrl;
+    a.download = `${cohortId}-datadictionary.csv`; // Downloaded file name
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
   // Function to count filtered vars based on filter type
   const countMatches = (filterType: string, item: string | null) => {
     return filteredVars.filter(variable => {
@@ -81,18 +94,27 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
 
   return (
     <main className="flex">
-      <aside className="pr-4 text-center">
+      <aside className="pr-4 text-center flex flex-col items-center">
         {filteredVars.length > 0 && !dataCleanRoom.cohorts.includes(cohortId) ? (
           <button
             onClick={addToDataCleanRoom}
             className="btn btn-neutral btn-sm mb-2 hover:bg-slate-600 tooltip tooltip-right"
-            data-tip="Add to Data Clean Room"
+            data-tip="Add cohort to Data Clean Room"
           >
             Add to DCR
           </button>
         ) : (
           <div />
         )}
+        {filteredVars.length > 0 &&
+          <button
+            onClick={downloadCohortCSV}
+            className="btn btn-neutral btn-sm mb-2 hover:bg-slate-600 tooltip tooltip-right"
+            data-tip="Download the cohort metadata as CSV file. You can edit and re-upload it, if you are the person who published it originally."
+          >
+            Download CSV
+          </button>
+        }
         <span className="badge badge-ghost mb-2">
           {Object.entries(cohortsData[cohortId]['variables']).length} variables
         </span>

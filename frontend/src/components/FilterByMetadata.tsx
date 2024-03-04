@@ -30,7 +30,7 @@ const FilterByMetadata = ({label, options, onFiltersChange, metadata_id, searchR
   };
 
   return (
-    <div className="mb-3 space-y-1">
+    <div className="mb-3 w-full space-y-1">
       <h3 className="text-sm font-bold">{label}</h3>
       {options.map((option: any, index: number) => (
         <div key={index} className="form-control text-left">

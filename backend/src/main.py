@@ -1,12 +1,13 @@
 import glob
 import os
 import shutil
+from datetime import datetime
 from typing import Any
 
 import pandas as pd
 import requests
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from rdflib import DCTERMS, XSD, Dataset, Graph, Literal, Namespace, URIRef
 from rdflib.namespace import DC, RDF, RDFS
 from SPARQLWrapper import JSON, SPARQLWrapper
@@ -67,6 +68,20 @@ def publish_graph_to_endpoint(g: Graph, graph_uri: str | None = None) -> bool:
     return response.ok
 
 
+def delete_existing_triples(cohort_uri: str):
+    """Function to delete existing triples in a cohort's graph"""
+    query = f"""
+    PREFIX icare: <https://w3id.org/icare4cvd/>
+    DELETE WHERE {{
+        GRAPH <{cohort_uri}> {{ ?s ?p ?o . }}
+    }}
+    """
+    query_endpoint = SPARQLWrapper(f"{settings.sparql_endpoint}/update")
+    query_endpoint.setMethod('POST')
+    query_endpoint.setRequestMethod('urlencoded')
+    query_endpoint.setQuery(query)
+    query_endpoint.query()
+
 def parse_categorical_string(s) -> list[dict[str, str]]:
     """Categorical string format: "value1=label1, value2=label2" or "value1=label1 | value2=label2"""
     # Split the string into items
@@ -102,8 +117,8 @@ def create_curie_from_id(row):
                 curies.append(f"{curie_columns[column]}:{str(row[column]).strip()}")
     return ", ".join(curies)
 
-
-def load_cohort_dict_file(dict_path: str, cohort_id: str):
+# TODO: add arg to get data owner email, and add it to the graph
+def load_cohort_dict_file(dict_path: str, cohort_id: str, owner_email: str):
     """Parse the cohort dictionary uploaded as excel or CSV spreadsheet, and load it to the triplestore"""
     # print(f"Loading dictionary {dict_path}")
     df = pd.read_csv(dict_path) if dict_path.endswith(".csv") else pd.read_excel(dict_path)
@@ -117,6 +132,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str):
     g = init_graph()
     g.add((cohort_uri, RDF.type, ICARE.Cohort, cohort_uri))
     g.add((cohort_uri, DC.identifier, Literal(cohort_id), cohort_uri))
+    g.add((cohort_uri, ICARE["owner"], Literal(owner_email), cohort_uri))
 
     for i, row in df.iterrows():
         # Check if required columns are present
@@ -174,7 +190,30 @@ async def upload_files(
     os.makedirs(cohorts_folder, exist_ok=True)
     # print("USER", user)
 
-    # Make sure metadata file ends with -dictionary
+    cohorts_info = get_cohorts_metadata().get(cohort_id)
+    # Check if cohort already uploaded
+    if len(cohorts_info.get("variables")) > 0:
+        print("OWNER", cohorts_info.get("owner"))
+        print("USER EMAIL", user["email"])
+        if cohorts_info.get("owner") != user["email"]:
+            raise HTTPException(status_code=403, detail=f"You are not the owner of cohort {cohort_id}.")
+        # Check for existing data dictionary file and back it up
+        for file_name in os.listdir(cohorts_folder):
+            if file_name.endswith("_datadictionary.csv"):
+                # Construct the backup file name with the current date
+                backup_file_name = f"{file_name.rsplit('.', 1)[0]}_{datetime.now().strftime('%Y%m%d')}.csv"
+                backup_file_path = os.path.join(cohorts_folder, backup_file_name)
+                existing_file_path = os.path.join(cohorts_folder, file_name)
+                # Rename (backup) the existing file
+                os.rename(existing_file_path, backup_file_path)
+                break  # Assuming there's only one data dictionary file per cohort
+
+        # Delete graph for this file from triplestore
+        cohort_uri = ICARE[f"cohort/{cohort_id.strip().replace(' ', '_')}"]
+        delete_existing_triples(cohort_uri)
+
+
+    # Make sure metadata file ends with _datadictionary
     metadata_filename = cohort_dictionary.filename
     filename, ext = os.path.splitext(metadata_filename)
     if not filename.endswith("_datadictionary"):
@@ -186,10 +225,10 @@ async def upload_files(
         shutil.copyfileobj(cohort_dictionary.file, buffer)
 
     try:
-        g = load_cohort_dict_file(metadata_path, cohort_id)
+        g = load_cohort_dict_file(metadata_path, cohort_id, user["email"])
         publish_graph_to_endpoint(g)
     except Exception as e:
-        shutil.rmtree(cohorts_folder)
+        shutil.rmtree(metadata_path)
         raise e
 
     cohorts_dict = get_cohorts_metadata()
@@ -209,12 +248,12 @@ PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 PREFIX dc: <http://purl.org/dc/elements/1.1/>
 PREFIX dcterms: <http://purl.org/dc/terms/>
 
-SELECT DISTINCT ?cohortId ?cohortInstitution ?cohortType ?cohortEmail ?study_type ?study_participants
+SELECT DISTINCT ?cohortId ?cohortInstitution ?cohortType ?cohortEmail ?owner ?study_type ?study_participants
     ?study_duration ?study_ongoing ?study_population ?study_objective
     ?variable ?varName ?varLabel ?varType ?index ?count ?na ?max ?min ?units ?formula ?definition
     ?omopDomain ?conceptId ?visits ?categoryValue ?categoryLabel
 WHERE {
-    GRAPH ?g {
+    GRAPH ?cohortMetadataGraph {
         ?cohort a icare:Cohort ;
             dc:identifier ?cohortId ;
             icare:institution ?cohortInstitution .
@@ -226,8 +265,11 @@ WHERE {
         OPTIONAL { ?cohort icare:study_ongoing ?study_ongoing . }
         OPTIONAL { ?cohort icare:study_population ?study_population . }
         OPTIONAL { ?cohort icare:study_objective ?study_objective . }
+    }
 
-        OPTIONAL {
+    OPTIONAL {
+        GRAPH ?cohortVarGraph {
+            OPTIONAL { ?cohort icare:owner ?owner . }
             ?variable a icare:Variable ;
                 dc:identifier ?varName ;
                 rdfs:label ?varLabel ;
@@ -273,7 +315,8 @@ def get_cohorts_metadata() -> dict[str, Any]:
                 "cohort_id": cohort_id,
                 "cohort_type": str(row["cohortType"]["value"]) if "cohortType" in row else "",
                 "cohort_email": str(row["cohortEmail"]["value"]) if "cohortEmail" in row else "",
-                "institution": Literal(str(row["cohortInstitution"]["value"])),
+                "owner": str(row["owner"]["value"]) if "owner" in row else "",
+                "institution": str(row["cohortInstitution"]["value"]),
                 "study_type": str(row["study_type"]["value"]) if "study_type" in row else "",
                 "study_participants": str(row["study_participants"]["value"]) if "study_participants" in row else "",
                 "study_duration": str(row["study_duration"]["value"]) if "study_duration" in row else "",
@@ -319,9 +362,23 @@ def get_cohorts_metadata() -> dict[str, Any]:
 
 @app.get("/summary")
 def get_data_summary(user: Any = Depends(get_current_user)) -> dict[str, Any]:
-    """Returns all data dictionaries"""
+    """Returns data dictionaries of all cohorts"""
     return get_cohorts_metadata()
 
+@app.get("/cohort-spreadsheet/{cohort_id}")
+async def get_cohort_spreasheet(cohort_id: str, user: Any = Depends(get_current_user)) -> FileResponse:
+    """Download the data dictionary of a specified cohort as a spreadsheet."""
+    # cohort_id = urllib.parse.unquote(cohort_id)
+    cohorts_folder = os.path.join(settings.data_folder, "cohorts", cohort_id)
+
+    # Search for a data dictionary file in the cohort's folder
+    for file_name in os.listdir(cohorts_folder):
+        if file_name.endswith("_datadictionary.csv") or file_name.endswith("_datadictionary.xlsx"):
+            file_path = os.path.join(cohorts_folder, file_name)
+            return FileResponse(path=file_path, filename=file_name, media_type="application/octet-stream")
+
+    # If no file is found, return an error response
+    raise HTTPException(status_code=404, detail=f"No data dictionary found for cohort ID '{cohort_id}'")
 
 @app.get("/", include_in_schema=False)
 def redirect_root_to_docs() -> RedirectResponse:
@@ -361,7 +418,8 @@ def init_triplestore():
         folder_path = os.path.join(settings.data_folder, "cohorts", folder)
         if os.path.isdir(folder_path):
             for file in glob.glob(os.path.join(folder_path, "*_datadictionary.*")):
-                g = load_cohort_dict_file(file, folder)
+                # TODO: currently when we reset all existing cohorts default to the main admin
+                g = load_cohort_dict_file(file, folder, settings.decentriq_email)
                 g.serialize(f"{settings.data_folder}/cohort_explorer_triplestore.trig", format="trig")
                 if publish_graph_to_endpoint(g):
                     print(f"💾 Triplestore initialization: added {len(g)} triples for cohorts {file}.")
@@ -375,28 +433,29 @@ def init_triplestore():
         cohort_id = str(row["Name of Study"]).strip()
         # print(cohort_id)
         cohort_uri = ICARE[f"cohort/{cohort_id.replace(' ', '_')}"]
+        cohorts_graph = ICARE["graph/metadata"]
 
-        g.add((cohort_uri, RDF.type, ICARE.Cohort, cohort_uri))
-        g.add((cohort_uri, DC.identifier, Literal(cohort_id), cohort_uri))
-        g.add((cohort_uri, ICARE.institution, Literal(row["Institution"]), cohort_uri))
+        g.add((cohort_uri, RDF.type, ICARE.Cohort, cohorts_graph))
+        g.add((cohort_uri, DC.identifier, Literal(cohort_id), cohorts_graph))
+        g.add((cohort_uri, ICARE.institution, Literal(row["Institution"]), cohorts_graph))
         if row["Contact partner"]:
-            g.add((cohort_uri, DC.creator, Literal(row["Contact partner"]), cohort_uri))
+            g.add((cohort_uri, DC.creator, Literal(row["Contact partner"]), cohorts_graph))
         if row["Email"]:
-            g.add((cohort_uri, ICARE.email, Literal(row["Email"]), cohort_uri))
+            g.add((cohort_uri, ICARE.email, Literal(row["Email"]), cohorts_graph))
         if row["Type"]:
-            g.add((cohort_uri, ICARE.cohort_type, Literal(row["Type"]), cohort_uri))
+            g.add((cohort_uri, ICARE.cohort_type, Literal(row["Type"]), cohorts_graph))
         if row["Study type"]:
-            g.add((cohort_uri, ICARE.study_type, Literal(row["Study type"]), cohort_uri))
+            g.add((cohort_uri, ICARE.study_type, Literal(row["Study type"]), cohorts_graph))
         if row["N"]:
-            g.add((cohort_uri, ICARE.study_participants, Literal(row["N"]), cohort_uri))
+            g.add((cohort_uri, ICARE.study_participants, Literal(row["N"]), cohorts_graph))
         if row["Study duration"]:
-            g.add((cohort_uri, ICARE.study_duration, Literal(row["Study duration"]), cohort_uri))
+            g.add((cohort_uri, ICARE.study_duration, Literal(row["Study duration"]), cohorts_graph))
         if row["Ongoing"]:
-            g.add((cohort_uri, ICARE.study_ongoing, Literal(row["Ongoing"]), cohort_uri))
+            g.add((cohort_uri, ICARE.study_ongoing, Literal(row["Ongoing"]), cohorts_graph))
         if row["Patient population"]:
-            g.add((cohort_uri, ICARE.study_population, Literal(row["Patient population"]), cohort_uri))
+            g.add((cohort_uri, ICARE.study_population, Literal(row["Patient population"]), cohorts_graph))
         if row["Primary objective"]:
-            g.add((cohort_uri, ICARE.study_objective, Literal(row["Primary objective"]), cohort_uri))
+            g.add((cohort_uri, ICARE.study_objective, Literal(row["Primary objective"]), cohorts_graph))
 
     # g.serialize(f"{settings.data_folder}/cohort_explorer_triplestore.ttl", format="turtle")
     if publish_graph_to_endpoint(g):
