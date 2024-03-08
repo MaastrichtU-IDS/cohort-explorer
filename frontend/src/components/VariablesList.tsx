@@ -14,16 +14,39 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
   const [includeCategorical, setIncludeCategorical] = useState(true);
   const [includeNonCategorical, setIncludeNonCategorical] = useState(true);
 
-  const handleConceptSelect = (variableName: any, concept: any) => {
-    console.log(`Selected concept for ${variableName}:`, concept);
-    // const mapDict = cohortDict[selectedFile];
-    // mapDict["@mapping"] = {}
-    // mapDict["@mapping"][variableName] = concept
+  // TODO: use only URIs in the graph, use curie python package to convert URIs/curies
+  const handleConceptSelect = (varId: any, concept: any, categoryId: any = null) => {
+    // console.log(`Selected concept for ${varId}:`, concept);
     const updatedCohortData = {...cohortsData[cohortId]};
-    updatedCohortData.variables[variableName]['concept_id'] = `${concept.vocabulary}:${concept.id}`;
-    updateCohortData(cohortId, updatedCohortData);
-    console.log('updatedCohortData:', updatedCohortData);
+    const vocab = concept.vocabulary.toLowerCase() === 'snomed' ? 'snomedct' : concept.vocabulary.toLowerCase();
+    const curie = `${vocab}:${concept.id}`;
     // TODO: Store mappings in the triplestore
+    // fetch to API: uploadTriples(cohortId, variableName, "icare:mapped_id", curie)
+    const formData = new FormData();
+    formData.append('cohort_id', cohortId);
+    formData.append('var_id', varId);
+    formData.append('predicate', 'icare:mapped_id');
+    formData.append('value', curie);
+    formData.append('label', concept.name);
+    if (categoryId !== null) {
+      formData.append('category_id', categoryId);
+      updatedCohortData.variables[varId]['categories'][categoryId]['mapped_id'] = curie;
+      updatedCohortData.variables[varId]['categories'][categoryId]['mapped_label'] = concept.name;
+    } else {
+      updatedCohortData.variables[varId]['mapped_id'] = curie;
+      updatedCohortData.variables[varId]['mapped_label'] = concept.name;
+    }
+    updateCohortData(cohortId, updatedCohortData);
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+    fetch(`${apiUrl}/insert-triples`, {
+      method: 'POST',
+      body: formData,
+      credentials: 'include'
+    })
+      .then(response => response.json())
+      .then(data => {
+        console.log('Triples for concept mapping inserted', updatedCohortData);
+      });
   };
 
   // Button to add cohort to data clean room
@@ -71,7 +94,7 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
     const apiUrl = process.env.NEXT_PUBLIC_API_URL;
     const downloadUrl = `${apiUrl}/cohort-spreadsheet/${encodeURIComponent(cohortId)}`;
     // Create a temporary anchor element and trigger a download
-    const a = document.createElement("a");
+    const a = document.createElement('a');
     a.href = downloadUrl;
     a.download = `${cohortId}-datadictionary.csv`; // Downloaded file name
     document.body.appendChild(a);
@@ -80,21 +103,21 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
   };
 
   // Function to count filtered vars based on filter type
-  const countMatches = (filterType: string, item: string | null) => {
-    return filteredVars.filter(variable => {
-      if (filterType === 'categorical') {
-        return variable.categories.length > 0;
-      } else if (filterType === 'non_categorical') {
-        return variable.categories.length === 0;
-      } else {
-        return variable[filterType] === item;
-      }
-    }).length;
-  };
+  // const countMatches = (filterType: string, item: string | null) => {
+  //   return filteredVars.filter(variable => {
+  //     if (filterType === 'categorical') {
+  //       return variable.categories.length > 0;
+  //     } else if (filterType === 'non_categorical') {
+  //       return variable.categories.length === 0;
+  //     } else {
+  //       return variable[filterType] === item;
+  //     }
+  //   }).length;
+  // };
 
   return (
     <main className="flex">
-      <aside className="pr-4 text-center flex flex-col items-center">
+      <aside className="pr-4 text-center flex flex-col items-center min-w-fit">
         {filteredVars.length > 0 && !dataCleanRoom.cohorts.includes(cohortId) ? (
           <button
             onClick={addToDataCleanRoom}
@@ -106,7 +129,7 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
         ) : (
           <div />
         )}
-        {filteredVars.length > 0 &&
+        {filteredVars.length > 0 && (
           <button
             onClick={downloadCohortCSV}
             className="btn btn-neutral btn-sm mb-2 hover:bg-slate-600 tooltip tooltip-right"
@@ -114,11 +137,15 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
           >
             Download CSV
           </button>
-        }
+        )}
         {filteredVars.length == Object.keys(cohortsData[cohortId]['variables']).length ? (
-          <span className="badge badge-ghost mb-2">{Object.keys(cohortsData).length} variables</span>
+          <span className="badge badge-ghost mb-2">
+            {Object.keys(cohortsData[cohortId]['variables']).length} variables
+          </span>
         ) : (
-          <span className="badge badge-ghost mb-2">{filteredVars.length}/{Object.keys(cohortsData[cohortId]['variables']).length} variables</span>
+          <span className="badge badge-ghost mb-2">
+            {filteredVars.length}/{Object.keys(cohortsData[cohortId]['variables']).length} variables
+          </span>
         )}
         <FilterByMetadata
           label="OMOP domains"
@@ -175,11 +202,23 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
                     )}
                     {variable.omop_domain && <span className="badge badge-default">{variable.omop_domain}</span>}
                     {variable.formula && <span className="badge badge-outline">🧪 {variable.formula}</span>}
-                    {variable.concept_id && <span className="badge badge-outline">🪪 {variable.concept_id}</span>}
+                    {(variable.concept_id || variable.mapped_id) && (
+                      <AutocompleteConcept
+                        query={variable.var_label}
+                        value={variable.mapped_id || variable.concept_id}
+                        domain={variable.omop_domain}
+                        index={variable.index}
+                        cohortId={cohortId}
+                        tooltip={variable.mapped_label || variable.mapped_id || variable.concept_id}
+                        onSelect={(concept: any) => handleConceptSelect(variable.var_name, concept)}
+                      />
+                    )}
                     <button
                       className="btn-sm hover:bg-base-300 rounded-lg"
-                      // @ts-ignore
-                      onClick={() => document.getElementById(`source_modal_${variable.var_name}`)?.showModal()}
+                      onClick={() =>
+                        // @ts-ignore
+                        document.getElementById(`source_modal_${cohortId}_${variable.var_name}`)?.showModal()
+                      }
                     >
                       <InfoIcon />
                     </button>
@@ -188,24 +227,25 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
                 </div>
 
                 {/* Popup with additional infos about the variable */}
-                <dialog id={`source_modal_${variable.var_name}`} className="modal">
-                  <div className="modal-box space-y-2 max-w-none w-fit min-w-80">
-                    {/* <h5 className="font-bold text-lg">{variable["var_name"]}</h5> */}
-                    <div className="flex justify-between items-start">
+                <dialog id={`source_modal_${cohortId}_${variable.var_name}`} className="modal">
+                  <div className="modal-box space-y-2 max-w-none w-fit">
+                    <div className="flex justify-between items-start items-center">
                       <div>
                         <h5 className="font-bold text-lg">{variable.var_name}</h5>
                       </div>
-                      <div className="map-autocomplete-top-right">
+                      <div className="ml-8">
                         <AutocompleteConcept
                           query={variable.var_label}
-                          value={variable.concept_id}
+                          value={variable.mapped_id || variable.concept_id}
                           domain={variable.omop_domain}
-                          index={variable.index}
+                          index={`${variable.index}inside`}
+                          cohortId={cohortId}
+                          tooltip={variable.mapped_label || variable.mapped_id || variable.concept_id}
                           onSelect={(concept: any) => handleConceptSelect(variable.var_name, concept)}
                         />
                       </div>
                     </div>
-                    <p className="py-2">{variable.var_label}</p>
+                    <p className="py-2 lg:mr-32">{variable.var_label}</p>
                     <p>
                       Type: {variable.categorical ? 'Categorical ' : ''}
                       {variable.var_type}
@@ -240,10 +280,13 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
                               <td>
                                 <AutocompleteConcept
                                   query={option.label}
-                                  index={variable.index}
-                                  // value={variable.concept_id}
+                                  index={`${variable.index}category${index}`}
+                                  value={option.mapped_id}
+                                  tooltip={option.mapped_label || option.mapped_id}
                                   // domain={variable.omop_domain}
-                                  onSelect={(concept: any) => handleConceptSelect(variable.var_name, concept)}
+                                  // TODO: properly handle the category concept mapping
+                                  cohortId={cohortId}
+                                  onSelect={(concept: any) => handleConceptSelect(variable.var_name, concept, index)}
                                 />
                               </td>
                             </tr>
@@ -277,6 +320,7 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
                     query={variable.var_label}
                     index={variable.index}
                     domain={variable.omop_domain}
+                    cohortId={cohortId}
                     onSelect={(concept: any) => handleConceptSelect(variable["var_name"], concept)}
                   /> */}
               </div>

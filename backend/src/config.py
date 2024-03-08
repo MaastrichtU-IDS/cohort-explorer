@@ -41,6 +41,7 @@ class Settings:
     def admins_list(self) -> list[str]:
         return self.admins.split(",")
 
+
 settings = Settings()
 
 

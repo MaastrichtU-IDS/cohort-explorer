@@ -6,7 +6,7 @@ import {useCohorts} from '@/components/CohortsContext';
 import AutocompleteConcept from '@/components/AutocompleteConcept';
 import FilterByMetadata from '@/components/FilterByMetadata';
 import {Variable} from '@/types';
-import {InfoIcon} from '@/components/icons';
+import {InfoIcon} from '@/components/Icons';
 
 export default function VariablesList() {
   const router = useRouter();

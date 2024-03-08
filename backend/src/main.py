@@ -4,6 +4,7 @@ import shutil
 from datetime import datetime
 from typing import Any
 
+import curies
 import pandas as pd
 import requests
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
@@ -28,6 +29,8 @@ app.include_router(auth_router, tags=["auth"])
 
 query_endpoint = SPARQLWrapper(f"{settings.sparql_endpoint}/query")
 query_endpoint.setReturnFormat(JSON)
+
+converter = curies.get_bioregistry_converter()
 
 # Define the namespaces
 ICARE = Namespace("https://w3id.org/icare4cvd/")
@@ -68,19 +71,76 @@ def publish_graph_to_endpoint(g: Graph, graph_uri: str | None = None) -> bool:
     return response.ok
 
 
-def delete_existing_triples(cohort_uri: str):
+def delete_existing_triples(cohort_uri: str | URIRef, subject="?s", predicate="?p"):
     """Function to delete existing triples in a cohort's graph"""
     query = f"""
     PREFIX icare: <https://w3id.org/icare4cvd/>
+    PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
     DELETE WHERE {{
-        GRAPH <{cohort_uri}> {{ ?s ?p ?o . }}
+        GRAPH <{cohort_uri!s}> {{ {subject} {predicate} ?o . }}
     }}
     """
     query_endpoint = SPARQLWrapper(f"{settings.sparql_endpoint}/update")
-    query_endpoint.setMethod('POST')
-    query_endpoint.setRequestMethod('urlencoded')
+    query_endpoint.setMethod("POST")
+    query_endpoint.setRequestMethod("urlencoded")
     query_endpoint.setQuery(query)
     query_endpoint.query()
+
+
+def get_cohort_uri(cohort_id: str) -> URIRef:
+    return ICARE[f"cohort/{cohort_id.replace(' ', '_')}"]
+
+
+def get_var_uri(cohort_uri: str | URIRef, var_id: str) -> URIRef:
+    return URIRef(f"{cohort_uri!s}/{var_id.replace(' ', '_')}")
+
+
+def get_category_uri(var_uri: str | URIRef, category_id: str) -> URIRef:
+    return URIRef(f"{var_uri!s}/category/{category_id}")
+
+
+# TODO
+@app.post(
+    "/insert-triples",
+    response_description="Upload result",
+    response_model={},
+)
+def insert_triples(
+    cohort_id: str = Form(...),
+    var_id: str = Form(...),
+    predicate: str = Form(...),
+    value: str = Form(...),
+    label: str | None = Form(None),
+    category_id: str | None = Form(None),
+    user: Any = Depends(get_current_user),
+):
+    """Insert triples about cohorts variables or variables categories into the triplestore"""
+    cohort_uri = get_cohort_uri(cohort_id)
+    subject_uri = get_var_uri(cohort_uri, var_id)
+    if category_id:
+        subject_uri = get_category_uri(subject_uri, category_id)
+        # TODO: handle when a category is provided (we add triple to the category instead of the variable)
+    delete_existing_triples(cohort_uri, f"<{subject_uri!s}>", predicate)
+    label_part = ""
+    object_uri = f"<{converter.expand(value)}>"
+    if label:
+        delete_existing_triples(cohort_uri, f"{object_uri}", "rdfs:label")
+        label_part = f'{object_uri} rdfs:label "{label}" .'
+    # TODO: some namespaces like Gender are not in the bioregistry
+    query = f"""
+    PREFIX icare: <https://w3id.org/icare4cvd/>
+    PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+    INSERT DATA {{
+        GRAPH <{cohort_uri!s}> {{ <{subject_uri!s}> {predicate} {object_uri} . {label_part} }}
+    }}
+    """
+    print(query)
+    query_endpoint = SPARQLWrapper(f"{settings.sparql_endpoint}/update")
+    query_endpoint.setMethod("POST")
+    query_endpoint.setRequestMethod("urlencoded")
+    query_endpoint.setQuery(query)
+    query_endpoint.query()
+
 
 def parse_categorical_string(s) -> list[dict[str, str]]:
     """Categorical string format: "value1=label1, value2=label2" or "value1=label1 | value2=label2"""
@@ -106,18 +166,20 @@ def parse_categorical_string(s) -> list[dict[str, str]]:
 curie_columns = {"ICD-10": "icd10", "SNOMED-CT": "snomedct", "ATC-DDD": "atc", "LOINC": "loinc"}
 
 
-def create_curie_from_id(row):
-    curies = []
+def create_uri_from_id(row):
+    uris_list = []
     for column in curie_columns:
         if row[column]:
             if "," in str(row[column]):  # Handle list of IDs separated by comma
                 ids = str(row[column]).split(",")
-                curies.extend([f"{curie_columns[column]}:{identif.strip()}" for identif in ids])
+                uris_list.extend([converter.expand(f"{curie_columns[column]}:{identif.strip()}") for identif in ids])
             else:
-                curies.append(f"{curie_columns[column]}:{str(row[column]).strip()}")
-    return ", ".join(curies)
+                uris_list.append(converter.expand(f"{curie_columns[column]}:{str(row[column]).strip()}"))
+    return ", ".join(uris_list)
+
 
 accepted_datatypes = ["STR", "FLOAT", "INT", "DATETIME"]
+
 
 # TODO: add arg to get data owner email, and add it to the graph
 def load_cohort_dict_file(dict_path: str, cohort_id: str, owner_email: str):
@@ -127,16 +189,16 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, owner_email: str):
     if not dict_path.endswith(".csv"):
         raise HTTPException(
             status_code=422,
-            detail=f"Only CSV files are supported. Please convert your file to CSV and try again.",
+            detail="Only CSV files are supported. Please convert your file to CSV and try again.",
         )
     df = pd.read_csv(dict_path)
     df = df.dropna(how="all")
     df = df.fillna("")
     df["categories"] = df["CATEGORICAL"].apply(parse_categorical_string)
-    df["concept_id"] = df.apply(lambda row: create_curie_from_id(row), axis=1)
+    df["concept_id"] = df.apply(lambda row: create_uri_from_id(row), axis=1)
 
     # TODO: add metadata about the cohort, dc:creator
-    cohort_uri = ICARE[f"cohort/{cohort_id.strip().replace(' ', '_')}"]
+    cohort_uri = get_cohort_uri(cohort_id)
     g = init_graph()
     g.add((cohort_uri, RDF.type, ICARE.Cohort, cohort_uri))
     g.add((cohort_uri, DC.identifier, Literal(cohort_id), cohort_uri))
@@ -157,7 +219,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, owner_email: str):
         # TODO: raise error when duplicate value for VARIABLE LABEL?
 
         # Create a URI for the variable
-        variable_uri = URIRef(f"{cohort_uri!s}/{row['VARIABLE NAME'].replace(' ', '_')}")
+        variable_uri = get_var_uri(cohort_uri, row["VARIABLE NAME"])
 
         # Add the type of the resource
         g.add((variable_uri, RDF.type, ICARE.Variable, cohort_uri))
@@ -171,7 +233,14 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, owner_email: str):
             # if value and column not in ["categories"]:
             if column not in ["categories"] and value:
                 property_uri = ICARE[column.replace(" ", "_").lower()]
-                g.add((variable_uri, property_uri, Literal(value), cohort_uri))
+                if (
+                    isinstance(value, str)
+                    and (value.startswith("http://") or value.startswith("https://"))
+                    and " " not in value
+                ):
+                    g.add((variable_uri, property_uri, URIRef(value), cohort_uri))
+                else:
+                    g.add((variable_uri, property_uri, Literal(value), cohort_uri))
 
             # Handle Category
             if column in ["categories"]:
@@ -181,11 +250,12 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, owner_email: str):
                         detail=f"Row {i} for variable {row['VARIABLE NAME']} has only one category {row['categories']}. It should have at least two.",
                     )
                 for index, category in enumerate(value):
-                    cat_uri = URIRef(f"{variable_uri!s}/category/{index}")
+                    cat_uri = get_category_uri(variable_uri, index)
                     g.add((variable_uri, ICARE["categories"], cat_uri, cohort_uri))
                     g.add((cat_uri, RDF.type, ICARE.Category, cohort_uri))
                     g.add((cat_uri, RDF.value, Literal(category["value"]), cohort_uri))
                     g.add((cat_uri, RDFS.label, Literal(category["label"]), cohort_uri))
+                    # TODO: add categories
     # print(g.serialize(format="turtle"))
     return g
 
@@ -267,7 +337,7 @@ PREFIX dcterms: <http://purl.org/dc/terms/>
 SELECT DISTINCT ?cohortId ?cohortInstitution ?cohortType ?cohortEmail ?owner ?study_type ?study_participants
     ?study_duration ?study_ongoing ?study_population ?study_objective
     ?variable ?varName ?varLabel ?varType ?index ?count ?na ?max ?min ?units ?formula ?definition
-    ?omopDomain ?conceptId ?visits ?categoryValue ?categoryLabel
+    ?omopDomain ?conceptId ?mappedId ?mappedLabel ?visits ?categoryValue ?categoryLabel ?categoryMappedId ?categoryMappedLabel
 WHERE {
     GRAPH ?cohortMetadataGraph {
         ?cohort a icare:Cohort ;
@@ -300,12 +370,20 @@ WHERE {
             OPTIONAL { ?variable icare:formula ?formula }
             OPTIONAL { ?variable icare:definition ?definition }
             OPTIONAL { ?variable icare:concept_id ?conceptId }
+            OPTIONAL {
+                ?variable icare:mapped_id ?mappedId .
+                OPTIONAL { ?mappedId rdfs:label ?mappedLabel }
+            }
             OPTIONAL { ?variable icare:omop ?omopDomain }
             OPTIONAL { ?variable icare:visits ?visits }
             OPTIONAL {
                 ?variable icare:categories ?category.
                 ?category rdfs:label ?categoryLabel ;
                     rdf:value ?categoryValue .
+                OPTIONAL {
+                    ?category icare:mapped_id ?categoryMappedId .
+                    OPTIONAL { ?categoryMappedId rdfs:label ?categoryMappedLabel }
+                }
             }
         }
     }
@@ -355,7 +433,9 @@ def get_cohorts_metadata() -> dict[str, Any]:
                 "visits": str(row["visits"]["value"]) if "visits" in row else "",
                 "formula": str(row["formula"]["value"]) if "formula" in row else "",
                 "definition": str(row["definition"]["value"]) if "definition" in row else "",
-                "concept_id": str(row["conceptId"]["value"]) if "conceptId" in row else "",
+                "concept_id": converter.compress(str(row["conceptId"]["value"])) if "conceptId" in row else "",
+                "mapped_id": converter.compress(str(row["mappedId"]["value"])) if "mappedId" in row else "",
+                "mapped_label": str(row["mappedLabel"]["value"]) if "mappedLabel" in row else "",
                 "omop_domain": str(row["omopDomain"]["value"]) if "omopDomain" in row else "",
                 "index": int(row["index"]["value"]) if "index" in row else "",
                 "categories": [],
@@ -366,7 +446,14 @@ def get_cohorts_metadata() -> dict[str, Any]:
         # Process categories of variables
         if "varName" in row and "categoryLabel" in row and "categoryValue" in row:
             target_dict[cohort_id]["variables"][var_id]["categories"].append(
-                {"value": str(row["categoryValue"]["value"]), "label": str(row["categoryLabel"]["value"])}
+                {
+                    "value": str(row["categoryValue"]["value"]),
+                    "label": str(row["categoryLabel"]["value"]),
+                    "mapped_id": (
+                        converter.compress(str(row["categoryMappedId"]["value"])) if "categoryMappedId" in row else ""
+                    ),
+                    "mapped_label": str(row["categoryMappedLabel"]["value"]) if "categoryMappedLabel" in row else "",
+                }
             )
 
     # Merge dictionaries, cohorts with variables first
@@ -381,8 +468,9 @@ def get_data_summary(user: Any = Depends(get_current_user)) -> dict[str, Any]:
     """Returns data dictionaries of all cohorts"""
     return get_cohorts_metadata()
 
+
 @app.get("/cohort-spreadsheet/{cohort_id}")
-async def get_cohort_spreasheet(cohort_id: str, user: Any = Depends(get_current_user)) -> FileResponse:
+async def download_cohort_spreasheet(cohort_id: str, user: Any = Depends(get_current_user)) -> FileResponse:
     """Download the data dictionary of a specified cohort as a spreadsheet."""
     # cohort_id = urllib.parse.unquote(cohort_id)
     cohorts_folder = os.path.join(settings.data_folder, "cohorts", cohort_id)
@@ -395,6 +483,7 @@ async def get_cohort_spreasheet(cohort_id: str, user: Any = Depends(get_current_
 
     # If no file is found, return an error response
     raise HTTPException(status_code=404, detail=f"No data dictionary found for cohort ID '{cohort_id}'")
+
 
 @app.get("/", include_in_schema=False)
 def redirect_root_to_docs() -> RedirectResponse:
@@ -448,7 +537,7 @@ def init_triplestore():
     for _i, row in df.iterrows():
         cohort_id = str(row["Name of Study"]).strip()
         # print(cohort_id)
-        cohort_uri = ICARE[f"cohort/{cohort_id.replace(' ', '_')}"]
+        cohort_uri = get_cohort_uri(cohort_id)
         cohorts_graph = ICARE["graph/metadata"]
 
         g.add((cohort_uri, RDF.type, ICARE.Cohort, cohorts_graph))

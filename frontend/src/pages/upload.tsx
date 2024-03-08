@@ -16,9 +16,7 @@ export default function UploadPage() {
   //   ? Object.keys(cohortsData).filter(cohortId => Object.keys(cohortsData[cohortId]['variables']).length === 0)
   //   : [];
   // Show all cohorts for now, in case people need to reupload
-  const cohortsNoVariables = cohortsData
-    ? Object.keys(cohortsData).filter(cohortId => true)
-    : [];
+  const cohortsNoVariables = cohortsData ? Object.keys(cohortsData).filter(cohortId => true) : [];
 
   const handleCohortIdChange = (event: any) => {
     setCohortId(event.target.value);
@@ -54,7 +52,6 @@ export default function UploadPage() {
 
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-      console.log(formData);
       const response = await fetch(`${apiUrl}/upload`, {
         method: 'POST',
         body: formData,
@@ -64,7 +61,7 @@ export default function UploadPage() {
       const result = await response.json();
       if (!response.ok) {
         // TODO: Improve extraction of error returned by FastAPI here
-        console.log(result);
+        console.error(result);
         if (result['detail']) {
           if (result['detail'][0].msg) {
             // Handle pydantic errors

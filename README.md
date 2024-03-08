@@ -6,17 +6,13 @@ It aims to enable data owners and data scientists to:
 
 *   🔐 Login with their [Decentriq](https://www.decentriq.com/) account (OAuth based authentication, can be easily switch to other providers). Only accounts with the required permissions will be able to access the webapp.
     *   ✉️ Contact [Decentriq](https://www.decentriq.com/) to request an account if you are part of the iCare4CVD project
-
 *   📤 Data owners upload CSV cohort metadata files describing the variables of a study cohort
-
 *   🔎 Data scientists explore available cohorts and their variables through a web app:
     *   Full text search across all cohorts and variables
     *   Filter cohorts per types and providers
     *   Filter variables per OMOP domain, data type, categorical or not
-
 *   🔗 Data owners can map each variable of their cohorts to standard concepts, sourced from [OHDSI Athena](https://athena.ohdsi.org/search-terms/terms?query=) API (SNOMEDCT, LOINC...) through the web app.
     *   Mapping variables will help with data processing and exploration (⚠️ work in progress)
-
 *   🛒 Data scientists can add the cohorts they need to perform their analysis to a Data Clean Room (DCR)
     *   Once complete, the data scientists can publish their DCR to Decentriq in one click.
     *   The DCR will be automatically created with a data schema corresponding to the selected cohorts, generated from the metadata provided by the data owners.
@@ -151,7 +147,23 @@ docker compose -f docker-compose.prod.yml up -d
 
 ## 🪄 Administration
 
-## 🗑️ Reset database
+### ✨ Automatically generate variables metadata
+
+You can use the [`csvw-ontomap`](https://github.com/vemonet/csvw-ontomap) python package to automatically generate a CSV metadata file for your data file, with the format expected by iCARE4CVD. It will automatically fill the following columns: var name, var type, categorical, min, max
+
+Install the package:
+
+```bash
+pip install git+https://github.com/vemonet/csvw-ontomap.git
+```
+
+Run profiling, supports `.csv`, `.xlsx`, `.sav`:
+
+```bash
+csvw-ontomap data/COHORT_data.sav -o data/COHORT_datadictionary.csv
+```
+
+### 🗑️ Reset database
 
 Reset the database by deleting the `data/db` folder:
 

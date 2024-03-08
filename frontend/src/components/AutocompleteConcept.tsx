@@ -1,11 +1,23 @@
 import React, {useState, useEffect} from 'react';
 
-const AutocompleteConcept = ({onSelect, query = '', value = '', domain = '', index = ''}: any) => {
+const AutocompleteConcept = ({
+  onSelect,
+  query = '',
+  value = '',
+  domain = '',
+  index = '',
+  cohortId = '',
+  tooltip = ''
+}: any) => {
   const [filteredSuggestions, setFilteredSuggestions] = useState([]);
   const [inputValue, setInputValue] = useState(query);
   const [debouncedInput, setDebouncedInput] = useState('');
   const [selectedConcept, setSelectedConcept]: any = useState(null);
   const [isUserInteracted, setIsUserInteracted] = useState(false);
+
+  if (!tooltip) {
+    tooltip = 'Map this variable to a standard concept';
+  }
 
   // Debounce input value
   useEffect(() => {
@@ -67,14 +79,15 @@ const AutocompleteConcept = ({onSelect, query = '', value = '', domain = '', ind
       'Visit'
     ];
     const domainBit = domain && acceptedDomains.includes(domain) ? `&domain=${domain}` : '';
+    const vocabs = '&vocabulary=LOINC&vocabulary=SNOMED&vocabulary=RxNorm';
     // &conceptClass=Clinical Finding
     if (debouncedInput.length > 0 && isUserInteracted) {
       fetch(
-        `https://athena.ohdsi.org/api/v1/concepts?pageSize=15${domainBit}&standardConcept=Standard&page=1&query=${debouncedInput}`
+        `https://athena.ohdsi.org/api/v1/concepts?pageSize=15${domainBit}${vocabs}&standardConcept=Standard&page=1&query=${debouncedInput}`
       )
         .then(response => response.json())
         .then(data => {
-          console.log('OH', data);
+          // console.log('Autocomplete response', data);
           setFilteredSuggestions(data.content);
         })
         .catch(error => console.error('Error fetching data: ', error));
@@ -90,14 +103,20 @@ const AutocompleteConcept = ({onSelect, query = '', value = '', domain = '', ind
   const handleSuggestionClick = (suggestion: any) => {
     setSelectedConcept(suggestion);
     onSelect(suggestion);
+    // Close the modal after selecting a suggestion
+    const modal = document.getElementById(autocompleteModalId);
+    if (modal && modal.tagName === 'DIALOG') {
+      (modal as HTMLDialogElement).close();
+    }
   };
 
-  const autocompleteModalId = `autocomplete_modal_${query}_${index}`;
+  const autocompleteModalId = `autocomplete_modal_${cohortId}_${index}`;
 
   return (
     <div>
       <button
-        className="btn"
+        className="badge badge-outline tooltip tooltip-bottom hover:bg-base-300 before:max-w-[10rem] before:content-[attr(data-tip)]"
+        data-tip={tooltip}
         onClick={() => {
           // @ts-ignore
           document.getElementById(autocompleteModalId)?.showModal();

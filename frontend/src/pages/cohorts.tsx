@@ -39,9 +39,11 @@ export default function CohortsList() {
         <div className="text-center mb-2">
           {filteredCohorts.length == Object.keys(cohortsData).length ? (
             <span className="badge badge-outline">{Object.keys(cohortsData).length} cohorts</span>
-           ) : (
-            <span className="badge badge-outline">{filteredCohorts.length}/{Object.keys(cohortsData).length} cohorts</span>
-           )}
+          ) : (
+            <span className="badge badge-outline">
+              {filteredCohorts.length}/{Object.keys(cohortsData).length} cohorts
+            </span>
+          )}
         </div>
         <FilterByMetadata
           label="Filter by cohorts type"

@@ -21,7 +21,7 @@ export const CohortsProvider = ({children}: any) => {
       })
         .then(response => response.json())
         .then(data => {
-          console.log('context dataDict', data);
+          console.log('Context data dict', data);
           if (!data['detail']) {
             setUserEmail('anything');
             setCohortsData(data);
