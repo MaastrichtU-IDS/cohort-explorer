@@ -1,19 +1,67 @@
+import { AutocompleteConceptProps, Concept } from '@/types';
 import React, {useState, useEffect} from 'react';
 
-const AutocompleteConcept = ({
+const acceptedDomains = [
+  'Condition',
+  'Device',
+  'Drug',
+  'Geography',
+  'Meas Value',
+  'Measurement',
+  'Metadata',
+  'Observation',
+  'Procedure',
+  'Spec Anatomic Site',
+  'Specimen',
+  'Condition Status',
+  'Condition/Device',
+  'Condition/Meas',
+  'Condition/Obs',
+  'Condition/Procedure',
+  'Cost',
+  'Currency',
+  'Device/Drug',
+  'Device/Procedure',
+  'Drug/Procedure',
+  'Episode',
+  'Ethnicity',
+  'Gender',
+  'Language',
+  'Meas Value Operator',
+  'Meas/Procedure',
+  'Note',
+  'Obs/Procedure',
+  'Payer',
+  'Place of Service',
+  'Plan',
+  'Plan Stop Reason',
+  'Provider',
+  'Race',
+  'Regimen',
+  'Relationship',
+  'Revenue Code',
+  'Route',
+  'Spec Disease Status',
+  'Sponsor',
+  'Type Concept',
+  'Unit',
+  'Visit'
+];
+
+const AutocompleteConcept: React.FC<AutocompleteConceptProps> = ({
   onSelect,
   query = '',
   value = '',
   domain = '',
   index = '',
-  cohortId = '',
   tooltip = ''
 }: any) => {
-  const [filteredSuggestions, setFilteredSuggestions] = useState([]);
+  const [filteredSuggestions, setFilteredSuggestions] = useState<Concept[]>([]);
   const [inputValue, setInputValue] = useState(query);
   const [debouncedInput, setDebouncedInput] = useState('');
-  const [selectedConcept, setSelectedConcept]: any = useState(null);
+  const [selectedConcept, setSelectedConcept] = useState<Concept | null>(null);
   const [isUserInteracted, setIsUserInteracted] = useState(false);
+  const [selectedDomains, setSelectedDomains] = useState<string[]>((domain && domain in acceptedDomains) ? [domain] : acceptedDomains );
 
   if (!tooltip) {
     tooltip = 'Map this variable to a standard concept';
@@ -32,53 +80,8 @@ const AutocompleteConcept = ({
 
   // Fetch suggestions from the API
   useEffect(() => {
-    const acceptedDomains = [
-      'Condition',
-      'Device',
-      'Drug',
-      'Geography',
-      'Meas Value',
-      'Measurement',
-      'Metadata',
-      'Observation',
-      'Procedure',
-      'Spec Anatomic Site',
-      'Specimen',
-      'Condition Status',
-      'Condition/Device',
-      'Condition/Meas',
-      'Condition/Obs',
-      'Condition/Procedure',
-      'Cost',
-      'Currency',
-      'Device/Drug',
-      'Device/Procedure',
-      'Drug/Procedure',
-      'Episode',
-      'Ethnicity',
-      'Gender',
-      'Language',
-      'Meas Value Operator',
-      'Meas/Procedure',
-      'Note',
-      'Obs/Procedure',
-      'Payer',
-      'Place of Service',
-      'Plan',
-      'Plan Stop Reason',
-      'Provider',
-      'Race',
-      'Regimen',
-      'Relationship',
-      'Revenue Code',
-      'Route',
-      'Spec Disease Status',
-      'Sponsor',
-      'Type Concept',
-      'Unit',
-      'Visit'
-    ];
-    const domainBit = domain && acceptedDomains.includes(domain) ? `&domain=${domain}` : '';
+    // const domainBit = domain && acceptedDomains.includes(domain) ? `&domain=${domain}` : '';
+    const domainBit = selectedDomains.map((domain) => `&domain=${domain}`).join("")
     const vocabs = '&vocabulary=LOINC&vocabulary=SNOMED&vocabulary=RxNorm';
     // &conceptClass=Clinical Finding
     if (debouncedInput.length > 0 && isUserInteracted) {
@@ -94,13 +97,21 @@ const AutocompleteConcept = ({
     } else {
       setFilteredSuggestions([]);
     }
-  }, [debouncedInput, domain, isUserInteracted]);
+  }, [debouncedInput, selectedDomains, isUserInteracted]);
 
   const handleInputChange = (event: any) => {
     setInputValue(event.target.value);
   };
 
-  const handleSuggestionClick = (suggestion: any) => {
+  const handleDomainChange = (domain: string) => {
+    setSelectedDomains(prev =>
+      prev.includes(domain)
+        ? prev.filter(d => d !== domain)
+        : [...prev, domain]
+    );
+  };
+
+  const handleSuggestionClick = (suggestion: Concept) => {
     setSelectedConcept(suggestion);
     onSelect(suggestion);
     // Close the modal after selecting a suggestion
@@ -110,7 +121,7 @@ const AutocompleteConcept = ({
     }
   };
 
-  const autocompleteModalId = `autocomplete_modal_${cohortId}_${index}`;
+  const autocompleteModalId = `autocomplete_concept_modal_${index}`;
 
   return (
     <div>
@@ -129,6 +140,7 @@ const AutocompleteConcept = ({
       <dialog id={autocompleteModalId} className="modal">
         <div className="modal-box space-y-2 max-w-none w-fit">
           <div className="justify-between items-start">
+          <div className="flex">
             <input
               type="text"
               className="input input-bordered w-full mb-4"
@@ -136,6 +148,27 @@ const AutocompleteConcept = ({
               onChange={handleInputChange}
               placeholder="Search..."
             />
+            {/* Domain filter dropdown */}
+            {/* <div className="dropdown-container flex flex-row flex-wrap"> */}
+            <div className="dropdown dropdown-end ml-2">
+            {/* <div className="flex flex-row"> */}
+              <label tabIndex={0} className="btn btn-md">Filter by domains</label>
+              <ul tabIndex={0} className="dropdown-content menu menu-horizontal shadow bg-base-100 rounded-box w-52">
+                {acceptedDomains.map(domain => (
+                  <li key={domain}>
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={selectedDomains.includes(domain)}
+                        className="checkbox"
+                        onChange={() => handleDomainChange(domain)}
+                      /> {domain}
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            </div>
             {filteredSuggestions.length > 0 && (
               <table className="table-auto w-full">
                 <thead>

@@ -30,6 +30,14 @@ class Settings:
     data_folder: str = field(default_factory=lambda: os.getenv("DATA_FOLDER", "../data"))
 
     @property
+    def query_endpoint(self) -> str:
+        return f"{self.sparql_endpoint}/query"
+
+    @property
+    def update_endpoint(self) -> str:
+        return f"{self.sparql_endpoint}/update"
+
+    @property
     def authorization_endpoint(self) -> str:
         return f"{self.auth_endpoint}/authorize"
 

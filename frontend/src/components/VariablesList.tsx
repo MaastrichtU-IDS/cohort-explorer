@@ -1,10 +1,8 @@
-'use client';
-
-import React, {useState} from 'react';
+import React, {useState, useMemo} from 'react';
 import {useCohorts} from '@/components/CohortsContext';
 import AutocompleteConcept from '@/components/AutocompleteConcept';
 import FilterByMetadata from '@/components/FilterByMetadata';
-import {Variable} from '@/types';
+import {Concept, Variable} from '@/types';
 import {InfoIcon} from '@/components/Icons';
 
 const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
@@ -14,14 +12,12 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
   const [includeCategorical, setIncludeCategorical] = useState(true);
   const [includeNonCategorical, setIncludeNonCategorical] = useState(true);
 
-  // TODO: use only URIs in the graph, use curie python package to convert URIs/curies
-  const handleConceptSelect = (varId: any, concept: any, categoryId: any = null) => {
+  // When concept is selected, insert the triples into the database
+  const handleConceptSelect = (varId: any, concept: Concept, categoryId: any = null) => {
     // console.log(`Selected concept for ${varId}:`, concept);
     const updatedCohortData = {...cohortsData[cohortId]};
     const vocab = concept.vocabulary.toLowerCase() === 'snomed' ? 'snomedct' : concept.vocabulary.toLowerCase();
     const curie = `${vocab}:${concept.id}`;
-    // TODO: Store mappings in the triplestore
-    // fetch to API: uploadTriples(cohortId, variableName, "icare:mapped_id", curie)
     const formData = new FormData();
     formData.append('cohort_id', cohortId);
     formData.append('var_id', varId);
@@ -70,24 +66,27 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
   });
 
   // Filter variables based on search query and selected filters
-  let filteredVars: Variable[] = [];
-  if (cohortsData && cohortsData[cohortId]) {
-    filteredVars = Object.entries(cohortsData[cohortId]['variables'])
-      .filter(
-        ([variableName, variableData]: any) =>
-          variableName.toLowerCase().includes(searchFilters.searchQuery.toLowerCase()) ||
-          variableData.var_label.toLowerCase().includes(searchFilters.searchQuery.toLowerCase())
-      )
-      .filter(
-        ([variableName, variableData]: any) =>
-          (selectedOMOPDomains.size === 0 || selectedOMOPDomains.has(variableData.omop_domain)) &&
-          (selectedDataTypes.size === 0 || selectedDataTypes.has(variableData.var_type)) &&
-          ((includeCategorical && variableData.categories.length === 0) ||
-            (includeNonCategorical && variableData.categories.length !== 0) ||
-            (!includeNonCategorical && !includeCategorical))
-      )
-      .map(([variableName, variableData]: any) => ({...variableData, var_name: variableName}));
-  }
+  const filteredVars = useMemo(() => {
+    if (cohortsData && cohortsData[cohortId]) {
+      return Object.entries(cohortsData[cohortId]['variables'])
+        .filter(
+          ([variableName, variableData]: any) =>
+            variableName.toLowerCase().includes(searchFilters.searchQuery.toLowerCase()) ||
+            variableData.var_label.toLowerCase().includes(searchFilters.searchQuery.toLowerCase())
+        )
+        .filter(
+          ([variableName, variableData]: any) =>
+            (selectedOMOPDomains.size === 0 || selectedOMOPDomains.has(variableData.omop_domain)) &&
+            (selectedDataTypes.size === 0 || selectedDataTypes.has(variableData.var_type)) &&
+            ((includeCategorical && variableData.categories.length === 0) ||
+              (includeNonCategorical && variableData.categories.length !== 0) ||
+              (!includeNonCategorical && !includeCategorical))
+        )
+        .map(([variableName, variableData]: any) => ({...variableData, var_name: variableName}));
+    } else {
+      return []
+    }
+  }, [cohortsData, cohortId, searchFilters, selectedOMOPDomains, selectedDataTypes, includeCategorical, includeNonCategorical]);
 
   // Function to handle downloading the cohort CSV
   const downloadCohortCSV = () => {
@@ -207,8 +206,7 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
                         query={variable.var_label}
                         value={variable.mapped_id || variable.concept_id}
                         domain={variable.omop_domain}
-                        index={variable.index}
-                        cohortId={cohortId}
+                        index={`${cohortId}_${variable.index}`}
                         tooltip={variable.mapped_label || variable.mapped_id || variable.concept_id}
                         onSelect={(concept: any) => handleConceptSelect(variable.var_name, concept)}
                       />
@@ -238,8 +236,7 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
                           query={variable.var_label}
                           value={variable.mapped_id || variable.concept_id}
                           domain={variable.omop_domain}
-                          index={`${variable.index}inside`}
-                          cohortId={cohortId}
+                          index={`${cohortId}_${variable.index}_inside`}
                           tooltip={variable.mapped_label || variable.mapped_id || variable.concept_id}
                           onSelect={(concept: any) => handleConceptSelect(variable.var_name, concept)}
                         />
@@ -280,13 +277,11 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
                               <td>
                                 <AutocompleteConcept
                                   query={option.label}
-                                  index={`${variable.index}category${index}`}
+                                  index={`${cohortId}_${variable.index}_category_${index}`}
                                   value={option.mapped_id}
                                   tooltip={option.mapped_label || option.mapped_id}
-                                  // domain={variable.omop_domain}
                                   // TODO: properly handle the category concept mapping
-                                  cohortId={cohortId}
-                                  onSelect={(concept: any) => handleConceptSelect(variable.var_name, concept, index)}
+                                  onSelect={concept => handleConceptSelect(variable.var_name, concept, index)}
                                 />
                               </td>
                             </tr>

@@ -16,7 +16,7 @@ export const CohortsProvider = ({children}: any) => {
     setDataCleanRoom(JSON.parse(sessionStorage.getItem('dataCleanRoom') || '{"cohorts": []}'));
     if (Object.keys(cohortsData).length === 0) {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-      fetch(`${apiUrl}/summary`, {
+      fetch(`${apiUrl}/cohorts-metadata`, {
         credentials: 'include'
       })
         .then(response => response.json())

@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends
 
 from src.auth import get_current_user
 from src.config import settings
+from src.models import Cohort
 
 router = APIRouter()
 
@@ -25,7 +26,7 @@ def get_cohort_schema(cohort_dict: dict[str, Any]) -> list[tuple[str, dqsql.Prim
 
 
 # https://docs.decentriq.com/sdk/python-getting-started
-def create_provision_dcr(user: Any, cohort_dict: dict[str, Any]) -> dict[str, Any]:
+def create_provision_dcr(user: Any, cohort_dict: Cohort) -> dict[str, Any]:
     """Initialize a Data Clean Room in Decentriq when a new cohort is uploaded"""
     users = [user["email"]]
 
@@ -73,7 +74,6 @@ def create_provision_dcr(user: Any, cohort_dict: dict[str, Any]) -> dict[str, An
     "/create-dcr",
     name="Create Data Clean Room for computing",
     response_description="Upload result",
-    response_model={},
 )
 async def create_compute_dcr(
     cohorts_request: dict[str, Any],

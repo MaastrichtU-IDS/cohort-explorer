@@ -1,5 +1,3 @@
-'use client';
-
 import React, {useState} from 'react';
 
 const FilterByMetadata = ({label, options, onFiltersChange, metadata_id, searchResults = []}: any) => {

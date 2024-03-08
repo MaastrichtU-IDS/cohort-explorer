@@ -38,3 +38,20 @@ export interface Category {
   concept_id: string;
   mapped_concept: string | null;
 }
+
+export interface Concept  {
+  name: string;
+  domain: string;
+  id: string;
+  vocabulary: string;
+};
+
+export interface AutocompleteConceptProps {
+  onSelect: (suggestion: Concept) => void;
+  query?: string;
+  value?: string;
+  domain?: string;
+  index?: string;
+  cohortId?: string;
+  tooltip?: string;
+};

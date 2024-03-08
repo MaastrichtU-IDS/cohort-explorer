@@ -52,7 +52,7 @@ export default function UploadPage() {
 
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-      const response = await fetch(`${apiUrl}/upload`, {
+      const response = await fetch(`${apiUrl}/upload-cohort`, {
         method: 'POST',
         body: formData,
         credentials: 'include'

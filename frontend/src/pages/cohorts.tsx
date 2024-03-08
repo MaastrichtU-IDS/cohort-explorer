@@ -1,6 +1,6 @@
 'use client';
 
-import React, {useState} from 'react';
+import React, {useState, useMemo} from 'react';
 import {useCohorts} from '@/components/CohortsContext';
 import FilterByMetadata from '@/components/FilterByMetadata';
 import {Cohort} from '@/types';
@@ -13,6 +13,7 @@ export default function CohortsList() {
   const [selectedStudyTypes, setSelectedStudyTypes] = useState(new Set());
   const [selectedInstitutes, setSelectedInstitutes] = useState(new Set());
 
+  // TODO: debounce search to improve performance
   const handleSearchChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(event.target.value);
   };
@@ -20,8 +21,8 @@ export default function CohortsList() {
   // Filter cohorts based on search query and selected filters
   // TODO: we might want to perform the search and filtering directly with SPARQL queries to the oxigraph endpoint
   // if the data gets too big to be handled in the client.
-  const filteredCohorts = Object.entries(cohortsData as Record<string, Cohort>)
-    .filter(([key, value]) => {
+  const filteredCohorts = useMemo(() => {
+    return Object.entries(cohortsData as Record<string, Cohort>).filter(([key, value]) => {
       const matchesSearchQuery =
         key.toLowerCase().includes(searchQuery.toLowerCase()) ||
         JSON.stringify(value).toLowerCase().includes(searchQuery.toLowerCase());
@@ -32,6 +33,7 @@ export default function CohortsList() {
       return matchesSearchQuery && matchesDataType && matchesStudyType && matchesInstitute;
     })
     .map(([, cohortData]) => cohortData);
+  }, [searchQuery, selectedDataTypes, selectedStudyTypes, selectedInstitutes, cohortsData]);
 
   return (
     <main className="w-full p-4 bg-base-200 flex h-full min-h-screen">
