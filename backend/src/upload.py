@@ -131,6 +131,8 @@ def parse_categorical_string(s: str) -> list[dict[str, str]]:
 
 
 CURIE_COLUMNS = {"ICD-10": "icd10", "SNOMED-CT": "snomedct", "ATC-DDD": "atc", "LOINC": "loinc"}
+
+
 def create_uri_from_id(row):
     """Build concepts URIs from the ID provided in the various columns of the data dictionary"""
     uris_list = []
@@ -145,6 +147,7 @@ def create_uri_from_id(row):
 
 
 accepted_datatypes = ["STR", "FLOAT", "INT", "DATETIME"]
+
 
 def load_cohort_dict_file(dict_path: str, cohort_id: str, owner_email: str) -> Dataset:
     """Parse the cohort dictionary uploaded as excel or CSV spreadsheet, and load it to the triplestore"""

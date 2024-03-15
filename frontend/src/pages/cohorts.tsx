@@ -84,6 +84,12 @@ export default function CohortsList() {
         </div>
 
         <div className="space-y-2">
+          {Object.keys(cohortsData).length === 0 &&
+            <div className='flex flex-col items-center opacity-70 text-slate-500 mt-[20%]'>
+              <span className="loading loading-spinner loading-lg mb-4"></span>
+              <p>Loading cohorts...</p>
+            </div>
+          }
           {filteredCohorts.map(cohortData => (
             <div
               key={cohortData.cohort_id}

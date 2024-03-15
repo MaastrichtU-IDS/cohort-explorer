@@ -29,7 +29,6 @@ def init_graph(default_graph: str | None = None) -> Dataset:
 def run_query(query: str) -> dict[str, Any]:
     """Function to run a SPARQL query against a remote endpoint"""
     query_endpoint.setQuery(query)
-    # print(sparql.query().convert())
     return query_endpoint.query().convert()
 
 
@@ -114,7 +113,7 @@ def retrieve_cohorts_metadata() -> dict[str, Cohort]:
     results = run_query(get_variables_query)["results"]["bindings"]
     cohorts_with_variables = {}
     cohorts_without_variables = {}
-    print(f"Get cohorts metadata query results: {len(results)}")
+    # print(f"Get cohorts metadata query results: {len(results)}")
     for row in results:
         cohort_id = str(row["cohortId"]["value"])
         var_id = str(row["varName"]["value"]) if "varName" in row else None
@@ -171,7 +170,4 @@ def retrieve_cohorts_metadata() -> dict[str, Cohort]:
             )
 
     # Merge dictionaries, cohorts with variables first
-    merged_cohorts_data = {**cohorts_with_variables, **cohorts_without_variables}
-    # print(merged_cohorts_data)
-    # return JSONResponse(merged_cohorts_data)
-    return merged_cohorts_data
+    return {**cohorts_with_variables, **cohorts_without_variables}

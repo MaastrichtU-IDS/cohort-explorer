@@ -4,6 +4,7 @@ import React, {useState, useEffect} from 'react';
 import Link from 'next/link';
 import {useCohorts} from '@/components/CohortsContext';
 import {DarkThemeIcon, LightThemeIcon} from '@/components/Icons';
+import {apiUrl} from '@/utils';
 
 // Not used: Next Auth.js: https://authjs.dev/getting-started/providers/oauth-tutorial
 // Auth0: https://github.com/nextauthjs/next-auth/blob/main/packages/core/src/providers/auth0.ts
@@ -42,7 +43,6 @@ export function Nav() {
   };
 
   const handleLogout = () => {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL;
     fetch(`${apiUrl}/logout`, {
       method: 'POST',
       credentials: 'include'
@@ -62,7 +62,6 @@ export function Nav() {
   const sendCohortsToDecentriq = async () => {
     // Replace with actual API endpoint and required request format
     console.log('Sending request to Decentriq', dataCleanRoom);
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL;
     const requestBody = {cohorts: {}};
     for (const cohortId of dataCleanRoom.cohorts as string[]) {
       // @ts-ignore
@@ -129,7 +128,7 @@ export function Nav() {
             Data Clean Room <div className="badge badge-neutral">{dataCleanRoom?.cohorts.length || 0}</div>
           </button>
 
-          {userEmail ? <button onClick={handleLogout}>Logout</button> : <a href="http://localhost:3000/login">Login</a>}
+          {userEmail ? <button onClick={handleLogout}>Logout</button> : <a href={`${apiUrl}/login`}>Login</a>}
 
           {/* Add light/dark theme switch */}
           <label className="cursor-pointer grid place-items-center">

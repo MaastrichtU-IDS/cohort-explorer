@@ -3,6 +3,7 @@
 import React, {useState} from 'react';
 import {useCohorts} from '@/components/CohortsContext';
 import {TrashIcon} from '@/components/Icons';
+import {apiUrl} from '@/utils';
 
 export default function UploadPage() {
   const {cohortsData} = useCohorts();
@@ -51,7 +52,6 @@ export default function UploadPage() {
     if (dataFile) formData.append('cohort_data', dataFile);
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
       const response = await fetch(`${apiUrl}/upload-cohort`, {
         method: 'POST',
         body: formData,

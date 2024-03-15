@@ -1,5 +1,6 @@
-import { AutocompleteConceptProps, Concept } from '@/types';
 import React, {useState, useEffect} from 'react';
+import {AutocompleteConceptProps, Concept} from '@/types';
+import {apiUrl} from '@/utils';
 
 const acceptedDomains = [
   'Condition',
@@ -59,9 +60,10 @@ const AutocompleteConcept: React.FC<AutocompleteConceptProps> = ({
   const [filteredSuggestions, setFilteredSuggestions] = useState<Concept[]>([]);
   const [inputValue, setInputValue] = useState(query);
   const [debouncedInput, setDebouncedInput] = useState('');
-  const [selectedConcept, setSelectedConcept] = useState<Concept | null>(null);
   const [isUserInteracted, setIsUserInteracted] = useState(false);
-  const [selectedDomains, setSelectedDomains] = useState<string[]>((domain && domain in acceptedDomains) ? [domain] : acceptedDomains );
+  const [selectedDomains, setSelectedDomains] = useState<string[]>((domain && acceptedDomains.includes(domain.trim())) ? [domain.trim()] : acceptedDomains );
+  const [errorMsg, setErrorMsg] = useState('');
+  // const [selectedConcept, setSelectedConcept] = useState<Concept | null>(null);
 
   if (!tooltip) {
     tooltip = 'Map this variable to a standard concept';
@@ -69,31 +71,40 @@ const AutocompleteConcept: React.FC<AutocompleteConceptProps> = ({
 
   // Debounce input value
   useEffect(() => {
+    if (!isUserInteracted) return;
     const handler = setTimeout(() => {
+      // console.log('Debounced input!!', inputValue);
       setDebouncedInput(inputValue);
     }, 300);
 
     return () => {
       clearTimeout(handler);
     };
-  }, [inputValue]);
+  }, [inputValue, isUserInteracted]);
 
   // Fetch suggestions from the API
   useEffect(() => {
-    // const domainBit = domain && acceptedDomains.includes(domain) ? `&domain=${domain}` : '';
+    if (!isUserInteracted) return;
     const domainBit = selectedDomains.map((domain) => `&domain=${domain}`).join("")
-    const vocabs = '&vocabulary=LOINC&vocabulary=SNOMED&vocabulary=RxNorm';
-    // &conceptClass=Clinical Finding
     if (debouncedInput.length > 0 && isUserInteracted) {
-      fetch(
-        `https://athena.ohdsi.org/api/v1/concepts?pageSize=15${domainBit}${vocabs}&standardConcept=Standard&page=1&query=${debouncedInput}`
-      )
-        .then(response => response.json())
+      fetch(`${apiUrl}/search-concepts?query=${debouncedInput}${domainBit}`, {
+        credentials: 'include'
+      })
+        .then(async response => {
+          if (!response.ok) {
+            const res = await response.json()
+            if (res['detail']) {
+              throw new Error(`${res['detail']} (status ${response.status})`);
+            }
+            throw new Error(`Error getting suggestions (status ${response.status})`);
+          }
+          return response.json();
+        })
         .then(data => {
           // console.log('Autocomplete response', data);
-          setFilteredSuggestions(data.content);
+          setFilteredSuggestions(data);
         })
-        .catch(error => console.error('Error fetching data: ', error));
+        .catch(error => setErrorMsg(error.message));
     } else {
       setFilteredSuggestions([]);
     }
@@ -112,13 +123,14 @@ const AutocompleteConcept: React.FC<AutocompleteConceptProps> = ({
   };
 
   const handleSuggestionClick = (suggestion: Concept) => {
-    setSelectedConcept(suggestion);
+    // console.log('Selected suggestion', suggestion);
     onSelect(suggestion);
     // Close the modal after selecting a suggestion
     const modal = document.getElementById(autocompleteModalId);
     if (modal && modal.tagName === 'DIALOG') {
       (modal as HTMLDialogElement).close();
     }
+    setIsUserInteracted(false);
   };
 
   const autocompleteModalId = `autocomplete_concept_modal_${index}`;
@@ -126,109 +138,101 @@ const AutocompleteConcept: React.FC<AutocompleteConceptProps> = ({
   return (
     <div>
       <button
-        className="badge badge-outline tooltip tooltip-bottom hover:bg-base-300 before:max-w-[10rem] before:content-[attr(data-tip)]"
+        className={`badge badge-outline tooltip tooltip-bottom hover:bg-base-300 before:max-w-[10rem] before:content-[attr(data-tip)] before:whitespace-pre-wrap`}
         data-tip={tooltip}
         onClick={() => {
-          // @ts-ignore
-          document.getElementById(autocompleteModalId)?.showModal();
-          setIsUserInteracted(true);
           if (query && !inputValue) setInputValue(query);
+          setIsUserInteracted(true);
+          setTimeout(() => {
+            // @ts-ignore
+            document.getElementById(autocompleteModalId)?.showModal();
+          }, 0)
         }}
       >
         {value ? `🪪 ${value}` : 'Map to concept'}
       </button>
-      <dialog id={autocompleteModalId} className="modal">
-        <div className="modal-box space-y-2 max-w-none w-fit">
-          <div className="justify-between items-start">
-          <div className="flex">
-            <input
-              type="text"
-              className="input input-bordered w-full mb-4"
-              value={inputValue}
-              onChange={handleInputChange}
-              placeholder="Search..."
-            />
-            {/* Domain filter dropdown */}
-            {/* <div className="dropdown-container flex flex-row flex-wrap"> */}
-            <div className="dropdown dropdown-end ml-2">
-            {/* <div className="flex flex-row"> */}
-              <label tabIndex={0} className="btn btn-md">Filter by domains</label>
-              <ul tabIndex={0} className="dropdown-content menu menu-horizontal shadow bg-base-100 rounded-box w-52">
-                {acceptedDomains.map(domain => (
-                  <li key={domain}>
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={selectedDomains.includes(domain)}
-                        className="checkbox"
-                        onChange={() => handleDomainChange(domain)}
-                      /> {domain}
-                    </label>
-                  </li>
-                ))}
-              </ul>
-            </div>
-            </div>
-            {filteredSuggestions.length > 0 && (
-              <table className="table-auto w-full">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Domain</th>
-                    <th>ID</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredSuggestions.map((suggestion: any, i: number) => (
-                    <tr
-                      key={i}
-                      className="hover:bg-base-200 cursor-pointer"
-                      onClick={() => handleSuggestionClick(suggestion)}
-                    >
-                      <td>{suggestion.name}</td>
-                      <td className="px-2">{suggestion.domain}</td>
-                      <td>
-                        {suggestion.vocabulary}:{suggestion.id}
-                      </td>
-                    </tr>
+      {isUserInteracted &&
+        <dialog id={autocompleteModalId} className="modal">
+          <div className="modal-box space-y-2 max-w-none w-fit">
+            <div className="justify-between items-start">
+            <div className="flex">
+              <input
+                type="text"
+                className="input input-bordered w-full mb-4"
+                value={inputValue}
+                onChange={handleInputChange}
+                placeholder="Search..."
+              />
+              {/* Domain filter dropdown */}
+              <div className="dropdown dropdown-end ml-2">
+                <label tabIndex={0} className="btn btn-md">Filter by domains</label>
+                <ul tabIndex={0} className="dropdown-content menu menu-horizontal shadow bg-base-100 rounded-box w-52">
+                  {acceptedDomains.map(domain => (
+                    <li key={domain}>
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={selectedDomains.includes(domain)}
+                          className="checkbox"
+                          onChange={() => handleDomainChange(domain)}
+                        /> {domain}
+                      </label>
+                    </li>
                   ))}
-                </tbody>
-              </table>
-            )}
+                </ul>
+              </div>
+              </div>
+              {filteredSuggestions.length > 0 ? (
+                <table className="table-auto w-full">
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Domain</th>
+                      <th>ID</th>
+                      <th>Used by</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredSuggestions.map((suggestion: any, i: number) => (
+                      <tr
+                        key={i}
+                        className="hover:bg-base-200 cursor-pointer"
+                        onClick={() => handleSuggestionClick(suggestion)}
+                      >
+                        <td>{suggestion.label}</td>
+                        <td className="px-2">{suggestion.domain}</td>
+                        <td>
+                          {suggestion.id}
+                        </td>
+                        <td className={`tooltip tooltip-left before:max-w-[30rem] before:whitespace-pre-wrap text-center w-full`}
+                          data-tip={suggestion.used_by.map((variab: any) => `${variab.cohort_id} - ${variab.var_name} (${variab.var_label})`).join('\n')}
+                        >
+                          {suggestion.used_by.length}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <>
+                  {errorMsg ? (
+                    <div className="text-red-500 text-center">{errorMsg}</div>
+                  ) : (
+                    <div className='flex flex-col items-center opacity-70 text-slate-500 mt-5 mb-5'>
+                      <span className="loading loading-spinner loading-lg mb-4"></span>
+                      <p>Getting concepts suggestions...</p>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
           </div>
-        </div>
 
-        <form method="dialog" className="modal-backdrop">
-          <button>close</button>
-        </form>
-      </dialog>
-
-      {/* {filteredSuggestions.length > 0 && (
-        <div className="absolute z-10 w-full mt-1 rounded-lg shadow-lg bg-base-100">
-          <table className="table-auto w-full">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Domain</th>
-                <th>ID</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredSuggestions.map((suggestion: any, index: number) => (
-                <tr
-                  key={index}
-                  className="hover:bg-base-200 cursor-pointer"
-                  onClick={() => handleSuggestionClick(suggestion)}
-                >
-                  <td>{suggestion.name}</td>
-                  <td>{suggestion.domain}</td>
-                  <td>{suggestion.vocabulary}:{suggestion.id}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )} */}
+          <form method="dialog" className="modal-backdrop">
+            <button>close</button>
+          </form>
+        </dialog>
+      }
     </div>
   );
 };

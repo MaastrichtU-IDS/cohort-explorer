@@ -40,7 +40,7 @@ export interface Category {
 }
 
 export interface Concept  {
-  name: string;
+  label: string;
   domain: string;
   id: string;
   vocabulary: string;

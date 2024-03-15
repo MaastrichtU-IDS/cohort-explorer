@@ -2,8 +2,9 @@ import React, {useState, useMemo} from 'react';
 import {useCohorts} from '@/components/CohortsContext';
 import AutocompleteConcept from '@/components/AutocompleteConcept';
 import FilterByMetadata from '@/components/FilterByMetadata';
-import {Concept, Variable} from '@/types';
 import {InfoIcon} from '@/components/Icons';
+import {Concept, Variable} from '@/types';
+import {apiUrl} from '@/utils';
 
 const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
   const {cohortsData, updateCohortData, dataCleanRoom, setDataCleanRoom} = useCohorts();
@@ -11,29 +12,29 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
   const [selectedDataTypes, setSelectedDataTypes] = useState(new Set());
   const [includeCategorical, setIncludeCategorical] = useState(true);
   const [includeNonCategorical, setIncludeNonCategorical] = useState(true);
+  const [openedModal, setOpenedModal] = useState("");
 
   // When concept is selected, insert the triples into the database
   const handleConceptSelect = (varId: any, concept: Concept, categoryId: any = null) => {
     // console.log(`Selected concept for ${varId}:`, concept);
     const updatedCohortData = {...cohortsData[cohortId]};
-    const vocab = concept.vocabulary.toLowerCase() === 'snomed' ? 'snomedct' : concept.vocabulary.toLowerCase();
-    const curie = `${vocab}:${concept.id}`;
+    // TODO: remove, should be handled in API
+    // const vocab = concept.vocabulary.toLowerCase() === 'snomed' ? 'snomedct' : concept.vocabulary.toLowerCase();
     const formData = new FormData();
     formData.append('cohort_id', cohortId);
     formData.append('var_id', varId);
     formData.append('predicate', 'icare:mapped_id');
-    formData.append('value', curie);
-    formData.append('label', concept.name);
+    formData.append('value', concept.id);
+    formData.append('label', concept.label);
     if (categoryId !== null) {
       formData.append('category_id', categoryId);
-      updatedCohortData.variables[varId]['categories'][categoryId]['mapped_id'] = curie;
-      updatedCohortData.variables[varId]['categories'][categoryId]['mapped_label'] = concept.name;
+      updatedCohortData.variables[varId]['categories'][categoryId]['mapped_id'] = concept.id;
+      updatedCohortData.variables[varId]['categories'][categoryId]['mapped_label'] = concept.label;
     } else {
-      updatedCohortData.variables[varId]['mapped_id'] = curie;
-      updatedCohortData.variables[varId]['mapped_label'] = concept.name;
+      updatedCohortData.variables[varId]['mapped_id'] = concept.id;
+      updatedCohortData.variables[varId]['mapped_label'] = concept.label;
     }
     updateCohortData(cohortId, updatedCohortData);
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL;
     fetch(`${apiUrl}/insert-triples`, {
       method: 'POST',
       body: formData,
@@ -90,7 +91,6 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
 
   // Function to handle downloading the cohort CSV
   const downloadCohortCSV = () => {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL;
     const downloadUrl = `${apiUrl}/cohort-spreadsheet/${encodeURIComponent(cohortId)}`;
     // Create a temporary anchor element and trigger a download
     const a = document.createElement('a');
@@ -201,22 +201,25 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
                     )}
                     {variable.omop_domain && <span className="badge badge-default">{variable.omop_domain}</span>}
                     {variable.formula && <span className="badge badge-outline">🧪 {variable.formula}</span>}
-                    {(variable.concept_id || variable.mapped_id) && (
-                      <AutocompleteConcept
-                        query={variable.var_label}
-                        value={variable.mapped_id || variable.concept_id}
-                        domain={variable.omop_domain}
-                        index={`${cohortId}_${variable.index}`}
-                        tooltip={variable.mapped_label || variable.mapped_id || variable.concept_id}
-                        onSelect={(concept: any) => handleConceptSelect(variable.var_name, concept)}
-                      />
-                    )}
+                    {/* {(variable.concept_id || variable.mapped_id) && ( */}
+                    <AutocompleteConcept
+                      query={variable.var_label}
+                      value={variable.mapped_id || variable.concept_id}
+                      domain={variable.omop_domain}
+                      index={`${cohortId}_${variable.index}`}
+                      tooltip={variable.mapped_label || variable.mapped_id || variable.concept_id}
+                      onSelect={(concept: any) => handleConceptSelect(variable.var_name, concept)}
+                    />
+                    {/* )} */}
                     <button
                       className="btn-sm hover:bg-base-300 rounded-lg"
-                      onClick={() =>
-                        // @ts-ignore
-                        document.getElementById(`source_modal_${cohortId}_${variable.var_name}`)?.showModal()
-                      }
+                      onClick={() => {
+                        setOpenedModal(variable.var_name)
+                        setTimeout(() => {
+                          // @ts-ignore
+                          document.getElementById(`source_modal_${cohortId}_${variable.var_name}`)?.showModal()
+                        }, 0)
+                      }}
                     >
                       <InfoIcon />
                     </button>
@@ -225,90 +228,91 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
                 </div>
 
                 {/* Popup with additional infos about the variable */}
-                <dialog id={`source_modal_${cohortId}_${variable.var_name}`} className="modal">
-                  <div className="modal-box space-y-2 max-w-none w-fit">
-                    <div className="flex justify-between items-start items-center">
-                      <div>
-                        <h5 className="font-bold text-lg">{variable.var_name}</h5>
+                {openedModal === variable.var_name &&
+                  <dialog id={`source_modal_${cohortId}_${variable.var_name}`} className="modal">
+                    <div className="modal-box space-y-2 max-w-none w-fit">
+                      <div className="flex justify-between items-start items-center">
+                        <div>
+                          <h5 className="font-bold text-lg">{variable.var_name}</h5>
+                        </div>
+                        <div className="ml-8">
+                          <AutocompleteConcept
+                            query={variable.var_label}
+                            value={variable.mapped_id || variable.concept_id}
+                            domain={variable.omop_domain}
+                            index={`${cohortId}_${variable.index}_inside`}
+                            tooltip={variable.mapped_label || variable.mapped_id || variable.concept_id}
+                            onSelect={(concept: any) => handleConceptSelect(variable.var_name, concept)}
+                          />
+                        </div>
                       </div>
-                      <div className="ml-8">
-                        <AutocompleteConcept
-                          query={variable.var_label}
-                          value={variable.mapped_id || variable.concept_id}
-                          domain={variable.omop_domain}
-                          index={`${cohortId}_${variable.index}_inside`}
-                          tooltip={variable.mapped_label || variable.mapped_id || variable.concept_id}
-                          onSelect={(concept: any) => handleConceptSelect(variable.var_name, concept)}
-                        />
-                      </div>
-                    </div>
-                    <p className="py-2 lg:mr-32">{variable.var_label}</p>
-                    <p>
-                      Type: {variable.categorical ? 'Categorical ' : ''}
-                      {variable.var_type}
-                    </p>
-                    {variable.units && (
+                      <p className="py-2 lg:mr-32">{variable.var_label}</p>
                       <p>
-                        Unit: <span className="badge badge-ghost mx-2">{variable.units}</span>
+                        Type: {variable.categorical ? 'Categorical ' : ''}
+                        {variable.var_type}
                       </p>
-                    )}
-                    {(variable.min || variable.max) && (
+                      {variable.units && (
+                        <p>
+                          Unit: <span className="badge badge-ghost mx-2">{variable.units}</span>
+                        </p>
+                      )}
+                      {(variable.min || variable.max) && (
+                        <p>
+                          Min: {variable.min} {variable.units} | Max: {variable.max} {variable.units}
+                        </p>
+                      )}
                       <p>
-                        Min: {variable.min} {variable.units} | Max: {variable.max} {variable.units}
+                        {variable.count} values | {variable.na} na
                       </p>
-                    )}
-                    <p>
-                      {variable.count} values | {variable.na} na
-                    </p>
-                    {variable.categories.length > 0 && (
-                      <table className="table w-full">
-                        <thead>
-                          <tr>
-                            <th>Category value</th>
-                            <th>Meaning</th>
-                            <th>Map to concept</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {variable.categories.map((option: any, index: number) => (
-                            <tr key={index}>
-                              <td>{option.value}</td>
-                              <td>{option.label}</td>
-                              <td>
-                                <AutocompleteConcept
-                                  query={option.label}
-                                  index={`${cohortId}_${variable.index}_category_${index}`}
-                                  value={option.mapped_id}
-                                  tooltip={option.mapped_label || option.mapped_id}
-                                  // TODO: properly handle the category concept mapping
-                                  onSelect={concept => handleConceptSelect(variable.var_name, concept, index)}
-                                />
-                              </td>
+                      {variable.categories.length > 0 && (
+                        <table className="table w-full">
+                          <thead>
+                            <tr>
+                              <th>Category value</th>
+                              <th>Meaning</th>
+                              <th>Map to concept</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    )}
-                    {variable.formula && (
-                      <p>
-                        Formula: <code className="p-1 bg-base-300 rounded-md">{variable.formula}</code>
-                      </p>
-                    )}
-                    {variable.definition && <p>Definition: {variable.definition}</p>}
-                    {variable.visits && <p>Visit: {variable.visits}</p>}
-                    {variable.frequency && <p>Frequency: {variable.frequency}</p>}
-                    {variable.duration && <p>Duration: {variable.duration}</p>}
-                    {variable.omop_domain && (
-                      <p>
-                        OMOP Domain: <span className="badge badge-ghost">{variable.omop_domain}</span>
-                      </p>
-                    )}
-                  </div>
+                          </thead>
+                          <tbody>
+                            {variable.categories.map((option: any, index: number) => (
+                              <tr key={index}>
+                                <td>{option.value}</td>
+                                <td>{option.label}</td>
+                                <td>
+                                  <AutocompleteConcept
+                                    query={option.label}
+                                    index={`${cohortId}_${variable.index}_category_${index}`}
+                                    value={option.mapped_id}
+                                    tooltip={option.mapped_label || option.mapped_id}
+                                    onSelect={concept => handleConceptSelect(variable.var_name, concept, index)}
+                                  />
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                      {variable.formula && (
+                        <p>
+                          Formula: <code className="p-1 bg-base-300 rounded-md">{variable.formula}</code>
+                        </p>
+                      )}
+                      {variable.definition && <p>Definition: {variable.definition}</p>}
+                      {variable.visits && <p>Visit: {variable.visits}</p>}
+                      {variable.frequency && <p>Frequency: {variable.frequency}</p>}
+                      {variable.duration && <p>Duration: {variable.duration}</p>}
+                      {variable.omop_domain && (
+                        <p>
+                          OMOP Domain: <span className="badge badge-ghost">{variable.omop_domain}</span>
+                        </p>
+                      )}
+                    </div>
 
-                  <form method="dialog" className="modal-backdrop">
-                    <button>close</button>
-                  </form>
-                </dialog>
+                    <form method="dialog" className="modal-backdrop">
+                      <button>close</button>
+                    </form>
+                  </dialog>
+                }
 
                 {/* <div className='flex-grow'/>
                   <AutocompleteConcept
