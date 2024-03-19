@@ -7,7 +7,7 @@ import {Cohort} from '@/types';
 import VariablesList from '@/components/VariablesList';
 
 export default function CohortsList() {
-  const {cohortsData, userEmail, dataCleanRoom, setDataCleanRoom} = useCohorts();
+  const {cohortsData, userEmail} = useCohorts();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDataTypes, setSelectedDataTypes] = useState(new Set());
   const [selectedStudyTypes, setSelectedStudyTypes] = useState(new Set());

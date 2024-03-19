@@ -128,8 +128,7 @@ async def auth_callback(code: str) -> RedirectResponse:
             )
 
             # NOTE: Redirect to react frontend
-            nextjs_redirect_uri = f"{settings.frontend_url}/cohorts"
-            send_resp = RedirectResponse(url=nextjs_redirect_uri)
+            send_resp = RedirectResponse(url=f"{settings.frontend_url}/cohorts")
             # Send JWT token as HTTP-only cookie to the frontend (will not be available to JS code in the frontend)
             send_resp.set_cookie(
                 key="token",
