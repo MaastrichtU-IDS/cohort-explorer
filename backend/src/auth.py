@@ -41,7 +41,7 @@ class OAuth2AuthorizationCodeCookie(OAuth2AuthorizationCodeBearer):
 
 
 auth_params = {
-    "audience": "https://other-ihi-app",
+    "audience": "https://explorer.icare4cvd.eu",
     "redirect_uri": settings.redirect_uri,
 }
 
@@ -51,7 +51,7 @@ oauth2_scheme = OAuth2AuthorizationCodeCookie(
     scopes={
         "openid": "OpenID Connect",
         "email": "Access user email",
-        "read:datasets-descriptions": "Access datasets descriptions",
+        "read:icare4cvd-dataset-descriptions": "Access iCARE4CVD datasets descriptions",
     },
 )
 
@@ -117,8 +117,8 @@ async def auth_callback(code: str) -> RedirectResponse:
 
         # Check in payload if logged in user has the required permissions
         if (
-            "https://other-ihi-app" in access_payload["aud"]
-            and "read:datasets-descriptions" in access_payload["permissions"]
+            "https://explorer.icare4cvd.eu" in access_payload["aud"]
+            # and "read:icare4cvd-dataset-descriptions" in access_payload["permissions"]
         ):
             user_email = id_payload["email"]
             # Reuse expiration time from decentriq Auth0 access token

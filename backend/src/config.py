@@ -18,7 +18,7 @@ class Settings:
     client_id: str = field(default_factory=lambda: os.getenv("CLIENT_ID", ""))
     client_secret: str = field(default_factory=lambda: os.getenv("CLIENT_SECRET", ""))
     response_type: str = field(default_factory=lambda: os.getenv("RESPONSE_TYPE", "code"))
-    scope: str = field(default_factory=lambda: os.getenv("SCOPE", "openid email read:datasets-descriptions"))
+    scope: str = field(default_factory=lambda: os.getenv("SCOPE", "openid email read:icare4cvd-dataset-descriptions"))
     jwt_secret: str = field(
         default_factory=lambda: os.getenv("JWT_SECRET", "vCitcsPBwH4BMCwEqlO1aHJSIn--usrcyxPPRbeYdHM")
     )
@@ -68,7 +68,7 @@ settings = Settings()
 #     client_id: str = ""
 #     client_secret: str = ""
 #     response_type: str = "code"
-#     scope: str = "email read:datasets-descriptions"
+#     scope: str = "email read:icare4cvd-dataset-descriptions"
 #     # openid required to access userinfo?
 #     # read required to check that it's indeed a IHI/ICare4CVD user.
 
