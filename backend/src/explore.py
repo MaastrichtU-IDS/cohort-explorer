@@ -41,7 +41,7 @@ async def search_concepts(query: str, domain: list[str] | None = Query(default=N
     """Search for concepts in the Athena API and check how many time those concepts are use in our KG."""
     if not domain:
         domain = []
-    vocabs = ["LOINC", "ATC", "SNOMED", "RxNorm"]
+    vocabs = ["LOINC", "ATC", "SNOMED"] # "RxNorm"
     try:
         response = requests.get(
             "https://athena.ohdsi.org/api/v1/concepts",

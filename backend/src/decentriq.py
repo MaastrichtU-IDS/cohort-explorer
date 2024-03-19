@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends
 from src.auth import get_current_user
 from src.config import settings
 from src.models import Cohort
+from src.utils import retrieve_cohorts_metadata
 
 router = APIRouter()
 
@@ -78,9 +79,11 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
 async def create_compute_dcr(
     cohorts_request: dict[str, Any],
     user: Any = Depends(get_current_user),
-) -> dict[str, str]:
+) -> dict[str, Any]:
     """Create a Data Clean Room for computing with the cohorts requested using Decentriq SDK"""
     users = [user["email"]]
+    # Get metadata for selected cohorts
+    cohorts = {cohort_id: metadata for cohort_id, metadata in retrieve_cohorts_metadata(user["email"]).items() if cohort_id in cohorts_request["cohorts"]}
 
     # Establish connection to Decentriq
     client = dq.create_client(settings.decentriq_email, settings.decentriq_token)
@@ -100,9 +103,9 @@ async def create_compute_dcr(
     builder = dq.DataRoomBuilder(f"iCare4CVD DCR compute {dcr_count}", enclave_specs=enclave_specs)
 
     # Convert cohort variables to decentriq schema
-    for cohort_id, cohort_dict in cohorts_request["cohorts"].items():
+    for cohort_id, cohort in cohorts.items():
         # Create data node for cohort
-        data_node_builder = dqsql.TabularDataNodeBuilder(cohort_id, schema=get_cohort_schema(cohort_dict))
+        data_node_builder = dqsql.TabularDataNodeBuilder(cohort_id, schema=get_cohort_schema(cohort))
         data_node_builder.add_to_builder(builder, authentication=client.decentriq_pki_authentication, users=users)
 
     # Add empty list of permissions

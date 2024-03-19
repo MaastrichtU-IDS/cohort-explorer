@@ -307,7 +307,7 @@ async def upload_cohort(
         raise e
 
     cohorts_dict = retrieve_cohorts_metadata(user["email"])
-    dcr_data = create_provision_dcr(user, cohorts_dict[cohort_id])
+    dcr_data = create_provision_dcr(user, cohorts_dict.get(cohort_id))
     # print(dcr_data)
     # Save data file
     if cohort_data:

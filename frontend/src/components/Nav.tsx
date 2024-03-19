@@ -66,7 +66,9 @@ export function Nav() {
     const requestBody = {cohorts: {}};
     for (const cohortId of dataCleanRoom.cohorts as string[]) {
       // @ts-ignore
-      requestBody.cohorts[cohortId] = cohortsData[cohortId];
+      // requestBody.cohorts[cohortId] = cohortsData[cohortId];
+      // NOTE: variables is left empty for now, placeholder for later when users will be able to select also variables
+      requestBody.cohorts[cohortId] = {"variables": []};
     }
     console.log('requestBody', requestBody);
     try {
