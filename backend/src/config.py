@@ -11,6 +11,7 @@ load_dotenv(".env")
 @dataclass
 class Settings:
     frontend_url: str = field(default_factory=lambda: os.getenv("FRONTEND_URL", "http://localhost:3001"))
+    api_host: str = field(default_factory=lambda: os.getenv("VIRTUAL_HOST", "localhost:3001"))
     redirect_uri: str = field(default_factory=lambda: os.getenv("REDIRECT_URI", "http://localhost:3000/cb"))
     sparql_endpoint: str = field(default_factory=lambda: os.getenv("SPARQL_ENDPOINT", "http://localhost:7878"))
 
@@ -28,6 +29,13 @@ class Settings:
     admins: str = field(default_factory=lambda: os.getenv("ADMINS", ""))
 
     data_folder: str = field(default_factory=lambda: os.getenv("DATA_FOLDER", "../data"))
+
+    @property
+    def redirect_uri(self) -> str:
+        if self.api_host.startswith("localhost"):
+            return f"http://{self.api_host}/cb"
+        else:
+            return f"https://{self.api_host}/cb"
 
     @property
     def query_endpoint(self) -> str:
