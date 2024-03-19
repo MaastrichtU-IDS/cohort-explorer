@@ -12,7 +12,6 @@ load_dotenv(".env")
 class Settings:
     frontend_url: str = field(default_factory=lambda: os.getenv("FRONTEND_URL", "http://localhost:3001"))
     api_host: str = field(default_factory=lambda: os.getenv("VIRTUAL_HOST", "localhost:3001"))
-    redirect_uri: str = field(default_factory=lambda: os.getenv("REDIRECT_URI", "http://localhost:3000/cb"))
     sparql_endpoint: str = field(default_factory=lambda: os.getenv("SPARQL_ENDPOINT", "http://localhost:7878"))
 
     auth_endpoint: str = field(default_factory=lambda: os.getenv("AUTH_ENDPOINT", ""))
