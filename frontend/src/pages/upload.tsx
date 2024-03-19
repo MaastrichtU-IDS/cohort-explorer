@@ -1,17 +1,19 @@
 'use client';
 
 import React, {useState} from 'react';
+import { Upload, UploadCloud } from 'react-feather';
 import {useCohorts} from '@/components/CohortsContext';
 import {TrashIcon} from '@/components/Icons';
 import {apiUrl} from '@/utils';
 
 export default function UploadPage() {
-  const {cohortsData} = useCohorts();
+  const {cohortsData, fetchCohortsData} = useCohorts();
   const [cohortId, setCohortId] = useState('');
   const [metadataFile, setMetadataFile]: any = useState(null);
   const [dataFile, setDataFile]: any = useState(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [publishedDCR, setPublishedDCR]: any = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
 
   // const cohortsNoVariables = cohortsData
   //   ? Object.keys(cohortsData).filter(cohortId => Object.keys(cohortsData[cohortId]['variables']).length === 0)
@@ -45,19 +47,18 @@ export default function UploadPage() {
 
   const handleSubmit = async (event: any) => {
     event.preventDefault();
-
+    setPublishedDCR(null);
+    setIsLoading(true);
     const formData = new FormData();
     formData.append('cohort_id', cohortId);
     formData.append('cohort_dictionary', metadataFile);
     if (dataFile) formData.append('cohort_data', dataFile);
-
     try {
       const response = await fetch(`${apiUrl}/upload-cohort`, {
         method: 'POST',
         body: formData,
         credentials: 'include'
       });
-
       const result = await response.json();
       if (!response.ok) {
         // TODO: Improve extraction of error returned by FastAPI here
@@ -73,14 +74,16 @@ export default function UploadPage() {
         throw new Error(JSON.stringify(result, null, 2));
       }
       setPublishedDCR(result);
-      // setSuccessMessage(result.message + ' Reload the page to see the new uploaded cohort.');
       clearMetadataFile();
       clearDataFile();
       setCohortId('');
       setErrorMessage('');
+      setIsLoading(false);
       console.log(result);
+      fetchCohortsData();
       // Handle success
     } catch (error: any) {
+      setIsLoading(false);
       console.error('Error uploading files:', error);
       setErrorMessage(error.message || 'Failed to upload files');
       setPublishedDCR(null);
@@ -90,7 +93,7 @@ export default function UploadPage() {
 
   return (
     <main className="flex justify-center p-4">
-      <form onSubmit={handleSubmit} className="max-w-lg w-full space-y-4">
+      <form onSubmit={handleSubmit} className="max-w-xl w-full space-y-4">
         <div>
           <label htmlFor="cohortId" className="block text-sm">
             Cohort ID
@@ -103,10 +106,14 @@ export default function UploadPage() {
             required
           >
             <option value="">Select the cohort to upload</option>
-            {cohortsNoVariables.map(cohortId => (
-              <option key={cohortId} value={cohortId}>
-                {cohortId}
-              </option>
+            {cohortsNoVariables.map((cohortId: string) => (
+              cohortsData[cohortId]['can_edit'] ? (
+                <React.Fragment key={cohortId}>
+                  <option value={cohortId}>
+                    {cohortId}
+                  </option>
+                </React.Fragment>
+              ) : null
             ))}
           </select>
         </div>
@@ -114,11 +121,20 @@ export default function UploadPage() {
         {/* Upload cohort metadata file */}
         <div className="flex items-center">
           <label htmlFor="metadataFile" className="block text-sm">
-            Cohort data dictionary{' '}
+            <div role="alert" className="alert alert-success">
+              <svg xmlns="http://www.w3.org/2000/svg" className="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              <span>
+                Upload the cohort variables dictionary{' '}<b>
+                  <code>.csv</code>
+                </b>{' '}
+                file (just metadata)
+              </span>
+            </div>
+            {/* SAFE: Cohort variables data dictionary{' '}
             <b>
               <code>.csv</code>
             </b>{' '}
-            file (variables metadata)
+            file (metadata) */}
           </label>
           {metadataFile && (
             <button type="button" onClick={clearMetadataFile} className="ml-2 btn btn-xs btn-neutral">
@@ -131,7 +147,10 @@ export default function UploadPage() {
         {/* Upload data file */}
         <div className="flex items-center">
           <label htmlFor="dataFile" className="block text-sm">
-            Cohort data file (optional)
+            <div role="alert" className="alert alert-warning">
+              <svg xmlns="http://www.w3.org/2000/svg" className="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+              <span><b>Optional</b> sensible data: upload the actual cohort patients data file, if you wish to let the server upload the data to Decentriq for you</span>
+            </div>
           </label>
           {dataFile && (
             <button type="button" onClick={clearDataFile} className="ml-2 btn btn-xs btn-neutral">
@@ -142,10 +161,17 @@ export default function UploadPage() {
         <input type="file" id="dataFile" className="mt-2" onChange={handleDataFilesChange} />
 
         <div>
-          <button type="submit" className="btn btn-sm btn-success mt-6 text-slate-900 font-normal">
+          <button type="submit" className="btn btn-sm btn-info mt-6 text-slate-900 font-normal">
+            <Upload className='w-4 h-4' />
             Upload
           </button>
           {/* {successMessage && <p className="bg-success text-slate-900 mt-8 rounded-lg p-3">{successMessage}</p>} */}
+          {isLoading &&
+            <div className='flex flex-col items-center opacity-70 text-slate-500 mt-5 mb-5'>
+              <span className="loading loading-spinner loading-lg mb-4"></span>
+              <p>Creating Data Clean Room to provision cohort {cohortId} in Decentriq...</p>
+            </div>
+          }
           {publishedDCR && (
             <div className="card card-compact">
               <div className="card-body bg-success mt-8 rounded-lg text-slate-900">
@@ -156,12 +182,15 @@ export default function UploadPage() {
                   </a>{' '}
                   published.
                 </p>
-                <p>You can now access this Data Clean Room in Decentriq to upload the cohort dataset.</p>
-                <p>ℹ️ You will need to reload the page to see the new uploaded cohort in the explorer (ctrl+R).</p>
+                {!dataFile ? (
+                  <p>You can now access this Data Clean Room in Decentriq to safely upload the cohort dataset.</p>
+                ) : (
+                  <p>The provided cohort data file has been automatically uploaded to Decentriq.</p>
+                )}
               </div>
             </div>
           )}
-          {errorMessage && <p className="bg-red-500 mt-8 rounded-lg p-3">{errorMessage}</p>}
+          {errorMessage && <p className="bg-red-500 mt-8 rounded-lg p-3 whitespace-pre-line">{errorMessage}</p>}
         </div>
       </form>
     </main>

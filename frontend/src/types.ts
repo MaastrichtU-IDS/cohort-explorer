@@ -1,7 +1,7 @@
 export interface Cohort {
   cohort_id: string;
   cohort_type: string;
-  cohort_email: string;
+  cohort_email: string[];
   institution: string;
   study_type: string;
   study_participants: number;
@@ -54,4 +54,5 @@ export interface AutocompleteConceptProps {
   index?: string;
   cohortId?: string;
   tooltip?: string;
+  canEdit?: boolean;
 };

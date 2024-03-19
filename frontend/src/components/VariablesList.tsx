@@ -209,6 +209,7 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
                       index={`${cohortId}_${variable.index}`}
                       tooltip={variable.mapped_label || variable.mapped_id || variable.concept_id}
                       onSelect={(concept: any) => handleConceptSelect(variable.var_name, concept)}
+                      canEdit={cohortsData[cohortId].can_edit}
                     />
                     {/* )} */}
                     <button
@@ -243,6 +244,7 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
                             index={`${cohortId}_${variable.index}_inside`}
                             tooltip={variable.mapped_label || variable.mapped_id || variable.concept_id}
                             onSelect={(concept: any) => handleConceptSelect(variable.var_name, concept)}
+                            canEdit={cohortsData[cohortId].can_edit}
                           />
                         </div>
                       </div>
@@ -285,6 +287,7 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
                                     value={option.mapped_id}
                                     tooltip={option.mapped_label || option.mapped_id}
                                     onSelect={concept => handleConceptSelect(variable.var_name, concept, index)}
+                                    canEdit={cohortsData[cohortId].can_edit}
                                   />
                                 </td>
                               </tr>

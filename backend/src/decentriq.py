@@ -11,22 +11,22 @@ from src.models import Cohort
 router = APIRouter()
 
 
-def get_cohort_schema(cohort_dict: dict[str, Any]) -> list[tuple[str, dqsql.PrimitiveType, bool]]:
+def get_cohort_schema(cohort_dict: Cohort) -> list[tuple[str, dqsql.PrimitiveType, bool]]:
     """Convert cohort variables to Decentriq schema"""
     schema = []
-    for variable_id, variable_info in cohort_dict["variables"].items():
+    for variable_id, variable_info in cohort_dict.variables.items():
         prim_type = dqsql.PrimitiveType.STRING
-        if variable_info["var_type"] == "FLOAT":
+        if variable_info.var_type == "FLOAT":
             prim_type = dqsql.PrimitiveType.FLOAT64
-        if variable_info["var_type"] == "INT":
+        if variable_info.var_type == "INT":
             prim_type = dqsql.PrimitiveType.INT64
-        nullable = bool("na" in variable_info and variable_info["na"] != 0)
+        nullable = bool(variable_info.na != 0)
         schema.append((variable_id, prim_type, nullable))
     return schema
 
 
 # https://docs.decentriq.com/sdk/python-getting-started
-def create_provision_dcr(user: Any, cohort_dict: Cohort) -> dict[str, Any]:
+def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
     """Initialize a Data Clean Room in Decentriq when a new cohort is uploaded"""
     users = [user["email"]]
 
@@ -42,10 +42,10 @@ def create_provision_dcr(user: Any, cohort_dict: Cohort) -> dict[str, Any]:
     session = client.create_session(auth, enclave_specs)
 
     # Creation of a Data Clean Room (DCR)
-    builder = dq.DataRoomBuilder(f"iCare4CVD DCR provision {cohort_dict['cohort_id']}", enclave_specs=enclave_specs)
+    builder = dq.DataRoomBuilder(f"iCare4CVD DCR provision {cohort.cohort_id}", enclave_specs=enclave_specs)
 
     # Create data node for cohort
-    data_node_builder = dqsql.TabularDataNodeBuilder(cohort_dict["cohort_id"], schema=get_cohort_schema(cohort_dict))
+    data_node_builder = dqsql.TabularDataNodeBuilder(cohort.cohort_id, schema=get_cohort_schema(cohort))
     data_node_builder.add_to_builder(builder, authentication=client.decentriq_pki_authentication, users=users)
 
     builder.add_user_permission(
@@ -61,12 +61,12 @@ def create_provision_dcr(user: Any, cohort_dict: Cohort) -> dict[str, Any]:
     dcr_desc = client.get_data_room_description(data_room_id, enclave_specs)
     dcr_url = f"https://platform.decentriq.com/datarooms/p/{data_room_id}"
     return {
-        "message": f"Data Clean Room for {cohort_dict['cohort_id']} provisioned at {dcr_url}",
-        "identifier": cohort_dict["cohort_id"],
+        "message": f"Data Clean Room for {cohort.cohort_id} provisioned at {dcr_url}",
+        "identifier": cohort.cohort_id,
         "dcr_url": dcr_url,
         "dcr_title": dcr_desc["title"],
         "dcr": dcr_desc,
-        **cohort_dict,
+        **cohort.dict(),
     }
 
 

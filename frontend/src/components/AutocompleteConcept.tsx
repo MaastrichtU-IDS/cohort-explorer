@@ -1,6 +1,7 @@
 import React, {useState, useEffect} from 'react';
 import {AutocompleteConceptProps, Concept} from '@/types';
 import {apiUrl} from '@/utils';
+import {useCohorts} from '@/components/CohortsContext';
 
 const acceptedDomains = [
   'Condition',
@@ -55,8 +56,10 @@ const AutocompleteConcept: React.FC<AutocompleteConceptProps> = ({
   value = '',
   domain = '',
   index = '',
-  tooltip = ''
+  tooltip = '',
+  canEdit = false
 }: any) => {
+  // const {cohortsData, fetchCohortsData} = useCohorts();
   const [filteredSuggestions, setFilteredSuggestions] = useState<Concept[]>([]);
   const [inputValue, setInputValue] = useState(query);
   const [debouncedInput, setDebouncedInput] = useState('');
@@ -101,7 +104,7 @@ const AutocompleteConcept: React.FC<AutocompleteConceptProps> = ({
           return response.json();
         })
         .then(data => {
-          // console.log('Autocomplete response', data);
+          // console.log('DEBUG: Autocomplete response', data);
           setFilteredSuggestions(data);
         })
         .catch(error => setErrorMsg(error.message));
@@ -137,20 +140,26 @@ const AutocompleteConcept: React.FC<AutocompleteConceptProps> = ({
 
   return (
     <div>
-      <button
-        className={`badge badge-outline tooltip tooltip-bottom hover:bg-base-300 before:max-w-[10rem] before:content-[attr(data-tip)] before:whitespace-pre-wrap`}
-        data-tip={tooltip}
-        onClick={() => {
-          if (query && !inputValue) setInputValue(query);
-          setIsUserInteracted(true);
-          setTimeout(() => {
-            // @ts-ignore
-            document.getElementById(autocompleteModalId)?.showModal();
-          }, 0)
-        }}
-      >
-        {value ? `🪪 ${value}` : 'Map to concept'}
-      </button>
+      {canEdit &&
+        <button
+          className={`badge badge-outline tooltip tooltip-bottom hover:bg-base-300 before:max-w-[10rem] before:content-[attr(data-tip)] before:whitespace-pre-wrap`}
+          data-tip={tooltip}
+          onClick={() => {
+            if (query && !inputValue) setInputValue(query);
+            setIsUserInteracted(true);
+            setTimeout(() => {
+              // @ts-ignore
+              document.getElementById(autocompleteModalId)?.showModal();
+            }, 0)
+          }}
+        >
+          {value ? `🪪 ${value}` : 'Map to concept'}
+        </button>
+      }
+      {(!canEdit && value) &&
+        <span className="badge badge-outline">{`🪪 ${value}`}</span>
+      }
+
       {isUserInteracted &&
         <dialog id={autocompleteModalId} className="modal">
           <div className="modal-box space-y-2 max-w-none w-fit">
@@ -166,9 +175,9 @@ const AutocompleteConcept: React.FC<AutocompleteConceptProps> = ({
               {/* Domain filter dropdown */}
               <div className="dropdown dropdown-end ml-2">
                 <label tabIndex={0} className="btn btn-md">Filter by domains</label>
-                <ul tabIndex={0} className="dropdown-content menu menu-horizontal shadow bg-base-100 rounded-box w-52">
+                <ul tabIndex={0} className="dropdown-content menu menu-horizontal shadow bg-base-100 rounded-box w-52 z-50">
                   {acceptedDomains.map(domain => (
-                    <li key={domain}>
+                    <li key={domain} className='opacity-100'>
                       <label>
                         <input
                           type="checkbox"

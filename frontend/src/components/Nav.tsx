@@ -2,6 +2,7 @@
 
 import React, {useState, useEffect} from 'react';
 import Link from 'next/link';
+import {LogIn, LogOut, Compass, Upload} from 'react-feather';
 import {useCohorts} from '@/components/CohortsContext';
 import {DarkThemeIcon, LightThemeIcon} from '@/components/Icons';
 import {apiUrl} from '@/utils';
@@ -50,7 +51,7 @@ export function Nav() {
       .then(response => response.json())
       .then(data => {
         if (!data['detail']) {
-          setUserEmail('');
+          setUserEmail(null);
           setCohortsData(null);
           setDataCleanRoom({cohorts: []});
           // Redirect to home page or login page after logout
@@ -98,10 +99,10 @@ export function Nav() {
       <div className="navbar-start">
         <ul className="menu menu-horizontal gap-2 my-0 py-0 pl-6 hidden lg:flex">
           <li>
-            <Link href="/upload">Upload</Link>
+            <Link href="/upload"><Upload />Upload</Link>
           </li>
           <li>
-            <Link href="/cohorts">Explore</Link>
+            <Link href="/cohorts"><Compass />Explore</Link>
           </li>
         </ul>
         {/* <div className="dropdown lg:hidden">
@@ -128,7 +129,9 @@ export function Nav() {
             Data Clean Room <div className="badge badge-neutral">{dataCleanRoom?.cohorts.length || 0}</div>
           </button>
 
-          {userEmail ? <button onClick={handleLogout}>Logout</button> : <a href={`${apiUrl}/login`}>Login</a>}
+          { userEmail
+            ? <button onClick={handleLogout} className='flex space-x-2 p-2 rounded-lg hover:bg-neutral-300'><LogOut /><span>Logout</span></button>
+            : <a href={`${apiUrl}/login`} className='flex space-x-2 p-2 rounded-lg hover:bg-neutral-300'><LogIn /><span>Login</span></a>}
 
           {/* Add light/dark theme switch */}
           <label className="cursor-pointer grid place-items-center">

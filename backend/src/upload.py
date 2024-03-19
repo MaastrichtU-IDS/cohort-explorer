@@ -38,13 +38,13 @@ def publish_graph_to_endpoint(g: Graph, graph_uri: str | None = None) -> bool:
     return response.ok
 
 
-def delete_existing_triples(cohort_uri: str | URIRef, subject="?s", predicate="?p"):
+def delete_existing_triples(graph_uri: str | URIRef, subject="?s", predicate="?p"):
     """Function to delete existing triples in a cohort's graph"""
     query = f"""
     PREFIX icare: <https://w3id.org/icare4cvd/>
     PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
     DELETE WHERE {{
-        GRAPH <{cohort_uri!s}> {{ {subject} {predicate} ?o . }}
+        GRAPH <{graph_uri!s}> {{ {subject} {predicate} ?o . }}
     }}
     """
     query_endpoint = SPARQLWrapper(settings.update_endpoint)
@@ -57,9 +57,11 @@ def delete_existing_triples(cohort_uri: str | URIRef, subject="?s", predicate="?
 def get_cohort_uri(cohort_id: str) -> URIRef:
     return ICARE[f"cohort/{cohort_id.replace(' ', '_')}"]
 
+def get_cohort_mapping_uri(cohort_id: str) -> URIRef:
+    return ICARE[f"cohort/{cohort_id.replace(' ', '_')}/mappings"]
 
-def get_var_uri(cohort_uri: str | URIRef, var_id: str) -> URIRef:
-    return URIRef(f"{cohort_uri!s}/{var_id.replace(' ', '_')}")
+def get_var_uri(cohort_id: str | URIRef, var_id: str) -> URIRef:
+    return ICARE[f"cohort/{cohort_id.replace(' ', '_')}/{var_id.replace(' ', '_')}"]
 
 
 def get_category_uri(var_uri: str | URIRef, category_id: str) -> URIRef:
@@ -81,24 +83,35 @@ def insert_triples(
     category_id: str | None = Form(None),
     user: Any = Depends(get_current_user),
 ) -> None:
-    """Insert triples about cohorts variables or variables categories into the triplestore"""
-    cohort_uri = get_cohort_uri(cohort_id)
-    subject_uri = get_var_uri(cohort_uri, var_id)
+    """Insert triples about mappings for cohorts variables or variables categories into the triplestore"""
+    cohort_info = retrieve_cohorts_metadata(user["email"]).get(cohort_id)
+    if not cohort_info:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Cohort ID {cohort_id} does not exists",
+        )
+    if not cohort_info.can_edit:
+        raise HTTPException(
+            status_code=403,
+            detail=f"User {user['email']} cannot edit cohort {cohort_id}",
+        )
+    graph_uri = get_cohort_mapping_uri(cohort_id)
+    subject_uri = get_var_uri(cohort_id, var_id)
     if category_id:
         subject_uri = get_category_uri(subject_uri, category_id)
         # TODO: handle when a category is provided (we add triple to the category instead of the variable)
-    delete_existing_triples(cohort_uri, f"<{subject_uri!s}>", predicate)
+    delete_existing_triples(graph_uri, f"<{subject_uri!s}>", predicate)
     label_part = ""
     object_uri = f"<{converter.expand(value)}>"
     if label:
-        delete_existing_triples(cohort_uri, f"{object_uri}", "rdfs:label")
+        delete_existing_triples(graph_uri, f"{object_uri}", "rdfs:label")
         label_part = f'{object_uri} rdfs:label "{label}" .'
     # TODO: some namespaces like Gender are not in the bioregistry
     query = f"""
     PREFIX icare: <https://w3id.org/icare4cvd/>
     PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
     INSERT DATA {{
-        GRAPH <{cohort_uri!s}> {{ <{subject_uri!s}> {predicate} {object_uri} . {label_part} }}
+        GRAPH <{graph_uri!s}> {{ <{subject_uri!s}> {predicate} {object_uri} . {label_part} }}
     }}
     """
     print(query)
@@ -146,10 +159,10 @@ def create_uri_from_id(row):
     return ", ".join(uris_list)
 
 
-accepted_datatypes = ["STR", "FLOAT", "INT", "DATETIME"]
+ACCEPTED_DATATYPES = ["STR", "FLOAT", "INT", "DATETIME"]
 
 
-def load_cohort_dict_file(dict_path: str, cohort_id: str, owner_email: str) -> Dataset:
+def load_cohort_dict_file(dict_path: str, cohort_id: str, user_email: str) -> Dataset:
     """Parse the cohort dictionary uploaded as excel or CSV spreadsheet, and load it to the triplestore"""
     # print(f"Loading dictionary {dict_path}")
     # df = pd.read_csv(dict_path) if dict_path.endswith(".csv") else pd.read_excel(dict_path)
@@ -169,24 +182,20 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, owner_email: str) -> D
     g = init_graph()
     g.add((cohort_uri, RDF.type, ICARE.Cohort, cohort_uri))
     g.add((cohort_uri, DC.identifier, Literal(cohort_id), cohort_uri))
-    g.add((cohort_uri, ICARE["owner"], Literal(owner_email), cohort_uri))
+    # g.add((cohort_uri, ICARE["owner"], Literal(owner_email), cohort_uri))
 
+    # Record all errors and raise them at the end
+    errors = []
     for i, row in df.iterrows():
         # Check if required columns are present
         if not row["VARIABLE NAME"] or not row["VARIABLE LABEL"] or not row["VAR TYPE"]:
-            raise HTTPException(
-                status_code=422,
-                detail=f"Row {i} is missing required data: variable_name, variable_label, or var_type",
-            )
-        if row["VAR TYPE"] not in accepted_datatypes:
-            raise HTTPException(
-                status_code=422,
-                detail=f"Row {i} for variable {row['VARIABLE NAME']} is using a wrong datatype: {row['VAR TYPE']}. It should be one of: {', '.join(accepted_datatypes)}",
-            )
+            errors.append(f"Row {i} is missing required data: variable_name, variable_label, or var_type")
+        if row["VAR TYPE"] not in ACCEPTED_DATATYPES:
+            errors.append(f"Row {i} for variable {row['VARIABLE NAME']} is using a wrong datatype: {row['VAR TYPE']}. It should be one of: {', '.join(ACCEPTED_DATATYPES)}")
         # TODO: raise error when duplicate value for VARIABLE LABEL?
 
         # Create a URI for the variable
-        variable_uri = get_var_uri(cohort_uri, row["VARIABLE NAME"])
+        variable_uri = get_var_uri(cohort_id, row["VARIABLE NAME"])
 
         # Add the type of the resource
         g.add((variable_uri, RDF.type, ICARE.Variable, cohort_uri))
@@ -212,10 +221,8 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, owner_email: str) -> D
             # Handle Category
             if column in ["categories"]:
                 if len(value) == 1:
-                    raise HTTPException(
-                        status_code=422,
-                        detail=f"Row {i} for variable {row['VARIABLE NAME']} has only one category {row['categories']}. It should have at least two.",
-                    )
+                    errors.append(f"Row {i} for variable {row['VARIABLE NAME']} has only one category {row['categories']}. It should have at least two.")
+                    continue
                 for index, category in enumerate(value):
                     cat_uri = get_category_uri(variable_uri, index)
                     g.add((variable_uri, ICARE["categories"], cat_uri, cohort_uri))
@@ -224,6 +231,11 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, owner_email: str) -> D
                     g.add((cat_uri, RDFS.label, Literal(category["label"]), cohort_uri))
                     # TODO: add categories
     # print(g.serialize(format="turtle"))
+    if len(errors) > 0:
+        raise HTTPException(
+            status_code=422,
+            detail="\n\n".join(errors),
+        )
     return g
 
 
@@ -238,20 +250,31 @@ async def upload_cohort(
     cohort_id: str = Form(...),
     cohort_dictionary: UploadFile = File(...),
     cohort_data: UploadFile | None = None,
-) -> dict[str, str]:
+) -> dict[str, Any]:
     """Upload a cohort metadata file to the server and add its variables to the triplestore."""
+    user_email = user["email"]
+    cohort_info = retrieve_cohorts_metadata(user["email"]).get(cohort_id)
+    # cohorts = retrieve_cohorts_metadata(user_email)
+    if not cohort_info:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Cohort ID {cohort_id} does not exists",
+        )
+    if not cohort_info.can_edit:
+        raise HTTPException(
+            status_code=403,
+            detail=f"User {user_email} cannot edit cohort {cohort_id}",
+        )
     # Create directory named after cohort_id
     cohorts_folder = os.path.join(settings.data_folder, "cohorts", cohort_id)
     os.makedirs(cohorts_folder, exist_ok=True)
-    owner_email = user["email"]
-    cohorts_info = retrieve_cohorts_metadata().get(cohort_id)
     # Check if cohort already uploaded
-    if len(cohorts_info.variables) > 0:
-        authorized_users = [*settings.admins_list, owner_email]
+    if cohort_info and len(cohort_info.variables) > 0:
+        authorized_users = [*settings.admins_list, user_email]
         if user["email"] not in authorized_users:
             raise HTTPException(status_code=403, detail=f"You are not the owner of cohort {cohort_id}.")
         # Make sure we keep the original owner in case an admin edits it
-        owner_email = cohorts_info.get("owner")
+        user_email = cohort_info.owner
         # Check for existing data dictionary file and back it up
         for file_name in os.listdir(cohorts_folder):
             if file_name.endswith("_datadictionary.csv"):
@@ -263,8 +286,7 @@ async def upload_cohort(
                 os.rename(existing_file_path, backup_file_path)
                 break  # Assuming there's only one data dictionary file per cohort
         # Delete graph for this file from triplestore
-        cohort_uri = ICARE[f"cohort/{cohort_id.strip().replace(' ', '_')}"]
-        delete_existing_triples(cohort_uri)
+        delete_existing_triples(get_cohort_uri(cohort_id))
 
     # Make sure metadata file ends with _datadictionary
     metadata_filename = cohort_dictionary.filename
@@ -278,13 +300,13 @@ async def upload_cohort(
         shutil.copyfileobj(cohort_dictionary.file, buffer)
 
     try:
-        g = load_cohort_dict_file(metadata_path, cohort_id, owner_email)
+        g = load_cohort_dict_file(metadata_path, cohort_id, user_email)
         publish_graph_to_endpoint(g)
     except Exception as e:
         os.remove(metadata_path)
         raise e
 
-    cohorts_dict = retrieve_cohorts_metadata()
+    cohorts_dict = retrieve_cohorts_metadata(user["email"])
     dcr_data = create_provision_dcr(user, cohorts_dict[cohort_id])
     # print(dcr_data)
     # Save data file
@@ -294,6 +316,62 @@ async def upload_cohort(
             shutil.copyfileobj(cohort_data.file, buffer)
     return dcr_data
 
+
+COHORTS_METADATA_FILEPATH = os.path.join(settings.data_folder, "iCARE4CVD_Cohorts.xlsx")
+
+@router.post(
+    "/upload-cohorts-metadata",
+    name="Upload metadata file for all cohorts",
+    response_description="Upload result",
+)
+async def upload_cohorts_metadata(
+    user: Any = Depends(get_current_user),
+    cohorts_metadata: UploadFile = File(...),
+) -> dict[str, Any]:
+    """Upload the file with all cohorts metadata to the server and triplestore."""
+    if user["email"] not in settings.admins_list:
+        raise HTTPException(status_code=403, detail="You need to be admin to perform this action.")
+    with open(COHORTS_METADATA_FILEPATH, "wb") as buffer:
+        shutil.copyfileobj(cohorts_metadata.file, buffer)
+    g = cohorts_metadata_file_to_graph(COHORTS_METADATA_FILEPATH)
+    if len(g) > 0:
+        delete_existing_triples(ICARE["graph/metadata"])
+        publish_graph_to_endpoint(g)
+
+
+def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
+    df = pd.read_excel(filepath, sheet_name="Descriptions")
+    df = df.fillna("")
+    g = init_graph()
+    for _i, row in df.iterrows():
+        cohort_id = str(row["Name of Study"]).strip()
+        # print(cohort_id)
+        cohort_uri = get_cohort_uri(cohort_id)
+        cohorts_graph = ICARE["graph/metadata"]
+
+        g.add((cohort_uri, RDF.type, ICARE.Cohort, cohorts_graph))
+        g.add((cohort_uri, DC.identifier, Literal(cohort_id), cohorts_graph))
+        g.add((cohort_uri, ICARE.institution, Literal(row["Institution"]), cohorts_graph))
+        if row["Contact partner"]:
+            g.add((cohort_uri, DC.creator, Literal(row["Contact partner"]), cohorts_graph))
+        if row["Email"]:
+            for email in row["Email"].split(";"):
+                g.add((cohort_uri, ICARE.email, Literal(email.strip()), cohorts_graph))
+        if row["Type"]:
+            g.add((cohort_uri, ICARE.cohort_type, Literal(row["Type"]), cohorts_graph))
+        if row["Study type"]:
+            g.add((cohort_uri, ICARE.study_type, Literal(row["Study type"]), cohorts_graph))
+        if row["N"]:
+            g.add((cohort_uri, ICARE.study_participants, Literal(row["N"]), cohorts_graph))
+        if row["Study duration"]:
+            g.add((cohort_uri, ICARE.study_duration, Literal(row["Study duration"]), cohorts_graph))
+        if row["Ongoing"]:
+            g.add((cohort_uri, ICARE.study_ongoing, Literal(row["Ongoing"]), cohorts_graph))
+        if row["Patient population"]:
+            g.add((cohort_uri, ICARE.study_population, Literal(row["Patient population"]), cohorts_graph))
+        if row["Primary objective"]:
+            g.add((cohort_uri, ICARE.study_objective, Literal(row["Primary objective"]), cohorts_graph))
+    return g
 
 def init_triplestore() -> None:
     """Initialize triplestore with the OMOP CDM ontology and the iCARE4CVD cohorts metadata."""
@@ -325,37 +403,7 @@ def init_triplestore() -> None:
                     print(f"💾 Triplestore initialization: added {len(g)} triples for cohorts {file}.")
 
     # Load cohorts metadata
-    df = pd.read_excel(f"{settings.data_folder}/iCARE4CVD_Cohorts.xlsx", sheet_name="Descriptions")
-    df = df.fillna("")
-
-    g = init_graph()
-    for _i, row in df.iterrows():
-        cohort_id = str(row["Name of Study"]).strip()
-        # print(cohort_id)
-        cohort_uri = get_cohort_uri(cohort_id)
-        cohorts_graph = ICARE["graph/metadata"]
-
-        g.add((cohort_uri, RDF.type, ICARE.Cohort, cohorts_graph))
-        g.add((cohort_uri, DC.identifier, Literal(cohort_id), cohorts_graph))
-        g.add((cohort_uri, ICARE.institution, Literal(row["Institution"]), cohorts_graph))
-        if row["Contact partner"]:
-            g.add((cohort_uri, DC.creator, Literal(row["Contact partner"]), cohorts_graph))
-        if row["Email"]:
-            g.add((cohort_uri, ICARE.email, Literal(row["Email"]), cohorts_graph))
-        if row["Type"]:
-            g.add((cohort_uri, ICARE.cohort_type, Literal(row["Type"]), cohorts_graph))
-        if row["Study type"]:
-            g.add((cohort_uri, ICARE.study_type, Literal(row["Study type"]), cohorts_graph))
-        if row["N"]:
-            g.add((cohort_uri, ICARE.study_participants, Literal(row["N"]), cohorts_graph))
-        if row["Study duration"]:
-            g.add((cohort_uri, ICARE.study_duration, Literal(row["Study duration"]), cohorts_graph))
-        if row["Ongoing"]:
-            g.add((cohort_uri, ICARE.study_ongoing, Literal(row["Ongoing"]), cohorts_graph))
-        if row["Patient population"]:
-            g.add((cohort_uri, ICARE.study_population, Literal(row["Patient population"]), cohorts_graph))
-        if row["Primary objective"]:
-            g.add((cohort_uri, ICARE.study_objective, Literal(row["Primary objective"]), cohorts_graph))
+    g = cohorts_metadata_file_to_graph(COHORTS_METADATA_FILEPATH)
 
     # g.serialize(f"{settings.data_folder}/cohort_explorer_triplestore.ttl", format="turtle")
     if publish_graph_to_endpoint(g):

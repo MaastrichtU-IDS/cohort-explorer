@@ -210,4 +210,3 @@ docker compose exec backend curl -X POST -T /data/triplestore_dump_20240225.nq -
 > \[!CAUTION]
 >
 > The path given for `triplestore_dump.nq` is **inside** the docker container
-

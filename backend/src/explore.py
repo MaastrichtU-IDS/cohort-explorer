@@ -1,8 +1,9 @@
+from dataclasses import field
 import os
 from typing import Any
 
 import requests
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 
 from src.auth import get_current_user
@@ -16,7 +17,7 @@ router = APIRouter()
 @router.get("/cohorts-metadata")
 def get_cohorts_metadata(user: Any = Depends(get_current_user)) -> dict[str, Cohort]:
     """Returns data dictionaries of all cohorts"""
-    return retrieve_cohorts_metadata()
+    return retrieve_cohorts_metadata(user["email"])
 
 
 @router.get("/cohort-spreadsheet/{cohort_id}")
@@ -36,12 +37,11 @@ async def download_cohort_spreasheet(cohort_id: str, user: Any = Depends(get_cur
 
 
 @router.get("/search-concepts")
-async def search_concepts(query: str, domain: list[str] | None = None, user: Any = Depends(get_current_user)):
+async def search_concepts(query: str, domain: list[str] | None = Query(default=None), user: Any = Depends(get_current_user)):
     """Search for concepts in the Athena API and check how many time those concepts are use in our KG."""
     if not domain:
         domain = []
-    vocabs = ["LOINC", "SNOMED", "RxNorm"]
-
+    vocabs = ["LOINC", "ATC", "SNOMED", "RxNorm"]
     try:
         response = requests.get(
             "https://athena.ohdsi.org/api/v1/concepts",
@@ -49,7 +49,7 @@ async def search_concepts(query: str, domain: list[str] | None = None, user: Any
                 "query": query,
                 "domain": domain,
                 "vocabulary": vocabs,
-                "standardConcept": "Standard",
+                "standardConcept": ["Standard", "Classification"],
                 "pageSize": 15,
                 "page": 1,
             },
@@ -97,22 +97,35 @@ async def search_concepts(query: str, domain: list[str] | None = None, user: Any
         }}
 
         GRAPH ?cohortVarGraph {{
-            OPTIONAL {{ ?cohort icare:owner ?owner . }}
             ?variable a icare:Variable ;
-                icare:mapped_id ?mappedId ;
                 dc:identifier ?varName ;
                 rdfs:label ?varLabel ;
                 icare:var_type ?varType ;
                 icare:index ?index ;
                 dcterms:isPartOf ?cohort .
-            OPTIONAL {{ ?mappedId rdfs:label ?mappedLabel }}
             OPTIONAL {{ ?variable icare:omop ?omopDomain }}
         }}
+
+        {{
+            GRAPH ?cohortMappingsGraph {{
+                ?variable icare:mapped_id ?mappedId .
+            }}
+        }} UNION {{
+            GRAPH ?cohortVarGraph {{
+                ?variable icare:categories ?category.
+            }}
+            GRAPH ?cohortMappingsGraph {{
+                ?category icare:mapped_id ?mappedId .
+            }}
+        }}
+        OPTIONAL {{ ?mappedId rdfs:label ?mappedLabel }}
     }}
     ORDER BY ?cohort ?index
     """
+    # TODO also get mappings from categories?
     # print(sparql_query)
     for row in run_query(sparql_query)["results"]["bindings"]:
+        print(row)
         # Find the concept in the list and add the cohort and variable to the used_by list
         for concept in found_concepts:
             if concept["uri"] == row["mappedId"]["value"]:
@@ -120,7 +133,7 @@ async def search_concepts(query: str, domain: list[str] | None = None, user: Any
                     "cohort_id": row["cohortId"]["value"],
                     "var_name": row["varName"]["value"],
                     "var_label": row["varLabel"]["value"],
-                    "omop_domain": row["omopDomain"]["value"],
+                    "omop_domain": row["omopDomain"]["value"] if "omopDomain" in row else None,
                 }
                 # NOTE: Normally the SPARQL query should note return duplicates, but in case it does:
                 # existing_entries = [entry for entry in concept["used_by"] if entry["cohort_id"] == used_by_entry["cohort_id"] and entry["var_name"] == used_by_entry["var_name"]]

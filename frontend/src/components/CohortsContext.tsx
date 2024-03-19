@@ -1,6 +1,6 @@
 'use client';
 
-import React, {createContext, useState, useEffect, useContext} from 'react';
+import React, {createContext, useState, useEffect, useContext, useRef, MutableRefObject} from 'react';
 import {Cohort} from '@/types';
 import {apiUrl} from '@/utils';
 
@@ -11,25 +11,60 @@ export const useCohorts = (): any => useContext(CohortsContext) || {};
 export const CohortsProvider = ({children}: any) => {
   const [cohortsData, setCohortsData]: [{[cohortId: string]: Cohort}, any] = useState({});
   const [dataCleanRoom, setDataCleanRoom] = useState({cohorts: []});
-  const [userEmail, setUserEmail] = useState('');
+  const [userEmail, setUserEmail]: [string | null, any] = useState('');
+  const worker: MutableRefObject<Worker | null> = useRef(null);
+
+  // Update cohorts data with a web worker in the background for smoothness
+  // const worker = new Worker('/cohortsWorker.js');
+  // worker.onmessage = (event) => {
+  //   // Update your state with the new data
+  //   const data = event.data;
+  //   if (!data.error) {
+  //     setCohortsData(data);
+  //     console.log('Updated context with data', data);
+  //   } else {
+  //     console.error('Error fetching data in worker:', data.error);
+  //   }
+  // };
 
   useEffect(() => {
     setDataCleanRoom(JSON.parse(sessionStorage.getItem('dataCleanRoom') || '{"cohorts": []}'));
-    if (Object.keys(cohortsData).length === 0) {
-      fetch(`${apiUrl}/cohorts-metadata`, {
-        credentials: 'include'
-      })
-        .then(response => response.json())
-        .then(data => {
-          console.log('Context data dict', data);
-          if (!data['detail']) {
-            setUserEmail('anything');
-            setCohortsData(data);
-          }
-        });
-    }
-  }, [cohortsData]);
 
+
+
+    // Update cohorts data with a web worker in the background for smoothness
+    worker.current = new Worker('/cohortsWorker.js');
+    worker.current.onmessage = (event) => {
+      const data = event.data;
+      if (!data.detail) {
+        setCohortsData(data);
+        // TODO: store actual user email?
+        setUserEmail('loggedIn');
+        // console.log('Updated context with data', data);
+      } else {
+        setUserEmail(null);
+        console.error('Error fetching data in worker:', data.detail);
+      }
+    }
+
+    // Fetch cohort data every minute with the worker
+    const intervalId = setInterval(() => {
+      fetchCohortsData()
+    }, 60000);
+    // Initial fetch
+    fetchCohortsData()
+    return () => {
+      clearInterval(intervalId);
+      worker.current?.terminate();
+    };
+  }, []);
+
+  // Fetch cohorts data from the API using the web worker
+  const fetchCohortsData = () => {
+    worker.current?.postMessage({ apiUrl });
+  }
+
+  // Update the metadata of a specific cohort in the context
   const updateCohortData = (cohortId: string, updatedData: any) => {
     setCohortsData((prevData: any) => {
       return {
@@ -42,7 +77,7 @@ export const CohortsProvider = ({children}: any) => {
   return (
     <CohortsContext.Provider
       // @ts-ignore
-      value={{cohortsData, setCohortsData, updateCohortData, dataCleanRoom, setDataCleanRoom, userEmail, setUserEmail}}
+      value={{cohortsData, setCohortsData, fetchCohortsData, updateCohortData, dataCleanRoom, setDataCleanRoom, userEmail, setUserEmail}}
     >
       {children}
     </CohortsContext.Provider>

@@ -7,7 +7,7 @@ import {Cohort} from '@/types';
 import VariablesList from '@/components/VariablesList';
 
 export default function CohortsList() {
-  const {cohortsData, updateCohortData, dataCleanRoom, setDataCleanRoom} = useCohorts();
+  const {cohortsData, userEmail, dataCleanRoom, setDataCleanRoom} = useCohorts();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDataTypes, setSelectedDataTypes] = useState(new Set());
   const [selectedStudyTypes, setSelectedStudyTypes] = useState(new Set());
@@ -84,11 +84,14 @@ export default function CohortsList() {
         </div>
 
         <div className="space-y-2">
-          {Object.keys(cohortsData).length === 0 &&
+          {(userEmail !== null && Object.keys(cohortsData).length === 0) &&
             <div className='flex flex-col items-center opacity-70 text-slate-500 mt-[20%]'>
               <span className="loading loading-spinner loading-lg mb-4"></span>
               <p>Loading cohorts...</p>
             </div>
+          }
+          {userEmail === null &&
+            <p className='text-red-500 text-center mt-[20%]'>Authenticate to access the explorer</p>
           }
           {filteredCohorts.map(cohortData => (
             <div
@@ -116,7 +119,9 @@ export default function CohortsList() {
                   {cohortData.study_ongoing && cohortData.study_ongoing === 'no' && (
                     <span className="badge badge-default mx-1">Completed study</span>
                   )}
-                  {cohortData.cohort_email && <span className="badge mx-2">✉️ {cohortData.cohort_email}</span>}
+                  {cohortData.cohort_email.map(email => (
+                    <span className="badge mx-2" key={cohortData.cohort_id + email}>✉️ {email}</span>
+                  ))}
                 </div>
               </div>
               <div className="collapse-content">

@@ -74,20 +74,25 @@ WHERE {
             OPTIONAL { ?variable icare:formula ?formula }
             OPTIONAL { ?variable icare:definition ?definition }
             OPTIONAL { ?variable icare:concept_id ?conceptId }
-            OPTIONAL {
-                ?variable icare:mapped_id ?mappedId .
-                OPTIONAL { ?mappedId rdfs:label ?mappedLabel }
-            }
             OPTIONAL { ?variable icare:omop ?omopDomain }
             OPTIONAL { ?variable icare:visits ?visits }
             OPTIONAL {
                 ?variable icare:categories ?category.
                 ?category rdfs:label ?categoryLabel ;
                     rdf:value ?categoryValue .
-                OPTIONAL {
-                    ?category icare:mapped_id ?categoryMappedId .
-                    OPTIONAL { ?categoryMappedId rdfs:label ?categoryMappedLabel }
-                }
+            }
+        }
+    }
+
+    OPTIONAL {
+        GRAPH ?cohortMappingsGraph {
+            OPTIONAL {
+                ?variable icare:mapped_id ?mappedId .
+                OPTIONAL { ?mappedId rdfs:label ?mappedLabel }
+            }
+            OPTIONAL {
+                ?category icare:mapped_id ?categoryMappedId .
+                OPTIONAL { ?categoryMappedId rdfs:label ?categoryMappedLabel }
             }
         }
     }
@@ -108,12 +113,12 @@ def get_curie_value(key: str, row: dict[str, Any]) -> int | None:
     return converter.compress(get_value(key, row)) if get_value(key, row) else None
 
 
-def retrieve_cohorts_metadata() -> dict[str, Cohort]:
+def retrieve_cohorts_metadata(user_email: str) -> dict[str, Cohort]:
     """Get all cohorts metadata from the SPARQL endpoint (infos, variables)"""
     results = run_query(get_variables_query)["results"]["bindings"]
     cohorts_with_variables = {}
     cohorts_without_variables = {}
-    # print(f"Get cohorts metadata query results: {len(results)}")
+    print(f"Get cohorts metadata query results: {len(results)}")
     for row in results:
         cohort_id = str(row["cohortId"]["value"])
         var_id = str(row["varName"]["value"]) if "varName" in row else None
@@ -125,8 +130,8 @@ def retrieve_cohorts_metadata() -> dict[str, Cohort]:
             target_dict[cohort_id] = Cohort(
                 cohort_id=row["cohortId"]["value"],  # Assuming cohortId is always present
                 cohort_type=get_value("cohortType", row),
-                cohort_email=get_value("cohortEmail", row),
-                owner=get_value("owner", row),
+                cohort_email=[get_value("cohortEmail", row)] if get_value("cohortEmail", row) else [],
+                # owner=get_value("owner", row),
                 institution=get_value("cohortInstitution", row),
                 study_type=get_value("study_type", row),
                 study_participants=get_value("study_participants", row),
@@ -135,7 +140,14 @@ def retrieve_cohorts_metadata() -> dict[str, Cohort]:
                 study_population=get_value("study_population", row),
                 study_objective=get_value("study_objective", row),
                 variables={},  # You might want to populate this separately, depending on your data structure
+                can_edit=user_email in [*settings.admins_list, get_value("cohortEmail", row)],
             )
+        elif get_value("cohortEmail", row) not in target_dict[cohort_id].cohort_email:
+            # Handle multiple emails for the same cohort
+            target_dict[cohort_id].cohort_email.append(get_value("cohortEmail", row))
+            if user_email == get_value("cohortEmail", row):
+                target_dict[cohort_id].can_edit = True
+
 
         # Process variables
         if "varName" in row and var_id not in target_dict[cohort_id].variables:

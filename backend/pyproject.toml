@@ -40,7 +40,7 @@ dependencies = [
     "oxrdflib",
     "SPARQLWrapper",
     "python-dotenv",
-    "decentriq_platform >=0.24.4", # TODO: conflict with pydantic 2
+    "decentriq_platform ==0.24.4", # TODO: conflict with pydantic 2
     "curies",
     # "pydantic >=2.0.0",
     # "pydantic-settings",

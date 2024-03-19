@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Optional
 
 
@@ -41,7 +41,7 @@ class Cohort:
 
     cohort_id: str
     cohort_type: Optional[str] = None
-    cohort_email: Optional[str] = None
+    cohort_email: list[str] = field(default_factory=list)
     owner: Optional[str] = None
     institution: str = ""
     study_type: Optional[str] = None
@@ -51,3 +51,7 @@ class Cohort:
     study_population: Optional[str] = None
     study_objective: Optional[str] = None
     variables: Dict[str, CohortVariable] = field(default_factory=dict)
+    can_edit: bool = False
+
+    def dict(self):
+        return {k: str(v) for k, v in asdict(self).items()}
