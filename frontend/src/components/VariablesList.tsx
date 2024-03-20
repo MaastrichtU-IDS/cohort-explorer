@@ -12,7 +12,7 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
   const [selectedDataTypes, setSelectedDataTypes] = useState(new Set());
   const [includeCategorical, setIncludeCategorical] = useState(true);
   const [includeNonCategorical, setIncludeNonCategorical] = useState(true);
-  const [openedModal, setOpenedModal] = useState("");
+  const [openedModal, setOpenedModal] = useState('');
 
   // When concept is selected, insert the triples into the database
   const handleConceptSelect = (varId: any, concept: Concept, categoryId: any = null) => {
@@ -47,15 +47,23 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
   };
 
   // Button to add cohort to data clean room
-  const addToDataCleanRoom = () => {
-    if (!dataCleanRoom.cohorts.includes(cohortId)) {
-      const updatedCleanRoom = {...dataCleanRoom};
-      updatedCleanRoom.cohorts.push(cohortId);
-      setDataCleanRoom(updatedCleanRoom);
-      // cleanRoomData.cohorts.push(selectedFile);
-      sessionStorage.setItem('dataCleanRoom', JSON.stringify(updatedCleanRoom));
-      // window.location.reload();
+  const addToDataCleanRoom = (var_name: string | null = null) => {
+    const updatedDcr = {...dataCleanRoom};
+    console.log('updatedDcr!', updatedDcr);
+    // updatedDcr.cohorts[cohortId] = cohortsData[cohortId]['variables'].map((variable: Variable) => variable.var_name);
+    // Add all variables to the DCR for this cohort
+    if (var_name) {
+      if (!updatedDcr.cohorts[cohortId]) {
+        updatedDcr.cohorts[cohortId] = [];
+      }
+      updatedDcr.cohorts[cohortId].push(var_name);
+    } else {
+      updatedDcr.cohorts[cohortId] = Object.entries(cohortsData[cohortId]['variables']).map(
+        ([variableName, variableData]: any) => variableName
+      );
     }
+    setDataCleanRoom(updatedDcr);
+    sessionStorage.setItem('dataCleanRoom', JSON.stringify(updatedDcr));
   };
 
   // Collect unique OMOP domains and data types from variables for filtering options
@@ -85,9 +93,17 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
         )
         .map(([variableName, variableData]: any) => ({...variableData, var_name: variableName}));
     } else {
-      return []
+      return [];
     }
-  }, [cohortsData, cohortId, searchFilters, selectedOMOPDomains, selectedDataTypes, includeCategorical, includeNonCategorical]);
+  }, [
+    cohortsData,
+    cohortId,
+    searchFilters,
+    selectedOMOPDomains,
+    selectedDataTypes,
+    includeCategorical,
+    includeNonCategorical
+  ]);
 
   // Function to handle downloading the cohort CSV
   const downloadCohortCSV = () => {
@@ -117,11 +133,13 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
   return (
     <main className="flex">
       <aside className="pr-4 text-center flex flex-col items-center min-w-fit">
-        {filteredVars.length > 0 && !dataCleanRoom.cohorts.includes(cohortId) ? (
+        {Object.keys(cohortsData[cohortId]['variables']).length > 0 &&
+        (!dataCleanRoom.cohorts[cohortId] ||
+          dataCleanRoom.cohorts[cohortId].length !== Object.keys(cohortsData[cohortId]['variables']).length) ? (
           <button
-            onClick={addToDataCleanRoom}
+            onClick={() => addToDataCleanRoom()}
             className="btn btn-neutral btn-sm mb-2 hover:bg-slate-600 tooltip tooltip-right"
-            data-tip="Add cohort to Data Clean Room"
+            data-tip={`Add all variables of the cohort ${cohortId} to your Data Clean Room`}
           >
             Add to DCR
           </button>
@@ -189,9 +207,9 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
         <div className="variable-list space-y-2">
           {filteredVars?.map((variable: any) => (
             <div key={variable.var_name} className="card card-compact card-bordered bg-base-100 shadow-xl">
-              <div className="card-body flex flex-row">
-                <div className="mr-4">
-                  <div className="flex items-center space-x-3">
+              <div className="card-body">
+                <div className="flex">
+                  <div className="flex grow items-center space-x-3">
                     <h2 className="font-bold text-lg">{variable.var_name}</h2>
                     {/* Badges for units and categorical variable */}
                     <span className="badge badge-ghost">{variable.var_type}</span>
@@ -215,21 +233,33 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
                     <button
                       className="btn-sm hover:bg-base-300 rounded-lg"
                       onClick={() => {
-                        setOpenedModal(variable.var_name)
+                        setOpenedModal(variable.var_name);
                         setTimeout(() => {
                           // @ts-ignore
-                          document.getElementById(`source_modal_${cohortId}_${variable.var_name}`)?.showModal()
-                        }, 0)
+                          document.getElementById(`source_modal_${cohortId}_${variable.var_name}`)?.showModal();
+                        }, 0);
                       }}
                     >
                       <InfoIcon />
                     </button>
+                    <div className="grow"></div>
                   </div>
-                  <p>{variable.var_label}</p>
+                  {!dataCleanRoom.cohorts[cohortId]?.includes(variable.var_name) ? (
+                    <button
+                      onClick={() => addToDataCleanRoom(variable.var_name)}
+                      className="btn btn-neutral btn-sm hover:bg-slate-600 tooltip tooltip-left"
+                      data-tip={`Add the \`${variable.var_name}\` variable of the ${cohortId} cohort to your Data Clean Room`}
+                    >
+                      Add to DCR
+                    </button>
+                  ) : (
+                    <div />
+                  )}
                 </div>
+                <p>{variable.var_label}</p>
 
                 {/* Popup with additional infos about the variable */}
-                {openedModal === variable.var_name &&
+                {openedModal === variable.var_name && (
                   <dialog id={`source_modal_${cohortId}_${variable.var_name}`} className="modal">
                     <div className="modal-box space-y-2 max-w-none w-fit">
                       <div className="flex justify-between items-start items-center">
@@ -315,7 +345,7 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
                       <button>close</button>
                     </form>
                   </dialog>
-                }
+                )}
 
                 {/* <div className='flex-grow'/>
                   <AutocompleteConcept

@@ -57,8 +57,10 @@ def delete_existing_triples(graph_uri: str | URIRef, subject="?s", predicate="?p
 def get_cohort_uri(cohort_id: str) -> URIRef:
     return ICARE[f"cohort/{cohort_id.replace(' ', '_')}"]
 
+
 def get_cohort_mapping_uri(cohort_id: str) -> URIRef:
     return ICARE[f"cohort/{cohort_id.replace(' ', '_')}/mappings"]
+
 
 def get_var_uri(cohort_id: str | URIRef, var_id: str) -> URIRef:
     return ICARE[f"cohort/{cohort_id.replace(' ', '_')}/{var_id.replace(' ', '_')}"]
@@ -182,7 +184,6 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, user_email: str) -> Da
     g = init_graph()
     g.add((cohort_uri, RDF.type, ICARE.Cohort, cohort_uri))
     g.add((cohort_uri, DC.identifier, Literal(cohort_id), cohort_uri))
-    # g.add((cohort_uri, ICARE["owner"], Literal(owner_email), cohort_uri))
 
     # Record all errors and raise them at the end
     errors = []
@@ -191,15 +192,17 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, user_email: str) -> Da
         if not row["VARIABLE NAME"] or not row["VARIABLE LABEL"] or not row["VAR TYPE"]:
             errors.append(f"Row {i} is missing required data: variable_name, variable_label, or var_type")
         if row["VAR TYPE"] not in ACCEPTED_DATATYPES:
-            errors.append(f"Row {i} for variable {row['VARIABLE NAME']} is using a wrong datatype: {row['VAR TYPE']}. It should be one of: {', '.join(ACCEPTED_DATATYPES)}")
+            errors.append(
+                f"Row {i} for variable {row['VARIABLE NAME']} is using a wrong datatype: {row['VAR TYPE']}. It should be one of: {', '.join(ACCEPTED_DATATYPES)}"
+            )
         # TODO: raise error when duplicate value for VARIABLE LABEL?
 
         # Create a URI for the variable
         variable_uri = get_var_uri(cohort_id, row["VARIABLE NAME"])
+        g.add((cohort_uri, ICARE.has_variable, variable_uri, cohort_uri))
 
         # Add the type of the resource
         g.add((variable_uri, RDF.type, ICARE.Variable, cohort_uri))
-        g.add((variable_uri, DCTERMS.isPartOf, cohort_uri, cohort_uri))
         g.add((variable_uri, DC.identifier, Literal(row["VARIABLE NAME"]), cohort_uri))
         g.add((variable_uri, RDFS.label, Literal(row["VARIABLE LABEL"]), cohort_uri))
         g.add((variable_uri, ICARE["index"], Literal(i, datatype=XSD.integer), cohort_uri))
@@ -221,7 +224,9 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, user_email: str) -> Da
             # Handle Category
             if column in ["categories"]:
                 if len(value) == 1:
-                    errors.append(f"Row {i} for variable {row['VARIABLE NAME']} has only one category {row['categories']}. It should have at least two.")
+                    errors.append(
+                        f"Row {i} for variable {row['VARIABLE NAME']} has only one category {row['categories']}. It should have at least two."
+                    )
                     continue
                 for index, category in enumerate(value):
                     cat_uri = get_category_uri(variable_uri, index)
@@ -253,7 +258,7 @@ async def upload_cohort(
 ) -> dict[str, Any]:
     """Upload a cohort metadata file to the server and add its variables to the triplestore."""
     user_email = user["email"]
-    cohort_info = retrieve_cohorts_metadata(user["email"]).get(cohort_id)
+    cohort_info = retrieve_cohorts_metadata(user_email).get(cohort_id)
     # cohorts = retrieve_cohorts_metadata(user_email)
     if not cohort_info:
         raise HTTPException(
@@ -270,16 +275,11 @@ async def upload_cohort(
     os.makedirs(cohorts_folder, exist_ok=True)
     # Check if cohort already uploaded
     if cohort_info and len(cohort_info.variables) > 0:
-        authorized_users = [*settings.admins_list, user_email]
-        if user["email"] not in authorized_users:
-            raise HTTPException(status_code=403, detail=f"You are not the owner of cohort {cohort_id}.")
-        # Make sure we keep the original owner in case an admin edits it
-        user_email = cohort_info.owner
         # Check for existing data dictionary file and back it up
         for file_name in os.listdir(cohorts_folder):
             if file_name.endswith("_datadictionary.csv"):
                 # Construct the backup file name with the current date
-                backup_file_name = f"{file_name.rsplit('.', 1)[0]}_{datetime.now().strftime('%Y%m%d')}.csv"
+                backup_file_name = f"{file_name.rsplit('.', 1)[0]}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
                 backup_file_path = os.path.join(cohorts_folder, backup_file_name)
                 existing_file_path = os.path.join(cohorts_folder, file_name)
                 # Rename (backup) the existing file
@@ -318,6 +318,7 @@ async def upload_cohort(
 
 
 COHORTS_METADATA_FILEPATH = os.path.join(settings.data_folder, "iCARE4CVD_Cohorts.xlsx")
+
 
 @router.post(
     "/upload-cohorts-metadata",
@@ -372,6 +373,7 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
         if row["Primary objective"]:
             g.add((cohort_uri, ICARE.study_objective, Literal(row["Primary objective"]), cohorts_graph))
     return g
+
 
 def init_triplestore() -> None:
     """Initialize triplestore with the OMOP CDM ontology and the iCARE4CVD cohorts metadata."""

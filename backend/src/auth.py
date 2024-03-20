@@ -41,7 +41,8 @@ class OAuth2AuthorizationCodeCookie(OAuth2AuthorizationCodeBearer):
 
 
 auth_params = {
-    "audience": "https://explorer.icare4cvd.eu",
+    # "audience": "https://explorer.icare4cvd.eu",
+    "audience": "https://other-ihi-app",
     "redirect_uri": settings.redirect_uri,
 }
 
@@ -110,14 +111,15 @@ async def auth_callback(code: str) -> RedirectResponse:
                 status_code=HTTP_401_UNAUTHORIZED,
                 detail="Invalid token",
             )
-        # print("ACCESS PAYLOAD", access_payload)
+        print("ACCESS PAYLOAD", access_payload)
         # NOTE: if needed user info can be retrieved later from the /userinfo endpoint using the provided access token
         # resp = await client.get(f"{settings.authorization_endpoint}/userinfo", headers={"Authorization": f"Bearer {token['access_token']}"})
         # print("user_info", resp.json())
 
         # Check in payload if logged in user has the required permissions
         if (
-            "https://explorer.icare4cvd.eu" in access_payload["aud"]
+            "https://explorer.icare4cvd.eu"
+            in access_payload["aud"]
             # and "read:icare4cvd-dataset-descriptions" in access_payload["permissions"]
         ):
             user_email = id_payload["email"]

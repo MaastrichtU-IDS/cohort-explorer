@@ -11,14 +11,14 @@ load_dotenv(".env")
 @dataclass
 class Settings:
     frontend_url: str = field(default_factory=lambda: os.getenv("FRONTEND_URL", "http://localhost:3001"))
-    api_host: str = field(default_factory=lambda: os.getenv("VIRTUAL_HOST", "localhost:3001"))
+    api_host: str = field(default_factory=lambda: os.getenv("VIRTUAL_HOST", "localhost:3000"))
     sparql_endpoint: str = field(default_factory=lambda: os.getenv("SPARQL_ENDPOINT", "http://localhost:7878"))
 
     auth_endpoint: str = field(default_factory=lambda: os.getenv("AUTH_ENDPOINT", ""))
     client_id: str = field(default_factory=lambda: os.getenv("CLIENT_ID", ""))
     client_secret: str = field(default_factory=lambda: os.getenv("CLIENT_SECRET", ""))
     response_type: str = field(default_factory=lambda: os.getenv("RESPONSE_TYPE", "code"))
-    scope: str = field(default_factory=lambda: os.getenv("SCOPE", "openid email read:icare4cvd-dataset-descriptions"))
+    scope: str = field(default_factory=lambda: os.getenv("SCOPE", "openid email read:permissions"))
     jwt_secret: str = field(
         default_factory=lambda: os.getenv("JWT_SECRET", "vCitcsPBwH4BMCwEqlO1aHJSIn--usrcyxPPRbeYdHM")
     )

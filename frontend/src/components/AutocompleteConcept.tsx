@@ -64,7 +64,9 @@ const AutocompleteConcept: React.FC<AutocompleteConceptProps> = ({
   const [inputValue, setInputValue] = useState(query);
   const [debouncedInput, setDebouncedInput] = useState('');
   const [isUserInteracted, setIsUserInteracted] = useState(false);
-  const [selectedDomains, setSelectedDomains] = useState<string[]>((domain && acceptedDomains.includes(domain.trim())) ? [domain.trim()] : acceptedDomains );
+  const [selectedDomains, setSelectedDomains] = useState<string[]>(
+    domain && acceptedDomains.includes(domain.trim()) ? [domain.trim()] : acceptedDomains
+  );
   const [errorMsg, setErrorMsg] = useState('');
   // const [selectedConcept, setSelectedConcept] = useState<Concept | null>(null);
 
@@ -88,14 +90,14 @@ const AutocompleteConcept: React.FC<AutocompleteConceptProps> = ({
   // Fetch suggestions from the API
   useEffect(() => {
     if (!isUserInteracted) return;
-    const domainBit = selectedDomains.map((domain) => `&domain=${domain}`).join("")
+    const domainBit = selectedDomains.map(domain => `&domain=${domain}`).join('');
     if (debouncedInput.length > 0 && isUserInteracted) {
       fetch(`${apiUrl}/search-concepts?query=${debouncedInput}${domainBit}`, {
         credentials: 'include'
       })
         .then(async response => {
           if (!response.ok) {
-            const res = await response.json()
+            const res = await response.json();
             if (res['detail']) {
               throw new Error(`${res['detail']} (status ${response.status})`);
             }
@@ -118,11 +120,7 @@ const AutocompleteConcept: React.FC<AutocompleteConceptProps> = ({
   };
 
   const handleDomainChange = (domain: string) => {
-    setSelectedDomains(prev =>
-      prev.includes(domain)
-        ? prev.filter(d => d !== domain)
-        : [...prev, domain]
-    );
+    setSelectedDomains(prev => (prev.includes(domain) ? prev.filter(d => d !== domain) : [...prev, domain]));
   };
 
   const handleSuggestionClick = (suggestion: Concept) => {
@@ -140,7 +138,7 @@ const AutocompleteConcept: React.FC<AutocompleteConceptProps> = ({
 
   return (
     <div>
-      {canEdit &&
+      {canEdit && (
         <button
           className={`badge badge-outline tooltip tooltip-bottom hover:bg-base-300 before:max-w-[10rem] before:content-[attr(data-tip)] before:whitespace-pre-wrap`}
           data-tip={tooltip}
@@ -150,46 +148,50 @@ const AutocompleteConcept: React.FC<AutocompleteConceptProps> = ({
             setTimeout(() => {
               // @ts-ignore
               document.getElementById(autocompleteModalId)?.showModal();
-            }, 0)
+            }, 0);
           }}
         >
           {value ? `🪪 ${value}` : 'Map to concept'}
         </button>
-      }
-      {(!canEdit && value) &&
-        <span className="badge badge-outline">{`🪪 ${value}`}</span>
-      }
+      )}
+      {!canEdit && value && <span className="badge badge-outline">{`🪪 ${value}`}</span>}
 
-      {isUserInteracted &&
+      {isUserInteracted && (
         <dialog id={autocompleteModalId} className="modal">
           <div className="modal-box space-y-2 max-w-none w-fit">
             <div className="justify-between items-start">
-            <div className="flex">
-              <input
-                type="text"
-                className="input input-bordered w-full mb-4"
-                value={inputValue}
-                onChange={handleInputChange}
-                placeholder="Search..."
-              />
-              {/* Domain filter dropdown */}
-              <div className="dropdown dropdown-end ml-2">
-                <label tabIndex={0} className="btn btn-md">Filter by domains</label>
-                <ul tabIndex={0} className="dropdown-content menu menu-horizontal shadow bg-base-100 rounded-box w-52 z-50">
-                  {acceptedDomains.map(domain => (
-                    <li key={domain} className='opacity-100'>
-                      <label>
-                        <input
-                          type="checkbox"
-                          checked={selectedDomains.includes(domain)}
-                          className="checkbox"
-                          onChange={() => handleDomainChange(domain)}
-                        /> {domain}
-                      </label>
-                    </li>
-                  ))}
-                </ul>
-              </div>
+              <div className="flex">
+                <input
+                  type="text"
+                  className="input input-bordered w-full mb-4"
+                  value={inputValue}
+                  onChange={handleInputChange}
+                  placeholder="Search..."
+                />
+                {/* Domain filter dropdown */}
+                <div className="dropdown dropdown-end ml-2">
+                  <label tabIndex={0} className="btn btn-md">
+                    Filter by domains
+                  </label>
+                  <ul
+                    tabIndex={0}
+                    className="dropdown-content menu menu-horizontal shadow bg-base-100 rounded-box w-52 z-50"
+                  >
+                    {acceptedDomains.map(domain => (
+                      <li key={domain} className="opacity-100">
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={selectedDomains.includes(domain)}
+                            className="checkbox"
+                            onChange={() => handleDomainChange(domain)}
+                          />{' '}
+                          {domain}
+                        </label>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               </div>
               {filteredSuggestions.length > 0 ? (
                 <table className="table-auto w-full">
@@ -210,11 +212,12 @@ const AutocompleteConcept: React.FC<AutocompleteConceptProps> = ({
                       >
                         <td>{suggestion.label}</td>
                         <td className="px-2">{suggestion.domain}</td>
-                        <td>
-                          {suggestion.id}
-                        </td>
-                        <td className={`tooltip tooltip-left before:max-w-[30rem] before:whitespace-pre-wrap text-center w-full`}
-                          data-tip={suggestion.used_by.map((variab: any) => `${variab.cohort_id} - ${variab.var_name} (${variab.var_label})`).join('\n')}
+                        <td>{suggestion.id}</td>
+                        <td
+                          className={`tooltip tooltip-left before:max-w-[30rem] before:whitespace-pre-wrap text-center w-full`}
+                          data-tip={suggestion.used_by
+                            .map((variab: any) => `${variab.cohort_id} - ${variab.var_name} (${variab.var_label})`)
+                            .join('\n')}
                         >
                           {suggestion.used_by.length}
                         </td>
@@ -227,7 +230,7 @@ const AutocompleteConcept: React.FC<AutocompleteConceptProps> = ({
                   {errorMsg ? (
                     <div className="text-red-500 text-center">{errorMsg}</div>
                   ) : (
-                    <div className='flex flex-col items-center opacity-70 text-slate-500 mt-5 mb-5'>
+                    <div className="flex flex-col items-center opacity-70 text-slate-500 mt-5 mb-5">
                       <span className="loading loading-spinner loading-lg mb-4"></span>
                       <p>Getting concepts suggestions...</p>
                     </div>
@@ -241,7 +244,7 @@ const AutocompleteConcept: React.FC<AutocompleteConceptProps> = ({
             <button>close</button>
           </form>
         </dialog>
-      }
+      )}
     </div>
   );
 };

@@ -1,4 +1,4 @@
-self.onmessage = async (e) => {
+self.onmessage = async e => {
   const apiUrl = e.data.apiUrl;
   try {
     const response = await fetch(`${apiUrl}/cohorts-metadata`, {
@@ -7,6 +7,6 @@ self.onmessage = async (e) => {
     const data = await response.json();
     self.postMessage(data);
   } catch (error) {
-    self.postMessage({ error: error.message });
+    self.postMessage({error: error.message});
   }
 };

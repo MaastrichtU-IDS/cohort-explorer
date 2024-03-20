@@ -3,5 +3,8 @@
 out/
 data/
 .env
+docs/
 
 __pycache__
+
+*.jar

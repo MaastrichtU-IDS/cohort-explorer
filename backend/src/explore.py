@@ -1,4 +1,3 @@
-from dataclasses import field
 import os
 from typing import Any
 
@@ -37,11 +36,13 @@ async def download_cohort_spreasheet(cohort_id: str, user: Any = Depends(get_cur
 
 
 @router.get("/search-concepts")
-async def search_concepts(query: str, domain: list[str] | None = Query(default=None), user: Any = Depends(get_current_user)):
+async def search_concepts(
+    query: str, domain: list[str] | None = Query(default=None), user: Any = Depends(get_current_user)
+):
     """Search for concepts in the Athena API and check how many time those concepts are use in our KG."""
     if not domain:
         domain = []
-    vocabs = ["LOINC", "ATC", "SNOMED"] # "RxNorm"
+    vocabs = ["LOINC", "ATC", "SNOMED"]  # "RxNorm"
     try:
         response = requests.get(
             "https://athena.ohdsi.org/api/v1/concepts",
@@ -97,12 +98,12 @@ async def search_concepts(query: str, domain: list[str] | None = Query(default=N
         }}
 
         GRAPH ?cohortVarGraph {{
+            ?cohort icare:has_variable ?variable .
             ?variable a icare:Variable ;
                 dc:identifier ?varName ;
                 rdfs:label ?varLabel ;
                 icare:var_type ?varType ;
-                icare:index ?index ;
-                dcterms:isPartOf ?cohort .
+                icare:index ?index .
             OPTIONAL {{ ?variable icare:omop ?omopDomain }}
         }}
 

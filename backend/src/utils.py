@@ -38,7 +38,7 @@ PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 PREFIX dc: <http://purl.org/dc/elements/1.1/>
 PREFIX dcterms: <http://purl.org/dc/terms/>
 
-SELECT DISTINCT ?cohortId ?cohortInstitution ?cohortType ?cohortEmail ?owner ?study_type ?study_participants
+SELECT DISTINCT ?cohortId ?cohortInstitution ?cohortType ?cohortEmail ?study_type ?study_participants
     ?study_duration ?study_ongoing ?study_population ?study_objective
     ?variable ?varName ?varLabel ?varType ?index ?count ?na ?max ?min ?units ?formula ?definition
     ?omopDomain ?conceptId ?mappedId ?mappedLabel ?visits ?categoryValue ?categoryLabel ?categoryMappedId ?categoryMappedLabel
@@ -59,13 +59,12 @@ WHERE {
 
     OPTIONAL {
         GRAPH ?cohortVarGraph {
-            OPTIONAL { ?cohort icare:owner ?owner . }
+            ?cohort icare:has_variable ?variable .
             ?variable a icare:Variable ;
                 dc:identifier ?varName ;
                 rdfs:label ?varLabel ;
                 icare:var_type ?varType ;
-                icare:index ?index ;
-                dcterms:isPartOf ?cohort .
+                icare:index ?index .
             OPTIONAL { ?variable icare:count ?count }
             OPTIONAL { ?variable icare:na ?na }
             OPTIONAL { ?variable icare:max ?max }
@@ -147,7 +146,6 @@ def retrieve_cohorts_metadata(user_email: str) -> dict[str, Cohort]:
             target_dict[cohort_id].cohort_email.append(get_value("cohortEmail", row))
             if user_email == get_value("cohortEmail", row):
                 target_dict[cohort_id].can_edit = True
-
 
         # Process variables
         if "varName" in row and var_id not in target_dict[cohort_id].variables:

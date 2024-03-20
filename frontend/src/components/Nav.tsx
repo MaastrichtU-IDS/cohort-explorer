@@ -31,7 +31,6 @@ export function Nav() {
     } else {
       root.classList.remove('dark');
     }
-    setDataCleanRoom(JSON.parse(sessionStorage.getItem('dataCleanRoom') || '{"cohorts": []}'));
   }, [theme]);
 
   const toggleTheme = () => {
@@ -53,7 +52,7 @@ export function Nav() {
         if (!data['detail']) {
           setUserEmail(null);
           setCohortsData(null);
-          setDataCleanRoom({cohorts: []});
+          setDataCleanRoom({cohorts: {}});
           // Redirect to home page or login page after logout
           window.location.href = '/';
         }
@@ -63,13 +62,14 @@ export function Nav() {
   const sendCohortsToDecentriq = async () => {
     // Replace with actual API endpoint and required request format
     console.log('Sending request to Decentriq', dataCleanRoom);
-    const requestBody = {cohorts: {}};
-    for (const cohortId of dataCleanRoom.cohorts as string[]) {
-      // @ts-ignore
-      // requestBody.cohorts[cohortId] = cohortsData[cohortId];
-      // NOTE: variables is left empty for now, placeholder for later when users will be able to select also variables
-      requestBody.cohorts[cohortId] = {"variables": []};
-    }
+    const requestBody = dataCleanRoom;
+    // const requestBody = {cohorts: {}};
+    // for (const cohortId of dataCleanRoom.cohorts as string[]) {
+    //   // @ts-ignore
+    //   // requestBody.cohorts[cohortId] = cohortsData[cohortId];
+    //   // NOTE: variables is left empty for now, placeholder for later when users will be able to select also variables
+    //   requestBody.cohorts[cohortId] = {"variables": []};
+    // }
     console.log('requestBody', requestBody);
     try {
       const response = await fetch(`${apiUrl}/create-dcr`, {
@@ -91,8 +91,8 @@ export function Nav() {
   };
 
   const clearCohortsList = () => {
-    sessionStorage.setItem('dataCleanRoom', JSON.stringify({cohorts: []}));
-    setDataCleanRoom({cohorts: []});
+    sessionStorage.setItem('dataCleanRoom', JSON.stringify({cohorts: {}}));
+    setDataCleanRoom({cohorts: {}});
     setPublishedDCR(null);
   };
 
@@ -101,10 +101,16 @@ export function Nav() {
       <div className="navbar-start">
         <ul className="menu menu-horizontal gap-2 my-0 py-0 pl-6 hidden lg:flex">
           <li>
-            <Link href="/upload"><Upload />Upload</Link>
+            <Link href="/upload">
+              <Upload />
+              Upload
+            </Link>
           </li>
           <li>
-            <Link href="/cohorts"><Compass />Explore</Link>
+            <Link href="/cohorts">
+              <Compass />
+              Explore
+            </Link>
           </li>
         </ul>
         {/* <div className="dropdown lg:hidden">
@@ -128,12 +134,20 @@ export function Nav() {
         {/* Desktop */}
         <div className="menu menu-horizontal my-0 py-0 space-x-6 pr-6 items-center">
           <button onClick={() => setShowModal(true)} className="btn">
-            Data Clean Room <div className="badge badge-neutral">{dataCleanRoom?.cohorts.length || 0}</div>
+            Data Clean Room <div className="badge badge-neutral">{Object.keys(dataCleanRoom?.cohorts).length || 0}</div>
           </button>
 
-          { userEmail
-            ? <button onClick={handleLogout} className='flex space-x-2 p-2 rounded-lg hover:bg-neutral-300'><LogOut /><span>Logout</span></button>
-            : <a href={`${apiUrl}/login`} className='flex space-x-2 p-2 rounded-lg hover:bg-neutral-300'><LogIn /><span>Login</span></a>}
+          {userEmail ? (
+            <button onClick={handleLogout} className="flex space-x-2 p-2 rounded-lg hover:bg-neutral-300">
+              <LogOut />
+              <span>Logout</span>
+            </button>
+          ) : (
+            <a href={`${apiUrl}/login`} className="flex space-x-2 p-2 rounded-lg hover:bg-neutral-300">
+              <LogIn />
+              <span>Login</span>
+            </a>
+          )}
 
           {/* Add light/dark theme switch */}
           <label className="cursor-pointer grid place-items-center">
@@ -160,7 +174,18 @@ export function Nav() {
         <div className="modal modal-open">
           <div className="modal-box">
             <h3 className="font-bold text-lg mb-3">Cohorts to load in Decentriq Data Clean Room</h3>
-            <ul>{dataCleanRoom?.cohorts.map((cohortId: any) => <li key={cohortId}>{cohortId}</li>)}</ul>
+            <ul>
+              {Object.entries(dataCleanRoom?.cohorts).map(([cohortId, variables]: any) => (
+                <li key={cohortId}>
+                  {cohortId} ({variables.length} variables)
+                </li>
+              ))}
+            </ul>
+            {/* TODO: add a section to merge added cohorts? (merge automatically on variables using mapped_id)
+            - An id for the new generated dataframe
+            - A list of autocomplete using the dataCleanRoom.cohorts
+            Once the first is selected we only show the cohorts with same number of variables?
+            */}
             <div className="modal-action">
               <button className="btn btn-neutral" onClick={sendCohortsToDecentriq}>
                 Create Data Clean Room

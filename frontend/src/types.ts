@@ -39,12 +39,12 @@ export interface Category {
   mapped_concept: string | null;
 }
 
-export interface Concept  {
+export interface Concept {
   label: string;
   domain: string;
   id: string;
   vocabulary: string;
-};
+}
 
 export interface AutocompleteConceptProps {
   onSelect: (suggestion: Concept) => void;
@@ -55,4 +55,4 @@ export interface AutocompleteConceptProps {
   cohortId?: string;
   tooltip?: string;
   canEdit?: boolean;
-};
+}

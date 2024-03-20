@@ -210,3 +210,7 @@ docker compose exec backend curl -X POST -T /data/triplestore_dump_20240225.nq -
 > \[!CAUTION]
 >
 > The path given for `triplestore_dump.nq` is **inside** the docker container
+
+### 🚚 Move the app
+
+If you need to move the app to a different server, just copy the whole `data/` folder.

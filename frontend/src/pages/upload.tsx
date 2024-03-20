@@ -1,7 +1,7 @@
 'use client';
 
 import React, {useState} from 'react';
-import { Upload, UploadCloud } from 'react-feather';
+import {Upload, UploadCloud} from 'react-feather';
 import {useCohorts} from '@/components/CohortsContext';
 import {TrashIcon} from '@/components/Icons';
 import {apiUrl} from '@/utils';
@@ -94,7 +94,7 @@ export default function UploadPage() {
   return (
     <main className="flex justify-center p-4">
       {userEmail === null ? (
-        <p className='text-red-500 text-center mt-[20%]'>Authenticate to access the explorer</p>
+        <p className="text-red-500 text-center mt-[20%]">Authenticate to access the explorer</p>
       ) : (
         <form onSubmit={handleSubmit} className="max-w-xl w-full space-y-4">
           <div>
@@ -109,15 +109,13 @@ export default function UploadPage() {
               required
             >
               <option value="">Select the cohort to upload</option>
-              {cohortsNoVariables.map((cohortId: string) => (
+              {cohortsNoVariables.map((cohortId: string) =>
                 cohortsData[cohortId]['can_edit'] ? (
                   <React.Fragment key={cohortId}>
-                    <option value={cohortId}>
-                      {cohortId}
-                    </option>
+                    <option value={cohortId}>{cohortId}</option>
                   </React.Fragment>
                 ) : null
-              ))}
+              )}
             </select>
           </div>
 
@@ -125,9 +123,22 @@ export default function UploadPage() {
           <div className="flex items-center">
             <label htmlFor="metadataFile" className="block text-sm">
               <div role="alert" className="alert alert-success">
-                <svg xmlns="http://www.w3.org/2000/svg" className="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="stroke-current shrink-0 h-6 w-6"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
+                </svg>
                 <span>
-                  Upload the cohort variables dictionary{' '}<b>
+                  Upload the cohort variables dictionary{' '}
+                  <b>
                     <code>.csv</code>
                   </b>{' '}
                   file (just metadata)
@@ -151,8 +162,23 @@ export default function UploadPage() {
           <div className="flex items-center">
             <label htmlFor="dataFile" className="block text-sm">
               <div role="alert" className="alert alert-warning">
-                <svg xmlns="http://www.w3.org/2000/svg" className="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-                <span><b>Optional</b> sensible data: upload the actual cohort patients data file, if you wish to let the server upload the data to Decentriq for you</span>
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="stroke-current shrink-0 h-6 w-6"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                  />
+                </svg>
+                <span>
+                  <b>Optional</b> sensible data: upload the actual cohort patients data file, if you wish to let the
+                  server upload the data to Decentriq for you
+                </span>
               </div>
             </label>
             {dataFile && (
@@ -165,16 +191,16 @@ export default function UploadPage() {
 
           <div>
             <button type="submit" className="btn btn-sm btn-info mt-6 text-slate-900 font-normal">
-              <Upload className='w-4 h-4' />
+              <Upload className="w-4 h-4" />
               Upload
             </button>
             {/* {successMessage && <p className="bg-success text-slate-900 mt-8 rounded-lg p-3">{successMessage}</p>} */}
-            {isLoading &&
-              <div className='flex flex-col items-center opacity-70 text-slate-500 mt-5 mb-5'>
+            {isLoading && (
+              <div className="flex flex-col items-center opacity-70 text-slate-500 mt-5 mb-5">
                 <span className="loading loading-spinner loading-lg mb-4"></span>
                 <p>Creating Data Clean Room to provision cohort {cohortId} in Decentriq...</p>
               </div>
-            }
+            )}
             {publishedDCR && (
               <div className="card card-compact">
                 <div className="card-body bg-success mt-8 rounded-lg text-slate-900">
