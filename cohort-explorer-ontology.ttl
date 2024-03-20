@@ -9,148 +9,158 @@
 
 
 icare: a owl:Ontology ;
-    rdfs:label "OWL ontology for the iCARE4CVD project, to represent Cohorts and their Variables"^^xsd:string ;
+    rdfs:label "iCARE4CVD ontology" ;
     dcterms:license <https://www.gnu.org/licenses/lgpl-3.0> ;
     vann:preferredNamespacePrefix "icare" ;
     vann:preferredNamespaceUri "https://w3id.org/icare4cvd/" ;
-    rdfs:comment "OWL ontology for the iCARE4CVD project, to represent Cohorts tabular file containing Variables for individuals in the cohort (metadata, measurement, etc)"^^xsd:string .
+    rdfs:comment "OWL ontology for the iCARE4CVD project, to represent Cohorts tabular file containing Variables for individuals in the cohort (metadata, measurement, etc)"@en .
 
 
 # Classes
 icare:Cohort a owl:Class ;
-    rdfs:subClassOf owl:Thing ;
+    # rdfs:subClassOf owl:Thing ;
 	rdfs:label "Cohort" ;
-	rdfs:comment "A study cohort, represented by a tabular data file (usually rows are for patients infos and measurements)" .
+	rdfs:comment "A study cohort, represented by a tabular data file (usually rows are for patients infos and measurements)"@en ;
+    owl:disjointWith icare:Variable, icare:VariableCategory .
 
 icare:Variable a owl:Class ;
-    rdfs:subClassOf owl:Thing ;
 	rdfs:label "Variable" ;
-	rdfs:comment "A variable in a cohort, represented by a column in the cohort tabular data file" .
+	rdfs:comment "A variable in a cohort, represented by a column in the cohort tabular data file"@en ;
+    owl:disjointWith icare:Cohort, icare:VariableCategory .
 
 icare:VariableCategory a owl:Class ;
-    rdfs:subClassOf owl:Thing ;
 	rdfs:label "Variable category" ;
-	rdfs:comment "Categories for categorical variables" .
+	rdfs:comment "Categories for categorical variables"@en ;
+    owl:disjointWith icare:Cohort, icare:Variable .
 
 
 # Cohort Properties
 icare:institution a owl:DatatypeProperty ;
 	rdfs:label "Institution" ;
-	rdfs:comment "The institution that conducted the study" ;
+	rdfs:comment "The institution that conducted the study"@en ;
     rdfs:domain icare:Cohort ;
     rdfs:range xsd:string .
-icare:cohort_type a owl:DatatypeProperty ;
+icare:cohortType a owl:DatatypeProperty ;
 	rdfs:label "Cohort type" ;
-	rdfs:comment "The type of cohort" ;
+	rdfs:comment "The type of cohort"@en ;
     rdfs:domain icare:Cohort ;
     rdfs:range xsd:string .
 icare:email a owl:DatatypeProperty ;
 	rdfs:label "Contact email" ;
-	rdfs:comment "Email of the contact for this cohort" ;
+	rdfs:comment "Email of the contact for this cohort"@en ;
     rdfs:domain icare:Cohort ;
     rdfs:range xsd:string .
 
-icare:study_type a owl:DatatypeProperty ;
+icare:studyType a owl:DatatypeProperty ;
 	rdfs:label "Study type" ;
-	rdfs:comment "The type of study" ;
+	rdfs:comment "The type of study"@en ;
     rdfs:domain icare:Cohort ;
     rdfs:range xsd:string .
-icare:study_participants a owl:DatatypeProperty ;
+icare:studyParticipants a owl:DatatypeProperty ;
 	rdfs:label "Number of study participants" ;
-	rdfs:comment "The number of participants in the study" ;
+	rdfs:comment "The number of participants in the study"@en ;
     rdfs:domain icare:Cohort ;
     rdfs:range xsd:integer .
-icare:study_duration a owl:DatatypeProperty ;
+icare:studyDuration a owl:DatatypeProperty ;
 	rdfs:label "Study duration" ;
-	rdfs:comment "The duration of the study" ;
+	rdfs:comment "The duration of the study"@en ;
     rdfs:domain icare:Cohort ;
     rdfs:range xsd:string .
-icare:study_ongoing a owl:DatatypeProperty ;
+icare:studyOngoing a owl:DatatypeProperty ;
 	rdfs:label "Ongoing study" ;
-	rdfs:comment "Is the study ongoing? Either yes or no" ;
+	rdfs:comment "Is the study ongoing? Either yes or no"@en ;
     rdfs:domain icare:Cohort ;
     rdfs:range xsd:string .
-icare:study_population a owl:DatatypeProperty ;
+icare:studyPopulation a owl:DatatypeProperty ;
 	rdfs:label "Study population" ;
-	rdfs:comment "Description of the population studied" ;
+	rdfs:comment "Description of the population studied"@en ;
     rdfs:domain icare:Cohort ;
     rdfs:range xsd:string .
-icare:study_objective a owl:DatatypeProperty ;
+icare:studyObjective a owl:DatatypeProperty ;
 	rdfs:label "Study objective" ;
-	rdfs:comment "Description of the study objective" ;
+	rdfs:comment "Description of the study objective"@en ;
     rdfs:domain icare:Cohort ;
     rdfs:range xsd:string .
 
-icare:has_variable a owl:ObjectProperty ;
+icare:hasVariable a owl:ObjectProperty ;
 	rdfs:label "Has variable" ;
-	rdfs:comment "The variables that are included in this cohort" ;
+	rdfs:comment "The variables that are included in this cohort"@en ;
     rdfs:domain icare:Cohort ;
     rdfs:range icare:Variable .
 
+# Should we add inverse?
+# icare:isVariableOf a owl:ObjectProperty ;
+#     owl:inverseOf icare:hasVariable ;
+# 	rdfs:label "Is variable of" ;
+# 	rdfs:comment "The cohort this variable belongs to"@en ;
+#     rdfs:domain icare:Variable ;
+#     rdfs:range icare:Cohort .
+
 
 # Variable Properties
-icare:var_type a owl:DatatypeProperty ;
+icare:varType a owl:DatatypeProperty ;
 	rdfs:label "Variable type" ;
-	rdfs:comment "The data type of the variable: STR, INT, FLOAT, DATETIME" ;
+	rdfs:comment "The data type of the variable: STR, INT, FLOAT, DATETIME"@en ;
     rdfs:domain icare:Variable ;
     rdfs:range xsd:string .
 icare:count a owl:DatatypeProperty ;
 	rdfs:label "Value count" ;
-	dc:description "The number of rows with values for this variable" ;
+	rdfs:comment "The number of rows with values for this variable"@en ;
     rdfs:domain icare:Variable ;
     rdfs:range xsd:integer .
 icare:na a owl:DatatypeProperty ;
 	rdfs:label "n/a count" ;
-	rdfs:comment "The number of n/a rows for this variable" ;
+	rdfs:comment "The number of n/a rows for this variable"@en ;
     rdfs:domain icare:Variable ;
     rdfs:range xsd:integer .
 icare:index a owl:DatatypeProperty ;
 	rdfs:label "Variable index" ;
-	rdfs:comment "The index of the variable in the cohort tabular data file" ;
+	rdfs:comment "The index of the variable in the cohort tabular data file"@en ;
     rdfs:domain icare:Variable ;
     rdfs:range xsd:integer .
 icare:max a owl:DatatypeProperty ;
 	rdfs:label "Maximum value" ;
-	rdfs:comment "The maximum value for this variable" ;
+	rdfs:comment "The maximum value for this variable"@en ;
     rdfs:domain icare:Variable ;
     rdfs:range xsd:decimal . # int + float = decimal
 icare:min a owl:DatatypeProperty ;
 	rdfs:label "Minimum value" ;
-	rdfs:comment "The minimum value for this variable" ;
+	rdfs:comment "The minimum value for this variable"@en ;
     rdfs:domain icare:Variable ;
     rdfs:range xsd:decimal .
 icare:units a owl:DatatypeProperty ;
 	rdfs:label "Units" ;
-	rdfs:comment "The units of the variable (e.g. kg, mmHg, etc)" ;
+	rdfs:comment "The units of the variable (e.g. kg, mmHg, etc)"@en ;
     rdfs:domain icare:Variable ;
     rdfs:range xsd:string .
 icare:formula a owl:DatatypeProperty ;
 	rdfs:label "Formula" ;
-	rdfs:comment "The formula used to calculate this variable" ;
+	rdfs:comment "The formula used to calculate this variable"@en ;
     rdfs:domain icare:Variable ;
     rdfs:range xsd:string .
 icare:definition a owl:DatatypeProperty ;
 	rdfs:label "Definition" ;
-	rdfs:comment "A reference to the standard used to define this variable" ;
+	rdfs:comment "A reference to the standard used to define this variable"@en ;
     rdfs:domain icare:Variable ;
     rdfs:range xsd:string .
 
 icare:visits a owl:DatatypeProperty ;
 	rdfs:label "Visits" ;
-	rdfs:comment "Details about the study visit for this variable (e.g. M1, M2, M6)" ;
+	rdfs:comment "Details about the study visit for this variable (e.g. M1, M2, M6)"@en ;
     rdfs:domain icare:Variable ;
     rdfs:range xsd:string .
 
 # Mapping properties
-icare:concept_id a owl:ObjectProperty ;
+icare:conceptId a owl:ObjectProperty ;
 	rdfs:label "Concept ID" ;
-	rdfs:comment "The concept ID for this variable, as provided in the original cohort metadata file" ;
+	rdfs:comment "The concept ID for this variable, as provided in the original cohort metadata file"@en ;
     rdfs:domain icare:Variable ;
     rdfs:range owl:Thing .
 
-icare:mapped_id a owl:DatatypeProperty ;
+
+icare:mappedId a owl:ObjectProperty ;
 	rdfs:label "Mapped ID" ;
-	rdfs:comment "The mapped concept ID for this variable or category, defined through the Cohort Explorer service" ;
+	rdfs:comment "The mapped concept ID for this variable or category, defined through the Cohort Explorer service"@en ;
     rdfs:domain [ owl:unionOf ( icare:Variable icare:VariableCategory ) ] ;
     rdfs:range owl:Thing .
 # Should we limit to OMOP concepts?
@@ -158,19 +168,21 @@ icare:mapped_id a owl:DatatypeProperty ;
 
 icare:omop a owl:DatatypeProperty ;
 	rdfs:label "OMOP domain" ;
-	rdfs:comment "The OMOP domain for this variable, such as Measurement, Condition, etc" ;
+	rdfs:comment "The OMOP domain for this variable, such as Measurement, Condition, etc"@en ;
     rdfs:domain icare:Variable ;
     rdfs:range xsd:string .
 
 icare:categories a owl:ObjectProperty ;
 	rdfs:label "Variable categories" ;
-	rdfs:comment "Categories for this variable, if it is a categorical variable" ;
+	rdfs:comment "Categories for this variable, if it is a categorical variable"@en ;
     rdfs:domain icare:Variable ;
     rdfs:range icare:VariableCategory .
 
 
 # Category Properties
 rdf:value a owl:DatatypeProperty ;
+    rdfs:label "Category value" ;
+	rdfs:comment "Value for a category"@en ;
     rdfs:domain icare:VariableCategory ;
     rdfs:range xsd:string .
 
@@ -178,6 +190,6 @@ rdf:value a owl:DatatypeProperty ;
 # Misc. properties
 rdfs:label a owl:DatatypeProperty ;
 	rdfs:label "Label" ;
-	rdfs:comment "A concept label" ;
+	rdfs:comment "A concept label"@en ;
     rdfs:domain owl:Thing ;
     rdfs:range xsd:string .

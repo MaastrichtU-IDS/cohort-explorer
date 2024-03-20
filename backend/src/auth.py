@@ -41,8 +41,8 @@ class OAuth2AuthorizationCodeCookie(OAuth2AuthorizationCodeBearer):
 
 
 auth_params = {
-    # "audience": "https://explorer.icare4cvd.eu",
-    "audience": "https://other-ihi-app",
+    "audience": "https://explorer.icare4cvd.eu",
+    # "audience": "https://other-ihi-app",
     "redirect_uri": settings.redirect_uri,
 }
 

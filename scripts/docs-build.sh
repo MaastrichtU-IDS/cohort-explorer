@@ -14,8 +14,7 @@ rm -r widoco
 mv docs/index-en.html docs/index.html
 
 # Generate JSON-LD context
-# java -jar owl2jsonld.jar https://raw.githubusercontent.com/vemonet/omop-cdm-owl/main/$ONTOLOGY_FILE > docs/context.jsonld
-
+java -jar owl2jsonld.jar https://raw.githubusercontent.com/MaastrichtU-IDS/cohort-explorer/main/$ONTOLOGY_FILE > docs/context.jsonld
 
 # Generate docs with Ontospy
 mkdir -p docs/browse

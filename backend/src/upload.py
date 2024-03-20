@@ -3,6 +3,7 @@ import os
 import shutil
 from datetime import datetime
 from typing import Any
+from re import sub
 
 import pandas as pd
 import requests
@@ -164,6 +165,10 @@ def create_uri_from_id(row):
 ACCEPTED_DATATYPES = ["STR", "FLOAT", "INT", "DATETIME"]
 
 
+def to_camelcase(s: str) -> str:
+  s = sub(r"(_|-)+", " ", s).title().replace(" ", "")
+  return ''.join([s[0].lower(), s[1:]])
+
 def load_cohort_dict_file(dict_path: str, cohort_id: str, user_email: str) -> Dataset:
     """Parse the cohort dictionary uploaded as excel or CSV spreadsheet, and load it to the triplestore"""
     # print(f"Loading dictionary {dict_path}")
@@ -199,7 +204,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, user_email: str) -> Da
 
         # Create a URI for the variable
         variable_uri = get_var_uri(cohort_id, row["VARIABLE NAME"])
-        g.add((cohort_uri, ICARE.has_variable, variable_uri, cohort_uri))
+        g.add((cohort_uri, ICARE.hasVariable, variable_uri, cohort_uri))
 
         # Add the type of the resource
         g.add((variable_uri, RDF.type, ICARE.Variable, cohort_uri))
@@ -211,7 +216,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, user_email: str) -> Da
         for column, value in row.items():
             # if value and column not in ["categories"]:
             if column not in ["categories"] and value:
-                property_uri = ICARE[column.replace(" ", "_").lower()]
+                property_uri = ICARE[to_camelcase(column)]
                 if (
                     isinstance(value, str)
                     and (value.startswith("http://") or value.startswith("https://"))
@@ -230,8 +235,8 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, user_email: str) -> Da
                     continue
                 for index, category in enumerate(value):
                     cat_uri = get_category_uri(variable_uri, index)
-                    g.add((variable_uri, ICARE["categories"], cat_uri, cohort_uri))
-                    g.add((cat_uri, RDF.type, ICARE.Category, cohort_uri))
+                    g.add((variable_uri, ICARE.categories, cat_uri, cohort_uri))
+                    g.add((cat_uri, RDF.type, ICARE.VariableCategory, cohort_uri))
                     g.add((cat_uri, RDF.value, Literal(category["value"]), cohort_uri))
                     g.add((cat_uri, RDFS.label, Literal(category["label"]), cohort_uri))
                     # TODO: add categories
@@ -359,19 +364,19 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
             for email in row["Email"].split(";"):
                 g.add((cohort_uri, ICARE.email, Literal(email.strip()), cohorts_graph))
         if row["Type"]:
-            g.add((cohort_uri, ICARE.cohort_type, Literal(row["Type"]), cohorts_graph))
+            g.add((cohort_uri, ICARE.cohortType, Literal(row["Type"]), cohorts_graph))
         if row["Study type"]:
-            g.add((cohort_uri, ICARE.study_type, Literal(row["Study type"]), cohorts_graph))
+            g.add((cohort_uri, ICARE.studyType, Literal(row["Study type"]), cohorts_graph))
         if row["N"]:
-            g.add((cohort_uri, ICARE.study_participants, Literal(row["N"]), cohorts_graph))
+            g.add((cohort_uri, ICARE.studyParticipants, Literal(row["N"]), cohorts_graph))
         if row["Study duration"]:
-            g.add((cohort_uri, ICARE.study_duration, Literal(row["Study duration"]), cohorts_graph))
+            g.add((cohort_uri, ICARE.studyDuration, Literal(row["Study duration"]), cohorts_graph))
         if row["Ongoing"]:
-            g.add((cohort_uri, ICARE.study_ongoing, Literal(row["Ongoing"]), cohorts_graph))
+            g.add((cohort_uri, ICARE.studyOngoing, Literal(row["Ongoing"]), cohorts_graph))
         if row["Patient population"]:
-            g.add((cohort_uri, ICARE.study_population, Literal(row["Patient population"]), cohorts_graph))
+            g.add((cohort_uri, ICARE.studyPopulation, Literal(row["Patient population"]), cohorts_graph))
         if row["Primary objective"]:
-            g.add((cohort_uri, ICARE.study_objective, Literal(row["Primary objective"]), cohorts_graph))
+            g.add((cohort_uri, ICARE.studyObjective, Literal(row["Primary objective"]), cohorts_graph))
     return g
 
 

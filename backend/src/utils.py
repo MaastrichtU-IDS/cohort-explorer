@@ -47,23 +47,23 @@ WHERE {
         ?cohort a icare:Cohort ;
             dc:identifier ?cohortId ;
             icare:institution ?cohortInstitution .
-        OPTIONAL { ?cohort icare:cohort_type ?cohortType . }
+        OPTIONAL { ?cohort icare:cohortType ?cohortType . }
         OPTIONAL { ?cohort icare:email ?cohortEmail . }
-        OPTIONAL { ?cohort icare:study_type ?study_type . }
-        OPTIONAL { ?cohort icare:study_participants ?study_participants . }
-        OPTIONAL { ?cohort icare:study_duration ?study_duration . }
-        OPTIONAL { ?cohort icare:study_ongoing ?study_ongoing . }
-        OPTIONAL { ?cohort icare:study_population ?study_population . }
-        OPTIONAL { ?cohort icare:study_objective ?study_objective . }
+        OPTIONAL { ?cohort icare:studyType ?study_type . }
+        OPTIONAL { ?cohort icare:studyParticipants ?study_participants . }
+        OPTIONAL { ?cohort icare:studyDuration ?study_duration . }
+        OPTIONAL { ?cohort icare:studyOngoing ?study_ongoing . }
+        OPTIONAL { ?cohort icare:studyPopulation ?study_population . }
+        OPTIONAL { ?cohort icare:studyObjective ?study_objective . }
     }
 
     OPTIONAL {
         GRAPH ?cohortVarGraph {
-            ?cohort icare:has_variable ?variable .
+            ?cohort icare:hasVariable ?variable .
             ?variable a icare:Variable ;
                 dc:identifier ?varName ;
                 rdfs:label ?varLabel ;
-                icare:var_type ?varType ;
+                icare:varType ?varType ;
                 icare:index ?index .
             OPTIONAL { ?variable icare:count ?count }
             OPTIONAL { ?variable icare:na ?na }
@@ -72,7 +72,7 @@ WHERE {
             OPTIONAL { ?variable icare:units ?units }
             OPTIONAL { ?variable icare:formula ?formula }
             OPTIONAL { ?variable icare:definition ?definition }
-            OPTIONAL { ?variable icare:concept_id ?conceptId }
+            OPTIONAL { ?variable icare:conceptId ?conceptId }
             OPTIONAL { ?variable icare:omop ?omopDomain }
             OPTIONAL { ?variable icare:visits ?visits }
             OPTIONAL {
@@ -86,11 +86,11 @@ WHERE {
     OPTIONAL {
         GRAPH ?cohortMappingsGraph {
             OPTIONAL {
-                ?variable icare:mapped_id ?mappedId .
+                ?variable icare:mappedId ?mappedId .
                 OPTIONAL { ?mappedId rdfs:label ?mappedLabel }
             }
             OPTIONAL {
-                ?category icare:mapped_id ?categoryMappedId .
+                ?category icare:mappedId ?categoryMappedId .
                 OPTIONAL { ?categoryMappedId rdfs:label ?categoryMappedLabel }
             }
         }

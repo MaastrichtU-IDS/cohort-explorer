@@ -98,25 +98,25 @@ async def search_concepts(
         }}
 
         GRAPH ?cohortVarGraph {{
-            ?cohort icare:has_variable ?variable .
+            ?cohort icare:hasVariable ?variable .
             ?variable a icare:Variable ;
                 dc:identifier ?varName ;
                 rdfs:label ?varLabel ;
-                icare:var_type ?varType ;
+                icare:varType ?varType ;
                 icare:index ?index .
             OPTIONAL {{ ?variable icare:omop ?omopDomain }}
         }}
 
         {{
             GRAPH ?cohortMappingsGraph {{
-                ?variable icare:mapped_id ?mappedId .
+                ?variable icare:mappedId ?mappedId .
             }}
         }} UNION {{
             GRAPH ?cohortVarGraph {{
                 ?variable icare:categories ?category.
             }}
             GRAPH ?cohortMappingsGraph {{
-                ?category icare:mapped_id ?mappedId .
+                ?category icare:mappedId ?mappedId .
             }}
         }}
         OPTIONAL {{ ?mappedId rdfs:label ?mappedLabel }}
