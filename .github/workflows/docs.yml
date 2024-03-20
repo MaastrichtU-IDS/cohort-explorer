@@ -36,11 +36,11 @@ jobs:
 
       - name: Install dependencies
         run: |
-          bash scripts/install.sh
+          bash scripts/docs-install.sh
 
       - name: Build docs
         run: |
-          bash scripts/build.sh
+          bash scripts/docs-build.sh
 
 
       - name: Setup Pages
