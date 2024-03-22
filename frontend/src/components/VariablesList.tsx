@@ -23,7 +23,7 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
     const formData = new FormData();
     formData.append('cohort_id', cohortId);
     formData.append('var_id', varId);
-    formData.append('predicate', 'icare:mapped_id');
+    formData.append('predicate', 'icare:mappedId');
     formData.append('value', concept.id);
     formData.append('label', concept.label);
     if (categoryId !== null) {

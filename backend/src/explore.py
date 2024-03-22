@@ -126,7 +126,7 @@ async def search_concepts(
     # TODO also get mappings from categories?
     # print(sparql_query)
     for row in run_query(sparql_query)["results"]["bindings"]:
-        print(row)
+        # print(row)
         # Find the concept in the list and add the cohort and variable to the used_by list
         for concept in found_concepts:
             if concept["uri"] == row["mappedId"]["value"]:

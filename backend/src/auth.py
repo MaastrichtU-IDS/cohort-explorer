@@ -120,7 +120,7 @@ async def auth_callback(code: str) -> RedirectResponse:
         if (
             "https://explorer.icare4cvd.eu"
             in access_payload["aud"]
-            # and "read:icare4cvd-dataset-descriptions" in access_payload["permissions"]
+            and "read:icare4cvd-dataset-descriptions" in access_payload["permissions"]
         ):
             user_email = id_payload["email"]
             # Reuse expiration time from decentriq Auth0 access token
