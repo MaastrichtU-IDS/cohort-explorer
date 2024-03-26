@@ -23,6 +23,8 @@ It aims to enable data owners and data scientists to:
 This platform is composed of 3 main components:
 
 *   **[Oxigraph](https://github.com/oxigraph/oxigraph) triplestore** containing the cohorts and their variables metadata, exposing a SPARQL endpoint only available to the backend API.
+    *   The data stored in the triplestore complies with the custom **[iCARE4CVD OWL ontology](https://maastrichtu-ids.github.io/cohort-explorer/)**. It contains 3 classes: Cohort, Variable, and Variable category.
+
 *   **`backend/` server**, built with python, FastAPI and RDFLib.
 *   **`frontend/` web app** running on the client, built with TypeScript, NextJS, ReactJS, TailwindCSS, and DaisyUI.
 
@@ -38,9 +40,6 @@ This platform is composed of 3 main components:
 
 ## ☑️ To do
 
-*   [ ] Improve validation of uploaded data dictionaries. Make sure error message are helpful.
-*   [ ] Save mappings to triplestore using a new predicate `icare:mapped_concept`?
-*   [ ] Improve classes and predicates currently used to describe cohorts metadata files?
 *   [ ] Integrate LUCE blockchain component. Should it be deployed separately, or as a service in the `docker-compose.yml`?
 
 ## 🧑‍💻 Development
