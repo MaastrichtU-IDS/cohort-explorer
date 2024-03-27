@@ -131,8 +131,8 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
   // };
 
   return (
-    <main className="flex">
-      <aside className="pr-4 text-center flex flex-col items-center min-w-fit">
+    <main className="flex w-full space-x-4">
+      <aside className="flex-shrink-0 text-center flex flex-col items-center min-w-fit">
         {Object.keys(cohortsData[cohortId]['variables']).length > 0 &&
         (!dataCleanRoom.cohorts[cohortId] ||
           dataCleanRoom.cohorts[cohortId].length !== Object.keys(cohortsData[cohortId]['variables']).length) ? (
@@ -200,16 +200,16 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
       </aside>
 
       {/* List of variables */}
-      <div className="w-full">
+      <div className="flex">
         {cohortsData[cohortId].study_objective && (
           <div className="card p-3 mb-3 bg-base-300">🎯 Study objective: {cohortsData[cohortId].study_objective}</div>
         )}
-        <div className="variable-list space-y-2">
+        <div className="space-y-2">
           {filteredVars?.map((variable: any) => (
             <div key={variable.var_name} className="card card-compact card-bordered bg-base-100 shadow-xl">
               <div className="card-body">
-                <div className="flex">
-                  <div className="flex grow items-center space-x-3">
+                <div className="flex justify-between">
+                  <div className="flex flex-wrap items-center space-x-3">
                     <h2 className="font-bold text-lg">{variable.var_name}</h2>
                     {/* Badges for units and categorical variable */}
                     <span className="badge badge-ghost">{variable.var_type}</span>
@@ -242,7 +242,7 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
                     >
                       <InfoIcon />
                     </button>
-                    <div className="grow"></div>
+                    {/* <div className="grow"></div> */}
                   </div>
                   {!dataCleanRoom.cohorts[cohortId]?.includes(variable.var_name) ? (
                     <button

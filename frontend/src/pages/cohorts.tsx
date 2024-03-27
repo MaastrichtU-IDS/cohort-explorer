@@ -37,8 +37,8 @@ export default function CohortsList() {
   }, [searchQuery, selectedDataTypes, selectedStudyTypes, selectedInstitutes, cohortsData]);
 
   return (
-    <main className="w-full p-4 bg-base-200 flex h-full min-h-screen">
-      <aside className="p-4 w-1/4">
+    <main className="flex w-full p-4 bg-base-200 h-full min-h-screen space-x-4">
+      <aside className="flex-shrink-0 w-64 flex flex-col">
         <div className="text-center mb-2">
           {filteredCohorts.length == Object.keys(cohortsData).length ? (
             <span className="badge badge-outline">{Object.keys(cohortsData).length} cohorts</span>
@@ -73,7 +73,7 @@ export default function CohortsList() {
         {/* TODO: add by ongoing? */}
       </aside>
 
-      <div className="w-full">
+      <div>
         <div className="mb-4">
           <input
             type="text"
@@ -101,7 +101,7 @@ export default function CohortsList() {
             >
               <input type="checkbox" />
               <div className="collapse-title">
-                <div className="gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   {cohortData.cohort_id}
                   <span className="badge badge-outline mx-2">{cohortData.institution}</span>
                   {cohortData.study_type && <span className="badge badge-ghost mx-1">{cohortData.study_type}</span>}
