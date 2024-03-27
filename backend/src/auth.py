@@ -111,7 +111,7 @@ async def auth_callback(code: str) -> RedirectResponse:
                 status_code=HTTP_401_UNAUTHORIZED,
                 detail="Invalid token",
             )
-        print("ACCESS PAYLOAD", access_payload)
+        # print("ACCESS PAYLOAD", access_payload)
         # NOTE: if needed user info can be retrieved later from the /userinfo endpoint using the provided access token
         # resp = await client.get(f"{settings.authorization_endpoint}/userinfo", headers={"Authorization": f"Bearer {token['access_token']}"})
         # print("user_info", resp.json())
@@ -122,11 +122,10 @@ async def auth_callback(code: str) -> RedirectResponse:
             in access_payload["aud"]
             and "read:icare4cvd-dataset-descriptions" in access_payload["permissions"]
         ):
-            user_email = id_payload["email"]
             # Reuse expiration time from decentriq Auth0 access token
             exp_timestamp = access_payload["exp"]
             jwt_token = create_access_token(
-                data={"email": user_email, "access_token": token["access_token"]}, expires_timestamp=exp_timestamp
+                data={"email": id_payload["email"], "access_token": token["access_token"]}, expires_timestamp=exp_timestamp
             )
 
             # NOTE: Redirect to react frontend

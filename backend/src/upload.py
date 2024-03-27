@@ -146,23 +146,23 @@ def parse_categorical_string(s: str) -> list[dict[str, str]]:
     return result
 
 
-CURIE_COLUMNS = {"ICD-10": "icd10", "SNOMED-CT": "snomedct", "ATC-DDD": "atc", "LOINC": "loinc"}
-
+COLUMNS_LIST = ["VARIABLE NAME", "VARIABLE LABEL", "VAR TYPE", "UNITS", "CATEGORICAL", "COUNT", "NA", "MIN", "MAX", "Definition", "Formula", "ICD-10", "ATC-DDD", "LOINC", "SNOMED-CT", "OMOP", "Visits"]
+ACCEPTED_DATATYPES = ["STR", "FLOAT", "INT", "DATETIME"]
+ID_COLUMNS_NAMESPACES = {"ICD-10": "icd10", "SNOMED-CT": "snomedct", "ATC-DDD": "atc", "LOINC": "loinc"}
 
 def create_uri_from_id(row):
     """Build concepts URIs from the ID provided in the various columns of the data dictionary"""
     uris_list = []
-    for column in CURIE_COLUMNS:
+
+    for column in ID_COLUMNS_NAMESPACES:
         if row[column]:
             if "," in str(row[column]):  # Handle list of IDs separated by comma
                 ids = str(row[column]).split(",")
-                uris_list.extend([converter.expand(f"{CURIE_COLUMNS[column]}:{identif.strip()}") for identif in ids])
+                uris_list.extend([converter.expand(f"{ID_COLUMNS_NAMESPACES[column]}:{identif.strip()}") for identif in ids])
             else:
-                uris_list.append(converter.expand(f"{CURIE_COLUMNS[column]}:{str(row[column]).strip()}"))
+                uris_list.append(converter.expand(f"{ID_COLUMNS_NAMESPACES[column]}:{str(row[column]).strip()}"))
     return ", ".join(uris_list)
 
-
-ACCEPTED_DATATYPES = ["STR", "FLOAT", "INT", "DATETIME"]
 
 
 def to_camelcase(s: str) -> str:
@@ -178,73 +178,86 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, user_email: str) -> Da
             status_code=422,
             detail="Only CSV files are supported. Please convert your file to CSV and try again.",
         )
-    df = pd.read_csv(dict_path)
-    df = df.dropna(how="all")
-    df = df.fillna("")
-    df["categories"] = df["CATEGORICAL"].apply(parse_categorical_string)
-    df["concept_id"] = df.apply(lambda row: create_uri_from_id(row), axis=1)
+    try:
+        df = pd.read_csv(dict_path)
+        df = df.dropna(how="all")
+        df = df.fillna("")
+        df.columns = df.columns.str.strip()
+        for column in COLUMNS_LIST:
+            if column not in df.columns.values.tolist():
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Missing column `{column}`",
+                )
+        df["categories"] = df["CATEGORICAL"].apply(parse_categorical_string)
+        df["concept_id"] = df.apply(lambda row: create_uri_from_id(row), axis=1)
 
-    # TODO: add metadata about the cohort, dc:creator
-    cohort_uri = get_cohort_uri(cohort_id)
-    g = init_graph()
-    g.add((cohort_uri, RDF.type, ICARE.Cohort, cohort_uri))
-    g.add((cohort_uri, DC.identifier, Literal(cohort_id), cohort_uri))
+        cohort_uri = get_cohort_uri(cohort_id)
+        g = init_graph()
+        g.add((cohort_uri, RDF.type, ICARE.Cohort, cohort_uri))
+        g.add((cohort_uri, DC.identifier, Literal(cohort_id), cohort_uri))
 
-    # Record all errors and raise them at the end
-    errors = []
-    for i, row in df.iterrows():
-        # Check if required columns are present
-        if not row["VARIABLE NAME"] or not row["VARIABLE LABEL"] or not row["VAR TYPE"]:
-            errors.append(f"Row {i} is missing required data: variable_name, variable_label, or var_type")
-        if row["VAR TYPE"] not in ACCEPTED_DATATYPES:
-            errors.append(
-                f"Row {i} for variable {row['VARIABLE NAME']} is using a wrong datatype: {row['VAR TYPE']}. It should be one of: {', '.join(ACCEPTED_DATATYPES)}"
+        # Record all errors and raise them at the end
+        errors = []
+        for i, row in df.iterrows():
+            # Check if required columns are present
+            if not row["VARIABLE NAME"] or not row["VARIABLE LABEL"] or not row["VAR TYPE"]:
+                errors.append(f"Row {i} is missing required data: variable_name, variable_label, or var_type")
+            if row["VAR TYPE"] not in ACCEPTED_DATATYPES:
+                errors.append(
+                    f"Row {i} for variable {row['VARIABLE NAME']} is using a wrong datatype: {row['VAR TYPE']}. It should be one of: {', '.join(ACCEPTED_DATATYPES)}"
+                )
+            # TODO: raise error when duplicate value for VARIABLE LABEL?
+
+            # Create a URI for the variable
+            variable_uri = get_var_uri(cohort_id, row["VARIABLE NAME"])
+            g.add((cohort_uri, ICARE.hasVariable, variable_uri, cohort_uri))
+
+            # Add the type of the resource
+            g.add((variable_uri, RDF.type, ICARE.Variable, cohort_uri))
+            g.add((variable_uri, DC.identifier, Literal(row["VARIABLE NAME"]), cohort_uri))
+            g.add((variable_uri, RDFS.label, Literal(row["VARIABLE LABEL"]), cohort_uri))
+            g.add((variable_uri, ICARE["index"], Literal(i, datatype=XSD.integer), cohort_uri))
+
+            # Add properties
+            for column, value in row.items():
+                # if value and column not in ["categories"]:
+                if column not in ["categories"] and value:
+                    property_uri = ICARE[to_camelcase(column)]
+                    if (
+                        isinstance(value, str)
+                        and (value.startswith("http://") or value.startswith("https://"))
+                        and " " not in value
+                    ):
+                        g.add((variable_uri, property_uri, URIRef(value), cohort_uri))
+                    else:
+                        g.add((variable_uri, property_uri, Literal(value), cohort_uri))
+
+                # Handle Category
+                if column in ["categories"]:
+                    if len(value) == 1:
+                        errors.append(
+                            f"Row {i+2} for variable {row['VARIABLE NAME']} has only one category {row['categories']}. It should have at least two."
+                        )
+                        continue
+                    for index, category in enumerate(value):
+                        cat_uri = get_category_uri(variable_uri, index)
+                        g.add((variable_uri, ICARE.categories, cat_uri, cohort_uri))
+                        g.add((cat_uri, RDF.type, ICARE.VariableCategory, cohort_uri))
+                        g.add((cat_uri, RDF.value, Literal(category["value"]), cohort_uri))
+                        g.add((cat_uri, RDFS.label, Literal(category["label"]), cohort_uri))
+                        # TODO: add categories
+        # print(g.serialize(format="turtle"))
+        # Print all errors at once
+        if len(errors) > 0:
+            raise HTTPException(
+                status_code=422,
+                detail="\n\n".join(errors),
             )
-        # TODO: raise error when duplicate value for VARIABLE LABEL?
-
-        # Create a URI for the variable
-        variable_uri = get_var_uri(cohort_id, row["VARIABLE NAME"])
-        g.add((cohort_uri, ICARE.hasVariable, variable_uri, cohort_uri))
-
-        # Add the type of the resource
-        g.add((variable_uri, RDF.type, ICARE.Variable, cohort_uri))
-        g.add((variable_uri, DC.identifier, Literal(row["VARIABLE NAME"]), cohort_uri))
-        g.add((variable_uri, RDFS.label, Literal(row["VARIABLE LABEL"]), cohort_uri))
-        g.add((variable_uri, ICARE["index"], Literal(i, datatype=XSD.integer), cohort_uri))
-
-        # Add properties
-        for column, value in row.items():
-            # if value and column not in ["categories"]:
-            if column not in ["categories"] and value:
-                property_uri = ICARE[to_camelcase(column)]
-                if (
-                    isinstance(value, str)
-                    and (value.startswith("http://") or value.startswith("https://"))
-                    and " " not in value
-                ):
-                    g.add((variable_uri, property_uri, URIRef(value), cohort_uri))
-                else:
-                    g.add((variable_uri, property_uri, Literal(value), cohort_uri))
-
-            # Handle Category
-            if column in ["categories"]:
-                if len(value) == 1:
-                    errors.append(
-                        f"Row {i} for variable {row['VARIABLE NAME']} has only one category {row['categories']}. It should have at least two."
-                    )
-                    continue
-                for index, category in enumerate(value):
-                    cat_uri = get_category_uri(variable_uri, index)
-                    g.add((variable_uri, ICARE.categories, cat_uri, cohort_uri))
-                    g.add((cat_uri, RDF.type, ICARE.VariableCategory, cohort_uri))
-                    g.add((cat_uri, RDF.value, Literal(category["value"]), cohort_uri))
-                    g.add((cat_uri, RDFS.label, Literal(category["label"]), cohort_uri))
-                    # TODO: add categories
-    # print(g.serialize(format="turtle"))
-    if len(errors) > 0:
+    except Exception as e:
         raise HTTPException(
             status_code=422,
-            detail="\n\n".join(errors),
+            detail=f"Error parsing the data dictionary CSV file: {e}",
         )
     return g
 
@@ -275,6 +288,7 @@ async def upload_cohort(
             status_code=403,
             detail=f"User {user_email} cannot edit cohort {cohort_id}",
         )
+
     # Create directory named after cohort_id
     cohorts_folder = os.path.join(settings.data_folder, "cohorts", cohort_id)
     os.makedirs(cohorts_folder, exist_ok=True)
@@ -390,13 +404,14 @@ def init_triplestore() -> None:
     onto_graph_uri = URIRef("https://w3id.org/icare4cvd/omop-cdm-v6")
     g = init_graph(onto_graph_uri)
     ntriple_g = init_graph()
-    ntriple_g.parse("https://raw.githubusercontent.com/vemonet/omop-cdm-owl/main/omop_cdm_v6.ttl", format="turtle")
+    # ntriple_g.parse("https://raw.githubusercontent.com/vemonet/omop-cdm-owl/main/omop_cdm_v6.ttl", format="turtle")
+    ntriple_g.parse("https://raw.githubusercontent.com/MaastrichtU-IDS/cohort-explorer/main/cohort-explorer-ontology.ttl", format="turtle")
     # Trick to convert ntriples to nquads with a given graph
     for s, p, o in ntriple_g.triples((None, None, None)):
         g.add((s, p, o, onto_graph_uri))
     # print(g.serialize(format="trig"))
     if publish_graph_to_endpoint(g):
-        print(f"🦉 Triplestore initialization: added {len(g)} triples for the OMOP OWL ontology.")
+        print(f"🦉 Triplestore initialization: added {len(g)} triples for the iCARE4CVD Cohort Explorer OWL ontology.")
 
     # Load cohorts data dictionaries already present in data/cohorts/
     for folder in os.listdir(os.path.join(settings.data_folder, "cohorts")):

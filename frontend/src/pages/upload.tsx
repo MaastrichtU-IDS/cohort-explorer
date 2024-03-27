@@ -49,6 +49,7 @@ export default function UploadPage() {
     event.preventDefault();
     setPublishedDCR(null);
     setIsLoading(true);
+    setErrorMessage('');
     const formData = new FormData();
     formData.append('cohort_id', cohortId);
     formData.append('cohort_dictionary', metadataFile);
