@@ -202,10 +202,10 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, user_email: str) -> Da
         for i, row in df.iterrows():
             # Check if required columns are present
             if not row["VARIABLE NAME"] or not row["VARIABLE LABEL"] or not row["VAR TYPE"]:
-                errors.append(f"Row {i} is missing required data: variable_name, variable_label, or var_type")
+                errors.append(f"Row {i+2} is missing required data: variable_name, variable_label, or var_type")
             if row["VAR TYPE"] not in ACCEPTED_DATATYPES:
                 errors.append(
-                    f"Row {i} for variable {row['VARIABLE NAME']} is using a wrong datatype: {row['VAR TYPE']}. It should be one of: {', '.join(ACCEPTED_DATATYPES)}"
+                    f"Row {i+2} for variable {row['VARIABLE NAME']} is using a wrong datatype: {row['VAR TYPE']}. It should be one of: {', '.join(ACCEPTED_DATATYPES)}"
                 )
             # TODO: raise error when duplicate value for VARIABLE LABEL?
 
@@ -237,7 +237,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, user_email: str) -> Da
                 if column in ["categories"]:
                     if len(value) == 1:
                         errors.append(
-                            f"Row {i+2} for variable {row['VARIABLE NAME']} has only one category {row['categories']}. It should have at least two."
+                            f"Row {i+2} for variable {row['VARIABLE NAME']} has only one category `{row['categories'][0]['value']}`. It should have at least two."
                         )
                         continue
                     for index, category in enumerate(value):
@@ -257,7 +257,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, user_email: str) -> Da
     except Exception as e:
         raise HTTPException(
             status_code=422,
-            detail=f"Error parsing the data dictionary CSV file: {e}",
+            detail=e,
         )
     return g
 
@@ -304,8 +304,6 @@ async def upload_cohort(
                 # Rename (backup) the existing file
                 os.rename(existing_file_path, backup_file_path)
                 break  # Assuming there's only one data dictionary file per cohort
-        # Delete graph for this file from triplestore
-        delete_existing_triples(get_cohort_uri(cohort_id))
 
     # Make sure metadata file ends with _datadictionary
     metadata_filename = cohort_dictionary.filename
@@ -320,6 +318,8 @@ async def upload_cohort(
 
     try:
         g = load_cohort_dict_file(metadata_path, cohort_id, user_email)
+        # Delete previous graph for this file from triplestore
+        delete_existing_triples(get_cohort_uri(cohort_id))
         publish_graph_to_endpoint(g)
     except Exception as e:
         os.remove(metadata_path)

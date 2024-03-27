@@ -3,6 +3,8 @@ version: "3.3"
 services:
 
   backend:
+    depends_on:
+      - db
     extends:
       file: docker-compose.base.yml
       service: backend
@@ -13,6 +15,8 @@ services:
       - 3000:80
 
   frontend:
+    depends_on:
+      - backend
     extends:
       file: docker-compose.base.yml
       service: frontend

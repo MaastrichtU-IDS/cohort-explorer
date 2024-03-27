@@ -73,7 +73,7 @@ export default function CohortsList() {
         {/* TODO: add by ongoing? */}
       </aside>
 
-      <div>
+      <div className="w-full">
         <div className="mb-4">
           <input
             type="text"
