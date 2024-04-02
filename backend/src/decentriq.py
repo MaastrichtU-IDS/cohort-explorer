@@ -7,9 +7,10 @@ import decentriq_platform as dq
 from decentriq_platform.analytics import (
     AnalyticsDcrBuilder,
     Column,
-    PrimitiveType,
+    FormatType,
     PythonComputeNodeDefinition,
-    RawDataNodeDefinition,
+    PreviewComputeNodeDefinition,
+    TableDataNodeDefinition,
 )
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -25,11 +26,11 @@ def get_cohort_schema(cohort_dict: Cohort) -> list[Column]:
     """Convert cohort variables to Decentriq schema"""
     schema = []
     for variable_id, variable_info in cohort_dict.variables.items():
-        prim_type = PrimitiveType.STRING
+        prim_type = FormatType.STRING
         if variable_info.var_type == "FLOAT":
-            prim_type = PrimitiveType.FLOAT
+            prim_type = FormatType.FLOAT
         if variable_info.var_type == "INT":
-            prim_type = PrimitiveType.INTEGER
+            prim_type = FormatType.INTEGER
         nullable = bool(variable_info.na != 0)
 
         schema.append(Column(name=variable_id, format_type=prim_type, is_nullable=nullable))
@@ -54,9 +55,9 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
 
     # Create data node for cohort
     data_node_id = cohort.cohort_id.replace(" ", "-")
-    builder.add_node_definition(RawDataNodeDefinition(name=data_node_id, is_required=True))
+    # builder.add_node_definition(RawDataNodeDefinition(name=data_node_id, is_required=True))
     # TODO: providing schema is broken in new SDK
-    # builder.add_node_definition(TableDataNodeDefinition(name=data_node_id, columns=get_cohort_schema(cohort), is_required=True))
+    builder.add_node_definition(TableDataNodeDefinition(name=data_node_id, columns=get_cohort_schema(cohort), is_required=True))
 
     builder.add_participant(
         user["email"],
@@ -122,14 +123,15 @@ async def create_compute_dcr(
     # Get metadata for selected cohorts and variables
     selected_cohorts = {}
     # We generate a pandas script to automatically prepare the data from the cohort based on known metadata
-    pandas_script = "import pandas as pd\n\n"
+    pandas_script = "import pandas as pd\nimport decentriq_util\n\n"
 
     for cohort_id, requested_vars in cohorts_request["cohorts"].items():
         cohort_meta = deepcopy(all_cohorts[cohort_id])
         df_var = f"df_{cohort_id.replace(' ', '_').replace('-', '_').replace('(', '').replace(')', '')}"
         if isinstance(requested_vars, list):
             # Direct cohort variables list
-            pandas_script += f"{df_var} = pd.read_csv('{cohort_id}.csv')\n"
+            # pandas_script += f"{df_var} = pd.read_csv('{cohort_id}.csv')\n"
+            pandas_script += f'{df_var} = decentriq_util.read_tabular_data("/input/{cohort_id}")\n'
 
             if len(requested_vars) <= len(cohort_meta.variables):
                 # Add filter variables to pandas script
@@ -145,6 +147,8 @@ async def create_compute_dcr(
             # TODO: add merged cohorts schema to selected_cohorts
         else:
             raise HTTPException(status_code=400, detail=f"Invalid structure for cohort {cohort_id}")
+        pandas_script += f'{df_var}.to_csv("/output/{cohort_id}.csv", index=False, header=True)\n\n'
+
 
     # TODO: Add pandas_script to the DCR?
     # print(pandas_script)
@@ -161,6 +165,7 @@ async def create_compute_dcr(
         .with_name(dcr_title)
         .with_owner(user["email"])
         .with_description("A data clean room to run computations on cohorts for the iCARE4CVD project")
+        .with_airlock()
     )
 
     # builder = dq.DataRoomBuilder(f"iCare4CVD DCR compute {dcr_count}", enclave_specs=enclave_specs)
@@ -169,9 +174,9 @@ async def create_compute_dcr(
     for cohort_id, cohort in selected_cohorts.items():
         # Create data node for cohort
         data_node_id = cohort_id.replace(" ", "-")
-        builder.add_node_definition(RawDataNodeDefinition(name=data_node_id, is_required=True))
+        # builder.add_node_definition(RawDataNodeDefinition(name=data_node_id, is_required=True))
         # TODO: providing schema is broken in new SDK
-        # builder.add_node_definition(TableDataNodeDefinition(name=data_node_id, columns=get_cohort_schema(cohort), is_required=True))
+        builder.add_node_definition(TableDataNodeDefinition(name=data_node_id, columns=get_cohort_schema(cohort), is_required=True))
         data_nodes.append(data_node_id)
 
     # Add python data preparation script
@@ -182,6 +187,14 @@ async def create_compute_dcr(
     # Add users permissions
     builder.add_participant(user["email"], data_owner_of=[data_node_id], analyst_of=["prepare-data"])
 
+    # Add airlock node to make it easy to access small part of the dataset
+    builder.add_node_definition(PreviewComputeNodeDefinition(
+        name="preview-data",
+        dependency="prepare-data",
+        quota_bytes=52428800, # 50MB
+    ))
+
+
     # Build and publish DCR
     dcr_definition = builder.build()
     dcr = client.publish_analytics_dcr(dcr_definition)
@@ -190,7 +203,6 @@ async def create_compute_dcr(
         "message": f"Data Clean Room available for compute at {dcr_url}",
         "dcr_url": dcr_url,
         "dcr_title": dcr_title,
-        # "dcr": dcr_desc,
         "merge_script": pandas_script,
         **cohorts_request,
     }

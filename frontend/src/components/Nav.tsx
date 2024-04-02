@@ -197,6 +197,7 @@ export function Nav() {
                 Close
               </button>
             </div>
+            {/* TODO: {isLoading && <div className="loader"></div>} */}
             {publishedDCR && (
               <div className="card card-compact">
                 <div className="card-body bg-success mt-5 rounded-lg text-slate-900">

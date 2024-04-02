@@ -278,7 +278,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, user_email: str) -> Da
     except Exception as e:
         raise HTTPException(
             status_code=422,
-            detail=e,
+            detail=str(e),
         )
     return g
 
