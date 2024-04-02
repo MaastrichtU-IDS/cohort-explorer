@@ -158,19 +158,15 @@ COLUMNS_LIST = [
     "MAX",
     "Definition",
     "Formula",
-    "ICD-10",
-    "ATC-DDD",
-    "LOINC",
-    "SNOMED-CT",
     "OMOP",
     "Visits",
 ]
 ACCEPTED_DATATYPES = ["STR", "FLOAT", "INT", "DATETIME"]
+# Old multiple column format for concept codes:
 ID_COLUMNS_NAMESPACES = {"ICD-10": "icd10", "SNOMED-CT": "snomedct", "ATC-DDD": "atc", "LOINC": "loinc"}
 
-
-def create_uri_from_id(row):
-    """Build concepts URIs from the ID provided in the various columns of the data dictionary"""
+def get_id_from_multi_columns(row):
+    """Old format to pass concepts URIs from the ID provided in the various columns of the data dictionary (ICD-10, ATC, SNOMED...)"""
     uris_list = []
 
     for column in ID_COLUMNS_NAMESPACES:
@@ -211,7 +207,11 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, user_email: str) -> Da
                     detail=f"Missing column `{column}`",
                 )
         df["categories"] = df["CATEGORICAL"].apply(parse_categorical_string)
-        df["concept_id"] = df.apply(lambda row: create_uri_from_id(row), axis=1)
+        if "Label Concept Code" in df.columns:
+            df["concept_id"] = df["Label Concept Code"]
+        else:
+            # Try to get IDs from old format multiple columns
+            df["concept_id"] = df.apply(lambda row: get_id_from_multi_columns(row), axis=1)
 
         cohort_uri = get_cohort_uri(cohort_id)
         g = init_graph()
@@ -226,7 +226,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, user_email: str) -> Da
                 errors.append(f"Row {i+2} is missing required data: variable_name, variable_label, or var_type")
             if row["VAR TYPE"] not in ACCEPTED_DATATYPES:
                 errors.append(
-                    f"Row {i+2} for variable {row['VARIABLE NAME']} is using a wrong datatype: {row['VAR TYPE']}. It should be one of: {', '.join(ACCEPTED_DATATYPES)}"
+                    f"Row {i+2} for variable `{row['VARIABLE NAME']}` is using a wrong datatype: `{row['VAR TYPE']}`. It should be one of: {', '.join(ACCEPTED_DATATYPES)}"
                 )
             # TODO: raise error when duplicate value for VARIABLE LABEL?
 
@@ -240,6 +240,10 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, user_email: str) -> Da
             g.add((variable_uri, RDFS.label, Literal(row["VARIABLE LABEL"]), cohort_uri))
             g.add((variable_uri, ICARE["index"], Literal(i, datatype=XSD.integer), cohort_uri))
 
+            # Get categories code if provided
+            categories_codes = []
+            if "Categorical Value Concept Code" in row and row["Categorical Value Concept Code"]:
+                categories_codes = row["Categorical Value Concept Code"].split(",")
             # Add properties
             for column, value in row.items():
                 # if value and column not in ["categories"]:
@@ -258,7 +262,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, user_email: str) -> Da
                 if column in ["categories"]:
                     if len(value) == 1:
                         errors.append(
-                            f"Row {i+2} for variable {row['VARIABLE NAME']} has only one category `{row['categories'][0]['value']}`. It should have at least two."
+                            f"Row {i+2} for variable `{row['VARIABLE NAME']}` has only one category `{row['categories'][0]['value']}`. It should have at least two."
                         )
                         continue
                     for index, category in enumerate(value):
@@ -267,7 +271,12 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, user_email: str) -> Da
                         g.add((cat_uri, RDF.type, ICARE.VariableCategory, cohort_uri))
                         g.add((cat_uri, RDF.value, Literal(category["value"]), cohort_uri))
                         g.add((cat_uri, RDFS.label, Literal(category["label"]), cohort_uri))
-                        # TODO: add categories
+                        if categories_codes:
+                            cat_code_uri = converter.expand(categories_codes[index])
+                            if not cat_code_uri:
+                                errors.append(f"Row {i+2} for variable `{row['VARIABLE NAME']}` the category concept code provided for `{categories_codes[index]}` is not valid. Use one of snomedct:, icd10:, atc: or loinc: prefixes.")
+                            else:
+                                g.add((cat_uri, ICARE.conceptId, URIRef(cat_code_uri), cohort_uri))
         # print(g.serialize(format="turtle"))
         # Print all errors at once
         if len(errors) > 0:
@@ -278,7 +287,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, user_email: str) -> Da
     except Exception as e:
         raise HTTPException(
             status_code=422,
-            detail=str(e),
+            detail=str(e)[5:],
         )
     return g
 
