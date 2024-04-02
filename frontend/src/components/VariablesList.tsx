@@ -200,7 +200,7 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
       </aside>
 
       {/* List of variables */}
-      <div className="flex">
+      <div className="flex flex-col">
         {cohortsData[cohortId].study_objective && (
           <div className="card p-3 mb-3 bg-base-300">🎯 Study objective: {cohortsData[cohortId].study_objective}</div>
         )}
