@@ -2,13 +2,13 @@ import glob
 import os
 import shutil
 from datetime import datetime
-from typing import Any
 from re import sub
+from typing import Any
 
 import pandas as pd
 import requests
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from rdflib import DCTERMS, XSD, Dataset, Graph, Literal, URIRef
+from rdflib import XSD, Dataset, Graph, Literal, URIRef
 from rdflib.namespace import DC, RDF, RDFS
 from SPARQLWrapper import SPARQLWrapper
 
@@ -146,9 +146,28 @@ def parse_categorical_string(s: str) -> list[dict[str, str]]:
     return result
 
 
-COLUMNS_LIST = ["VARIABLE NAME", "VARIABLE LABEL", "VAR TYPE", "UNITS", "CATEGORICAL", "COUNT", "NA", "MIN", "MAX", "Definition", "Formula", "ICD-10", "ATC-DDD", "LOINC", "SNOMED-CT", "OMOP", "Visits"]
+COLUMNS_LIST = [
+    "VARIABLE NAME",
+    "VARIABLE LABEL",
+    "VAR TYPE",
+    "UNITS",
+    "CATEGORICAL",
+    "COUNT",
+    "NA",
+    "MIN",
+    "MAX",
+    "Definition",
+    "Formula",
+    "ICD-10",
+    "ATC-DDD",
+    "LOINC",
+    "SNOMED-CT",
+    "OMOP",
+    "Visits",
+]
 ACCEPTED_DATATYPES = ["STR", "FLOAT", "INT", "DATETIME"]
 ID_COLUMNS_NAMESPACES = {"ICD-10": "icd10", "SNOMED-CT": "snomedct", "ATC-DDD": "atc", "LOINC": "loinc"}
+
 
 def create_uri_from_id(row):
     """Build concepts URIs from the ID provided in the various columns of the data dictionary"""
@@ -158,16 +177,18 @@ def create_uri_from_id(row):
         if row[column]:
             if "," in str(row[column]):  # Handle list of IDs separated by comma
                 ids = str(row[column]).split(",")
-                uris_list.extend([converter.expand(f"{ID_COLUMNS_NAMESPACES[column]}:{identif.strip()}") for identif in ids])
+                uris_list.extend(
+                    [converter.expand(f"{ID_COLUMNS_NAMESPACES[column]}:{identif.strip()}") for identif in ids]
+                )
             else:
                 uris_list.append(converter.expand(f"{ID_COLUMNS_NAMESPACES[column]}:{str(row[column]).strip()}"))
     return ", ".join(uris_list)
 
 
-
 def to_camelcase(s: str) -> str:
-  s = sub(r"(_|-)+", " ", s).title().replace(" ", "")
-  return ''.join([s[0].lower(), s[1:]])
+    s = sub(r"(_|-)+", " ", s).title().replace(" ", "")
+    return "".join([s[0].lower(), s[1:]])
+
 
 def load_cohort_dict_file(dict_path: str, cohort_id: str, user_email: str) -> Dataset:
     """Parse the cohort dictionary uploaded as excel or CSV spreadsheet, and load it to the triplestore"""
@@ -405,7 +426,10 @@ def init_triplestore() -> None:
     g = init_graph(onto_graph_uri)
     ntriple_g = init_graph()
     # ntriple_g.parse("https://raw.githubusercontent.com/vemonet/omop-cdm-owl/main/omop_cdm_v6.ttl", format="turtle")
-    ntriple_g.parse("https://raw.githubusercontent.com/MaastrichtU-IDS/cohort-explorer/main/cohort-explorer-ontology.ttl", format="turtle")
+    ntriple_g.parse(
+        "https://raw.githubusercontent.com/MaastrichtU-IDS/cohort-explorer/main/cohort-explorer-ontology.ttl",
+        format="turtle",
+    )
     # Trick to convert ntriples to nquads with a given graph
     for s, p, o in ntriple_g.triples((None, None, None)):
         g.add((s, p, o, onto_graph_uri))

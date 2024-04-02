@@ -118,14 +118,14 @@ async def auth_callback(code: str) -> RedirectResponse:
 
         # Check in payload if logged in user has the required permissions
         if (
-            "https://explorer.icare4cvd.eu"
-            in access_payload["aud"]
+            "https://explorer.icare4cvd.eu" in access_payload["aud"]
             and "read:icare4cvd-dataset-descriptions" in access_payload["permissions"]
         ):
             # Reuse expiration time from decentriq Auth0 access token
             exp_timestamp = access_payload["exp"]
             jwt_token = create_access_token(
-                data={"email": id_payload["email"], "access_token": token["access_token"]}, expires_timestamp=exp_timestamp
+                data={"email": id_payload["email"], "access_token": token["access_token"]},
+                expires_timestamp=exp_timestamp,
             )
 
             # NOTE: Redirect to react frontend
