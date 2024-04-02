@@ -17,6 +17,7 @@ export function Nav() {
   const [theme, setTheme] = useState('light');
   const [showModal, setShowModal] = useState(false);
   const [publishedDCR, setPublishedDCR]: any = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
   // const [cleanRoomData, setCleanRoomData]: any = useState(null);
   // const cleanRoomData = JSON.parse(sessionStorage.getItem('dataCleanRoom') || '{"cohorts": []}');
   // const cohortsCount = cleanRoomData.cohorts.length;
@@ -60,6 +61,7 @@ export function Nav() {
   };
 
   const sendCohortsToDecentriq = async () => {
+    setIsLoading(true);
     // Replace with actual API endpoint and required request format
     console.log('Sending request to Decentriq', dataCleanRoom);
     const requestBody = dataCleanRoom;
@@ -83,9 +85,11 @@ export function Nav() {
       const res = await response.json();
       console.log(res);
       setPublishedDCR(res);
+      setIsLoading(false);
       // Handle response
     } catch (error) {
       console.error('Error sending cohorts:', error);
+      setIsLoading(false);
       // Handle error
     }
   };
@@ -198,6 +202,12 @@ export function Nav() {
               </button>
             </div>
             {/* TODO: {isLoading && <div className="loader"></div>} */}
+            {isLoading && (
+              <div className="flex flex-col items-center opacity-70 text-slate-500 mt-5 mb-5">
+                <span className="loading loading-spinner loading-lg mb-4"></span>
+                <p>Creating Data Clean Room in Decentriq...</p>
+              </div>
+            )}
             {publishedDCR && (
               <div className="card card-compact">
                 <div className="card-body bg-success mt-5 rounded-lg text-slate-900">
