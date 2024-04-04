@@ -179,7 +179,7 @@ export default function UploadPage() {
                   </svg>
                   <span>
                     <b>Optional</b> sensible data: if you want Maastricht University to store the cohort data
-                    on their server for helping researchers to understand it, you can upload it here (no obligations)
+                    on their server, you can upload it here. It will be used by researchers to better understand what type of data they are working with (no obligations)
                   </span>
                 </div>
               </label>
