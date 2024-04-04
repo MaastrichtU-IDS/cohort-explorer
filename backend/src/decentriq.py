@@ -125,6 +125,8 @@ async def create_compute_dcr(
     # We generate a pandas script to automatically prepare the data from the cohort based on known metadata
     pandas_script = "import pandas as pd\nimport decentriq_util\n\n"
 
+    # TODO: DONT FILTER COLUMNS IN SCHEMA
+    # 1 prepare script per data node
     for cohort_id, requested_vars in cohorts_request["cohorts"].items():
         cohort_meta = deepcopy(all_cohorts[cohort_id])
         df_var = f"df_{cohort_id.replace(' ', '_').replace('-', '_').replace('(', '').replace(')', '')}"
@@ -136,10 +138,12 @@ async def create_compute_dcr(
             if len(requested_vars) <= len(cohort_meta.variables):
                 # Add filter variables to pandas script
                 pandas_script += f"{df_var} = {df_var}[{requested_vars}]\n"
+            # NOTE: this block would filter variables only selected by user.
+            # We don't want this anymore.
             # Get all cohort and variables metadata for selected variables
-            for var in all_cohorts[cohort_id].variables:
-                if var not in requested_vars:
-                    del cohort_meta.variables[var]
+            # for var in all_cohorts[cohort_id].variables:
+            #     if var not in requested_vars:
+            #         del cohort_meta.variables[var]
             selected_cohorts[cohort_id] = cohort_meta
         elif isinstance(requested_vars, dict):
             # Merge operation, need to be implemented on the frontend
@@ -168,16 +172,23 @@ async def create_compute_dcr(
         .with_airlock()
     )
 
-    # builder = dq.DataRoomBuilder(f"iCare4CVD DCR compute {dcr_count}", enclave_specs=enclave_specs)
 
+    preview_nodes = []
     # Convert cohort variables to decentriq schema
     for cohort_id, cohort in selected_cohorts.items():
         # Create data node for cohort
         data_node_id = cohort_id.replace(" ", "-")
-        # builder.add_node_definition(RawDataNodeDefinition(name=data_node_id, is_required=True))
-        # TODO: providing schema is broken in new SDK
         builder.add_node_definition(TableDataNodeDefinition(name=data_node_id, columns=get_cohort_schema(cohort), is_required=True))
         data_nodes.append(data_node_id)
+
+        # Add airlock node to make it easy to access small part of the dataset
+        preview_node_id = f"preview-{data_node_id}"
+        builder.add_node_definition(PreviewComputeNodeDefinition(
+            name=preview_node_id,
+            dependency=data_node_id,
+            quota_bytes=1048576, # 10MB
+        ))
+        preview_nodes.append(preview_node_id)
 
     # Add python data preparation script
     builder.add_node_definition(
@@ -185,15 +196,7 @@ async def create_compute_dcr(
     )
 
     # Add users permissions
-    builder.add_participant(user["email"], data_owner_of=[data_node_id], analyst_of=["prepare-data"])
-
-    # Add airlock node to make it easy to access small part of the dataset
-    builder.add_node_definition(PreviewComputeNodeDefinition(
-        name="preview-data",
-        dependency="prepare-data",
-        quota_bytes=52428800, # 50MB
-    ))
-
+    builder.add_participant(user["email"], data_owner_of=data_nodes, analyst_of=["prepare-data", *preview_nodes])
 
     # Build and publish DCR
     dcr_definition = builder.build()

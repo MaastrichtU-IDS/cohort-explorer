@@ -123,7 +123,7 @@ export default function UploadPage() {
           {/* Upload cohort metadata file */}
           <div className="flex items-center">
             <label htmlFor="metadataFile" className="block text-sm">
-              <div role="alert" className="alert alert-success">
+              <div role="alert" className="alert">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   className="stroke-current shrink-0 h-6 w-6"
@@ -160,36 +160,37 @@ export default function UploadPage() {
           <input type="file" id="metadataFile" className="mt-2" onChange={handleMetadataFileChange} required />
 
           {/* Upload data file */}
-          <div className="flex items-center">
-            <label htmlFor="dataFile" className="block text-sm">
-              <div role="alert" className="alert alert-warning">
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="stroke-current shrink-0 h-6 w-6"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                  />
-                </svg>
-                <span>
-                  <b>Optional</b> sensible data: upload the actual cohort patients data file, if you wish to let the
-                  server upload the data to Decentriq for you
-                </span>
-              </div>
-            </label>
-            {dataFile && (
-              <button type="button" onClick={clearDataFile} className="ml-2 btn btn-xs btn-neutral">
-                <TrashIcon />
-              </button>
-            )}
-          </div>
-          <input type="file" id="dataFile" className="mt-2" onChange={handleDataFilesChange} />
-
+          {metadataFile && <>
+            <div className="flex items-center">
+              <label htmlFor="dataFile" className="block text-sm">
+                <div role="alert" className="alert">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="stroke-current shrink-0 h-6 w-6"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                    />
+                  </svg>
+                  <span>
+                    <b>Optional</b> sensible data: if you want Maastricht University to store the cohort data
+                    on their server for helping researchers to understand it, you can upload it here (no obligations)
+                  </span>
+                </div>
+              </label>
+              {dataFile && (
+                <button type="button" onClick={clearDataFile} className="ml-2 btn btn-xs btn-neutral">
+                  <TrashIcon />
+                </button>
+              )}
+            </div>
+            <input type="file" id="dataFile" className="mt-2" onChange={handleDataFilesChange} />
+          </>}
           <div>
             <button type="submit" className="btn btn-sm btn-info mt-6 text-slate-900 font-normal">
               <Upload className="w-4 h-4" />
