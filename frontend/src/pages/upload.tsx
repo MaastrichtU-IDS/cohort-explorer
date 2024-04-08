@@ -160,7 +160,7 @@ export default function UploadPage() {
           <input type="file" id="metadataFile" className="mt-2" onChange={handleMetadataFileChange} required />
 
           {/* Upload data file */}
-          {metadataFile && <>
+          {/* {metadataFile && <>
             <div className="flex items-center">
               <label htmlFor="dataFile" className="block text-sm">
                 <div role="alert" className="alert">
@@ -190,7 +190,7 @@ export default function UploadPage() {
               )}
             </div>
             <input type="file" id="dataFile" className="mt-2" onChange={handleDataFilesChange} />
-          </>}
+          </>} */}
           <div>
             <button type="submit" className="btn btn-sm btn-info mt-6 text-slate-900 font-normal">
               <Upload className="w-4 h-4" />
