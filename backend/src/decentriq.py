@@ -196,14 +196,17 @@ async def create_compute_dcr(
         ))
         preview_nodes.append(preview_node_id)
 
+        builder.add_participant(cohort.cohort_email, data_owner_of=[data_node_id])
+
     # Add python data preparation script
-    builder.add_node_definition(
-        PythonComputeNodeDefinition(name="prepare-data", script=pandas_script, dependencies=data_nodes)
-    )
+    # builder.add_node_definition(
+    #     PythonComputeNodeDefinition(name="prepare-data", script=pandas_script, dependencies=data_nodes)
+    # )
+    # builder.add_participant(user["email"], analyst_of=["prepare-data", *preview_nodes])
 
     # Add users permissions
-    builder.add_participant(user["email"], data_owner_of=data_nodes, analyst_of=["prepare-data", *preview_nodes])
-    builder.add_participant(settings.decentriq_email, data_owner_of=data_nodes, analyst_of=["prepare-data", *preview_nodes])
+    builder.add_participant(user["email"], analyst_of=preview_nodes)
+    builder.add_participant(settings.decentriq_email, data_owner_of=data_nodes)
 
     # Build and publish DCR
     dcr_definition = builder.build()
