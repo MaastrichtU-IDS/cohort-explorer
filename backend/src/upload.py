@@ -362,9 +362,9 @@ async def upload_cohort(
         os.remove(metadata_path)
         raise e
 
-    log.info("Cohort metadata uploaded successfully")
+    print("Cohort metadata uploaded successfully")
     cohorts_dict = retrieve_cohorts_metadata(user["email"])
-    log.info("Cohort metadata retrieved successfully")
+    print("Cohort metadata retrieved successfully")
     try:
         dcr_data = create_provision_dcr(user, cohorts_dict.get(cohort_id))
     except Exception as e:
