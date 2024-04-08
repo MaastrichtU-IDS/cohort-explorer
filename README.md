@@ -18,6 +18,10 @@ It aims to enable data owners and data scientists to:
     *   The DCR will be automatically created with a data schema corresponding to the selected cohorts, generated from the metadata provided by the data owners.
     *   The data scientist can then access their DCR in Decentriq, write the code for their analysis, and request computation of this code on the provisioned cohorts.
 
+> [!WARNING]
+>
+> If you logged in with a Decentriq user that does not have access to the Cohort Explorer, and need to re-login with another user: you will need to clear cache and cookies. Because Auth0 will keep your login in mind for some time, and it can be quite tricky to reset (they don't give the tools for managing that properly).
+
 ## 🗺️ Technical overview
 
 This platform is composed of 3 main components:
