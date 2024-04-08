@@ -27,9 +27,9 @@ export default function UploadPage() {
   const handleMetadataFileChange = (event: any) => {
     setMetadataFile(event.target.files[0]);
   };
-  const handleDataFilesChange = (event: any) => {
-    setDataFile(event.target.files[0]);
-  };
+  // const handleDataFilesChange = (event: any) => {
+  //   setDataFile(event.target.files[0]);
+  // };
 
   // Function to clear metadata file
   const clearMetadataFile = () => {

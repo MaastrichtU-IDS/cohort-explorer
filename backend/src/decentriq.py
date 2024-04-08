@@ -31,10 +31,10 @@ def get_cohort_schema(cohort_dict: Cohort) -> list[Column]:
             prim_type = FormatType.FLOAT
         if variable_info.var_type == "INT":
             prim_type = FormatType.INTEGER
-        nullable = bool(variable_info.na != 0)
+        # If we want to get na from data dictionary (removed for demo)
+        # nullable = bool(variable_info.na != 0)
 
-        schema.append(Column(name=variable_id, format_type=prim_type, is_nullable=nullable))
-        # schema.append((variable_id, prim_type, nullable))
+        schema.append(Column(name=variable_id, format_type=prim_type, is_nullable=True))
     return schema
 
 
