@@ -209,10 +209,13 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, user_email: str) -> Da
                 )
         df["categories"] = df["CATEGORICAL"].apply(parse_categorical_string)
         if "Label Concept Code" in df.columns:
-            df["concept_id"] = df["Label Concept Code"]
+            df["concept_id"] = str(df["Label Concept Code"]).strip()
         else:
             # Try to get IDs from old format multiple columns
             df["concept_id"] = df.apply(lambda row: get_id_from_multi_columns(row), axis=1)
+
+        if " " in df["concept_id"]:
+            errors.append(f"Row {i+2} is using multiple concepts codes for a variable: {df['concept_id']}")
 
         cohort_uri = get_cohort_uri(cohort_id)
         g = init_graph()
@@ -272,12 +275,15 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, user_email: str) -> Da
                         g.add((cat_uri, RDF.type, ICARE.VariableCategory, cohort_uri))
                         g.add((cat_uri, RDF.value, Literal(category["value"]), cohort_uri))
                         g.add((cat_uri, RDFS.label, Literal(category["label"]), cohort_uri))
-                        if categories_codes:
-                            cat_code_uri = converter.expand(categories_codes[index])
-                            if not cat_code_uri:
-                                errors.append(f"Row {i+2} for variable `{row['VARIABLE NAME']}` the category concept code provided for `{categories_codes[index]}` is not valid. Use one of snomedct:, icd10:, atc: or loinc: prefixes.")
-                            else:
-                                g.add((cat_uri, ICARE.conceptId, URIRef(cat_code_uri), cohort_uri))
+                        try:
+                            if categories_codes:
+                                cat_code_uri = converter.expand(categories_codes[index])
+                                if not cat_code_uri:
+                                    errors.append(f"Row {i+2} for variable `{row['VARIABLE NAME']}` the category concept code provided for `{categories_codes[index]}` is not valid. Use one of snomedct:, icd10:, atc: or loinc: prefixes.")
+                                else:
+                                    g.add((cat_uri, ICARE.conceptId, URIRef(cat_code_uri), cohort_uri))
+                        except Exception as e:
+                            errors.append(f"Row {i+2} for variable `{row['VARIABLE NAME']}` the {len(categories_codes)} category concept codes are not matching with {len(row['categories'])} categories provided.")
         # print(g.serialize(format="turtle"))
         # Print all errors at once
         if len(errors) > 0:
@@ -289,6 +295,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, user_email: str) -> Da
         raise HTTPException(
             status_code=422,
             detail=str(e)[5:],
+            # detail=str(e),
         )
     return g
 
@@ -355,6 +362,7 @@ async def upload_cohort(
     except Exception as e:
         os.remove(metadata_path)
         raise e
+
 
     cohorts_dict = retrieve_cohorts_metadata(user["email"])
     dcr_data = create_provision_dcr(user, cohorts_dict.get(cohort_id))

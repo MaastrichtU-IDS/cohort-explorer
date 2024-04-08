@@ -172,7 +172,8 @@ async def create_compute_dcr(
     builder = (
         AnalyticsDcrBuilder(client=client)
         .with_name(dcr_title)
-        .with_owner(user["email"])
+        # .with_owner(user["email"])
+        .with_owner(settings.decentriq_email)
         .with_description("A data clean room to run computations on cohorts for the iCARE4CVD project")
         .with_airlock()
     )
