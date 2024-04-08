@@ -39,11 +39,11 @@ export default function UploadPage() {
   };
 
   // Function to clear data file
-  const clearDataFile = () => {
-    setDataFile(null);
-    // @ts-ignore
-    document.getElementById('dataFile').value = '';
-  };
+  // const clearDataFile = () => {
+  //   setDataFile(null);
+  //   // @ts-ignore
+  //   document.getElementById('dataFile').value = '';
+  // };
 
   const handleSubmit = async (event: any) => {
     event.preventDefault();
@@ -76,7 +76,7 @@ export default function UploadPage() {
       }
       setPublishedDCR(result);
       clearMetadataFile();
-      clearDataFile();
+      // clearDataFile();
       setCohortId('');
       setErrorMessage('');
       setIsLoading(false);
