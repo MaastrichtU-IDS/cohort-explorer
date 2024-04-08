@@ -15,7 +15,7 @@ from SPARQLWrapper import SPARQLWrapper
 from src.auth import get_current_user
 from src.config import settings
 from src.decentriq import create_provision_dcr
-from src.utils import ICARE, converter, init_graph, retrieve_cohorts_metadata, run_query, log
+from src.utils import ICARE, converter, init_graph, retrieve_cohorts_metadata, run_query
 
 router = APIRouter()
 
