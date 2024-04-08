@@ -185,7 +185,6 @@ def to_camelcase(s: str) -> str:
     s = sub(r"(_|-)+", " ", s).title().replace(" ", "")
     return "".join([s[0].lower(), s[1:]])
 
-
 def load_cohort_dict_file(dict_path: str, cohort_id: str, user_email: str) -> Dataset:
     """Parse the cohort dictionary uploaded as excel or CSV spreadsheet, and load it to the triplestore"""
     # print(f"Loading dictionary {dict_path}")
@@ -277,7 +276,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, user_email: str) -> Da
                         g.add((cat_uri, RDFS.label, Literal(category["label"]), cohort_uri))
                         try:
                             if categories_codes:
-                                cat_code_uri = converter.expand(categories_codes[index])
+                                cat_code_uri = converter.expand(str(categories_codes[index]).strip())
                                 if not cat_code_uri:
                                     errors.append(f"Row {i+2} for variable `{row['VARIABLE NAME']}` the category concept code provided for `{categories_codes[index]}` is not valid. Use one of snomedct:, icd10:, atc: or loinc: prefixes.")
                                 else:
