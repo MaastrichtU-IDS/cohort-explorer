@@ -15,7 +15,7 @@ from SPARQLWrapper import SPARQLWrapper
 from src.auth import get_current_user
 from src.config import settings
 from src.decentriq import create_provision_dcr
-from src.utils import ICARE, converter, init_graph, retrieve_cohorts_metadata, run_query
+from src.utils import ICARE, converter, init_graph, retrieve_cohorts_metadata, run_query, log
 
 router = APIRouter()
 
@@ -362,9 +362,13 @@ async def upload_cohort(
         os.remove(metadata_path)
         raise e
 
-
+    log.info("Cohort metadata uploaded successfully")
     cohorts_dict = retrieve_cohorts_metadata(user["email"])
-    dcr_data = create_provision_dcr(user, cohorts_dict.get(cohort_id))
+    log.info("Cohort metadata retrieved successfully")
+    try:
+        dcr_data = create_provision_dcr(user, cohorts_dict.get(cohort_id))
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"The cohort was properly created in the Cohort Explorer, but there was an issue when uploading to Decentriq: {e}")
     # print(dcr_data)
     # Save data file
     if cohort_data:
