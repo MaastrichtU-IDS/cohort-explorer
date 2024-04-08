@@ -196,7 +196,8 @@ async def create_compute_dcr(
         ))
         preview_nodes.append(preview_node_id)
 
-        builder.add_participant(cohort.cohort_email, data_owner_of=[data_node_id])
+        for owner in cohort.cohort_email:
+            builder.add_participant(owner, data_owner_of=[data_node_id])
 
     # Add python data preparation script
     # builder.add_node_definition(
