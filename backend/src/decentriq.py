@@ -63,6 +63,10 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
         user["email"],
         data_owner_of=[data_node_id],
     )
+    builder.add_participant(
+        settings.decentriq_email,
+        data_owner_of=[data_node_id],
+    )
     # Build and publish DCR
     dcr_definition = builder.build()
     dcr = client.publish_analytics_dcr(dcr_definition)
@@ -114,7 +118,7 @@ async def create_compute_dcr(
     user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Create a Data Clean Room for computing with the cohorts requested using Decentriq SDK"""
-    users = [user["email"]]
+    # users = [user["email"]]
     # TODO: cohorts_request could also be a dict of union of cohorts to merge
     # {"cohorts": {"cohort_id": ["var1", "var2"], "merged_cohort3": {"cohort1": ["weight", "sex"], "cohort2": ["gender", "patient weight"]}}}
     # We automatically merge the cohorts, figuring out which variables are the same thanks to mappings
@@ -197,6 +201,7 @@ async def create_compute_dcr(
 
     # Add users permissions
     builder.add_participant(user["email"], data_owner_of=data_nodes, analyst_of=["prepare-data", *preview_nodes])
+    builder.add_participant(settings.decentriq_email, data_owner_of=data_nodes, analyst_of=["prepare-data", *preview_nodes])
 
     # Build and publish DCR
     dcr_definition = builder.build()

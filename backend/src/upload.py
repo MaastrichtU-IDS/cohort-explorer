@@ -197,6 +197,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, user_email: str) -> Da
         )
     try:
         df = pd.read_csv(dict_path)
+        # df = pd.read_csv(dict_path, encoding="utf-8")
         df = df.dropna(how="all")
         df = df.fillna("")
         df.columns = df.columns.str.strip()
