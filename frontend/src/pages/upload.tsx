@@ -213,11 +213,12 @@ export default function UploadPage() {
                     </a>{' '}
                     published.
                   </p>
-                  {!dataFile ? (
+                  <p>You can now access this Data Clean Room in Decentriq to safely upload the cohort dataset.</p>
+                  {/* {!dataFile ? (
                     <p>You can now access this Data Clean Room in Decentriq to safely upload the cohort dataset.</p>
                   ) : (
                     <p>The provided cohort data file has been automatically uploaded to Decentriq.</p>
-                  )}
+                  )} */}
                 </div>
               </div>
             )}
