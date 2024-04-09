@@ -116,6 +116,7 @@ def pandas_script_merge_cohorts(merged_cohorts: dict[str, list[str]], all_cohort
 )
 async def create_compute_dcr(
     cohorts_request: dict[str, Any],
+    airlock: bool = True,
     user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Create a Data Clean Room for computing with the cohorts requested using Decentriq SDK"""
@@ -157,8 +158,9 @@ async def create_compute_dcr(
         .with_name(dcr_title)
         .with_owner(settings.decentriq_email)
         .with_description("A data clean room to run computations on cohorts for the iCARE4CVD project")
-        .with_airlock()
     )
+    if airlock:
+        builder.with_airlock()
 
     preview_nodes = []
     # Convert cohort variables to decentriq schema
@@ -168,14 +170,15 @@ async def create_compute_dcr(
         builder.add_node_definition(TableDataNodeDefinition(name=data_node_id, columns=get_cohort_schema(cohort), is_required=True))
         data_nodes.append(data_node_id)
 
-        # Add airlock node to make it easy to access small part of the dataset
-        preview_node_id = f"preview-{data_node_id}"
-        builder.add_node_definition(PreviewComputeNodeDefinition(
-            name=preview_node_id,
-            dependency=data_node_id,
-            quota_bytes=1048576, # 10MB
-        ))
-        preview_nodes.append(preview_node_id)
+        if airlock:
+            # Add airlock node to make it easy to access small part of the dataset
+            preview_node_id = f"preview-{data_node_id}"
+            builder.add_node_definition(PreviewComputeNodeDefinition(
+                name=preview_node_id,
+                dependency=data_node_id,
+                quota_bytes=1048576, # 10MB
+            ))
+            preview_nodes.append(preview_node_id)
 
         # Add data owners to provision the data
         for owner in cohort.cohort_email:
@@ -207,7 +210,8 @@ async def create_compute_dcr(
         builder.add_participant(user["email"], analyst_of=[f"prepare-{cohort_id}"])
 
     # Add users permissions
-    builder.add_participant(user["email"], analyst_of=preview_nodes)
+    if airlock:
+        builder.add_participant(user["email"], analyst_of=preview_nodes)
     builder.add_participant(settings.decentriq_email, data_owner_of=data_nodes)
 
     # Build and publish DCR

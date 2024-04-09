@@ -9,6 +9,7 @@ import {apiUrl} from '@/utils';
 export default function UploadPage() {
   const {cohortsData, fetchCohortsData, userEmail} = useCohorts();
   const [cohortId, setCohortId] = useState('');
+  const [enableAirlock, setEnableAirlock] = useState(false);
   const [metadataFile, setMetadataFile]: any = useState(null);
   const [dataFile, setDataFile]: any = useState(null);
   const [errorMessage, setErrorMessage] = useState('');
@@ -53,6 +54,7 @@ export default function UploadPage() {
     const formData = new FormData();
     formData.append('cohort_id', cohortId);
     formData.append('cohort_dictionary', metadataFile);
+    formData.append('airlock', enableAirlock ? 'true' : 'false');
     if (dataFile) formData.append('cohort_data', dataFile);
     try {
       const response = await fetch(`${apiUrl}/upload-cohort`, {
@@ -158,6 +160,19 @@ export default function UploadPage() {
             )}
           </div>
           <input type="file" id="metadataFile" className="mt-2" onChange={handleMetadataFileChange} required />
+
+          <div>
+            <label htmlFor="enableAirlock" className="flex items-center gap-2 cursor-pointer">
+              <input
+                id="enableAirlock"
+                type="checkbox"
+                checked={enableAirlock}
+                onChange={(e) => setEnableAirlock(e.target.checked)}
+                className="checkbox"
+              />
+              Enable Airlock
+            </label>
+          </div>
 
           {/* Upload data file */}
           {/* {metadataFile && <>

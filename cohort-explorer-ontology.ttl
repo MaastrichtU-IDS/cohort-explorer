@@ -9,7 +9,7 @@
 
 icare: a owl:Ontology ;
     rdfs:label "iCARE4CVD ontology" ;
-    dcterms:license <https://www.gnu.org/licenses/lgpl-3.0> ;
+    dcterms:license <https://creativecommons.org/licenses/by-sa/4.0/> ;
     vann:preferredNamespacePrefix "icare" ;
     vann:preferredNamespaceUri "https://w3id.org/icare4cvd/" ;
     rdfs:comment "OWL ontology for the iCARE4CVD project, to represent Cohorts tabular file containing Variables for individuals in the cohort (metadata, measurement, etc)"@en .
