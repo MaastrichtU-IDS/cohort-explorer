@@ -13,6 +13,7 @@ It aims to enable data owners and data scientists to:
     *   Filter variables per OMOP domain, data type, categorical or not
 *   🔗 Data owners can map each variable of their cohorts to standard concepts, sourced from [OHDSI Athena](https://athena.ohdsi.org/search-terms/terms?query=) API (SNOMEDCT, LOINC...) through the web app.
     *   Mapping variables will help with data processing and exploration (⚠️ work in progress)
+    *   We use namespaces from the [Bioregistry](https://bioregistry.io) to convert concepts CURIEs to URIs.
 *   🛒 Data scientists can add the cohorts they need to perform their analysis to a Data Clean Room (DCR)
     *   Once complete, the data scientists can publish their DCR to Decentriq in one click.
     *   The DCR will be automatically created with a data schema corresponding to the selected cohorts, generated from the metadata provided by the data owners.

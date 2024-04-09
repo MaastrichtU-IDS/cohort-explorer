@@ -127,22 +127,10 @@ async def create_compute_dcr(
 
     # Get metadata for selected cohorts and variables
     selected_cohorts = {}
-    # We generate a pandas script to automatically prepare the data from the cohort based on known metadata
-    pandas_script = "import pandas as pd\nimport decentriq_util\n\n"
-
-    # TODO: DONT FILTER COLUMNS IN SCHEMA
-    # 1 prepare script per data node
     for cohort_id, requested_vars in cohorts_request["cohorts"].items():
         cohort_meta = deepcopy(all_cohorts[cohort_id])
-        df_var = f"df_{cohort_id.replace(' ', '_').replace('-', '_').replace('(', '').replace(')', '')}"
         if isinstance(requested_vars, list):
             # Direct cohort variables list
-            # pandas_script += f"{df_var} = pd.read_csv('{cohort_id}.csv')\n"
-            pandas_script += f'{df_var} = decentriq_util.read_tabular_data("/input/{cohort_id}")\n'
-
-            if len(requested_vars) <= len(cohort_meta.variables):
-                # Add filter variables to pandas script
-                pandas_script += f"{df_var} = {df_var}[{requested_vars}]\n"
             # NOTE: this block would filter variables only selected by user.
             # We don't want this anymore.
             # Get all cohort and variables metadata for selected variables
@@ -150,17 +138,12 @@ async def create_compute_dcr(
             #     if var not in requested_vars:
             #         del cohort_meta.variables[var]
             selected_cohorts[cohort_id] = cohort_meta
-        elif isinstance(requested_vars, dict):
-            # Merge operation, need to be implemented on the frontend
-            pandas_script += pandas_script_merge_cohorts(requested_vars, all_cohorts)
-            # TODO: add merged cohorts schema to selected_cohorts
+        # elif isinstance(requested_vars, dict):
+        #     # Merge operation, need to be implemented on the frontend
+        #     pandas_script += pandas_script_merge_cohorts(requested_vars, all_cohorts)
+        #     # TODO: add merged cohorts schema to selected_cohorts
         else:
             raise HTTPException(status_code=400, detail=f"Invalid structure for cohort {cohort_id}")
-        pandas_script += f'{df_var}.to_csv("/output/{cohort_id}.csv", index=False, header=True)\n\n'
-
-
-    # TODO: Add pandas_script to the DCR?
-    # print(pandas_script)
 
     # Establish connection to Decentriq
     client = dq.create_client(settings.decentriq_email, settings.decentriq_token)
@@ -172,12 +155,10 @@ async def create_compute_dcr(
     builder = (
         AnalyticsDcrBuilder(client=client)
         .with_name(dcr_title)
-        # .with_owner(user["email"])
         .with_owner(settings.decentriq_email)
         .with_description("A data clean room to run computations on cohorts for the iCARE4CVD project")
         .with_airlock()
     )
-
 
     preview_nodes = []
     # Convert cohort variables to decentriq schema
@@ -196,14 +177,34 @@ async def create_compute_dcr(
         ))
         preview_nodes.append(preview_node_id)
 
+        # Add data owners to provision the data
         for owner in cohort.cohort_email:
             builder.add_participant(owner, data_owner_of=[data_node_id])
 
-    # Add python data preparation script
-    # builder.add_node_definition(
-    #     PythonComputeNodeDefinition(name="prepare-data", script=pandas_script, dependencies=data_nodes)
-    # )
-    # builder.add_participant(user["email"], analyst_of=["prepare-data", *preview_nodes])
+        # Add pandas preparation script
+        pandas_script = "import pandas as pd\nimport decentriq_util\n\n"
+        df_var = f"df_{cohort_id.replace('-', '_')}"
+        requested_vars = cohorts_request["cohorts"][cohort_id]
+        if isinstance(requested_vars, list):
+            # Direct cohort variables list
+            pandas_script += f'{df_var} = decentriq_util.read_tabular_data("/input/{cohort_id}")\n'
+
+            if len(requested_vars) <= len(cohort.variables):
+                # Add filter variables to pandas script
+                pandas_script += f"{df_var} = {df_var}[{requested_vars}]\n"
+        elif isinstance(requested_vars, dict):
+            # Merge operation, need to be implemented on the frontend
+            pandas_script += pandas_script_merge_cohorts(requested_vars, all_cohorts)
+            # TODO: add merged cohorts schema to selected_cohorts
+        else:
+            raise HTTPException(status_code=400, detail=f"Invalid structure for cohort {cohort_id}")
+        pandas_script += f'{df_var}.to_csv("/output/{cohort_id}.csv", index=False, header=True)\n\n'
+
+        # Add python data preparation script
+        builder.add_node_definition(
+            PythonComputeNodeDefinition(name=f"prepare-{cohort_id}", script=pandas_script, dependencies=[data_node_id])
+        )
+        builder.add_participant(user["email"], analyst_of=[f"prepare-{cohort_id}"])
 
     # Add users permissions
     builder.add_participant(user["email"], analyst_of=preview_nodes)
