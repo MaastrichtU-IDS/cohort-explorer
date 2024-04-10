@@ -1,22 +1,24 @@
 # 🫀 iCARE4CVD Cohort Explorer
 
-Webapp built for the [iCARE4CVD project](https://icare4cvd.eu).
+Webapp enabling to upload and explore cohorts metadata built for the [iCARE4CVD project](https://icare4cvd.eu). 
 
-It aims to enable data owners and data scientists to:
+It interacts with a privacy computing platform ([Decentriq](https://www.decentriq.com/)) to create secure workspace where data scientists can run analysis on the selected cohorts (the cohorts data is uploaded only to Decentriq, the explorer only uses cohorts metadata).
+
+It aims to enable *data custodians* and *data scientists* to:
 
 *   🔐 Login with their [Decentriq](https://www.decentriq.com/) account (OAuth based authentication, can be easily switch to other providers). Only accounts with the required permissions will be able to access the webapp.
     *   ✉️ Contact [Decentriq](https://www.decentriq.com/) to request an account if you are part of the iCARE4CVD project
-*   📤 Data owners upload CSV cohort metadata files describing the variables of a study cohort
+*   📤 Data custodians upload CSV cohort metadata files describing the variables of a study cohort
 *   🔎 Data scientists explore available cohorts and their variables through a web app:
     *   Full text search across all cohorts and variables
     *   Filter cohorts per types and providers
     *   Filter variables per OMOP domain, data type, categorical or not
-*   🔗 Data owners can map each variable of their cohorts to standard concepts, sourced from [OHDSI Athena](https://athena.ohdsi.org/search-terms/terms?query=) API (SNOMEDCT, LOINC...) through the web app.
+*   🔗 Data custodians can map each variable of their cohorts to standard concepts, sourced from [OHDSI Athena](https://athena.ohdsi.org/search-terms/terms?query=) API (SNOMEDCT, LOINC...) through the web app.
     *   Mapping variables will help with data processing and exploration (⚠️ work in progress)
     *   We use namespaces from the [Bioregistry](https://bioregistry.io) to convert concepts CURIEs to URIs.
 *   🛒 Data scientists can add the cohorts they need to perform their analysis to a [Data Clean Room](https://www.decentriq.com/) (DCR) on the Decentriq platform.
     *   Once complete, the data scientists can publish their DCR to Decentriq in one click.
-    *   The DCR will be automatically created with a data schema corresponding to the selected cohorts, generated from the metadata provided by the data owners.
+    *   The DCR will be automatically created with a data schema corresponding to the selected cohorts, generated from the metadata provided by the data custodians.
     *   The data scientist can then access their DCR in Decentriq, write the code for their analysis, and request computation of this code on the provisioned cohorts.
 
 > [!WARNING]
@@ -27,13 +29,14 @@ It aims to enable data owners and data scientists to:
 
 This platform is composed of 3 main components:
 
-*   **[Oxigraph](https://github.com/oxigraph/oxigraph) triplestore** containing the cohorts and their variables metadata, exposing a SPARQL endpoint only available to the backend API.
+*   **[Oxigraph](https://github.com/oxigraph/oxigraph) triplestore database** containing the cohorts and their variables metadata, exposing a SPARQL endpoint only available to the backend API.
     *   The data stored in the triplestore complies with the custom **[iCARE4CVD OWL ontology](https://maastrichtu-ids.github.io/cohort-explorer/)**. It contains 3 classes: Cohort, Variable, and Variable category. You can explore the ontology classes and properties [here](https://maastrichtu-ids.github.io/cohort-explorer/browse).
-
+    *   Oxigraph has not yet reached release 1.0, but it is already stable enough for our currently expected use. It has the advantages of being open source (important for accountability and trust), and developed in Europe. If missing features appears to be blocking, consider migrating to [OpenLink Virtuoso](https://github.com/openlink/virtuoso-opensource), you'll only need to update the function that upload a RDFLib graph as file.
+    
 *   **`backend/` server**, built with python, FastAPI and RDFLib.
-*   **`frontend/` web app** running on the client, built with TypeScript, NextJS, ReactJS, TailwindCSS, and DaisyUI.
+*   **`frontend/` web app** running in the client browser, built with TypeScript, NextJS, ReactJS, TailwindCSS, and DaisyUI.
 
-🐳 Everything is deployed in docker containers using docker compose.
+🐳 Everything is deployed in docker containers define in the `docker-compose.yml` files.
 
 🔐 Authentication is done through the Decentriq OAuth provider, but it could be replaced by any other OAuth provider easily. Once the user logged in through the external OAuth provider, the backend generates an encrypted JWT token, which is passed to the frontend using HTTP-only cookies.
 
@@ -230,4 +233,3 @@ Run profiling, supports `.csv`, `.xlsx`, `.sav`:
 csvw-ontomap data/COHORT_data.sav -o data/COHORT_datadictionary.csv
 ```
 
-###
