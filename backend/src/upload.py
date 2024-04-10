@@ -220,7 +220,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, airlock: bool) -> Data
         g = init_graph()
         g.add((cohort_uri, RDF.type, ICARE.Cohort, cohort_uri))
         g.add((cohort_uri, DC.identifier, Literal(cohort_id), cohort_uri))
-        g.add((cohort_uri, ICARE.previewEnabled, Literal(str(airlock).lower()), cohort_uri))
+        g.add((cohort_uri, ICARE.previewEnabled, Literal(str(airlock).lower(), datatype=XSD.boolean), cohort_uri))
 
         # Record all errors and raise them at the end
         errors = []

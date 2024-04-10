@@ -104,10 +104,11 @@ WHERE {
 def get_value(key: str, row: dict[str, Any]) -> str | None:
     return str(row[key]["value"]) if key in row and row[key]["value"] else None
 
-
 def get_int_value(key: str, row: dict[str, Any]) -> int | None:
     return int(row[key]["value"]) if key in row and row[key]["value"] else None
 
+def get_bool_value(key: str, row: dict[str, Any]) -> bool:
+    return str(row[key]["value"]).lower() == "true" if key in row and row[key]["value"] else False
 
 def get_curie_value(key: str, row: dict[str, Any]) -> int | None:
     return converter.compress(get_value(key, row)) if get_value(key, row) else None
@@ -140,7 +141,7 @@ def retrieve_cohorts_metadata(user_email: str) -> dict[str, Cohort]:
                 study_population=get_value("study_population", row),
                 study_objective=get_value("study_objective", row),
                 variables={},  # You might want to populate this separately, depending on your data structure
-                airlock=get_value("airlock", row),
+                airlock=get_bool_value("airlock", row),
                 can_edit=user_email in [*settings.admins_list, get_value("cohortEmail", row)],
             )
         elif get_value("cohortEmail", row) not in target_dict[cohort_id].cohort_email:

@@ -104,6 +104,13 @@ icare:studyObjective a owl:DatatypeProperty ;
     rdfs:range xsd:string ;
     rdfs:isDefinedBy icare: .
 
+icare:previewEnabled a owl:DatatypeProperty ;
+	rdfs:label "Data preview enabled"@en ;
+	rdfs:comment "If data preview (airlock) is enabled for this cohort"@en ;
+    rdfs:domain icare:Cohort ;
+    rdfs:range xsd:boolean ;
+    rdfs:isDefinedBy icare: .
+
 icare:hasVariable a owl:ObjectProperty ;
 	rdfs:label "Has variable"@en ;
 	rdfs:comment "The variables that are included in this cohort"@en ;

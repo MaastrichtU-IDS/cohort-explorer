@@ -28,7 +28,7 @@ It aims to enable data owners and data scientists to:
 This platform is composed of 3 main components:
 
 *   **[Oxigraph](https://github.com/oxigraph/oxigraph) triplestore** containing the cohorts and their variables metadata, exposing a SPARQL endpoint only available to the backend API.
-    *   The data stored in the triplestore complies with the custom **[iCARE4CVD OWL ontology](https://maastrichtu-ids.github.io/cohort-explorer/)**. It contains 3 classes: Cohort, Variable, and Variable category.
+    *   The data stored in the triplestore complies with the custom **[iCARE4CVD OWL ontology](https://maastrichtu-ids.github.io/cohort-explorer/)**. It contains 3 classes: Cohort, Variable, and Variable category. You can explore the ontology classes and properties [here](https://maastrichtu-ids.github.io/cohort-explorer/browse).
 
 *   **`backend/` server**, built with python, FastAPI and RDFLib.
 *   **`frontend/` web app** running on the client, built with TypeScript, NextJS, ReactJS, TailwindCSS, and DaisyUI.
@@ -214,7 +214,7 @@ docker compose exec backend curl -X POST -T /data/triplestore_dump_20240225.nq -
 
 If you need to move the app to a different server, just copy the whole `data/` folder.
 
-### ✨ Automatically generate variables metadata
+## ✨ Automatically generate variables metadata
 
 Experimental: you can use the [`csvw-ontomap`](https://github.com/vemonet/csvw-ontomap) python package to automatically generate a CSV metadata file for your data file, with the format expected by iCARE4CVD. It will automatically fill the following columns: var name, var type, categorical, min, max. But it does not properly extract datetime data types.
 
