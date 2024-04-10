@@ -159,8 +159,6 @@ async def create_compute_dcr(
         .with_owner(settings.decentriq_email)
         .with_description("A data clean room to run computations on cohorts for the iCARE4CVD project")
     )
-    if airlock:
-        builder.with_airlock()
 
     preview_nodes = []
     # Convert cohort variables to decentriq schema
