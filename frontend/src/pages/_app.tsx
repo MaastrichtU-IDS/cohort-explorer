@@ -12,7 +12,7 @@ export default function App({Component, pageProps}: AppProps) {
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <link rel="icon" href="/icare4cvd_heart_logo.png" />
-        <meta name="description" content="Explore cohorts for the iCare4CVD project" />
+        <meta name="description" content="Explore cohorts for the iCARE4CVD project" />
         <title>Cohort Explorer</title>
       </Head>
       <CohortsProvider>

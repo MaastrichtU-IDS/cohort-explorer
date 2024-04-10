@@ -116,7 +116,6 @@ def pandas_script_merge_cohorts(merged_cohorts: dict[str, list[str]], all_cohort
 )
 async def create_compute_dcr(
     cohorts_request: dict[str, Any],
-    airlock: bool = True,
     user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Create a Data Clean Room for computing with the cohorts requested using Decentriq SDK"""
@@ -168,7 +167,9 @@ async def create_compute_dcr(
         builder.add_node_definition(TableDataNodeDefinition(name=data_node_id, columns=get_cohort_schema(cohort), is_required=True))
         data_nodes.append(data_node_id)
 
-        if airlock:
+        # TODO: made airlock always True for testing
+        # if cohort.airlock:
+        if True:
             # Add airlock node to make it easy to access small part of the dataset
             preview_node_id = f"preview-{data_node_id}"
             builder.add_node_definition(PreviewComputeNodeDefinition(

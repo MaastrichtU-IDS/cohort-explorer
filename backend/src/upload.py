@@ -185,7 +185,7 @@ def to_camelcase(s: str) -> str:
     s = sub(r"(_|-)+", " ", s).title().replace(" ", "")
     return "".join([s[0].lower(), s[1:]])
 
-def load_cohort_dict_file(dict_path: str, cohort_id: str, user_email: str) -> Dataset:
+def load_cohort_dict_file(dict_path: str, cohort_id: str, airlock: bool) -> Dataset:
     """Parse the cohort dictionary uploaded as excel or CSV spreadsheet, and load it to the triplestore"""
     # print(f"Loading dictionary {dict_path}")
     # df = pd.read_csv(dict_path) if dict_path.endswith(".csv") else pd.read_excel(dict_path)
@@ -220,6 +220,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, user_email: str) -> Da
         g = init_graph()
         g.add((cohort_uri, RDF.type, ICARE.Cohort, cohort_uri))
         g.add((cohort_uri, DC.identifier, Literal(cohort_id), cohort_uri))
+        g.add((cohort_uri, ICARE.previewEnabled, Literal(str(airlock).lower()), cohort_uri))
 
         # Record all errors and raise them at the end
         errors = []
@@ -310,6 +311,7 @@ async def upload_cohort(
     cohort_id: str = Form(...),
     cohort_dictionary: UploadFile = File(...),
     cohort_data: UploadFile | None = None,
+    airlock: bool = True,
 ) -> dict[str, Any]:
     """Upload a cohort metadata file to the server and add its variables to the triplestore."""
     user_email = user["email"]
@@ -325,6 +327,8 @@ async def upload_cohort(
             status_code=403,
             detail=f"User {user_email} cannot edit cohort {cohort_id}",
         )
+
+    cohort_info.airlock = airlock
 
     # Create directory named after cohort_id
     cohorts_folder = os.path.join(settings.data_folder, "cohorts", cohort_id)
@@ -354,7 +358,7 @@ async def upload_cohort(
         shutil.copyfileobj(cohort_dictionary.file, buffer)
 
     try:
-        g = load_cohort_dict_file(metadata_path, cohort_id, user_email)
+        g = load_cohort_dict_file(metadata_path, cohort_id, airlock)
         # Delete previous graph for this file from triplestore
         delete_existing_triples(get_cohort_uri(cohort_id))
         publish_graph_to_endpoint(g)
@@ -463,8 +467,9 @@ def init_triplestore() -> None:
         folder_path = os.path.join(settings.data_folder, "cohorts", folder)
         if os.path.isdir(folder_path):
             for file in glob.glob(os.path.join(folder_path, "*_datadictionary.*")):
-                # TODO: currently when we reset all existing cohorts default to the main admin
-                g = load_cohort_dict_file(file, folder, settings.decentriq_email)
+                # NOTE: default airlock preview to false if we ever need to reset cohorts,
+                # admins can easily ddl and reupload the cohorts with the correct airlock value
+                g = load_cohort_dict_file(file, folder, False)
                 g.serialize(f"{settings.data_folder}/cohort_explorer_triplestore.trig", format="trig")
                 if publish_graph_to_endpoint(g):
                     print(f"💾 Triplestore initialization: added {len(g)} triples for cohorts {file}.")

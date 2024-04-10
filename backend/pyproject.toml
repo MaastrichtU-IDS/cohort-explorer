@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 requires-python = ">=3.8"
 version = "0.0.1"
 name = "cohort-explorer-backend"
-description = "Backend for the iCare4CVD Cohort Explorer."
+description = "Backend for the iCARE4CVD Cohort Explorer."
 license = "MIT"
 authors = [
     { name = "Vincent Emonet", email = "vincent.emonet@gmail.com" },

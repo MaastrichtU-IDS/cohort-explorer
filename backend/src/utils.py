@@ -55,6 +55,7 @@ WHERE {
         OPTIONAL { ?cohort icare:studyOngoing ?study_ongoing . }
         OPTIONAL { ?cohort icare:studyPopulation ?study_population . }
         OPTIONAL { ?cohort icare:studyObjective ?study_objective . }
+        OPTIONAL { ?cohort icare:previewEnabled ?airlock . }
     }
 
     OPTIONAL {
@@ -139,6 +140,7 @@ def retrieve_cohorts_metadata(user_email: str) -> dict[str, Cohort]:
                 study_population=get_value("study_population", row),
                 study_objective=get_value("study_objective", row),
                 variables={},  # You might want to populate this separately, depending on your data structure
+                airlock=get_value("airlock", row),
                 can_edit=user_email in [*settings.admins_list, get_value("cohortEmail", row)],
             )
         elif get_value("cohortEmail", row) not in target_dict[cohort_id].cohort_email:

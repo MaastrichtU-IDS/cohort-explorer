@@ -130,7 +130,7 @@ export function Nav() {
 
       <div className="navbar-center">
         <Link className="text-xl font-thin" href="/">
-          iCare4CVD Cohort Explorer
+          iCARE4CVD Cohort Explorer
         </Link>
       </div>
 
@@ -213,7 +213,7 @@ export function Nav() {
                 <div className="card-body bg-success mt-5 rounded-lg text-slate-900">
                   <p>
                     ✅ Data Clean Room{' '}
-                    <a href={publishedDCR['dcr_url']} className="link">
+                    <a href={publishedDCR['dcr_url']} className="link" target="_blank">
                       <b>{publishedDCR['dcr_title']}</b>
                     </a>{' '}
                     published in Decentriq.

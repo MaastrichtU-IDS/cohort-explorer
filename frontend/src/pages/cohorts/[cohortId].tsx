@@ -1,5 +1,9 @@
 'use client';
 
+// NOTE: this page is not really used in the current version of the app
+// All cohorts are accessed from the cohorts.tsx page
+// We keep it here as a placeholder in case we want to add pages for each cohort
+
 import React, {useState} from 'react';
 import {useRouter} from 'next/router';
 import {useCohorts} from '@/components/CohortsContext';

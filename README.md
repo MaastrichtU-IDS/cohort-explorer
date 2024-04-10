@@ -1,11 +1,11 @@
-# 🫀 iCare4CVD Cohort Explorer
+# 🫀 iCARE4CVD Cohort Explorer
 
-Webapp built for the [iCare4CVD project](https://icare4cvd.eu).
+Webapp built for the [iCARE4CVD project](https://icare4cvd.eu).
 
 It aims to enable data owners and data scientists to:
 
 *   🔐 Login with their [Decentriq](https://www.decentriq.com/) account (OAuth based authentication, can be easily switch to other providers). Only accounts with the required permissions will be able to access the webapp.
-    *   ✉️ Contact [Decentriq](https://www.decentriq.com/) to request an account if you are part of the iCare4CVD project
+    *   ✉️ Contact [Decentriq](https://www.decentriq.com/) to request an account if you are part of the iCARE4CVD project
 *   📤 Data owners upload CSV cohort metadata files describing the variables of a study cohort
 *   🔎 Data scientists explore available cohorts and their variables through a web app:
     *   Full text search across all cohorts and variables
@@ -14,7 +14,7 @@ It aims to enable data owners and data scientists to:
 *   🔗 Data owners can map each variable of their cohorts to standard concepts, sourced from [OHDSI Athena](https://athena.ohdsi.org/search-terms/terms?query=) API (SNOMEDCT, LOINC...) through the web app.
     *   Mapping variables will help with data processing and exploration (⚠️ work in progress)
     *   We use namespaces from the [Bioregistry](https://bioregistry.io) to convert concepts CURIEs to URIs.
-*   🛒 Data scientists can add the cohorts they need to perform their analysis to a Data Clean Room (DCR)
+*   🛒 Data scientists can add the cohorts they need to perform their analysis to a [Data Clean Room](https://www.decentriq.com/) (DCR) on the Decentriq platform.
     *   Once complete, the data scientists can publish their DCR to Decentriq in one click.
     *   The DCR will be automatically created with a data schema corresponding to the selected cohorts, generated from the metadata provided by the data owners.
     *   The data scientist can then access their DCR in Decentriq, write the code for their analysis, and request computation of this code on the provisioned cohorts.
@@ -113,7 +113,7 @@ pnpm dev
 
 ### 🧹 Code formatting and linting
 
-Automatically format Python code with ruff and black, and TypeScript code with prettier.
+Automatically format Python code with ruff and black, and TypeScript code with prettier:
 
 ```bash
 ./scripts/fmt.sh
@@ -125,47 +125,33 @@ Deploy on a server in production with docker compose.
 
 Put the excel spreadsheet with all cohorts metadata in `data/iCARE4CVD_Cohorts.xlsx`. Uploaded cohorts will go to separated folders in `data/cohorts/`
 
-Generate a secret key used to encode/decode JWT token for a secure authentication system:
+1. Generate a secret key used to encode/decode JWT token for a secure authentication system:
 
-```bash
-python -c "import secrets ; print(secrets.token_urlsafe(32))"
-```
+    ```bash
+    python -c "import secrets ; print(secrets.token_urlsafe(32))"
+    ```
 
-Create a `.env` file with secret configuration:
+2. Create a `.env` file with secret configuration:
 
-```bash
-AUTH_ENDPOINT=https://auth0.com
-CLIENT_ID=AAA
-CLIENT_SECRET=BBB
-DECENTRIQ_EMAIL=ccc@ddd.com
-DECENTRIQ_TOKEN=EEE
-JWT_SECRET=vCitcsPBwH4BMCwEqlO1aHJSIn--usrcyxPPRbeYdHM
-ADMINS=admin1@email.com,admin2@email.com
-```
+    ```bash
+    AUTH_ENDPOINT=https://auth0.com
+    CLIENT_ID=AAA
+    CLIENT_SECRET=BBB
+    DECENTRIQ_EMAIL=ccc@ddd.com
+    DECENTRIQ_TOKEN=EEE
+    JWT_SECRET=vCitcsPBwH4BMCwEqlO1aHJSIn--usrcyxPPRbeYdHM
+    ADMINS=admin1@email.com,admin2@email.com
+    ```
 
-Deploy:
+3. Deploy the stack for production:
 
-```bash
-docker compose -f docker-compose.prod.yml up -d
-```
+    ```bash
+    docker compose -f docker-compose.prod.yml up -d
+    ```
+
+We currently use [nginx-proxy](https://github.com/nginx-proxy/nginx-proxy) for routing through environment variables in the `docker-compose.yml` file, you can change for the proxy of your liking.
 
 ## 🪄 Administration
-
-### ✨ Automatically generate variables metadata
-
-You can use the [`csvw-ontomap`](https://github.com/vemonet/csvw-ontomap) python package to automatically generate a CSV metadata file for your data file, with the format expected by iCARE4CVD. It will automatically fill the following columns: var name, var type, categorical, min, max
-
-Install the package:
-
-```bash
-pip install git+https://github.com/vemonet/csvw-ontomap.git
-```
-
-Run profiling, supports `.csv`, `.xlsx`, `.sav`:
-
-```bash
-csvw-ontomap data/COHORT_data.sav -o data/COHORT_datadictionary.csv
-```
 
 ### 🗑️ Reset database
 
@@ -174,6 +160,15 @@ Reset the database by deleting the `data/db` folder:
 ```bash
 rm -rf data/db
 ```
+
+Next restart of the application the database will be re-populated using the data dictionaries CSV files stored on the server.
+
+> [!WARNING]
+>
+> Resetting the database only if really necessary, it will cause to lose:
+>
+> - All concept mappings added from the Cohort Explorer
+> - The info about Decentriq airlock data preview for cohorts that have been uploaded (it will default to false when recreating the database, admins can update them by downloading and reuploading the cohorts with the right airlock setting)
 
 ### 💾 Backup database
 
@@ -218,3 +213,21 @@ docker compose exec backend curl -X POST -T /data/triplestore_dump_20240225.nq -
 ### 🚚 Move the app
 
 If you need to move the app to a different server, just copy the whole `data/` folder.
+
+### ✨ Automatically generate variables metadata
+
+Experimental: you can use the [`csvw-ontomap`](https://github.com/vemonet/csvw-ontomap) python package to automatically generate a CSV metadata file for your data file, with the format expected by iCARE4CVD. It will automatically fill the following columns: var name, var type, categorical, min, max. But it does not properly extract datetime data types.
+
+Install the package:
+
+```bash
+pip install git+https://github.com/vemonet/csvw-ontomap.git
+```
+
+Run profiling, supports `.csv`, `.xlsx`, `.sav`:
+
+```bash
+csvw-ontomap data/COHORT_data.sav -o data/COHORT_datadictionary.csv
+```
+
+###

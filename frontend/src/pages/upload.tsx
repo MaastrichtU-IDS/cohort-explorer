@@ -223,7 +223,7 @@ export default function UploadPage() {
                 <div className="card-body bg-success mt-8 rounded-lg text-slate-900">
                   <p>
                     ✅ Data Clean Room{' '}
-                    <a href={publishedDCR['dcr_url']} className="link">
+                    <a href={publishedDCR['dcr_url']} className="link" target="_blank">
                       <b>{publishedDCR['dcr_title']}</b>
                     </a>{' '}
                     published.
