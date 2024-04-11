@@ -185,7 +185,7 @@ def to_camelcase(s: str) -> str:
     s = sub(r"(_|-)+", " ", s).title().replace(" ", "")
     return "".join([s[0].lower(), s[1:]])
 
-def load_cohort_dict_file(dict_path: str, cohort_id: str, airlock: bool) -> Dataset:
+def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
     """Parse the cohort dictionary uploaded as excel or CSV spreadsheet, and load it to the triplestore"""
     # print(f"Loading dictionary {dict_path}")
     # df = pd.read_csv(dict_path) if dict_path.endswith(".csv") else pd.read_excel(dict_path)
@@ -219,8 +219,6 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, airlock: bool) -> Data
         g = init_graph()
         g.add((cohort_uri, RDF.type, ICARE.Cohort, cohort_uri))
         g.add((cohort_uri, DC.identifier, Literal(cohort_id), cohort_uri))
-        # Preview goes to mapping graph because it is defined in the explorer UI
-        g.add((cohort_uri, ICARE.previewEnabled, Literal(str(airlock).lower(), datatype=XSD.boolean), get_cohort_mapping_uri(cohort_id)))
 
         # Record all errors and raise them at the end
         errors = []
@@ -358,7 +356,9 @@ async def upload_cohort(
         shutil.copyfileobj(cohort_dictionary.file, buffer)
 
     try:
-        g = load_cohort_dict_file(metadata_path, cohort_id, airlock)
+        g = load_cohort_dict_file(metadata_path, cohort_id)
+        # Airlock preview setting goes to mapping graph because it is defined in the explorer UI
+        g.add((get_cohort_uri(cohort_id), ICARE.previewEnabled, Literal(str(airlock).lower(), datatype=XSD.boolean), get_cohort_mapping_uri(cohort_id)))
         # Delete previous graph for this file from triplestore
         delete_existing_triples(get_cohort_uri(cohort_id))
         publish_graph_to_endpoint(g)
@@ -467,7 +467,7 @@ def init_triplestore() -> None:
             for file in glob.glob(os.path.join(folder_path, "*_datadictionary.*")):
                 # NOTE: default airlock preview to false if we ever need to reset cohorts,
                 # admins can easily ddl and reupload the cohorts with the correct airlock value
-                g = load_cohort_dict_file(file, folder, False)
+                g = load_cohort_dict_file(file, folder)
                 g.serialize(f"{settings.data_folder}/cohort_explorer_triplestore.trig", format="trig")
                 if publish_graph_to_endpoint(g):
                     print(f"💾 Triplestore initialization: added {len(g)} triples for cohorts {file}.")

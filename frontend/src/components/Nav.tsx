@@ -36,11 +36,8 @@ export function Nav() {
 
   const toggleTheme = () => {
     const newTheme = theme === 'light' ? 'dark' : 'light';
-    // console.log("NEW THEME", newTheme)
     sessionStorage.setItem('theme', newTheme);
     setTheme(newTheme);
-    // document.querySelector('html')?.setAttribute('data-theme', newTheme);
-    // document.documentElement.setAttribute("data-theme", newTheme);
   };
 
   const handleLogout = () => {
@@ -63,16 +60,7 @@ export function Nav() {
   const sendCohortsToDecentriq = async () => {
     setIsLoading(true);
     // Replace with actual API endpoint and required request format
-    console.log('Sending request to Decentriq', dataCleanRoom);
-    const requestBody = dataCleanRoom;
-    // const requestBody = {cohorts: {}};
-    // for (const cohortId of dataCleanRoom.cohorts as string[]) {
-    //   // @ts-ignore
-    //   // requestBody.cohorts[cohortId] = cohortsData[cohortId];
-    //   // NOTE: variables is left empty for now, placeholder for later when users will be able to select also variables
-    //   requestBody.cohorts[cohortId] = {"variables": []};
-    // }
-    console.log('requestBody', requestBody);
+    // console.log('Sending request to Decentriq', dataCleanRoom);
     try {
       const response = await fetch(`${apiUrl}/create-dcr`, {
         method: 'POST',
@@ -80,10 +68,10 @@ export function Nav() {
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(requestBody)
+        body: JSON.stringify(dataCleanRoom)
       });
       const res = await response.json();
-      console.log(res);
+      // console.log(res);
       setPublishedDCR(res);
       setIsLoading(false);
       // Handle response

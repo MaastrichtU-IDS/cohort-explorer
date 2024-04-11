@@ -15,19 +15,6 @@ export const CohortsProvider = ({children}: any) => {
   const [userEmail, setUserEmail]: [string | null, any] = useState('');
   const worker: MutableRefObject<Worker | null> = useRef(null);
 
-  // Update cohorts data with a web worker in the background for smoothness
-  // const worker = new Worker('/cohortsWorker.js');
-  // worker.onmessage = (event) => {
-  //   // Update your state with the new data
-  //   const data = event.data;
-  //   if (!data.error) {
-  //     setCohortsData(data);
-  //     console.log('Updated context with data', data);
-  //   } else {
-  //     console.error('Error fetching data in worker:', data.error);
-  //   }
-  // };
-
   useEffect(() => {
     setDataCleanRoom(JSON.parse(sessionStorage.getItem('dataCleanRoom') || '{"cohorts": {}}'));
 
@@ -61,6 +48,7 @@ export const CohortsProvider = ({children}: any) => {
   // Fetch cohorts data from the API using the web worker
   const fetchCohortsData = () => {
     worker.current?.postMessage({apiUrl});
+    // console.log(cohortsData)
   };
 
   // Update the metadata of a specific cohort in the context
