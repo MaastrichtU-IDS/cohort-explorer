@@ -48,7 +48,6 @@ export const CohortsProvider = ({children}: any) => {
   // Fetch cohorts data from the API using the web worker
   const fetchCohortsData = () => {
     worker.current?.postMessage({apiUrl});
-    // console.log(cohortsData)
   };
 
   // Update the metadata of a specific cohort in the context
