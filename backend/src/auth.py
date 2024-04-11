@@ -121,6 +121,15 @@ async def auth_callback(code: str) -> RedirectResponse:
             "https://explorer.icare4cvd.eu" in access_payload["aud"]
             and "read:icare4cvd-dataset-descriptions" in access_payload["permissions"]
         ):
+            # TODO: for LUCE blockchain: check if user email has a blockchain address
+            # Where? Either a JSON file on the server, or in the triplestore
+            # blockchain_addrs = json.load(settings.data_folder / "blockchain_addresses.json")
+            # if id_payload["email"] not in blockchain_addrs:
+            #     blockchain_addrs[id_payload["email"]] = "0x1234567890"
+            #     json.dump(blockchain_addrs, settings.data_folder / "blockchain_addresses.json")
+
+
+
             # Reuse expiration time from decentriq Auth0 access token
             exp_timestamp = access_payload["exp"]
             jwt_token = create_access_token(

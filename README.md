@@ -1,8 +1,8 @@
 # 🫀 iCARE4CVD Cohort Explorer
 
-Webapp enabling to upload and explore cohorts metadata built for the [iCARE4CVD project](https://icare4cvd.eu). 
+Webapp enabling to upload and explore cohorts metadata, built for the [iCARE4CVD project](https://icare4cvd.eu).
 
-It interacts with a privacy computing platform ([Decentriq](https://www.decentriq.com/)) to create secure workspace where data scientists can run analysis on the selected cohorts (the cohorts data is uploaded only to Decentriq, the explorer only uses cohorts metadata).
+It interacts with a privacy computing platform ([Decentriq](https://www.decentriq.com/)) to create secure workspace where data scientists can run analysis on the selected cohorts. The cohorts data is uploaded only to Decentriq, the explorer only uses cohorts metadata.
 
 It aims to enable *data custodians* and *data scientists* to:
 
@@ -32,7 +32,7 @@ This platform is composed of 3 main components:
 *   **[Oxigraph](https://github.com/oxigraph/oxigraph) triplestore database** containing the cohorts and their variables metadata, exposing a SPARQL endpoint only available to the backend API.
     *   The data stored in the triplestore complies with the custom **[iCARE4CVD OWL ontology](https://maastrichtu-ids.github.io/cohort-explorer/)**. It contains 3 classes: Cohort, Variable, and Variable category. You can explore the ontology classes and properties [here](https://maastrichtu-ids.github.io/cohort-explorer/browse).
     *   Oxigraph has not yet reached release 1.0, but it is already stable enough for our currently expected use. It has the advantages of being open source (important for accountability and trust), and developed in Europe. If missing features appears to be blocking, consider migrating to [OpenLink Virtuoso](https://github.com/openlink/virtuoso-opensource), you'll only need to update the function that upload a RDFLib graph as file.
-    
+
 *   **`backend/` server**, built with python, FastAPI and RDFLib.
 *   **`frontend/` web app** running in the client browser, built with TypeScript, NextJS, ReactJS, TailwindCSS, and DaisyUI.
 
@@ -51,6 +51,8 @@ This platform is composed of 3 main components:
 *   [ ] Integrate LUCE blockchain component. Should it be deployed separately, or as a service in the `docker-compose.yml`?
 
 ## 🧑‍💻 Development
+
+[![Update ontology documentation](https://github.com/MaastrichtU-IDS/cohort-explorer/actions/workflows/docs.yml/badge.svg)](https://github.com/MaastrichtU-IDS/cohort-explorer/actions/workflows/docs.yml)
 
 ### 📥 Install dependencies
 
@@ -154,7 +156,7 @@ Put the excel spreadsheet with all cohorts metadata in `data/iCARE4CVD_Cohorts.x
 
 We currently use [nginx-proxy](https://github.com/nginx-proxy/nginx-proxy) for routing through environment variables in the `docker-compose.yml` file, you can change for the proxy of your liking.
 
-## 🪄 Administration
+## 🪄 Database administration
 
 ### 🗑️ Reset database
 

@@ -159,6 +159,8 @@ async def create_compute_dcr(
         .with_description("A data clean room to run computations on cohorts for the iCARE4CVD project")
     )
 
+    participants = {}
+    participants[user["email"]] = {"data_owner_of": set(), "analyst_of": set()}
     preview_nodes = []
     # Convert cohort variables to decentriq schema
     for cohort_id, cohort in selected_cohorts.items():
@@ -168,8 +170,7 @@ async def create_compute_dcr(
         data_nodes.append(data_node_id)
 
         # TODO: made airlock always True for testing
-        # if cohort.airlock:
-        if True:
+        if cohort.airlock:
             # Add airlock node to make it easy to access small part of the dataset
             preview_node_id = f"preview-{data_node_id}"
             builder.add_node_definition(PreviewComputeNodeDefinition(
@@ -181,21 +182,24 @@ async def create_compute_dcr(
 
         # Add data owners to provision the data
         for owner in cohort.cohort_email:
-            builder.add_participant(owner, data_owner_of=[data_node_id])
+            if owner not in participants:
+                participants[owner] = {"data_owner_of": set(), "analyst_of": set()}
+            participants[owner]["data_owner_of"].add(owner)
 
         # Add pandas preparation script
         pandas_script = "import pandas as pd\nimport decentriq_util\n\n"
         df_var = f"df_{cohort_id.replace('-', '_')}"
         requested_vars = cohorts_request["cohorts"][cohort_id]
-        if isinstance(requested_vars, list):
-            # Direct cohort variables list
-            pandas_script += f'{df_var} = decentriq_util.read_tabular_data("/input/{cohort_id}")\n'
 
+        # Direct cohort variables list
+        if isinstance(requested_vars, list):
+            pandas_script += f'{df_var} = decentriq_util.read_tabular_data("/input/{cohort_id}")\n'
             if len(requested_vars) <= len(cohort.variables):
                 # Add filter variables to pandas script
                 pandas_script += f"{df_var} = {df_var}[{requested_vars}]\n"
+
+        # TODO: Merge operation, need to be implemented on the frontend
         elif isinstance(requested_vars, dict):
-            # Merge operation, need to be implemented on the frontend
             pandas_script += pandas_script_merge_cohorts(requested_vars, all_cohorts)
             # TODO: add merged cohorts schema to selected_cohorts
         else:
@@ -206,12 +210,26 @@ async def create_compute_dcr(
         builder.add_node_definition(
             PythonComputeNodeDefinition(name=f"prepare-{cohort_id}", script=pandas_script, dependencies=[data_node_id])
         )
-        builder.add_participant(user["email"], analyst_of=[f"prepare-{cohort_id}"])
+        # builder.add_participant(user["email"], analyst_of=[f"prepare-{cohort_id}"])
 
-    # Add users permissions
-    if airlock:
-        builder.add_participant(user["email"], analyst_of=preview_nodes)
-    builder.add_participant(settings.decentriq_email, data_owner_of=data_nodes)
+        # Add the requester as analyst of prepare script
+        participants[user["email"]]["analyst_of"].add(f"prepare-{cohort_id}")
+
+    # Add users permissions for previews
+    for prev_node in preview_nodes:
+        participants[user["email"]]["analyst_of"].add(prev_node)
+
+    # TODO: we add the DQ admin as data owner just for testing for now
+    # Will need to be removed when the workflow has been tested
+    for data_node in data_nodes:
+        participants[user["email"]]["data_owner_of"].add(data_node)
+
+    for p_email, p_perm in participants.items():
+        builder.add_participant(
+            p_email,
+            data_owner_of=list(p_perm["data_owner_of"]),
+            analyst_of=list(p_perm["analyst_of"]),
+        )
 
     # Build and publish DCR
     dcr_definition = builder.build()
