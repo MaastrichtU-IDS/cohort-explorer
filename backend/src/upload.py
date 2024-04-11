@@ -196,7 +196,6 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, airlock: bool) -> Data
         )
     try:
         df = pd.read_csv(dict_path)
-        # df = pd.read_csv(dict_path, encoding="utf-8")
         df = df.dropna(how="all")
         df = df.fillna("")
         df.columns = df.columns.str.strip()
@@ -366,9 +365,7 @@ async def upload_cohort(
         os.remove(metadata_path)
         raise e
 
-    print("Cohort metadata uploaded successfully")
     cohorts_dict = retrieve_cohorts_metadata(user["email"])
-    print("Cohort metadata retrieved successfully")
     try:
         dcr_data = create_provision_dcr(user, cohorts_dict.get(cohort_id))
     except Exception as e:

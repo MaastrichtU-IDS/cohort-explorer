@@ -39,7 +39,7 @@ PREFIX dc: <http://purl.org/dc/elements/1.1/>
 PREFIX dcterms: <http://purl.org/dc/terms/>
 
 SELECT DISTINCT ?cohortId ?cohortInstitution ?cohortType ?cohortEmail ?study_type ?study_participants
-    ?study_duration ?study_ongoing ?study_population ?study_objective
+    ?study_duration ?study_ongoing ?study_population ?study_objective ?airlock
     ?variable ?varName ?varLabel ?varType ?index ?count ?na ?max ?min ?units ?formula ?definition
     ?omopDomain ?conceptId ?mappedId ?mappedLabel ?visits ?categoryValue ?categoryLabel ?categoryMappedId ?categoryMappedLabel
 WHERE {
