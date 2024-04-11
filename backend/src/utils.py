@@ -55,7 +55,6 @@ WHERE {
         OPTIONAL { ?cohort icare:studyOngoing ?study_ongoing . }
         OPTIONAL { ?cohort icare:studyPopulation ?study_population . }
         OPTIONAL { ?cohort icare:studyObjective ?study_objective . }
-        OPTIONAL { ?cohort icare:previewEnabled ?airlock . }
     }
 
     OPTIONAL {
@@ -94,6 +93,7 @@ WHERE {
                 ?category icare:mappedId ?categoryMappedId .
                 OPTIONAL { ?categoryMappedId rdfs:label ?categoryMappedLabel }
             }
+            OPTIONAL { ?cohort icare:previewEnabled ?airlock . }
         }
     }
 } ORDER BY ?cohort ?index
