@@ -358,6 +358,7 @@ async def upload_cohort(
     try:
         g = load_cohort_dict_file(metadata_path, cohort_id)
         # Airlock preview setting goes to mapping graph because it is defined in the explorer UI
+        delete_existing_triples(get_cohort_mapping_uri(cohort_id), f"<{get_cohort_uri(cohort_id)!s}>", "icare:previewEnabled")
         g.add((get_cohort_uri(cohort_id), ICARE.previewEnabled, Literal(str(airlock).lower(), datatype=XSD.boolean), get_cohort_mapping_uri(cohort_id)))
         # Delete previous graph for this file from triplestore
         delete_existing_triples(get_cohort_uri(cohort_id))
