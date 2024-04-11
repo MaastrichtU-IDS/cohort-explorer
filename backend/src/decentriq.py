@@ -90,20 +90,18 @@ def pandas_script_filter_cohort_vars(cohort: Cohort, requested_vars: list[str], 
 
 def pandas_script_merge_cohorts(merged_cohorts: dict[str, list[str]], all_cohorts: dict[str, Cohort]) -> str:
     """Generate pandas script for merging cohorts on variables mapped_id"""
-    # TODO: to be fixed
+    # TODO: to be fixed, just here as a starter example
     merge_script = ""
     dfs_to_merge = []
     for cohort_id, vars_requested in merged_cohorts.items():
         if cohort_id not in all_cohorts:
             raise ValueError(f"Cohort {cohort_id} does not exist.")
-        # Assuming you have a way to get dataframe variable names (mapped_id) from vars_requested
         df_name = f"df_{cohort_id}"
-        vars_mapped = [f"'{var}'" for var in vars_requested]  # Example to generate a list of variable names
+        vars_mapped = [f"'{var}'" for var in vars_requested]
         dfs_to_merge.append(df_name)
         merge_script += (
-            f"{df_name} = pd.DataFrame({cohort_id})[{vars_mapped}]\n"  # Placeholder for actual data retrieval
+            f"{df_name} = pd.DataFrame({cohort_id})[{vars_mapped}]\n"
         )
-
     # Assuming all dataframes have a common column for merging
     merge_script += f"merged_df = pd.concat([{', '.join(dfs_to_merge)}], ignore_index=True)\n"
     return merge_script
@@ -156,7 +154,7 @@ async def create_compute_dcr(
         AnalyticsDcrBuilder(client=client)
         .with_name(dcr_title)
         .with_owner(settings.decentriq_email)
-        .with_description("A data clean room to run computations on cohorts for the iCARE4CVD project")
+        .with_description("A data clean room to run analyses on cohorts for the iCARE4CVD project")
     )
 
     participants = {}
@@ -184,7 +182,7 @@ async def create_compute_dcr(
         for owner in cohort.cohort_email:
             if owner not in participants:
                 participants[owner] = {"data_owner_of": set(), "analyst_of": set()}
-            participants[owner]["data_owner_of"].add(owner)
+            participants[owner]["data_owner_of"].add(data_node_id)
 
         # Add pandas preparation script
         pandas_script = "import pandas as pd\nimport decentriq_util\n\n"

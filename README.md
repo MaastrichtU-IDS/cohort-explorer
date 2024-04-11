@@ -25,6 +25,14 @@ It aims to enable *data custodians* and *data scientists* to:
 >
 > If you logged in with a Decentriq user that does not have access to the Cohort Explorer, and need to re-login with another user: you will need to clear cache and cookies. Because Auth0 will keep your login in mind for some time, and it can be quite tricky to reset (they don't give the tools for managing that properly).
 
+> [!IMPORTANT]
+>
+> Only the owner of the cohort (as described in the spreadsheet holding all cohorts generic metadata), and the platform admins,  can upload the data dictionary or edit mappings for a cohort.
+
+> [!NOTE]
+>
+> You can reupload a cohort dictionary that have been already uploaded (in case you need to fix something). The mappings defined via the Cohort Explorer will be kept, as long as the variables names do not change.
+
 ## 🗺️ Technical overview
 
 This platform is composed of 3 main components:
