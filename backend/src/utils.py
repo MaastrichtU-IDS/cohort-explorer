@@ -129,7 +129,7 @@ def retrieve_cohorts_metadata(user_email: str) -> dict[str, Cohort]:
         # Initialize cohort data structure if not exists
         if cohort_id and cohort_id not in target_dict:
             target_dict[cohort_id] = Cohort(
-                cohort_id=row["cohortId"]["value"],  # Assuming cohortId is always present
+                cohort_id=row["cohortId"]["value"],
                 cohort_type=get_value("cohortType", row),
                 cohort_email=[get_value("cohortEmail", row)] if get_value("cohortEmail", row) else [],
                 # owner=get_value("owner", row),
@@ -140,7 +140,7 @@ def retrieve_cohorts_metadata(user_email: str) -> dict[str, Cohort]:
                 study_ongoing=get_value("study_ongoing", row),
                 study_population=get_value("study_population", row),
                 study_objective=get_value("study_objective", row),
-                variables={},  # You might want to populate this separately, depending on your data structure
+                variables={},
                 airlock=get_bool_value("airlock", row),
                 can_edit=user_email in [*settings.admins_list, get_value("cohortEmail", row)],
             )

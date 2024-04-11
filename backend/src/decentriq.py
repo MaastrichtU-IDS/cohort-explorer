@@ -168,7 +168,9 @@ async def create_compute_dcr(
         data_nodes.append(data_node_id)
 
         # TODO: made airlock always True for testing
-        if cohort.airlock:
+        # if cohort.airlock:
+        print(f"AIRLOCK {cohort.airlock}")
+        if True:
             # Add airlock node to make it easy to access small part of the dataset
             preview_node_id = f"preview-{data_node_id}"
             builder.add_node_definition(PreviewComputeNodeDefinition(
