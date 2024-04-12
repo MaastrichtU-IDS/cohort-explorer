@@ -104,11 +104,14 @@ WHERE {
 def get_value(key: str, row: dict[str, Any]) -> str | None:
     return str(row[key]["value"]) if key in row and row[key]["value"] else None
 
+
 def get_int_value(key: str, row: dict[str, Any]) -> int | None:
     return int(row[key]["value"]) if key in row and row[key]["value"] else None
 
+
 def get_bool_value(key: str, row: dict[str, Any]) -> bool:
     return str(row[key]["value"]).lower() == "true" if key in row and row[key]["value"] else False
+
 
 def get_curie_value(key: str, row: dict[str, Any]) -> int | None:
     return converter.compress(get_value(key, row)) if get_value(key, row) else None

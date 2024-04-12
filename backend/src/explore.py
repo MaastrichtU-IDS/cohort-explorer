@@ -1,7 +1,6 @@
 import os
 from typing import Any
 
-import requests
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 

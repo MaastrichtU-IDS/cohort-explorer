@@ -28,6 +28,7 @@ class Settings:
     admins: str = field(default_factory=lambda: os.getenv("ADMINS", ""))
 
     data_folder: str = field(default_factory=lambda: os.getenv("DATA_FOLDER", "../data"))
+    dev_mode: bool = field(default_factory=lambda: os.getenv("DEV_MODE", "false").lower() == "true")
 
     @property
     def redirect_uri(self) -> str:

@@ -167,7 +167,7 @@ export default function UploadPage() {
                 id="enableAirlock"
                 type="checkbox"
                 checked={enableAirlock}
-                onChange={(e) => setEnableAirlock(e.target.checked)}
+                onChange={e => setEnableAirlock(e.target.checked)}
                 className="checkbox"
               />
               Enable data preview (airlock)

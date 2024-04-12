@@ -8,8 +8,8 @@ from decentriq_platform.analytics import (
     AnalyticsDcrBuilder,
     Column,
     FormatType,
-    PythonComputeNodeDefinition,
     PreviewComputeNodeDefinition,
+    PythonComputeNodeDefinition,
     TableDataNodeDefinition,
 )
 from fastapi import APIRouter, Depends, HTTPException
@@ -58,7 +58,9 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
     data_node_id = cohort.cohort_id.replace(" ", "-")
     # builder.add_node_definition(RawDataNodeDefinition(name=data_node_id, is_required=True))
     # TODO: providing schema is broken in new SDK
-    builder.add_node_definition(TableDataNodeDefinition(name=data_node_id, columns=get_cohort_schema(cohort), is_required=True))
+    builder.add_node_definition(
+        TableDataNodeDefinition(name=data_node_id, columns=get_cohort_schema(cohort), is_required=True)
+    )
 
     builder.add_participant(
         user["email"],
@@ -99,9 +101,7 @@ def pandas_script_merge_cohorts(merged_cohorts: dict[str, list[str]], all_cohort
         df_name = f"df_{cohort_id}"
         vars_mapped = [f"'{var}'" for var in vars_requested]
         dfs_to_merge.append(df_name)
-        merge_script += (
-            f"{df_name} = pd.DataFrame({cohort_id})[{vars_mapped}]\n"
-        )
+        merge_script += f"{df_name} = pd.DataFrame({cohort_id})[{vars_mapped}]\n"
     # Assuming all dataframes have a common column for merging
     merge_script += f"merged_df = pd.concat([{', '.join(dfs_to_merge)}], ignore_index=True)\n"
     return merge_script
@@ -164,24 +164,32 @@ async def create_compute_dcr(
     for cohort_id, cohort in selected_cohorts.items():
         # Create data node for cohort
         data_node_id = cohort_id.replace(" ", "-")
-        builder.add_node_definition(TableDataNodeDefinition(name=data_node_id, columns=get_cohort_schema(cohort), is_required=True))
+        builder.add_node_definition(
+            TableDataNodeDefinition(name=data_node_id, columns=get_cohort_schema(cohort), is_required=True)
+        )
         data_nodes.append(data_node_id)
 
         if cohort.airlock:
             # Add airlock node to make it easy to access small part of the dataset
             preview_node_id = f"preview-{data_node_id}"
-            builder.add_node_definition(PreviewComputeNodeDefinition(
-                name=preview_node_id,
-                dependency=data_node_id,
-                quota_bytes=1048576, # 10MB
-            ))
+            builder.add_node_definition(
+                PreviewComputeNodeDefinition(
+                    name=preview_node_id,
+                    dependency=data_node_id,
+                    quota_bytes=1048576,  # 10MB
+                )
+            )
             preview_nodes.append(preview_node_id)
 
-        # Add data owners to provision the data
-        for owner in cohort.cohort_email:
-            if owner not in participants:
-                participants[owner] = {"data_owner_of": set(), "analyst_of": set()}
-            participants[owner]["data_owner_of"].add(data_node_id)
+        # Add data owners to provision the data (in dev we dont add them to avoid unnecessary emails)
+        if not settings.dev_mode:
+            for owner in cohort.cohort_email:
+                if owner not in participants:
+                    participants[owner] = {"data_owner_of": set(), "analyst_of": set()}
+                participants[owner]["data_owner_of"].add(data_node_id)
+        else:
+            # In dev_mode the requester is added as data owner instead
+            participants[user["email"]]["data_owner_of"].add(data_node_id)
 
         # Add pandas preparation script
         pandas_script = "import pandas as pd\nimport decentriq_util\n\n"
@@ -207,19 +215,12 @@ async def create_compute_dcr(
         builder.add_node_definition(
             PythonComputeNodeDefinition(name=f"prepare-{cohort_id}", script=pandas_script, dependencies=[data_node_id])
         )
-        # builder.add_participant(user["email"], analyst_of=[f"prepare-{cohort_id}"])
-
         # Add the requester as analyst of prepare script
         participants[user["email"]]["analyst_of"].add(f"prepare-{cohort_id}")
 
     # Add users permissions for previews
     for prev_node in preview_nodes:
         participants[user["email"]]["analyst_of"].add(prev_node)
-
-    # TODO: we add the DQ admin as data owner just for testing for now
-    # Will need to be removed when the workflow has been tested
-    for data_node in data_nodes:
-        participants[user["email"]]["data_owner_of"].add(data_node)
 
     for p_email, p_perm in participants.items():
         builder.add_participant(

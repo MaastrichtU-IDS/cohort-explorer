@@ -60,9 +60,7 @@ export default function Home() {
               -&gt;
             </span>
           </h2>
-          <p className={`m-0 max-w-[30ch] text-sm opacity-50`}>
-            View the documentation and source code on GitHub
-          </p>
+          <p className={`m-0 max-w-[30ch] text-sm opacity-50`}>View the documentation and source code on GitHub</p>
         </Link>
       </div>
     </main>

@@ -165,6 +165,7 @@ ACCEPTED_DATATYPES = ["STR", "FLOAT", "INT", "DATETIME"]
 # Old multiple column format for concept codes:
 ID_COLUMNS_NAMESPACES = {"ICD-10": "icd10", "SNOMED-CT": "snomedct", "ATC-DDD": "atc", "LOINC": "loinc"}
 
+
 def get_id_from_multi_columns(row):
     """Old format to pass concepts URIs from the ID provided in the various columns of the data dictionary (ICD-10, ATC, SNOMED...)"""
     uris_list = []
@@ -185,6 +186,7 @@ def to_camelcase(s: str) -> str:
     s = sub(r"(_|-)+", " ", s).title().replace(" ", "")
     return "".join([s[0].lower(), s[1:]])
 
+
 def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
     """Parse the cohort dictionary uploaded as excel or CSV spreadsheet, and load it to the triplestore"""
     # print(f"Loading dictionary {dict_path}")
@@ -195,6 +197,8 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
             detail="Only CSV files are supported. Please convert your file to CSV and try again.",
         )
     try:
+        # Record all errors and raise them at the end
+        errors = []
         df = pd.read_csv(dict_path)
         df = df.dropna(how="all")
         df = df.fillna("")
@@ -212,16 +216,11 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
             # Try to get IDs from old format multiple columns
             df["concept_id"] = df.apply(lambda row: get_id_from_multi_columns(row), axis=1)
 
-        if " " in df["concept_id"]:
-            errors.append(f"Row {i+2} is using multiple concepts codes for a variable: {df['concept_id']}")
-
         cohort_uri = get_cohort_uri(cohort_id)
         g = init_graph()
         g.add((cohort_uri, RDF.type, ICARE.Cohort, cohort_uri))
         g.add((cohort_uri, DC.identifier, Literal(cohort_id), cohort_uri))
 
-        # Record all errors and raise them at the end
-        errors = []
         for i, row in df.iterrows():
             # Check if required columns are present
             if not row["VARIABLE NAME"] or not row["VARIABLE LABEL"] or not row["VAR TYPE"] or not row["COUNT"]:
@@ -244,7 +243,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
 
             # Get categories code if provided
             categories_codes = []
-            if "Categorical Value Concept Code" in row and row["Categorical Value Concept Code"]:
+            if row.get("Categorical Value Concept Code"):
                 categories_codes = row["Categorical Value Concept Code"].split(",")
             # Add properties
             for column, value in row.items():
@@ -277,11 +276,15 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
                             if categories_codes:
                                 cat_code_uri = converter.expand(str(categories_codes[index]).strip())
                                 if not cat_code_uri:
-                                    errors.append(f"Row {i+2} for variable `{row['VARIABLE NAME']}` the category concept code provided for `{categories_codes[index]}` is not valid. Use one of snomedct:, icd10:, atc: or loinc: prefixes.")
+                                    errors.append(
+                                        f"Row {i+2} for variable `{row['VARIABLE NAME']}` the category concept code provided for `{categories_codes[index]}` is not valid. Use one of snomedct:, icd10:, atc: or loinc: prefixes."
+                                    )
                                 else:
                                     g.add((cat_uri, ICARE.conceptId, URIRef(cat_code_uri), cohort_uri))
-                        except Exception as e:
-                            errors.append(f"Row {i+2} for variable `{row['VARIABLE NAME']}` the {len(categories_codes)} category concept codes are not matching with {len(row['categories'])} categories provided.")
+                        except Exception:
+                            errors.append(
+                                f"Row {i+2} for variable `{row['VARIABLE NAME']}` the {len(categories_codes)} category concept codes are not matching with {len(row['categories'])} categories provided."
+                            )
         # print(g.serialize(format="turtle"))
         # Print all errors at once
         if len(errors) > 0:
@@ -358,9 +361,18 @@ async def upload_cohort(
     try:
         g = load_cohort_dict_file(metadata_path, cohort_id)
         # Airlock preview setting goes to mapping graph because it is defined in the explorer UI
-        delete_existing_triples(get_cohort_mapping_uri(cohort_id), f"<{get_cohort_uri(cohort_id)!s}>", "icare:previewEnabled")
-        g.add((get_cohort_uri(cohort_id), ICARE.previewEnabled, Literal(str(airlock).lower(), datatype=XSD.boolean), get_cohort_mapping_uri(cohort_id)))
+        g.add(
+            (
+                get_cohort_uri(cohort_id),
+                ICARE.previewEnabled,
+                Literal(str(airlock).lower(), datatype=XSD.boolean),
+                get_cohort_mapping_uri(cohort_id),
+            )
+        )
         # Delete previous graph for this file from triplestore
+        delete_existing_triples(
+            get_cohort_mapping_uri(cohort_id), f"<{get_cohort_uri(cohort_id)!s}>", "icare:previewEnabled"
+        )
         delete_existing_triples(get_cohort_uri(cohort_id))
         publish_graph_to_endpoint(g)
     except Exception as e:
@@ -371,7 +383,10 @@ async def upload_cohort(
     try:
         dcr_data = create_provision_dcr(user, cohorts_dict.get(cohort_id))
     except Exception as e:
-        raise HTTPException(status_code=422, detail=f"The cohort was properly created in the Cohort Explorer, but there was an issue when uploading to Decentriq: {e}")
+        raise HTTPException(
+            status_code=422,
+            detail=f"The cohort was properly created in the Cohort Explorer, but there was an issue when uploading to Decentriq: {e}",
+        )
     # print(dcr_data)
     # Save data file
     if cohort_data:

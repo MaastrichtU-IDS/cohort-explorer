@@ -124,6 +124,10 @@ pnpm dev
 > docker compose up
 > ```
 
+> [!NOTE]
+>
+> In development the user requesting a DCR will be added to as data owner of all cohorts dataset requested for development purpose (so they can provision the data themselves, and to avoid spamming emails owners when developing)
+
 ### 🧹 Code formatting and linting
 
 Automatically format Python code with ruff and black, and TypeScript code with prettier:

@@ -75,7 +75,7 @@ features = [
 post-install-commands = []
 
 [tool.hatch.envs.default.scripts]
-dev = "uvicorn src.main:app --port 3000 --reload {args}"
+dev = "DEV_MODE=true uvicorn src.main:app --port 3000 --reload {args}"
 fmt = [
     "black src",
     "ruff src --fix",

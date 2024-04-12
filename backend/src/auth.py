@@ -128,8 +128,6 @@ async def auth_callback(code: str) -> RedirectResponse:
             #     blockchain_addrs[id_payload["email"]] = "0x1234567890"
             #     json.dump(blockchain_addrs, settings.data_folder / "blockchain_addresses.json")
 
-
-
             # Reuse expiration time from decentriq Auth0 access token
             exp_timestamp = access_payload["exp"]
             jwt_token = create_access_token(
