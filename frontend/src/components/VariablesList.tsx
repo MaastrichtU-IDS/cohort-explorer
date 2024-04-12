@@ -314,8 +314,8 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
                                   <AutocompleteConcept
                                     query={option.label}
                                     index={`${cohortId}_${variable.index}_category_${index}`}
-                                    value={option.mapped_id}
-                                    tooltip={option.mapped_label || option.mapped_id}
+                                    value={option.mapped_id || option.concept_id}
+                                    tooltip={option.mapped_label || option.mapped_id || option.concept_id}
                                     onSelect={concept => handleConceptSelect(variable.var_name, concept, index)}
                                     canEdit={cohortsData[cohortId].can_edit}
                                   />

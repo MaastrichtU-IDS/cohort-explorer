@@ -25,19 +25,21 @@ export interface Variable {
   visits: string;
   formula: string;
   definition: string;
-  concept_id: string;
   omop_domain: string;
   index: number;
+  concept_id: string;
+  mapped_id: string | null;
+  mapped_label: string | null;
   categories: Category[];
-  mapped_concept: string | null;
   [key: string]: any;
 }
 
 export interface Category {
   value: string;
   label: string;
-  concept_id: string;
-  mapped_concept: string | null;
+  concept_id: string | null;
+  mapped_id: string | null;
+  mapped_label: string | null;
 }
 
 export interface Concept {

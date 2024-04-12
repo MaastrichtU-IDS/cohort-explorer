@@ -21,10 +21,6 @@ It aims to enable *data custodians* and *data scientists* to:
     *   The DCR will be automatically created with a data schema corresponding to the selected cohorts, generated from the metadata provided by the data custodians.
     *   The data scientist can then access their DCR in Decentriq, write the code for their analysis, and request computation of this code on the provisioned cohorts.
 
-> [!WARNING]
->
-> If you logged in with a Decentriq user that does not have access to the Cohort Explorer, and need to re-login with another user: you will need to clear cache and cookies. Because Auth0 will keep your login in mind for some time, and it can be quite tricky to reset (they don't give the tools for managing that properly).
-
 > [!IMPORTANT]
 >
 > Only the owner of the cohort (as described in the spreadsheet holding all cohorts generic metadata), and the platform admins,  can upload the data dictionary or edit mappings for a cohort.
@@ -32,6 +28,13 @@ It aims to enable *data custodians* and *data scientists* to:
 > [!NOTE]
 >
 > You can reupload a cohort dictionary that have been already uploaded (in case you need to fix something). The mappings defined via the Cohort Explorer will be kept, as long as the variables names do not change.
+
+## ⚠️ Known issues
+
+Here are a known "issues" with the Cohort Explorer, and how to fix them:
+
+- [ ] If you logged in with a Decentriq user that does not have access to the Cohort Explorer, and need to re-login with another user: you will need to clear cache and cookies. Because Auth0 will keep your login in mind for some time, and it can be quite tricky to reset (they don't give the tools for managing that properly).
+- [ ] After a period of inactivity you might see a black screen with an error message, in this case just reload the page
 
 ## 🗺️ Technical overview
 
@@ -48,7 +51,7 @@ This platform is composed of 3 main components:
 
 🔐 Authentication is done through the Decentriq OAuth provider, but it could be replaced by any other OAuth provider easily. Once the user logged in through the external OAuth provider, the backend generates an encrypted JWT token, which is passed to the frontend using HTTP-only cookies.
 
-> \[!NOTE]
+> [!NOTE] 
 >
 > All metadata about cohorts and variables are retrieved by one mighty SPARQL query, and passed to the frontend as one big dictionary. Filtering and searching is then done in TypeScript on this cohorts dictionary.
 >
@@ -56,7 +59,9 @@ This platform is composed of 3 main components:
 
 ## ☑️ To do
 
-*   [ ] Integrate LUCE blockchain component. Should it be deployed separately, or as a service in the `docker-compose.yml`?
+*   [ ] Integrate the LUCE blockchain component for data sharing consent: 
+    *   [ ] We will store blockchain addresses, handle authentication, and add the UI elements directly in the Cohort Explorer (we can even store private keys or do wallet stuff there too if needed)
+    *   [ ] But we need to be able to query the blockchain easily through an API from our system (a basic HTTP OpenAPI would suffice, e.g. built with [FastAPI](https://fastapi.tiangolo.com))
 
 ## 🧑‍💻 Development
 

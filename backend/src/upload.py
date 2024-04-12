@@ -211,7 +211,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
                 )
         df["categories"] = df["CATEGORICAL"].apply(parse_categorical_string)
         if "Label Concept Code" in df.columns:
-            df["concept_id"] = str(df["Label Concept Code"]).strip()
+            df["concept_id"] = df.apply(lambda row: str(row["Label Concept Code"]).strip(), axis=1)
         else:
             # Try to get IDs from old format multiple columns
             df["concept_id"] = df.apply(lambda row: get_id_from_multi_columns(row), axis=1)
@@ -245,35 +245,34 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
             categories_codes = []
             if row.get("Categorical Value Concept Code"):
                 categories_codes = row["Categorical Value Concept Code"].split(",")
-            # Add properties
-            for column, value in row.items():
-                # if value and column not in ["categories"]:
-                if column not in ["categories"] and value:
+            for column, col_value in row.items():
+                if column not in ["categories"] and col_value:
+                    # NOTE: we literally use the column name as the property URI in camelcase (that's what I call lazy loading!)
                     property_uri = ICARE[to_camelcase(column)]
                     if (
-                        isinstance(value, str)
-                        and (value.startswith("http://") or value.startswith("https://"))
-                        and " " not in value
+                        isinstance(col_value, str)
+                        and (col_value.startswith("http://") or col_value.startswith("https://"))
+                        and " " not in col_value
                     ):
-                        g.add((variable_uri, property_uri, URIRef(value), cohort_uri))
+                        g.add((variable_uri, property_uri, URIRef(col_value), cohort_uri))
                     else:
-                        g.add((variable_uri, property_uri, Literal(value), cohort_uri))
+                        g.add((variable_uri, property_uri, Literal(col_value), cohort_uri))
 
                 # Handle Category
                 if column in ["categories"]:
-                    if len(value) == 1:
+                    if len(col_value) == 1:
                         errors.append(
                             f"Row {i+2} for variable `{row['VARIABLE NAME']}` has only one category `{row['categories'][0]['value']}`. It should have at least two."
                         )
                         continue
-                    for index, category in enumerate(value):
+                    for index, category in enumerate(col_value):
                         cat_uri = get_category_uri(variable_uri, index)
                         g.add((variable_uri, ICARE.categories, cat_uri, cohort_uri))
                         g.add((cat_uri, RDF.type, ICARE.VariableCategory, cohort_uri))
                         g.add((cat_uri, RDF.value, Literal(category["value"]), cohort_uri))
                         g.add((cat_uri, RDFS.label, Literal(category["label"]), cohort_uri))
                         try:
-                            if categories_codes:
+                            if categories_codes and str(categories_codes[index]).strip() != "na":
                                 cat_code_uri = converter.expand(str(categories_codes[index]).strip())
                                 if not cat_code_uri:
                                     errors.append(

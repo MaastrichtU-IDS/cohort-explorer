@@ -41,7 +41,7 @@ PREFIX dcterms: <http://purl.org/dc/terms/>
 SELECT DISTINCT ?cohortId ?cohortInstitution ?cohortType ?cohortEmail ?study_type ?study_participants
     ?study_duration ?study_ongoing ?study_population ?study_objective ?airlock
     ?variable ?varName ?varLabel ?varType ?index ?count ?na ?max ?min ?units ?formula ?definition
-    ?omopDomain ?conceptId ?mappedId ?mappedLabel ?visits ?categoryValue ?categoryLabel ?categoryMappedId ?categoryMappedLabel
+    ?omopDomain ?conceptId ?mappedId ?mappedLabel ?visits ?categoryValue ?categoryLabel ?categoryConceptId ?categoryMappedId ?categoryMappedLabel
 WHERE {
     GRAPH ?cohortMetadataGraph {
         ?cohort a icare:Cohort ;
@@ -79,6 +79,7 @@ WHERE {
                 ?variable icare:categories ?category.
                 ?category rdfs:label ?categoryLabel ;
                     rdf:value ?categoryValue .
+                OPTIONAL { ?category icare:conceptId ?categoryConceptId }
             }
         }
     }
@@ -180,6 +181,7 @@ def retrieve_cohorts_metadata(user_email: str) -> dict[str, Cohort]:
                 VariableCategory(
                     value=str(row["categoryValue"]["value"]),
                     label=str(row["categoryLabel"]["value"]),
+                    concept_id=get_curie_value("categoryConceptId", row),
                     mapped_id=get_curie_value("categoryMappedId", row),
                     mapped_label=get_value("categoryMappedLabel", row),
                 )

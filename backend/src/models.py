@@ -8,6 +8,7 @@ class VariableCategory:
 
     value: str
     label: str
+    concept_id: Optional[str] = None
     mapped_id: Optional[str] = None
     mapped_label: Optional[str] = None
 
