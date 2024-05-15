@@ -148,6 +148,15 @@ Automatically format Python code with ruff and black, and TypeScript code with p
 ./scripts/fmt.sh
 ```
 
+### 🆙 Upgrading dependencies
+
+For the NextJS frontend:
+
+```bash
+cd frontend
+pnpm up --latest
+```
+
 ## 🐳 Deploy
 
 Deploy on a server in production with docker compose.
