@@ -33,7 +33,6 @@ It aims to enable *data custodians* and *data scientists* to:
 
 Here are a known "issues" with the Cohort Explorer, and how to fix them:
 
-- [ ] If you logged in with a Decentriq user that does not have access to the Cohort Explorer, and need to re-login with another user: you will need to clear cache and cookies. Because Auth0 will keep your login in mind for some time, and it can be quite tricky to reset (they don't give the tools for managing that properly).
 - [ ] After a period of inactivity you might see a black screen with an error message, in this case just reload the page
 
 ## 🗺️ Technical overview
@@ -66,6 +65,14 @@ This platform is composed of 3 main components:
 ## 🧑‍💻 Development
 
 [![Update ontology documentation](https://github.com/MaastrichtU-IDS/cohort-explorer/actions/workflows/docs.yml/badge.svg)](https://github.com/MaastrichtU-IDS/cohort-explorer/actions/workflows/docs.yml)
+
+> [!WARNING]
+>
+> For deploying the Cohort Explorer in development or production you will **need the spreadsheet containing the general cohorts informations**. It needs to be an excel spreadsheet named `iCARE4CVD_Cohorts.xlsx` with a sheet named `Descriptions` with the following columns:
+>
+> | **Name of Study** | **Type** | **Institution** | Contact partner | Email | **Study type** | **N** | **Start date** | **End date** | **Study duration** | **Ongoing** | **Patient population** | **Primary objective** | **Primary endpoints** | **Secondary endpoints** |
+> | ----------------- | -------- | --------------- | --------------- | ----- | -------------- | ----- | -------------- | ------------ | ------------------ | ----------- | ---------------------- | --------------------- | --------------------- | ----------------------- |
+> |                   |          |                 |                 |       |                |       |                |              |                    |             |                        |                       |                       |                         |
 
 ### 📥 Install dependencies
 
