@@ -65,6 +65,7 @@ def login() -> RedirectResponse:
         'scope': settings.scope,
         'response_type': settings.response_type,
         'client_id': settings.client_id,
+        'prompt': 'login',
     })}"""
     return RedirectResponse(login_url)
 
