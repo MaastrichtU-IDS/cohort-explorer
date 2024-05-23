@@ -41,8 +41,7 @@ class OAuth2AuthorizationCodeCookie(OAuth2AuthorizationCodeBearer):
 
 
 auth_params = {
-    "audience": "https://explorer.icare4cvd.eu",
-    # "audience": "https://other-ihi-app",
+    "audience": settings.auth_audience,
     "redirect_uri": settings.redirect_uri,
 }
 
@@ -119,8 +118,9 @@ async def auth_callback(code: str) -> RedirectResponse:
 
         # Check in payload if logged in user has the required permissions
         if (
-            "https://explorer.icare4cvd.eu" in access_payload["aud"]
-            and "read:icare4cvd-dataset-descriptions" in access_payload["permissions"]
+            ("https://explorer.icare4cvd.eu" in access_payload["aud"]
+            and "read:icare4cvd-dataset-descriptions" in access_payload["permissions"])
+            or settings.dev_mode
         ):
             # TODO: for LUCE blockchain: check if user email has a blockchain address
             # Where? Either a JSON file on the server, or in the triplestore

@@ -38,6 +38,13 @@ class Settings:
             return f"https://{self.api_host}/cb"
 
     @property
+    def auth_audience(self) -> str:
+        if self.dev_mode:
+            return "https://other-ihi-app"
+        else:
+            return "https://explorer.icare4cvd.eu"
+
+    @property
     def query_endpoint(self) -> str:
         return f"{self.sparql_endpoint}/query"
 
