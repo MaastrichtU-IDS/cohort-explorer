@@ -177,15 +177,16 @@ def retrieve_cohorts_metadata(user_email: str) -> dict[str, Cohort]:
 
         # Process categories of variables
         if "varName" in row and "categoryLabel" in row and "categoryValue" in row:
-            target_dict[cohort_id].variables[var_id].categories.append(
-                VariableCategory(
-                    value=str(row["categoryValue"]["value"]),
-                    label=str(row["categoryLabel"]["value"]),
-                    concept_id=get_curie_value("categoryConceptId", row),
-                    mapped_id=get_curie_value("categoryMappedId", row),
-                    mapped_label=get_value("categoryMappedLabel", row),
-                )
+            new_category = VariableCategory(
+                value=str(row["categoryValue"]["value"]),
+                label=str(row["categoryLabel"]["value"]),
+                concept_id=get_curie_value("categoryConceptId", row),
+                mapped_id=get_curie_value("categoryMappedId", row),
+                mapped_label=get_value("categoryMappedLabel", row),
             )
+            # Check for duplicates before appending
+            if new_category not in target_dict[cohort_id].variables[var_id].categories:
+                target_dict[cohort_id].variables[var_id].categories.append(new_category)
 
     # Merge dictionaries, cohorts with variables first
     return {**cohorts_with_variables, **cohorts_without_variables}
