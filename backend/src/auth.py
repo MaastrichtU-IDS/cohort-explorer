@@ -118,10 +118,9 @@ async def auth_callback(code: str) -> RedirectResponse:
 
         # Check in payload if logged in user has the required permissions
         if (
-            ("https://explorer.icare4cvd.eu" in access_payload["aud"]
-            and "read:icare4cvd-dataset-descriptions" in access_payload["permissions"])
-            or settings.dev_mode
-        ):
+            "https://explorer.icare4cvd.eu" in access_payload["aud"]
+            and "read:icare4cvd-dataset-descriptions" in access_payload["permissions"]
+        ) or settings.dev_mode:
             # TODO: for LUCE blockchain: check if user email has a blockchain address
             # Where? Either a JSON file on the server, or in the triplestore
             # blockchain_addrs = json.load(settings.data_folder / "blockchain_addresses.json")
