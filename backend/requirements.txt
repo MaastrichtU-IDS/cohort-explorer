@@ -31,8 +31,6 @@ cryptography==42.0.5
     #   decentriq-platform
     #   pyopenssl
     #   python-jose
-decentriq-dcr-compiler
-    # via decentriq-platform
 decentriq-platform==0.24.4
     # via cohort-explorer-backend (pyproject.toml)
 defusedxml==0.7.1
