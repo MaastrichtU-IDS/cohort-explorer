@@ -150,6 +150,13 @@ Automatically format Python code with ruff and black, and TypeScript code with p
 
 ### 🆙 Upgrading dependencies
 
+For the python backend, update the locked dependencies in `backend/requirements.txt` to the latest available (accepted ranges can be updated inside the `backend/pyproject.toml` file):
+
+```bash
+cd backend 
+hatch run compile
+```
+
 For the NextJS frontend:
 
 ```bash

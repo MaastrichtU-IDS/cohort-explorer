@@ -4,6 +4,8 @@
 #
 #    pip-compile --output-file=requirements.txt pyproject.toml
 #
+annotated-types==0.7.0
+    # via pydantic
 anyio==4.3.0
     # via
     #   httpx
@@ -31,7 +33,11 @@ cryptography==42.0.5
     #   decentriq-platform
     #   pyopenssl
     #   python-jose
-decentriq-platform==0.24.4
+curies==0.7.9
+    # via cohort-explorer-backend (pyproject.toml)
+decentriq-dcr-compiler==0.7.1
+    # via decentriq-platform
+decentriq-platform==0.27.2
     # via cohort-explorer-backend (pyproject.toml)
 defusedxml==0.7.1
     # via odfpy
@@ -92,10 +98,13 @@ pyasn1==0.5.1
     #   rsa
 pycparser==2.21
     # via cffi
-pydantic==1.10.14
+pydantic==2.7.4
     # via
+    #   curies
     #   decentriq-dcr-compiler
     #   fastapi
+pydantic-core==2.18.4
+    # via pydantic
 pyopenssl==24.0.0
     # via decentriq-platform
 pyoxigraph==0.3.22
@@ -114,6 +123,8 @@ python-jose[cryptography]==3.3.0
     # via cohort-explorer-backend (pyproject.toml)
 python-multipart==0.0.9
     # via cohort-explorer-backend (pyproject.toml)
+pytrie==0.4.0
+    # via curies
 pytz==2024.1
     # via pandas
 pyxlsb==1.0.10
@@ -125,7 +136,9 @@ rdflib==7.0.0
     #   oxrdflib
     #   sparqlwrapper
 requests==2.31.0
-    # via decentriq-platform
+    # via
+    #   curies
+    #   decentriq-platform
 rsa==4.9
     # via python-jose
 sgx-ias-structs==0.1.9
@@ -139,6 +152,8 @@ sniffio==1.3.0
     # via
     #   anyio
     #   httpx
+sortedcontainers==2.4.0
+    # via pytrie
 sparqlwrapper==2.0.0
     # via cohort-explorer-backend (pyproject.toml)
 sqloxide==0.1.43
@@ -151,6 +166,7 @@ typing-extensions==4.9.0
     #   decentriq-platform
     #   fastapi
     #   pydantic
+    #   pydantic-core
     #   uvicorn
 tzdata==2024.1
     # via pandas
