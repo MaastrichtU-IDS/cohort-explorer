@@ -49,8 +49,8 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
     builder = (
         AnalyticsDcrBuilder(client=client)
         .with_name(dcr_title)
-        # .with_owner(user["email"])
-        .with_owner(settings.decentriq_email)
+        .with_owner(user["email"])
+        # .with_owner(settings.decentriq_email)
         .with_description(f"A data clean room to provision the data for the {cohort.cohort_id} cohort")
     )
 
@@ -66,10 +66,10 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
         user["email"],
         data_owner_of=[data_node_id],
     )
-    builder.add_participant(
-        settings.decentriq_email,
-        data_owner_of=[data_node_id],
-    )
+    # builder.add_participant(
+    #     settings.decentriq_email,
+    #     data_owner_of=[data_node_id],
+    # )
     # Build and publish DCR
     dcr_definition = builder.build()
     dcr = client.publish_analytics_dcr(dcr_definition)
@@ -153,7 +153,8 @@ async def create_compute_dcr(
     builder = (
         AnalyticsDcrBuilder(client=client)
         .with_name(dcr_title)
-        .with_owner(settings.decentriq_email)
+        # .with_owner(settings.decentriq_email)
+        .with_owner(user["email"])
         .with_description("A data clean room to run analyses on cohorts for the iCARE4CVD project")
     )
 
