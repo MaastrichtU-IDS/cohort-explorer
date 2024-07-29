@@ -74,71 +74,63 @@ This platform is composed of 3 main components:
 > | ----------------- | -------- | --------------- | --------------- | ----- | -------------- | ----- | -------------- | ------------ | ------------------ | ----------- | ---------------------- | --------------------- | --------------------- | ----------------------- |
 > |                   |          |                 |                 |       |                |       |                |              |                    |             |                        |                       |                       |                         |
 
-### 📥 Install dependencies
-
-1.  Install [hatch](https://hatch.pypa.io/latest/) for managing python projects, and [pnpm](https://pnpm.io/installation) for TS/JS projects
-
-    ```bash
-    pip install hatch
-    ```
-
-2.  Create a `backend/.env` file with secret configuration:
-
-    ```bash
-    AUTH_ENDPOINT=https://auth0.com
-    CLIENT_ID=AAA
-    CLIENT_SECRET=BBB
-    DECENTRIQ_EMAIL=ccc@ddd.com
-    DECENTRIQ_TOKEN=EEE
-    JWT_SECRET=vCitcsPBwH4BMCwEqlO1aHJSIn--usrcyxPPRbeYdHM
-    ADMINS=admin1@email.com,admin2@email.com
-    ```
-
-3.  Put the excel spreadsheet with all cohorts metadata in `data/iCARE4CVD_Cohorts.xlsx`. Uploaded cohorts will go to separated folders in `data/cohorts/`
-
-> \[!WARNING]
->
-> There is a bug with pandas when conditional cells are used in the excel spreadsheet. To remove conditional cells copy the whole sheet content, delete the current content, and paste the original sheet content without formatting (ctrl+shift+v)
-
-> \[!IMPORTANT]
->
-> For the authentication to the Decentriq OAuth provider to work you need to deploy the backend on <http://localhost:3000>
-
 ### ⚡ Start for development
 
-In development it is more convenient to start all components like the database with docker, and the backend/frontend outside of docker.
+Requirements: [Docker](https://docs.docker.com/engine/install/)
 
-Start the database with docker:
+1. Create a `.env` file with the secret configuration at the root of the repository (ask admins for the client ID and secret, and retrieve you Decentriq token from decentriq):
 
-```bash
-docker compose up db
-```
+   ```bash
+   AUTH_ENDPOINT=https://auth0.com
+   CLIENT_ID=AAA
+   CLIENT_SECRET=BBB
+   DECENTRIQ_EMAIL=ccc@ddd.com
+   DECENTRIQ_TOKEN=EEE
+   JWT_SECRET=vCitcsPBwH4BMCwEqlO1aHJSIn--usrcyxPPRbeYdHM
+   ADMINS=admin1@email.com,admin2@email.com
+   ```
 
-In a different terminal, start the backend:
+2. Put the excel spreadsheet with all cohorts metadata in `data/iCARE4CVD_Cohorts.xlsx`. Uploaded cohorts will go to separated folders in `data/cohorts/`
 
-```bash
-cd backend
-hatch run dev
-```
+3. Start the whole stack in development with docker compose, with hot reload for the frontend and backend:
 
-In another terminal, start the frontend:
+    ```bash
+    docker compose up
+    ```
 
-```bash
-cd frontend
-pnpm dev
-```
-
-> \[!TIP]
+> [!IMPORTANT]
 >
-> Alternatively you can start the whole stack in development with docker compose in 1 command, but you won't get hot reload for the frontend (you will need to rebuild the frontend image for changes to be taken into account):
->
-> ```bash
-> docker compose up
-> ```
+> For the authentication to the Decentriq OAuth provider to work you need to deploy the backend on <http://localhost:3000>
 
 > [!NOTE]
 >
 > In development the user requesting a DCR will be added to as data owner of all cohorts dataset requested for development purpose (so they can provision the data themselves, and to avoid spamming emails owners when developing)
+
+> [!TIP]
+>
+> Alternatively you can start the different component in in different terminals outside of docker. For this, put the `.env` file in the `backend` folder
+>
+> Start the database with docker:
+>
+> ```bash
+>docker compose up db
+> ```
+> 
+> In a different terminal, start the backend with [hatch](https://hatch.pypa.io/latest/install/):
+>
+> ```bash
+>cd backend
+> hatch run dev
+> ```
+> 
+> In another terminal, start the frontend with [pnpm](https://pnpm.io/installation):
+>
+> ```bash
+>cd frontend
+> pnpm install
+> pnpm dev
+> ```
+> 
 
 ### 🧹 Code formatting and linting
 
