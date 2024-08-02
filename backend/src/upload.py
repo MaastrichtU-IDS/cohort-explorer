@@ -475,6 +475,7 @@ def init_triplestore() -> None:
     if publish_graph_to_endpoint(g):
         print(f"🦉 Triplestore initialization: added {len(g)} triples for the iCARE4CVD Cohort Explorer OWL ontology.")
 
+    os.makedirs(os.path.join(settings.data_folder, "cohorts"), exist_ok=True)
     # Load cohorts data dictionaries already present in data/cohorts/
     for folder in os.listdir(os.path.join(settings.data_folder, "cohorts")):
         folder_path = os.path.join(settings.data_folder, "cohorts", folder)
