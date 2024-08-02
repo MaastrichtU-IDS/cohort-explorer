@@ -204,7 +204,7 @@ async def create_compute_dcr(
                 # Add filter variables to pandas script
                 pandas_script += f"{df_var} = {df_var}[{requested_vars}]\n"
 
-        # TODO: Merge operation, need to be implemented on the frontend
+        # TODO: Merge operation, need to be implemented on the frontend?
         elif isinstance(requested_vars, dict):
             pandas_script += pandas_script_merge_cohorts(requested_vars, all_cohorts)
             # TODO: add merged cohorts schema to selected_cohorts

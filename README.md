@@ -84,7 +84,7 @@ Requirements: [Docker](https://docs.docker.com/engine/install/)
    AUTH_ENDPOINT=https://auth0.com
    CLIENT_ID=AAA
    CLIENT_SECRET=BBB
-   DECENTRIQ_EMAIL=ccc@ddd.com
+   DECENTRIQ_EMAIL=admin1@email.com
    DECENTRIQ_TOKEN=EEE
    JWT_SECRET=vCitcsPBwH4BMCwEqlO1aHJSIn--usrcyxPPRbeYdHM
    ADMINS=admin1@email.com,admin2@email.com
@@ -174,7 +174,7 @@ Put the excel spreadsheet with all cohorts metadata in `data/iCARE4CVD_Cohorts.x
     AUTH_ENDPOINT=https://auth0.com
     CLIENT_ID=AAA
     CLIENT_SECRET=BBB
-    DECENTRIQ_EMAIL=ccc@ddd.com
+    DECENTRIQ_EMAIL=admin1@email.com
     DECENTRIQ_TOKEN=EEE
     JWT_SECRET=vCitcsPBwH4BMCwEqlO1aHJSIn--usrcyxPPRbeYdHM
     ADMINS=admin1@email.com,admin2@email.com
