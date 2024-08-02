@@ -1,4 +1,3 @@
-version: "3.3"
 # Base docker-compose file used by the dev and prod environments
 services:
 

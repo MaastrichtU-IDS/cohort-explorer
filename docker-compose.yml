@@ -1,4 +1,3 @@
-version: "3.3"
 # Docker compose file for development
 services:
 
