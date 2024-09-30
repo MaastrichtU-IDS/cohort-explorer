@@ -210,6 +210,9 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
                     detail=f"Missing column `{column}`",
                 )
         df["categories"] = df["CATEGORICAL"].apply(parse_categorical_string)
+
+
+        # TODO: handle columns from Komal that maps variables:
         if "Label Concept Code" in df.columns:
             df["concept_id"] = df.apply(lambda row: str(row["Label Concept Code"]).strip(), axis=1)
         else:
@@ -356,6 +359,8 @@ async def upload_cohort(
     metadata_path = os.path.join(cohorts_folder, filename + ext)
     with open(metadata_path, "wb") as buffer:
         shutil.copyfileobj(cohort_dictionary.file, buffer)
+
+    # TODO: KOMAL add function that reads the CSV at `metadata_path`, add new columns, and save it back to the same file
 
     try:
         g = load_cohort_dict_file(metadata_path, cohort_id)
