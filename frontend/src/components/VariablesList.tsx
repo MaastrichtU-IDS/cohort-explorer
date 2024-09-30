@@ -81,7 +81,7 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
         .filter(
           ([variableName, variableData]: any) =>
             variableName.toLowerCase().includes(searchFilters.searchQuery.toLowerCase()) ||
-            variableData.var_label.toLowerCase().includes(searchFilters.searchQuery.toLowerCase())
+            JSON.stringify(variableData).toLowerCase().includes(searchFilters.searchQuery.toLowerCase())
         )
         .filter(
           ([variableName, variableData]: any) =>

@@ -1,7 +1,7 @@
 'use client';
 
 import React, {useState} from 'react';
-import {Upload, UploadCloud} from 'react-feather';
+import {Upload} from 'react-feather';
 import {useCohorts} from '@/components/CohortsContext';
 import {TrashIcon} from '@/components/Icons';
 import {apiUrl} from '@/utils';
@@ -16,11 +16,11 @@ export default function UploadPage() {
   const [publishedDCR, setPublishedDCR]: any = useState(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  // const cohortsNoVariables = cohortsData
+  // Show all cohorts for now, in case people need to reupload
+  const cohortsUserCanEdit = cohortsData ? Object.keys(cohortsData).filter(cohortId => cohortsData[cohortId]['can_edit']) : [];
+  // const cohortsUserCanEdit = cohortsData
   //   ? Object.keys(cohortsData).filter(cohortId => Object.keys(cohortsData[cohortId]['variables']).length === 0)
   //   : [];
-  // Show all cohorts for now, in case people need to reupload
-  const cohortsNoVariables = cohortsData ? Object.keys(cohortsData).filter(cohortId => true) : [];
 
   const handleCohortIdChange = (event: any) => {
     setCohortId(event.target.value);
@@ -112,13 +112,12 @@ export default function UploadPage() {
               required
             >
               <option value="">Select the cohort to upload</option>
-              {cohortsNoVariables.map((cohortId: string) =>
-                cohortsData[cohortId]['can_edit'] ? (
-                  <React.Fragment key={cohortId}>
-                    <option value={cohortId}>{cohortId}</option>
-                  </React.Fragment>
-                ) : null
+              {cohortsUserCanEdit.map((cohortId: string) =>
+                <React.Fragment key={cohortId}>
+                  <option value={cohortId}>{cohortId}</option>
+                </React.Fragment>
               )}
+              {cohortsUserCanEdit.length === 0 && <option value="" disabled>No cohorts available</option>}
             </select>
           </div>
 

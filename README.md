@@ -90,6 +90,11 @@ Requirements: [Docker](https://docs.docker.com/engine/install/)
    ADMINS=admin1@email.com,admin2@email.com
    ```
 
+   > [!WARNING]
+   >
+   > * Make sure to add the user you will login with to the list of `ADMINS` if you want to be able to upload any cohort.
+   > * Get a token from Decentriq for your login email (the explorer needs a token to access Decentriq API)
+
 2. Put the excel spreadsheet with all cohorts metadata in `data/iCARE4CVD_Cohorts.xlsx`. Uploaded cohorts will go to separated folders in `data/cohorts/`
 
 3. Start the whole stack in development with docker compose, with hot reload for the frontend and backend:

@@ -35,6 +35,7 @@ export default function CohortsList() {
       })
       .map(([, cohortData]) => cohortData);
   }, [searchQuery, selectedDataTypes, selectedStudyTypes, selectedInstitutes, cohortsData]);
+  // NOTE: filtering variables is done in VariablesList component
 
   return (
     <main className="flex w-full p-4 bg-base-200 h-full min-h-screen space-x-4">
