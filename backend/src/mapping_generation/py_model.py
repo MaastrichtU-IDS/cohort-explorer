@@ -59,12 +59,14 @@ class QueryDecomposedModel(BaseModel):
         categories = values.get('categories', [])
         if categories:
             if value and isinstance(value, list):
-                return list(set(value) - set(categories))
+                # Preserve the order while removing categories
+                return [entity for entity in value if entity not in categories]
             elif value and isinstance(value, str):
-                return list(set([value]) - set(categories))
+                if value not in categories:
+                    return [value]
         else:
             if value and isinstance(value, list):
-                return list(set(value))
+                return value  # No need for set conversion, retain original order
             elif value and isinstance(value, str):
                 return [value]
         return value
