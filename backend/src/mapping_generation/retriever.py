@@ -355,7 +355,7 @@ def map_csv_to_standard_codes(meta_path: str):
         do_eval=False,
         is_omop_data=True,
     )
-    print("DATA MAPPED", data)
     mapped_csv = append_results_to_csv(meta_path, data)
     mapped_csv.to_csv(meta_path, index=False)
+    # TODO: store mappings in the triplestore
     return mapped_csv

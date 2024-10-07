@@ -361,9 +361,6 @@ async def upload_cohort(
     with open(metadata_path, "wb") as buffer:
         shutil.copyfileobj(cohort_dictionary.file, buffer)
 
-    # TODO: KOMAL add function that reads the CSV at `metadata_path`, add new columns, and save it back to the same file
-    # map_csv_to_standard_codes(metadata_path)
-    background_tasks.add_task(map_csv_to_standard_codes, metadata_path)
     try:
         g = load_cohort_dict_file(metadata_path, cohort_id)
         # Airlock preview setting goes to mapping graph because it is defined in the explorer UI
@@ -375,6 +372,12 @@ async def upload_cohort(
                 get_cohort_mapping_uri(cohort_id),
             )
         )
+
+        # NOTE: waiting for more tests before sending to production
+        # background_tasks.add_task(map_csv_to_standard_codes, metadata_path)
+        # TODO: move all the "delete_existing_triples" and "publish_graph_to_endpoint" logic to the background task after mappings have been generated
+        # Return "The cohort has been successfully uploaded. The variables are being mapped to standard codes and will be available in the Cohort Explorer in a few minutes."
+
         # Delete previous graph for this file from triplestore
         delete_existing_triples(
             get_cohort_mapping_uri(cohort_id), f"<{get_cohort_uri(cohort_id)!s}>", "icare:previewEnabled"
@@ -385,22 +388,42 @@ async def upload_cohort(
         os.remove(metadata_path)
         raise e
 
-    cohorts_dict = retrieve_cohorts_metadata(user["email"])
+    return {
+        "message": f"Metadata for cohort {cohort_id} have been successfully uploaded. The variables are being mapped to standard codes and will be available in the Cohort Explorer in a few minutes.",
+        "identifier": cohort_id,
+        # **cohort.dict(),
+    }
+
+@router.post(
+    "/create-provision-dcr",
+    name="Create Data Clean Room to provision the dataset",
+    response_description="Creation result",
+)
+async def post_create_provision_dcr(
+    user: Any = Depends(get_current_user),
+    # cohort_id: str = Form(..., pattern="^[a-zA-Z0-9-_\w]+$"),
+    cohort_id: str = Form(...),
+    # airlock: bool = True,
+) -> dict[str, Any]:
+    cohort_info = retrieve_cohorts_metadata(user["email"]).get(cohort_id)
+    if not cohort_info:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Cohort ID {cohort_id} does not exists",
+        )
+    if not cohort_info.can_edit:
+        raise HTTPException(
+            status_code=403,
+            detail=f"User {user['email']} cannot publish cohort {cohort_id}",
+        )
     try:
-        dcr_data = create_provision_dcr(user, cohorts_dict.get(cohort_id))
+        dcr_data = create_provision_dcr(user, cohort_info)
     except Exception as e:
         raise HTTPException(
             status_code=422,
-            detail=f"The cohort was properly created in the Cohort Explorer, but there was an issue when uploading to Decentriq: {e}",
+            detail=f"There was an issue when uploading the cohort {cohort_id} to Decentriq: {e}",
         )
-    # print(dcr_data)
-    # Save data file
-    if cohort_data:
-        file_path = os.path.join(cohorts_folder, cohort_data.filename)
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(cohort_data.file, buffer)
     return dcr_data
-
 
 COHORTS_METADATA_FILEPATH = os.path.join(settings.data_folder, "iCARE4CVD_Cohorts.xlsx")
 
