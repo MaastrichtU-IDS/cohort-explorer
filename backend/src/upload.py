@@ -7,7 +7,7 @@ from typing import Any
 
 import pandas as pd
 import requests
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 from rdflib import XSD, Dataset, Graph, Literal, URIRef
 from rdflib.namespace import DC, RDF, RDFS
 from SPARQLWrapper import SPARQLWrapper
@@ -309,6 +309,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
     response_description="Upload result",
 )
 async def upload_cohort(
+    background_tasks: BackgroundTasks,
     user: Any = Depends(get_current_user),
     # cohort_id: str = Form(..., pattern="^[a-zA-Z0-9-_\w]+$"),
     cohort_id: str = Form(...),
@@ -361,7 +362,8 @@ async def upload_cohort(
         shutil.copyfileobj(cohort_dictionary.file, buffer)
 
     # TODO: KOMAL add function that reads the CSV at `metadata_path`, add new columns, and save it back to the same file
-    map_csv_to_standard_codes(metadata_path)
+    # map_csv_to_standard_codes(metadata_path)
+    background_tasks.add_task(map_csv_to_standard_codes, metadata_path)
     try:
         g = load_cohort_dict_file(metadata_path, cohort_id)
         # Airlock preview setting goes to mapping graph because it is defined in the explorer UI
