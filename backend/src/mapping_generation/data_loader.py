@@ -105,6 +105,8 @@ def custom_data_loader(source_path):
             visits = f"at {visits}"
             # Construct the 'full_query' string
             full_query = label
+            if visits:
+                full_query += f" {visits}"
             if categories:
                 full_query += f", categorical values: {'|'.join(categories)}"
             if unit:
