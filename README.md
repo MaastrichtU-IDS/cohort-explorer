@@ -88,6 +88,7 @@ Requirements: [Docker](https://docs.docker.com/engine/install/)
    DECENTRIQ_TOKEN=EEE
    JWT_SECRET=vCitcsPBwH4BMCwEqlO1aHJSIn--usrcyxPPRbeYdHM
    ADMINS=admin1@email.com,admin2@email.com
+   TOGATHER_API_KEY=AAA
    ```
 
    > [!WARNING]
@@ -183,6 +184,7 @@ Put the excel spreadsheet with all cohorts metadata in `data/iCARE4CVD_Cohorts.x
     DECENTRIQ_TOKEN=EEE
     JWT_SECRET=vCitcsPBwH4BMCwEqlO1aHJSIn--usrcyxPPRbeYdHM
     ADMINS=admin1@email.com,admin2@email.com
+    TOGATHER_API_KEY=AAA
     ```
 
 3. Deploy the stack for production:

@@ -4,24 +4,18 @@ import shutil
 from datetime import datetime
 from re import sub
 from typing import Any
-from  mapping_generation.data_loader import load_data
-from mapping_generation.utils import append_results_to_csv
-from mapping_generation.bi_encoder import SAPEmbeddings
-from mapping_generation.vector_index import generate_vector_index, set_compression_retriever, set_merger_retriever, initiate_api_retriever
-from mapping_generation.retriever_ import map_data
 import pandas as pd
-from mapping_generation.param import *
 import requests
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from rdflib import XSD, Dataset, Graph, Literal, URIRef
 from rdflib.namespace import DC, RDF, RDFS
 from SPARQLWrapper import SPARQLWrapper
-from langchain_qdrant import FastEmbedSparse
 
 from src.auth import get_current_user
 from src.config import settings
 from src.decentriq import create_provision_dcr
 from src.utils import ICARE, converter, init_graph, retrieve_cohorts_metadata, run_query
+from src.mapping_generation.retriever import map_csv_to_standard_codes
 
 
 router = APIRouter()
@@ -172,21 +166,6 @@ ACCEPTED_DATATYPES = ["STR", "FLOAT", "INT", "DATETIME"]
 # Old multiple column format for concept codes:
 ID_COLUMNS_NAMESPACES = {"ICD-10": "icd10", "SNOMED-CT": "snomedct", "ATC-DDD": "atc", "LOINC": "loinc"}
 
-def map_csv_to_standard_codes(meta_path: str):
-    data , is_mapped = load_data(meta_path, load_custom=True)
-    if is_mapped:
-        return data
-    embeddings = SAPEmbeddings()
-    sparse_embeddings = FastEmbedSparse(model_name="Qdrant/bm42-all-minilm-l6-v2-attentions")
-    hybrid_search = generate_vector_index(embeddings, sparse_embeddings, docs_file='',mode='inference',
-                                            collection_name=SYN_COLLECTION_NAME, topk=10)
-    # compressed_hybrid_retriever =  set_compression_retriever(hybrid_search)
-    athena_api_retriever = initiate_api_retriever()
-    merger_retriever= set_merger_retriever(retrievers=[hybrid_search,athena_api_retriever])
-    data=map_data(data,merger_retriever,custom_data=True,output_file=LOOK_UP_FILE,
-                llm_name=LLM_ID,topk=TOPK,do_eval=False, is_omop_data=True)
-    mapped_csv= append_results_to_csv(meta_path,data) 
-    return mapped_csv
 
 def get_id_from_multi_columns(row):
     """Old format to pass concepts URIs from the ID provided in the various columns of the data dictionary (ICD-10, ATC, SNOMED...)"""
@@ -383,8 +362,7 @@ async def upload_cohort(
         shutil.copyfileobj(cohort_dictionary.file, buffer)
 
     # TODO: KOMAL add function that reads the CSV at `metadata_path`, add new columns, and save it back to the same file
-    mapped_csv_data = map_csv_to_standard_codes(metadata_path)
-    mapped_csv_data.to_csv(metadata_path, index=False)
+    map_csv_to_standard_codes(metadata_path)
     try:
         g = load_cohort_dict_file(metadata_path, cohort_id)
         # Airlock preview setting goes to mapping graph because it is defined in the explorer UI

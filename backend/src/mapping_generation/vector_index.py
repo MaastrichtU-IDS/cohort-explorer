@@ -19,7 +19,12 @@ from .llm_chain import pass_to_chat_llm_chain
 from .athena_api_retriever import RetrieverAthenaAPI, AthenaFilters
 from .compress import CustomCompressionRetriever
 
-    
+
+def set_merger_retriever(retrievers):
+    ensemble_retriever = MergerRetriever(retrievers=retrievers)
+    return ensemble_retriever
+
+
 def filter_results(query, results) -> list:
     prioritized = []
     non_prioritized = []
@@ -92,7 +97,7 @@ def _create_payload_index(client, collection_name) -> None:
 def generate_vector_index(dense_embedding, sparse_embedding, url=VECTOR_PATH, port=QDRANT_PORT,
                           docs_file='/workspace/mapping_tool/data/output/sapbert_emb_docs_json.jsonl', mode='inference', collection_name = 'concept_mapping',
                           topk=TOPK) -> CustomQdrantVectorStore:
-  
+
     client = QdrantClient(url=url, port=port, https=True, timeout=300)
     # client = QdrantClient(":memory:")
     logger.info(f"collection exist: {client.collection_exists(collection_name)}")
@@ -108,7 +113,7 @@ def generate_vector_index(dense_embedding, sparse_embedding, url=VECTOR_PATH, po
             docs,
             embedding=dense_embedding,
             batch_size = 64,
-            url=VECTOR_PATH, 
+            url=VECTOR_PATH,
             port=QDRANT_PORT,
             https = True,
             vector_name ='omop_dense_vector',
@@ -116,17 +121,17 @@ def generate_vector_index(dense_embedding, sparse_embedding, url=VECTOR_PATH, po
             sparse_embedding=sparse_embedding,
             collection_name=collection_name,
             retrieval_mode=RetrievalMode.HYBRID,
-            vector_params  = { 
+            vector_params  = {
             "size": 768,
             "distance": Distance.COSINE,
             "hnsw_config": rest.HnswConfigDiff(
                                             m=38,
-                                            ef_construct=64, 
+                                            ef_construct=64,
                                             full_scan_threshold=20000,
                                             max_indexing_threads = 8,
                                             payload_m = 38
                                         ),
-            
+
             "quantization_config":rest.ScalarQuantization(
                     scalar=rest.ScalarQuantizationConfig(
                         type=rest.ScalarType.INT8,
@@ -134,7 +139,7 @@ def generate_vector_index(dense_embedding, sparse_embedding, url=VECTOR_PATH, po
                         always_ram=True,
                     ),
                 ),
-                                                                  
+
             "on_disk":True,
             # "on_disk_payload":True,
             },
@@ -143,17 +148,17 @@ def generate_vector_index(dense_embedding, sparse_embedding, url=VECTOR_PATH, po
                 "index":{
                     "full_scan_threshold":20000,
                     "on_disk":True
-                } 
+                }
             },
-            force_recreate=True    
-            
+            force_recreate=True
+
         )
         _create_payload_index(client, collection_name)
-        
+
     else:
         # comment if if _create_payload_index is already called in if but collection exist and payload is not created than so call it
-        _create_payload_index(client, collection_name)   # should be commented after first run 
-        vector_store = CustomQdrantVectorStore(client=client, 
+        _create_payload_index(client, collection_name)   # should be commented after first run
+        vector_store = CustomQdrantVectorStore(client=client,
             collection_name=collection_name,
              embedding= dense_embedding,
              sparse_embedding = sparse_embedding,
@@ -169,7 +174,7 @@ def generate_vector_index(dense_embedding, sparse_embedding, url=VECTOR_PATH, po
                 vector_store.add_documents(docs)
                 vcount = get_collection_vectors(client=client, collection_name=collection_name)
                 logger.info(f"Added {vcount - vector_count} vectors to collection")
-    
+
     #similarity_score_threshold, 'fetch_k':100},
     #                       search_kwargs={'k': 10,'lambda_mult': 0.4},
             #     docsearch.as_retriever(
@@ -181,24 +186,29 @@ def generate_vector_index(dense_embedding, sparse_embedding, url=VECTOR_PATH, po
     #             search_type="mmr",
     #             search_kwargs={'k':10, 'lambda_mult': 0.3}
     #         )
-    
+
     # return vector_store.as_retriever(
     #             search_type="similarity_score_threshold",
     #             search_kwargs={'score_threshold': 0.3}
     #         )
-    
+
     return vector_store.as_retriever(search_kwargs={'k': topk})
 
 def initiate_api_retriever(k:str=TOPK) -> RetrieverAthenaAPI:
-    #'LOINC','UCUM','OMOP Extension','ATC','RxNorm','Gender','Race','Ethnicity', excluded for BC5CDR-D and NCBI 
+    #'LOINC','UCUM','OMOP Extension','ATC','RxNorm','Gender','Race','Ethnicity', excluded for BC5CDR-D and NCBI
     # FOR AAP datset: 'SNOMED','MeSH','MedDRA','LOINC
     # domain=['Condition','Observation']
     athena_api_retriever = RetrieverAthenaAPI(filters=AthenaFilters(vocabulary=['LOINC','UCUM','OMOP Extension','ATC','RxNorm','Gender','Race','Ethnicity'], standard_concept=['Standard','Classification']), k=k)
     compression_retriever = set_compression_retriever(athena_api_retriever)
     return compression_retriever
 
+# TODO: check
+
+
+
+
 def update_api_search_filter(api_retriever, domain='observation', topk=10):
-    
+
     if domain == 'unit':
          api_retriever.filters = AthenaFilters(domain=None, vocabulary=['UCUM'], standard_concept=['Standard'])
     elif domain == 'condition' or domain == 'anatomic site':
@@ -234,7 +244,7 @@ def update_qdrant_search_filter(retriever, domain='all', topk=10):
                         rest.FieldCondition(
                             key="metadata.vocab",
                             match=rest.MatchAny(any=['snomed'])
-                        
+
                         )
                     ]
                 )
@@ -248,7 +258,7 @@ def update_qdrant_search_filter(retriever, domain='all', topk=10):
                         rest.FieldCondition(
                             key="metadata.domain",
                             match=rest.MatchAny(any=['observation','meas value'])
-                        )      
+                        )
                     ]
                 )
     elif domain == 'measurement':
@@ -343,12 +353,12 @@ def update_merger_retriever(merger_retriever:CustomCompressionRetriever, domain=
         logger.info(f"Error updating merger retriever: {e}")
         return merger_retriever
 
-    
+
 def set_compression_retriever(base_retriever) -> CustomCompressionRetriever:
 
     embedding = SAPEmbeddings()
     embeddings_filter = MyEmbeddingsFilter(embeddings=embedding, similarity_threshold=0.5)
-    
+
     compression_retriever = CustomCompressionRetriever(
         base_compressor=embeddings_filter, base_retriever=base_retriever
     )
@@ -361,8 +371,8 @@ def log_accuracy(correct_dict, input_file='/workspace/mapping_tool/data/eval_dat
         for k, correct in correct_dict.items():
             accuracy = correct / len(queries)
             f.write(f"Accuracy for k={k}: {accuracy}\n")
-            
-            
+
+
 
 
 
@@ -382,9 +392,9 @@ if __name__ == "__main__":
     model_name = args.model_name
     llm_id = args.llm_id
     embeddings = SAPEmbeddings(model_id=model_name)
-    sparse_embeddings = FastEmbedSparse(model_name="Qdrant/bm42-all-minilm-l6-v2-attentions")  
-    hybrid_vector_retriever = generate_vector_index(embeddings, sparse_embeddings,docs_file=args.document_file_path, 
-                                                    mode=mode, collection_name=args.collection_name, 
+    sparse_embeddings = FastEmbedSparse(model_name="Qdrant/bm42-all-minilm-l6-v2-attentions")
+    hybrid_vector_retriever = generate_vector_index(embeddings, sparse_embeddings,docs_file=args.document_file_path,
+                                                    mode=mode, collection_name=args.collection_name,
                                                     topk=10)
 
     hybrid_vector_retriever = set_compression_retriever(hybrid_vector_retriever)
@@ -397,18 +407,18 @@ if __name__ == "__main__":
     max_queries = len(queries)
     # random.shuffle(queries)
     with open(args.output_file, "w") as f:
-        for query in queries[:max_queries]: 
+        for query in queries[:max_queries]:
             match_found = False
             # logger.info(query)
             if len(query) == 3:
                 code, query, domain = query[0], query[1], query[2]
             else:
                 code, query= query[0], query[1]
-                
+
             codes_set = str(code).strip().lower().split('|')
 
             results = hybrid_vector_retriever.invoke(query)
-            exact_results=exact_match_wo_vocab(query, results) 
+            exact_results=exact_match_wo_vocab(query, results)
             if len(exact_results) >= 1:
                 results = exact_results
                 match_found = True
@@ -419,7 +429,7 @@ if __name__ == "__main__":
                     results, _ = pass_to_chat_llm_chain(query, results[:5], llm_name=llm_id,prompt_stage=2, domain='all')
             # results = filter_results(query, results)
             logger.info(f"length of results: {len(results)}")
-            if results: 
+            if results:
                 for res in results:
                     if 'domain' in res.metadata:
                         # logger.info(f"*{query}------{res.metadata['label']}---{res.metadata['domain']}---[{res.metadata['sid']}----[{res.metadata['is_standard']}]")
@@ -447,20 +457,19 @@ if __name__ == "__main__":
     logger.info(f"Exact founds for file: {args.input_data} = {exact_founds}")
     # logger.info_results(ensemble_retriever.invoke("Progressive Familial Heart Block, Type II")) #midregional pro-atrial natriuretic peptide
     logger.info(f"Time taken fot total queries {len(queries)}: {time.time() - start_time}")
-    
 
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

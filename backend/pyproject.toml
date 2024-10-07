@@ -44,6 +44,7 @@ dependencies = [
     "python-dotenv",
     # "pydantic >=2.0.0",
     # "pydantic-settings",
+    # NOTE: dependencies for mapping-generation are below
     "tqdm",
     "torch",
     "transformers",
@@ -51,7 +52,6 @@ dependencies = [
     "qdrant-client",
     "langchain",
     "langchain_openai",
-    "ctransformers",
     "pydantic",
     "langchain_qdrant",
     "typing-extensions",
@@ -61,17 +61,18 @@ dependencies = [
     "faiss-cpu",
     "langchain-together",
     "simstring-fast",
-    "ragatouille",
-    "langchain_huggingface,
+    "langchain_huggingface",
     "langchain_groq",
     "fastembed",
-    "fastembed-gpu",
+    # "fastembed-gpu",
     "adapters",
     "langdetect",
     "rank_bm25",
     "json-repair",
-    "tiktoken",
     "pytorch_metric_learning"
+    # "ctransformers",
+    # "ragatouille",
+    # "tiktoken",
 ]
 
 
@@ -122,6 +123,8 @@ cov-check = [
     "python -m http.server 3000 --directory ./htmlcov",
 ]
 compile = "pip-compile -o requirements.txt pyproject.toml"
+# TODO: use uv
+# uv pip compile pyproject.toml -o requirements.txt
 
 
 ## TOOLS

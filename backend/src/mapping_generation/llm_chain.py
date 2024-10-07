@@ -13,19 +13,20 @@ from langchain_community.cache import InMemoryCache
 from .param import MAPPING_FILE
 from .py_model import *
 from .manager_llm import *
+
 set_llm_cache(InMemoryCache())
 parsing_llm = LLMManager.get_instance('llama3.1')
-parser = JsonOutputParser ()
+parser = JsonOutputParser()
 fixing_parser = OutputFixingParser.from_llm(parser = parser, llm = parsing_llm, max_retries=3)
 def get_relevant_examples(query: str, content_key:str, examples: List[Dict[str, str]],topk=3,min_score=0.5) -> List[Dict]:
-    
+
     try:
         # Obtain the singleton example selector
         if examples is None or len(examples) == 0:
             logger.info("No examples found")
             return []
         selector =  ExampleSelectorManager.get_example_selector(content_key,examples,k=topk,score_threshold=min_score)
-        
+
         selected_examples = selector.select_examples({"input": f"{query}"})
 
         return selected_examples
@@ -59,7 +60,7 @@ def extract_ir(base_entity, associated_entities, active_model):
             2. Base Entity: 'diabetes mellitus'
             Associated Entity: ['insulin']
             Selected Relationship: 'Treated with'
-            
+
             Now, apply the same logic to the following:
             Base Entity: {base_entity}
             Associated Entities: {associated_entities}
@@ -103,14 +104,14 @@ def extract_information(query, model_name=LLM_ID, prompt=None):
                     - Extract information from the provided medical query to link it to OHDSI OMOP controlled vocabularies.
                 ** Perform the following actions in order to identify relevant information:
                     -Rewrite the medical query in english language to ensure all terms are expanded to their full forms. Always translate all non-english terms to english.
-                    -Identify if there are any acronyms and abbreviations in given medical query and expand them. 
+                    -Identify if there are any acronyms and abbreviations in given medical query and expand them.
                     -Domain: Determine the most appropriate OHDSI OMOP standards from list of following domains: [Condition, Anatomic Site, Body Structure, Measurement, Procedure, Drug, Device, Unit,  Visit,  Death,  Demographics, Family History, Life Style, History of Events].
                     - Base Entity: The primary concept or entity mentioned in the medical query.
                     - Associated Entities: Extract associated entities related to the base entity.
                     - Unit: Unit of measurement associated if mentioned.
                     - categories: If mentioned, list all provided categorical values
                 **Considers:
-                    -Translate all visits with time indicators as follow-up 'number' month 
+                    -Translate all visits with time indicators as follow-up 'number' month
                     - Transform all categorical values in 1/0  to yes/no.
                     -Don't consider categorical values as context. Assume they are categorical values.
                     -Don't add additional unit of measurement if not mentioned in the query.
@@ -118,7 +119,7 @@ def extract_information(query, model_name=LLM_ID, prompt=None):
                 **Desired format: Provide the output in JSON format with the following fields: 'domain', 'base_entity', 'additional_entities', 'categories' and 'unit'.
                 Don't add any preamble or explanations. Use examples if given as a guide to understand how and what information to extract.
                     medical query: {input}
-                    Output: 
+                    Output:
                         """
             final_prompt = (
                     SystemMessagePromptTemplate.from_template(
@@ -142,7 +143,7 @@ def extract_information(query, model_name=LLM_ID, prompt=None):
                     result['full_query'] = query
                     print(f"extract_information result={result}")
                     return QueryDecomposedModel(**result)
-                     
+
                 except ValidationError as e:
                     logger.info(f"Validation Error: {e}")
                     result = None
@@ -159,7 +160,7 @@ def extract_information(query, model_name=LLM_ID, prompt=None):
             return None
     else:
         return None
-    
+
 def generate_information_triples(query, active_model):
     try:
             print(f"generate_information_triples for query={query}")
@@ -183,7 +184,7 @@ def generate_information_triples(query, active_model):
             save_triples_to_txt(query, chain_results, "/workspace/mapping_tool/data/output/gissi_llama_triples.txt")
     except Exception as e:
         logger.info(f"Error loading LLM: {e}")
-            
+
 def save_triples_to_txt(query, triples, output_file):
     #check if file exists
     if not os.path.exists(output_file):
@@ -209,7 +210,7 @@ def generate_link_prediction_prompt(query,documents, domain=None, in_context=Tru
             Highly Relevant: The term is very closely related to the query but not synonymous.
             Partially Relevant: The term is broadly related to the query but there are significant differences.
             Not Relevant: The term has no significant relation to the query.
-        
+
         **Task Requirements: Answer following questions to determine the relationship between the medical query and candidate terms:
                 -Does the term accurately represent the query in meaning?
                 -Is there any term that is an exact match to the query?
@@ -236,18 +237,18 @@ def generate_link_prediction_prompt(query,documents, domain=None, in_context=Tru
             + few_shot_prompt
             + HumanMessagePromptTemplate.from_template(human_template)
         )
-        # logger.info(f"final_prompt={final_prompt}")   
+        # logger.info(f"final_prompt={final_prompt}")
         return final_prompt
     else:
         human_template = f"""
         What is the relationship between medical query : {query} and each candidate term from Standard Medical Terminologies/vocabulariess:{documents}. Categorize the relationship, between medical query and candidate term based on their closeness in meaning as one of the following: [synonym','highly relevant', 'partially relevant', 'not relevant'].
-        A candidate term should be categorized as an 'synonym' only if it completely and accurately represents the medical query in meaning. For each candidate term, provide a brief justification of your chosen relationship category, focusing on the broder or specific  and relevance of the answer. 
-        Please format your response as a list of dictionaries, each containing the keys "answer", "relationship", and "explanation". 
+        A candidate term should be categorized as an 'synonym' only if it completely and accurately represents the medical query in meaning. For each candidate term, provide a brief justification of your chosen relationship category, focusing on the broder or specific  and relevance of the answer.
+        Please format your response as a list of dictionaries, each containing the keys "answer", "relationship", and "explanation".
         Ensure your response adheres to a valid JSON schema. Begin your response with the word '[' and include no extra comments or information.
             """
         system = "You are a helpful assistant expert in medical domain and designed to output JSON"
         return ChatPromptTemplate.from_messages([("system", system), ("human", human_template)], template_format='mustache')
-            
+
 def generate_ranking_prompt(query,documents,domain=None,in_context=True):
     if in_context:
         _, ranking_examples,_ = load_mapping(MAPPING_FILE, domain=domain)
@@ -262,7 +263,7 @@ def generate_ranking_prompt(query,documents,domain=None,in_context=True):
                 -Is there any term that is an exact match to the query? Does the term fully capture the intended concept expressed in the query?
                 -If all terms are specific than the query, which one is the closest match?
                 -If all terms are broad or generic, which one is the most relevant to determine exact match?
-            
+
             **Examples: if provided Follow the examples to understand how to rank candidate terms based on their relevance to the query.
             **Desired format: Your response should strictly adhere to a valid JSON schema as a list of dictionaries, each containing the keys "answer", "score", and "explanation". Don't add any preamble or additional comments.
             Input: {query}
@@ -287,8 +288,8 @@ def generate_ranking_prompt(query,documents,domain=None,in_context=True):
         + few_shot_prompt
         + HumanMessagePromptTemplate.from_template(human_template)
     )
-        
-        # logger.info(f"final_prompt={final_prompt}")   
+
+        # logger.info(f"final_prompt={final_prompt}")
         return final_prompt
     else:
          human_template = """Objective: Rank candidate terms from the Standard Medical Terminologies/vocabularies based on their relevance  and closeness in meaning to a given medical query.
@@ -335,7 +336,7 @@ def calculate_dynamic_threshold(scores, base_threshold, exact_match_found):
     # Use a higher base threshold if an exact match is found
     if exact_match_found:
         base_threshold = max(base_threshold, 8)  # Example value, adjust as needed
-    belief_threshold = adjust_percentile(normalized_scores) 
+    belief_threshold = adjust_percentile(normalized_scores)
     return max(belief_threshold, base_threshold / max_score)  # Adjust base_threshold similarly
 
 def calculate_belief_scores(ranking_scores, base_threshold, exact_match_found):
@@ -370,11 +371,11 @@ def get_llm_results(prompt, query, documents, max_retries=2, llm=None, llm_name=
     #divide documents into 2 chunks
     if len(documents) > 10:
         midpoint = len(documents) // 2
-    else: 
+    else:
         midpoint = len(documents)
     first_half = documents[:midpoint]
     second_half = documents[midpoint:]
-    
+
     def process_half(doc_half, half_name):
         attempt = 0
         while attempt <= max_retries:
@@ -382,7 +383,7 @@ def get_llm_results(prompt, query, documents, max_retries=2, llm=None, llm_name=
             try:
                 chain = prompt | llm
                 # start_times = time.time()n
-                
+
                 # config={'callbacks': [ConsoleCallbackHandler()]}) for verbose
                 results =  chain.invoke({"query": query, "documents": documents})
                 results = results.content
@@ -393,7 +394,7 @@ def get_llm_results(prompt, query, documents, max_retries=2, llm=None, llm_name=
 
                 # Attempt to parse results as JSON if it's a string
                 if isinstance(results, str):
-                    
+
                     fixed_results = fix_json_quotes(results)
                     if isinstance(fixed_results, list) and all(isinstance(item, dict) for item in fixed_results):
                         return fixed_results
@@ -401,7 +402,7 @@ def get_llm_results(prompt, query, documents, max_retries=2, llm=None, llm_name=
                     #     logger.info(f"Invalid JSON response: {fixed_results}")
                     #     attempt += 1
                     #     continue
-                
+
                 # Use fixing_parser to parse results if not a list of dictionaries
                 if not (isinstance(results, list) and all(isinstance(item, dict) for item in results)):
                     try:
@@ -423,7 +424,7 @@ def get_llm_results(prompt, query, documents, max_retries=2, llm=None, llm_name=
                 logger.info(f"Validation Error: {e}")
                 attempt += 1
                 continue  # Retry on validation errors
-            
+
             except Exception as e:
                 logger.info(f"LLM Unexpected Error: {e}")
                 attempt += 1
@@ -446,7 +447,7 @@ def get_llm_results(prompt, query, documents, max_retries=2, llm=None, llm_name=
 
     # logger.info(f"Combined Results: {combined_results}")
     return combined_results
-                
+
 def pass_to_chat_llm_chain(query, top_candidates, n_prompts =1, threshold=0.8, llm_name='llama', domain=None, prompt_stage:int=2):
     relationship_scores = {
         'synonym': 10,
@@ -478,7 +479,7 @@ def pass_to_chat_llm_chain(query, top_candidates, n_prompts =1, threshold=0.8, l
             if doc_str not in seen:
                 seen.add(doc_str)
                 documents.append(doc_str)
-        ranking_scores = []        
+        ranking_scores = []
         link_predictions_results = []
         exact_match_found = False
 
@@ -506,8 +507,8 @@ def pass_to_chat_llm_chain(query, top_candidates, n_prompts =1, threshold=0.8, l
                             # if res['answer'] not in documents:
                             logger.info(f"Exact match found in Link Prediction: {res['answer']} = {exact_match_found}. Does it exist in original documents={res['answer'] in documents}")
                     # print(f"{lp_results}")
-        combined_scores = ranking_scores + link_predictions_results     
-        if isinstance(combined_scores, str): print(f"combined_scores={combined_scores}") 
+        combined_scores = ranking_scores + link_predictions_results
+        if isinstance(combined_scores, str): print(f"combined_scores={combined_scores}")
         avg_belief_scores = calculate_belief_scores(combined_scores, threshold, exact_match_found=exact_match_found)
         if avg_belief_scores is None:
             return [], False
@@ -526,7 +527,7 @@ def pass_to_chat_llm_chain(query, top_candidates, n_prompts =1, threshold=0.8, l
     except Exception as e:
         logger.info(f"Error in pass_to_chat_llm_chain: {e}")
         return ["na"], False
-    
+
 
 def get_json_output(input_text:str):
         llm=LLMManager.get_instance("gpt3.5")
@@ -538,9 +539,9 @@ def get_json_output(input_text:str):
                     Json Output:
                     """,
                 input_variables=["input_text"]
-            )        
+            )
         chain = prompt | llm  | JsonOutputParser()
         results = chain.invoke({"input_text":input_text})
         # logger.info(f"json results={results}")
         return results
-    
+

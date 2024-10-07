@@ -16,7 +16,7 @@ from simstring.searcher import Searcher
 from .py_model import *
 import csv
 
-        
+
 STOP_WORDS = ['stop','start','combinations','combination','various combinations','various','left','right','blood','finding','finding status',
               'status','extra','point in time','pnt','oral','product','oral product','several','types','several types','random','nominal',
               'p time','quant','qual','quantitative','qualitative','ql','qn','quan','anti','antibodies','wb','whole blood','serum','plasma','diseases',
@@ -41,11 +41,11 @@ def save_docs_to_jsonl(array:Iterable[Document], file_path:str)->None:
 
 def convert_to_document(data):
     try:
-        
+
         page_content = data.get('kwargs', {}).get('page_content', {})
         print(f"page_content={page_content}")
         metadata = data.get('kwargs', {}).get('metadata', {})
-        
+
         # Create the Document object
         document = Document(
             page_content=page_content,
@@ -56,8 +56,8 @@ def convert_to_document(data):
     except Exception as e:
         print(f"Error loading document: {e}")
         return None
-    
-    
+
+
 def load_custom_docs_from_jsonl(file_path) -> list:
     docs = []
     with open(file_path, 'r') as jsonl_file:
@@ -69,7 +69,7 @@ def load_custom_docs_from_jsonl(file_path) -> list:
                 print(f"document object translated into Dictionary format")
                 obj=convert_to_document(data)
             docs.append(obj)
-    
+
     print(f"Total Custom Documents: {len(docs)}")
     return docs
 
@@ -90,7 +90,7 @@ def load_docs_from_jsonl(file_path) -> list:
             # print(f"data={obj}")
             if 'vocab' in obj.metadata:
                 vocab = obj.metadata['vocab'].lower()
-               
+
                 if vocab in ['atc','loinc',  'ucum', 'rxnorm', 'omop extension', 'mesh','meddra','cancer modifier','snomed','rxnorm extension']:
                     key = (obj.page_content, json.dumps(obj.metadata, sort_keys=True))
                     if key not in docs_dict:
@@ -103,7 +103,7 @@ def load_docs_from_jsonl(file_path) -> list:
                     count += 1
 
     # Convert dictionary values to a sorted list to process documents in a specific order
-    
+
     sorted_docs = sorted(docs_dict.values(), key=lambda doc: doc.metadata['vocab'].lower()) if 'vocab' in docs_dict.values() else sorted(docs_dict.values(), key=lambda doc: doc.metadata['label'].lower())
     print(f"Total Unique Documents: {len(sorted_docs)}\n")
     return sorted_docs
@@ -112,14 +112,14 @@ def save_json_data(file_path,data):
     with open(file_path, 'w') as file:
         json.dump(data, file, indent=4)
     print(f"Data saved to {file_path}")
-    
+
 def init_logger(log_file_path=LOG_FILE) -> logging.Logger:
     # Create a logger
     logger = logging.getLogger(__name__)
     logger.setLevel(logging.DEBUG)  # Set the logging level to DEBUG
     # Create a file handler
-    file_handler = logging.FileHandler(log_file_path)
-    file_handler.setLevel(logging.DEBUG)  # Set the logging level for the file handler
+    # file_handler = logging.FileHandler(log_file_path)
+    # file_handler.setLevel(logging.DEBUG)  # Set the logging level for the file handler
 
     # Create a stream handler (to print to console)
     stream_handler = logging.StreamHandler()
@@ -127,17 +127,17 @@ def init_logger(log_file_path=LOG_FILE) -> logging.Logger:
 
     # Define the format for log messages
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    file_handler.setFormatter(formatter)
+    # file_handler.setFormatter(formatter)
     stream_handler.setFormatter(formatter)
 
     # Add the handlers to the logger
-    logger.addHandler(file_handler)
+    # logger.addHandler(file_handler)
     logger.addHandler(stream_handler)
 
     return logger
 
 global_logger = init_logger()
-    
+
 def save_txt_file(file_path, data) -> None:
     with open(file_path, 'a') as file:
         for item in data:
@@ -148,7 +148,7 @@ def save_documents(filepath: str, docs) -> None:
         """Save the BM25 documents to a file."""
         with open(filepath, "wb") as f:
             pickle.dump(docs, f)
-            
+
 
 
 def load_documents(filepath: str) -> List[Document]:
@@ -177,17 +177,17 @@ def select_vocabulary(query_text=None, config_path=MAPPING_FILE, domain=None):
     global VOCAB_CACHE
     # Normalize the domain name to lower case or set to 'unknown' if not provided
     domain = domain.lower() if domain else 'all'
-    
+
     # Check if the vocabulary for the domain is alRETRIEVER_CACHEready loaded
     if domain in VOCAB_CACHE:
         selected_vocab = VOCAB_CACHE[domain]
     else:
         # Load the configuration file if the domain's vocabulary isn't cached
         vocabulary_rules = load_vocabulary(config_path)
-        
+
         # Get domain-specific vocabulary or default to 'unknown' if not found
         selected_vocab = vocabulary_rules['domains'].get(domain, vocabulary_rules['domains']['unknown'])
-        
+
         # Cache the selected vocabulary
         VOCAB_CACHE[domain] = selected_vocab
 
@@ -201,10 +201,10 @@ def post_process_candidates(candidates: List[Document], max=1):
     if not candidates or len(candidates) == 0:
         print("No candidates found.")
         return []
-    
-    
+
+
     for _, doc in enumerate(candidates[:max]):
-       
+
         current_doc_dict = {
             'standard_label': doc.metadata['label'],
             'domain': f"{doc.metadata['domain']}",
@@ -216,7 +216,7 @@ def post_process_candidates(candidates: List[Document], max=1):
         doc_obj=RetrieverResultsModel(**current_doc_dict)
         if doc_obj not in processed_candidates:
             processed_candidates.append(doc_obj)
-       
+
     return processed_candidates
 
 
@@ -251,7 +251,7 @@ def save_to_csv(data, filename):
             'Unit Concept Code': row.get('Unit Concept Code', ''),
             'Unit OMOP ID': row.get('Unit OMOP ID', ''),
         }
-        
+
         # Combine fields
         # label_ids = '|'.join(filter(None, [row.get('standard_concept_id'), row.get('additional_context_omop_ids')]))
         # label_codes = '|'.join(filter(None, [row.get('standard_code'), row.get('additional_context_codes')]))
@@ -265,7 +265,7 @@ def save_to_csv(data, filename):
         for row in data:
             combined_row = map_and_combine_fields(row)
             dict_writer.writerow(combined_row)
-        
+
 def load_mapping(filename, domain):
     print(f"domain={domain}")
     try:
@@ -275,7 +275,7 @@ def load_mapping(filename, domain):
         domain = domain if domain else 'all'
         # print(f"domain={domain}")
         mapping = data['mapping_rules'].get(domain, {})
-        
+
         # Get examples or default to empty list if not present
         relevance_examples = data.get('rel_relevance_examples', {}).get(domain, [])
         ranking_examples = data.get('ranking_examples', {}).get(domain, [])
@@ -322,8 +322,8 @@ def parse_term(extracted_terms, domain):
         if domain == 'condition':
             if 'procedure' in extracted_terms:
                 procedure = extracted_terms['procedure']
-                
-                
+
+
 def save_result_to_jsonl(array:Iterable[dict], file_path:str)->None:
     print(f"Saving to file: {file_path}")
     with open(file_path, 'w') as jsonl_file:
@@ -336,7 +336,7 @@ def save_result_to_jsonl(array:Iterable[dict], file_path:str)->None:
 
 
 def exact_match_found(query_text, documents, domain=None):
-    # print(f"documents={documents}") 
+    # print(f"documents={documents}")
     if not query_text or not documents:
         # print("NO DOCUMENTS FOUND FOR QUERY={query_text}")
         return []
@@ -345,7 +345,7 @@ def exact_match_found(query_text, documents, domain=None):
             if doc.metadata['score'] >= 0.95:
                 # print(f"EXACT MATCH FOUND FOR QUERY using Score={query_text}")
                 return [doc]
-        
+
     # Create a database and populate it
     db = DictDatabase(CharacterNgramFeatureExtractor(2))
     for doc in documents:
@@ -403,12 +403,12 @@ def create_document_string(doc):
 def fix_json_quotes(json_like_string):
     try:
         # Trying to convert it directly
-        return repair_json(json_like_string, return_objects=True)       
+        return repair_json(json_like_string, return_objects=True)
     except json.JSONDecodeError as e:
             print(f"Failed to parse JSON after trying to fix quotes, error: {str(e)}")
             return None
-        
-    
+
+
     """
 source code from : "https://github.com/facebookresearch/contriever/blob/main/src/normalize_text.py"
 
@@ -562,7 +562,7 @@ def normalize_page_content(page_content):
     if page_content is None:
         return page_content
     page_content = page_content.strip().lower()
-    
+
     if '<ent>' in page_content:
         page_content = page_content.split('<ent>')[1].split('</ent>')[0]
         if '||' in page_content:
@@ -608,14 +608,14 @@ def combine_if_different(list_1, list_2, separator="|") -> str:
     """
     joined_1 = join_or_single(list_1)
     joined_2 = join_or_single(list_2)
-    
+
     if joined_1 != joined_2:
         # Combine them with a separator if they are different
         return f"{joined_1}{separator}{joined_2}" if joined_1 and joined_2 else joined_1 or joined_2
     else:
         # If they are the same, return one of them
         return joined_1
-    
+
 def join_or_single(items, seperator='|') -> str:
     if items is None:
         return ''
@@ -663,7 +663,7 @@ def create_processed_result(result_object:ProcessedResultsModel) -> dict:
         combined_labels=combine_if_different(main_term_labels, additional_entities_labels, separator="|")
         combined_codes=combine_if_different(main_term_codes, additional_entities_codes, separator="|")
         combined_omop_ids=combine_if_different(main_term_omop_id, additional_entities_omop_ids, separator="|")
-    
+
     else:
         combined_labels = join_or_single(main_term_labels)
         combined_codes = join_or_single(main_term_codes)
@@ -716,9 +716,9 @@ def format_categorical_values(values_matches_documents: Dict[str, List[Retriever
     codes = []
     ids = []
     # print(f"values: {status}\nDocs: {status_docs}")
-    if values_matches_documents is None or len(values_matches_documents) == 0:  
+    if values_matches_documents is None or len(values_matches_documents) == 0:
         return None, None, None
-    
+
     # Normalize the keys of status_docs to lower case for case-insensitive matching
     normalized_status_docs = {k.lower(): v for k, v in values_matches_documents.items()}
     for v_ in values_list:
@@ -737,7 +737,7 @@ def format_categorical_values(values_matches_documents: Dict[str, List[Retriever
             labels.append('na')
             codes.append('na')
             ids.append('na')
-    
+
     return '|'.join(labels), '|'.join(codes) , '|'.join(ids)
 
 
@@ -762,7 +762,7 @@ def parse_tokens(text: str, semantic_type: bool = False, domain: str = None) -> 
     entity = None
     synonyms = []
     semantic_type_of_entity = None
-    
+
     # Check if the text follows the new format
     if 'concept name:' in text_ and 'synonyms:' in text_ and 'domain:' in text_ and 'concept class:' in text_ and 'vocabulary:' in text_:
         parts = text_.split(', ')
@@ -793,7 +793,7 @@ def parse_tokens(text: str, semantic_type: bool = False, domain: str = None) -> 
             synonyms = []
 
     return entity, synonyms, None
-    
+
 def combine_ent_synonyms(text: str,semantic_type = False,domain=None) -> str:
         """Extract entity and synonyms from the formatted text, if present."""
         text_ = text.strip().lower()
@@ -802,7 +802,7 @@ def combine_ent_synonyms(text: str,semantic_type = False,domain=None) -> str:
             global_logger.info(f"Description: {description}")
             text = text_.split('<desc>')[0]
         return text_
-    
+
 
 def print_docs(docs):
     for res, i in zip(docs, range(len(docs))):
@@ -815,31 +815,31 @@ def filter_irrelevant_domain_candidates(docs, domain) -> List[RetrieverResultsMo
 
     docs_ =  [doc for doc in docs if doc.metadata['vocab'] in select_vocabs]
     if len(docs_) == 0:
-        #use snomed as base ontology 
+        #use snomed as base ontology
         select_vocabs.append('snomed')
         docs_ =  [doc for doc in docs if doc.metadata['vocab'] in select_vocabs]
     return docs_
 
 def pretty_print_docs(docs) -> None:
     for doc in docs:
-        print(f"****{doc.metadata['label']}****")  
+        print(f"****{doc.metadata['label']}****")
 
 
 # def estimate_token_cost(text,filename):
 #     # Get the encoder for the GPT-4 model
 #     enc = tiktoken.encoding_for_model("gpt-4")
-    
+
 #     # Encode the text and count the tokens
 #     n_tokens = len(enc.encode(text))
-    
+
 #     # Save the token count to a text file
 #     with open(filename, 'w') as f:
 #         f.write(f"Token count: {n_tokens}")
-    
+
 #     print(f"Token count saved to {filename}")
-    
-    
-    
+
+
+
 def append_results_to_csv(input_file, results, output_suffix='_mapped.csv') -> None:
     """
     Reads the input CSV file, uses the number of rows according to `results` length, appends new columns,
@@ -853,18 +853,18 @@ def append_results_to_csv(input_file, results, output_suffix='_mapped.csv') -> N
         A list of dictionaries containing processed data. Each dictionary corresponds to a row.
     output_suffix : str, optional
         The suffix to append to the output CSV file name. Default is '_mapped.csv'.
-    
+
     Returns:
     --------
     None
     """
     # Step 1: Load the input CSV file
     df = pd.read_csv(input_file)
-    
+
     # Step 2: Use only the number of rows that match the length of `results`
     if len(df) != len(results):
         df = df.iloc[:len(results)]
-    
+
     # Step 3: Extract data from `results` to create new columns
     new_columns_data = {
         'Variable Concept Label': [result.get('Variable Concept Label', None) for result in results],
@@ -881,17 +881,17 @@ def append_results_to_csv(input_file, results, output_suffix='_mapped.csv') -> N
         'Unit Concept Label': [result.get('Unit Concept Label', None) for result in results],
         'Unit Concept Code': [result.get('Unit Concept Code', None) for result in results],
         'Unit OMOP ID': [result.get('Unit OMOP ID', None) for result in results]
-        
+
         }
-    
+
     # Step 4: Append the new columns to the dataframe
     for column_name, column_data in new_columns_data.items():
         df[column_name] = column_data
-    
+
     # Step 5: Save the updated dataframe to a new CSV file
     file_name, _ = os.path.splitext(input_file)
     output_file = f"{file_name}{output_suffix}"
     df.to_csv(output_file, index=False)
-    
+
     print(f"File saved: {output_file}")
     return df

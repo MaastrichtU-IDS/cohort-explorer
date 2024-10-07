@@ -1,34 +1,39 @@
-from .vector_index import update_merger_retriever
 import time
-from .utils import global_logger as logger
+
+from langchain_qdrant import FastEmbedSparse
 from .llm_chain import *
 from .py_model import *
+from .data_loader import load_data
+from .utils import append_results_to_csv, global_logger as logger
+from .bi_encoder import SAPEmbeddings
+from .vector_index import generate_vector_index, set_compression_retriever, set_merger_retriever, initiate_api_retriever, update_merger_retriever
+from .param import *
 
-def retriever_docs(query,  retriever, domain='all',is_omop_data=False):
-    if is_omop_data: retriever= update_merger_retriever(retriever,domain)
+def retriever_docs(query,  retriever, domain='all', is_omop_data=False, topk: int = 10):
+    if is_omop_data: retriever= update_merger_retriever(retriever, domain, topk)
     try:
         results =  retriever.invoke(query)
-        unique_results = filter_results(query,results)[:10]
+        unique_results = filter_results(query,results)[:topk]
         # logger.info(f"Unique Results:\n {[res.metadata['label'] for res in unique_results]}")
         return unique_results
     except Exception as e:
         logger.error(f"Error retrieving docs: {e}")
         return None
 
-def map_data(data, retriever, custom_data=False, output_file=None, 
+def map_data(data, retriever, custom_data=False, output_file=None,
              llm_name='llama', topk=10,do_eval=False,is_omop_data=True):
 
     global RETRIEVER_CACHE
     start_time = time.time()
     max_queries = len(data)   #282
     results = []
-    index = 0 
+    index = 0
     for _, item in enumerate(data[:10]):
         query_obj = item[1]
-        query_result =  full_query_processing(query_text=query_obj,retriever=retriever, 
+        query_result =  full_query_processing(query_text=query_obj,retriever=retriever,
                                               llm_name=llm_name, is_omop_data=is_omop_data,topk=topk)
         if query_result:
-            results.append(query_result) 
+            results.append(query_result)
         else: logger.info(f"NO RESULT FOR {item}")
         index +=  1
         if (index + 1) % 15 == 0:
@@ -40,7 +45,7 @@ def map_data(data, retriever, custom_data=False, output_file=None,
     logger.info(f"Total execution time for {max_queries} queries is {total_time} seconds.")
     return results
 
-def full_query_processing(query_text:QueryDecomposedModel,retriever:Any, llm_name:str,topk:int,
+def full_query_processing(query_text: QueryDecomposedModel,retriever:Any, llm_name:str,topk:int,
                           is_omop_data=True):
     try:
         logger.info(f"Processing query: {query_text}")
@@ -56,19 +61,20 @@ def full_query_processing(query_text:QueryDecomposedModel,retriever:Any, llm_nam
         #     processes_results = temp_process_query_details(query_decomposed, retriever, llm_name, topk, query_text)
         # else:
         if query_text is None:
-            return None 
+            return None
         query_decomposed = extract_information(query_text.full_query, llm_name)
         logger.info(f"Query decomposed:{query_decomposed}")
         processes_results =  temp_process_query_details(
             llm_query_obj=query_decomposed,retriever_cache=retriever, llm_name=llm_name,topk=topk,
-                                                       original_query_obj=query_text, 
+                                                       original_query_obj=query_text,
                                                        is_omop_data=is_omop_data)
         # logger.info("Mapping result:", processes_results)
         return processes_results
     except Exception as e:
         logger.error(f"Error full processing query: {e}",exc_info=True)
         return None
-def temp_process_query_details(llm_query_obj:QueryDecomposedModel, retriever_cache:Any, 
+
+def temp_process_query_details(llm_query_obj: QueryDecomposedModel, retriever_cache:Any,
                                llm_name:str, topk:int, original_query_obj:QueryDecomposedModel,is_omop_data=False):
     try:
         if llm_query_obj:
@@ -81,7 +87,7 @@ def temp_process_query_details(llm_query_obj:QueryDecomposedModel, retriever_cac
             base_entity = original_query_obj.base_entity
             domain = original_query_obj.domain
             variable_label_matches, found_match=  process_retrieved_docs(base_entity,  retriever_docs(original_query_obj.base_entity, retriever_cache, domain='all',is_omop_data=is_omop_data, topk=topk),llm_name,'all', belief_threshold=0.9)
- 
+
             if found_match and len(variable_label_matches) > 0:
                 # logger.info(f"matches={pretty_print_docs(variable_label_matches)}\n,match found={found_match}")
                 main_term = base_entity  # Assign base_entity to main_term if a match is found
@@ -90,9 +96,9 @@ def temp_process_query_details(llm_query_obj:QueryDecomposedModel, retriever_cac
                 # Step 5: Process the main_term only if the base_entity match was not found
                 main_term = llm_query_obj.base_entity if llm_query_obj else base_entity
                 variable_label_matches, _ = process_retrieved_docs(
-                    main_term, 
-                    retriever_docs(main_term, retriever_cache, domain=llm_query_obj.domain,is_omop_data=is_omop_data, topk=topk), 
-                    llm_name, 
+                    main_term,
+                    retriever_docs(main_term, retriever_cache, domain=llm_query_obj.domain,is_omop_data=is_omop_data, topk=topk),
+                    llm_name,
                     llm_query_obj.domain
                 )
             additional_entities = llm_query_obj.additional_entities
@@ -125,7 +131,7 @@ def temp_process_query_details(llm_query_obj:QueryDecomposedModel, retriever_cac
                 primary_to_secondary_rel=rel,
                 additional_entities_matches=additional_entities_matches if additional_entities_matches else {}
             ))
-            
+
             return mapping_result
     except Exception as e:
         logger.error(f"Error full processing query: {e}", exc_info=True)
@@ -159,14 +165,14 @@ def process_retrieved_docs(query, docs, llm_name=None, domain = None, belief_thr
 #                 return post_process_candidates(matched_docs, max=1)
 #             llm_results,_ =  pass_to_chat_llm_chain(context, docs,llm_name=llm,domain=domain)
 #             return post_process_candidates(llm_results, max=2)
-#     return []     
+#     return []
 
 def process_values(values,retriever,llm, domain=None, values_type='additional',is_omop_data=False, topk=10):
     if isinstance(values, str):
         values = [values]
     logger.info(f"processing values={values}")
     all_values = {}
-    if not values:  
+    if not values:
         return all_values
     for q_value in values:
             q_value = str(q_value).strip().lower()
@@ -199,7 +205,7 @@ def process_unit(unit,retriever, llm:Any,domain:str,is_omop_data:bool=False, top
            else:
                 unit_results = [RetrieverResultsModel(standard_label='na', standard_code=None, standard_omop_id=None, vocab=None)]
 
-    return unit_results 
+    return unit_results
 
 
 def save_results(results, file_path):
@@ -208,8 +214,8 @@ def save_results(results, file_path):
         save_to_csv(results, file_path)
     # else:
     #     logger.info("No results to save.")
-        
-  
+
+
 
 def filter_results(query, results):
     # pretty_print_docs(results)
@@ -217,7 +223,7 @@ def filter_results(query, results):
     non_prioritized = []
     seen_metadata = []  # Use a list to track seen metadata and preserve order
     query = query.strip().lower()  # Normalize the query for comparison
-    
+
     # First pass: collect prioritized and non-prioritized results
     for res in results:
         label = res.metadata['label'].strip().lower()  # Normalize the label for comparison
@@ -237,3 +243,26 @@ def filter_results(query, results):
     # print(f"unique docs")
     # pretty_print_docs(combined_results)
     return combined_results
+
+
+def map_csv_to_standard_codes(meta_path: str):
+    """Map the data dictionary to standard codes using the LLM and save the results to a CSV file"""
+    data , is_mapped = load_data(meta_path, load_custom=True)
+    if is_mapped:
+        return data
+    embeddings = SAPEmbeddings()
+    sparse_embeddings = FastEmbedSparse(model_name="Qdrant/bm42-all-minilm-l6-v2-attentions")
+    hybrid_search = generate_vector_index(embeddings, sparse_embeddings, docs_file='',mode='inference',
+                                            collection_name=SYN_COLLECTION_NAME, topk=10)
+    # compressed_hybrid_retriever =  set_compression_retriever(hybrid_search)
+    athena_api_retriever = initiate_api_retriever()
+    merger_retriever= set_merger_retriever(retrievers=[hybrid_search,athena_api_retriever])
+    merger_retriever = set_compression_retriever(merger_retriever)
+    data= map_data(
+        data,merger_retriever,custom_data=True,output_file=LOOK_UP_FILE,
+        llm_name=LLM_ID,topk=TOPK,do_eval=False, is_omop_data=True
+    )
+    print("DATA MAPPED", data)
+    mapped_csv= append_results_to_csv(meta_path, data)
+    mapped_csv.to_csv(meta_path, index=False)
+    return mapped_csv
