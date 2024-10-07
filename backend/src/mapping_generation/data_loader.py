@@ -83,6 +83,7 @@ def custom_data_loader(source_path):
             if not label:
                 print(f"Row {index} has an empty 'VARIABLE LABEL'. Skipping.")
                 continue
+            name = str(row.get("VARIABLE NAME", "")).lower().strip()
 
             # Handle 'CATEGORICAL' field
             categorical_raw = row.get("CATEGORICAL", None)
@@ -98,7 +99,10 @@ def custom_data_loader(source_path):
             # Handle 'Formula' field
             formula_raw = row.get("Formula", None)
             formula = str(formula_raw).lower().strip() if pd.notna(formula_raw) else None
-
+            visits = str(visits).lower().strip() if pd.notna(visits) else None
+            if 'visit' not in visits:
+                visits = f"visit {visits}"
+            visits = f"at {visits}"
             # Construct the 'full_query' string
             full_query = label
             if categories:
@@ -110,6 +114,7 @@ def custom_data_loader(source_path):
 
             # Create a dictionary for the QueryDecomposedModel
             query_dict = {
+                "name": name,
                 "full_query": full_query,
                 "base_entity": label,
                 "categories": categories,
