@@ -100,6 +100,10 @@
 
           },
           {
+            "input":"ECG at entry ST+ lead v1",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"ST amplitude.lead V1 | Heart | EKG measurements\",\"additional_entities\":[\"ECG finding\",\"baseline time\"]}"
+          },
+          {
             "input":"creatinine",
             "output":"{\"domain\":\"measurement\", \"base_entity\":\"Creatinine [Mass/volume] in Blood\"}"
           },
