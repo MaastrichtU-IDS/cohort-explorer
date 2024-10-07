@@ -4,6 +4,7 @@ import shutil
 from datetime import datetime
 from re import sub
 from typing import Any
+
 import pandas as pd
 import requests
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -14,9 +15,8 @@ from SPARQLWrapper import SPARQLWrapper
 from src.auth import get_current_user
 from src.config import settings
 from src.decentriq import create_provision_dcr
-from src.utils import ICARE, converter, init_graph, retrieve_cohorts_metadata, run_query
 from src.mapping_generation.retriever import map_csv_to_standard_codes
-
+from src.utils import ICARE, converter, init_graph, retrieve_cohorts_metadata, run_query
 
 router = APIRouter()
 
@@ -211,7 +211,6 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
                     detail=f"Missing column `{column}`",
                 )
         df["categories"] = df["CATEGORICAL"].apply(parse_categorical_string)
-
 
         # TODO: handle columns from Komal that maps variables:
         if "Label Concept Code" in df.columns:

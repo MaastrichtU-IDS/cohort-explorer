@@ -1,9 +1,11 @@
 .DS_Store
 .venv/
+venv/
 out/
 data/
 .env
 docs/
+uv.lock
 
 __pycache__
 

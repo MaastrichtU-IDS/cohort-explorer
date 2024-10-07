@@ -1,19 +1,21 @@
+import os
+from threading import Lock
 
-
-from langchain_huggingface import HuggingFaceEndpoint
+from dotenv import load_dotenv
 from langchain_groq import ChatGroq
+from langchain_huggingface import HuggingFaceEndpoint
 from langchain_openai import ChatOpenAI
 from langchain_together import ChatTogether
-import os
+
 from .utils import global_logger as logger
-from threading import Lock
-from dotenv import load_dotenv
+
 
 class LLMManager:
     _instances = {}
     _lock = Lock()
+
     @staticmethod
-    def get_instance(model='llama', hugging_face=False):
+    def get_instance(model="llama", hugging_face=False):
         try:
             # Create a unique key for each configuration
             key = f"{model}{'_hf' if hugging_face else ''}"
@@ -28,7 +30,7 @@ class LLMManager:
             return None
 
     @staticmethod
-    def _load_llm(model='llama3', hugging_face=False):
+    def _load_llm(model="llama3", hugging_face=False):
         load_dotenv()
         # open_ai_key = os.getenv("OPENAI_API_KEY")
         my_openai_key = os.getenv("CT_MAPPER_OPENAI_API_KEY")
@@ -38,85 +40,87 @@ class LLMManager:
         togather_api = os.getenv("TOGATHER_API_KEY")
         hf_key = os.getenv("HF_API_KEY")
         # mixtral_api = os.getenv("MIXTRAL_API_KEY")
-        if hugging_face and 'gpt' not in model:
-            if model == 'llama':
+        if hugging_face and "gpt" not in model:
+            if model == "llama":
                 active_model = HuggingFaceEndpoint(
-                        endpoint_url="https://baid4h7mdw0v6bco.us-east-1.aws.endpoints.huggingface.cloud",
-                        max_new_tokens=15000,
-                        top_k=10,
-                        top_p=0.95,
-                        typical_p=0.95,
-                        temperature=0,
-                        repetition_penalty=1.03,
-                        huggingfacehub_api_token=hf_key
-                    )
-            if model == 'llama_medical':
+                    endpoint_url="https://baid4h7mdw0v6bco.us-east-1.aws.endpoints.huggingface.cloud",
+                    max_new_tokens=15000,
+                    top_k=10,
+                    top_p=0.95,
+                    typical_p=0.95,
+                    temperature=0,
+                    repetition_penalty=1.03,
+                    huggingfacehub_api_token=hf_key,
+                )
+            if model == "llama_medical":
                 active_model = HuggingFaceEndpoint(
-                        endpoint_url="https://baid4h7mdw0v6bco.us-east-1.aws.endpoints.huggingface.cloud",
-                        max_new_tokens=15000,
-                        top_k=10,
-                        top_p=0.95,
-                        typical_p=0.95,
-                        temperature=0,
-                        repetition_penalty=1.03,
-                        huggingfacehub_api_token=hf_key
-                    )
+                    endpoint_url="https://baid4h7mdw0v6bco.us-east-1.aws.endpoints.huggingface.cloud",
+                    max_new_tokens=15000,
+                    top_k=10,
+                    top_p=0.95,
+                    typical_p=0.95,
+                    temperature=0,
+                    repetition_penalty=1.03,
+                    huggingfacehub_api_token=hf_key,
+                )
         else:
-            if model == 'llama3':
-                active_model = ChatGroq(temperature=0,groq_api_key=groq_api, model="llama3-8b-8192",max_retries=3)
+            if model == "llama3":
+                active_model = ChatGroq(temperature=0, groq_api_key=groq_api, model="llama3-8b-8192", max_retries=3)
 
                 # active_model = ChatOllama(
                 #     base_url="http://ollama:11434",  # Ollama server endpoint
                 #     model="llama:3.1:8b",
                 #     temperature=0,
                 # )
-            elif model == 'llama3.1':
-                active_model = ChatTogether(temperature=0,together_api_key=togather_api, model="meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo",max_retries=3, verbose=True)
+            elif model == "llama3.1":
+                active_model = ChatTogether(
+                    temperature=0,
+                    together_api_key=togather_api,
+                    model="meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo",
+                    max_retries=3,
+                    verbose=True,
+                )
                 # active_model = ChatOllama(
                 #     base_url="http://ollama:11434",  # Ollama server endpoint
                 #     model="llama3.2",
                 #     temperature=0,
                 # )
-            elif model == 'gpt4':
+            elif model == "gpt4":
                 active_model = ChatOpenAI(
                     model="gpt-4-turbo",
                     temperature=0,
                     timeout=None,
                     openai_api_key=my_openai_key,
-                    organization=my_org_id
+                    organization=my_org_id,
                 )
-            elif model == 'gpt-4o':
+            elif model == "gpt-4o":
                 active_model = ChatOpenAI(
-                    model="gpt-4o",
-                    temperature=0,
-                    timeout=None,
-                    openai_api_key=my_openai_key,
-                    organization=my_org_id
+                    model="gpt-4o", temperature=0, timeout=None, openai_api_key=my_openai_key, organization=my_org_id
                 )
-            elif model == 'gpt-4o-mini':
+            elif model == "gpt-4o-mini":
                 active_model = ChatOpenAI(
                     model="gpt-4o-mini",
                     temperature=0,
                     timeout=None,
                     openai_api_key=my_openai_key,
-                    organization=my_org_id
+                    organization=my_org_id,
                 )
-            elif model == 'gpt3.5':
+            elif model == "gpt3.5":
                 active_model = ChatOpenAI(
                     model="gpt-3.5-turbo-0125",
                     temperature=0,
                     timeout=None,
                     max_retries=2,
                     openai_api_key=my_openai_key,
-                    organization=my_org_id
+                    organization=my_org_id,
                 )
-            elif model == 'gemma':
-                active_model = ChatGroq(temperature=0,groq_api_key=groq_api, model="gemma-7b-it",max_retries=3)
-            elif model == 'mixtral':
-                active_model = ChatGroq(temperature=0,groq_api_key=groq_api, model="mixtral-8x7b-32768",max_retries=3)
+            elif model == "gemma":
+                active_model = ChatGroq(temperature=0, groq_api_key=groq_api, model="gemma-7b-it", max_retries=3)
+            elif model == "mixtral":
+                active_model = ChatGroq(temperature=0, groq_api_key=groq_api, model="mixtral-8x7b-32768", max_retries=3)
                 # active_model = ChatMistralAI(mistral_api_key=mixtral_api,model="open-mixtral-8x7b",temperature=0)
-            elif model == 'phi3':
-                active_model = load_local_llm_instance(model_name='phi3')
+            elif model == "phi3":
+                active_model = load_local_llm_instance(model_name="phi3")
 
         return active_model
 
@@ -125,8 +129,8 @@ def load_local_llm_instance(model_name="phi3"):
     from langchain_community.llms.ollama import Ollama
 
     local_path = (
-    "/workspace/rag_pipeline/models/Phi-3-mini-4k-instruct-onnx"  # replace with your desired local file path
-)
+        "/workspace/rag_pipeline/models/Phi-3-mini-4k-instruct-onnx"  # replace with your desired local file path
+    )
     llm = Ollama(
         model=model_name
     )  # assuming you have Ollama installed and have llama3 model pulled with `ollama pull llama3 `
@@ -134,15 +138,15 @@ def load_local_llm_instance(model_name="phi3"):
 
 
 import threading
-from langchain_community.vectorstores.faiss import FAISS
-from langchain_core.example_selectors import (
-        SemanticSimilarityExampleSelector,
-    )
-from typing import List, Dict, Optional, Any
-import os
+from typing import Any, Dict, List, Optional
+
+from langchain_community.embeddings import FastEmbedEmbeddings
 from langchain_community.vectorstores.faiss import FAISS
 from langchain_core.embeddings import Embeddings
-from langchain_community.embeddings import FastEmbedEmbeddings
+from langchain_core.example_selectors import (
+    SemanticSimilarityExampleSelector,
+)
+
 
 class CustomSemanticSimilarityExampleSelector(SemanticSimilarityExampleSelector):
     """Custom Selector to check for existing vector store before creating a new one."""
@@ -160,13 +164,13 @@ class CustomSemanticSimilarityExampleSelector(SemanticSimilarityExampleSelector)
         vectorstore_kwargs: Optional[Dict] = None,
         selector_path: Optional[str] = None,
         content_key: Optional[str] = None,
-        **vectorstore_cls_kwargs: Any,) -> 'CustomSemanticSimilarityExampleSelector':
-
+        **vectorstore_cls_kwargs: Any,
+    ) -> "CustomSemanticSimilarityExampleSelector":
         if selector_path is None:
-                selector_path = f'backend/data/faiss_index_{content_key}'
+            selector_path = f"backend/data/faiss_index_{content_key}"
 
         if os.path.exists(selector_path):
-                        # Load the existing FAISS index
+            # Load the existing FAISS index
             vectorstore = vectorstore_cls.load_local(selector_path, embeddings, allow_dangerous_deserialization=True)
         else:
             string_examples = [cls._example_to_text(eg, input_keys) for eg in examples]
@@ -181,13 +185,15 @@ class CustomSemanticSimilarityExampleSelector(SemanticSimilarityExampleSelector)
             vectorstore_kwargs=vectorstore_kwargs,
         )
 
+
 class ExampleSelectorManager:
     _lock = threading.Lock()
     _selectors = {}
 
-
     @staticmethod
-    def get_example_selector(context_key: str, examples: List[Dict[str, str]], k=4, score_threshold=0.6, selector_path=None):
+    def get_example_selector(
+        context_key: str, examples: List[Dict[str, str]], k=4, score_threshold=0.6, selector_path=None
+    ):
         """
         Retrieves or creates a singleton example selector based on a context key.
 
@@ -206,25 +212,24 @@ class ExampleSelectorManager:
             if context_key not in ExampleSelectorManager._selectors:
                 try:
                     if selector_path is None:
-                        selector_path = f'/workspace/mapping_tool/data/faiss_index_{context_key}'
+                        selector_path = f"/workspace/mapping_tool/data/faiss_index_{context_key}"
 
                     # Initialize the embeddings
-                    embedding = FastEmbedEmbeddings(model_name='BAAI/bge-small-en-v1.5')
+                    embedding = FastEmbedEmbeddings(model_name="BAAI/bge-small-en-v1.5")
                     embedding._model = embedding.model_dump().get("_model")
                     # Initialize the selector using the vector store
                     selector = CustomSemanticSimilarityExampleSelector.from_examples(
-                            examples=examples,
-                            embeddings=embedding,
-                            vectorstore_cls=FAISS,
-                            k=k,
-                            vectorstore_kwargs={"fetch_k": 40, "lambda_mult": 0.5},
-                            input_keys=['input']  # Assuming 'input' is the key in your examples dict
+                        examples=examples,
+                        embeddings=embedding,
+                        vectorstore_cls=FAISS,
+                        k=k,
+                        vectorstore_kwargs={"fetch_k": 40, "lambda_mult": 0.5},
+                        input_keys=["input"],  # Assuming 'input' is the key in your examples dict
                     )
                     ExampleSelectorManager._selectors[context_key] = selector
-                    logger.info(f"Example selector initialized for context: {context_key}." )
+                    logger.info(f"Example selector initialized for context: {context_key}.")
 
                 except Exception as e:
                     logger.error(f"Error initializing example selector for {context_key}: {e}", exc_info=True)
                     raise
             return ExampleSelectorManager._selectors[context_key]
-

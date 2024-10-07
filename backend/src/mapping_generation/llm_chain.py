@@ -1,31 +1,42 @@
-from langchain_core.prompts import ChatPromptTemplate, PromptTemplate, FewShotChatMessagePromptTemplate,SystemMessagePromptTemplate,HumanMessagePromptTemplate
-from .utils import *
-from .utils import global_logger as logger
-from pydantic.v1 import ValidationError
-from langchain_core.output_parsers import JsonOutputParser
-from langchain.output_parsers import OutputFixingParser
-from typing import List, Dict
-import numpy as np
-from scipy.stats import skew
-from langchain.globals import set_llm_cache
 from collections import defaultdict
+from typing import Dict, List
+
+import numpy as np
+from langchain.globals import set_llm_cache
+from langchain.output_parsers import OutputFixingParser
 from langchain_community.cache import InMemoryCache
+from langchain_core.output_parsers import JsonOutputParser
+from langchain_core.prompts import (
+    ChatPromptTemplate,
+    FewShotChatMessagePromptTemplate,
+    HumanMessagePromptTemplate,
+    PromptTemplate,
+    SystemMessagePromptTemplate,
+)
+from pydantic.v1 import ValidationError
+from scipy.stats import skew
+
+from .manager_llm import *
 from .param import MAPPING_FILE
 from .py_model import *
-from .manager_llm import *
+from .utils import *
+from .utils import global_logger as logger
 
 set_llm_cache(InMemoryCache())
-parsing_llm = LLMManager.get_instance('llama3.1')
+parsing_llm = LLMManager.get_instance("llama3.1")
 parser = JsonOutputParser()
-fixing_parser = OutputFixingParser.from_llm(parser = parser, llm = parsing_llm, max_retries=3)
-def get_relevant_examples(query: str, content_key:str, examples: List[Dict[str, str]],topk=3,min_score=0.5) -> List[Dict]:
+fixing_parser = OutputFixingParser.from_llm(parser=parser, llm=parsing_llm, max_retries=3)
 
+
+def get_relevant_examples(
+    query: str, content_key: str, examples: List[Dict[str, str]], topk=3, min_score=0.5
+) -> List[Dict]:
     try:
         # Obtain the singleton example selector
         if examples is None or len(examples) == 0:
             logger.info("No examples found")
             return []
-        selector =  ExampleSelectorManager.get_example_selector(content_key,examples,k=topk,score_threshold=min_score)
+        selector = ExampleSelectorManager.get_example_selector(content_key, examples, k=topk, score_threshold=min_score)
 
         selected_examples = selector.select_examples({"input": f"{query}"})
 
@@ -34,10 +45,311 @@ def get_relevant_examples(query: str, content_key:str, examples: List[Dict[str, 
         logger.info(f"Error in get_relevant_examples: {e} for query:{query} and content_key:{content_key}")
         return []
 
+
 def extract_ir(base_entity, associated_entities, active_model):
     if base_entity is None or associated_entities is None or len(associated_entities) == 0:
         return None
-    relations = ['Is attribute of','Has specimen procedure', 'Has specimen source identity', 'Has specimen source morphology', 'Has specimen source topography', 'Has specimen substance', 'Has due to', 'Has subject relationship context', 'Has dose form', 'Occurs after', 'Has associated procedure', 'Has direct procedure site', 'Has indirect procedure site', 'Has procedure device', 'Has procedure morphology', 'Has finding context', 'Has procedure context', 'Has temporal context', 'Associated with finding', 'Has surgical approach', 'Using device', 'Using energy', 'Using substance', 'Using access device', 'Has clinical course', 'Has route of administration', 'Using finding method', 'Using finding informer', 'Has off-label drug indication', 'Has drug contra-indication', 'Precise ingredient of', 'Tradename of', 'Dose form of', 'Form of', 'Ingredient of', 'Consists of', 'Is contained in', 'Reformulated in', 'Recipient category of', 'Procedure site of', 'Priority of', 'Pathological process of', 'Part of', 'Severity of', 'Revision status of', 'Access of', 'Occurrence of', 'Laterality of', 'Interprets of', 'Indirect morphology of', 'Is a', 'Indirect device of', 'Specimen of', 'Interpretation of', 'Intent of', 'Focus of', 'Definitional manifestation of', 'Active ingredient of', 'Finding site of', 'Episodicity of', 'Direct substance of', 'Direct morphology of', 'Direct device of', 'Causative agent of', 'Associated morphology of', 'Associated finding of', 'Measurement method of', 'Specimen procedure of', 'Specimen source identity of', 'Specimen source morphology of', 'Specimen source topography of', 'Specimen substance of', 'Due to of', 'Subject relationship context of', 'Dose form of', 'Occurs before', 'Associated procedure of', 'Direct procedure site of', 'Indirect procedure site of', 'Procedure device of', 'Procedure morphology of', 'Finding context of', 'Procedure context of', 'Temporal context of', 'Finding associated with', 'Surgical approach of', 'Device used by', 'Energy used by', 'Substance used by', 'Access device used by', 'Has clinical course of', 'Route of administration of', 'Finding method of', 'Finding informer of', 'Is off-label indication of', 'Is contra-indication of', 'Has ingredient', 'Ingredient of', 'Module of', 'Has Extent', 'Extent of', 'Has Approach', 'Has therapeutic class', 'Therapeutic class of', 'Drug-drug interaction for', 'Is involved in drug-drug interaction', 'Has pharmaceutical preparation', 'Pharmaceutical preparation contained in', 'Approach of', 'Has quantified form', 'Has dispensed dose form', 'Dispensed dose form of', 'Has specific active ingredient', 'Specific active ingredient of', 'Has basis of strength substance', 'Basis of strength substance of', 'Has Virtual Medicinal Product', 'Virtual Medicinal Product of', 'Has Answer', 'Answer of', 'Has Actual Medicinal Product', 'Actual Medicinal Product of', 'Is pack of', 'Has pack', 'Has trade family group', 'Trade family group of', 'Has excipient', 'Excipient of', 'Follows', 'Followed by', 'Has discontinued indicator', 'Discontinued indicator of', 'Has legal category', 'Legal category of', 'Dose form group of', 'Has dose form group', 'Has precondition', 'Precondition of', 'Has inherent location', 'Inherent location of', 'Has technique', 'Technique of', 'Has relative part', 'Relative part of', 'Has process output', 'Process output of', 'Inheres in', 'Has inherent', 'Has direct site', 'Direct site of', 'Characterizes', 'Has property type', 'Property type of', 'Panel contains', 'Contained in panel', 'Is characterized by', 'Has Module', 'Topic of', 'Has Topic', 'Has presentation strength numerator unit', 'Presentation strength numerator unit of', 'During', 'Has complication', 'Has basic dose form', 'Basic dose form of', 'Has disposition', 'Disposition of', 'Has dose form administration method', 'Dose form administration method of', 'Has dose form intended site', 'Dose form intended site of', 'Has dose form release characteristic', 'Dose form release characteristic of', 'Has dose form transformation', 'Dose form transformation of', 'Has state of matter', 'State of matter of', 'Temporally related to', 'Has temporal finding', 'Has Morphology', 'Morphology of', 'Has Measured Component', 'Measured Component of', 'Caused by', 'Causes', 'Has Etiology', 'Etiology of', 'Has Stage', 'Stage of', 'Quantified form of', 'Is a', 'Inverse is a', 'Has precise ingredient', 'Has tradename', 'Has dose form', 'Has form', 'Has ingredient', 'Constitutes', 'Contains', 'Reformulation of', 'Subsumes', 'Has recipient category', 'Has procedure site', 'Has priority', 'Has pathological process', 'Has part of', 'Has severity', 'Has revision status', 'Has access', 'Has occurrence', 'Has laterality', 'Has interprets', 'Has indirect morphology', 'Has indirect device', 'Has specimen', 'Has interpretation', 'Has intent', 'Has focus', 'Has definitional manifestation', 'Has active ingredient', 'Has finding site', 'Has episodicity', 'Has direct substance', 'Has direct morphology', 'Has direct device', 'Has causative agent', 'Has associated morphology', 'Has associated finding', 'Has measurement method', 'Has precise active ingredient', 'Precise active ingredient of', 'Has scale type', 'Has property', 'Concentration strength numerator unit of', 'Is modification of', 'Has modification of', 'Has unit', 'Unit of', 'Has method', 'Method of', 'Has time aspect', 'Time aspect of', 'Has component', 'Has end date', 'End date of', 'Has start date', 'Start date of', 'Has system', 'System of', 'Process duration', 'Process duration of', 'Has precoordinated (Question-Answer/Variable-Value) pair', 'Precoordinated (Question-Answer/Variable-Value) pair of', 'Has Category', 'Category of', 'Has biosimilar', 'Biosimilar of', 'Relative to', 'Relative to of', 'Count of active ingredients', 'Is count of active ingredients in', 'Has product characteristic', 'Product characteristic of', 'Has surface characteristic', 'Surface characteristic of', 'Has device intended site', 'Device intended site of', 'Has compositional material', 'Compositional material of', 'Has filling', 'Filling material of', 'Reference to variant', 'Variant refer to concept', 'Genomic DNA transcribes to mRNA', 'mRNA Translates to protein', 'mRNA is transcribed from genomic DNA', 'Protein is translated from mRNA', 'Has coating material', 'Coating material of', 'Has absorbability', 'Absorbability of', 'Process extends to', 'Process extends from', 'Has ingredient qualitative strength', 'Ingredient qualitative strength of', 'Has surface texture', 'Surface texture of', 'Is sterile', 'Is sterile of', 'Has target population', 'Target population of', 'Has status', 'Status of', 'Process acts on', 'Affected by process', 'Before', 'After', 'Towards', 'Subject of']
+    relations = [
+        "Is attribute of",
+        "Has specimen procedure",
+        "Has specimen source identity",
+        "Has specimen source morphology",
+        "Has specimen source topography",
+        "Has specimen substance",
+        "Has due to",
+        "Has subject relationship context",
+        "Has dose form",
+        "Occurs after",
+        "Has associated procedure",
+        "Has direct procedure site",
+        "Has indirect procedure site",
+        "Has procedure device",
+        "Has procedure morphology",
+        "Has finding context",
+        "Has procedure context",
+        "Has temporal context",
+        "Associated with finding",
+        "Has surgical approach",
+        "Using device",
+        "Using energy",
+        "Using substance",
+        "Using access device",
+        "Has clinical course",
+        "Has route of administration",
+        "Using finding method",
+        "Using finding informer",
+        "Has off-label drug indication",
+        "Has drug contra-indication",
+        "Precise ingredient of",
+        "Tradename of",
+        "Dose form of",
+        "Form of",
+        "Ingredient of",
+        "Consists of",
+        "Is contained in",
+        "Reformulated in",
+        "Recipient category of",
+        "Procedure site of",
+        "Priority of",
+        "Pathological process of",
+        "Part of",
+        "Severity of",
+        "Revision status of",
+        "Access of",
+        "Occurrence of",
+        "Laterality of",
+        "Interprets of",
+        "Indirect morphology of",
+        "Is a",
+        "Indirect device of",
+        "Specimen of",
+        "Interpretation of",
+        "Intent of",
+        "Focus of",
+        "Definitional manifestation of",
+        "Active ingredient of",
+        "Finding site of",
+        "Episodicity of",
+        "Direct substance of",
+        "Direct morphology of",
+        "Direct device of",
+        "Causative agent of",
+        "Associated morphology of",
+        "Associated finding of",
+        "Measurement method of",
+        "Specimen procedure of",
+        "Specimen source identity of",
+        "Specimen source morphology of",
+        "Specimen source topography of",
+        "Specimen substance of",
+        "Due to of",
+        "Subject relationship context of",
+        "Dose form of",
+        "Occurs before",
+        "Associated procedure of",
+        "Direct procedure site of",
+        "Indirect procedure site of",
+        "Procedure device of",
+        "Procedure morphology of",
+        "Finding context of",
+        "Procedure context of",
+        "Temporal context of",
+        "Finding associated with",
+        "Surgical approach of",
+        "Device used by",
+        "Energy used by",
+        "Substance used by",
+        "Access device used by",
+        "Has clinical course of",
+        "Route of administration of",
+        "Finding method of",
+        "Finding informer of",
+        "Is off-label indication of",
+        "Is contra-indication of",
+        "Has ingredient",
+        "Ingredient of",
+        "Module of",
+        "Has Extent",
+        "Extent of",
+        "Has Approach",
+        "Has therapeutic class",
+        "Therapeutic class of",
+        "Drug-drug interaction for",
+        "Is involved in drug-drug interaction",
+        "Has pharmaceutical preparation",
+        "Pharmaceutical preparation contained in",
+        "Approach of",
+        "Has quantified form",
+        "Has dispensed dose form",
+        "Dispensed dose form of",
+        "Has specific active ingredient",
+        "Specific active ingredient of",
+        "Has basis of strength substance",
+        "Basis of strength substance of",
+        "Has Virtual Medicinal Product",
+        "Virtual Medicinal Product of",
+        "Has Answer",
+        "Answer of",
+        "Has Actual Medicinal Product",
+        "Actual Medicinal Product of",
+        "Is pack of",
+        "Has pack",
+        "Has trade family group",
+        "Trade family group of",
+        "Has excipient",
+        "Excipient of",
+        "Follows",
+        "Followed by",
+        "Has discontinued indicator",
+        "Discontinued indicator of",
+        "Has legal category",
+        "Legal category of",
+        "Dose form group of",
+        "Has dose form group",
+        "Has precondition",
+        "Precondition of",
+        "Has inherent location",
+        "Inherent location of",
+        "Has technique",
+        "Technique of",
+        "Has relative part",
+        "Relative part of",
+        "Has process output",
+        "Process output of",
+        "Inheres in",
+        "Has inherent",
+        "Has direct site",
+        "Direct site of",
+        "Characterizes",
+        "Has property type",
+        "Property type of",
+        "Panel contains",
+        "Contained in panel",
+        "Is characterized by",
+        "Has Module",
+        "Topic of",
+        "Has Topic",
+        "Has presentation strength numerator unit",
+        "Presentation strength numerator unit of",
+        "During",
+        "Has complication",
+        "Has basic dose form",
+        "Basic dose form of",
+        "Has disposition",
+        "Disposition of",
+        "Has dose form administration method",
+        "Dose form administration method of",
+        "Has dose form intended site",
+        "Dose form intended site of",
+        "Has dose form release characteristic",
+        "Dose form release characteristic of",
+        "Has dose form transformation",
+        "Dose form transformation of",
+        "Has state of matter",
+        "State of matter of",
+        "Temporally related to",
+        "Has temporal finding",
+        "Has Morphology",
+        "Morphology of",
+        "Has Measured Component",
+        "Measured Component of",
+        "Caused by",
+        "Causes",
+        "Has Etiology",
+        "Etiology of",
+        "Has Stage",
+        "Stage of",
+        "Quantified form of",
+        "Is a",
+        "Inverse is a",
+        "Has precise ingredient",
+        "Has tradename",
+        "Has dose form",
+        "Has form",
+        "Has ingredient",
+        "Constitutes",
+        "Contains",
+        "Reformulation of",
+        "Subsumes",
+        "Has recipient category",
+        "Has procedure site",
+        "Has priority",
+        "Has pathological process",
+        "Has part of",
+        "Has severity",
+        "Has revision status",
+        "Has access",
+        "Has occurrence",
+        "Has laterality",
+        "Has interprets",
+        "Has indirect morphology",
+        "Has indirect device",
+        "Has specimen",
+        "Has interpretation",
+        "Has intent",
+        "Has focus",
+        "Has definitional manifestation",
+        "Has active ingredient",
+        "Has finding site",
+        "Has episodicity",
+        "Has direct substance",
+        "Has direct morphology",
+        "Has direct device",
+        "Has causative agent",
+        "Has associated morphology",
+        "Has associated finding",
+        "Has measurement method",
+        "Has precise active ingredient",
+        "Precise active ingredient of",
+        "Has scale type",
+        "Has property",
+        "Concentration strength numerator unit of",
+        "Is modification of",
+        "Has modification of",
+        "Has unit",
+        "Unit of",
+        "Has method",
+        "Method of",
+        "Has time aspect",
+        "Time aspect of",
+        "Has component",
+        "Has end date",
+        "End date of",
+        "Has start date",
+        "Start date of",
+        "Has system",
+        "System of",
+        "Process duration",
+        "Process duration of",
+        "Has precoordinated (Question-Answer/Variable-Value) pair",
+        "Precoordinated (Question-Answer/Variable-Value) pair of",
+        "Has Category",
+        "Category of",
+        "Has biosimilar",
+        "Biosimilar of",
+        "Relative to",
+        "Relative to of",
+        "Count of active ingredients",
+        "Is count of active ingredients in",
+        "Has product characteristic",
+        "Product characteristic of",
+        "Has surface characteristic",
+        "Surface characteristic of",
+        "Has device intended site",
+        "Device intended site of",
+        "Has compositional material",
+        "Compositional material of",
+        "Has filling",
+        "Filling material of",
+        "Reference to variant",
+        "Variant refer to concept",
+        "Genomic DNA transcribes to mRNA",
+        "mRNA Translates to protein",
+        "mRNA is transcribed from genomic DNA",
+        "Protein is translated from mRNA",
+        "Has coating material",
+        "Coating material of",
+        "Has absorbability",
+        "Absorbability of",
+        "Process extends to",
+        "Process extends from",
+        "Has ingredient qualitative strength",
+        "Ingredient qualitative strength of",
+        "Has surface texture",
+        "Surface texture of",
+        "Is sterile",
+        "Is sterile of",
+        "Has target population",
+        "Target population of",
+        "Has status",
+        "Status of",
+        "Process acts on",
+        "Affected by process",
+        "Before",
+        "After",
+        "Towards",
+        "Subject of",
+    ]
 
     # Refined prompt with examples
     base_prompt = base_prompt = f"""
@@ -69,37 +381,39 @@ def extract_ir(base_entity, associated_entities, active_model):
     system = "You are a helpful assistant with expertise in the biomedical domain."
     final_prompt = ChatPromptTemplate.from_messages([("system", system), ("human", base_prompt)])
     chain = final_prompt | active_model
-    result = chain.invoke({"base_entity": base_entity, "associated_entities": associated_entities, "relations": relations}).content
+    result = chain.invoke(
+        {"base_entity": base_entity, "associated_entities": associated_entities, "relations": relations}
+    ).content
     print(f"extract_ir result={result.strip()}")
     return result.strip().lower()
 
+
 # chat_history = []
-from langchain_core.messages import HumanMessage
+
+
 def extract_information(query, model_name=LLM_ID, prompt=None):
     if query:
         # global chat_history
         try:
             active_model = LLMManager.get_instance(model=model_name)
-            mapping_for_domain, _,_ = load_mapping(MAPPING_FILE, 'all')
+            mapping_for_domain, _, _ = load_mapping(MAPPING_FILE, "all")
             if mapping_for_domain is None:
                 logger.error("Failed to load mapping for domain")
                 return None
-            examples = mapping_for_domain['examples']
-            select_examples = get_relevant_examples(query,'extract_information', examples, topk=2, min_score=0.6)
+            examples = mapping_for_domain["examples"]
+            select_examples = get_relevant_examples(query, "extract_information", examples, topk=2, min_score=0.6)
             if select_examples is None:
                 logger.error("No relevant examples found")
                 select_examples = []
             few_shot_prompt = FewShotChatMessagePromptTemplate(
-                examples= select_examples,
-                example_prompt=ChatPromptTemplate.from_messages(
-                [("human", "{input}"), ("ai", "{output}")]
-                ),
-                input_variables=["input"]
+                examples=select_examples,
+                example_prompt=ChatPromptTemplate.from_messages([("human", "{input}"), ("ai", "{output}")]),
+                input_variables=["input"],
             )
             if prompt:
                 base_prompt = prompt
             else:
-                base_prompt="""Role: You are a helpful assistant with expertise in data science and the biomedical domain.
+                base_prompt = """Role: You are a helpful assistant with expertise in data science and the biomedical domain.
                 ***Task Description:
                     - Extract information from the provided medical query to link it to OHDSI OMOP controlled vocabularies.
                 ** Perform the following actions in order to identify relevant information:
@@ -122,14 +436,12 @@ def extract_information(query, model_name=LLM_ID, prompt=None):
                     Output:
                         """
             final_prompt = (
-                    SystemMessagePromptTemplate.from_template(
-                        base_prompt
-                    )
-                    +few_shot_prompt
-                    +HumanMessagePromptTemplate.from_template("{input}")
-                )
+                SystemMessagePromptTemplate.from_template(base_prompt)
+                + few_shot_prompt
+                + HumanMessagePromptTemplate.from_template("{input}")
+            )
             chain = final_prompt | active_model
-            result =  chain.invoke({"input": query})
+            result = chain.invoke({"input": query})
             # print(f"initial extract.llm result={result}")
             if not isinstance(result, dict):
                 try:
@@ -137,10 +449,14 @@ def extract_information(query, model_name=LLM_ID, prompt=None):
                     if result is None:
                         return None
                     # chat_history.extend([HumanMessage(content=f"query:{query}, output:{result}")])
-                    result=sanitize_keys(result)
-                    rel=extract_ir(result.get('base_entity',None), result.get('additional_entities',[]), active_model=active_model)
-                    result['rel'] = rel
-                    result['full_query'] = query
+                    result = sanitize_keys(result)
+                    rel = extract_ir(
+                        result.get("base_entity", None),
+                        result.get("additional_entities", []),
+                        active_model=active_model,
+                    )
+                    result["rel"] = rel
+                    result["full_query"] = query
                     print(f"extract_information result={result}")
                     return QueryDecomposedModel(**result)
 
@@ -148,11 +464,13 @@ def extract_information(query, model_name=LLM_ID, prompt=None):
                     logger.info(f"Validation Error: {e}")
                     result = None
             else:
-                result=sanitize_keys(result)
+                result = sanitize_keys(result)
                 # chat_history.extend([HumanMessage(content=f"query:{query}, output:{result}")])
-                rel = extract_ir(result.get('base_entity',None), result.get('additional_entities',[]), active_model=active_model)
-                result['rel'] = rel
-                result['full_query'] = query
+                rel = extract_ir(
+                    result.get("base_entity", None), result.get("additional_entities", []), active_model=active_model
+                )
+                result["rel"] = rel
+                result["full_query"] = query
                 print(f"extract_information result={result}")
                 return QueryDecomposedModel(**result)
         except Exception as e:
@@ -161,10 +479,11 @@ def extract_information(query, model_name=LLM_ID, prompt=None):
     else:
         return None
 
+
 def generate_information_triples(query, active_model):
     try:
-            print(f"generate_information_triples for query={query}")
-            human_template=f"""Task Description:
+        print(f"generate_information_triples for query={query}")
+        human_template = f"""Task Description:
                 - Given the querym, transform it into RDF triples.
                 - Each triple should consist of the following components: 'subject', 'predicate', and 'object'. The 'subject' should be the main entity, the 'predicate' should be the relationship, and the 'object' should be the associated entity.
             ** Perform the following actions in order to generate RDF triples:
@@ -176,30 +495,34 @@ def generate_information_triples(query, active_model):
             ** Desired Format: Only Return the output in List of dictionaries format with the following fields: 'subject', 'predicate', and 'object'. Don't add any preamble or explanations.
             Input: {input}
             """
-            system = "You are a helpful assistant with expertise in semantic web and biomedical domain."
-            prompt = ChatPromptTemplate.from_messages([("system", system), ("human", human_template)], template_format='mustache')
-            chain = prompt | active_model
-            chain_results =  chain.invoke({"input": query}).content
-            print(f"triple_results={chain_results}")
-            save_triples_to_txt(query, chain_results, "/workspace/mapping_tool/data/output/gissi_llama_triples.txt")
+        system = "You are a helpful assistant with expertise in semantic web and biomedical domain."
+        prompt = ChatPromptTemplate.from_messages(
+            [("system", system), ("human", human_template)], template_format="mustache"
+        )
+        chain = prompt | active_model
+        chain_results = chain.invoke({"input": query}).content
+        print(f"triple_results={chain_results}")
+        save_triples_to_txt(query, chain_results, "/workspace/mapping_tool/data/output/gissi_llama_triples.txt")
     except Exception as e:
         logger.info(f"Error loading LLM: {e}")
 
+
 def save_triples_to_txt(query, triples, output_file):
-    #check if file exists
+    # check if file exists
     if not os.path.exists(output_file):
-        #create file
-        with open(output_file, 'w') as f:
+        # create file
+        with open(output_file, "w") as f:
             f.write("query\tsubject\tpredicate\tobject\n")
-    with open(output_file, 'a') as f:
+    with open(output_file, "a") as f:
         for triple in triples:
             f.write(f"{query}\t{triple['subject']}\t{triple['predicate']}\t{triple['object']}\n")
 
-def generate_link_prediction_prompt(query,documents, domain=None, in_context=True):
+
+def generate_link_prediction_prompt(query, documents, domain=None, in_context=True):
     if in_context:
-        _,_,link_prediction_examples = load_mapping(MAPPING_FILE, 'all')
-        examples = get_relevant_examples(query,'link_prediction',link_prediction_examples, topk=2, min_score=0.6)
-        human_template= """
+        _, _, link_prediction_examples = load_mapping(MAPPING_FILE, "all")
+        examples = get_relevant_examples(query, "link_prediction", link_prediction_examples, topk=2, min_score=0.6)
+        human_template = """
         Task: Determine the relationship between a given medical query and candidate terms from standard medical terminologies aka. vocabularies (SNOMED, LOINC, MeSH, UCUM, ATC, RxNorm, OMOP Extension etc). You must determine relationship of each candidate term with given medical query in clinical/medical context.
         **Instructions:
             Medical Query: {query}
@@ -222,18 +545,11 @@ def generate_link_prediction_prompt(query,documents, domain=None, in_context=Tru
         """
         system = "You are a helpful assistant with expertise in clinical/medical domain and designed to respond in JSON"
         example_prompt = ChatPromptTemplate.from_messages(
-            [
-            ("system", system), ("human", human_template)
-            ], template_format='mustache'
+            [("system", system), ("human", human_template)], template_format="mustache"
         )
-        few_shot_prompt = FewShotChatMessagePromptTemplate(
-            example_prompt=example_prompt,
-            examples=examples
-        )
+        few_shot_prompt = FewShotChatMessagePromptTemplate(example_prompt=example_prompt, examples=examples)
         final_prompt = (
-            SystemMessagePromptTemplate.from_template(
-                system
-            )
+            SystemMessagePromptTemplate.from_template(system)
             + few_shot_prompt
             + HumanMessagePromptTemplate.from_template(human_template)
         )
@@ -247,13 +563,16 @@ def generate_link_prediction_prompt(query,documents, domain=None, in_context=Tru
         Ensure your response adheres to a valid JSON schema. Begin your response with the word '[' and include no extra comments or information.
             """
         system = "You are a helpful assistant expert in medical domain and designed to output JSON"
-        return ChatPromptTemplate.from_messages([("system", system), ("human", human_template)], template_format='mustache')
+        return ChatPromptTemplate.from_messages(
+            [("system", system), ("human", human_template)], template_format="mustache"
+        )
 
-def generate_ranking_prompt(query,documents,domain=None,in_context=True):
+
+def generate_ranking_prompt(query, documents, domain=None, in_context=True):
     if in_context:
-        _, ranking_examples,_ = load_mapping(MAPPING_FILE, domain=domain)
+        _, ranking_examples, _ = load_mapping(MAPPING_FILE, domain=domain)
         print(f"{len(ranking_examples)}:ranking examples loaded")
-        examples = get_relevant_examples(query,'ranking',ranking_examples,topk=1, min_score=0.6)
+        examples = get_relevant_examples(query, "ranking", ranking_examples, topk=1, min_score=0.6)
         # logger.info(f"selected_examples for Ranking Prediction={examples}")
         human_template = """Objective: Rank candidate terms from the Standard Medical Terminologies/vocabularies(SNOMED, LOINC, MeSH, ATC, UCUM, RxNorm, OMOP Extension) based on their relevance and closeness in meaning to a given medical query.
             **Instructions: For each given candidate term, please evaluate its relevance and closeness in meaning in medical/clinical context to the given query on a scale from 0 to 10 where,
@@ -272,27 +591,23 @@ def generate_ranking_prompt(query,documents,domain=None,in_context=True):
             """
         system = "You are a helpful assistant expert in medical domain and designed to output JSON"
         example_prompt = ChatPromptTemplate.from_messages(
-        [
-           ("system", system), ("human", human_template)
-        ], template_format='mustache'
-    )
-        few_shot_prompt = FewShotChatMessagePromptTemplate(
-        example_prompt=example_prompt,
-        examples=examples
-        # partial_variables={"format_instructions":format_instructions},
-    )
-        final_prompt = (
-        SystemMessagePromptTemplate.from_template(
-            system
+            [("system", system), ("human", human_template)], template_format="mustache"
         )
-        + few_shot_prompt
-        + HumanMessagePromptTemplate.from_template(human_template)
-    )
+        few_shot_prompt = FewShotChatMessagePromptTemplate(
+            example_prompt=example_prompt,
+            examples=examples,
+            # partial_variables={"format_instructions":format_instructions},
+        )
+        final_prompt = (
+            SystemMessagePromptTemplate.from_template(system)
+            + few_shot_prompt
+            + HumanMessagePromptTemplate.from_template(human_template)
+        )
 
         # logger.info(f"final_prompt={final_prompt}")
         return final_prompt
     else:
-         human_template = """Objective: Rank candidate terms from the Standard Medical Terminologies/vocabularies based on their relevance  and closeness in meaning to a given medical query.
+        human_template = """Objective: Rank candidate terms from the Standard Medical Terminologies/vocabularies based on their relevance  and closeness in meaning to a given medical query.
             Instructions: For each given candidate term, please evaluate its relevance and closeness in contextual meaning to the given query on a scale from 0 to 10 where,
                 -10 indicates that system answer is an accurate and an exact match(synonym) to the input.
                 -0: The term is completely irrelevant to the query.
@@ -305,11 +620,13 @@ def generate_ranking_prompt(query,documents,domain=None,in_context=True):
             Candidate Terms: {documents}
             Ranked answers:
             """
-         system = "You are a helpful assistant"
+        system = "You are a helpful assistant"
 
-         template_ = ChatPromptTemplate.from_messages([("system", system), ("human", human_template)], template_format='mustache')
+        template_ = ChatPromptTemplate.from_messages(
+            [("system", system), ("human", human_template)], template_format="mustache"
+        )
         #  print(f"template={template_.format_messages()}")
-         return template_
+        return template_
 
 
 def adjust_percentile(scores, base_percentile=75):
@@ -321,6 +638,7 @@ def adjust_percentile(scores, base_percentile=75):
     else:
         adjusted_percentile = base_percentile
     return np.percentile(scores, adjusted_percentile)
+
 
 def calculate_dynamic_threshold(scores, base_threshold, exact_match_found):
     if not scores:
@@ -339,20 +657,21 @@ def calculate_dynamic_threshold(scores, base_threshold, exact_match_found):
     belief_threshold = adjust_percentile(normalized_scores)
     return max(belief_threshold, base_threshold / max_score)  # Adjust base_threshold similarly
 
+
 def calculate_belief_scores(ranking_scores, base_threshold, exact_match_found):
     belief_scores = defaultdict(list)
-    logger.info(f"Ranking Scores")
-    scores = [int(res.get('score', 0)) for res in ranking_scores]
+    logger.info("Ranking Scores")
+    scores = [int(res.get("score", 0)) for res in ranking_scores]
     # logger.info(f"Ranking Score={ranking_scores}")
     if not scores:
         return None
     max_score = max(scores)
     if max_score == 0:
-        print(f"all zeros")
+        print("all zeros")
         return None  # All scores are zero, indicating no suitable matches, return None
     for res in ranking_scores:
-        score = int(res.get('score', 0))
-        answer = res['answer']
+        score = int(res.get("score", 0))
+        answer = res["answer"]
         belief_scores[answer].append(score)
 
     # Calculate average score for each document and determine belief score
@@ -365,10 +684,13 @@ def calculate_belief_scores(ranking_scores, base_threshold, exact_match_found):
     # logger.info(f"Belief Scores={final_belief_scores}")
     return final_belief_scores
 
+
 import time
-def get_llm_results(prompt, query, documents, max_retries=2, llm=None, llm_name='llama'):
+
+
+def get_llm_results(prompt, query, documents, max_retries=2, llm=None, llm_name="llama"):
     # print(f"get_llm_results for Query={query}")
-    #divide documents into 2 chunks
+    # divide documents into 2 chunks
     if len(documents) > 10:
         midpoint = len(documents) // 2
     else:
@@ -385,7 +707,7 @@ def get_llm_results(prompt, query, documents, max_retries=2, llm=None, llm_name=
                 # start_times = time.time()n
 
                 # config={'callbacks': [ConsoleCallbackHandler()]}) for verbose
-                results =  chain.invoke({"query": query, "documents": documents})
+                results = chain.invoke({"query": query, "documents": documents})
                 results = results.content
                 # print(f"Time taken for llm chain: {time.time() - start_times}")
                 if isinstance(results, list) and all(isinstance(item, dict) for item in results):
@@ -394,7 +716,6 @@ def get_llm_results(prompt, query, documents, max_retries=2, llm=None, llm_name=
 
                 # Attempt to parse results as JSON if it's a string
                 if isinstance(results, str):
-
                     fixed_results = fix_json_quotes(results)
                     if isinstance(fixed_results, list) and all(isinstance(item, dict) for item in fixed_results):
                         return fixed_results
@@ -431,6 +752,7 @@ def get_llm_results(prompt, query, documents, max_retries=2, llm=None, llm_name=
                 if attempt > max_retries:
                     logger.info("Max retries reached without a valid response, returning None")
                     return None
+
     results_first_half = process_half(first_half, "first_half")
     results_second_half = process_half(second_half, "second_half") if len(second_half) > 0 else None
     if results_first_half is None and results_second_half is None:
@@ -448,13 +770,16 @@ def get_llm_results(prompt, query, documents, max_retries=2, llm=None, llm_name=
     # logger.info(f"Combined Results: {combined_results}")
     return combined_results
 
-def pass_to_chat_llm_chain(query, top_candidates, n_prompts =1, threshold=0.8, llm_name='llama', domain=None, prompt_stage:int=2):
+
+def pass_to_chat_llm_chain(
+    query, top_candidates, n_prompts=1, threshold=0.8, llm_name="llama", domain=None, prompt_stage: int = 2
+):
     relationship_scores = {
-        'synonym': 10,
-        'exact match': 10,
-        'highly relevant': 8,
-        'partially relevant': 6,
-        'not relevant': 0
+        "synonym": 10,
+        "exact match": 10,
+        "highly relevant": 8,
+        "partially relevant": 6,
+        "not relevant": 0,
     }
     # def calculate_final_score(doc,ranking_scores):
     #     try:
@@ -484,31 +809,44 @@ def pass_to_chat_llm_chain(query, top_candidates, n_prompts =1, threshold=0.8, l
         exact_match_found = False
 
         for _ in range(n_prompts):  # Assume n_prompts is 3
-            ranking_prompt = generate_ranking_prompt(query=query, documents=documents,domain=domain,in_context=True)
-            ranking_results =  get_llm_results(prompt=ranking_prompt, query=query, documents=documents, llm=model,llm_name=llm_name)
+            ranking_prompt = generate_ranking_prompt(query=query, documents=documents, domain=domain, in_context=True)
+            ranking_results = get_llm_results(
+                prompt=ranking_prompt, query=query, documents=documents, llm=model, llm_name=llm_name
+            )
             if ranking_results:
                 ranking_scores.extend(ranking_results)
                 for result in ranking_results:
-                    if isinstance(result, dict) and int(result.get('score', 0)) == 10:
-                        exact_match_found =  True if result['answer'] in documents else False
-                        logger.info(f"Exact match found in Ranking: {result['answer']} = {exact_match_found}. Does it exist in original documents={result['answer'] in documents}")
+                    if isinstance(result, dict) and int(result.get("score", 0)) == 10:
+                        exact_match_found = True if result["answer"] in documents else False
+                        logger.info(
+                            f"Exact match found in Ranking: {result['answer']} = {exact_match_found}. Does it exist in original documents={result['answer'] in documents}"
+                        )
             link_predictions_results = []
             if prompt_stage == 2:
-                link_prediction_prompt = generate_link_prediction_prompt(query, documents,domain=domain,in_context=True)
-                lp_results =  get_llm_results(prompt=link_prediction_prompt, query=query, documents=documents, llm=model,llm_name=llm_name)
+                link_prediction_prompt = generate_link_prediction_prompt(
+                    query, documents, domain=domain, in_context=True
+                )
+                lp_results = get_llm_results(
+                    prompt=link_prediction_prompt, query=query, documents=documents, llm=model, llm_name=llm_name
+                )
                 if lp_results:
                     for res in lp_results:
                         if isinstance(res, dict):
-                            res['score'] = relationship_scores.get(res.get('relationship','').strip().lower(), 0)
+                            res["score"] = relationship_scores.get(res.get("relationship", "").strip().lower(), 0)
                     link_predictions_results.extend(lp_results)
                     for res in lp_results:
-                        if isinstance(res, dict) and (res['relationship'] == 'exact match' or res['relationship'] == 'synonym'):
+                        if isinstance(res, dict) and (
+                            res["relationship"] == "exact match" or res["relationship"] == "synonym"
+                        ):
                             exact_match_found = True
                             # if res['answer'] not in documents:
-                            logger.info(f"Exact match found in Link Prediction: {res['answer']} = {exact_match_found}. Does it exist in original documents={res['answer'] in documents}")
+                            logger.info(
+                                f"Exact match found in Link Prediction: {res['answer']} = {exact_match_found}. Does it exist in original documents={res['answer'] in documents}"
+                            )
                     # print(f"{lp_results}")
         combined_scores = ranking_scores + link_predictions_results
-        if isinstance(combined_scores, str): print(f"combined_scores={combined_scores}")
+        if isinstance(combined_scores, str):
+            print(f"combined_scores={combined_scores}")
         avg_belief_scores = calculate_belief_scores(combined_scores, threshold, exact_match_found=exact_match_found)
         if avg_belief_scores is None:
             return [], False
@@ -517,10 +855,14 @@ def pass_to_chat_llm_chain(query, top_candidates, n_prompts =1, threshold=0.8, l
         logger.info(f"belief_threshold={threshold}")
         for doc in top_candidates:
             doc_string = create_document_string(doc)
-            doc.metadata['belief_score'] = sorted_belief_scores.get(doc_string, 0)
-        filtered_candidates = [doc for doc in top_candidates if sorted_belief_scores.get(create_document_string(doc), 0) >= threshold]
-        logger.info(f"filtered candidates")
-        sorted_filtered_candidates = sorted(filtered_candidates, key=lambda doc: doc.metadata['belief_score'], reverse=True)
+            doc.metadata["belief_score"] = sorted_belief_scores.get(doc_string, 0)
+        filtered_candidates = [
+            doc for doc in top_candidates if sorted_belief_scores.get(create_document_string(doc), 0) >= threshold
+        ]
+        logger.info("filtered candidates")
+        sorted_filtered_candidates = sorted(
+            filtered_candidates, key=lambda doc: doc.metadata["belief_score"], reverse=True
+        )
         print(f"filtered_candidates={[doc.metadata['label'] for doc in sorted_filtered_candidates]}")
         return sorted_filtered_candidates, exact_match_found
 
@@ -529,19 +871,18 @@ def pass_to_chat_llm_chain(query, top_candidates, n_prompts =1, threshold=0.8, l
         return ["na"], False
 
 
-def get_json_output(input_text:str):
-        llm=LLMManager.get_instance("gpt3.5")
-        prompt = PromptTemplate(
-                template=f"""
+def get_json_output(input_text: str):
+    llm = LLMManager.get_instance("gpt3.5")
+    prompt = PromptTemplate(
+        template=f"""
                     Convert the given input into a valid JSON format. The input provided is:
                     {input_text}
                     You should return a list of dictionaries where each dictionary includes 'answer' and 'score' keys.
                     Json Output:
                     """,
-                input_variables=["input_text"]
-            )
-        chain = prompt | llm  | JsonOutputParser()
-        results = chain.invoke({"input_text":input_text})
-        # logger.info(f"json results={results}")
-        return results
-
+        input_variables=["input_text"],
+    )
+    chain = prompt | llm | JsonOutputParser()
+    results = chain.invoke({"input_text": input_text})
+    # logger.info(f"json results={results}")
+    return results
