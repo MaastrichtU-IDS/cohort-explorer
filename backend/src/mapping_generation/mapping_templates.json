@@ -99,10 +99,14 @@
             "output":"{\"domain\":\"measurement\", \"base_entity\":\"Cholesterol [Mass/volume] in Serum or Plasma\"}"
 
           },
-          {
-            "input":"ECG at entry ST+ lead v1",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"ST amplitude.lead V1 | Heart | EKG measurements\",\"additional_entities\":[\"ECG finding\",\"baseline time\"]}"
-          },
+        {
+          "input":"ECG at discharge ST+ lead v1 at Visit 2/discharge",
+          "output":"{\"domain\":\"measurement\",\"base_entity\":\"ST amplitude.lead V1 | Heart | EKG measurements\",\"additional_entities\":[\"lead V1\", \"ECG finding\",\"discharge time\", \"Follow-up 2 month\"]}"
+        },
+        {
+          "input":"ECG at discharge ST- lead v1 at Visit 2 / discharg",
+          "output":"{\"domain\":\"measurement\",\"base_entity\":\"ST sagement depression.lead V1 | Heart | EKG measurements\",\"additional_entities\":[\"lead V1\", \"ECG finding\",\"discharge time\", \"Follow-up 2 month\"]}"
+        },
           {
             "input":"creatinine",
             "output":"{\"domain\":\"measurement\", \"base_entity\":\"Creatinine [Mass/volume] in Blood\"}"
