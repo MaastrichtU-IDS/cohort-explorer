@@ -799,6 +799,8 @@ def pass_to_chat_llm_chain(
         # _, ranking_examples = load_mapping(MAPPING_FILE, None)
         seen = set()
         documents = []
+        exact_match_found_classification = False
+        exact_match_found_rank = False
         for doc in top_candidates:
             doc_str = create_document_string(doc)
             if doc_str not in seen:
