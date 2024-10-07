@@ -910,6 +910,7 @@ def create_processed_result(result_object: ProcessedResultsModel) -> dict:
         combined_codes = join_or_single(main_term_codes)
         combined_omop_ids = join_or_single(main_term_omop_id)
     results = {
+        "VARIABLE NAME": result_object.var,
         "VARIABLE LABEL": result_object.original_query,
         "DOMAIN": result_object.domain,
         "Variable Concept Label": combined_labels,

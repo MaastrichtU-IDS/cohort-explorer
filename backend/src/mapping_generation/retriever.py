@@ -142,6 +142,7 @@ def temp_process_query_details(
                     llm_name,
                     llm_query_obj.domain,
                 )
+                llm_query_obj.name = original_query_obj.name
             additional_entities = llm_query_obj.additional_entities
             categories = llm_query_obj.categories
             domain = llm_query_obj.domain
@@ -193,6 +194,7 @@ def temp_process_query_details(
                 )
             mapping_result = create_processed_result(
                 ProcessedResultsModel(
+                    variable_name=llm_query_obj.name,
                     base_entity=main_term,
                     domain=domain,
                     base_entity_matches=variable_label_matches if variable_label_matches else [],
