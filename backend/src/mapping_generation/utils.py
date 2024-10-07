@@ -320,63 +320,55 @@ def post_process_candidates(candidates: List[Document], max=1):
     return processed_candidates
 
 
+
 def save_to_csv(data, filename):
     if not data:
         return
 
     fieldnames = [
-        "VARIABLE LABEL",
-        "DOMAIN",
-        "Variable Concept Label",
-        "Variable Concept Code",
-        "Variable Concept OMOP ID",
-        "Additional Context Concept Label",
-        "Additional Context Concept Code",
-        "Additional Context OMOP ID",
-        "Primary to Secondary Context Relationship",
-        "Categorical Values Concept Label",
-        "Categorical Values Concept Code",
-        "Categorical Values Concept OMOP ID",
-        "UNIT",
-        "Unit Concept Label",
-        "Unit Concept Code",
-        "Unit OMOP ID",
+        'VARIABLE NAME', 'VARIABLE LABEL', 'DOMAIN', 'Variable Concept Label', 'Variable Concept Code','Variable Concept OMOP ID',
+        'Additional Context Concept Label', 'Additional Context Concept Code','Additional Context OMOP ID','Primary to Secondary Context Relationship','Categorical Values Concept Label','Categorical Values Concept Code', 'Categorical Values Concept OMOP ID', 'UNIT', 'Unit Concept Label', 'Unit Concept Code','Unit OMOP ID'
     ]
 
     # Map and combine fields in the data rows
     def map_and_combine_fields(row):
         # Map fields
         mapped_row = {
-            "VARIABLE LABEL": row.get("VARIABLE LABEL", ""),
-            "Variable Concept Label": row.get("Variable Concept Label", ""),
-            "Variable Concept OMOP ID": row.get("Variable Concept OMOP ID", ""),
-            "Variable Concept Code": row.get("Variable Concept Code", ""),
-            "DOMAIN": row.get("DOMAIN", ""),
-            "Additional Context Concept Label": row.get("Additional Context Concept Label", ""),
-            "Additional Context Concept Code": row.get("Additional Context Concept Code", ""),
-            "Additional Context OMOP ID": row.get("Additional Context OMOP ID", ""),
-            "Primary to Secondary Context Relationship": row.get("Primary to Secondary Context Relationship", ""),
-            "Categorical Values Concept Label": row.get("Categorical Values Concept Label", ""),
-            "Categorical Values Concept Code": row.get("Categorical Values Concept Code", ""),
-            "Categorical Values Concept OMOP ID": row.get("Categorical Values Concept OMOP ID", ""),
-            "Unit Concept Label": row.get("Unit Concept Label", ""),
-            "Unit Concept Code": row.get("Unit Concept Code", ""),
-            "Unit OMOP ID": row.get("Unit OMOP ID", ""),
+            'VARIABLE NAME': row.get('VARIABLE NAME', ''),
+            'VARIABLE LABEL': row.get('VARIABLE LABEL', ''),
+            'Variable Concept Label': row.get('Variable Concept Label',''),
+            'Variable Concept OMOP ID': row.get('Variable Concept OMOP ID',''),
+            'Variable Concept Code': row.get('Variable Concept Code',''),
+            'DOMAIN': row.get('DOMAIN', ''),
+            'Additional Context Concept Label': row.get('Additional Context Concept Label', ''),
+            'Additional Context Concept Code': row.get('Additional Context Concept Code', ''),
+            'Additional Context OMOP ID':row.get('Additional Context OMOP ID', ''),
+            'Primary to Secondary Context Relationship': row.get('Primary to Secondary Context Relationship', ''),
+            'Categorical Values Concept Label': row.get('Categorical Values Concept Label', ''),
+            'Categorical Values Concept Code': row.get('Categorical Values Concept Code', ''),
+            'Categorical Values Concept OMOP ID':row.get('Categorical Values Concept OMOP ID', ''),
+            'Unit Concept Label': row.get('Unit Concept Label', ''),
+            'Unit Concept Code': row.get('Unit Concept Code', ''),
+            'Unit OMOP ID': row.get('Unit OMOP ID', ''),
         }
-
+        
         # Combine fields
         # label_ids = '|'.join(filter(None, [row.get('standard_concept_id'), row.get('additional_context_omop_ids')]))
         # label_codes = '|'.join(filter(None, [row.get('standard_code'), row.get('additional_context_codes')]))
         # mapped_row['Variable Concept OMOP ID'] = label_ids
         # mapped_row['Label Concept CODE'] = label_codes
         return mapped_row
-
-    with open(filename, mode="a", newline="") as file:
-        dict_writer = csv.DictWriter(file, fieldnames=fieldnames)
-        dict_writer.writeheader()
+    # if file already exists don't readd the header
+    if os.path.exists(filename):
+        mode='a'
+    else:
+        mode = 'w'
+    with open(filename, mode, newline='') as file:
+        writer = csv.DictWriter(file, fieldnames=fieldnames)
+        if mode == 'w':
+            writer.writeheader()
         for row in data:
-            combined_row = map_and_combine_fields(row)
-            dict_writer.writerow(combined_row)
+            writer.writerow(map_and_combine_fields(row))
 
 
 def load_mapping(filename, domain):

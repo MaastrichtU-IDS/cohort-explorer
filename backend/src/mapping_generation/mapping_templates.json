@@ -10,7 +10,7 @@
       "procedure": ["snomed"],
       "unit": ["ucum"],
       "measurement_unit": ["ucum"],
-      "demographics": ["snomed", "loinc"],
+      "demographics": ["snomed", "loinc"], 
       "family history": ["snomed", "loinc"],
       "visit": ["snomed","loinc","atc","rxnorm"],
       "observation": ["snomed","loinc","omop extension"],
@@ -42,8 +42,8 @@
     }
   },
 
-
-"mapping_rules":
+ 
+"mapping_rules": 
   {
     "all":
       {
@@ -70,17 +70,29 @@
             "output":"{\"domain\":\"demographics\", \"base_entity\":\"Patient hospital number\"}"
           },
           {
-            "input":"patient code",
-            "output":"{\"domain\":\"demographics\", \"base_entity\":\"Patient hospital number\"}"
+            "input":"patient code, visit 0",
+            "output":"{\"domain\":\"demographics\", \"base_entity\":\"Patient hospital number\", \"additional_entities\":[\"baseline time\"]}"
           },
           {
-
+            "input":"visit 0",
+            "output":"{\"domain\":\"visit\", \"base_entity\":\"baseline time\"}"
+          },
+          {
+ 
             "input":"hospitalisation due to non-cardiovascular disease",
             "output":"{\"domain\":\"visit\", \"base_entity\":\"Reason for hospitalisation\", \"additional_entities\":[\"Not\", \"cardiovascular disease\"]}"
           },
           {
             "input":"albumin-creatinine ratio",
             "output":"{\"domain\":\"measurement\", \"base_entity\":\"Albumin/Creatinine [Ratio] in Urine\""
+          },
+          {
+            "input":"exam performed -  ecocardiography pre-discharge at visit 1 / hospitalization",
+            "output":"{\"domain\":\"procedure\", \"base_entity\":\"Echocardiography\", \"additional_entities\":[\"\",\"pre discharge assessment\",\"Follow-up 1 month\"]}"
+          },
+          {
+            "input":"diastolic pressure - echocardiography pre-discharge at visit 1 / hospitalization",
+            "output":"{\"domain\":\"measurement\", \"base_entity\":\"Diastolic blood pressure\",\"additional_entities\":[\"echocardiography\",\"pre discharge assessment\",\"Follow-up 1 month\"]}"
           },
           {
             "input":"total cholesterol",
@@ -321,7 +333,11 @@
             "output": "{\"domain\":\"observation\", \"base_entity\":\"Date of first Visit\"}"
           },
           {
-            "input":"gp general practitioner compliance Follow-up month 6,categorical values: 1=yes | 2=partly | 3=no | 9=missing",
+            "input": "date of visit 0",
+            "output": "{\"domain\":\"observation\", \"base_entity\":\"Date of first Visit\"}"
+          },
+          {
+            "input":"gp general practitioner compliance at visit 6,categorical values: 1=yes | 2=partly | 3=no | 9=missing",
             "output":"{\"domain\":\"observation\", \"base_entity\":\"compliance behavior to treatment\",\"additional_entities\":[\"General Practioner\",\"Follow-up 6 month \"], \"categories\": [\"Compliant\",\"Partially compliant\",\"non-Compliant\",\"missing\"]}"
           },
           {
@@ -329,12 +345,28 @@
             "output":"{\"domain\":\"measurement\", \"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"ECG finding\",\"Q-T interval corrected\",\"baseline time\"], \"unit\":\"ms\"}"
           },
           {
-            "input":"ecg at discharge q > 30 msec lead iii, categories:/= undetermined | n= no | s= yes",
-            "output":"{\"domain\":\"measurement\", \"base_entity\":\"Q wave duration.lead III | Heart | EKG measurements\",\"additional_entities\":[\"ECG finding\",\"Discharge from hospital\"], \" categories\": [\"undetermined\",\"no\",\"yes\"]}"
+            "input":"qtc= qt time adjusted for heart frequency at visit 0 on ecg, unit: ms",
+            "output":"{\"domain\":\"measurement\", \"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"ECG finding\",\"Q-T interval corrected\",\"baseline time\"], \"unit\":\"ms\"}"
           },
           {
-            "input":"ECG at entry Q > 30 msec lead avl, categories: / = undetermined | n = no | s = yes",
-            "output":"{\"domain\":\"measurement\", \"base_entity\":\"Q wave duration.lead AVL | Heart | EKG measurements\",\"additional_entities\":[\"ECG finding\",\"Hospital admission\"], \" categories\": [\"undetermined\",\"no\",\"yes\"]}"
+            "input":"patient code,visit 0/entry",
+            "output":"{\"domain\":\"demographics\", \"base_entity\":\"Patient hospital number\",\"additional_entities\":[\"baseline time\"]}"
+          },
+          {
+            "input":"diastolic pressure at visit 0/entry",
+            "output":"{\"domain\":\"measurement\", \"base_entity\":\"Diastolic blood pressure\",\"additional_entities\":[\"baseline time\"]}"
+          },
+          {
+            "input":"diastolic pressure at entry",
+            "output":"{\"domain\":\"measurement\", \"base_entity\":\"Diastolic blood pressure\",\"additional_entities\":[\"baseline time\"]}"
+          },
+          {
+            "input":"ecg at discharge q > 30 msec lead iii, categorical values:/= undetermined | n= no | s= yes",
+            "output":"{\"domain\":\"measurement\", \"base_entity\":\"Q wave duration.lead III | Heart | EKG measurements\",\"additional_entities\":[\"ECG finding\",\"discharge time\"], \" categories\": [\"undetermined\",\"no\",\"yes\"]}"
+          },
+          {
+            "input":"ECG at entry Q > 30 msec lead avl, categorical values: / = undetermined | n = no | s = yes",
+            "output":"{\"domain\":\"measurement\", \"base_entity\":\"Q wave duration.lead AVL | Heart | EKG measurements\",\"additional_entities\":[\"ECG finding\",\"baseline time\"], \" categories\": [\"undetermined\",\"no\",\"yes\"]}"
           },
           {
             "input":"rythm on ecg at baseline,categorical values: 1=sinusrythm| 2= pacemaker-rythm| 3= atrialfibbrilation| 4= atrialflutter| 5= atrial rythm| 6= av-nodal re-entry tachycardia| 7= av re-entry tachycardia| 8= ventricular tachycardia| 9= sinus arrest| 10= nodal escape rythm| 11= ventricular escape rythm| 16= wolff-parkinson-white",
@@ -345,7 +377,7 @@
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"ECG finding\",\"Rhythm\",\"Follow-up 1 year\"], \"categories\": [\"sinus rhythm\",\"pacemaker rhythm\",\"atrial fibrillation\",\"atrial flutter\",\"atrial rhythm\",\"AV-nodal re-entry tachycardia\",\"AV re-entry tachycardia\",\"ventricular tachycardia\",\"sinus arrest\",\"nodal escape rhythm\",\"ventricular escape rhythm\",\"Wolff-Parkinson-White\"]}"
           },
           {
-            "input":"rythm on ecg at follow-up 12 months on ecg,categorical values: 1=sinusrythm| 2= pacemaker-rythm| 3= atrialfibbrilation| 4= atrialflutter| 5= atrial rythm| 6= av-nodal re-entry tachycardia| 7= av re-entry tachycardia| 8= ventricular tachycardia| 9= sinus arrest| 10= nodal escape rythm| 11= ventricular escape rythm| 16= wolff-parkinson-white",
+            "input":"rythm on ecg at 12 months on ecg,categorical values: 1=sinusrythm| 2= pacemaker-rythm| 3= atrialfibbrilation| 4= atrialflutter| 5= atrial rythm| 6= av-nodal re-entry tachycardia| 7= av re-entry tachycardia| 8= ventricular tachycardia| 9= sinus arrest| 10= nodal escape rythm| 11= ventricular escape rythm| 16= wolff-parkinson-white",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"ECG finding\",\"Rhythm\",\"Follow-up 1 year\"], \"categories\": [\"sinus rhythm\",\"pacemaker rhythm\",\"atrial fibrillation\",\"atrial flutter\",\"atrial rhythm\",\"AV-nodal re-entry tachycardia\",\"AV re-entry tachycardia\",\"ventricular tachycardia\",\"sinus arrest\",\"nodal escape rhythm\",\"ventricular escape rhythm\",\"Wolff-Parkinson-White\"]}"
           },
           {
@@ -353,15 +385,15 @@
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Mean corpuscular volume\",\"additional_entities\":[\"Follow-up 1 year\"], \"unit\":\"fl/cell\"}"
           },
           {
-            "input":"mean corpuscular volume at follow-up 12 months, unit: fl/cell",
+            "input":"mean corpuscular volume at 12 month follow-up, unit: fl/cell",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Mean corpuscular volume\",\"additional_entities\":[\"Follow-up 1 year\"], \"unit\":\"fl/cell\"}"
           },
           {
-            "input":"velocity time integral (vti) aortic valve at visit18 on ecg, unit: cm",
+            "input":"velocity time integral (vti) aortic valve at visit 18 on ecg, unit: cm",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"electrocardiogram\",\"additional_entities\":[\"ECG finding\",\"Velocity time integral\",\"Aortic valve\",\"Follow-up 18 month \"], \"unit\":\"cm\"}"
           },
           {
-            "input":"rv/ra at follow-up month 18 on ecg",
+            "input":"rv/ra at 18 follow-up on ecg",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"ECG finding\",\"Right ventricle to right atrium ratio\",\"Follow-up 18 month \"]}"
           },
           {
@@ -443,14 +475,13 @@
           {
             "input":"pathological q-wave in lead avl-i at visit1,categorical values: 1=yes | 0=no",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"pathological q-wave\",\"AVL\",\"lead site v1\",\"Follow-up 1 month\"], \"categories\": [\"yes\",\"no\"]}"
-
           },
           {
-            "input":"pq-duration at Follow-up 12 month on ecg, unit: ms",
+            "input":"pq-duration at visit 12 on ecg, unit: ms",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"ECG finding\",\"PR interval duration\",\"Follow-up 1 year\"], \"unit\":\"ms\"}"
           },
           {
-            "input":"pq-duration at month12 on ecg, unit: ms",
+            "input":"pq-duration at 1 year follow-up on ecg, unit: ms",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"ECG finding\",\"PR interval duration\",\"Follow-up 1 year\"], \"unit\":\"ms\"}"
           },
           {
@@ -458,7 +489,7 @@
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"ECG finding\",\"PR interval duration\",\"Follow-up 1 year\"], \"unit\":\"ms\"}"
           },
           {
-            "input":"qrs-axis at visit12 on ecg, unit: degrees",
+            "input":"qrs-axis at visit 12 on ecg, unit: degrees",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"ECG finding\",\"QRS axis\",\"Follow-up 1 year\"], \"unit\":\"degrees\"}"
           },
           {
@@ -472,6 +503,14 @@
           {
             "input":"lateral hypokinesia at baseline on Electrocardiogram,categorical values: 0=normal| 1 = hypokinetic | 2=severely hypokin. | 3=akinetic| 4 = dyskinetic | 9 =not.determinable.",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"lateral hypokinesia\",\"baseline time\"], \"categories\": [\"normal\",\"hypokinetic\",\"severely hypokinetic\",\"akinetic\",\"dyskinetic\",\"not determinable\"]}"
+          },
+          {
+            "input":"exam quality - ecocardiography pre-discharge,categorical values:0= not significant | 1= good | 2= sufficient | 3= unsufficient | 9= missing",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Echocardiography qualit\",\"additional_entities\":[\"Pre-discharge assessment\"], \"categories\": [\"not significant\",\"good\",\"sufficient\",\"unsufficient\",\"missing\"]}"
+          },
+          {
+            "input":"echocardiography number,categorical values:1= pre-discharge | 2= 6 weeks | 3= 6 months",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Echocardiography\",\"additional_entities\":[\"Pre-discharge assessment\",\"Follow-up 6 weeks\",\"Follow-up 6 month\"]}"
           },
           {
             "input":"lipoprotein A",
@@ -807,14 +846,14 @@
           },
           {
               "input":"Optimization of drug dose of Angiotensin-converting enzyme inhibitor therapy, possible values: 0= hydration, 1= max dose, 2=target dose , 3= NVT, 4= contraindication",
-              "output":"{\"domain\":\"drug\",\"base_entity\":\"Optimization of medication\",\"additional_entities\":[\"Angiotensin-converting enzyme inhibitor\",\"categories\": [\"Fluid balance regulation\",\"Patient on maximum tolerated dose\",\"Angiotensin converting enzyme inhibitor target dose achieved\",\"not applicable\",\"contraindication\"]}"
+              "output":"{\"domain\":\"drug\",\"base_entity\":\"Optimization of medication\",\"additional_entities\":[\"Angiotensin-converting enzyme inhibitor\",\"categories\": [\"Fluid balance regulation\",\"Patient on maximum tolerated dose\",\"Angiotensin converting enzyme inhibitor target dose achieved\",\"not applicable\",\"contraindication\"]}" 
           },
-          {
+          { 
             "input":"QTc= Corrected QT Interval time adjusted for heartfrequency at baseline on ECG, unit:ms",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Q-T interval corrected\",\"heart rate\", \"baseline time\"], \"unit\": \"ms\"}"
 
           },
-          {
+          { 
             "input":"QT time adjusted for heartfrequency at bl on ecg, unit:ms",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"ECG finding\",\"Q-T interval\",\"heart rate\", \"baseline time\"], \"unit\": \"ms\"}"
 
@@ -855,7 +894,7 @@
               "input":"QRS-duration at visit18",
               "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"QRS duration\"], \"unit\":\"ms\", \"additional_entities\":[\"Follow-up 18 months\"]}"
           },
-          {
+          { 
             "input":"body fat mass calculated",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Body fat [Mass] Calculated\"}"
 
@@ -937,7 +976,7 @@
             "input":"Sum non-CV AE-Severity non-cardiovascular adverse event",
             "output":"{\"domain\":\"history of events\",\"base_entity\":\"Adverse Events\",\"additional_entities\":[\"Non-cardiovascular disease\" , \"Severity\"]}"
           },
-          {
+          { 
             "input":"Alanine Transaminase (ALT, GPT, SGPT or ALAT)",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Alanine aminotransferase [Enzymatic activity/volume] in Blood\"}"
           },
@@ -953,7 +992,7 @@
               "input":"Cystatin C [Mass/volume] in Serum or Plasm at visit1",
               "output":"{\"domain\":\"measurement\",\"base_entity\":\"Cystatin C [Mass/volume] in Serum or Plasma\", \"additional_entities\":[\"Follow-up 1 month\"]}"
           },
-          {
+          { 
               "input":"total glycosylated haemoglobin (HbA1c) in blood",
               "output":"{\"domain\":\"measurement\",\"base_entity\":\"Hemoglobin A1c/Hemoglobin.total in Blood\"}"
 
@@ -970,7 +1009,7 @@
           {
             "input":"time ti at baseline on ecg, unit: ms",
             "output":"{\"domain\":\"measurement\",\"base_entity\": \"Electrocardiogram\", \"additional_entities\":[\"ECG finding\", \"tricuspid insufficienc\",\"Time interval\",\"baseline time\"], \"unit\": \"ms\"}"
-          },
+          },  
           {
             "input": "Latest HbA1c level measured at baseline",
             "output": "{\"domain\":\"measurement\",\"base_entity\": \"Hemoglobin A1C \", \"unit\": \"%\",\"additional_entities\":[\"baseline time\"], \"categories\": [\"recent\"]}"
@@ -1084,7 +1123,7 @@
             "input":"target dosage angiotensin converting enzyme inhibitor (ace-i) achieved",
             "output":"{\"domain\":\"drug\",\"base_entity\":\"Angiotensin converting enzyme inhibitor target dose achieved\"}"
           },
-          {
+          { 
             "input":"history of diabetes y/n,categorical values: 1=yes | 0=no",
             "output":"{\"domain\":\"condition\", \"base_entity\":\"History of Event\", \"additional_entities\":[\"diabetes mellitus\"], \"categories\": [\"yes\",\"no\"]}"
 
@@ -1115,7 +1154,7 @@
           },
           {
            "input":"mean corpuscular hemoglobin at bl, unit: pg/ cell",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Mean corpuscular hemoglobin in Blood\", \"additional_entities\":[\"baseline time\"], \"unit\":\"picograms per cell\"}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Mean corpuscular hemoglobin in Blood\", \"additional_entities\":[\"baseline time\"], \"unit\":\"picograms per cell\"}" 
           },
           {
             "input":"nyha ( classification of severity of heart failure) class at baseline in half increments,categorical values: 0=i | 1=i-ii | 2=ii | 3=ii-iii | 4=iii | 5=iii-iv | 6= iv",
@@ -1143,7 +1182,7 @@
           },
           {
             "input":"mean corpuscular hemoglobin at month 6, unit: pg/ cell",
-             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Mean corpuscular hemoglobin in Blood\", \"additional_entities\":[\"follow-up 6 months\"], \"unit\":\"picograms per cell\"}"
+             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Mean corpuscular hemoglobin in Blood\", \"additional_entities\":[\"follow-up 6 months\"], \"unit\":\"picograms per cell\"}" 
            },
            {
             "input":"death during study,categorical values: 1=yes | 0=no",
@@ -1354,10 +1393,10 @@
           "input":"hospitalisation due to heart failure Y/N,categorical values: 1=yes | 0=no",
           "output":"{\"domain\":\"observation\", \"base_entity\":\"Reason for hospitalization\", \"additional_entities\":[\"heart failure\"], \"categories\": [\"yes\",\"no\"]}"
         },
-
+      
         {
           "input": "date of follow-up month 1",
-          "output": "{\"domain\":\"visit\", \"base_entity\":\"date of visit \",\"additional_entities\":[\"follow-up 1 month \"]}"
+          "output": "{\"domain\":\"visit\", \"base_entity\":\"Date of visit \",\"additional_entities\":[\"follow-up 1 month \"]}"
         },
         {
             "input":"Date Myocardial Infarction year diagnosis,categories= [9999 = missing, or not filled in is  absent],  unit=yyyy",
@@ -1371,7 +1410,7 @@
           "input":"amount of days to first depression ae adverse event, unit: days",
           "output":"{\"domain\":\"history of events\",\"base_entity\":\"Adverse Event\",\"additional_entities\":[\"Depression\"], \"unit\":\"days\"}"
         },
-        {
+        {             
           "input":"max trauma fall ae-severity adverse event-severity,categorical values: 1 mild| 2 moderately impacting daily life| 3 severely inpacting daily life 4 required hospitalisation 5 caused death",
           "output":"{\"domain\":\"history of events\",\"base_entity\":\"Common Terminology Criteria for Adverse Events\",\"additional_entities\":[\"Falling injury\"], \"categories\": [\"Common terminology criteria for adverse events grade 1\",\"Common terminology criteria for adverse events grade 2\",\"Common terminology criteria for adverse events grade 3\",\"Common terminology criteria for adverse events grade 4\",\"Common terminology criteria for adverse events grade 5\"]}"
         },
@@ -1421,11 +1460,11 @@
           },
           {
             "input":"Weight at visit3, unit:kg,categorical values: 1=999, 0=missing",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Weight\",\"additional_entities\":[\"Follow-up 3 months\"], \"unit\":\"kg\", \"categories\": [\"not available\",\"missing\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"body Weight\",\"additional_entities\":[\"Follow-up 3 months\"], \"unit\":\"kg\", \"categories\": [\"not available\",\"missing\"]}"
           },
           {
             "input":"how many times in total did the patient came for follow-up?, unit: days",
-            "output":"{\"domain\":\"visit\", \"base_entity\":\"follow-up visit\", \"additional_entities\":[\"Total\"], \"unit\":\"days\"}"
+            "output":"{\"domain\":\"visit\", \"base_entity\":\"Follow-up encounter\", \"unit\":\"days\"}"
           },
           {
             "input":"Heart rythm on ECG at baseline",
@@ -1523,7 +1562,7 @@
           {
             "input":"Renin",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Renin [Mass/volume] in Plasma\"}"
-
+            
           },
           {
             "input":"Renin level visit6",
@@ -1540,7 +1579,7 @@
           {
             "input":"Renin [Mass/volume] in plasma",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Renin [Mass/volume] in Plasma\"}"
-
+            
           },
           {
             "input":"total cholesterol level",
@@ -1615,10 +1654,10 @@
             "input":"heart failure with mildly reduced ejection fraction (hfmref)",
             "output":"{\"domain\":\"condition\", \"base_entity\":\"Heart failure with mid-range ejection fraction\"}"
           },
-
+          
           {
             "input":"reason for non-compliance of patient Follow-up month 1,categorical values: 0= missing | 1=more chf symptoms | 2=hypotension without symptoms |3=orthostasis / symptomatic hypotension | 4=fatigue / exercise intolerance | 5=renal failure 6=hyperkaliaemia | 7=bradycardia / av-block | 8=cough | 9=diarrhea | 10=obstipation | 11=headache | 12= noctural leg pain | 13=digitalis-intoxication | 14=allergy | 15=psychological reason | 16=other reason |17=not specified / unknown",
-            "output":"{\"domain\":\"observation\",\"base_entity\":\"Compliance behavior\", \"additional_entities\":[\"Has reason\" , \"follow-up 1 month], \"categories\": [\"missing\",\"more chf symptoms\",\"hypotension without symptoms\",\"orthostasis / symptomatic hypotension\",\"fatigue / exercise intolerance\",\"renal failure\",\"hyperkaliaemia\",\"bradycardia / av-block\",\"cough\",\"diarrhea\",\"obstipation\",\"headache\",\"noctural leg pain\",\"digitalis-intoxication\",\"allergy\",\"psychological reason\",\"other reason\",\"not specified / unknown\"]}"
+            "output":"{\"domain\":\"observation\",\"base_entity\":\"Compliance behavior\", \"additional_entities\":[\"Has reason\" , \"follow-up 1 month], \"categories\": [\"missing\",\"more chf symptoms\",\"hypotension without symptoms\",\"orthostasis / symptomatic hypotension\",\"fatigue / exercise intolerance\",\"renal failure\",\"hyperkaliaemia\",\"bradycardia / av-block\",\"cough\",\"diarrhea\",\"obstipation\",\"headache\",\"noctural leg pain\",\"digitalis-intoxication\",\"allergy\",\"psychological reason\",\"other reason\",\"not specified / unknown\"]}" 
           },
           {
             "input":"NHYA:categorical values:nyha i, nyha ii, nyha iii, nyha iv",
@@ -1666,7 +1705,7 @@
         ]
 
       }
-
+  
   },
   "rel_relevance_examples":{
     "drug":[
@@ -1746,7 +1785,7 @@
           "explanation": "This answer is too general and does not address the query's specific concern about death resulting directly from myocardial infarction."
         }
       ]
-    },
+    },    
     {
       "input": "Query: heart failure with mildly reduced ejection fraction (hfmref), candidate terms: ['heart failure with reduced ejection fraction due to cardiomyopathy', 'heart failure with mid range ejection fraction', 'acute heart failure co-occurrent with normal ejection fraction', 'heart failure with reduced ejection fraction due to myocarditis',  'reduced ejection fraction co-occurrent and due to acute on chronic heart failure', 'reduced ejection fraction co-occurrent and due to acute heart failure', 'left ventricular failure with normal ejection fraction due to cardiomyopathy']",
       "output": [
@@ -1801,7 +1840,7 @@
           "explanation": "This answer is not relevant as it mentions 'chronic heart failure', which can lead to death, but does not explicitly state 'death due to heart failure'."
         }
       ]
-    },
+    },    
     {
       "input": "Query: new york heart association (NYHA), candidate terms: [ 'new york heart association classification - class iii', 'new york heart classification finding', 'new york heart association classification']",
       "output": [
@@ -1913,7 +1952,7 @@
           "explanation": "This answer is not relevant as it refers to the Ontario Prehospital Stroke Scale (OPSS), which is unrelated to the Epworth Sleepiness Scale."
         }
       ]
-    },
+    }, 
     {
       "input": "Query: haemoglobin in blood, candidate terms: ['hemoglobin | blood | hematology and cell counts', 'hemoglobin h | blood | hematology and cell counts', 'hemoglobin c | blood | hematology and cell counts', 'gram of hemoglobin', 'hemoglobin f | blood | hematology and cell counts', 'percent hemoglobin', 'Hemoglobin [Mass/volume] in Blood']",
       "output": [
@@ -1953,7 +1992,7 @@
           "explanation": "This answer is an exact match as it directly mentions 'Hemoglobin [Mass/volume] in Blood,' which is a precise measurement related to the query."
         }
       ]
-    },
+    },       
     {
       "input": "Query: copeptin (ct-proavp) [Moles/volume] in serum or plasma, candidate terms: ['Provasopressin.C-terminal [Moles/volume] in Serum or Plasma by Immunoassay', 'copeptin molar concentration in plasma', 'copeptin molar concentration in serum', 'acv tripeptide. ', 'vasoactive intestinal peptide. ', 'caprooyl tetrapeptide-3. ', 'calotropin', 'c-pap. ', 'plasma vasoactive intestinal polypeptide measurement', 'desmopressin. ', 'argipressin. ']",
       "output": [
@@ -2043,7 +2082,7 @@
           "explanation": "It mentions the GDS total which indicates a measure of the scale but lacks specificity about being the long or short form, focusing instead on an aggregate score."
         }
       ]
-    },
+    },      
     {
     "input": "Query: high blood pressure: age first diagnosed, documents: ['high blood pressure. ', 'age began taking high blood pressure medication', 'age when told have high blood pressure', 'hypertension or high blood pressure. ', 'blood pressure abnormal - 1st recall', 'ever told by doctor or nurse that you have high blood pressure', 'treatment for hypertension started']",
     "output": [
@@ -2328,7 +2367,7 @@
           "relationship": "synonym",
           "explanation": "Directly corresponds to the query about cardiac MRI."
         }
-
+       
       ]
     }
 
@@ -2358,7 +2397,7 @@
           "explanation": "This is partially relevant because it relates to lung health but specifies a particular type of neoplasm. More detail is needed to fully match the query about the father's general history of neoplasms."
         }
       ]
-    },
+    },      
     {
       "input": "Query: history of neoplasm (mother), candidate terms: ['history of cancer', 'family history of neoplasm of breast', 'family history of cancer', 'family history of malignant neoplasm of ovary', 'family history of malignant epithelial neoplasm', 'family history of malignant neoplasm of endometrium']",
       "output": [
@@ -2393,7 +2432,7 @@
           "explanation": "This answer is partially relevant as it mentions 'family history of malignant neoplasm,' but it specifies 'endometrium,' which is a specific type of neoplasm. It partially matches the query."
         }
       ]
-    },
+    },    
     {
       "input": "Query: History of hypertension (mother), candidate terms: ['Family history', 'Fh:hypertension. ', 'mother', 'maternal hypertension.n', 'mother']",
       "output": [
@@ -2455,7 +2494,7 @@
           "explanation": "Irrelevant, similar to 'cubiceps paradoxus', the term 'cubiceps' might misleadingly suggest a relation to cubic measurements."
         }
       ]
-    },
+    },    
     {
       "input": "Query: picomole per liter, candidate terms: ['micromole per liter', 'picomole per liter', 'picomole per milliliter', 'micromole per milliliter', 'nanomole per liter', 'femtomole per milliliter', 'femtomole per liter']",
       "output": [
@@ -2517,7 +2556,7 @@
           "explanation": "This answer is not related as it refers to another unit of measurement."
         }
       ]
-    },
+    },    
     {
       "input": "Query: trillion per milliliter(10*12/mL), candidate terms: ['trillion per milliliter', 'billion per milliliter', 'million per milliliter', 'milliequivalent per milliliter']",
       "output": [
@@ -2574,7 +2613,7 @@
           "explanation": "This answer is not relevant as it focuses on the care and assessment of a pacemaker rather than confirming its implantation."
         }
       ]
-    }
+    }      
   ],
   "procedure":[
     {
@@ -2631,7 +2670,7 @@
           "explanation": "This answer is not relevant as it focuses on the care and assessment of a pacemaker rather than confirming its implantation."
         }
       ]
-    }
+    }      
   ],
   "demographics":[
     {
@@ -2755,7 +2794,7 @@
         },
         {"answer":"lateral geniculate body structure",  "relationship":"partially relevant", "explanation":"This term refers to the lateral geniculate body, a part of the thalamus involved in vision processing, which is anatomically and functionally distinct from the geniculate ganglion. It is not relevant to geniculate herpes zoster."
         }]
-      },
+      }, 
     {
       "input": "Query: picomole per liter, candidate terms: ['micromole per liter', 'picomole per liter', 'picomole per milliliter', 'micromole per milliliter', 'nanomole per liter', 'femtomole per milliliter', 'femtomole per liter']",
       "output": [
@@ -2840,7 +2879,7 @@
           "explanation": "This answer is not relevant as it mentions 'chronic heart failure', which can lead to death, but does not explicitly state 'death due to heart failure'."
         }
       ]
-    },
+    },   
     {
       "input": "Query: date of cardiac MRI, candidate terms: ['left ventricular myocardial mass at end diastole by us', 'mid diastolic. ', 'right ventricular myocardial performance index (tei) by us', 'cardio/pulm: myocardial infarction. ', 'myocardial mass at end diastole | heart ventricle - left | dicom simplified adult echo report concepts', 'right ventricular cardiac index by spiral ct', 'ventricular cardiac index by us', 'a valid date value is provided in item date of 1st crs rx [1270], or the date was not expected to have been transmitted. ', 'measure duration | xxx | cardiac ultrasound', 'date of myocardial infarction']",
       "output": [
@@ -2915,7 +2954,7 @@
           "explanation": "This term is not relevant as it relates to the concept of gender but does not specify a particular gender."
         }
       ]
-    },
+    },  
     {
       "input": "Query, American Indian or Alaska Native race, candidate terms: ['American Indian or Alaska Native', 'Race', 'American Indian']",
       "output": [
@@ -3015,7 +3054,7 @@
           "explanation": "This is highly relevant as it directly specifies the familial connection to the father, providing crucial context for understanding genetic predispositions and familial patterns in medical assessments."
         }
       ]
-    },
+    },  
     {
       "input":"abnormalities in heart conduction system, candidate terms:\"['abnormal cardiac conduction', 'heart-hand syndrome slovenian type', 'cardiac conduction system finding', 'cardiac conduction pattern - finding', 'cardiac conduction system feature', 'cardiac conduction - finding']\"",
       "output":[
@@ -3050,8 +3089,8 @@
           "explanation": "This term refers to a rare genetic syndrome that affects both the heart and hands, but it is unrelated to abnormalities in the heart's conduction system. It is not relevant to the query."
         }
       ]
-
-    },
+    
+    }, 
     {
       "input": "Query: date of hospitalization, candidate terms: ['hospital admission date', 'hospital discharge date', 'patient requires hospitalization', 'intensive care unit (icu) discharge date | patient | history', 'education about hospitalization', 'hospital disposition', 'intensive care unit (icu) admission date | patient | history', 'hospitalization', 'date of infection hospitalization [esrd]', 'history of hospitalization']",
       "output": [
@@ -3106,7 +3145,7 @@
           "explanation": "Discusses past hospitalizations broadly without focusing on specific dates."
         }
       ]
-    },
+    }, 
     {
       "input": "Query: epworth sleepiness scale, candidate terms: ['Epworth Sleepiness Scale','total score [epds]', 'sleepiness', 'edinburgh postnatal depression scale [epds]', 'edinburgh postnatal depression scale (epds)', 'boston stroke scale (boss)', 'ontario prehospital stroke scale (opss)']",
       "output": [
@@ -3146,10 +3185,10 @@
           "explanation": "This answer is not relevant as it refers to the Ontario Prehospital Stroke Scale (OPSS), which is unrelated to the Epworth Sleepiness Scale."
         }
       ]
-    },
+    }, 
     {
       "input": "Query: haemoglobin in blood, candidate terms: ['hemoglobin | blood | hematology and cell counts', 'hemoglobin h | blood | hematology and cell counts', 'hemoglobin c | blood | hematology and cell counts', 'gram of hemoglobin', 'hemoglobin f | blood | hematology and cell counts', 'percent hemoglobin', 'Hemoglobin [Mass/volume] in Blood']",
-      "output":
+      "output": 
       [
         {
           "answer": "hemoglobin | blood | hematology and cell counts",
@@ -3187,7 +3226,7 @@
           "explanation": "This answer is an exact match as it directly mentions 'Hemoglobin [Mass/volume] in Blood,' which is a precise measurement related to the query."
         }
       ]
-    },
+    },       
     {
       "input": "Query: copeptin (ct-proavp) [moles/volume] in serum or plasma, candidate terms: ['Provasopressin.C-terminal [Moles/volume] in Serum or Plasma by Immunoassay', 'copeptin molar concentration in plasma', 'copeptin molar concentration in serum', 'acv tripeptide. ', 'vasoactive intestinal peptide. ', 'caprooyl tetrapeptide-3. ', 'calotropin', 'c-pap. ', 'plasma vasoactive intestinal polypeptide measurement', 'desmopressin. ', 'argipressin. ']",
       "output": [
@@ -3277,7 +3316,7 @@
           "explanation": "This answer is an exact match as it directly corresponds to the query about myocardial infarction, which can lead to death."
         }
       ]
-    },
+    },    
     {
       "input": "Query: heart failure with mildly reduced ejection fraction (hfmref), candidate terms: ['heart failure with reduced ejection fraction due to cardiomyopathy', 'heart failure with mid range ejection fraction', 'acute heart failure co-occurrent with normal ejection fraction', 'heart failure with reduced ejection fraction due to myocarditis',  'reduced ejection fraction co-occurrent and due to acute on chronic heart failure', 'reduced ejection fraction co-occurrent and due to acute heart failure', 'left ventricular failure with normal ejection fraction due to cardiomyopathy']",
       "output": [
@@ -3337,7 +3376,7 @@
           "explanation": "This answer is highly relevant as peripheral vascular disease is a broader term that encompasses peripheral artery disease (PAD)."
         }
       ]
-    },
+    },    
     {
       "input": "Query: death due to heart failure, candidate terms: ['decompensated cardiac failure', 'acute heart failure', 'decompensated chronic heart failure', 'acute congestive heart failure', 'chronic heart failure', 'chronic congestive heart failure', 'heart failure due to end stage congenital heart disease', 'high output heart failure', 'symptomatic congestive heart failure', 'hypertensive heart failure']",
       "output": [
@@ -3378,7 +3417,7 @@
           "explanation": "This answer is not relevant. 'Heart failure due to end stage congenital heart disease' is a specific cause of death related to heart failure."
         }
       ]
-    },
+    },   
     {
       "input": "Query: geriatric depression score (original long form), candidate terms: ['Geriatric depression scale original long form', 'Geriatric depression scale short form', 'Geriatric depression scale', 'Geriatric depression scale (GDS) short version total', 'Geriatric depression scale (GDS) total']",
       "output": [
@@ -3408,7 +3447,7 @@
           "explanation": "It mentions the GDS total which indicates a measure of the scale but lacks specificity about being the long or short form, focusing instead on an aggregate score."
         }
       ]
-    },
+    },      
     {
     "input": "Query: high blood pressure: age first diagnosed, documents: ['high blood pressure', 'age began taking high blood pressure medication', 'age when told have high blood pressure', 'hypertension or high blood pressure. ', 'blood pressure abnormal - 1st recall', 'ever told by doctor or nurse that you have high blood pressure', 'treatment for hypertension started']",
     "output": [
@@ -3508,7 +3547,7 @@
           "explanation": "This is not a relevant match as it refers to the general condition of COPD without specifying GOLD II"
         }
       ]
-    },
+    }, 
     {
       "input": "Query: history of neoplasm, candidate terms: ['history of cancer', 'family history of neoplasm of breast', 'family history of cancer', 'family history of malignant neoplasm of ovary', 'family history of malignant epithelial neoplasm', 'family history of malignant neoplasm of endometrium']",
       "output": [
@@ -3543,7 +3582,7 @@
           "explanation": "This answer is partially relevant as it mentions 'family history of malignant neoplasm,' but it specifies 'endometrium,' which is a specific type of neoplasm. It partially matches the query."
         }
       ]
-    },
+    },  
     {
       "input": "Query: mm3, candidate terms: ['30mm', 'millimeter measurements', '10*12/l', '1/3 meter','cubic millimeter']",
       "output":[
@@ -3845,8 +3884,8 @@
         }
       ]
     }
-
-
+    
+    
 
   ],
   "unknown":[
@@ -3909,7 +3948,7 @@
         },
         {"answer":"lateral geniculate body structure",  "relationship":"partially relevant", "explanation":"This term refers to the lateral geniculate body, a part of the thalamus involved in vision processing, which is anatomically and functionally distinct from the geniculate ganglion. It is not relevant to geniculate herpes zoster."
         }]
-      },
+      }, 
     {
       "input": "Query: picomole per liter, candidate terms: ['micromole per liter', 'picomole per liter', 'picomole per milliliter', 'micromole per milliliter', 'nanomole per liter', 'femtomole per milliliter', 'femtomole per liter']",
       "output": [
@@ -3994,7 +4033,7 @@
           "explanation": "This answer is not relevant as it mentions 'chronic heart failure', which can lead to death, but does not explicitly state 'death due to heart failure'."
         }
       ]
-    },
+    },   
     {
       "input": "Query: date of cardiac MRI, candidate terms: ['left ventricular myocardial mass at end diastole by us', 'mid diastolic. ', 'right ventricular myocardial performance index (tei) by us', 'cardio/pulm: myocardial infarction. ', 'myocardial mass at end diastole | heart ventricle - left | dicom simplified adult echo report concepts', 'right ventricular cardiac index by spiral ct', 'ventricular cardiac index by us', 'a valid date value is provided in item date of 1st crs rx [1270], or the date was not expected to have been transmitted. ', 'measure duration | xxx | cardiac ultrasound', 'date of myocardial infarction']",
       "output": [
@@ -4069,7 +4108,7 @@
           "explanation": "This term is not relevant as it relates to the concept of gender but does not specify a particular gender."
         }
       ]
-    },
+    },  
     {
       "input": "Query, American Indian or Alaska Native race, candidate terms: ['American Indian or Alaska Native', 'Race', 'American Indian']",
       "output": [
@@ -4169,7 +4208,7 @@
           "explanation": "This is highly relevant as it directly specifies the familial connection to the father, providing crucial context for understanding genetic predispositions and familial patterns in medical assessments."
         }
       ]
-    },
+    },  
     {
       "input":"abnormalities in heart conduction system, candidate terms:\"['abnormal cardiac conduction', 'heart-hand syndrome slovenian type', 'cardiac conduction system finding', 'cardiac conduction pattern - finding', 'cardiac conduction system feature', 'cardiac conduction - finding']\"",
       "output":[
@@ -4204,8 +4243,8 @@
           "explanation": "This term refers to a rare genetic syndrome that affects both the heart and hands, but it is unrelated to abnormalities in the heart's conduction system. It is not relevant to the query."
         }
       ]
-
-    },
+    
+    }, 
     {
       "input": "Query: date of hospitalization, candidate terms: ['hospital admission date', 'hospital discharge date', 'patient requires hospitalization', 'intensive care unit (icu) discharge date | patient | history', 'education about hospitalization', 'hospital disposition', 'intensive care unit (icu) admission date | patient | history', 'hospitalization', 'date of infection hospitalization [esrd]', 'history of hospitalization']",
       "output": [
@@ -4260,7 +4299,7 @@
           "explanation": "Discusses past hospitalizations broadly without focusing on specific dates."
         }
       ]
-    },
+    }, 
     {
       "input": "Query: epworth sleepiness scale, candidate terms: ['Epworth Sleepiness Scale','total score [epds]', 'sleepiness', 'edinburgh postnatal depression scale [epds]', 'edinburgh postnatal depression scale (epds)', 'boston stroke scale (boss)', 'ontario prehospital stroke scale (opss)']",
       "output": [
@@ -4300,10 +4339,10 @@
           "explanation": "This answer is not relevant as it refers to the Ontario Prehospital Stroke Scale (OPSS), which is unrelated to the Epworth Sleepiness Scale."
         }
       ]
-    },
+    }, 
     {
       "input": "Query: haemoglobin in blood, candidate terms: ['hemoglobin | blood | hematology and cell counts', 'hemoglobin h | blood | hematology and cell counts', 'hemoglobin c | blood | hematology and cell counts', 'gram of hemoglobin', 'hemoglobin f | blood | hematology and cell counts', 'percent hemoglobin', 'Hemoglobin [Mass/volume] in Blood']",
-      "output":
+      "output": 
       [
         {
           "answer": "hemoglobin | blood | hematology and cell counts",
@@ -4341,7 +4380,7 @@
           "explanation": "This answer is an exact match as it directly mentions 'Hemoglobin [Mass/volume] in Blood,' which is a precise measurement related to the query."
         }
       ]
-    },
+    },       
     {
       "input": "Query: copeptin (ct-proavp) [moles/volume] in serum or plasma, candidate terms: ['Provasopressin.C-terminal [Moles/volume] in Serum or Plasma by Immunoassay', 'copeptin molar concentration in plasma', 'copeptin molar concentration in serum', 'acv tripeptide. ', 'vasoactive intestinal peptide. ', 'caprooyl tetrapeptide-3. ', 'calotropin', 'c-pap. ', 'plasma vasoactive intestinal polypeptide measurement', 'desmopressin. ', 'argipressin. ']",
       "output": [
@@ -4431,7 +4470,7 @@
           "explanation": "This answer is an exact match as it directly corresponds to the query about myocardial infarction, which can lead to death."
         }
       ]
-    },
+    },    
     {
       "input": "Query: heart failure with mildly reduced ejection fraction (hfmref), candidate terms: ['heart failure with reduced ejection fraction due to cardiomyopathy', 'heart failure with mid range ejection fraction', 'acute heart failure co-occurrent with normal ejection fraction', 'heart failure with reduced ejection fraction due to myocarditis',  'reduced ejection fraction co-occurrent and due to acute on chronic heart failure', 'reduced ejection fraction co-occurrent and due to acute heart failure', 'left ventricular failure with normal ejection fraction due to cardiomyopathy']",
       "output": [
@@ -4491,7 +4530,7 @@
           "explanation": "This answer is highly relevant as peripheral vascular disease is a broader term that encompasses peripheral artery disease (PAD)."
         }
       ]
-    },
+    },    
     {
       "input": "Query: death due to heart failure, candidate terms: ['decompensated cardiac failure', 'acute heart failure', 'decompensated chronic heart failure', 'acute congestive heart failure', 'chronic heart failure', 'chronic congestive heart failure', 'heart failure due to end stage congenital heart disease', 'high output heart failure', 'symptomatic congestive heart failure', 'hypertensive heart failure']",
       "output": [
@@ -4532,7 +4571,7 @@
           "explanation": "This answer is not relevant. 'Heart failure due to end stage congenital heart disease' is a specific cause of death related to heart failure."
         }
       ]
-    },
+    },   
     {
       "input": "Query: geriatric depression score (original long form), candidate terms: ['Geriatric depression scale original long form', 'Geriatric depression scale short form', 'Geriatric depression scale', 'Geriatric depression scale (GDS) short version total', 'Geriatric depression scale (GDS) total']",
       "output": [
@@ -4562,7 +4601,7 @@
           "explanation": "It mentions the GDS total which indicates a measure of the scale but lacks specificity about being the long or short form, focusing instead on an aggregate score."
         }
       ]
-    },
+    },      
     {
     "input": "Query: high blood pressure: age first diagnosed, documents: ['high blood pressure', 'age began taking high blood pressure medication', 'age when told have high blood pressure', 'hypertension or high blood pressure. ', 'blood pressure abnormal - 1st recall', 'ever told by doctor or nurse that you have high blood pressure', 'treatment for hypertension started']",
     "output": [
@@ -4662,7 +4701,7 @@
           "explanation": "This is not a relevant match as it refers to the general condition of COPD without specifying GOLD II"
         }
       ]
-    },
+    }, 
     {
       "input": "Query: history of neoplasm, candidate terms: ['history of cancer', 'family history of neoplasm of breast', 'family history of cancer', 'family history of malignant neoplasm of ovary', 'family history of malignant epithelial neoplasm', 'family history of malignant neoplasm of endometrium']",
       "output": [
@@ -4697,7 +4736,7 @@
           "explanation": "This answer is partially relevant as it mentions 'family history of malignant neoplasm,' but it specifies 'endometrium,' which is a specific type of neoplasm. It partially matches the query."
         }
       ]
-    },
+    },  
     {
       "input": "Query: mm3, candidate terms: ['30mm', 'millimeter measurements', '10*12/l', '1/3 meter','cubic millimeter']",
       "output":[
@@ -4999,15 +5038,15 @@
         }
       ]
     }
-
-
+    
+    
 
   ]
 },
 "ranking_examples":{
 "condition":[
 
-  {
+  {   
       "input": "Query: ex-smoker, candidate terms: \"['former smoker', 'light tobacco smoker', 'current smoker', 'every day smoker']\"",
       "output": [
         {
@@ -5034,7 +5073,7 @@
   },
   {
       "input": "Query: Cardiac MRI, candidate terms: ['left ventricular myocardial mass at end diastole by us.', 'mid diastolic.', 'right ventricular myocardial performance index (tei) by us.', 'cardio/pulm: myocardial infarction.', 'Cardiac MRI.']",
-      "output":
+      "output": 
       [
         {"answer": "left ventricular myocardial mass at end diastole by us.","score": 0,"explanation": "Not relevant; mentions myocardial mass but not related to cardiac MRI or date."},
         {"answer": "mid diastolic.","score": 0,"explanation": "Not relevant; mentions diastolic value without context of cardiac MRI or date."},
@@ -5096,7 +5135,7 @@
           "explanation": "Addresses complications from type 2 diabetes but does not focus on the duration of the disease itself."
         }
       ]
-  },
+  },    
   {
     "input": "Query: new york heart association (nyha), candidate terms: ['new york heart association classification - class iii', 'new york heart association classification - class ii','new york heart classification finding', 'new york heart association classification', 'cardiac asthma', 'chronic left-sided heart failure', 'new york heart association classification class', 'acute left ventricular failure']",
     "output": [
@@ -5106,7 +5145,7 @@
       {"answer": "new york heart association classification","score": 10,"explanation": "Mentions the New York Heart Association classification but lacks detail about specific classes, requiring more context."},
       { "answer": "cardiac asthma","score": 0,"explanation": "Mentions a heart-related condition but is unrelated to the specific query about the New York Heart Association classification."},
        {"answer": "chronic left-sided heart failure","score": 0,"explanation": "Mentions a heart condition but does not provide context related to the New York Heart Association classification."},
-       {"answer": "new york heart association classification class","score": 8,"explanation": "Mentions the New York Heart Association classification generally but lacks the detail needed about specific classes."},
+       {"answer": "new york heart association classification class","score": 8,"explanation": "Mentions the New York Heart Association classification generally but lacks the detail needed about specific classes."}, 
        {"answer": "acute left ventricular failure","score": 0, "explanation": "Mentions a specific heart condition but lacks any connection to the New York Heart Association classification."}
        ]
 
@@ -5116,7 +5155,7 @@
     "output":
     [{"answer":"GOLD (Global Initiative for Chronic Obstructive Lung Disease) 2017 group.", "score": 9, "explanation":"This is a highly relevant match as it refers to the GOLD initiative, which is related to COPD"},
     {"answer":"moderate chronic obstructive pulmonary disease.", "score":10, "explanation": "This is accuract match since it refers to the GOLD II stage of COPD, indicating moderate COPD."},
-     {"answer": "Consultation for chronic obstructive pulmonary disease.", "score": 0, "explanation":"This is a not related match as it refers to the process of getting consulation for COPD checkup"},
+     {"answer": "Consultation for chronic obstructive pulmonary disease.", "score": 0, "explanation":"This is a not related match as it refers to the process of getting consulation for COPD checkup"}, 
      {"answer": "Group A.", "score": 0, "explanation":"This is a not a match as it might relate to a classification group within COPD but does not specify GOLD i"},
      { "answer": "chronic obstructive lung disease.", "score": 0, "explanation":"This is very partially relevant  as it refers to the general condition of COPD without specifying GOLD i"}
     ]
@@ -5124,8 +5163,8 @@
     {
       "input":"Query:right bundle branch block (rbbb) disorder, candidate terms: ['right bundle branch block, posterior fascicular block and incomplete left bundle branch block','complete right bundle branch block','Right bundle branch block.']",
       "output":
-      [{"answer":"right bundle branch block, posterior fascicular block and incomplete left bundle branch block.", "score": 5, "explanation":"This is related but matching to this term requires additional context in query"},
-      {"answer": "complete right bundle branch block", "score": 7, "explanation":"This is a specific type of right bundle branch block and partially matches the query"},
+      [{"answer":"right bundle branch block, posterior fascicular block and incomplete left bundle branch block.", "score": 5, "explanation":"This is related but matching to this term requires additional context in query"}, 
+      {"answer": "complete right bundle branch block", "score": 7, "explanation":"This is a specific type of right bundle branch block and partially matches the query"}, 
       {"answer": "Right bundle branch block", "score": 10, "explanation":"This is an exact match to the query as query mentions right bundle branch block without additional context"}
     ]
     },
@@ -5145,8 +5184,8 @@
       {
         "input":"Query: copd gold ii, candidate terms: ['GOLD (Global Initiative for Chronic Obstructive Lung Disease) 2017 group','moderate chronic obstructive pulmonary disease', 'Consultation for chronic obstructive pulmonary disease','Group A','chronic obstructive lung disease']",
         "output":[{"answer":"GOLD (Global Initiative for Chronic Obstructive Lung Disease) 2017 group.", "score": 9, "explanation":"This is a highly relevant match as it refers to the GOLD initiative, which is related to COPD"},
-        {"answer":"moderate chronic obstructive pulmonary disease.", "score":10, "explanation": "This is an exact match since it refers to the GOLD II stage of COPD, indicating moderate COPD."},
-        {"answer": "Consultation for chronic obstructive pulmonary disease.", "score": 0, "explanation":"This is a not related match as it refers to the process of getting consulation for COPD checkup"},
+        {"answer":"moderate chronic obstructive pulmonary disease.", "score":10, "explanation": "This is an exact match since it refers to the GOLD II stage of COPD, indicating moderate COPD."}, 
+        {"answer": "Consultation for chronic obstructive pulmonary disease.", "score": 0, "explanation":"This is a not related match as it refers to the process of getting consulation for COPD checkup"}, 
         { "answer":"chronic obstructive lung disease.", "score": 3, "explanation":"This is not a relevant match as it refers to the general condition of COPD without specifying GOLD i"}
       ]
       },
@@ -5179,23 +5218,23 @@
             "explanation": "It is not relevant. It mentions the GDS total which indicates a measure of the scale but lacks specificity about being the long or short form, focusing instead on an aggregate score."
           }
         ]
-      },
+      },      
       {
         "input":"Query:low-density lipoprotein cholesterol (ldl-c) , candidate terms: ['LDL-C (low density lipoprotein cholesterol) substance concentration in plasma. ,'Cholesterol in LDL [Mass/volume] in Serum or Plasma','LDL (low density lipoprotein)/HDL (high density lipoprotein) molar concentration ratio in plasma. ']",
         "output": [
-          {"answer": "LDL-C (low density lipoprotein cholesterol) substance concentration in plasma", "score": 7, "explanation":"This is a partial match as it mentions LDL-C in plasma"},
-          {"answer": "Cholesterol in LDL [Mass/volume] in Serum or Plasma.", "score": 10, "explanation":"This is the most relevant answer as it precisely matches the query in terms of the measurement context and substance."},
+          {"answer": "LDL-C (low density lipoprotein cholesterol) substance concentration in plasma", "score": 7, "explanation":"This is a partial match as it mentions LDL-C in plasma"}, 
+          {"answer": "Cholesterol in LDL [Mass/volume] in Serum or Plasma.", "score": 10, "explanation":"This is the most relevant answer as it precisely matches the query in terms of the measurement context and substance."}, 
           {"answer": "LDL (low density lipoprotein)/HDL (high density lipoprotein) molar concentration ratio in plasma.", "score": 7, "explanation":"This answer is relevant but less specific as it includes HDL along with LDL which makes it less precise."}
         ]
       },
       {
         "input":"Query:glucose , candidate terms: ['Glucose [Mass/volume] in Blood','Glucose measurement']",
         "output":[
-          {"answer": "Glucose [Mass/volume] in Blood", "score": 10, "explanation":"This is a precise match for the query as it specifically mentions glucose in terms of its concentration by mass/volume in blood, directly aligning with the query's request for a measurement of glucose."},
+          {"answer": "Glucose [Mass/volume] in Blood", "score": 10, "explanation":"This is a precise match for the query as it specifically mentions glucose in terms of its concentration by mass/volume in blood, directly aligning with the query's request for a measurement of glucose."}, 
           {"answer": "Glucose measurement. :measurement", "score": 7, "explanation":"This answer is relevant but less specific as it indicates a procedure of glucose for which no context is given."}
           ]
       },
-
+       
       {
         "input": "Query: height, candidate terms: ['body height measure', 'body height (length), 'general body height (length)', 'specific body height (length)', 'body height stated', 'body height growth rate', 'patient height', 'body height', 'body height', 'sitting height']",
         "output": [
@@ -5232,7 +5271,7 @@
       {
         "input":"Query:History of hypertension (mother), candidate terms: ['Family history','Fh:hypertension. ','mother','maternal hypertension.n','mother']",
         "output":[
-          {"answer": "Family history", "score": 0, "explanation":"This answer is not relevant but lacks specificity. It mentions 'family history' but does not explicitly connect to 'hypertension' or specify the maternal relationship, making it less directly relevant to the query."},
+          {"answer": "Family history", "score": 0, "explanation":"This answer is not relevant but lacks specificity. It mentions 'family history' but does not explicitly connect to 'hypertension' or specify the maternal relationship, making it less directly relevant to the query."}, 
           {"answer": "Fh:hypertension.", "score": 9, "explanation":"This answer is highly relevant to the query but lacks the context 'mother' to which family history is pretraining"},
           {"answer": "mother.", "score": 5, "explanation":"This answer is partially relevant as it references 'mother,' fitting the query's specification of the maternal aspect in family history. However, it lacks mention of 'hypertension,'"},
           {"answer": "maternal hypertension", "score": 10, "explanation":"This answer is specific and relevant by mentioning 'maternal hypertension,' directly linking both the condition and the maternal aspect."}
@@ -5242,7 +5281,7 @@
         "input":"Query: Family history of sudden death(parent), candidate terms: ['Death','Family history of sudden death. ','FH: Sudden infant death']",
         "output":[
           {"answer": "Death.", "score": 0, "explanation":"This is a not relevant term but not specific to family history"},
-          {"answer": "Family history of sudden death.", "score": 9, "explanation":"This is highly relevant since the query is about family history of sudden death but lacks context 'mother'"},
+          {"answer": "Family history of sudden death.", "score": 9, "explanation":"This is highly relevant since the query is about family history of sudden death but lacks context 'mother'"}, 
           {"answer": "FH: Sudden infant death.", "score": 0, "explanation":"This is not relevant to family history of mother or parents"}
           ]
       },
@@ -5301,9 +5340,9 @@
       {
         "input":"Query: statin, candidate terms: ['HMG-CoA reductase inhibitor','Statin declined. ','High-intensity statin therapy','Offer of statin therapy' ]",
         "output":[
-          {"answer":"HMG-CoA reductase inhibitor", "score": 10, "explanation":"This is an exact match since statin is a type of HMG-CoA reductase inhibitor"},
-          {"answer": "Statin declined.", "score": 4, "explanation":"This is somwhat related as it mentions statin but includes additional context about it being declined"},
-          {"answer": "High-intensity statin therapy.", "score": 5, "explanation":"This is a specific type of statin therapy and closely matches the query"},
+          {"answer":"HMG-CoA reductase inhibitor", "score": 10, "explanation":"This is an exact match since statin is a type of HMG-CoA reductase inhibitor"}, 
+          {"answer": "Statin declined.", "score": 4, "explanation":"This is somwhat related as it mentions statin but includes additional context about it being declined"}, 
+          {"answer": "High-intensity statin therapy.", "score": 5, "explanation":"This is a specific type of statin therapy and closely matches the query"}, 
           {"answer": "Offer of statin therapy", "score": 4, "explanation":"This is somwhat related to statin but mentions an offer of therapy which is additional context"}
         ]
       },
@@ -5311,7 +5350,7 @@
         "input":"Query:beta-blockers (BB), candidate terms: ['Beta adrenergic receptor antagonist','Beta blocker identification','Prescription of beta blocker']",
         "output":[
           {"answer":"Beta adrenergic receptor antagonist", "score": 10, "explanation":"This is an exact match to the query"},
-          {"answer": "Beta blocker identification", "score": 5, "explanation":"This answer is not a close match as it only mentions the identification of beta-blockers, which is not directly relevant to the query about beta-blockers as a medication"},
+          {"answer": "Beta blocker identification", "score": 5, "explanation":"This answer is not a close match as it only mentions the identification of beta-blockers, which is not directly relevant to the query about beta-blockers as a medication"}, 
           {"answer": "Prescription of beta blocker", "score": 5, "explanation":"This is is not match. It includes additional context about the prescription process"}
         ]
 
@@ -5452,12 +5491,12 @@
     "input":"Query: Family history of sudden death(parent), candidate terms: \"['Death','Family history of sudden death. ','FH: Sudden infant death']\"",
     "output":[
       {"answer": "Death.", "score": 0, "explanation":"This is a not relevant term but not specific to family history"},
-      {"answer": "Family history of sudden death.", "score": 9, "explanation":"This is highly relevant since the query is about family history of sudden death but lacks context 'mother'"},
+      {"answer": "Family history of sudden death.", "score": 9, "explanation":"This is highly relevant since the query is about family history of sudden death but lacks context 'mother'"}, 
       {"answer": "FH: Sudden infant death.", "score": 0, "explanation":"This is not relevant to family history of mother or parents"}
       ]
 },
 {
-
+  
     "input":"Query:pfhb2, candidate terms:['pefr 2', 'pn2b', 'pefr 3', 'hpfh linked to beta-globulin gene cluster', 'fractional oxyhemoglobin in plasma', 'influenza virus a pb2 gene [nucleotide sequence] in isolate by sequencing', 'hellebrin']",
     "output":[
       {"answer": "pefr 2", "score": 0, "explanation":"This is not relevant as it refers to a different abbreviation."},
@@ -5515,7 +5554,7 @@
       }
     ]
 },
-{
+{   
     "input": "Query: ex-smoker, candidate terms: \"['former smoker', 'light tobacco smoker', 'current smoker', 'every day smoker']\"",
     "output": [
       {
@@ -5544,10 +5583,10 @@
     "input":"Query:History of hypertension (mother), candidate terms: \"['Family history','Fh:hypertension. ','mother','maternal hypertension.n','mother']\"",
     "output":[
       {
-        "answer": "Family history",
-        "score": 0,
+        "answer": "Family history", 
+        "score": 0, 
         "explanation":"This answer is not relevant but lacks specificity. It mentions 'family history' but does not explicitly connect to 'hypertension' or specify the maternal relationship, making it less directly relevant to the query."
-      },
+      }, 
       {"answer": "Fh:hypertension.", "score": 9, "explanation":"This answer is highly relevant to the query but lacks the context 'mother' to which family history is pretraining"},
       {"answer": "mother.", "score": 5, "explanation":"This answer is partially relevant as it references 'mother,' fitting the query's specification of the maternal aspect in family history. However, it lacks mention of 'hypertension,'"},
       {"answer": "maternal hypertension", "score": 10, "explanation":"This answer is specific and relevant by mentioning 'maternal hypertension,' directly linking both the condition and the maternal aspect."}
@@ -5579,9 +5618,9 @@
 {
     "input":"Query: statin, candidate terms: \"['HMG-CoA reductase inhibitor','Statin declined. ','High-intensity statin therapy','Offer of statin therapy']\"",
     "output":[
-      {"answer":"HMG-CoA reductase inhibitor", "score": 10, "explanation":"This is an exact match since statin is a type of HMG-CoA reductase inhibitor"},
-      {"answer": "Statin declined.", "score": 4, "explanation":"This is somwhat related as it mentions statin but includes additional context about it being declined"},
-      {"answer": "High-intensity statin therapy.", "score": 5, "explanation":"This is a specific type of statin therapy and closely matches the query"},
+      {"answer":"HMG-CoA reductase inhibitor", "score": 10, "explanation":"This is an exact match since statin is a type of HMG-CoA reductase inhibitor"}, 
+      {"answer": "Statin declined.", "score": 4, "explanation":"This is somwhat related as it mentions statin but includes additional context about it being declined"}, 
+      {"answer": "High-intensity statin therapy.", "score": 5, "explanation":"This is a specific type of statin therapy and closely matches the query"}, 
       {"answer": "Offer of statin therapy", "score": 4, "explanation":"This is somwhat related to statin but mentions an offer of therapy which is additional context"}
     ]
 },
@@ -5617,8 +5656,8 @@
 {
   "input":"Query:low-density lipoprotein cholesterol (ldl-c) , candidate terms: \"['LDL-C (low density lipoprotein cholesterol) substance concentration in plasma. ,'Cholesterol in LDL [Mass/volume] in Serum or Plasma','LDL (low density lipoprotein)/HDL (high density lipoprotein) molar concentration ratio in plasma.']\"",
   "output": [
-    {"answer": "LDL-C (low density lipoprotein cholesterol) substance concentration in plasma", "score": 7, "explanation":"This is a partial match as it mentions LDL-C in plasma"},
-    {"answer": "Cholesterol in LDL [Mass/volume] in Serum or Plasma.", "score": 10, "explanation":"This is the most relevant answer as it precisely matches the query in terms of the measurement context and substance."},
+    {"answer": "LDL-C (low density lipoprotein cholesterol) substance concentration in plasma", "score": 7, "explanation":"This is a partial match as it mentions LDL-C in plasma"}, 
+    {"answer": "Cholesterol in LDL [Mass/volume] in Serum or Plasma.", "score": 10, "explanation":"This is the most relevant answer as it precisely matches the query in terms of the measurement context and substance."}, 
     {"answer": "LDL (low density lipoprotein)/HDL (high density lipoprotein) molar concentration ratio in plasma.", "score": 7, "explanation":"This answer is relevant but less specific as it includes HDL along with LDL which makes it less precise."}
   ]
 },
@@ -5675,14 +5714,14 @@
 {
   "input":"Query:right bundle branch block (rbbb) disorder, candidate terms: \"['right bundle branch block, posterior fascicular block and incomplete left bundle branch block','complete right bundle branch block','Right bundle branch block.']\"",
   "output":
-  [{"answer":"right bundle branch block, posterior fascicular block and incomplete left bundle branch block.", "score": 5, "explanation":"This is related but matching to this term requires additional context in query"},
-  {"answer": "complete right bundle branch block", "score": 7, "explanation":"This is a specific type of right bundle branch block and partially matches the query"},
+  [{"answer":"right bundle branch block, posterior fascicular block and incomplete left bundle branch block.", "score": 5, "explanation":"This is related but matching to this term requires additional context in query"}, 
+  {"answer": "complete right bundle branch block", "score": 7, "explanation":"This is a specific type of right bundle branch block and partially matches the query"}, 
   {"answer": "Right bundle branch block", "score": 10, "explanation":"This is an exact match to the query as query mentions right bundle branch block without additional context"}
 ]
 },
 {
   "input": "Query: date of cardiac MRI, candidate terms: \"['left ventricular myocardial mass at end diastole by us', 'mid diastolic', 'right ventricular myocardial performance index (tei) by us', 'cardio/pulm: myocardial infarction', 'myocardial mass at end diastole | heart ventricle - left | dicom simplified adult echo report concepts', 'right ventricular cardiac index by spiral ct', 'ventricular cardiac index by us', 'a valid date value is provided in item date of 1st crs rx [1270], or the date was not expected to have been transmitted. ', 'measure duration | xxx | cardiac ultrasound', 'date of myocardial infarction']\"",
-  "output":
+  "output": 
   [
     {"answer": "left ventricular myocardial mass at end diastole by us.","score": 0,"explanation": "Not relevant; mentions myocardial mass but not related to cardiac MRI or date."},
     {"answer": "mid diastolic.","score": 0,"explanation": "Not relevant; mentions diastolic value without context of cardiac MRI or date."},
@@ -5727,7 +5766,7 @@
   "output":
   [{"answer":"GOLD (Global Initiative for Chronic Obstructive Lung Disease) 2017 group.", "score": 9, "explanation":"This is a highly relevant match as it refers to the GOLD initiative, which is related to COPD"},
   {"answer":"moderate chronic obstructive pulmonary disease.", "score":10, "explanation": "This is accuract match since it refers to the GOLD II stage of COPD, indicating moderate COPD."},
-   {"answer": "Consultation for chronic obstructive pulmonary disease.", "score": 0, "explanation":"This is a not related match as it refers to the process of getting consulation for COPD checkup"},
+   {"answer": "Consultation for chronic obstructive pulmonary disease.", "score": 0, "explanation":"This is a not related match as it refers to the process of getting consulation for COPD checkup"}, 
    {"answer": "Group A.", "score": 0, "explanation":"This is a not a match as it might relate to a classification group within COPD but does not specify GOLD i"},
    { "answer": "chronic obstructive lung disease.", "score": 0, "explanation":"This is very partially relevant  as it refers to the general condition of COPD without specifying GOLD i"}
   ]
@@ -5736,7 +5775,7 @@
   "input":"Query:beta-blockers (BB), candidate terms: \"['Beta adrenergic receptor antagonist','Beta blocker identification','Prescription of beta blocker']\"",
   "output":[
     {"answer":"Beta adrenergic receptor antagonist", "score": 10, "explanation":"This is an exact match to the query"},
-    {"answer": "Beta blocker identification", "score": 5, "explanation":"This answer is not a close match as it only mentions the identification of beta-blockers, which is not directly relevant to the query about beta-blockers as a medication"},
+    {"answer": "Beta blocker identification", "score": 5, "explanation":"This answer is not a close match as it only mentions the identification of beta-blockers, which is not directly relevant to the query about beta-blockers as a medication"}, 
     {"answer": "Prescription of beta blocker", "score": 5, "explanation":"This is is not match. It includes additional context about the prescription process"}
   ]
 
@@ -5770,12 +5809,12 @@
       "explanation": "It is not relevant. It mentions the GDS total which indicates a measure of the scale but lacks specificity about being the long or short form, focusing instead on an aggregate score."
     }
   ]
-},
+},    
 {
   "input":"Query: copd gold ii, candidate terms: \"['GOLD (Global Initiative for Chronic Obstructive Lung Disease) 2017 group','moderate chronic obstructive pulmonary disease', 'Consultation for chronic obstructive pulmonary disease','Group A','chronic obstructive lung disease']\"",
   "output":[{"answer":"GOLD (Global Initiative for Chronic Obstructive Lung Disease) 2017 group.", "score": 9, "explanation":"This is a highly relevant match as it refers to the GOLD initiative, which is related to COPD"},
-  {"answer":"moderate chronic obstructive pulmonary disease.", "score":10, "explanation": "This is an exact match since it refers to the GOLD II stage of COPD, indicating moderate COPD."},
-  {"answer": "Consultation for chronic obstructive pulmonary disease.", "score": 0, "explanation":"This is a not related match as it refers to the process of getting consulation for COPD checkup"},
+  {"answer":"moderate chronic obstructive pulmonary disease.", "score":10, "explanation": "This is an exact match since it refers to the GOLD II stage of COPD, indicating moderate COPD."}, 
+  {"answer": "Consultation for chronic obstructive pulmonary disease.", "score": 0, "explanation":"This is a not related match as it refers to the process of getting consulation for COPD checkup"}, 
   { "answer":"chronic obstructive lung disease.", "score": 3, "explanation":"This is not a relevant match as it refers to the general condition of COPD without specifying GOLD i"}
 ]
 },
@@ -5813,8 +5852,8 @@
 {
   "input":"Query: copd gold ii, candidate terms: \"['GOLD (Global Initiative for Chronic Obstructive Lung Disease) 2017 group','moderate chronic obstructive pulmonary disease', 'Consultation for chronic obstructive pulmonary disease','Group A','chronic obstructive lung disease']\"",
   "output":[{"answer":"GOLD (Global Initiative for Chronic Obstructive Lung Disease) 2017 group.", "score": 9, "explanation":"This is a highly relevant match as it refers to the GOLD initiative, which is related to COPD"},
-  {"answer":"moderate chronic obstructive pulmonary disease.", "score":10, "explanation": "This is an exact match since it refers to the GOLD II stage of COPD, indicating moderate COPD."},
-  {"answer": "Consultation for chronic obstructive pulmonary disease.", "score": 0, "explanation":"This is a not related match as it refers to the process of getting consulation for COPD checkup"},
+  {"answer":"moderate chronic obstructive pulmonary disease.", "score":10, "explanation": "This is an exact match since it refers to the GOLD II stage of COPD, indicating moderate COPD."}, 
+  {"answer": "Consultation for chronic obstructive pulmonary disease.", "score": 0, "explanation":"This is a not related match as it refers to the process of getting consulation for COPD checkup"}, 
   { "answer":"chronic obstructive lung disease.", "score": 3, "explanation":"This is not a relevant match as it refers to the general condition of COPD without specifying GOLD i"}
 ]
 },
@@ -5836,8 +5875,8 @@
 {
   "input":"Query: copd gold ii, candidate terms: \"['GOLD (Global Initiative for Chronic Obstructive Lung Disease) 2017 group','moderate chronic obstructive pulmonary disease', 'Consultation for chronic obstructive pulmonary disease','Group A','chronic obstructive lung disease']\"",
   "output":[{"answer":"GOLD (Global Initiative for Chronic Obstructive Lung Disease) 2017 group.", "score": 9, "explanation":"This is a highly relevant match as it refers to the GOLD initiative, which is related to COPD"},
-  {"answer":"moderate chronic obstructive pulmonary disease.", "score":10, "explanation": "This is an exact match since it refers to the GOLD II stage of COPD, indicating moderate COPD."},
-  {"answer": "Consultation for chronic obstructive pulmonary disease.", "score": 0, "explanation":"This is a not related match as it refers to the process of getting consulation for COPD checkup"},
+  {"answer":"moderate chronic obstructive pulmonary disease.", "score":10, "explanation": "This is an exact match since it refers to the GOLD II stage of COPD, indicating moderate COPD."}, 
+  {"answer": "Consultation for chronic obstructive pulmonary disease.", "score": 0, "explanation":"This is a not related match as it refers to the process of getting consulation for COPD checkup"}, 
   { "answer":"chronic obstructive lung disease.", "score": 3, "explanation":"This is not a relevant match as it refers to the general condition of COPD without specifying GOLD i"}
 ]
 },
@@ -5881,7 +5920,7 @@
   ]
 
 
-},
+}, 
 {
   "input": "mm3 unit, candidate terms: \"['3 mm', '1 mm','a3 ag | blood product unit | blood bank', 'a3 ab | blood product unit | blood bank', 'a3']\"",
   "output": [
@@ -5911,7 +5950,7 @@
       "explanation": "Not Related; 'a3' might be mistaken for a cubic unit but there's no clear context to support this."
     }
   ]
-},
+},     
 {
   "input": "Query: height, candidate terms: \"['body height measure', 'body height (length), 'general body height (length)', 'specific body height (length)', 'body height stated', 'body height growth rate', 'patient height', 'body height', 'body height', 'sitting height']\"",
   "output": [
@@ -5952,11 +5991,11 @@
       "explanation": "This is the most relevant as it directly addresses the family history of neoplasms without specifying a type, which aligns perfectly with the query's emphasis on a general history of neoplasm related to the father."
     },
     {
-      "answer": "Family history of prostate cancer",
+      "answer": "Family history of prostate cancer", 
       "score": 4,
       "explanation": "Somwhat relevant; focuses on growth rate rather than static height measurement."
     },
-    { "answer": "Family history of neoplasm of lung",
+    { "answer": "Family history of neoplasm of lung", 
       "score": 4,
       "explanation": "Somwhat relevant as lung cancer is a significant and common type of neoplasm, directly linking to familial history."
     },
@@ -6012,21 +6051,21 @@
 {
   "input":"Query:low-density lipoprotein cholesterol (ldl-c) , candidate terms: ['LDL-C (low density lipoprotein cholesterol) substance concentration in plasma. ,'Cholesterol in LDL [Mass/volume] in Serum or Plasma','LDL (low density lipoprotein)/HDL (high density lipoprotein) molar concentration ratio in plasma. ']",
   "output": [
-    {"answer": "LDL-C (low density lipoprotein cholesterol) substance concentration in plasma", "score": 7, "explanation":"This is a partial match as it mentions LDL-C in plasma"},
-    {"answer": "Cholesterol in LDL [Mass/volume] in Serum or Plasma.", "score": 10, "explanation":"This is the most relevant answer as it precisely matches the query in terms of the measurement context and substance."},
+    {"answer": "LDL-C (low density lipoprotein cholesterol) substance concentration in plasma", "score": 7, "explanation":"This is a partial match as it mentions LDL-C in plasma"}, 
+    {"answer": "Cholesterol in LDL [Mass/volume] in Serum or Plasma.", "score": 10, "explanation":"This is the most relevant answer as it precisely matches the query in terms of the measurement context and substance."}, 
     {"answer": "LDL (low density lipoprotein)/HDL (high density lipoprotein) molar concentration ratio in plasma.", "score": 7, "explanation":"This answer is relevant but less specific as it includes HDL along with LDL which makes it less precise."}
   ]
 },
 {
   "input":"Query:glucose , candidate terms: ['Glucose [Mass/volume] in Blood','Glucose measurement']",
   "output":[
-    {"answer": "Glucose [Mass/volume] in Blood", "score": 10, "explanation":"This is a precise match for the query as it specifically mentions glucose in terms of its concentration by mass/volume in blood, directly aligning with the query's request for a measurement of glucose."},
+    {"answer": "Glucose [Mass/volume] in Blood", "score": 10, "explanation":"This is a precise match for the query as it specifically mentions glucose in terms of its concentration by mass/volume in blood, directly aligning with the query's request for a measurement of glucose."}, 
     {"answer": "Glucose measurement. :measurement", "score": 7, "explanation":"This answer is relevant but less specific as it indicates a procedure of glucose for which no context is given."}
     ]
 },
 {
   "input": "Query: date of cardiac MRI, candidate terms: ['left ventricular myocardial mass at end diastole by us', 'mid diastolic', 'right ventricular myocardial performance index (tei) by us', 'cardio/pulm: myocardial infarction', 'myocardial mass at end diastole | heart ventricle - left | dicom simplified adult echo report concepts', 'right ventricular cardiac index by spiral ct', 'ventricular cardiac index by us', 'a valid date value is provided in item date of 1st crs rx [1270], or the date was not expected to have been transmitted. ', 'measure duration | xxx | cardiac ultrasound', 'date of myocardial infarction']",
-  "output":
+  "output": 
   [
     {"answer": "left ventricular myocardial mass at end diastole by us.","score": 0,"explanation": "Not relevant; mentions myocardial mass but not related to cardiac MRI or date."},
     {"answer": "mid diastolic.","score": 0,"explanation": "Not relevant; mentions diastolic value without context of cardiac MRI or date."},
@@ -6067,8 +6106,8 @@
 {
   "input":"Query:right bundle branch block (rbbb) disorder, candidate terms: ['right bundle branch block, posterior fascicular block and incomplete left bundle branch block','complete right bundle branch block','Right bundle branch block.']",
   "output":
-  [{"answer":"right bundle branch block, posterior fascicular block and incomplete left bundle branch block.", "score": 5, "explanation":"This is related but matching to this term requires additional context in query"},
-  {"answer": "complete right bundle branch block", "score": 7, "explanation":"This is a specific type of right bundle branch block and partially matches the query"},
+  [{"answer":"right bundle branch block, posterior fascicular block and incomplete left bundle branch block.", "score": 5, "explanation":"This is related but matching to this term requires additional context in query"}, 
+  {"answer": "complete right bundle branch block", "score": 7, "explanation":"This is a specific type of right bundle branch block and partially matches the query"}, 
   {"answer": "Right bundle branch block", "score": 10, "explanation":"This is an exact match to the query as query mentions right bundle branch block without additional context"}
 ]
 },
@@ -6137,11 +6176,11 @@
       "explanation": "Addresses complications from type 2 diabetes but does not focus on the duration of the disease itself."
     }
   ]
-},
+},  
 {
   "input":"Query,History of hypertension, candidate terms: ['Family history','Fh:hypertension. ','mother','maternal hypertension.n']",
   "output":[
-    {"answer": "Family history", "score": 0, "explanation":"This answer is not relevant but lacks specificity. It mentions 'family history' but does not explicitly connect to 'hypertension' or specify the maternal relationship, making it less directly relevant to the query."},
+    {"answer": "Family history", "score": 0, "explanation":"This answer is not relevant but lacks specificity. It mentions 'family history' but does not explicitly connect to 'hypertension' or specify the maternal relationship, making it less directly relevant to the query."}, 
     {"answer": "Fh:hypertension.", "score": 9, "explanation":"This answer is highly relevant to the query but lacks the context 'mother' to which family history is pretraining"},
     {"answer": "maternal hypertension", "score": 10, "explanation":"This answer is specific and relevant by mentioning 'maternal hypertension,' directly linking both the condition and the maternal aspect."}
     ]
@@ -6150,7 +6189,7 @@
   "input":"Query: Family history of sudden death, candidate terms: ['Death','Family history of sudden death. ','FH: Sudden infant death']",
   "output":[
     {"answer": "Death.", "score": 0, "explanation":"This is a not relevant term but not specific to family history"},
-    {"answer": "Family history of sudden death.", "score": 9, "explanation":"This is highly relevant since the query is about family history of sudden death but lacks context 'mother'"},
+    {"answer": "Family history of sudden death.", "score": 9, "explanation":"This is highly relevant since the query is about family history of sudden death but lacks context 'mother'"}, 
     {"answer": "FH: Sudden infant death.", "score": 0, "explanation":"This is not relevant to family history of mother or parents"}
     ]
 },
@@ -6186,7 +6225,7 @@
   {"answer": "new york heart association classification","score": 10,"explanation": "Mentions the New York Heart Association classification but lacks detail about specific classes, requiring more context."},
   { "answer": "cardiac asthma","score": 0,"explanation": "Mentions a heart-related condition but is unrelated to the specific query about the New York Heart Association classification."},
    {"answer": "chronic left-sided heart failure","score": 0,"explanation": "Mentions a heart condition but does not provide context related to the New York Heart Association classification."},
-   {"answer": "new york heart association classification class","score": 8,"explanation": "Mentions the New York Heart Association classification generally but lacks the detail needed about specific classes."},
+   {"answer": "new york heart association classification class","score": 8,"explanation": "Mentions the New York Heart Association classification generally but lacks the detail needed about specific classes."}, 
    {"answer": "acute left ventricular failure","score": 0, "explanation": "Mentions a specific heart condition but lacks any connection to the New York Heart Association classification."}
    ]
 
@@ -6196,7 +6235,7 @@
 "output":
 [{"answer":"GOLD (Global Initiative for Chronic Obstructive Lung Disease) 2017 group.", "score": 9, "explanation":"This is a highly relevant match as it refers to the GOLD initiative, which is related to COPD"},
 {"answer":"moderate chronic obstructive pulmonary disease.", "score":10, "explanation": "This is accuract match since it refers to the GOLD II stage of COPD, indicating moderate COPD."},
- {"answer": "Consultation for chronic obstructive pulmonary disease.", "score": 0, "explanation":"This is a not related match as it refers to the process of getting consulation for COPD checkup"},
+ {"answer": "Consultation for chronic obstructive pulmonary disease.", "score": 0, "explanation":"This is a not related match as it refers to the process of getting consulation for COPD checkup"}, 
  {"answer": "Group A.", "score": 0, "explanation":"This is a not a match as it might relate to a classification group within COPD but does not specify GOLD i"},
  { "answer": "chronic obstructive lung disease.", "score": 0, "explanation":"This is very partially relevant  as it refers to the general condition of COPD without specifying GOLD i"}
 ]
@@ -6309,12 +6348,12 @@
     "input":"Query: Family history of sudden death(parent), candidate terms: \"['Death','Family history of sudden death. ','FH: Sudden infant death']\"",
     "output":[
       {"answer": "Death.", "score": 0, "explanation":"This is a not relevant term but not specific to family history"},
-      {"answer": "Family history of sudden death.", "score": 9, "explanation":"This is highly relevant since the query is about family history of sudden death but lacks context 'mother'"},
+      {"answer": "Family history of sudden death.", "score": 9, "explanation":"This is highly relevant since the query is about family history of sudden death but lacks context 'mother'"}, 
       {"answer": "FH: Sudden infant death.", "score": 0, "explanation":"This is not relevant to family history of mother or parents"}
       ]
 },
 {
-
+  
     "input":"Query:pfhb2, candidate terms:['pefr 2', 'pn2b', 'pefr 3', 'hpfh linked to beta-globulin gene cluster', 'fractional oxyhemoglobin in plasma', 'influenza virus a pb2 gene [nucleotide sequence] in isolate by sequencing', 'hellebrin']",
     "output":[
       {"answer": "pefr 2", "score": 0, "explanation":"This is not relevant as it refers to a different abbreviation."},
@@ -6372,7 +6411,7 @@
       }
     ]
 },
-{
+{   
     "input": "Query: ex-smoker, candidate terms: \"['former smoker', 'light tobacco smoker', 'current smoker', 'every day smoker']\"",
     "output": [
       {
@@ -6401,10 +6440,10 @@
     "input":"Query:History of hypertension (mother), candidate terms: \"['Family history','Fh:hypertension. ','mother','maternal hypertension.n','mother']\"",
     "output":[
       {
-        "answer": "Family history",
-        "score": 0,
+        "answer": "Family history", 
+        "score": 0, 
         "explanation":"This answer is not relevant but lacks specificity. It mentions 'family history' but does not explicitly connect to 'hypertension' or specify the maternal relationship, making it less directly relevant to the query."
-      },
+      }, 
       {"answer": "Fh:hypertension.", "score": 9, "explanation":"This answer is highly relevant to the query but lacks the context 'mother' to which family history is pretraining"},
       {"answer": "mother.", "score": 5, "explanation":"This answer is partially relevant as it references 'mother,' fitting the query's specification of the maternal aspect in family history. However, it lacks mention of 'hypertension,'"},
       {"answer": "maternal hypertension", "score": 10, "explanation":"This answer is specific and relevant by mentioning 'maternal hypertension,' directly linking both the condition and the maternal aspect."}
@@ -6436,9 +6475,9 @@
 {
     "input":"Query: statin, candidate terms: \"['HMG-CoA reductase inhibitor','Statin declined. ','High-intensity statin therapy','Offer of statin therapy']\"",
     "output":[
-      {"answer":"HMG-CoA reductase inhibitor", "score": 10, "explanation":"This is an exact match since statin is a type of HMG-CoA reductase inhibitor"},
-      {"answer": "Statin declined.", "score": 4, "explanation":"This is somwhat related as it mentions statin but includes additional context about it being declined"},
-      {"answer": "High-intensity statin therapy.", "score": 5, "explanation":"This is a specific type of statin therapy and closely matches the query"},
+      {"answer":"HMG-CoA reductase inhibitor", "score": 10, "explanation":"This is an exact match since statin is a type of HMG-CoA reductase inhibitor"}, 
+      {"answer": "Statin declined.", "score": 4, "explanation":"This is somwhat related as it mentions statin but includes additional context about it being declined"}, 
+      {"answer": "High-intensity statin therapy.", "score": 5, "explanation":"This is a specific type of statin therapy and closely matches the query"}, 
       {"answer": "Offer of statin therapy", "score": 4, "explanation":"This is somwhat related to statin but mentions an offer of therapy which is additional context"}
     ]
 },
@@ -6474,8 +6513,8 @@
 {
   "input":"Query:low-density lipoprotein cholesterol (ldl-c) , candidate terms: \"['LDL-C (low density lipoprotein cholesterol) substance concentration in plasma. ,'Cholesterol in LDL [Mass/volume] in Serum or Plasma','LDL (low density lipoprotein)/HDL (high density lipoprotein) molar concentration ratio in plasma.']\"",
   "output": [
-    {"answer": "LDL-C (low density lipoprotein cholesterol) substance concentration in plasma", "score": 7, "explanation":"This is a partial match as it mentions LDL-C in plasma"},
-    {"answer": "Cholesterol in LDL [Mass/volume] in Serum or Plasma.", "score": 10, "explanation":"This is the most relevant answer as it precisely matches the query in terms of the measurement context and substance."},
+    {"answer": "LDL-C (low density lipoprotein cholesterol) substance concentration in plasma", "score": 7, "explanation":"This is a partial match as it mentions LDL-C in plasma"}, 
+    {"answer": "Cholesterol in LDL [Mass/volume] in Serum or Plasma.", "score": 10, "explanation":"This is the most relevant answer as it precisely matches the query in terms of the measurement context and substance."}, 
     {"answer": "LDL (low density lipoprotein)/HDL (high density lipoprotein) molar concentration ratio in plasma.", "score": 7, "explanation":"This answer is relevant but less specific as it includes HDL along with LDL which makes it less precise."}
   ]
 },
@@ -6532,14 +6571,14 @@
 {
   "input":"Query:right bundle branch block (rbbb) disorder, candidate terms: \"['right bundle branch block, posterior fascicular block and incomplete left bundle branch block','complete right bundle branch block','Right bundle branch block.']\"",
   "output":
-  [{"answer":"right bundle branch block, posterior fascicular block and incomplete left bundle branch block.", "score": 5, "explanation":"This is related but matching to this term requires additional context in query"},
-  {"answer": "complete right bundle branch block", "score": 7, "explanation":"This is a specific type of right bundle branch block and partially matches the query"},
+  [{"answer":"right bundle branch block, posterior fascicular block and incomplete left bundle branch block.", "score": 5, "explanation":"This is related but matching to this term requires additional context in query"}, 
+  {"answer": "complete right bundle branch block", "score": 7, "explanation":"This is a specific type of right bundle branch block and partially matches the query"}, 
   {"answer": "Right bundle branch block", "score": 10, "explanation":"This is an exact match to the query as query mentions right bundle branch block without additional context"}
 ]
 },
 {
   "input": "Query: date of cardiac MRI, candidate terms: \"['left ventricular myocardial mass at end diastole by us', 'mid diastolic', 'right ventricular myocardial performance index (tei) by us', 'cardio/pulm: myocardial infarction', 'myocardial mass at end diastole | heart ventricle - left | dicom simplified adult echo report concepts', 'right ventricular cardiac index by spiral ct', 'ventricular cardiac index by us', 'a valid date value is provided in item date of 1st crs rx [1270], or the date was not expected to have been transmitted. ', 'measure duration | xxx | cardiac ultrasound', 'date of myocardial infarction']\"",
-  "output":
+  "output": 
   [
     {"answer": "left ventricular myocardial mass at end diastole by us.","score": 0,"explanation": "Not relevant; mentions myocardial mass but not related to cardiac MRI or date."},
     {"answer": "mid diastolic.","score": 0,"explanation": "Not relevant; mentions diastolic value without context of cardiac MRI or date."},
@@ -6584,7 +6623,7 @@
   "output":
   [{"answer":"GOLD (Global Initiative for Chronic Obstructive Lung Disease) 2017 group.", "score": 9, "explanation":"This is a highly relevant match as it refers to the GOLD initiative, which is related to COPD"},
   {"answer":"moderate chronic obstructive pulmonary disease.", "score":10, "explanation": "This is accuract match since it refers to the GOLD II stage of COPD, indicating moderate COPD."},
-   {"answer": "Consultation for chronic obstructive pulmonary disease.", "score": 0, "explanation":"This is a not related match as it refers to the process of getting consulation for COPD checkup"},
+   {"answer": "Consultation for chronic obstructive pulmonary disease.", "score": 0, "explanation":"This is a not related match as it refers to the process of getting consulation for COPD checkup"}, 
    {"answer": "Group A.", "score": 0, "explanation":"This is a not a match as it might relate to a classification group within COPD but does not specify GOLD i"},
    { "answer": "chronic obstructive lung disease.", "score": 0, "explanation":"This is very partially relevant  as it refers to the general condition of COPD without specifying GOLD i"}
   ]
@@ -6593,7 +6632,7 @@
   "input":"Query:beta-blockers (BB), candidate terms: \"['Beta adrenergic receptor antagonist','Beta blocker identification','Prescription of beta blocker']\"",
   "output":[
     {"answer":"Beta adrenergic receptor antagonist", "score": 10, "explanation":"This is an exact match to the query"},
-    {"answer": "Beta blocker identification", "score": 5, "explanation":"This answer is not a close match as it only mentions the identification of beta-blockers, which is not directly relevant to the query about beta-blockers as a medication"},
+    {"answer": "Beta blocker identification", "score": 5, "explanation":"This answer is not a close match as it only mentions the identification of beta-blockers, which is not directly relevant to the query about beta-blockers as a medication"}, 
     {"answer": "Prescription of beta blocker", "score": 5, "explanation":"This is is not match. It includes additional context about the prescription process"}
   ]
 
@@ -6627,12 +6666,12 @@
       "explanation": "It is not relevant. It mentions the GDS total which indicates a measure of the scale but lacks specificity about being the long or short form, focusing instead on an aggregate score."
     }
   ]
-},
+},    
 {
   "input":"Query: copd gold ii, candidate terms: \"['GOLD (Global Initiative for Chronic Obstructive Lung Disease) 2017 group','moderate chronic obstructive pulmonary disease', 'Consultation for chronic obstructive pulmonary disease','Group A','chronic obstructive lung disease']\"",
   "output":[{"answer":"GOLD (Global Initiative for Chronic Obstructive Lung Disease) 2017 group.", "score": 9, "explanation":"This is a highly relevant match as it refers to the GOLD initiative, which is related to COPD"},
-  {"answer":"moderate chronic obstructive pulmonary disease.", "score":10, "explanation": "This is an exact match since it refers to the GOLD II stage of COPD, indicating moderate COPD."},
-  {"answer": "Consultation for chronic obstructive pulmonary disease.", "score": 0, "explanation":"This is a not related match as it refers to the process of getting consulation for COPD checkup"},
+  {"answer":"moderate chronic obstructive pulmonary disease.", "score":10, "explanation": "This is an exact match since it refers to the GOLD II stage of COPD, indicating moderate COPD."}, 
+  {"answer": "Consultation for chronic obstructive pulmonary disease.", "score": 0, "explanation":"This is a not related match as it refers to the process of getting consulation for COPD checkup"}, 
   { "answer":"chronic obstructive lung disease.", "score": 3, "explanation":"This is not a relevant match as it refers to the general condition of COPD without specifying GOLD i"}
 ]
 },
@@ -6670,8 +6709,8 @@
 {
   "input":"Query: copd gold ii, candidate terms: \"['GOLD (Global Initiative for Chronic Obstructive Lung Disease) 2017 group','moderate chronic obstructive pulmonary disease', 'Consultation for chronic obstructive pulmonary disease','Group A','chronic obstructive lung disease']\"",
   "output":[{"answer":"GOLD (Global Initiative for Chronic Obstructive Lung Disease) 2017 group.", "score": 9, "explanation":"This is a highly relevant match as it refers to the GOLD initiative, which is related to COPD"},
-  {"answer":"moderate chronic obstructive pulmonary disease.", "score":10, "explanation": "This is an exact match since it refers to the GOLD II stage of COPD, indicating moderate COPD."},
-  {"answer": "Consultation for chronic obstructive pulmonary disease.", "score": 0, "explanation":"This is a not related match as it refers to the process of getting consulation for COPD checkup"},
+  {"answer":"moderate chronic obstructive pulmonary disease.", "score":10, "explanation": "This is an exact match since it refers to the GOLD II stage of COPD, indicating moderate COPD."}, 
+  {"answer": "Consultation for chronic obstructive pulmonary disease.", "score": 0, "explanation":"This is a not related match as it refers to the process of getting consulation for COPD checkup"}, 
   { "answer":"chronic obstructive lung disease.", "score": 3, "explanation":"This is not a relevant match as it refers to the general condition of COPD without specifying GOLD i"}
 ]
 },
@@ -6693,8 +6732,8 @@
 {
   "input":"Query: copd gold ii, candidate terms: \"['GOLD (Global Initiative for Chronic Obstructive Lung Disease) 2017 group','moderate chronic obstructive pulmonary disease', 'Consultation for chronic obstructive pulmonary disease','Group A','chronic obstructive lung disease']\"",
   "output":[{"answer":"GOLD (Global Initiative for Chronic Obstructive Lung Disease) 2017 group.", "score": 9, "explanation":"This is a highly relevant match as it refers to the GOLD initiative, which is related to COPD"},
-  {"answer":"moderate chronic obstructive pulmonary disease.", "score":10, "explanation": "This is an exact match since it refers to the GOLD II stage of COPD, indicating moderate COPD."},
-  {"answer": "Consultation for chronic obstructive pulmonary disease.", "score": 0, "explanation":"This is a not related match as it refers to the process of getting consulation for COPD checkup"},
+  {"answer":"moderate chronic obstructive pulmonary disease.", "score":10, "explanation": "This is an exact match since it refers to the GOLD II stage of COPD, indicating moderate COPD."}, 
+  {"answer": "Consultation for chronic obstructive pulmonary disease.", "score": 0, "explanation":"This is a not related match as it refers to the process of getting consulation for COPD checkup"}, 
   { "answer":"chronic obstructive lung disease.", "score": 3, "explanation":"This is not a relevant match as it refers to the general condition of COPD without specifying GOLD i"}
 ]
 },
@@ -6738,7 +6777,7 @@
   ]
 
 
-},
+}, 
 {
   "input": "mm3 unit, candidate terms: \"['3 mm', '1 mm','a3 ag | blood product unit | blood bank', 'a3 ab | blood product unit | blood bank', 'a3']\"",
   "output": [
@@ -6768,7 +6807,7 @@
       "explanation": "Not Related; 'a3' might be mistaken for a cubic unit but there's no clear context to support this."
     }
   ]
-},
+},     
 {
   "input": "Query: height, candidate terms: \"['body height measure', 'body height (length), 'general body height (length)', 'specific body height (length)', 'body height stated', 'body height growth rate', 'patient height', 'body height', 'body height', 'sitting height']\"",
   "output": [
@@ -6809,11 +6848,11 @@
       "explanation": "This is the most relevant as it directly addresses the family history of neoplasms without specifying a type, which aligns perfectly with the query's emphasis on a general history of neoplasm related to the father."
     },
     {
-      "answer": "Family history of prostate cancer",
+      "answer": "Family history of prostate cancer", 
       "score": 4,
       "explanation": "Somwhat relevant; focuses on growth rate rather than static height measurement."
     },
-    { "answer": "Family history of neoplasm of lung",
+    { "answer": "Family history of neoplasm of lung", 
       "score": 4,
       "explanation": "Somwhat relevant as lung cancer is a significant and common type of neoplasm, directly linking to familial history."
     },
@@ -6869,21 +6908,21 @@
 {
   "input":"Query:low-density lipoprotein cholesterol (ldl-c) , candidate terms: ['LDL-C (low density lipoprotein cholesterol) substance concentration in plasma. ,'Cholesterol in LDL [Mass/volume] in Serum or Plasma','LDL (low density lipoprotein)/HDL (high density lipoprotein) molar concentration ratio in plasma. ']",
   "output": [
-    {"answer": "LDL-C (low density lipoprotein cholesterol) substance concentration in plasma", "score": 7, "explanation":"This is a partial match as it mentions LDL-C in plasma"},
-    {"answer": "Cholesterol in LDL [Mass/volume] in Serum or Plasma.", "score": 10, "explanation":"This is the most relevant answer as it precisely matches the query in terms of the measurement context and substance."},
+    {"answer": "LDL-C (low density lipoprotein cholesterol) substance concentration in plasma", "score": 7, "explanation":"This is a partial match as it mentions LDL-C in plasma"}, 
+    {"answer": "Cholesterol in LDL [Mass/volume] in Serum or Plasma.", "score": 10, "explanation":"This is the most relevant answer as it precisely matches the query in terms of the measurement context and substance."}, 
     {"answer": "LDL (low density lipoprotein)/HDL (high density lipoprotein) molar concentration ratio in plasma.", "score": 7, "explanation":"This answer is relevant but less specific as it includes HDL along with LDL which makes it less precise."}
   ]
 },
 {
   "input":"Query:glucose , candidate terms: ['Glucose [Mass/volume] in Blood','Glucose measurement']",
   "output":[
-    {"answer": "Glucose [Mass/volume] in Blood", "score": 10, "explanation":"This is a precise match for the query as it specifically mentions glucose in terms of its concentration by mass/volume in blood, directly aligning with the query's request for a measurement of glucose."},
+    {"answer": "Glucose [Mass/volume] in Blood", "score": 10, "explanation":"This is a precise match for the query as it specifically mentions glucose in terms of its concentration by mass/volume in blood, directly aligning with the query's request for a measurement of glucose."}, 
     {"answer": "Glucose measurement. :measurement", "score": 7, "explanation":"This answer is relevant but less specific as it indicates a procedure of glucose for which no context is given."}
     ]
 },
 {
   "input": "Query: date of cardiac MRI, candidate terms: ['left ventricular myocardial mass at end diastole by us', 'mid diastolic', 'right ventricular myocardial performance index (tei) by us', 'cardio/pulm: myocardial infarction', 'myocardial mass at end diastole | heart ventricle - left | dicom simplified adult echo report concepts', 'right ventricular cardiac index by spiral ct', 'ventricular cardiac index by us', 'a valid date value is provided in item date of 1st crs rx [1270], or the date was not expected to have been transmitted. ', 'measure duration | xxx | cardiac ultrasound', 'date of myocardial infarction']",
-  "output":
+  "output": 
   [
     {"answer": "left ventricular myocardial mass at end diastole by us.","score": 0,"explanation": "Not relevant; mentions myocardial mass but not related to cardiac MRI or date."},
     {"answer": "mid diastolic.","score": 0,"explanation": "Not relevant; mentions diastolic value without context of cardiac MRI or date."},
@@ -6924,8 +6963,8 @@
 {
   "input":"Query:right bundle branch block (rbbb) disorder, candidate terms: ['right bundle branch block, posterior fascicular block and incomplete left bundle branch block','complete right bundle branch block','Right bundle branch block.']",
   "output":
-  [{"answer":"right bundle branch block, posterior fascicular block and incomplete left bundle branch block.", "score": 5, "explanation":"This is related but matching to this term requires additional context in query"},
-  {"answer": "complete right bundle branch block", "score": 7, "explanation":"This is a specific type of right bundle branch block and partially matches the query"},
+  [{"answer":"right bundle branch block, posterior fascicular block and incomplete left bundle branch block.", "score": 5, "explanation":"This is related but matching to this term requires additional context in query"}, 
+  {"answer": "complete right bundle branch block", "score": 7, "explanation":"This is a specific type of right bundle branch block and partially matches the query"}, 
   {"answer": "Right bundle branch block", "score": 10, "explanation":"This is an exact match to the query as query mentions right bundle branch block without additional context"}
 ]
 },
@@ -6994,11 +7033,11 @@
       "explanation": "Addresses complications from type 2 diabetes but does not focus on the duration of the disease itself."
     }
   ]
-},
+},  
 {
   "input":"Query,History of hypertension, candidate terms: ['Family history','Fh:hypertension. ','mother','maternal hypertension.n']",
   "output":[
-    {"answer": "Family history", "score": 0, "explanation":"This answer is not relevant but lacks specificity. It mentions 'family history' but does not explicitly connect to 'hypertension' or specify the maternal relationship, making it less directly relevant to the query."},
+    {"answer": "Family history", "score": 0, "explanation":"This answer is not relevant but lacks specificity. It mentions 'family history' but does not explicitly connect to 'hypertension' or specify the maternal relationship, making it less directly relevant to the query."}, 
     {"answer": "Fh:hypertension.", "score": 9, "explanation":"This answer is highly relevant to the query but lacks the context 'mother' to which family history is pretraining"},
     {"answer": "maternal hypertension", "score": 10, "explanation":"This answer is specific and relevant by mentioning 'maternal hypertension,' directly linking both the condition and the maternal aspect."}
     ]
@@ -7007,7 +7046,7 @@
   "input":"Query: Family history of sudden death, candidate terms: ['Death','Family history of sudden death. ','FH: Sudden infant death']",
   "output":[
     {"answer": "Death.", "score": 0, "explanation":"This is a not relevant term but not specific to family history"},
-    {"answer": "Family history of sudden death.", "score": 9, "explanation":"This is highly relevant since the query is about family history of sudden death but lacks context 'mother'"},
+    {"answer": "Family history of sudden death.", "score": 9, "explanation":"This is highly relevant since the query is about family history of sudden death but lacks context 'mother'"}, 
     {"answer": "FH: Sudden infant death.", "score": 0, "explanation":"This is not relevant to family history of mother or parents"}
     ]
 },
@@ -7043,7 +7082,7 @@
   {"answer": "new york heart association classification","score": 10,"explanation": "Mentions the New York Heart Association classification but lacks detail about specific classes, requiring more context."},
   { "answer": "cardiac asthma","score": 0,"explanation": "Mentions a heart-related condition but is unrelated to the specific query about the New York Heart Association classification."},
    {"answer": "chronic left-sided heart failure","score": 0,"explanation": "Mentions a heart condition but does not provide context related to the New York Heart Association classification."},
-   {"answer": "new york heart association classification class","score": 8,"explanation": "Mentions the New York Heart Association classification generally but lacks the detail needed about specific classes."},
+   {"answer": "new york heart association classification class","score": 8,"explanation": "Mentions the New York Heart Association classification generally but lacks the detail needed about specific classes."}, 
    {"answer": "acute left ventricular failure","score": 0, "explanation": "Mentions a specific heart condition but lacks any connection to the New York Heart Association classification."}
    ]
 
@@ -7053,7 +7092,7 @@
 "output":
 [{"answer":"GOLD (Global Initiative for Chronic Obstructive Lung Disease) 2017 group.", "score": 9, "explanation":"This is a highly relevant match as it refers to the GOLD initiative, which is related to COPD"},
 {"answer":"moderate chronic obstructive pulmonary disease.", "score":10, "explanation": "This is accuract match since it refers to the GOLD II stage of COPD, indicating moderate COPD."},
- {"answer": "Consultation for chronic obstructive pulmonary disease.", "score": 0, "explanation":"This is a not related match as it refers to the process of getting consulation for COPD checkup"},
+ {"answer": "Consultation for chronic obstructive pulmonary disease.", "score": 0, "explanation":"This is a not related match as it refers to the process of getting consulation for COPD checkup"}, 
  {"answer": "Group A.", "score": 0, "explanation":"This is a not a match as it might relate to a classification group within COPD but does not specify GOLD i"},
  { "answer": "chronic obstructive lung disease.", "score": 0, "explanation":"This is very partially relevant  as it refers to the general condition of COPD without specifying GOLD i"}
 ]
