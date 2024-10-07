@@ -99,10 +99,18 @@ def custom_data_loader(source_path):
             # Handle 'Formula' field
             formula_raw = row.get("Formula", None)
             formula = str(formula_raw).lower().strip() if pd.notna(formula_raw) else None
-            visits = str(visits).lower().strip() if pd.notna(visits) else None
-            if 'visit' not in visits and 'baseline' not in visits:
-                visits = f"visit {visits}"
-            visits = f"at {visits}"
+        
+            # Handle 'UNITS' field
+            unit_raw = row.get('UNITS', None)
+            unit = str(unit_raw).lower().strip() if pd.notna(unit_raw) else None
+
+            visits = None
+            visits_raw = row.get('Visits', None)
+            if pd.notna(visits_raw) and visits_raw:
+                visits = str(visits).lower().strip() if pd.notna(visits) else None
+                if 'visit' not in visits and 'baseline' not in visits:
+                    visits = f"visit {visits}"
+                visits = f"at {visits}"
             # Construct the 'full_query' string
             full_query = label
             if visits:
