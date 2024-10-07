@@ -4981,6 +4981,41 @@
       ]
     },
     {
+      "input":"Query:lead i,at visit, candidate terms:['lead i','lead site v1','lead ii',,'baseline','cardiac catheterization baseline phase','baseline state']",
+      "output":[
+        {
+        "answer": "lead i",
+        "relationship":"partically relevant",
+        "explanation":"This term is partially relevant as it mentions 'lead I,' which is related to the query about 'lead I' at a visit, but it does not specify the visit context."
+        },
+        {
+        "answer": "lead site v1",
+        "relationship":"not relevant",
+        "explanation":"This term is not relevant as it refers to 'lead site V1,' which is a different lead and site than 'lead I' at a visit."
+        },
+        {
+        "answer": "lead ii",
+        "relationship":"not relevant",
+        "explanation":"This term is not relevant as it refers to 'lead II,' which is a different lead than 'lead I' at a visit."
+        },
+        {
+        "answer": "baseline",
+        "relationship":"not relevant",
+        "explanation":"This term is not relevant as it refers to the 'baseline' state or phase, which is not directly related to 'lead I' at a visit."
+        },
+        {
+        "answer": "cardiac catheterization baseline phase",
+        "relationship":"not relevant",
+        "explanation":"This term is not relevant as it refers to the 'baseline phase' of cardiac catheterization, which is not directly related to 'lead I' at a visit."
+        },
+        {
+        "answer": "baseline state",
+        "relationship":"not relevant",
+        "explanation":"This term is not relevant as it refers to the 'baseline state,' which is not directly related to 'lead I' at a visit."
+        }
+      ]
+    },
+    {
       "input":"Query: ekg: left ventricular diastolic dysfunctio,candidate terms: [left ventricular diastolic dysfunction, late diastolic, echocardiogram shows left ventricular diastolic dysfunction, heart failure, diastolic, ventricular dysfunction, left, early diastolic, left atrial pressure diastolic, ekg: left ventricular strain, diastolic filling period | heart ventricle xxx | cardiac ultrasound, diastolic heart failure stage a, ventricular diastolic filling period by us, murmur-diastolic, diastolic filling period | mitral valve | cardiac ultrasound]",
       "output":[
         {
