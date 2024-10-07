@@ -100,7 +100,7 @@ def custom_data_loader(source_path):
             formula_raw = row.get("Formula", None)
             formula = str(formula_raw).lower().strip() if pd.notna(formula_raw) else None
             visits = str(visits).lower().strip() if pd.notna(visits) else None
-            if 'visit' not in visits:
+            if 'visit' not in visits and 'baseline' not in visits:
                 visits = f"visit {visits}"
             visits = f"at {visits}"
             # Construct the 'full_query' string
