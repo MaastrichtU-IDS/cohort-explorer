@@ -833,6 +833,7 @@ def pass_to_chat_llm_chain(
                     # print(f"{lp_results}")
         combined_scores = ranking_scores + link_predictions_results     
         if isinstance(combined_scores, str): print(f"combined_scores={combined_scores}") 
+        exact_match_found = exact_match_found_rank and exact_match_found_classification
         avg_belief_scores = calculate_belief_scores(combined_scores, threshold, exact_match_found=exact_match_found)
         if avg_belief_scores is None:
             return [], False
@@ -847,7 +848,7 @@ def pass_to_chat_llm_chain(
         sorted_filtered_candidates = sorted(filtered_candidates, key=lambda doc: doc.metadata['belief_score'], reverse=True)
         print(f"filtered_candidates={[doc.metadata['label'] for doc in sorted_filtered_candidates]}")
         # if sorted_filtered_candidates and len(sorted_filtered_candidates):
-        exact_match_found = exact_match_found_rank and exact_match_found_classification
+        
         return sorted_filtered_candidates, exact_match_found
 
     except Exception as e:
