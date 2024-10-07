@@ -804,49 +804,35 @@ def pass_to_chat_llm_chain(
             if doc_str not in seen:
                 seen.add(doc_str)
                 documents.append(doc_str)
-        ranking_scores = []
+        ranking_scores = []        
         link_predictions_results = []
-        exact_match_found = False
 
         for _ in range(n_prompts):  # Assume n_prompts is 3
-            ranking_prompt = generate_ranking_prompt(query=query, documents=documents, domain=domain, in_context=True)
-            ranking_results = get_llm_results(
-                prompt=ranking_prompt, query=query, documents=documents, llm=model, llm_name=llm_name
-            )
+            ranking_prompt = generate_ranking_prompt(query=query,domain=domain,in_context=True)
+            ranking_results =  get_llm_results(prompt=ranking_prompt, query=query, documents=documents, llm=model,llm_name=llm_name)
             if ranking_results:
                 ranking_scores.extend(ranking_results)
                 for result in ranking_results:
-                    if isinstance(result, dict) and int(result.get("score", 0)) == 10:
-                        exact_match_found = True if result["answer"] in documents else False
-                        logger.info(
-                            f"Exact match found in Ranking: {result['answer']} = {exact_match_found}. Does it exist in original documents={result['answer'] in documents}"
-                        )
+                    if isinstance(result, dict) and int(result.get('score', 0)) == 10:
+                        exact_match_found_rank =  True if result['answer'] in documents else False
+                        logger.info(f"Exact match found in Ranking: {result['answer']} = {exact_match_found_rank}. Does it exist in original documents={result['answer'] in documents}")
             link_predictions_results = []
             if prompt_stage == 2:
-                link_prediction_prompt = generate_link_prediction_prompt(
-                    query, documents, domain=domain, in_context=True
-                )
-                lp_results = get_llm_results(
-                    prompt=link_prediction_prompt, query=query, documents=documents, llm=model, llm_name=llm_name
-                )
+                link_prediction_prompt = generate_link_prediction_prompt(query, documents,domain=domain,in_context=True)
+                lp_results =  get_llm_results(prompt=link_prediction_prompt, query=query, documents=documents, llm=model,llm_name=llm_name)
                 if lp_results:
                     for res in lp_results:
                         if isinstance(res, dict):
-                            res["score"] = relationship_scores.get(res.get("relationship", "").strip().lower(), 0)
+                            res['score'] = relationship_scores.get(res.get('relationship','').strip().lower(), 0)
                     link_predictions_results.extend(lp_results)
                     for res in lp_results:
-                        if isinstance(res, dict) and (
-                            res["relationship"] == "exact match" or res["relationship"] == "synonym"
-                        ):
-                            exact_match_found = True
+                        if isinstance(res, dict) and (res['relationship'] == 'exact match' or res['relationship'] == 'synonym'):
+                            exact_match_found_classification = True
                             # if res['answer'] not in documents:
-                            logger.info(
-                                f"Exact match found in Link Prediction: {res['answer']} = {exact_match_found}. Does it exist in original documents={res['answer'] in documents}"
-                            )
+                            logger.info(f"Exact match found in Link Prediction: {res['answer']} = {exact_match_found_classification}. Does it exist in original documents={res['answer'] in documents}")
                     # print(f"{lp_results}")
-        combined_scores = ranking_scores + link_predictions_results
-        if isinstance(combined_scores, str):
-            print(f"combined_scores={combined_scores}")
+        combined_scores = ranking_scores + link_predictions_results     
+        if isinstance(combined_scores, str): print(f"combined_scores={combined_scores}") 
         avg_belief_scores = calculate_belief_scores(combined_scores, threshold, exact_match_found=exact_match_found)
         if avg_belief_scores is None:
             return [], False
@@ -855,15 +841,13 @@ def pass_to_chat_llm_chain(
         logger.info(f"belief_threshold={threshold}")
         for doc in top_candidates:
             doc_string = create_document_string(doc)
-            doc.metadata["belief_score"] = sorted_belief_scores.get(doc_string, 0)
-        filtered_candidates = [
-            doc for doc in top_candidates if sorted_belief_scores.get(create_document_string(doc), 0) >= threshold
-        ]
-        logger.info("filtered candidates")
-        sorted_filtered_candidates = sorted(
-            filtered_candidates, key=lambda doc: doc.metadata["belief_score"], reverse=True
-        )
+            doc.metadata['belief_score'] = sorted_belief_scores.get(doc_string, 0)
+        filtered_candidates = [doc for doc in top_candidates if sorted_belief_scores.get(create_document_string(doc), 0) >= threshold]
+        logger.info(f"filtered candidates")
+        sorted_filtered_candidates = sorted(filtered_candidates, key=lambda doc: doc.metadata['belief_score'], reverse=True)
         print(f"filtered_candidates={[doc.metadata['label'] for doc in sorted_filtered_candidates]}")
+        # if sorted_filtered_candidates and len(sorted_filtered_candidates):
+        exact_match_found = exact_match_found_rank and exact_match_found_classification
         return sorted_filtered_candidates, exact_match_found
 
     except Exception as e:
