@@ -10,10 +10,19 @@ class QueryDecomposedModel(BaseModel):
     categories: Optional[List[str]] = Field(default=None, description="Categorical values related to the query.")
     unit: Optional[str] = Field(default=None, description="Unit for the entity, if applicable.")
     formula: Optional[str] = Field(default=None, description="Formula associated with the entity, if applicable.")
-    rel: Optional[str] = Field(default=None, description="Relationship if available.")
     additional_entities: Optional[List[str]] = Field(default=None, description="Additional entities if applicable.")
     original_label:str = Field(default=None, description="Original label for the query.")
-    
+    rel: Optional[str] = Field(default=None, description="Relationship if available.")
+
+    # rel: Optional[List[Dict]] = Field(default=None, description="Relationship if available.")
+
+    # @validator('rel', pre=True, always=True)
+    # def parse_rel(cls, value):
+    #     if value and isinstance(value, list):
+    #         # each value should be dict
+    #         if all(isinstance(i, dict) for i in value):
+    #             return value
+    #     return None
 
     # original label is full_query.split('|')[0]
     # first check if full_query is none, if not split and return the first element
@@ -28,16 +37,17 @@ class QueryDecomposedModel(BaseModel):
     @validator('unit', pre=True, always=True)
     def parse_unit(cls, value):
         if isinstance(value, list):
-            return value[0] if value else None
+            return [str(value).strip().lower()] if value else None
         return value
     # categories should values only only if 'categories values' is present in full_query
     @validator('categories', pre=True, always=True)
     def parse_categories(cls, value, values):
         if 'categorical values' in values['full_query']:
             if value and isinstance(value, list):
-                return value
+                # convert all values to lowercase and string
+                return [str(i).strip().lower() for i in value]
             elif value and isinstance(value, str):
-                return [value]
+                return [str(value).strip().lower()]
         return None
     
     @validator('name', pre=True, always=True)
@@ -45,38 +55,31 @@ class QueryDecomposedModel(BaseModel):
         if value is None:  # If name is None, assign full_query value to it
             return values.get('full_query', '')
         return value
-    #validator for additional entities
-    # @validator('additional_entities', pre=True, always=True)
-    # # also check if all values in additional entities are unique and don't duplicate any value from categories
-    # def parse_additional_entities(cls, value):
-    #     if value and isinstance(value, list):
-    #         return value
-    #     elif value and isinstance(value, str):
-    #         return [value]
-    #     return None
-    @validator('additional_entities', pre=True, always=True)
+
+    validator('additional_entities', pre=True, always=True)
     def parse_additional_entities(cls, value, values):
         categories = values.get('categories', [])
         if categories:
             if value and isinstance(value, list):
                 # Preserve the order while removing categories
-                return [entity for entity in value if entity not in categories]
+                return [str(entity) for entity in value if entity not in categories]
             elif value and isinstance(value, str):
                 if value not in categories:
-                    return [value]
+                    return [str(value).strip().lower()]
         else:
             if value and isinstance(value, list):
-                return value  # No need for set conversion, retain original order
+                return [str(i).lower() for i in value]
             elif value and isinstance(value, str):
-                return [value]
+                return [str(value).strip().lower()]
         return value
+    
     # Validator for base_entity and other string values, ensuring they are cleaned
-    @validator('base_entity', 'domain', 'formula', 'rel', pre=True, always=True)
+    @validator('base_entity', 'domain', 'formula','rel', pre=True, always=True)
     def clean_strings(cls, value: Optional[str]):
         if isinstance(value, list):
-            return value[0].strip().lower() if value else None
+            return str(value[0]).strip().lower() if value else None
         elif isinstance(value, str):
-            return value.strip().lower()
+            return str(value).strip().lower()
         return value
 
 
