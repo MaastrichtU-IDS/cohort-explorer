@@ -1,11 +1,11 @@
 {
   "vocabulary_rules":{
     "domains": {
-      "condition": ["snomed","cancer modifier","mesh"],
+      "condition": ["snomed","cancer modifier"],
       "Spec Anatomic Site": ["snomed"],
       "body structure": ["snomed"],
       "anatomic site": ["snomed"],
-      "measurement": ["loinc","ucum", "mesh","snomed"],
+      "measurement": ["loinc","ucum","snomed"],
       "drug": ["atc", "rxnorm"],
       "procedure": ["snomed"],
       "unit": ["ucum"],
@@ -18,7 +18,7 @@
       "history of events":["snomed", "loinc","omop extension"],
       "life style":["snomed", "loinc","omop extension"],
       "all": ["snomed", "loinc", "ucum", "omop extension","rxnorm","atc","cancer modifier"],
-      "unknown": ["snomed", "loinc", "mesh","uk biobank"]
+      "unknown": ["snomed", "loinc", "uk biobank"]
     },
     "extraction_rules":{
       "description":"translate all visits with time indicators as follow-up {number} month"

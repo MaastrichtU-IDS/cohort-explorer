@@ -213,7 +213,7 @@ def update_api_search_filter(api_retriever, domain="observation", topk=10):
     elif domain == "measurement":
         api_retriever.filters = AthenaFilters(
             domain=["Measurement", "Meas Value", "Observation","Spec Anatomic Site"],
-            vocabulary=["LOINC", "MeSH", "SNOMED"],
+            vocabulary=["LOINC", "SNOMED"],
             standard_concept=["Standard"],
         )
     elif domain == "drug":
@@ -261,7 +261,7 @@ def update_qdrant_search_filter(retriever, domain="all", topk=10):
     elif domain == "measurement":
         retriever.search_kwargs["filter"] = rest.Filter(
             must=[
-                rest.FieldCondition(key="metadata.vocab", match=rest.MatchAny(any=["loinc", "mesh", "snomed"])),
+                rest.FieldCondition(key="metadata.vocab", match=rest.MatchAny(any=["loinc", "snomed"])),
                 rest.FieldCondition(
                     key="metadata.domain", match=rest.MatchAny(any=['measurement','meas value','observation','spec anatomic site'])
                 ),

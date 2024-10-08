@@ -47,7 +47,7 @@ def map_data(
         if query_result:
             results.append(query_result)
         else:
-            logger.info(f"NO RESULT FOR {item}")
+            results.append({})
         index += 1
         if (index + 1) % 15 == 0:
             time.sleep(0.05)  # Adjusted to be more appropriate than 0.0005
