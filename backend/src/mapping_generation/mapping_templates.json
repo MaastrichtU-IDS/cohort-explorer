@@ -149,6 +149,10 @@
             "output":"{\"domain\":\"visit\", \"base_entity\":\"Reason for hospitalisation\", \"additional_entities\":[\"All causes of morbidity and mortality\"]}"
           },
           {
+            "input":"body mass index, formula: kg/m2",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Body mass index [Ratio]\", \"unit\":\"kg/m2\"}"
+          },
+          {
             "input":"lv diastolic dysfunction : ekg",
             "output":"{\"domain\":\"measurement\", \"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"ECG finding\", \"Left ventricular diastolic dysfunction\"]}"
           },
@@ -673,8 +677,12 @@
             "output": "{\"domain\":\"device\", \"base_entity\": \"catheter\", \"categories\": [\"Yes\", \"No\"]}"
           },
           {
-              "input":"patient in study,categorical values: 1|0",
-              "output":"{\"domain\":\"observation\", \"base_entity\":\"Patient in study\", \"categories\": [\"yes\",\"no\"]}"
+              "input":"patient in heart failure study,categorical values: 1|0",
+              "output":"{\"domain\":\"observation\", \"base_entity\":\"patient entered into trial\", \"categories\": [\"yes\",\"no\"]}"
+          },
+          {
+            "input":"patient in HF study,categorical values: yes|no",
+            "output":"{\"domain\":\"observation\", \"base_entity\":\"patient entered into trial\", \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input": "artificial heart valves lasted 1 year,categorical values: 1=yes | 0=no",

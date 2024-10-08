@@ -455,39 +455,102 @@ def save_result_to_jsonl(array: Iterable[dict], file_path: str) -> None:
     print(f"Saved {len(array)} documents to {file_path}")
 
 
+# def exact_match_found(query_text, documents, domain=None):
+#     # print(f"documents={documents}")
+#     if not query_text or not documents:
+#         # print("NO DOCUMENTS FOUND FOR QUERY={query_text}")
+#         return []
+#     for doc in documents:
+#         if "score" in doc.metadata:
+#             if doc.metadata["score"] >= 0.95:
+#                 # print(f"EXACT MATCH FOUND FOR QUERY using Score={query_text}")
+#                 return [doc]
+
+#     # Create a database and populate it
+#     db = DictDatabase(CharacterNgramFeatureExtractor(2))
+#     for doc in documents:
+#         if doc.metadata.get("label", None):
+#             db.add(doc.metadata["label"])
+
+#     # Create a searcher with cosine similarity
+#     searcher = Searcher(db, CosineMeasure())
+
+#     # Normalize query text
+#     results = searcher.search(query_text, 0.95)  # Set threshold to 0.95 for high similarity
+
+#     matched_docs = []
+#     selected_vocab = select_vocabulary(query_text, domain=domain)
+
+#     for result in results:
+#         for doc in documents:
+#             if doc.metadata["label"].strip().lower() == result:
+#                 if "vocab" in doc.metadata and doc.metadata["vocab"] in selected_vocab:
+#                     # print(f"EXACT MATCH FOUND FOR QUERY={query_text}")
+#                     matched_docs.append(doc)
+#     return matched_docs[:1]
+
+
+
 def exact_match_found(query_text, documents, domain=None):
-    # print(f"documents={documents}")
+    # print(f"documents={documents}") 
     if not query_text or not documents:
         # print("NO DOCUMENTS FOUND FOR QUERY={query_text}")
         return []
     for doc in documents:
-        if "score" in doc.metadata:
-            if doc.metadata["score"] >= 0.95:
+        if 'score' in doc.metadata:
+            if doc.metadata['score'] >= 0.95:
                 # print(f"EXACT MATCH FOUND FOR QUERY using Score={query_text}")
                 return [doc]
-
+        
     # Create a database and populate it
+    label_to_docs = {}
     db = DictDatabase(CharacterNgramFeatureExtractor(2))
     for doc in documents:
-        if doc.metadata.get("label", None):
-            db.add(doc.metadata["label"])
+        label = doc.metadata.get('label', None)
+        if label:
+            db.add(doc.metadata['label'])
+            label_key = label.strip().lower()
+            if label_key not in label_to_docs:
+                label_to_docs[label_key] = []
+            label_to_docs[label_key].append(doc)
+            
 
     # Create a searcher with cosine similarity
     searcher = Searcher(db, CosineMeasure())
 
     # Normalize query text
-    results = searcher.search(query_text, 0.95)  # Set threshold to 0.95 for high similarity
+    results = searcher.search(query_text, 0.9)  # Set threshold to 0.95 for high similarity
 
     matched_docs = []
     selected_vocab = select_vocabulary(query_text, domain=domain)
+ 
+    matched_docs = [
+        doc
+        for result in results
+        if result in label_to_docs
+        for doc in label_to_docs[result]
+        if doc.metadata.get('vocab') in selected_vocab
+    ]
+    
+    if len(matched_docs) > 1:
+        domain_ = set(list({doc.metadata['domain'] for doc in matched_docs}))
+        unique_domain = len(domain_) == 1
+        # match_docs_vocab =select_vocabulary(query_text, domain=domain_)
+        print(f"is domain unique :{unique_domain}")
+        if unique_domain:
+            domain_ = domain_.pop()
+            match_docs_vocab =select_vocabulary(query_text, domain=domain_)
+            match_docs_vocab += selected_vocab
+            print(f"selected_vocab for domain={selected_vocab}.. matching docs vocab={match_docs_vocab}")
+            first_priority_vocab = match_docs_vocab[0]
+            matched_docs = sorted(matched_docs, key=lambda x: (x.metadata['vocab'] != first_priority_vocab, match_docs_vocab.index(x.metadata['vocab'])))
 
-    for result in results:
-        for doc in documents:
-            if doc.metadata["label"].strip().lower() == result:
-                if "vocab" in doc.metadata and doc.metadata["vocab"] in selected_vocab:
-                    # print(f"EXACT MATCH FOUND FOR QUERY={query_text}")
-                    matched_docs.append(doc)
-    return matched_docs[:1]
+        else:
+            #just sort based on select_vocabulary
+            matched_docs = sorted(matched_docs, key=lambda x: selected_vocab.index(x.metadata['vocab']))
+        print(f"Exact match candidates")
+        pretty_print_docs(matched_docs)
+    return matched_docs
 
 
 def exact_match_wo_vocab(query_text, documents, domain=None):

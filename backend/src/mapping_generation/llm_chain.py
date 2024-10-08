@@ -1,10 +1,10 @@
 from collections import defaultdict
 from typing import Dict, List
 
-import numpy as np
-from langchain.globals import set_llm_cache
+# import numpy as np
+# from langchain.globals import set_llm_cache
 from langchain.output_parsers import OutputFixingParser
-from langchain_community.cache import InMemoryCache
+# from langchain_community.cache import InMemoryCache
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import (
     ChatPromptTemplate,
@@ -14,7 +14,7 @@ from langchain_core.prompts import (
     SystemMessagePromptTemplate,
 )
 from pydantic.v1 import ValidationError
-from scipy.stats import skew
+# from scipy.stats import skew
 
 from .manager_llm import *
 from .param import MAPPING_FILE
@@ -22,12 +22,45 @@ from .py_model import *
 from .utils import *
 from .utils import global_logger as logger
 
-set_llm_cache(InMemoryCache())
+REQUEST_LIMIT = 30
+TIME_WINDOW = 60
+
+# set_llm_cache(InMemoryCache())
 parsing_llm = LLMManager.get_instance("llama3.1")
 parser = JsonOutputParser()
 fixing_parser = OutputFixingParser.from_llm(parser=parser, llm=parsing_llm, max_retries=3)
 
+import time
+from collections import deque
 
+# Keep track of request timestamps
+request_timestamps = deque(maxlen=30)
+
+def rate_limit_check(request_limit: int = REQUEST_LIMIT, time_window: int = TIME_WINDOW):
+    """
+    Limit the number of requests to `request_limit` in a given `time_window` (in seconds).
+    If the limit is reached, the function will sleep until a request is allowed.
+    
+    :param request_limit: Maximum number of requests allowed in the time window.
+    :param time_window: Time window in seconds (e.g., 60 for one minute).
+    """
+    current_time = time.time()
+    
+    # Remove timestamps older than the time window
+    while request_timestamps and current_time - request_timestamps[0] > time_window:
+        request_timestamps.popleft()
+
+    # Check if we are within the request limit
+    if len(request_timestamps) >= request_limit:
+        if request_timestamps:
+            # Calculate how long to sleep until the first timestamp is outside the time window
+            time_to_wait = time_window - (current_time - request_timestamps[0])
+            print(f"Rate limit reached. Sleeping for {time_to_wait:.2f} seconds.")
+            time.sleep(time_to_wait)
+    
+    # After sleeping (or if no sleep was needed), log the new request
+    request_timestamps.append(time.time())
+    
 def get_relevant_examples(
     query: str, content_key: str, examples: List[Dict[str, str]], topk=3, min_score=0.5
 ) -> List[Dict]:
@@ -381,6 +414,7 @@ def extract_ir(base_entity, associated_entities, active_model):
     system = "You are a helpful assistant with expertise in the biomedical domain."
     final_prompt = ChatPromptTemplate.from_messages([("system", system), ("human", base_prompt)])
     chain = final_prompt | active_model
+    rate_limit_check()
     result = chain.invoke(
         {"base_entity": base_entity, "associated_entities": associated_entities, "relations": relations}
     ).content
@@ -441,6 +475,7 @@ def extract_information(query, model_name=LLM_ID, prompt=None):
                 + HumanMessagePromptTemplate.from_template("{input}")
             )
             chain = final_prompt | active_model
+            rate_limit_check()
             result = chain.invoke({"input": query})
             # print(f"initial extract.llm result={result}")
             if not isinstance(result, dict):
@@ -500,6 +535,7 @@ def generate_information_triples(query, active_model):
             [("system", system), ("human", human_template)], template_format="mustache"
         )
         chain = prompt | active_model
+        rate_limit_check()
         chain_results = chain.invoke({"input": query}).content
         print(f"triple_results={chain_results}")
         save_triples_to_txt(query, chain_results, "/workspace/mapping_tool/data/output/gissi_llama_triples.txt")
@@ -629,33 +665,33 @@ def generate_ranking_prompt(query, documents, domain=None, in_context=True):
         return template_
 
 
-def adjust_percentile(scores, base_percentile=75):
-    score_skewness = skew(scores)
-    if score_skewness > 1:  # highly skewed distribution
-        adjusted_percentile = base_percentile - 3  # lower the percentile slightly
-    elif score_skewness < -1:  # highly negatively skewed
-        adjusted_percentile = base_percentile + 3  # increase the percentile slightly
-    else:
-        adjusted_percentile = base_percentile
-    return np.percentile(scores, adjusted_percentile)
+# def adjust_percentile(scores, base_percentile=75):
+#     score_skewness = skew(scores)
+#     if score_skewness > 1:  # highly skewed distribution
+#         adjusted_percentile = base_percentile - 3  # lower the percentile slightly
+#     elif score_skewness < -1:  # highly negatively skewed
+#         adjusted_percentile = base_percentile + 3  # increase the percentile slightly
+#     else:
+#         adjusted_percentile = base_percentile
+#     return np.percentile(scores, adjusted_percentile)
 
 
-def calculate_dynamic_threshold(scores, base_threshold, exact_match_found):
-    if not scores:
-        return 0.0
+# def calculate_dynamic_threshold(scores, base_threshold, exact_match_found):
+#     if not scores:
+#         return 0.0
 
-    max_score = max(scores) if scores else 1
-    if max_score == 0:
-        # Handle the case where all scores are zero
-        # Possibly return a zero threshold or a decision that no candidates are valid
-        # logger.info("All scores are zero, returning zero threshold")
-        return 0.0
-    normalized_scores = [score / max_score for score in scores]
-    # Use a higher base threshold if an exact match is found
-    if exact_match_found:
-        base_threshold = max(base_threshold, 8)  # Example value, adjust as needed
-    belief_threshold = adjust_percentile(normalized_scores)
-    return max(belief_threshold, base_threshold / max_score)  # Adjust base_threshold similarly
+#     max_score = max(scores) if scores else 1
+#     if max_score == 0:
+#         # Handle the case where all scores are zero
+#         # Possibly return a zero threshold or a decision that no candidates are valid
+#         # logger.info("All scores are zero, returning zero threshold")
+#         return 0.0
+#     normalized_scores = [score / max_score for score in scores]
+#     # Use a higher base threshold if an exact match is found
+#     if exact_match_found:
+#         base_threshold = max(base_threshold, 8)  # Example value, adjust as needed
+#     belief_threshold = adjust_percentile(normalized_scores)
+#     return max(belief_threshold, base_threshold / max_score)  # Adjust base_threshold similarly
 
 
 def calculate_belief_scores(ranking_scores, base_threshold, exact_match_found):
@@ -704,9 +740,7 @@ def get_llm_results(prompt, query, documents, max_retries=2, llm=None, llm_name=
             logger.info(f"Attempt {attempt} to invoke {llm_name} ")
             try:
                 chain = prompt | llm
-                # start_times = time.time()n
-
-                # config={'callbacks': [ConsoleCallbackHandler()]}) for verbose
+                rate_limit_check()
                 results = chain.invoke({"query": query, "documents": documents})
                 results = results.content
                 # print(f"Time taken for llm chain: {time.time() - start_times}")
@@ -870,6 +904,8 @@ def get_json_output(input_text: str):
         input_variables=["input_text"],
     )
     chain = prompt | llm | JsonOutputParser()
+
+    rate_limit_check()
     results = chain.invoke({"input_text": input_text})
     # logger.info(f"json results={results}")
     return results

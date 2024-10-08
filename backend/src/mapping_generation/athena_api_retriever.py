@@ -210,7 +210,7 @@ class RetrieverAthenaAPI(BaseRetriever):
                 print(f"No ATHENA results found for query: {query}")
                 return []
             matching_documents = convert_to_documents(results)
-            print(f"length of athena documents: {len(matching_documents)}")
+            # print(f"length of athena documents: {len(matching_documents)}")
 
             return matching_documents
         except Exception as e:

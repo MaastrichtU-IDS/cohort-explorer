@@ -73,13 +73,14 @@ class LLMManager:
                 #     temperature=0,
                 # )
             elif model == "llama3.1":
-                active_model = ChatTogether(
-                    temperature=0,
-                    together_api_key=togather_api,
-                    model="meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo",
-                    max_retries=3,
-                    verbose=True,
-                )
+                active_model = ChatGroq(temperature=0,groq_api_key=groq_api, model="llama-3.1-70b-versatile",max_retries=3)
+                # active_model = ChatTogether(
+                #     temperature=0,
+                #     together_api_key=togather_api,
+                #     model="meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo",
+                #     max_retries=3,
+                #     verbose=True,
+                # )  # only 12 request for free tier to switch to groq --- Add Groq API key
                 # active_model = ChatOllama(
                 #     base_url="http://ollama:11434",  # Ollama server endpoint
                 #     model="llama3.2",

@@ -223,7 +223,7 @@ def process_retrieved_docs(query, docs, llm_name=None, domain=None, belief_thres
         if llm_name:
             logger.info(f"No string match found for {query} pass to {llm_name}")
             domain_specific_docs = filter_irrelevant_domain_candidates(docs, domain)
-            if len(domain_specific_docs) == 0:
+            if domain_specific_docs is None or len(domain_specific_docs) == 0:
                 return [], False
             llm_ranks, match_found = pass_to_chat_llm_chain(
                 query, domain_specific_docs, llm_name=llm_name, domain=domain, threshold=belief_threshold
