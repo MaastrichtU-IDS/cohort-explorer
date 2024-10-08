@@ -139,19 +139,20 @@ def load_local_llm_instance(model_name="phi3"):
 
 
 import threading
-from typing import Any, Dict, List, Optional
-
-from langchain_community.embeddings import FastEmbedEmbeddings
+from langchain_community.vectorstores.faiss import FAISS
+from langchain_core.example_selectors import (
+        SemanticSimilarityExampleSelector,
+    )
+from typing import List, Dict, Optional, Any
+import os
 from langchain_community.vectorstores.faiss import FAISS
 from langchain_core.embeddings import Embeddings
-from langchain_core.example_selectors import (
-    SemanticSimilarityExampleSelector,
-)
+from langchain_community.embeddings import FastEmbedEmbeddings
 
 
 class CustomSemanticSimilarityExampleSelector(SemanticSimilarityExampleSelector):
     """Custom Selector to check for existing vector store before creating a new one."""
-
+    
     @classmethod
     def from_examples(
         cls,
@@ -165,19 +166,22 @@ class CustomSemanticSimilarityExampleSelector(SemanticSimilarityExampleSelector)
         vectorstore_kwargs: Optional[Dict] = None,
         selector_path: Optional[str] = None,
         content_key: Optional[str] = None,
-        **vectorstore_cls_kwargs: Any,
-    ) -> "CustomSemanticSimilarityExampleSelector":
+        **vectorstore_cls_kwargs: Any,) -> 'CustomSemanticSimilarityExampleSelector':
+        
         if selector_path is None:
-            selector_path = f"backend/data/faiss_index_{content_key}"
-
+                selector_path = f'../data/faiss_index_{content_key}'
+                
         if os.path.exists(selector_path):
-            # Load the existing FAISS index
+            print(f"Selector path exist: {selector_path}")
+                        # Load the existing FAISS index
             vectorstore = vectorstore_cls.load_local(selector_path, embeddings, allow_dangerous_deserialization=True)
         else:
+            print(f"Selector path does not exist: {selector_path}")
             string_examples = [cls._example_to_text(eg, input_keys) for eg in examples]
             vectorstore = vectorstore_cls.from_texts(
                 string_examples, embeddings, metadatas=examples, **vectorstore_cls_kwargs
             )
+            vectorstore.save_local(selector_path)
         return cls(
             vectorstore=vectorstore,
             k=k,
@@ -185,19 +189,17 @@ class CustomSemanticSimilarityExampleSelector(SemanticSimilarityExampleSelector)
             example_keys=example_keys,
             vectorstore_kwargs=vectorstore_kwargs,
         )
-
-
+        
 class ExampleSelectorManager:
     _lock = threading.Lock()
     _selectors = {}
 
+    
     @staticmethod
-    def get_example_selector(
-        context_key: str, examples: List[Dict[str, str]], k=4, score_threshold=0.6, selector_path=None
-    ):
+    def get_example_selector(context_key: str, examples: List[Dict[str, str]], k=4, score_threshold=0.6, selector_path=None):
         """
         Retrieves or creates a singleton example selector based on a context key.
-
+        
         Args:
             context_key (str): A unique key to identify the selector configuration.
             examples (List[Dict[str, str]]): List of example dictionaries.
@@ -209,27 +211,29 @@ class ExampleSelectorManager:
         Returns:
             SemanticSimilarityExampleSelector: An initialized example selector.
         """
+        
         with ExampleSelectorManager._lock:
             if context_key not in ExampleSelectorManager._selectors:
                 try:
                     if selector_path is None:
-                        selector_path = f"/workspace/mapping_tool/data/faiss_index_{context_key}"
-
+                        selector_path = f'../data/faiss_index_{context_key}'
+                        os.makedirs(os.path.dirname(selector_path), exist_ok=True)  # Create the directory if it doesn't exist
                     # Initialize the embeddings
-                    embedding = FastEmbedEmbeddings(model_name="BAAI/bge-small-en-v1.5")
+                    embedding = FastEmbedEmbeddings(model_name='BAAI/bge-small-en-v1.5')
                     embedding._model = embedding.model_dump().get("_model")
                     # Initialize the selector using the vector store
                     selector = CustomSemanticSimilarityExampleSelector.from_examples(
-                        examples=examples,
-                        embeddings=embedding,
-                        vectorstore_cls=FAISS,
-                        k=k,
-                        vectorstore_kwargs={"fetch_k": 40, "lambda_mult": 0.5},
-                        input_keys=["input"],  # Assuming 'input' is the key in your examples dict
+                            examples=examples,
+                            embeddings=embedding, 
+                            vectorstore_cls=FAISS,
+                            k=k,
+                            vectorstore_kwargs={"fetch_k": 40, "lambda_mult": 0.5},
+                            input_keys=['input'] , # Assuming 'input' is the key in your examples dict,
+                            selector_path=selector_path,
                     )
                     ExampleSelectorManager._selectors[context_key] = selector
-                    logger.info(f"Example selector initialized for context: {context_key}.")
-
+                    logger.info(f"Example selector initialized for context: {context_key}." )
+                    
                 except Exception as e:
                     logger.error(f"Error initializing example selector for {context_key}: {e}", exc_info=True)
                     raise
