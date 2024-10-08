@@ -105,7 +105,15 @@ STOP_WORDS = [
     "vals",
     "val",
 ]
-
+DEFAULT_QUALIFIER_VALUES = ["yes",
+                            "no",
+                            "not available",
+                            "unknown",
+                            "missing",
+                            "1",
+                            "0",
+                            "no",
+                            "not"]
 
 def save_jsonl(data, file):
     with open(file, "w") as f:
@@ -533,25 +541,27 @@ def exact_match_found(query_text, documents, domain=None):
     ]
     
     if len(matched_docs) > 1:
-        domain_ = set(list({doc.metadata['domain'] for doc in matched_docs}))
-        unique_domain = len(domain_) == 1
-        # match_docs_vocab =select_vocabulary(query_text, domain=domain_)
-        print(f"is domain unique :{unique_domain}")
-        if unique_domain:
-            domain_ = domain_.pop()
-            match_docs_vocab =select_vocabulary(query_text, domain=domain_)
-            match_docs_vocab += selected_vocab
-            print(f"selected_vocab for domain={selected_vocab}.. matching docs vocab={match_docs_vocab}")
-            first_priority_vocab = match_docs_vocab[0]
-            matched_docs = sorted(matched_docs, key=lambda x: (x.metadata['vocab'] != first_priority_vocab, match_docs_vocab.index(x.metadata['vocab'])))
-
+        
+        if query_text in DEFAULT_QUALIFIER_VALUES:
+                selected_vocab = ['loinc'] + selected_vocab
+                matched_docs = sorted(matched_docs, key=lambda x: selected_vocab.index(x.metadata['vocab']))
         else:
-            #just sort based on select_vocabulary
-            matched_docs = sorted(matched_docs, key=lambda x: selected_vocab.index(x.metadata['vocab']))
+            domain_ = set(list({doc.metadata['domain'] for doc in matched_docs}))
+            unique_domain = len(domain_) == 1
+            # match_docs_vocab =select_vocabulary(query_text, domain=domain_)
+            print(f"is domain unique :{unique_domain}")
+            if unique_domain:
+                domain_ = domain_.pop()
+                match_docs_vocab =select_vocabulary(query_text, domain=domain_)
+                match_docs_vocab += selected_vocab
+                print(f"selected_vocab for domain={selected_vocab}.. matching docs vocab={match_docs_vocab}")
+                first_priority_vocab = match_docs_vocab[0]
+                matched_docs = sorted(matched_docs, key=lambda x: (x.metadata['vocab'] != first_priority_vocab, match_docs_vocab.index(x.metadata['vocab'])))
+            else:
+                matched_docs = sorted(matched_docs, key=lambda x: selected_vocab.index(x.metadata['vocab']))
         print(f"Exact match candidates")
         pretty_print_docs(matched_docs)
     return matched_docs
-
 
 def exact_match_wo_vocab(query_text, documents, domain=None):
     if not query_text or not documents:
