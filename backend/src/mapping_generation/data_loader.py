@@ -127,7 +127,7 @@ def custom_data_loader(source_path):
             query_dict = {
                 'name':name,
                 'full_query': full_query,
-                'base_entity': f"{label} {visits}",
+                'base_entity': f"{label} {visits}" if visits else label,
                 'categories': categories,
                 'unit': unit,
                 'formula': formula,
