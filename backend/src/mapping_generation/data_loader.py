@@ -29,7 +29,6 @@ def clean_text(text):
     text = re.sub(r"\s+", " ", text)
     return text
 
-
 def custom_data_loader(source_path):
     """
     Loads and processes data from a CSV file. Checks if the file is already mapped based on specific columns.
@@ -55,7 +54,11 @@ def custom_data_loader(source_path):
         return [], False
 
     # Define the required columns to check
-    required_columns = {"Variable Concept Label", "Variable Concept OMOP ID", "Variable Concept Code"}
+    required_columns = {
+        'Variable Concept Label',
+        'Variable Concept OMOP ID',
+        'Variable Concept Code'
+    }
 
     # Normalize column names to handle case sensitivity and leading/trailing spaces
     normalized_columns = set(col.strip().lower() for col in data.columns)
@@ -67,8 +70,9 @@ def custom_data_loader(source_path):
     if normalized_required.issubset(normalized_columns):
         is_mapped = True
         print("File is already mapped. Skipping further processing.")
+        # Optionally, you can return early if no further processing is needed
         # return list of dictionary with all the columns
-        return data.to_dict(orient="records"), is_mapped
+        return data.to_dict(orient='records'), is_mapped
 
     is_mapped = False
     print("File is not mapped. Proceeding with data processing.")
@@ -76,41 +80,37 @@ def custom_data_loader(source_path):
     docs = []
 
     # Iterate through the rows with a progress bar
-    for index, row in tqdm(data.iterrows(), total=data.shape[0], desc="Retrieving input data"):
+    for index, row in tqdm(data.iterrows(), total=data.shape[0], desc='Retrieving input data'):
         try:
             # Extract and process the 'VARIABLE LABEL' field
-            label = str(row.get("VARIABLE LABEL", "")).lower().strip()
-            if not label:
+            # print(f"Row: {row}")
+            label = str(row.get('VARIABLE LABEL', '')).lower().strip() if pd.notna(row.get('VARIABLE LABEL')) else None
+            name = str(row.get('VARIABLE NAME', '')).lower().strip() if pd.notna(row.get('VARIABLE NAME')) else None
+            if not label or not name:
                 print(f"Row {index} has an empty 'VARIABLE LABEL'. Skipping.")
                 continue
-            name = str(row.get("VARIABLE NAME", "")).lower().strip()
 
             # Handle 'CATEGORICAL' field
-            categorical_raw = row.get("CATEGORICAL", None)
+            categorical_raw = row.get('CATEGORICAL', None)
             if pd.notna(categorical_raw) and str(categorical_raw).strip():
-                categories = str(categorical_raw).lower().strip().replace(",", "|").split("|")
+                categories = str(categorical_raw).lower().strip().replace(',', '|').split("|")
             else:
                 categories = None
-
-            # Handle 'UNITS' field
-            unit_raw = row.get("UNITS", None)
-            unit = str(unit_raw).lower().strip() if pd.notna(unit_raw) else None
-
-            # Handle 'Formula' field
-            formula_raw = row.get("Formula", None)
-            formula = str(formula_raw).lower().strip() if pd.notna(formula_raw) else None
-        
+            visits = None
             # Handle 'UNITS' field
             unit_raw = row.get('UNITS', None)
             unit = str(unit_raw).lower().strip() if pd.notna(unit_raw) else None
-
-            visits = None
             visits_raw = row.get('Visits', None)
             if pd.notna(visits_raw) and visits_raw:
                 visits = str(visits).lower().strip() if pd.notna(visits) else None
-                if 'visit' not in visits and 'baseline' not in visits:
-                    visits = f"visit {visits}"
-                visits = f"at {visits}"
+                if visits:
+                    if 'visit' not in visits and 'baseline' not in visits:
+                        visits = f"visit {visits}"
+                    visits = f"at {visits}"
+            # Handle 'Formula' field
+            formula_raw = row.get('Formula', None)
+            formula = str(formula_raw).lower().strip() if pd.notna(formula_raw) else None
+
             # Construct the 'full_query' string
             full_query = label
             if visits:
@@ -121,20 +121,21 @@ def custom_data_loader(source_path):
                 full_query += f", unit: {unit}"
             if formula:
                 full_query += f", formula: {formula}"
+            
 
             # Create a dictionary for the QueryDecomposedModel
             query_dict = {
-                "name": name,
-                "full_query": full_query,
+                'name':name,
+                'full_query': full_query,
                 'base_entity': f"{label} {visits}",
-                "categories": categories,
-                "unit": unit,
-                "formula": formula,
-                "domain": "all",
-                "rel": None,
-                "original_label": label,
+                'categories': categories,
+                'unit': unit,
+                'formula': formula,
+                'domain': 'all',
+                'rel': None,
+                'original_label': label
             }
-
+            # print(f"Query Dict: {query_dict}")
             # Instantiate the QueryDecomposedModel
             query_model = QueryDecomposedModel(**query_dict)
 
@@ -149,7 +150,6 @@ def custom_data_loader(source_path):
             print(f"Unexpected error in row {index}: {ex}")
 
     return docs, is_mapped
-
 
 STOP_WORDS = [
     "stop",
