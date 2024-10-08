@@ -122,12 +122,13 @@ def custom_data_loader(source_path):
             if formula:
                 full_query += f", formula: {formula}"
             
-
+            base_entity = f"{label} {formula}" if formula else label
+            base_entity = f"{base_entity} {visits}" if unit else base_entity
             # Create a dictionary for the QueryDecomposedModel
             query_dict = {
                 'name':name,
                 'full_query': full_query,
-                'base_entity': f"{label} {visits}" if visits else label,
+                'base_entity':base_entity,
                 'categories': categories,
                 'unit': unit,
                 'formula': formula,
