@@ -16,7 +16,7 @@ class AthenaFilters(BaseModel):
     standard_concept: list[str] | None = Field(default=None, example=["Standard", "Classification", "Non-standard"])
     vocabulary: list[str] | None = Field(
         default=None,
-        example=["SNOMED", "LOINC", "MeSH", "UCUM", "OMOP Extension", "ATC", "RxNorm", "Gender", "Race", "Ethnicity"],
+        example=["SNOMED", "LOINC", "UCUM", "OMOP Extension", "ATC", "RxNorm", "Gender", "Race", "Ethnicity"],
     )
     page: int = Field(default=1, ge=1, description="Page number for pagination. Defaults to 1.")
     pageSize: int = Field(default=20, ge=1, description="Number of results per page. Defaults to 5")
