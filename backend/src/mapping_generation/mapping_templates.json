@@ -18,7 +18,7 @@
       "history of events":["snomed", "loinc","omop extension"],
       "life style":["snomed", "loinc","omop extension"],
       "all": ["snomed", "loinc", "ucum", "omop extension","rxnorm","atc","cancer modifier"],
-      "unknown": ["snomed", "loinc", "uk biobank"]
+      "unknown": ["snomed", "loinc","rxnorm","atc"]
     },
     "extraction_rules":{
       "description":"translate all visits with time indicators as follow-up {number} month"
