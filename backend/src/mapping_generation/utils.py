@@ -326,7 +326,7 @@ def save_to_csv(data, filename):
         return
 
     fieldnames = [
-        'VARIABLE NAME', 'VARIABLE LABEL', 'DOMAIN', 'Variable Concept Label', 'Variable Concept Code','Variable Concept OMOP ID',
+        'VARIABLE NAME', 'VARIABLE LABEL', 'Domain', 'Variable Concept Label', 'Variable Concept Code','Variable Concept OMOP ID',
         'Additional Context Concept Label', 'Additional Context Concept Code','Additional Context OMOP ID','Primary to Secondary Context Relationship','Categorical Values Concept Label','Categorical Values Concept Code', 'Categorical Values Concept OMOP ID', 'UNIT', 'Unit Concept Label', 'Unit Concept Code','Unit OMOP ID'
     ]
 
@@ -339,7 +339,7 @@ def save_to_csv(data, filename):
             'Variable Concept Label': row.get('Variable Concept Label',''),
             'Variable Concept OMOP ID': row.get('Variable Concept OMOP ID',''),
             'Variable Concept Code': row.get('Variable Concept Code',''),
-            'DOMAIN': row.get('DOMAIN', ''),
+            'Domain': row.get('Domain', ''),
             'Additional Context Concept Label': row.get('Additional Context Concept Label', ''),
             'Additional Context Concept Code': row.get('Additional Context Concept Code', ''),
             'Additional Context OMOP ID':row.get('Additional Context OMOP ID', ''),
@@ -912,7 +912,7 @@ def create_processed_result(result_object: ProcessedResultsModel) -> dict:
     results = {
         "VARIABLE NAME": result_object.variable_name,
         "VARIABLE LABEL": result_object.original_query,
-        "DOMAIN": result_object.domain,
+        "Domain": result_object.domain,
         "Variable Concept Label": combined_labels,
         "Variable Concept Code": combined_codes,
         "Variable Concept OMOP ID": combined_omop_ids,
@@ -1140,7 +1140,7 @@ def append_results_to_csv(input_file, results, output_suffix="_mapped.csv") -> N
         "Variable Concept Label": [result.get("Variable Concept Label", None) for result in results],
         "Variable Concept Code": [result.get("Variable Concept Code", None) for result in results],
         "Variable Concept OMOP ID": [result.get("Variable Concept OMOP ID", None) for result in results],
-        "DOMAIN": [result.get("DOMAIN", None) for result in results],
+        "Domain": [result.get("DOMAIN", None) for result in results],
         "Additional Context Concept Label": [
             result.get("Additional Context Concept Label", None) for result in results
         ],
