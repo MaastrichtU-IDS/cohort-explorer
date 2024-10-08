@@ -900,22 +900,22 @@ def create_processed_result(result_object: ProcessedResultsModel) -> dict:
     main_term_labels = main_term_matches[0].standard_label if len(main_term_matches) >= 1 else None
     main_term_codes = main_term_matches[0].standard_code if len(main_term_matches) >= 1 else None
     main_term_omop_id = main_term_matches[0].standard_omop_id if len(main_term_matches) >= 1 else None
-    if additional_entities:
-        combined_labels = combine_if_different(main_term_labels, additional_entities_labels, separator="|")
-        combined_codes = combine_if_different(main_term_codes, additional_entities_codes, separator="|")
-        combined_omop_ids = combine_if_different(main_term_omop_id, additional_entities_omop_ids, separator="|")
+    # if additional_entities:
+    #     combined_labels = combine_if_different(main_term_labels, additional_entities_labels, separator="|")
+    #     combined_codes = combine_if_different(main_term_codes, additional_entities_codes, separator="|")
+    #     combined_omop_ids = combine_if_different(main_term_omop_id, additional_entities_omop_ids, separator="|")
 
-    else:
-        combined_labels = join_or_single(main_term_labels)
-        combined_codes = join_or_single(main_term_codes)
-        combined_omop_ids = join_or_single(main_term_omop_id)
+    # else:
+    #     combined_labels = join_or_single(main_term_labels)
+    #     combined_codes = join_or_single(main_term_codes)
+    #     combined_omop_ids = join_or_single(main_term_omop_id)
     results = {
         "VARIABLE NAME": result_object.variable_name,
         "VARIABLE LABEL": result_object.original_query,
         "Domain": result_object.domain,
-        "Variable Concept Label": combined_labels,
-        "Variable Concept Code": combined_codes,
-        "Variable Concept OMOP ID": combined_omop_ids,
+        "Variable Concept Label": main_term_labels,
+        "Variable Concept Code": main_term_codes,
+        "Variable Concept OMOP ID": main_term_omop_id,
         "Additional Context Concept Label": additional_entities_labels,
         "Additional Context Concept Code": additional_entities_codes,
         "Additional Context OMOP ID": additional_entities_omop_ids,
