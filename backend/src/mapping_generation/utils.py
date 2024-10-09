@@ -105,15 +105,13 @@ STOP_WORDS = [
     "vals",
     "val",
 ]
-DEFAULT_QUALIFIER_VALUES = ["yes",
-                            "no",
-                            "not available",
-                            "unknown",
-                            "missing",
-                            "1",
-                            "0",
-                            "no",
-                            "not"]
+DEFAULT_QUALIFIER_VALUES = ["yes","no","not available","unknown","missing",
+                            "1","0","no","not","once a day",
+                            "once daily","twice daily","three times daily",
+                            "twice a day","three times a day","1 time per day",
+                            "2 times per day","3 times per day",
+                            "1 time","2 times","3 times"]
+
 
 def save_jsonl(data, file):
     with open(file, "w") as f:

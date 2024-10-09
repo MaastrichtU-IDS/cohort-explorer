@@ -35,7 +35,7 @@
         "exclude_vocab": []
       },
       "drug": {
-        "triggers": ["medication", "prescribed","use"],
+        "triggers": ["drug", "prescribed","use"],
         "additional_vocab": ["loinc"],
         "exclude_vocab": []
       }
@@ -133,7 +133,7 @@
           },
           {
             "input":"nitrate maintenance dose (oral) - 6 weeks follow-up, categorical values: 0|5|10|15",
-            "output":"{\"domain\":\"drug\", \"base_entity\":\"Nitrate therapy\", \"additional_entities\":[\"medication dosage\",\"Administration via oral route\", \"follow-up 6 weeks\"], \"categories\": [\"0\",\"5\",\"10\",\"15\"]}"
+            "output":"{\"domain\":\"drug\", \"base_entity\":\"Nitrate therapy\", \"additional_entities\":[\"drug dosage\",\"Administration via oral route\", \"follow-up 6 weeks\"], \"categories\": [\"0\",\"5\",\"10\",\"15\"]}"
 
           },
           {
@@ -522,11 +522,15 @@
           },
           {
             "input":"antiarrhythmics -ajmaline-prescribed drugs at Visit 2/discharge",
-            "output":"{\"domain\":\"medication\",\"base_entity\":\"Ajmaline\",\"additional_entities\":[\"Medication prescribed\",\"post hospital discharge visit\",\"Follow-up 2 month\"]}"
+            "output":"{\"domain\":\"drug\",\"base_entity\":\"Ajmaline\",\"additional_entities\":[\"drug prescribed\",\"post hospital discharge visit\",\"Follow-up 2 month\"]}"
           },
           {
             "input":"urea at visit 1/hospitalization",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Urea nitrogen [Mass/volume] in Serum or Plasma\",\"additional_entities\":[\"follow-up 1 month\"]}"
+          },
+          {
+            "input":"which Betablocker at baseline",
+            "output":"{\"domain\":\"drug\",\"base_entity\":\"beta blocking agents\",\"additional_entities\":[\"baseline time\"]}"
           },
           {
             "input":"ECG ST- lead v1 at Visit 4-6 months / discharge",
@@ -890,7 +894,7 @@
           },
           {
               "input":"Optimization of drug dose of Angiotensin-converting enzyme inhibitor therapy, possible values: 0= hydration, 1= max dose, 2=target dose , 3= NVT, 4= contraindication",
-              "output":"{\"domain\":\"drug\",\"base_entity\":\"Optimization of medication\",\"additional_entities\":[\"Angiotensin-converting enzyme inhibitor\",\"categories\": [\"Fluid balance regulation\",\"Patient on maximum tolerated dose\",\"Angiotensin converting enzyme inhibitor target dose achieved\",\"not applicable\",\"contraindication\"]}" 
+              "output":"{\"domain\":\"drug\",\"base_entity\":\"Optimization of drug\",\"additional_entities\":[\"Angiotensin-converting enzyme inhibitor\",\"categories\": [\"Fluid balance regulation\",\"Patient on maximum tolerated dose\",\"Angiotensin converting enzyme inhibitor target dose achieved\",\"not applicable\",\"contraindication\"]}" 
           },
           { 
             "input":"QTc= Corrected QT Interval time adjusted for heartfrequency at baseline on ECG, unit:ms",
@@ -1107,8 +1111,8 @@
             "output":"{\"domain\":\"drug\",\"base_entity\":\"nitroglycerin\",\"additional_entities\": [\"Reason stopped\"], \"categories\": [\"not significant\",\"hypotension\",\"headache\",\"angina post-acute myocardial infarction\",\"Patient refused\",\"Other category\",\"missing\"]}"
           },
           {
-            "input":"uses any antidepressive medication at Baseline y/n",
-            "output":"{\"domain\":\"observation\",\"base_entity\":\"Antidepressant\",\"additional_entities\": [\"baseline time\"], \"categories\": [\"Does take medication\",\"Does not take medication\"]}"
+            "input":"uses any antidepressive drug at Baseline y/n",
+            "output":"{\"domain\":\"observation\",\"base_entity\":\"Antidepressant\",\"additional_entities\": [\"baseline time\"], \"categories\": [\"Does take drug\",\"Does not take drug\"]}"
           },
           {
             "input":"estimated glomerular filtration rate using MDRD formula at baseline",
@@ -1161,7 +1165,7 @@
           },
           {
             "input":"date of ct-scan",
-            "output":"{\"domain\":\"observation\",\"base_entity\":\"date of event\",\"additional_entities\":[\"CT scan\"]}"
+            "output":"{\"domain\":\"observation\",\"base_entity\":\"CT scan\",\"additional_entities\":[\"Date of Event\"]}"
           },
           {
             "input": "statin, start at 12 month",
@@ -1270,11 +1274,11 @@
           },
           {
             "input": "Non steriodal anti inflammatory drug use at Baseline y/n",
-            "output": "{\"domain\":\"drug\",\"base_entity\":\"History of Medication use\",\"additional_entities\": [\"Non steriodal anti inflammatory\",\"baseline time\"], \"categories\": [\"Does take medication\",\"Does not take medication\"]}"
+            "output": "{\"domain\":\"drug\",\"base_entity\":\"History of drug use\",\"additional_entities\": [\"Non steriodal anti inflammatory\",\"baseline time\"], \"categories\": [\"Does take drug\",\"Does not take drug\"]}"
           },
           {
             "input": "aspirin - prescribed at 6 weeks follow-up, S = Yes | N = No",
-            "output": "{\"domain\":\"observation\",\"base_entity\":\"Prescription for medication\", \"additional_entities\": [\"aspirin\", \"follow-up 6 weeks\"],\"categories\": [\"medication prescribed\", \"not prescribed\"]}"
+            "output": "{\"domain\":\"observation\",\"base_entity\":\"Prescription for drug\", \"additional_entities\": [\"aspirin\", \"follow-up 6 weeks\"],\"categories\": [\"drug prescribed\", \"not prescribed\"]}"
           },
           {
             "input": "angiotensin II receptor antagonist/blocker (ARBs)",
@@ -1282,11 +1286,11 @@
           },
           {
             "input":"Sum of ACE-inh and ARB-dose Baseline in percentage of target dose",
-            "output":"{\"domain\":\"drug\",\"base_entity\":\"Optimization of medication\",\"additional_entities\":[\"angiotensin II receptor antagonist\", \"Angiotensin-converting enzyme inhibitor\", \"baseline time\"], \"unit\": \"%\"}"
+            "output":"{\"domain\":\"drug\",\"base_entity\":\"Optimization of drug\",\"additional_entities\":[\"angiotensin II receptor antagonist\", \"Angiotensin-converting enzyme inhibitor\", \"baseline time\"], \"unit\": \"%\"}"
           },
           {
             "input": "optimization of insulin therapy at month 3 ",
-            "output": "{\"domain\":\"observation\",\"base_entity\":\"Optimization of medication\",\"additional_entities\": [\"insulin therapy \",\"Follow-up 3 month\"]}"
+            "output": "{\"domain\":\"observation\",\"base_entity\":\"Optimization of drug\",\"additional_entities\": [\"insulin therapy \",\"Follow-up 3 month\"]}"
           },
           {
             "input":"resting heart rate, unit: bpm",
@@ -1374,7 +1378,7 @@
         "output":"{\"domain\":\"observation\",\"base_entity\":\"History of Event\",\"additional_entities\":[\"Percutaneous coronary intervention\"]}"
       },
       {
-        "input": "Tissue Doppler Imaging (TDI) at visit12, lateral",
+        "input": "Tissue Doppler Imaging (TDI) at month 12, lateral",
         "output": "{\"domain\":\"observation\",\"base_entity\": \"Tissue Doppler Imaging (TDI)\", \"additional_entities\": [\"lateral\",\"Follow-up 1 year\"]}"
       },
       {
@@ -1383,15 +1387,15 @@
       },
       {
         "input":"lisinopril suspension date, unit: DD-MM-YYYY",
-        "output":"{\"domain\":\"drug\",\"base_entity\":\"Lisinopril\",\"additional_entities\":[\"date medications stopped\"], \"unit\":\"DD-MM-YYYY\"}"
+        "output":"{\"domain\":\"drug\",\"base_entity\":\"Lisinopril\",\"additional_entities\":[\"date drugs stopped\"], \"unit\":\"DD-MM-YYYY\"}"
       },
       {
-        "input":"total daily dose of Digoxine",
-        "output":"{\"domain\":\"drug\",\"base_entity\":\"Digoxin\",\"additional_entities\":[\"frequency per day\"]}"
+        "input":"total daily dose of Digoxine, unit: milligrams",
+        "output":"{\"domain\":\"drug\",\"base_entity\":\"Digoxin\",\"additional_entities\":[\"frequency per day\"], \"unit\":\"milligrams\"}"
       },
       {
-        "input":"statin dosing frequency, unit:mg",
-        "output":"{\"domain\":\"drug\",\"base_entity\":\"HMG-CoA reductase inhibitor\",\"additional_entities\":[\"frequency per day\"], \"unit\":\"milligrams\"}"
+        "input":"statin dosing frequency, categorical values: 1=once daily | 2=twice daily | 3=three times daily, unit: milligrams",
+        "output":"{\"domain\":\"drug\",\"base_entity\":\"HMG-CoA reductase inhibitor\",\"additional_entities\":[\"frequency per day\"], \"categories\": [\"1 time per day\",\"2 times per day\",\"3 times per day\"], \"unit\":\"milligrams\"}"
       },
       {
         "input":"Amiodarone,categorical values:not applicable, amiodarone, stopped due to side effects, contraindicated",
@@ -1418,16 +1422,16 @@
         "output":"{\"domain\":\"death\", \"base_entity\":\"Cause of death\", \"additional_entities\":[\"Cardiovascular event \",\"stroke\"]}"
       },
       {
-        "input":"categories of medication not available",
-        "output":"{\"domain\":\"observation\", \"base_entity\":\"medication not available\"}"
-      },
-      {
-        "input":"medication prescribed",
-        "output":"{\"domain\":\"observation\", \"base_entity\":\"medication prescribed\"}"
+        "input":"categories of drug not available",
+        "output":"{\"domain\":\"observation\", \"base_entity\":\"drug not available\"}"
       },
       {
         "input":"drug prescribed",
-        "output":"{\"domain\":\"observation\", \"base_entity\":\"medication prescribed\"}"
+        "output":"{\"domain\":\"observation\", \"base_entity\":\"drug prescribed\"}"
+      },
+      {
+        "input":"drug prescribed",
+        "output":"{\"domain\":\"observation\", \"base_entity\":\"drug prescribed\"}"
       },
       {
         "input":"number of hospitalisations and death all-cause",
@@ -1446,6 +1450,10 @@
           "output":"{\"domain\":\"drug\", \"base_entity\":\"Mineralocorticoid receptor antagonist\",\"additional_entities\":[\"baseline time\"], \"unit\":\"milligrams\"}"
         },
         {
+          "input":"Reason for non compliance of patient at visit month 1",
+          "output":"{\"domain\":\"observation\", \"base_entity\":\"Compliance behavior \",\"additional_entities\":[\"Compliance behavior\",\"Follow-up 1 month\"]}"
+        },
+        {
           "input":"Ejection fraction during treatment",
           "output":"{\"domain\":\"measurement\", \"base_entity\":\"Ecardiac ejection fraction\",\"additional_entities\":[\"follow-up assessment\"]}"
         },
@@ -1454,8 +1462,12 @@
           "output":"{\"domain\":\"drug\", \"base_entity\":\"Heparin\",\"additional_entities\":[\"Administration via intravenous route\",\"Follow-up 6 month\"], \"categories\": [\"Hypertension\",\"Heart failure\",\"Post infarctual angina\",\"Reinfarction\",\"Silent ischemia\",\"Secondary prevention\",\"Arrhythmia\",\"Other\",\"Missing\",\"Hypercholesterolemia\",\"Reduced ejection fraction\",\"Intraventricular thrombus\",\"Atrial fibrillation\"]}"
         },
         {
-          "input":"echocardiography pre-discharge sum of systolic diameters",
+          "input":"echocardiography pre-discharge sum of systolic diameter",
           "output":"{\"domain\":\"measurement\", \"base_entity\":\"left ventricular end-systolic cavity size\",\"additional_entities\":[\"echocardiography\", \"pre-discharge assessment\"]}"
+        },
+        {
+          "input":"systolic diameter",
+          "output":"{\"domain\":\"measurement\", \"base_entity\":\"left ventricular end-systolic cavity size\"}"
         },
         {
           "input":"echocardiography pre-discharge ejection fraction recorded, baseline visit",
@@ -1483,11 +1495,15 @@
         },
           {
             "input": "optimization of insulin therapy at month 3 ",
-            "output": "{\"domain\":\"observation\",\"base_entity\":\"Optimization of medication\",\"additional_entities\": [\"insulin therapy \",\"Follow-up 3 month\"]}"
+            "output": "{\"domain\":\"observation\",\"base_entity\":\"Optimization of drug\",\"additional_entities\": [\"insulin therapy \",\"Follow-up 3 month\"]}"
           },
           {
             "input":"angiotensin ii receptor inhibitor (=arb) adjustment Follow-up month 3,categorical values: 0 = no adjustment| 1= 1 times uptitration| 2= increase more than once| 3= reduction| 4= stop| 5= no adjustment due to side-effect| 6= other",
             "output":"{\"domain\":\"drug\",\"base_entity\":\"Angiotensin II receptor antagonist\",\"additional_entities\":[\"Adjustment\", \"Follow-up 3 month\"], \"categories\": [\"no adjustment\",\"One step at a time\",\"More than once\",\"reduction\",\"stopped\",\"side-effect\",\"other\"]}"
+          },
+          {
+            "input":"start date of antiarrhythmics medication procainamide in hospital",
+            "output":"{\"domain\":\"drug\",\"base_entity\":\"Procainamide\",\"additional_entities\":[\"start date of therapy or treatment\"], \"unit\":\"DD-MM-YYYY\"}"
           },
           {
             "input":"chronic kidney disesase",
@@ -1519,7 +1535,7 @@
           },
           {
             "input":"Sum of ACE-inh and ARB-dose Baseline in percentage of target dose",
-            "output":"{\"domain\":\"observation\",\"base_entity\":\"Medication Dose\",\"additional_entities\":[\"angiotensin II receptor antagonist\", \"Angiotensin-converting enzyme inhibitor\", \"baseline time\"], \"unit\": \"%\"}"
+            "output":"{\"domain\":\"observation\",\"base_entity\":\"drug Dose\",\"additional_entities\":[\"angiotensin II receptor antagonist\", \"Angiotensin-converting enzyme inhibitor\", \"baseline time\"], \"unit\": \"%\"}"
           },
           {
             "input":"Weight at visit3, unit:kg,categorical values: 1=999, 0=missing",
@@ -1762,7 +1778,7 @@
           },
           {
             "input":"date restarted lisinopril, unit: dd-mm-yyyy",
-            "output":"{\"domain\":\"drug\", \"base_entity\":\"Date of event\", \"additional_entities\":[\"Lisinopril\",\"medication restarted\"], \"unit\":\"dd-mm-yyyy\"}"
+            "output":"{\"domain\":\"drug\", \"base_entity\":\"Lisinopril\", \"additional_entities\":[\"Restart of medication\",\"Start date of treatment or therapy\"], \"unit\":\"dd-mm-yyyy\"}"
           }
 
         ]
@@ -1803,7 +1819,7 @@
         {
           "answer": "Beta adrenergic receptor antagonist",
           "relationship": "synonym",
-          "explanation": "This answer is an exact match, correctly identifying the class of medication referred to by 'beta-blockers'."
+          "explanation": "This answer is an exact match, correctly identifying the class of drug referred to by 'beta-blockers'."
         },
         {
           "answer": "Beta blocker identification.",
@@ -2147,7 +2163,7 @@
       ]
     },      
     {
-    "input": "Query: high blood pressure: age first diagnosed, documents: ['high blood pressure. ', 'age began taking high blood pressure medication', 'age when told have high blood pressure', 'hypertension or high blood pressure. ', 'blood pressure abnormal - 1st recall', 'ever told by doctor or nurse that you have high blood pressure', 'treatment for hypertension started']",
+    "input": "Query: high blood pressure: age first diagnosed, documents: ['high blood pressure. ', 'age began taking high blood pressure drug', 'age when told have high blood pressure', 'hypertension or high blood pressure. ', 'blood pressure abnormal - 1st recall', 'ever told by doctor or nurse that you have high blood pressure', 'treatment for hypertension started']",
     "output": [
       {
         "answer": "high blood pressure.",
@@ -2155,9 +2171,9 @@
         "explanation": "This concepts mentions high blood pressure but does not include the context of age at diagnosis."
       },
       {
-        "answer": "age began taking high blood pressure medication.",
+        "answer": "age began taking high blood pressure drug.",
         "relationship": "not relevant",
-        "explanation": "Mentions age in the context of medication for high blood pressure, not the first diagnosis, providing no relevance."
+        "explanation": "Mentions age in the context of drug for high blood pressure, not the first diagnosis, providing no relevance."
       },
       {
         "answer": "age when told have high blood pressure.",
@@ -3547,7 +3563,7 @@
       ]
     },      
     {
-    "input": "Query: high blood pressure: age first diagnosed, documents: ['high blood pressure', 'age began taking high blood pressure medication', 'age when told have high blood pressure', 'hypertension or high blood pressure. ', 'blood pressure abnormal - 1st recall', 'ever told by doctor or nurse that you have high blood pressure', 'treatment for hypertension started']",
+    "input": "Query: high blood pressure: age first diagnosed, documents: ['high blood pressure', 'age began taking high blood pressure drug', 'age when told have high blood pressure', 'hypertension or high blood pressure. ', 'blood pressure abnormal - 1st recall', 'ever told by doctor or nurse that you have high blood pressure', 'treatment for hypertension started']",
     "output": [
       {
         "answer": "high blood pressure.",
@@ -3555,9 +3571,9 @@
         "explanation": "This concepts mentions high blood pressure but does not include the context of age at diagnosis."
       },
       {
-        "answer": "age began taking high blood pressure medication.",
+        "answer": "age began taking high blood pressure drug.",
         "relationship": "not relevant",
-        "explanation": "Mentions age in the context of medication for high blood pressure, not the first diagnosis, providing no relevance."
+        "explanation": "Mentions age in the context of drug for high blood pressure, not the first diagnosis, providing no relevance."
       },
       {
         "answer": "age when told have high blood pressure.",
@@ -3797,7 +3813,7 @@
         {
           "answer": "Beta adrenergic receptor antagonist",
           "relationship": "synonym",
-          "explanation": "This answer is an exact match, correctly identifying the class of medication referred to by 'beta-blockers'."
+          "explanation": "This answer is an exact match, correctly identifying the class of drug referred to by 'beta-blockers'."
         },
         {
           "answer": "Beta blocker identification.",
@@ -4701,7 +4717,7 @@
       ]
     },      
     {
-    "input": "Query: high blood pressure: age first diagnosed, documents: ['high blood pressure', 'age began taking high blood pressure medication', 'age when told have high blood pressure', 'hypertension or high blood pressure. ', 'blood pressure abnormal - 1st recall', 'ever told by doctor or nurse that you have high blood pressure', 'treatment for hypertension started']",
+    "input": "Query: high blood pressure: age first diagnosed, documents: ['high blood pressure', 'age began taking high blood pressure drug', 'age when told have high blood pressure', 'hypertension or high blood pressure. ', 'blood pressure abnormal - 1st recall', 'ever told by doctor or nurse that you have high blood pressure', 'treatment for hypertension started']",
     "output": [
       {
         "answer": "high blood pressure.",
@@ -4709,9 +4725,9 @@
         "explanation": "This concepts mentions high blood pressure but does not include the context of age at diagnosis."
       },
       {
-        "answer": "age began taking high blood pressure medication.",
+        "answer": "age began taking high blood pressure drug.",
         "relationship": "not relevant",
-        "explanation": "Mentions age in the context of medication for high blood pressure, not the first diagnosis, providing no relevance."
+        "explanation": "Mentions age in the context of drug for high blood pressure, not the first diagnosis, providing no relevance."
       },
       {
         "answer": "age when told have high blood pressure.",
@@ -4951,7 +4967,7 @@
         {
           "answer": "Beta adrenergic receptor antagonist",
           "relationship": "synonym",
-          "explanation": "This answer is an exact match, correctly identifying the class of medication referred to by 'beta-blockers'."
+          "explanation": "This answer is an exact match, correctly identifying the class of drug referred to by 'beta-blockers'."
         },
         {
           "answer": "Beta blocker identification.",
@@ -5349,10 +5365,10 @@
         ]
     },
     {
-      "input":"Query: high blood pressure: age first diagnosed, documents: ['high blood pressure. ', 'age began taking high blood pressure medication', 'age when told have high blood pressure', 'hypertension or high blood pressure. ', 'blood pressure abnormal - 1st recall', 'hypertension (high blood pressure). ', 'ever told by doctor or nurse that you have high blood pressure', 'stage 1 hypertension (nice - national institute for health and clinical excellence 2011)', 'postpartum pre-existing essential hypertension', 'treatment for hypertension started']",
+      "input":"Query: high blood pressure: age first diagnosed, documents: ['high blood pressure. ', 'age began taking high blood pressure drug', 'age when told have high blood pressure', 'hypertension or high blood pressure. ', 'blood pressure abnormal - 1st recall', 'hypertension (high blood pressure). ', 'ever told by doctor or nurse that you have high blood pressure', 'stage 1 hypertension (nice - national institute for health and clinical excellence 2011)', 'postpartum pre-existing essential hypertension', 'treatment for hypertension started']",
       "output":[
         {"answer": "high blood pressure","score": 0,"explanation": "not relevant; mentions high blood pressure but lacks age context."},
-        {"answer": "age began taking high blood pressure medication","score": 8,"explanation": "somwwhat Relevant; mentions age in context of high blood pressure medication but not first diagnosis."},
+        {"answer": "age began taking high blood pressure drug","score": 8,"explanation": "somwwhat Relevant; mentions age in context of high blood pressure drug but not first diagnosis."},
         {"answer": "age when told have high blood pressure","score": 10,"explanation": "Exact match; directly mentions age at diagnosis of high blood pressure."},
         {"answer": "hypertension or high blood pressure.","score": 0,"explanation": "Not Relevant relevant; mentions high blood pressure but lacks age context."},
         {"answer": "blood pressure abnormal - 1st recall.","score": 0,"explanation": "Not Relevant; mentions first recall of abnormal blood pressure but lacks specific age at diagnosis."},
@@ -5448,7 +5464,7 @@
         "input":"Query:beta-blockers (BB), candidate terms: ['Beta adrenergic receptor antagonist','Beta blocker identification','Prescription of beta blocker']",
         "output":[
           {"answer":"Beta adrenergic receptor antagonist", "score": 10, "explanation":"This is an exact match to the query"},
-          {"answer": "Beta blocker identification", "score": 5, "explanation":"This answer is not a close match as it only mentions the identification of beta-blockers, which is not directly relevant to the query about beta-blockers as a medication"}, 
+          {"answer": "Beta blocker identification", "score": 5, "explanation":"This answer is not a close match as it only mentions the identification of beta-blockers, which is not directly relevant to the query about beta-blockers as a drug"}, 
           {"answer": "Prescription of beta blocker", "score": 5, "explanation":"This is is not match. It includes additional context about the prescription process"}
         ]
 
@@ -5805,7 +5821,7 @@
     {
       "answer": "valsartan and sacubitril; oral",
       "score": 9,
-      "explanation": "Highly relevant for explicitly mentioning both components of the query as an oral medication, precisely matching the query's primary focus."
+      "explanation": "Highly relevant for explicitly mentioning both components of the query as an oral drug, precisely matching the query's primary focus."
     },
     {
       "answer": "sacubitril / valsartan oral tablet",
@@ -5868,10 +5884,10 @@
     {"answer": "date of myocardial infarction.","score": 0,"explanation": "only date part is relevant; mentions date of myocardial infarction but lacks specific context of cardiac MRI."}]
 },
 {
-  "input":"Query: high blood pressure: age first diagnosed, documents: \"['high blood pressure. ', 'age began taking high blood pressure medication', 'age when told have high blood pressure', 'hypertension or high blood pressure. ', 'blood pressure abnormal - 1st recall', 'hypertension (high blood pressure). ', 'ever told by doctor or nurse that you have high blood pressure', 'stage 1 hypertension (nice - national institute for health and clinical excellence 2011)', 'postpartum pre-existing essential hypertension', 'treatment for hypertension started']\"",
+  "input":"Query: high blood pressure: age first diagnosed, documents: \"['high blood pressure. ', 'age began taking high blood pressure drug', 'age when told have high blood pressure', 'hypertension or high blood pressure. ', 'blood pressure abnormal - 1st recall', 'hypertension (high blood pressure). ', 'ever told by doctor or nurse that you have high blood pressure', 'stage 1 hypertension (nice - national institute for health and clinical excellence 2011)', 'postpartum pre-existing essential hypertension', 'treatment for hypertension started']\"",
   "output":[
     {"answer": "high blood pressure","score": 0,"explanation": "not relevant; mentions high blood pressure but lacks age context."},
-    {"answer": "age began taking high blood pressure medication","score": 8,"explanation": "somwwhat Relevant; mentions age in context of high blood pressure medication but not first diagnosis."},
+    {"answer": "age began taking high blood pressure drug","score": 8,"explanation": "somwwhat Relevant; mentions age in context of high blood pressure drug but not first diagnosis."},
     {"answer": "age when told have high blood pressure","score": 10,"explanation": "Exact match; directly mentions age at diagnosis of high blood pressure."},
     {"answer": "hypertension or high blood pressure.","score": 0,"explanation": "Not Relevant relevant; mentions high blood pressure but lacks age context."},
     {"answer": "blood pressure abnormal - 1st recall.","score": 0,"explanation": "Not Relevant; mentions first recall of abnormal blood pressure but lacks specific age at diagnosis."},
@@ -5908,7 +5924,7 @@
   "input":"Query:beta-blockers (BB), candidate terms: \"['Beta adrenergic receptor antagonist','Beta blocker identification','Prescription of beta blocker']\"",
   "output":[
     {"answer":"Beta adrenergic receptor antagonist", "score": 10, "explanation":"This is an exact match to the query"},
-    {"answer": "Beta blocker identification", "score": 5, "explanation":"This answer is not a close match as it only mentions the identification of beta-blockers, which is not directly relevant to the query about beta-blockers as a medication"}, 
+    {"answer": "Beta blocker identification", "score": 5, "explanation":"This answer is not a close match as it only mentions the identification of beta-blockers, which is not directly relevant to the query about beta-blockers as a drug"}, 
     {"answer": "Prescription of beta blocker", "score": 5, "explanation":"This is is not match. It includes additional context about the prescription process"}
   ]
 
@@ -6145,10 +6161,10 @@
 ]
 },
 {
-"input":"Query: high blood pressure: age first diagnosed, documents: \"['high blood pressure. ', 'age began taking high blood pressure medication', 'age when told have high blood pressure', 'hypertension or high blood pressure. ', 'blood pressure abnormal - 1st recall', 'hypertension (high blood pressure). ', 'ever told by doctor or nurse that you have high blood pressure', 'stage 1 hypertension (nice - national institute for health and clinical excellence 2011)', 'postpartum pre-existing essential hypertension', 'treatment for hypertension started']\"",
+"input":"Query: high blood pressure: age first diagnosed, documents: \"['high blood pressure. ', 'age began taking high blood pressure drug', 'age when told have high blood pressure', 'hypertension or high blood pressure. ', 'blood pressure abnormal - 1st recall', 'hypertension (high blood pressure). ', 'ever told by doctor or nurse that you have high blood pressure', 'stage 1 hypertension (nice - national institute for health and clinical excellence 2011)', 'postpartum pre-existing essential hypertension', 'treatment for hypertension started']\"",
 "output":[
   {"answer": "high blood pressure","score": 0,"explanation": "not relevant; mentions high blood pressure but lacks age context."},
-  {"answer": "age began taking high blood pressure medication","score": 8,"explanation": "somwwhat Relevant; mentions age in context of high blood pressure medication but not first diagnosis."},
+  {"answer": "age began taking high blood pressure drug","score": 8,"explanation": "somwwhat Relevant; mentions age in context of high blood pressure drug but not first diagnosis."},
   {"answer": "age when told have high blood pressure","score": 10,"explanation": "Exact match; directly mentions age at diagnosis of high blood pressure."},
   {"answer": "hypertension or high blood pressure.","score": 0,"explanation": "Not Relevant relevant; mentions high blood pressure but lacks age context."},
   {"answer": "blood pressure abnormal - 1st recall.","score": 0,"explanation": "Not Relevant; mentions first recall of abnormal blood pressure but lacks specific age at diagnosis."},
@@ -6662,7 +6678,7 @@
     {
       "answer": "valsartan and sacubitril; oral",
       "score": 9,
-      "explanation": "Highly relevant for explicitly mentioning both components of the query as an oral medication, precisely matching the query's primary focus."
+      "explanation": "Highly relevant for explicitly mentioning both components of the query as an oral drug, precisely matching the query's primary focus."
     },
     {
       "answer": "sacubitril / valsartan oral tablet",
@@ -6725,10 +6741,10 @@
     {"answer": "date of myocardial infarction.","score": 0,"explanation": "only date part is relevant; mentions date of myocardial infarction but lacks specific context of cardiac MRI."}]
 },
 {
-  "input":"Query: high blood pressure: age first diagnosed, documents: \"['high blood pressure. ', 'age began taking high blood pressure medication', 'age when told have high blood pressure', 'hypertension or high blood pressure. ', 'blood pressure abnormal - 1st recall', 'hypertension (high blood pressure). ', 'ever told by doctor or nurse that you have high blood pressure', 'stage 1 hypertension (nice - national institute for health and clinical excellence 2011)', 'postpartum pre-existing essential hypertension', 'treatment for hypertension started']\"",
+  "input":"Query: high blood pressure: age first diagnosed, documents: \"['high blood pressure. ', 'age began taking high blood pressure drug', 'age when told have high blood pressure', 'hypertension or high blood pressure. ', 'blood pressure abnormal - 1st recall', 'hypertension (high blood pressure). ', 'ever told by doctor or nurse that you have high blood pressure', 'stage 1 hypertension (nice - national institute for health and clinical excellence 2011)', 'postpartum pre-existing essential hypertension', 'treatment for hypertension started']\"",
   "output":[
     {"answer": "high blood pressure","score": 0,"explanation": "not relevant; mentions high blood pressure but lacks age context."},
-    {"answer": "age began taking high blood pressure medication","score": 8,"explanation": "somwwhat Relevant; mentions age in context of high blood pressure medication but not first diagnosis."},
+    {"answer": "age began taking high blood pressure drug","score": 8,"explanation": "somwwhat Relevant; mentions age in context of high blood pressure drug but not first diagnosis."},
     {"answer": "age when told have high blood pressure","score": 10,"explanation": "Exact match; directly mentions age at diagnosis of high blood pressure."},
     {"answer": "hypertension or high blood pressure.","score": 0,"explanation": "Not Relevant relevant; mentions high blood pressure but lacks age context."},
     {"answer": "blood pressure abnormal - 1st recall.","score": 0,"explanation": "Not Relevant; mentions first recall of abnormal blood pressure but lacks specific age at diagnosis."},
@@ -6765,7 +6781,7 @@
   "input":"Query:beta-blockers (BB), candidate terms: \"['Beta adrenergic receptor antagonist','Beta blocker identification','Prescription of beta blocker']\"",
   "output":[
     {"answer":"Beta adrenergic receptor antagonist", "score": 10, "explanation":"This is an exact match to the query"},
-    {"answer": "Beta blocker identification", "score": 5, "explanation":"This answer is not a close match as it only mentions the identification of beta-blockers, which is not directly relevant to the query about beta-blockers as a medication"}, 
+    {"answer": "Beta blocker identification", "score": 5, "explanation":"This answer is not a close match as it only mentions the identification of beta-blockers, which is not directly relevant to the query about beta-blockers as a drug"}, 
     {"answer": "Prescription of beta blocker", "score": 5, "explanation":"This is is not match. It includes additional context about the prescription process"}
   ]
 
@@ -7002,10 +7018,10 @@
 ]
 },
 {
-"input":"Query: high blood pressure: age first diagnosed, documents: \"['high blood pressure. ', 'age began taking high blood pressure medication', 'age when told have high blood pressure', 'hypertension or high blood pressure. ', 'blood pressure abnormal - 1st recall', 'hypertension (high blood pressure). ', 'ever told by doctor or nurse that you have high blood pressure', 'stage 1 hypertension (nice - national institute for health and clinical excellence 2011)', 'postpartum pre-existing essential hypertension', 'treatment for hypertension started']\"",
+"input":"Query: high blood pressure: age first diagnosed, documents: \"['high blood pressure. ', 'age began taking high blood pressure drug', 'age when told have high blood pressure', 'hypertension or high blood pressure. ', 'blood pressure abnormal - 1st recall', 'hypertension (high blood pressure). ', 'ever told by doctor or nurse that you have high blood pressure', 'stage 1 hypertension (nice - national institute for health and clinical excellence 2011)', 'postpartum pre-existing essential hypertension', 'treatment for hypertension started']\"",
 "output":[
   {"answer": "high blood pressure","score": 0,"explanation": "not relevant; mentions high blood pressure but lacks age context."},
-  {"answer": "age began taking high blood pressure medication","score": 8,"explanation": "somwwhat Relevant; mentions age in context of high blood pressure medication but not first diagnosis."},
+  {"answer": "age began taking high blood pressure drug","score": 8,"explanation": "somwwhat Relevant; mentions age in context of high blood pressure drug but not first diagnosis."},
   {"answer": "age when told have high blood pressure","score": 10,"explanation": "Exact match; directly mentions age at diagnosis of high blood pressure."},
   {"answer": "hypertension or high blood pressure.","score": 0,"explanation": "Not Relevant relevant; mentions high blood pressure but lacks age context."},
   {"answer": "blood pressure abnormal - 1st recall.","score": 0,"explanation": "Not Relevant; mentions first recall of abnormal blood pressure but lacks specific age at diagnosis."},
