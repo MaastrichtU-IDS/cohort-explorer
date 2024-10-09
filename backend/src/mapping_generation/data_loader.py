@@ -102,11 +102,11 @@ def custom_data_loader(source_path):
             unit = str(unit_raw).lower().strip() if pd.notna(unit_raw) else None
             visits_raw = row.get('Visits', None)
             if pd.notna(visits_raw) and visits_raw:
-                visits = str(visits).lower().strip() if pd.notna(visits) else None
-                if visits:
-                    if 'visit' not in visits and 'baseline' not in visits:
-                        visits = f"visit {visits}"
-                    visits = f"at {visits}"
+                    visits = str(visits).lower().strip() if pd.notna(visits) else None
+                    if visits:
+                        if 'visit' not in visits and 'baseline' not in visits and ('visit' in label or 'baseline' in label or 'month' in label):
+                            visits = f"visit {visits}"
+                        visits = f"at {visits}"
             # Handle 'Formula' field
             formula_raw = row.get('Formula', None)
             formula = str(formula_raw).lower().strip() if pd.notna(formula_raw) else None
@@ -123,7 +123,7 @@ def custom_data_loader(source_path):
                 full_query += f", formula: {formula}"
             
             base_entity = f"{label} {formula}" if formula else label
-            base_entity = f"{base_entity} {visits}" if unit else base_entity
+            base_entity = f"{base_entity} {visits}" if visits else base_entity
             # Create a dictionary for the QueryDecomposedModel
             query_dict = {
                 'name':name,
