@@ -505,15 +505,31 @@
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"lateral hypokinesia\",\"baseline time\"], \"categories\": [\"normal\",\"hypokinetic\",\"severely hypokinetic\",\"akinetic\",\"dyskinetic\",\"not determinable\"]}"
           },
           {
-            "input":"ECG at discharge ST+ lead v1 at Visit 2/discharge",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"ST amplitude.lead V1 | Heart | EKG measurements\",\"lead V1\", \"ECG finding\",\"Post hospital discharge visit\", \"Follow-up 2 month\"]}"
+            "input":"ECG ST+ lead v1 at Visit 2/discharge",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"ST amplitude.lead V1 | Heart | EKG measurements\",\"lead V1\", \"ECG finding\",\"post hospital discharge visit\", \"Follow-up 2 month\"]}"
+          },
+          {
+            "input":"ECG ST+ lead v1 at discharge",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"ST amplitude.lead V1 | Heart | EKG measurements\",\"lead V1\", \"ECG finding\", \"discharge time\"]}"
+          },
+          {
+            "input":"ECG ST+ lead v1 at visit 2/discharge",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"ST amplitude.lead V1 | Heart | EKG measurements\",\"lead V1\", \"ECG finding\",\"post hospital discharge visit\", \"Follow-up 2 month\"]}"
+          },
+          {
+            "input":"ECG ST+ lead v1 at visit 1/hospitalization",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"ST amplitude.lead V1 | Heart | EKG measurements\",\"lead V1\", \"ECG finding\",\"post hospital discharge visit\", \"Follow-up 1 month\"]}"
+          },
+          {
+            "input":"antiarrhythmics -ajmaline-prescribed drugs at Visit 2/discharge",
+            "output":"{\"domain\":\"medication\",\"base_entity\":\"Ajmaline\",\"additional_entities\":[\"Medication prescribed\",\"post hospital discharge visit\",\"Follow-up 2 month\"]}"
           },
           {
             "input":"urea at visit 1/hospitalization",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Urea nitrogen [Mass/volume] in Serum or Plasma\",\"additional_entities\":[\"follow-up 1 month\"]}"
           },
           {
-            "input":"ECG at discharge ST- lead v1 at Visit 4-6 months / discharg",
+            "input":"ECG ST- lead v1 at Visit 4-6 months / discharge",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"ST sagement depression.lead V1 | Heart | EKG measurements\",\"lead V1\", \"ECG finding\",\"Post hospital discharge visit\", \"Follow-up 4-6 months\"]}"
           },
           {

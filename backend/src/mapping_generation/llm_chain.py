@@ -390,7 +390,7 @@ def extract_ir(base_entity, associated_entities, active_model):
     Given the **Base Entity** (primary concept) and **Associated Entities** (secondary concepts), select the most appropriate relationship from the provided options.
 
         **Instructions:**
-        - The relationship should describe how the **Base Entity** relates **to** the **Associated Entity**.
+        - The relationship should describe how the **Base Entity** relates **to** the **Associated Entity**. The relationship should be unidirectional.
         - Review the Base Entity and each Associated Entity.
         - Use the examples below to guide your selection.
         - Choose the relationship that best fits the direction from Base Entity to Associated Entity.
@@ -487,7 +487,7 @@ def extract_information(query, model_name=LLM_ID, prompt=None):
                     result = sanitize_keys(result)
                     rel = extract_ir(
                         result.get("base_entity", None),
-                        result.get("additional_entities", []),
+                        result.get("additional_entities", []. result.get("categories", [])),
                         active_model=active_model,
                     )
                     result["rel"] = rel
