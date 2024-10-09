@@ -3,14 +3,11 @@ from typing import Any, List, Optional
 
 from langchain_qdrant import QdrantVectorStore
 from tqdm import tqdm
-
 # from qdrant_client import QdrantClient
 # from langchain_huggingface import HuggingFaceEmbeddings
 # from qdrant_client.http.models import Distance
 # import qdrant_client.http.models as rest
 from .param import *
-
-
 class CustomQdrantVectorStore(QdrantVectorStore):
     """Customized version of QdrantVectorStore with extended functionality."""
 
