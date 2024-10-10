@@ -174,7 +174,7 @@ def temp_process_query_details(
                         retriever_cache,
                         llm_name,
                         domain="all",
-                        values_type="status",
+                        values_type="categories",
                         is_omop_data=is_omop_data,
                         topk=topk,
                     )
@@ -236,17 +236,6 @@ def process_retrieved_docs(query, docs, llm_name=None, domain=None, belief_thres
     return [], False
 
 
-# def process_context(context,retriever,llm, domain = None, topk=10):
-#     # context = normalize(context)
-#     if context:
-#         if docs :=  retriever_docs(context,retriever, domain='all',topk=topk):
-#             if matched_docs := exact_match_found(query_text=context, documents=docs, domain=domain):
-#                 return post_process_candidates(matched_docs, max=1)
-#             llm_results,_ =  pass_to_chat_llm_chain(context, docs,llm_name=llm,domain=domain)
-#             return post_process_candidates(llm_results, max=2)
-#     return []
-
-
 def process_values(values, retriever, llm, domain=None, values_type="additional", is_omop_data=False, topk=10):
     if isinstance(values, str):
         values = [values]
@@ -271,7 +260,7 @@ def process_values(values, retriever, llm, domain=None, values_type="additional"
                     )
                     if updated_results:
                         all_values[q_value] = post_process_candidates(updated_results, max=1)
-            else:
+            elif values_type == "categories":
                 all_values[q_value] = [
                     RetrieverResultsModel(standard_label="na", standard_code=None, standard_omop_id=None, vocab=None)
                 ]
