@@ -577,7 +577,8 @@ def generate_link_prediction_prompt(query, documents, domain=None, in_context=Tr
                 -If all terms are broad or generic, which one is the most relevant to determine exact match?
         Provide a brief justification for your categorization, focusing on relevance, closeness in meaning, and specificity in the context of the query.Do not assign higher scores just because there is not a perfect or accurate match.
         Check Examples: Determine if examples are provided. If examples are provided and aligned with the current medical query, use them to guide your categorization. If they are provided but not aligned, create new relevant examples using the same format. If no examples are provided, generate new examples to illustrate how to categorize the relationships.
-        **Desired format: Your response should strictly adhere to a valid JSON schema as a list of dictionaries, each containing the keys "answer", "relationship", and "explanation". Don't add any preamble or additional comments.
+        **Desired format: Your response should be a list of dictionaries, each containing the keys "answer", "relationship", and "explanation". I repeat, provide the output in list of dictionaries format with the following fields: 'answer', 'relationship', and 'explanation'.
+        Do not add any preamble or additional comments.
         """
         system = "You are a helpful assistant with expertise in clinical/medical domain and designed to respond in JSON"
         example_prompt = ChatPromptTemplate.from_messages(
@@ -620,7 +621,7 @@ def generate_ranking_prompt(query, documents, domain=None, in_context=True):
                 -If all terms are broad or generic, which one is the most relevant to determine exact match?
 
             **Examples: if provided Follow the examples to understand how to rank candidate terms based on their relevance to the query.
-            **Desired format: Your response should strictly adhere to a valid JSON schema as a list of dictionaries, each containing the keys "answer", "score", and "explanation". Don't add any preamble or additional comments.
+            **Desired format: Provide the output in JSON format with the following fields: 'domain', 'base_entity', 'additional_entities', 'categories' and 'unit'. I repeat, provide the output in JSON format with the following fields: 'domain', 'base_entity', 'additional_entities', 'categories' and 'unit'.
             Input: {query}
             Candidate Terms: {documents}
             Ranked answers:
@@ -724,73 +725,152 @@ def calculate_belief_scores(ranking_scores, base_threshold, exact_match_found):
 import time
 
 
-def get_llm_results(prompt, query, documents, max_retries=2, llm=None, llm_name="llama"):
-    # print(f"get_llm_results for Query={query}")
-    # divide documents into 2 chunks
+# def get_llm_results(prompt, query, documents, max_retries=2, llm=None, llm_name="llama"):
+#     # print(f"get_llm_results for Query={query}")
+#     # divide documents into 2 chunks
+#     if len(documents) > 10:
+#         midpoint = len(documents) // 2
+#     else:
+#         midpoint = len(documents)
+#     first_half = documents[:midpoint]
+#     second_half = documents[midpoint:]
+
+#     def process_half(doc_half, half_name):
+#         attempt = 0
+#         while attempt <= max_retries:
+#             logger.info(f"Attempt {attempt} to invoke {llm_name} ")
+#             try:
+#                 chain = prompt | llm
+#                 rate_limit_check()
+#                 results = chain.invoke({"query": query, "documents": documents})
+#                 results = results.content
+#                 # print(f"Time taken for llm chain: {time.time() - start_times}")
+#                 if isinstance(results, list) and all(isinstance(item, dict) for item in results):
+#                     # logger.info(f"Initial Results={results}")
+#                     return results
+
+#                 # Attempt to parse results as JSON if it's a string
+#                 if isinstance(results, str):
+#                     fixed_results = fix_json_quotes(results)
+#                     if isinstance(fixed_results, list) and all(isinstance(item, dict) for item in fixed_results):
+#                         return fixed_results
+#                     # else:
+#                     #     logger.info(f"Invalid JSON response: {fixed_results}")
+#                     #     attempt += 1
+#                     #     continue
+
+#                 # Use fixing_parser to parse results if not a list of dictionaries
+#                 if not (isinstance(results, list) and all(isinstance(item, dict) for item in results)):
+#                     try:
+#                         results = fixing_parser.parse(results)
+#                         # Verify the results after fixing_parser parsing
+#                         if isinstance(results, list) and all(isinstance(item, dict) for item in results):
+#                             # logger.info(f"Fixed Results with fixing_parser: {results}")
+#                             return results
+#                     except Exception as e:  # Broad exception handling for any error from fixing_parser
+#                         logger.info(f"fixing_parser parsing error: {e}")
+#                         time.sleep(0.00005)
+#                         attempt += 1
+#                         continue  # Retry if fixing_parser parsing fails
+
+#                 # logger.info(f"Results \n{results} are not in the expected format after attempts to parse, retrying...")
+#                 attempt += 1
+
+#             except ValidationError as e:
+#                 logger.info(f"Validation Error: {e}")
+#                 attempt += 1
+#                 continue  # Retry on validation errors
+
+#             except Exception as e:
+#                 logger.info(f"LLM Unexpected Error: {e}")
+#                 attempt += 1
+#                 if attempt > max_retries:
+#                     logger.info("Max retries reached without a valid response, returning None")
+#                     return None
+
+#     results_first_half = process_half(first_half, "first_half")
+#     results_second_half = process_half(second_half, "second_half") if len(second_half) > 0 else None
+#     if results_first_half is None and results_second_half is None:
+#         logger.error("Failed to obtain valid results from both halves.")
+#         return None
+
+#     # Initialize combined results
+#     combined_results = []
+
+#     if results_first_half:
+#         combined_results.extend(results_first_half)
+#     if results_second_half:
+#         combined_results.extend(results_second_half)
+
+#     # logger.info(f"Combined Results: {combined_results}")
+#     return combined_results
+
+def get_llm_results(prompt, query, documents, max_retries=2, llm=None, llm_name='llama3.1'):
     if len(documents) > 10:
         midpoint = len(documents) // 2
-    else:
+    else: 
         midpoint = len(documents)
     first_half = documents[:midpoint]
     second_half = documents[midpoint:]
-
+    start_times = time.time()   
     def process_half(doc_half, half_name):
         attempt = 0
         while attempt <= max_retries:
             logger.info(f"Attempt {attempt} to invoke {llm_name} ")
             try:
                 chain = prompt | llm
-                rate_limit_check()
-                results = chain.invoke({"query": query, "documents": documents})
+               
+                # config={'callbacks': [ConsoleCallbackHandler()]}) for verbose
+                results =  chain.invoke({"query": query, "documents": documents},config={'callbacks': [ConsoleCallbackHandler()]})
                 results = results.content
-                # print(f"Time taken for llm chain: {time.time() - start_times}")
-                if isinstance(results, list) and all(isinstance(item, dict) for item in results):
-                    # logger.info(f"Initial Results={results}")
+                print(f"llm results={results}")
+                if results is None:
+                        logger.info(f"Received None result, retrying...")
+                        attempt += 1
+                        continue
+                elif isinstance(results, list) and all(isinstance(item, dict) for item in results):
                     return results
-
-                # Attempt to parse results as JSON if it's a string
-                if isinstance(results, str):
+                elif isinstance(results, str):
+                    
                     fixed_results = fix_json_quotes(results)
                     if isinstance(fixed_results, list) and all(isinstance(item, dict) for item in fixed_results):
                         return fixed_results
-                    # else:
-                    #     logger.info(f"Invalid JSON response: {fixed_results}")
-                    #     attempt += 1
-                    #     continue
-
-                # Use fixing_parser to parse results if not a list of dictionaries
-                if not (isinstance(results, list) and all(isinstance(item, dict) for item in results)):
-                    try:
-                        results = fixing_parser.parse(results)
-                        # Verify the results after fixing_parser parsing
-                        if isinstance(results, list) and all(isinstance(item, dict) for item in results):
-                            # logger.info(f"Fixed Results with fixing_parser: {results}")
-                            return results
-                    except Exception as e:  # Broad exception handling for any error from fixing_parser
-                        logger.info(f"fixing_parser parsing error: {e}")
-                        time.sleep(0.00005)
-                        attempt += 1
-                        continue  # Retry if fixing_parser parsing fails
+                    else:
+                        try:
+                            results = fixing_parser.parse(results)
+                            if isinstance(results, list) and all(isinstance(item, dict) for item in results):
+                                return results
+                            else:
+                                logger.info(("failed to parse results"))
+                                attempt += 1
+                        except Exception as e:  # Broad exception handling for any error from fixing_parser
+                            logger.info(f"Error in fixing_parser: {e}",exc_info=True)
+                            # time.sleep(0.00005)
+                            attempt += 1
+                            continue  # Retry if fixing_parser parsing fails
 
                 # logger.info(f"Results \n{results} are not in the expected format after attempts to parse, retrying...")
-                attempt += 1
+                else:
+                    logger.info(f"error in result {type(results)}")
+                    attempt += 1
 
             except ValidationError as e:
                 logger.info(f"Validation Error: {e}")
                 attempt += 1
                 continue  # Retry on validation errors
-
+            
             except Exception as e:
                 logger.info(f"LLM Unexpected Error: {e}")
                 attempt += 1
                 if attempt > max_retries:
                     logger.info("Max retries reached without a valid response, returning None")
                     return None
-
     results_first_half = process_half(first_half, "first_half")
+    print(f"results_first_half={results_first_half}")
     results_second_half = process_half(second_half, "second_half") if len(second_half) > 0 else None
+    print(f"results_second_half={results_second_half}")
     if results_first_half is None and results_second_half is None:
-        logger.error("Failed to obtain valid results from both halves.")
+        logger.error("Failed to obtain valid results from both halves.",exc_info=True)
         return None
 
     # Initialize combined results
@@ -800,10 +880,10 @@ def get_llm_results(prompt, query, documents, max_retries=2, llm=None, llm_name=
         combined_results.extend(results_first_half)
     if results_second_half:
         combined_results.extend(results_second_half)
-
+    print(f"Time taken for Ranking LLM chain Per Query: {time.time() - start_times}") 
     # logger.info(f"Combined Results: {combined_results}")
     return combined_results
-
+                
 
 def pass_to_chat_llm_chain(
     query, top_candidates, n_prompts=1, threshold=0.8, llm_name="llama", domain=None, prompt_stage: int = 2
