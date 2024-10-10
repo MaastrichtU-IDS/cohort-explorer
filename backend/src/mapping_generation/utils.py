@@ -311,8 +311,11 @@ def post_process_candidates(candidates: List[Document], max=1):
         return []
 
     for _, doc in enumerate(candidates[:max]):
+
+        label = doc.metadata.get('label', 'none')
+        label = f'"{label}"' if '|' in label else label
         current_doc_dict = {
-            "standard_label": doc.metadata["label"],
+            "standard_label":label,
             "domain": f"{doc.metadata['domain']}",
             "concept_class": f"{doc.metadata['concept_class']}",
             "standard_code": f"{doc.metadata['vocab']}:{doc.metadata['scode']}",
