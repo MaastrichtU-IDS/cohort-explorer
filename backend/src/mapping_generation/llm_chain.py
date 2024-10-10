@@ -447,27 +447,29 @@ def extract_information(query, model_name=LLM_ID, prompt=None):
             if prompt:
                 base_prompt = prompt
             else:
-                base_prompt = """Role: You are a helpful assistant with expertise in data science and the biomedical domain.
+                base_prompt="""Role: You are a helpful assistant with expertise in data science and the biomedical domain.
                 ***Task Description:
-                    - Extract information from the provided medical query to link it to OHDSI OMOP controlled vocabularies.
+                    - Extract information from the provided medical query which includes the base entity, associated entities, categories, and unit of measurement. This information will be used to link the medical query to standard medical terminologies.
                 ** Perform the following actions in order to identify relevant information:
                     -Rewrite the medical query in english language to ensure all terms are expanded to their full forms. Always translate all non-english terms to english.
-                    -Identify if there are any acronyms and abbreviations in given medical query and expand them.
+                    -Identify if there are any acronyms and abbreviations in given medical query and expand them. 
                     -Domain: Determine the most appropriate OHDSI OMOP standards from list of following domains: [Condition, Anatomic Site, Body Structure, Measurement, Procedure, Drug, Device, Unit,  Visit,  Death,  Demographics, Family History, Life Style, History of Events].
-                    - Base Entity: The primary concept or entity mentioned in the medical query.
-                    - Associated Entities: Extract associated entities related to the base entity.
-                    - Unit: Unit of measurement associated if mentioned.
-                    - categories: If mentioned, list all provided categorical values
-                **Considers:
-                    -Translate all visits with time indicators as follow-up 'number' month
-                    - Transform all categorical values in 1/0  to yes/no.
+                    Extract Entities:
+                        - Base Entity: The primary concept mentioned in the medical query. It represents the key medical or clinical element being measured, observed, or evaluated.
+                        - Associated Entities: Extract list of associated entities like time points, anatomical locations, related procedures, or clinical events that clarify the base entity's context within the query.
+                    Extract Unit: Unit of measurement associated if mentioned.
+                    Extract categories: 
+                       - If mentioned, list all provided categorical values.
+                       - Normalize categorical values and Transform them given as 1/0 to 'yes'/'no'.
+                **Considerations::
                     -Don't consider categorical values as context. Assume they are categorical values.
                     -Don't add additional unit of measurement if not mentioned in the query.
-                **Check Examples: If examples are provided, use them to guide your extraction. If no examples or relevant examples are provided, generate new examples to aid the extraction process.
-                **Desired format: Provide the output in JSON format with the following fields: 'domain', 'base_entity', 'additional_entities', 'categories' and 'unit'.
-                Don't add any preamble or explanations. Use examples if given as a guide to understand how and what information to extract.
-                    medical query: {input}
-                    Output:
+                    - All visit started from 1 and onwards should be considered as follow-up visits.
+                **Check Examples: If examples are provided, Please use them to guide your extraction. If no examples or relevant examples are provided, generate new examples to aid the extraction process. 
+                **Desired format: Provide the output in JSON format with the following fields: 'domain', 'base_entity', 'additional_entities', 'categories' and 'unit'. I repeat, provide the output in JSON format with the following fields: 'domain', 'base_entity', 'additional_entities', 'categories' and 'unit'.
+                Do not add any preamble or explanations. Make sure to use the examples to understand the context of the query.
+                medical query: {input}
+                Output: 
                         """
             final_prompt = (
                 SystemMessagePromptTemplate.from_template(base_prompt)
@@ -515,34 +517,6 @@ def extract_information(query, model_name=LLM_ID, prompt=None):
         return None
 
 
-def generate_information_triples(query, active_model):
-    try:
-        print(f"generate_information_triples for query={query}")
-        human_template = f"""Task Description:
-                - Given the querym, transform it into RDF triples.
-                - Each triple should consist of the following components: 'subject', 'predicate', and 'object'. The 'subject' should be the main entity, the 'predicate' should be the relationship, and the 'object' should be the associated entity.
-            ** Perform the following actions in order to generate RDF triples:
-                - Determine the domain of the medical query based on OHDSI OMOP standards e.g.  condition, anatomic site, body structure, measurement, procedure, drug, device, unit, visit, death, demographics, family history, life style, or history of events.
-                - Determine the base entity from the medical query.
-                - Find additional context that aids in understanding the base entity and infer relationships between them.
-                - If unit of measurement is provided, include it in the triple with the appropriate relationship to the base entity.
-                - If status values are provided, include them in the triple with the appropriate relationship to the base entity.
-            ** Desired Format: Only Return the output in List of dictionaries format with the following fields: 'subject', 'predicate', and 'object'. Don't add any preamble or explanations.
-            Input: {input}
-            """
-        system = "You are a helpful assistant with expertise in semantic web and biomedical domain."
-        prompt = ChatPromptTemplate.from_messages(
-            [("system", system), ("human", human_template)], template_format="mustache"
-        )
-        chain = prompt | active_model
-        rate_limit_check()
-        chain_results = chain.invoke({"input": query}).content
-        print(f"triple_results={chain_results}")
-        save_triples_to_txt(query, chain_results, "/workspace/mapping_tool/data/output/gissi_llama_triples.txt")
-    except Exception as e:
-        logger.info(f"Error loading LLM: {e}")
-
-
 def save_triples_to_txt(query, triples, output_file):
     # check if file exists
     if not os.path.exists(output_file):
@@ -569,16 +543,15 @@ def generate_link_prediction_prompt(query, documents, domain=None, in_context=Tr
             Highly Relevant: The term is very closely related to the query but not synonymous.
             Partially Relevant: The term is broadly related to the query but there are significant differences.
             Not Relevant: The term has no significant relation to the query.
-
         **Task Requirements: Answer following questions to determine the relationship between the medical query and candidate terms:
-                -Does the term accurately represent the query in meaning?
-                -Is there any term that is an exact match to the query?
-                -If all terms are specific than the query, which one is the closest match?
-                -If all terms are broad or generic, which one is the most relevant to determine exact match?
+            -Does the term accurately represent the query in meaning?
+            -Is there any term that is an exact match to the query?
+            -If all terms are specific than the query, which one is the closest match?
+            -If all terms are broad or generic, which one is the most relevant to determine exact match?
         Provide a brief justification for your categorization, focusing on relevance, closeness in meaning, and specificity in the context of the query.Do not assign higher scores just because there is not a perfect or accurate match.
         Check Examples: Determine if examples are provided. If examples are provided and aligned with the current medical query, use them to guide your categorization. If they are provided but not aligned, create new relevant examples using the same format. If no examples are provided, generate new examples to illustrate how to categorize the relationships.
         **Desired format: Your response should be a list of dictionaries, each containing the keys "answer", "relationship", and "explanation". I repeat, provide the output in list of dictionaries format with the following fields: 'answer', 'relationship', and 'explanation'.
-        Do not add any preamble or additional comments.
+        Begin your response with the '[' and include no extra comments or information.       
         """
         system = "You are a helpful assistant with expertise in clinical/medical domain and designed to respond in JSON"
         example_prompt = ChatPromptTemplate.from_messages(
@@ -594,10 +567,24 @@ def generate_link_prediction_prompt(query, documents, domain=None, in_context=Tr
         return final_prompt
     else:
         human_template = f"""
-        What is the relationship between medical query : {query} and each candidate term from Standard Medical Terminologies/vocabulariess:{documents}. Categorize the relationship, between medical query and candidate term based on their closeness in meaning as one of the following: [synonym','highly relevant', 'partially relevant', 'not relevant'].
-        A candidate term should be categorized as an 'synonym' only if it completely and accurately represents the medical query in meaning. For each candidate term, provide a brief justification of your chosen relationship category, focusing on the broder or specific  and relevance of the answer.
-        Please format your response as a list of dictionaries, each containing the keys "answer", "relationship", and "explanation".
-        Ensure your response adheres to a valid JSON schema. Begin your response with the word '[' and include no extra comments or information.
+        Task: Determine the relationship between a given medical query and candidate terms from standard medical terminologies aka. vocabularies (SNOMED, LOINC, MeSH, UCUM, ATC, RxNorm, OMOP Extension etc). You must determine relationship of each candidate term with given medical query in clinical/medical context.
+        **Instructions:
+            Medical Query: {query}
+            Candidate Terms: {documents}
+        ** Categorization Criteria:
+            Exact Match: The term is identical in meaning and context to the query.
+            Synonym: The term has the same meaning as the query but may be phrased differently.
+            Highly Relevant: The term is very closely related to the query but not synonymous.
+            Partially Relevant: The term is broadly related to the query but there are significant differences.
+            Not Relevant: The term has no significant relation to the query.
+        **Task Requirements: Answer following questions to determine the relationship between the medical query and candidate terms:
+            -Does the term accurately represent the query in meaning?
+            -Is there any term that is an exact match to the query?
+            -If all terms are specific than the query, which one is the closest match?
+            -If all terms are broad or generic, which one is the most relevant to determine exact match?
+        Provide a brief justification for your categorization, focusing on relevance, closeness in meaning, and specificity in the context of the query.Do not assign higher scores just because there is not a perfect or accurate match.
+        **Desired format: Your response should be a list of dictionaries, each containing the keys "answer", "relationship", and "explanation". I repeat, provide the output in list of dictionaries format with the following fields: 'answer', 'relationship', and 'explanation'.
+        Begin your response with the word '[' and include no extra comments or information.
             """
         system = "You are a helpful assistant expert in medical domain and designed to output JSON"
         return ChatPromptTemplate.from_messages(
@@ -619,9 +606,10 @@ def generate_ranking_prompt(query, documents, domain=None, in_context=True):
                 -Is there any term that is an exact match to the query? Does the term fully capture the intended concept expressed in the query?
                 -If all terms are specific than the query, which one is the closest match?
                 -If all terms are broad or generic, which one is the most relevant to determine exact match?
-
+            
             **Examples: if provided Follow the examples to understand how to rank candidate terms based on their relevance to the query.
-            **Desired format: Provide the output in JSON format with the following fields: 'domain', 'base_entity', 'additional_entities', 'categories' and 'unit'. I repeat, provide the output in JSON format with the following fields: 'domain', 'base_entity', 'additional_entities', 'categories' and 'unit'.
+            **Desired format: Your response should be a list of dictionaries, each containing the keys "answer", "score", and "explanation". I repeat, provide the output in list of dictionaries format with the following fields: 'answer', 'score', and 'explanation'.
+            Don't add any preamble or additional comments.
             Input: {query}
             Candidate Terms: {documents}
             Ranked answers:
@@ -644,16 +632,16 @@ def generate_ranking_prompt(query, documents, domain=None, in_context=True):
         # logger.info(f"final_prompt={final_prompt}")
         return final_prompt
     else:
-        human_template = """Objective: Rank candidate terms from the Standard Medical Terminologies/vocabularies based on their relevance  and closeness in meaning to a given medical query.
-            Instructions: For each given candidate term, please evaluate its relevance and closeness in contextual meaning to the given query on a scale from 0 to 10 where,
-                -10 indicates that system answer is an accurate and an exact match(synonym) to the input.
-                -0: The term is completely irrelevant to the query.
-            Provide a brief justification for each score, explaining why the assigned score was chosen.Focus on the following aspects:
-                -Specificity: How closely does the term align with the specific details of the query?
-                -Conceptual Match: Does the term capture the intended concept expressed in the query, even if it's not a direct match?
-                -Ambiguity: Does the term have multiple meanings that could lead to misinterpretation in the context of the query?
-            Your response should strictly adhere to a valid JSON schema as a list of dictionaries, each containing the keys "answer", "score", and "explanation". Don't add any preamble or additional comments.
-            Input: {query}
+        human_template = """Objective: Rank candidate terms from the Standard Medical Terminologies/vocabularies(SNOMED, LOINC, MeSH, ATC, UCUM, RxNorm, OMOP Extension) based on their relevance and closeness in meaning to a given medical query.
+            **Instructions: For each given candidate term, please evaluate its relevance and closeness in meaning in medical/clinical context to the given query on a scale from 0 to 10 where,
+                -10: The candidate term is an accurate and an exact match/synonym to the input.
+                -0: The candidate term is completely irrelevant to the query.
+            **Reasoning: Ask yourself the following questions before assigning a score:
+                -Is there any term that is an exact match to the query? Does the term fully capture the intended concept expressed in the query?
+                -If all terms are specific than the query, which one is the closest match?
+                -If all terms are broad or generic, which one is the most relevant to determine exact match?
+            **Desired format: Your response should be a list of dictionaries, each containing the keys "answer", "score", and "explanation". I repeat, provide the output in list of dictionaries format with the following fields: 'answer', 'score', and 'explanation'.
+            Don't add any preamble or additional comments.            Input: {query}
             Candidate Terms: {documents}
             Ranked answers:
             """
@@ -821,7 +809,7 @@ def get_llm_results(prompt, query, documents, max_retries=2, llm=None, llm_name=
                 chain = prompt | llm
                
                 # config={'callbacks': [ConsoleCallbackHandler()]}) for verbose
-                results =  chain.invoke({"query": query, "documents": documents},config={'callbacks': [ConsoleCallbackHandler()]})
+                results =  chain.invoke({"query": query, "documents": documents})
                 results = results.content
                 print(f"llm results={results}")
                 if results is None:
