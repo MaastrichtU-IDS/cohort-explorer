@@ -51,7 +51,7 @@
         "example_output": [
           {
             "input":"time to first all-cause hospitalisation or death, unit: days",
-            "output":"{\"domain\":\"visit\", \"base_entity\":\"hospital admission\", \"additional_entities\":[\"All causes of morbidity and mortality\",\"Death\",\"Initial evaluation\"], \"unit\":\"days\"}"
+            "output":"{\"domain\":\"visit\", \"base_entity\":\"hospital admission\", \"additional_entities\":[\"All causes of morbidity and mortality\",\"Death\",\"baseline\"], \"unit\":\"days\"}"
           },
           {
             "input":"previous acute myocardial infarction,categorical values: 1= yes | 2= no | 9= missing",
@@ -71,11 +71,11 @@
           },
           {
             "input":"patient code ar visit 0",
-            "output":"{\"domain\":\"demographics\", \"base_entity\":\"Patient hospital number\", \"additional_entities\":[\"Initial evaluation\"]}"
+            "output":"{\"domain\":\"demographics\", \"base_entity\":\"Patient hospital number\", \"additional_entities\":[\"baseline\"]}"
           },
           {
             "input":"at visit 0",
-            "output":"{\"domain\":\"visit\", \"base_entity\":\"Initial evaluation\"}"
+            "output":"{\"domain\":\"visit\", \"base_entity\":\"baseline\"}"
           },
           {
             "input":"at visit 1",
@@ -195,18 +195,18 @@
           },
           {
             "input":"age at baseline ",
-            "output":"{\"domain\":\"demographics\", \"base_entity\":\"Age\", \"additional_entities\":[\"Initial evaluation\"]}"
+            "output":"{\"domain\":\"demographics\", \"base_entity\":\"Age\", \"additional_entities\":[\"baseline\"]}"
           },
           {
             "input":"age at baseline visit",
-            "output":"{\"domain\":\"demographics\", \"base_entity\":\"Age\", \"additional_entities\":[\"Initial evaluation\"]}"
+            "output":"{\"domain\":\"demographics\", \"base_entity\":\"Age\", \"additional_entities\":[\"baseline\"]}"
           },
           {
             "input":"age at first visit",
-            "output":"{\"domain\":\"demographics\", \"base_entity\":\"Age\", \"additional_entities\":[\"Initial evaluation\"]}"
+            "output":"{\"domain\":\"demographics\", \"base_entity\":\"Age\", \"additional_entities\":[\"baseline\"]}"
           },
           {
-            "input":"age at Initial evaluation",
+            "input":"age at baseline",
             "output":"{\"domain\":\"demographics\", \"base_entity\":\"Age at diagnosis\"}"
           },
           {
@@ -273,7 +273,7 @@
           },
           {
             "input":"time to first cardiac hospitalisations or death, unit: days",
-            "output":"{\"domain\":\"visit\", \"base_entity\":\"hospital admission\", \"additional_entities\":[\"Cardiovascular event\",\"Death occurred during hospitalization [PhenX]\",\"Initial evaluation\"], \"unit\":\"days\"}"
+            "output":"{\"domain\":\"visit\", \"base_entity\":\"hospital admission\", \"additional_entities\":[\"Cardiovascular event\",\"Death occurred during hospitalization [PhenX]\",\"baseline\"], \"unit\":\"days\"}"
           },
           {
             "input":"help needed to fill out questionnaires at month 12,categorical values: 0= no | 1= little | 2=some | 3= a lot | 4= unable to do it",
@@ -297,36 +297,31 @@
           },
           {
             "input":"follow-up after month 6 visit in days, unit: days",
-            "output":"{\"domain\":\"visit\", \"base_entity\":\"Follow-up visit\",\"additional_entities\":[\"after values (relative time)\",\"Follow-up 6 months\"], \"unit\":\"days\"}"
+            "output":"{\"domain\":\"visit\", \"base_entity\":\"Follow-up 6 months\",\"unit\":\"days\"}"
           },
           {
-            "input":"follow-up after Follow-up 6 months in days, unit: days",
-            "output":"{\"domain\":\"visit\", \"base_entity\":\"Follow-up visit\",\"additional_entities\":[\"after values (relative time)\",\"Follow-up 6 months\"], \"unit\":\"days\"}"
-
-          },
-          {
-            "input":"follow visit after 6 months in days, unit: days",
-            "output":"{\"domain\":\"visit\", \"base_entity\":\"Follow-up visit\",\"additional_entities\":[\"after values (relative time)\",\"Follow-up 6 months\"], \"unit\":\"days\"}"
+            "input":"follow visit within 6 months in days, unit: days",
+            "output":"{\"domain\":\"visit\", \"base_entity\":\"Follow-up 4-6 months\", \"unit\":\"days\"}"
           },
           {
             "input":"needs help with personal hygiene at baseline,categorical values: 0= independent | 1= minor | 2= considerable | 3= dependent | 9= missing",
-            "output":"{\"domain\":\"observation\", \"base_entity\":\"Needs help with personal hygiene\",\"additional_entities\":[\"Initial evaluation\"], \"categories\": [\"independent\",\"minor\",\"considerable\",\"dependent\",\"missing\"]}"
+            "output":"{\"domain\":\"observation\", \"base_entity\":\"Needs help with personal hygiene\",\"additional_entities\":[\"baseline\"], \"categories\": [\"independent\",\"minor\",\"considerable\",\"dependent\",\"missing\"]}"
           },
           {
             "input":"gp general practitioner compliance Follow-up month 1,categorical values: 1=yes | 2=partly | 3=no | 9=missinggp general practitioner compliance Follow-up month 1,categorical values: 1=yes | 2=partly | 3=no | 9=missing",
-            "output":"{\"domain\":\"visit\", \"base_entity\":\"compliance behavior to treatment\",\"additional_entities\":[\"General Practioner\",\"Initial evaluation\"], \"categories\": [\"Compliant\",\"Partially compliant\",\"non-Compliant\",\"missing\"]}"
+            "output":"{\"domain\":\"visit\", \"base_entity\":\"compliance behavior to treatment\",\"additional_entities\":[\"General Practioner\",\"baseline\"], \"categories\": [\"Compliant\",\"Partially compliant\",\"non-Compliant\",\"missing\"]}"
           },
           {
             "input":"reason for non compliance of patient Follow-up month 1,categorical values: 0= missing | 1=more chf symptoms | 2=hypotension without symptoms |3=orthostasis / symptomatic hypotension | 4=fatigue / exercise intolerance | 5=renal failure 6=hyperkaliaemia | 7=bradycardia / av-block | 8=cough | 9=diarrhea | 10=obstipation | 11=headache | 12= noctural leg pain | 13=digitalis-intoxication | 14=allergy | 15=psychological reason | 16=other reason |17=not specified / unknown",
-            "output":"{\"domain\":\"observation\", \"base_entity\":\"compliance behavior to treatment\",\"additional_entities\":[\"non-compliance\",\"Initial evaluation\"], \"categories\": [\"missing\",\"Symptomatic congestive heart failure\",\"hypotension, no symptoms\",\"orthostasis or symptomatic hypotension\",\"fatigue or exercise intolerance\",\"renal failure\",\"hyperkaliaemia\",\"bradycardia / Atrioventricular block\",\"cough\",\"diarrhea\",\"obstipation\",\"headache\",\"noctural leg pain\",\"digitalis-intoxication\",\"allergy\",\"Psychological sign\",\"other reason\",\"not specified / unknown\"]}"
+            "output":"{\"domain\":\"observation\", \"base_entity\":\"compliance behavior to treatment\",\"additional_entities\":[\"non-compliance\",\"baseline\"], \"categories\": [\"missing\",\"Symptomatic congestive heart failure\",\"hypotension, no symptoms\",\"orthostasis or symptomatic hypotension\",\"fatigue or exercise intolerance\",\"renal failure\",\"hyperkaliaemia\",\"bradycardia / Atrioventricular block\",\"cough\",\"diarrhea\",\"obstipation\",\"headache\",\"noctural leg pain\",\"digitalis-intoxication\",\"allergy\",\"Psychological sign\",\"other reason\",\"not specified / unknown\"]}"
           },
           {
             "input":"patient compliance Follow-up month 1,categorical values: 1=yes | 2=partly | 3=no | 9=missing",
-            "output":"{\"domain\":\"observation\", \"base_entity\":\"compliance behavior to treatment\",\"additional_entities\":[\"patient\",\"Initial evaluation\"], \"categories\": [\"Compliant\",\"Partially compliant\",\"non-Compliant\",\"missing\"]}"
+            "output":"{\"domain\":\"observation\", \"base_entity\":\"compliance behavior to treatment\",\"additional_entities\":[\"patient\",\"baseline\"], \"categories\": [\"Compliant\",\"Partially compliant\",\"non-Compliant\",\"missing\"]}"
           },
           {
             "input":"patient compliance month 1,categorical values: 1=yes | 2=partly | 3=no | 9=missing",
-            "output":"{\"domain\":\"observation\", \"base_entity\":\"compliance behavior to treatment\",\"additional_entities\":[\"patient\",\"Initial evaluation\"], \"categories\": [\"Compliant\",\"Partially compliant\",\"non-Compliant\",\"missing\"]}"
+            "output":"{\"domain\":\"observation\", \"base_entity\":\"compliance behavior to treatment\",\"additional_entities\":[\"patient\",\"baseline\"], \"categories\": [\"Compliant\",\"Partially compliant\",\"non-Compliant\",\"missing\"]}"
           },
           {
             "input":"patient compliance at visit 1,categorical values: 1=yes | 2=partly | 3=no | 9=missing",
@@ -334,7 +329,7 @@
           },
           {
             "input":"patient compliance at visit 0,categorical values: 1=yes | 2=partly | 3=no | 9=missing",
-            "output":"{\"domain\":\"observation\", \"base_entity\":\"compliance behavior to treatment\",\"additional_entities\":[\"patient\",\"Initial evaluation\"], \"categories\": [\"Compliant\",\"Partially compliant\",\"non-Compliant\",\"missing\"]}"
+            "output":"{\"domain\":\"observation\", \"base_entity\":\"compliance behavior to treatment\",\"additional_entities\":[\"patient\",\"baseline\"], \"categories\": [\"Compliant\",\"Partially compliant\",\"non-Compliant\",\"missing\"]}"
           },
           {
             "input": "date of baseline visit",
@@ -350,7 +345,7 @@
           },
           {
             "input":"qtc= qt time adjusted for heart frequency at baseline on ecg, unit: ms",
-            "output":"{\"domain\":\"measurement\", \"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Q-T interval corrected\",\"ECG finding\",\"Initial evaluation\"], \"unit\":\"ms\"}"
+            "output":"{\"domain\":\"measurement\", \"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Q-T interval corrected\",\"ECG finding\",\"baseline\"], \"unit\":\"ms\"}"
           },
           {
             "input":"echocardiography at visit post-discharge 2 months follow-up unit: mm",
@@ -358,15 +353,15 @@
           },
           {
             "input":"qtc= qt time adjusted for heart frequency at visit 0 on ecg, unit: ms",
-            "output":"{\"domain\":\"measurement\", \"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Q-T interval corrected\",\"ECG finding\",\"Initial evaluation\"], \"unit\":\"ms\"}"
+            "output":"{\"domain\":\"measurement\", \"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Q-T interval corrected\",\"ECG finding\",\"baseline\"], \"unit\":\"ms\"}"
           },
           {
             "input":"diastolic pressure at visit 0/entry",
-            "output":"{\"domain\":\"measurement\", \"base_entity\":\"Diastolic blood pressure\",\"additional_entities\":[\"Initial evaluation\"]}"
+            "output":"{\"domain\":\"measurement\", \"base_entity\":\"Diastolic blood pressure\",\"additional_entities\":[\"baseline\"]}"
           },
           {
             "input":"diastolic pressure at entry",
-            "output":"{\"domain\":\"measurement\", \"base_entity\":\"Diastolic blood pressure\",\"additional_entities\":[\"Initial evaluation\"]}"
+            "output":"{\"domain\":\"measurement\", \"base_entity\":\"Diastolic blood pressure\",\"additional_entities\":[\"baseline\"]}"
           },
           {
             "input":"ecg at discharge q > 30 msec lead iii, categorical values:/= undetermined | n= no | s= yes",
@@ -374,11 +369,11 @@
           },
           {
             "input":"ECG at entry Q > 30 msec lead avl, categorical values: / = undetermined | n = no | s = yes",
-            "output":"{\"domain\":\"measurement\", \"base_entity\":\"Electrocardiogram\",,\"additional_entities\":[\"Q wave duration.lead AVL | Heart | EKG measurements\", \"ECG finding\",\"Initial evaluation\"], \" categories\": [\"undetermined\",\"no\",\"yes\"]}"
+            "output":"{\"domain\":\"measurement\", \"base_entity\":\"Electrocardiogram\",,\"additional_entities\":[\"Q wave duration.lead AVL | Heart | EKG measurements\", \"ECG finding\",\"baseline\"], \" categories\": [\"undetermined\",\"no\",\"yes\"]}"
           },
           {
             "input":"rythm on ecg at baseline,categorical values: 1=sinusrythm| 2= pacemaker-rythm| 3= atrialfibbrilation| 4= atrialflutter| 5= atrial rythm| 6= av-nodal re-entry tachycardia| 7= av re-entry tachycardia| 8= ventricular tachycardia| 9= sinus arrest| 10= nodal escape rythm| 11= ventricular escape rythm| 16= wolff-parkinson-white",
-            "output":"{\"domain\":\"measurement\", \"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"cardiac rhythm\",\"ECG finding\",\"Initial evaluation\"], \"categories\": [\"sinus rhythm\",\"pacemaker rhythm\",\"atrial fibrillation\",\"atrial flutter\",\"atrial rhythm\",\"av-nodal re-entry tachycardia\",\"av re-entry tachycardia\",\"ventricular tachycardia\",\"sinus arrest\",\"nodal escape rhythm\",\"ventricular escape rhythm\",\"wolff-parkinson-white\"]}"
+            "output":"{\"domain\":\"measurement\", \"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"cardiac rhythm\",\"ECG finding\",\"baseline\"], \"categories\": [\"sinus rhythm\",\"pacemaker rhythm\",\"atrial fibrillation\",\"atrial flutter\",\"atrial rhythm\",\"av-nodal re-entry tachycardia\",\"av re-entry tachycardia\",\"ventricular tachycardia\",\"sinus arrest\",\"nodal escape rhythm\",\"ventricular escape rhythm\",\"wolff-parkinson-white\"]}"
           },
           {
             "input":"rythm on ecg at visit 12 months on ecg,categorical values: 1=sinusrythm| 2= pacemaker-rythm| 3= atrialfibbrilation| 4= atrialflutter| 5= atrial rythm| 6= av-nodal re-entry tachycardia| 7= av re-entry tachycardia| 8= ventricular tachycardia| 9= sinus arrest| 10= nodal escape rythm| 11= ventricular escape rythm| 16= wolff-parkinson-white",
@@ -414,7 +409,7 @@
           },
           {
             "input":"Input: intraventricular relaxation time at baseline visit on Electrocardiogram,categorical values: [0=missing]|unit: ms",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"intra-ventricular relaxation time\",\"Initial evaluation\"], \"unit\":\"ms\", \"categories\": [\"missing\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"intra-ventricular relaxation time\",\"baseline\"], \"unit\":\"ms\", \"categories\": [\"missing\"]}"
           },
           {
             "input":"s-wave present in lead v5 and lead v6 at v12 on ecg,categorical values: 1=yes | 0=no",
@@ -422,7 +417,7 @@
           },
           {
             "input":"s-wave present in lead i, q-wave present in Lead iii at baseline visit on ecg,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"S-wave\",\"lead site v1\",\"Q-wave\",\"lead site V3\",\"ECG finding\",\"Initial evaluation\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"S-wave\",\"lead site v1\",\"Q-wave\",\"lead site V3\",\"ECG finding\",\"baseline\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"nodal block on ecg at v1,categorical values: 1= sino-atrial block| 2= first degree av-block| 3= second degree av block type 1 wenckebach| 4= second degree av block type 2 mobitz-ii| 5= third degree bloeck ( total block)|  9=other",
@@ -430,19 +425,19 @@
           },
           {
             "input":"pathological q-wave in lead v2-v3 at baseline visit on ecg,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"pathological q-wave\",\"lead site v2\",\"lead site v3\",\"ECG finding\",\"Initial evaluation\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"pathological q-wave\",\"lead site v2\",\"lead site v3\",\"ECG finding\",\"baseline\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"ventricular extrasystoly at baseline visit on ecg,categorical values: 1|0",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Ventricular premature complex\",\"ECG finding\",\"Initial evaluation\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Ventricular premature complex\",\"ECG finding\",\"baseline\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"supraventricular extrasystoly at baseline visit on ecg,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Supraventricular premature beats\",\"ECG finding\",\"Initial evaluation\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Supraventricular premature beats\",\"ECG finding\",\"baseline\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"s-wave present in lead i at baseline visit on ecg,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"S-wave\",\"lead i\",\"ECG finding\",\"Initial evaluation\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"S-wave\",\"lead i\",\"ECG finding\",\"baseline\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"ST-segment depression in lead V2-V3 at visit month 18",
@@ -510,26 +505,26 @@
           },
           {
             "input":"lateral hypokinesia at baseline visit on Electrocardiogram,categorical values: 0=normal| 1 = hypokinetic | 2=severely hypokin. | 3=akinetic| 4 = dyskinetic | 9 =not.determinable.",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"lateral hypokinesia\",\"Initial evaluation\"], \"categories\": [\"normal\",\"hypokinetic\",\"severely hypokinetic\",\"akinetic\",\"dyskinetic\",\"not determinable\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"lateral hypokinesia\",\"baseline\"], \"categories\": [\"normal\",\"hypokinetic\",\"severely hypokinetic\",\"akinetic\",\"dyskinetic\",\"not determinable\"]}"
           },
           {
-            "input":"ECG ST+ lead v1 at post discharge follow-up 1 month",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"ST amplitude.lead V1 | Heart | EKG measurements\",\"lead V1\", \"ECG finding\",\"post hospital discharge visit\", \"Follow-up 2 months\"]}"
+            "input":"ECG ST+ lead v1 at post discharge visit follow-up 1 month",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"ST amplitude.lead V1 | Heart | EKG measurements\",\"lead V1\", \"ECG finding\",\"post hospital discharge visit\", \"Follow-up 1 months\"]}"
           },
           {
             "input":"ECG ST+ lead v1 at discharge",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"ST amplitude.lead V1 | Heart | EKG measurements\",\"lead V1\", \"ECG finding\", \"discharge time\"]}"
           },
           {
-            "input":"ECG ST+ lead v1 at post discharge follow-up 1 month",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"ST amplitude.lead V1 | Heart | EKG measurements\",\"lead V1\", \"ECG finding\",\"post hospital discharge visit\", \"Follow-up 2 months\"]}"
+            "input":"ECG ST+ lead v1 at visit follow-up 1 month",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"ST amplitude.lead V1 | Heart | EKG measurements\",\"lead V1\", \"ECG finding\", \"Follow-up 1 months\"]}"
           },
           {
             "input":"ECG ST+ lead v1 at post discharge follow-up 1 month",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"ST amplitude.lead V1 | Heart | EKG measurements\",\"lead V1\", \"ECG finding\",\"post hospital discharge visit\", \"Follow-up 1 month\"]}"
           },
           {
-            "input":"antiarrhythmics -ajmaline-prescribed drugs at post discharge Follow-up 2 months",
+            "input":"antiarrhythmics -ajmaline-prescribed drugs at post discharge visit Follow-up 2 months",
             "output":"{\"domain\":\"drug\",\"base_entity\":\"Ajmaline\",\"additional_entities\":[\"drug prescribed\",\"post hospital discharge visit\",\"Follow-up 2 months\"]}"
           },
           {
@@ -538,12 +533,17 @@
           },
           {
             "input":"which Betablocker at baseline visit",
-            "output":"{\"domain\":\"drug\",\"base_entity\":\"beta blocking agents\",\"additional_entities\":[\"Initial evaluation\"]}"
+            "output":"{\"domain\":\"drug\",\"base_entity\":\"beta blocking agents\",\"additional_entities\":[\"baseline\"]}"
           },
           {
-            "input":"ECG ST- lead v1 at Visit 4-6 months / discharge",
+            "input":"ECG ST- lead v1 at post-discharge Visit follow-up 4-6 months",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"ST sagement depression.lead V1 | Heart | EKG measurements\",\"lead V1\", \"ECG finding\",\"Post hospital discharge visit\", \"Follow-up 4-6 months\"]}"
           },
+          {
+            "input":"ECG ST- lead v1 at Visit follow-up 4-6 months",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"ST sagement depression.lead V1 | Heart | EKG measurements\",\"lead V1\", \"ECG finding\",\"Follow-up 4-6 months\"]}"
+          },
+
           {
             "input":"exam quality - ecocardiography pre-discharge,categorical values:0= not significant | 1= good | 2= sufficient | 3= unsufficient | 9= missing",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Echocardiography qualit\",\"additional_entities\":[\"Pre-discharge assessment\"], \"categories\": [\"not significant\",\"good\",\"sufficient\",\"unsufficient\",\"missing\"]}"
@@ -562,7 +562,7 @@
           },
           {
             "input":"sex hormone-binding globulin (shbg) moler concentration in serum at baseline, unit: nmol/l",
-            "output": "{\"domain\":\"measurement\",\"base_entity\":\"shbg (sex hormone binding globulin) molar concentration in serum\", \"unit\":\"Nanomoles per liter\", \"additional_entities\":[\"Initial evaluation\"]}"
+            "output": "{\"domain\":\"measurement\",\"base_entity\":\"shbg (sex hormone binding globulin) molar concentration in serum\", \"unit\":\"Nanomoles per liter\", \"additional_entities\":[\"baseline\"]}"
           },
           {
             "input":"sex hormone-binding globulin (shbg) at v6, unit: nmol/l",
@@ -585,8 +585,20 @@
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Alanine aminotransferase [Enzymatic activity/volume] in Blood\", \"additional_entities\":[\"Follow-up 1 month\"]}"
           },
           {
+            "input":"Alanine Transaminase at visit follow-up month 1",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Alanine aminotransferase [Enzymatic activity/volume] in Blood\", \"additional_entities\":[\"Follow-up 1 month\"]}"
+          },
+          {
             "input":"c-reactive protein (CRP)",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"C reactive protein [Mass/volume] in Serum or Plasma\"}"
+          },
+          {
+            "input":"c-reactive protein (CRP) at baseline",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"C reactive protein [Mass/volume] in Serum or Plasma\", \"additional_entities\":[\"baseline\"]}"
+          },
+          {
+            "input":"c-reactive protein (CRP) at visit month 12",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"C reactive protein [Mass/volume] in Serum or Plasma\", \"additional_entities\":[\"Follow-up 1 year\"]}"
           },
           {
             "input":"eGFR, formula:ckd-epi",
@@ -617,7 +629,7 @@
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"C reactive protein [Mass/volume] in Serum or Plasma\"}"
           },
           {
-            "input":"c-reactive protein (CRP) mass/volume in serum/plasma at visit 12",
+            "input":"c-reactive protein (CRP) mass/volume in serum/plasma at visit month 12",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"C reactive protein [Mass/volume] in Serum or Plasma\", \"additional_entities\":[\"Follow-up 1 year\"]}"
           },
           {
@@ -626,7 +638,7 @@
           },
           {
             "input": "Age at baseline",
-            "output": "{\"domain\":\"demographics\", \"base_entity\":\"Age\", \"additional_entities\":[\"Initial evaluation\"]}"
+            "output": "{\"domain\":\"demographics\", \"base_entity\":\"Age\", \"additional_entities\":[\"baseline\"]}"
           },
           {
             "input": "history of neoplasm (parents) Y/N,categorical values: 1=yes | 0=no",
@@ -645,16 +657,12 @@
             "output":"{\"domain\":\"family history\",\"base_entity\": \"Family history of heart disease\", \"additional_entities\":[\"parent\"], \"categories\": [\"unknown\", \"No history\", \"History\", \"Possible history\"]}"
           },
           {
-            "input": "family history unknown",
-            "output": "{\"domain\":\"family history\",\"base_entity\": \"Family history unknown\"}"
-          },
-          {
             "input":"hepatomegaly at phisical examination at baseline,categorical values:0= clinically absent | 1= clinically present | 9= missing ",
-            "output":"{\"domain\":\"observation\",\"base_entity\":\"Physical examination\",\"additional_entities\":[\"hepatomegaly\",\"Initial evaluation\"], \"categories\": [\"clinically absent\",\"clinically present\",\"missing\"]}"
+            "output":"{\"domain\":\"observation\",\"base_entity\":\"Physical examination\",\"additional_entities\":[\"hepatomegaly\",\"baseline\"], \"categories\": [\"clinically absent\",\"clinically present\",\"missing\"]}"
           },
           {
             "input":"creatinine at baseline, unit:µg/ml,categorical values: [999 / 9999 = missing]",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Creatinine [Mass/volume] in Blood\", \"additional_entities\":[\"Initial evaluation\"], \"unit\":\"µg/ml\", \"categories\": [\"missing\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Creatinine [Mass/volume] in Blood\", \"additional_entities\":[\"baseline\"], \"unit\":\"µg/ml\", \"categories\": [\"missing\"]}"
           },
           {
             "input":"ex smoker",
@@ -686,7 +694,7 @@
           },
           {
             "input": "date of baseline visit",
-            "output": "{\"domain\":\"visit\", \"base_entity\":\"Date of Initial evaluation\"}"
+            "output": "{\"domain\":\"visit\", \"base_entity\":\"Date of first visit\"}"
           },
           {
             "input": "race: Black or African American",
@@ -701,7 +709,7 @@
             "output":"{\"domain\":\"demographics\", \"base_entity\":\"Age group\", \"categories\": [\"less than or equal to 70 years\",\" 70+ years\"]}"
           },
           {
-              "input": "Pacemaker implanted, Y/N,categorical values: 1=yes | 0=no",
+              "input": "Pacemaker implanted,categorical values: 1=yes | 0=no",
               "output": "{\"domain\":\"device\", \"base_entity\":\"Pacemaker\", \"categories\": [\"Yes\", \"No\"]}"
           },
          {
@@ -738,23 +746,27 @@
           },
         {
           "input":"six week visit date, unit:DD-MM-YYYY",
-          "output":"{\"domain\":\"visit\", \"base_entity\":\"Follow-up 6 weeks\", \"unit\":\"DD-MM-YYYY\"}"
+          "output":"{\"domain\":\"visit\", \"base_entity\":\"date of visit\", \"additional_entities\":[\"Follow-up 6 weeks\"], \"unit\":\"DD-MM-YYYY\"}"
         },
         {
-          "input":"mra drug dosage at visit 12, unit: mg",
+          "input":"mra drug dosage at visit 12 month, unit: mg",
           "output":"{\"domain\":\"drug\", \"base_entity\":\"Mineralocorticoid receptor antagonist\", \"additional_entities\":[\"Follow-up 1 year\"], \"unit\":\"mg\"}"
         },
         {
-          "input":"Body height of patient at visit",
-          "output":"{\"domain\":\"measurement\", \"base_entity\":\"Body height\", \"additional_entities\":[\"patient\"]}"
+          "input":"patient height at baseline visit",
+          "output":"{\"domain\":\"measurement\", \"base_entity\":\"Body height\", \"additional_entities\":[\"baseline\"]}"
         },
         {
           "input":"Diabetes-main cause of first hospitalization, Y/N,categories= 1|0",
-          "output":"{\"domain\":\"observation\", \"base_entity\":\"reason for hospitalization\", \"additional_entities\":[\"Initial evaluation\",\"diabetes\"], \"categories\": [\"yes\",\"no\"]}"
+          "output":"{\"domain\":\"observation\", \"base_entity\":\"reason for hospitalization\", \"additional_entities\":[\"baseline\",\"diabetes\"], \"categories\": [\"yes\",\"no\"]}"
         },
         {
           "input":"hospitalization for diabetes",
           "output":"{\"domain\":\"observation\", \"base_entity\":\"reason for hospitalization\", \"additional_entities\": [\"diabetes\"]}"
+        },
+        {
+          "input":"heart failure worsening,categorical values: 1|0",
+          "output":"{\"domain\":\"observation\", \"base_entity\":\"exacerbation of heart failure\", \"categories\": [\"yes\",\"no\"]}"
         },
         {
           "input":"death cardiovascular (includes stroke),categorical values: 1=yes  |  0=no",
@@ -774,11 +786,7 @@
         },
         {
           "input":"Withdrawal from study before 12 months Y/N,categorical values: 1=yes|0=no",
-          "output":"{\"domain\":\"observation\", \"base_entity\":\"Patient withdrawn from trial\",\"additional_entities\":[\"<\",\"One year\"], \"categories\": [\"yes\",\"no\"]}"
-        },
-        {
-          "input":"EKG:LV diastolic dysfunction",
-          "output":"{\"domain\":\"observation\", \"base_entity\":\"Echocardiogram\", \"additional_entities\":[\"Echocardiogram shows left ventricular diastolic dysfunction\", \"ECG findings\"]"
+          "output":"{\"domain\":\"observation\", \"base_entity\":\"Patient withdrawn from trial\",\"additional_entities\":[\"One year or less\"], \"categories\": [\"yes\",\"no\"]}"
         },
         {
           "input":"echo lv diastolic dysfunction",
@@ -833,6 +841,22 @@
           "output":"{\"domain\":\"visit\", \"base_entity\":\"Follow-up visit\", \"unit\": \"days\"}"
         },
         {
+          "input":"Follow-up 12 months",
+          "output":"{\"domain\":\"visit\", \"base_entity\":\"Follow-up 1 year\"}"
+        },
+        {
+          "input":"visit 2 months Follow-up ",
+          "output":"{\"domain\":\"visit\", \"base_entity\":\"Follow-up 2 months\"}"
+        },
+        {
+          "input":"visit 2 months Follow-up ",
+          "output":"{\"domain\":\"visit\", \"base_entity\":\"Follow-up 2 months\"}"
+        },
+        {
+          "input":"visit 3 months Follow-up ",
+          "output":"{\"domain\":\"visit\", \"base_entity\":\"Follow-up 3 months\"}"
+        },
+        {
           "input":"history of event within 5 years",
           "output":"{\"domain\":\"history of events\", \"base_entity\":\"history of event within 5 years\"}"
         },
@@ -850,15 +874,15 @@
         },
         {
           "input":"Cough defined dry at baseline",
-          "output":"{\"domain\":\"condition\", \"base_entity\":\"Dry Cough\", \"additional_entities\":[\"Initial evaluation\"]}"
+          "output":"{\"domain\":\"condition\", \"base_entity\":\"Dry Cough\", \"additional_entities\":[\"baseline\"]}"
         },
         {
           "input":"cough defined productive at baseline",
-          "output":"{\"domain\":\"condition\", \"base_entity\":\"productive Cough\", \"additional_entities\":[\"Initial evaluation\"]}"
+          "output":"{\"domain\":\"condition\", \"base_entity\":\"productive Cough\", \"additional_entities\":[\"baseline\"]}"
         },
         {
           "input":"Reduced memory at baseline",
-          "output":"{\"domain\":\"condition\",\"base_entity\":\"Memory impairment\",\"additional_entities\":[\"Initial evaluation\"]}"
+          "output":"{\"domain\":\"condition\",\"base_entity\":\"Memory impairment\",\"additional_entities\":[\"baseline\"]}"
         },
         {
           "input":"duration of type 1 diabetes (t1dm)",
@@ -866,19 +890,19 @@
         },
         {
           "input":"Bloodpressure systolic at baseline, recumbent position",
-          "output":"{\"domain\":\"measurement\", \"base_entity\":\"Blood pressure systolic\", \"additional_entities\":[\"Initial evaluation\",\"Recumbent body position\"]}"
+          "output":"{\"domain\":\"measurement\", \"base_entity\":\"Blood pressure systolic\", \"additional_entities\":[\"baseline\",\"Recumbent body position\"]}"
         },
         {
           "input":"Bloodpressure diastolic standing at basline",
-          "output":"{\"domain\":\"measurement\", \"base_entity\":\"Blood pressure diastolic\", \"additional_entities\":[\"Initial evaluation\",\"Standing body position\"]}"
+          "output":"{\"domain\":\"measurement\", \"base_entity\":\"Blood pressure diastolic\", \"additional_entities\":[\"baseline\",\"Standing body position\"]}"
         },
         {
           "input": "Type 2 diabetes-related hospitalization",
           "output": "{\"domain\":\"condition\", \"base_entity\":\"Reason for hospitalization\", \"additional_entities\":[\"Type 2 diabetes\"]}"
         },
         {
-          "input":"Was patient admitted in the hospital at moment of inclusion and baseline measures Y/N",
-          "output":"{\"domain\":\"condition\", \"base_entity\":\"Hospital admission\",\"additional_entities\":[\"Initial evaluation\"], \"categories\": [\"yes\",\"no\"]}"
+          "input":"Was patient admitted in the hospital at moment of inclusion and baseline measures, categorical values: 1=yes | 0=no",
+          "output":"{\"domain\":\"condition\", \"base_entity\":\"Hospital admission\",\"additional_entities\":[\"baseline\"], \"categories\": [\"yes\",\"no\"]}"
         },
         {
             "input":"date of laboratory test",
@@ -889,38 +913,34 @@
             "output":"{\"domain\":\"drug\",\"base_entity\":\"Beta adrenergic receptor antagonist\"}"
           },
           {
-            "input": "Simvastatin 20 mg twice daily,categorical values: 1=yes | 0=no",
-            "output": "{\"domain\":\"drug\",\"base_entity\":\"Simvastatin\", \"unit\":\"mg\", \"additional_entities\": [\"twice a day\"], \"categories\": [\"Yes\", \"No\"]}"
-          },
-          {
               "input":"dapagliflozin (medicament: sglt2)",
               "output":"{\"domain\":\"drug\",\"base_entity\":\"dapagliflozin\",\"additional_entities\":[\"SGLT2 inhibitor\"]}"
           },
           {
-            "input":"frequency at baseline on ECG, unit:bpm",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Heart Rate\",\"Initial evaluation\"], \"unit\": \"bpm\"}"
+            "input":"rate frequency on ECG at baseline, unit:bpm",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Heart Rate\",\"baseline\"], \"unit\": \"bpm\"}"
           },
           {
               "input":"Optimization of drug dose of Angiotensin-converting enzyme inhibitor therapy, possible values: 0= hydration, 1= max dose, 2=target dose , 3= NVT, 4= contraindication",
               "output":"{\"domain\":\"drug\",\"base_entity\":\"Optimization of drug\",\"additional_entities\":[\"Angiotensin-converting enzyme inhibitor\",\"categories\": [\"Fluid balance regulation\",\"Patient on maximum tolerated dose\",\"Angiotensin converting enzyme inhibitor target dose achieved\",\"not applicable\",\"contraindication\"]}" 
           },
           { 
-            "input":"QTc= Corrected QT Interval time adjusted for heartfrequency at baseline on ECG, unit:ms",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Q-T interval corrected\",\"heart rate\", \"Initial evaluation\"], \"unit\": \"ms\"}"
+            "input":"QTc= Corrected QT Interval time adjusted for heartfrequencyon ECG at baseline , unit:ms",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Q-T interval corrected\",\"heart rate\", \"baseline\"], \"unit\": \"ms\"}"
 
           },
           { 
-            "input":"QT time adjusted for heart frequency at bl on ecg, unit:ms",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Q-T interval\",\"heart rate\",\"ECG finding\", \"Initial evaluation\"], \"unit\": \"ms\"}"
+            "input":"QT time adjusted for heart frequency at baseline on ecg, unit:ms",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Q-T interval\",\"heart rate\",\"ECG finding\", \"baseline\"], \"unit\": \"ms\"}"
 
           },
           {
               "input":"Vena cava inferior max diameter at baseline",
-              "output":"{\"domain\":\"measurement\",\"base_entity\":\"Inferior vena cava Diameter by US\", \"additional_entities\": [\"Initial evaluation\", \"Maximal\"]}"
+              "output":"{\"domain\":\"measurement\",\"base_entity\":\"Inferior vena cava Diameter by US\", \"additional_entities\": [\"baseline\", \"Maximal\"]}"
           },
           {
             "input":"Mid-regional pro-atrial natriuretic peptide (MR-proANP) at baseline, unit: pmol/l",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Mid-regional proatrial natriuretic peptide\", \"unit\":\"picomoles per liter\", \"additional_entities\":[\"Initial evaluation\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Mid-regional proatrial natriuretic peptide\", \"unit\":\"picomoles per liter\", \"additional_entities\":[\"baseline\"]}"
           },
           {
             "input":"lipoprotein a moles/volume in serum/plasma",
@@ -1064,19 +1084,19 @@
 
           {
             "input":"time to first all-cause hospitalization or death, unit:days",
-            "output":"{\"domain\":\"observation\",\"base_entity\":\"hospital admission\", \"additional_entities\":[\"\"All causes of morbidity and mortality\",\"Death\",\"Initial evaluation\"], \"unit\": \"days\"}"
+            "output":"{\"domain\":\"observation\",\"base_entity\":\"hospital admission\", \"additional_entities\":[\"\"All causes of morbidity and mortality\",\"Death\",\"baseline\"], \"unit\": \"days\"}"
           },
           {
             "input":"diastole - longitudinal echocardiography pre-discharge at visit follow-up 1 month",
             "output":"{\"domain\":\"procedure\",\"base_entity\":\"Diastolic phase\",\"additional_entities\":[\"echocardiography\",\"pre-discharge assessment\",\"Follow-up 1 month\"]}"
           },
           {
-            "input":"time ti at baseline on ecg, unit: ms",
-            "output":"{\"domain\":\"measurement\",\"base_entity\": \"Electrocardiogram\", \"additional_entities\":[ \"tricuspid insufficienc\",\"Time interval\",\"ECG finding\",\"Initial evaluation\"], \"unit\": \"ms\"}"
+            "input":"time ti on ecg at baseline, unit: ms",
+            "output":"{\"domain\":\"measurement\",\"base_entity\": \"Electrocardiogram\", \"additional_entities\":[ \"tricuspid insufficienc\",\"Time interval\",\"ECG finding\",\"baseline\"], \"unit\": \"ms\"}"
           },  
           {
             "input": "Latest HbA1c level measured at baseline",
-            "output": "{\"domain\":\"measurement\",\"base_entity\": \"Hemoglobin A1C \", \"unit\": \"%\",\"additional_entities\":[\"Initial evaluation\"], \"categories\": [\"recent\"]}"
+            "output": "{\"domain\":\"measurement\",\"base_entity\": \"Hemoglobin A1C \", \"unit\": \"%\",\"additional_entities\":[\"baseline\"], \"categories\": [\"recent\"]}"
           },
           {
             "input":"echo normal lv function",
@@ -1088,7 +1108,7 @@
           },
           {
             "input":"Ejection fraction measured at centre of inclusion",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Ejection fraction\",\"additional_entities\":[\"Initial evaluation\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Ejection fraction\",\"additional_entities\":[\"baseline\"]}"
           },
           {
             "input":"haemocrit",
@@ -1111,11 +1131,7 @@
             "output": "{\"domain\":\"measurement\",\"base_entity\": \"Patient Age\", \"unit\": \"year\"}"
           },
           {
-            "input":"Height in cm",
-            "output":"{\"domain\":\"measurement\", \"base_entity\":\"patient Height\", \"unit\": \"cm\"}"
-          },
-          {
-            "input": "exercise tolerance test result,categorical values: 1,0",
+            "input": "exercise tolerance test result,categorical values: 1|0",
             "output": "{\"domain\":\"measurement\",\"base_entity\":\"exercise tolerance test\", \"categories\": [\"Yes\",\"No\"]}"
           },
           {
@@ -1123,15 +1139,15 @@
             "output":"{\"domain\":\"drug\",\"base_entity\":\"nitroglycerin\",\"additional_entities\": [\"Reason stopped\"], \"categories\": [\"not significant\",\"hypotension\",\"headache\",\"angina post-acute myocardial infarction\",\"Patient refused\",\"Other category\",\"missing\"]}"
           },
           {
-            "input":"uses any antidepressive drug at Baseline y/n",
-            "output":"{\"domain\":\"observation\",\"base_entity\":\"Antidepressant\",\"additional_entities\": [\"Initial evaluation\"], \"categories\": [\"Does take drug\",\"Does not take drug\"]}"
+            "input":"uses any antidepressive drug at Baseline , categorical values: 1=yes | 0=no",
+            "output":"{\"domain\":\"observation\",\"base_entity\":\"Antidepressant\",\"additional_entities\": [\"baseline\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"estimated glomerular filtration rate using MDRD formula at baseline",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Glomerular filtration rate/1.73 sq M.predicted [Volume Rate/Area] in Serum, Plasma or Blood by Creatinine-based formula (MDRD)\",\"additional_entities\":[ \"Initial evaluation\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Glomerular filtration rate/1.73 sq M.predicted [Volume Rate/Area] in Serum, Plasma or Blood by Creatinine-based formula (MDRD)\",\"additional_entities\":[ \"baseline\"]}"
           },
           {
-            "input":"visit month 18 6mWT (6 minute walking test) performed Y/N,categorical values:1=yes | 0=no",
+            "input":"6mWT (6 minute walking test) performed at visit month 18,categorical values:1=yes | 0=no",
             "output":"{\"domain\":\"observation\",\"base_entity\":\"6-minute walk test\",\"additional_entities\":[\"Follow-up 18 months\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
@@ -1143,8 +1159,8 @@
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Uric acid [Mass/volume] in Serum or Plasma\", \"additional_entities\":[\"Follow-up 1 month\"], \"unit\":\"Milligrams per decilitre\"}"
           },
           {
-            "input":"at baseline 6mWT reasonable effort,categorical values:1=yes  |  0=no",
-            "output":"{\"domain\":\"observation\",\"base_entity\":\"6-minute walk test\",\"additional_entities\":[\"reasonable effort\",\"Initial evaluation\"], \"categories\": [\"yes\",\"no\"]}"
+            "input":"6mWT reasonable effort at baseline ,categorical values:1=yes  |  0=no",
+            "output":"{\"domain\":\"observation\",\"base_entity\":\"6-minute walk test\",\"additional_entities\":[\"reasonable effort\",\"baseline\"], \"categories\": [\"yes\",\"no\"]}"
           },
 
           {
@@ -1153,14 +1169,14 @@
           },
           {
             "input":"uses any statin use at Baseline y/n",
-            "output":"{\"domain\":\"observation\",\"base_entity\":\"HMG-CoA reductase inhibitor\", \"additional_entities\": [\"Initial evaluation\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"observation\",\"base_entity\":\"HMG-CoA reductase inhibitor\", \"additional_entities\": [\"baseline\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
-            "input":"Drugcategorical values: anti-platelets,  0:'unknown', 1:'Never', 2 'Ex', 3: 'Current'",
+            "input":"Drugcategorical values: anti-platelets,  0=unknown|1=Never|2=Ex| 3=Current",
             "output":"{\"domain\":\"drug\",\"base_entity\":\"anti-platelets\", \"categories\": [\"unknown\",\"Never used\",\"former user\",\"current drug user\"]}"
           },
           {
-            "input":"smokingcategories,categorical values: 0=never | 1=previous | 2=current | 9=missing,smokingcategories, categorical values:['never', 'previous', 'current', 'missing']",
+            "input":"smokingcategories,categorical values: 0=never | 1=previous | 2=current | 9=missing,smoking",
             "output":"{\"domain\":\"observation\",\"base_entity\":\"smokingcategories\",\"categories\": [\"never smoked\",\"former smoker\",\"current smoker\",\"missing\"]}"
           },
           {
@@ -1177,7 +1193,7 @@
           },
           {
             "input":"date of ct-scan",
-            "output":"{\"domain\":\"observation\",\"base_entity\":\"CT scan\",\"additional_entities\":[\"Date of Event\"]}"
+            "output":"{\"domain\":\"observation\",\"base_entity\":\"Date of Event\",\"additional_entities\":[\"CT scan\"]}"
           },
           {
             "input": "statin, start at 12 month",
@@ -1188,16 +1204,16 @@
             "output":"{\"domain\":\"drug\",\"base_entity\":\"Angiotensin converting enzyme inhibitor target dose achieved\"}"
           },
           { 
-            "input":"history of diabetes y/n,categorical values: 1=yes | 0=no",
+            "input":"history of diabetes,categorical values: 1=yes | 0=no",
             "output":"{\"domain\":\"condition\", \"base_entity\":\"History of Event\", \"additional_entities\":[\"diabetes mellitus\"], \"categories\": [\"yes\",\"no\"]}"
 
           },
           {
             "input":"history of cerebrovascular disease,categorical values: 0=no | 1=tia | 2=minor stroke | 3=major stroke",
-            "output":"{\"domain\":\"condition\", \"base_entity\":\"History of Event\", \"additional_entities\":[\"cerebrovascular disease\"], \"categories\": [\"no\",\"TIA\",\"minor stroke\",\"major stroke\"]}"
+            "output":"{\"domain\":\"condition\", \"base_entity\":\"History of Event\", \"additional_entities\":[\"cerebrovascular disease\"], \"categories\": [\"no\",\"transient ischemic attack\",\"minor stroke\",\"major stroke\"]}"
           },
           {
-            "input":"mean corpuscular hemoglobin concentration at v18, unit: gr/dl",
+            "input":"mean corpuscular hemoglobin concentration at visit month 18, unit: gr/dl",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Mean corpuscular hemoglobin concentration in Blood\", \"additional_entities\":[\"Follow-up 18 months\"], \"unit\":\"grams per decilitre\"}"
           },
           {
@@ -1206,14 +1222,18 @@
           },
           {
             "input":"placental growth factor (plgf) at baseline visit, unit: pg/ml",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Placental growth factor [Mass/volume] in Serum or Plasma\", \"additional_entities\":[\"Initial evaluation\"], \"unit\":\"picograms per milliliter\"}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Placental growth factor [Mass/volume] in Serum or Plasma\", \"additional_entities\":[\"baseline\"], \"unit\":\"picograms per milliliter\"}"
           },
           {
             "input":"time q-ti at visit 12 months on ecg, unit: ms",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Q-T Interval\",\"ECG finding\", \"Follow-up 1 year\"], \"unit\":\"milliseconds\"}"
           },
           {
-            "input":"RV/RA mean at baseline",
+            "input":"time q-ti at visit follow-up 12 months on ecg, unit: ms",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Q-T Interval\",\"ECG finding\", \"Follow-up 1 year\"], \"unit\":\"milliseconds\"}"
+          },
+          {
+            "input":"RV/RA mean at baseline visit",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[ \"Tricuspid valve Mean pressure gradient dur diastole by US.doppler\",\"Follow-up 1 year\"]}"
           },
           {
@@ -1221,35 +1241,35 @@
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"R wave amplitude in Lead V5\", \"S wave amplitude in Lead V6\",\"ECG finding\", \"baseline\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
-           "input":"mean corpuscular hemoglobin at bl, unit: pg/ cell",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Mean corpuscular hemoglobin in Blood\", \"additional_entities\":[\"Initial evaluation\"], \"unit\":\"picograms per cell\"}" 
+           "input":"mean corpuscular hemoglobin at baseline, unit: pg/ cell",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Mean corpuscular hemoglobin in Blood\", \"additional_entities\":[\"baseline\"], \"unit\":\"picograms per cell\"}" 
           },
           {
             "input":"nyha ( classification of severity of heart failure) class at baseline in half increments,categorical values: 0=i | 1=i-ii | 2=ii | 3=ii-iii | 4=iii | 5=iii-iv | 6= iv",
-            "output":"{\"domain\":\"condition\", \"base_entity\":\"New York Heart Association Classification\", \"categories\": [\"Heart failure NYHA class I\",\"Heart failure NYHA class I or Heart failure NYHA class II \",\"Heart failure NYHA class II\",\"Heart failure NYHA class II or Heart failure NYHA class III\",\"Heart failure NYHA class III\",\"Heart failure NYHA class III or Heart failure NYHA class IV \",\"Heart failure NYHA class IV\"], \"additional_entities\":[\"Initial evaluation\"]}"
+            "output":"{\"domain\":\"condition\", \"base_entity\":\"New York Heart Association Classification\", \"categories\": [\"Heart failure NYHA class I\",\"Heart failure NYHA class I or Heart failure NYHA class II \",\"Heart failure NYHA class II\",\"Heart failure NYHA class II or Heart failure NYHA class III\",\"Heart failure NYHA class III\",\"Heart failure NYHA class III or Heart failure NYHA class IV \",\"Heart failure NYHA class IV\"], \"additional_entities\":[\"baseline\"]}"
           },
           {
-            "input":"sex",
-            "output":"{\"domain\":\"demographics\", \"base_entity\":\"patient sex\"}"
+            "input":"nyha iii or higher at baseline,categorical values: 1=yes | 0=no",
+            "output":"{\"domain\":\"condition\", \"base_entity\":\"New York Heart Association Classification\", \"categories\": [\"yes\",\"no\"], \"additional_entities\":[\">\",\"Heart failure NYHA class III\",\"baseline\"]}"
           },
           {
-            "input":"nyha iii or higher at bl,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"condition\", \"base_entity\":\"New York Heart Association Classification\", \"categories\": [\"yes\",\"no\"], \"additional_entities\":[\">\",\"Heart failure NYHA class III\",\"Initial evaluation\"]}"
+            "input":"morphology ves on ecg at baseline ",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Ventricular extrasystoles\",\"ECG finding\",\"baseline\"]}"
           },
           {
-            "input":"morphology ves at baseline on ecg",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Ventricular extrasystoles\",\"ECG finding\",\"Initial evaluation\"]}"
+            "input":"osteopontin (opn) at baseline",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Osteopontin\", \"additional_entities\":[\"baseline\"]}"
           },
           {
-            "input":"osteopontin (opn) at bl",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Osteopontin\", \"additional_entities\":[\"Initial evaluation\"]}"
+            "input":"e/e'ratio lateral calculated from echocardiography",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"E/e' ratio lateral\",\"additional_entities\":[\"echocardiography\",\"baseline\"]}"
           },
           {
-            "input":"e/e'ratio lateral calculated at bl from echocardiography",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"E/e' ratio lateral\",\"additional_entities\":[\"echocardiography\",\"Initial evaluation\"]}"
+            "input":"e/e'ratio lateral calculated from echocardiography at visit month 3 ",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"E/e' ratio lateral\",\"additional_entities\":[\"echocardiography\",\"Follow-up 3 month\"]}"
           },
           {
-            "input":"mean corpuscular hemoglobin at month 6, unit: pg/ cell",
+            "input":"mean corpuscular hemoglobin at visit month 6, unit: pg/ cell",
              "output":"{\"domain\":\"measurement\",\"base_entity\":\"Mean corpuscular hemoglobin in Blood\", \"additional_entities\":[\"Follow-up 6 monthss\"], \"unit\":\"picograms per cell\"}" 
            },
            {
@@ -1262,14 +1282,14 @@
           },
           {
             "input":"which ace-inhibitor at baseline,categorical values: 0=none | 1=quinapril |2=spirapril | 3=benazapril | 4=perindopril | 5=fosinopril | 6=trandolapril |7=cilazapril | 8=captopril | 9=enalapril | 10=ramipril |11=lisinopril | 12=other",
-            "output":"{\"domain\":\"drug\",\"base_entity\":\"Angiotensin-converting enzyme inhibitor\",\"additional_entities\":[\"Initial evaluation\"], \"categories\": [\"none\",\"quinapril\",\"spirapril\",\"benazapril\",\"perindopril\",\"fosinopril\",\"trandolapril\",\"cilazapril\",\"captopril\",\"enalapril\",\"ramipril\",\"lisinopril\",\"other\"]}"
+            "output":"{\"domain\":\"drug\",\"base_entity\":\"Angiotensin-converting enzyme inhibitor\",\"additional_entities\":[\"baseline\"], \"categories\": [\"none\",\"quinapril\",\"spirapril\",\"benazapril\",\"perindopril\",\"fosinopril\",\"trandolapril\",\"cilazapril\",\"captopril\",\"enalapril\",\"ramipril\",\"lisinopril\",\"other\"]}"
           },
           {
-            "input":"pericardial effusion on echo at visit 12",
+            "input":"pericardial effusion on echo at visit month 12",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Echocardiogram\",\"additional_entities\":[\"Pericardial effusion\",\"Follow-up 1 year\"]}"
           },
           {
-            "input":"nitrate adjustment at visit 12,categorical values: 0 = no adjustment| 1= 1 times uptitration| 2= increase more than once| 3= reduction| 4= stop| 5= no adjustment due to side-effect| 6= other",
+            "input":"nitrate adjustment at visit month 12,categorical values: 0 = no adjustment| 1= 1 times uptitration| 2= increase more than once| 3= reduction| 4= stop| 5= no adjustment due to side-effect| 6= other",
             "output":"{\"domain\":\"drug\",\"base_entity\":\"Nitrate\",\"additional_entities\":[\"Adjustment\", \"Follow-up 1 year\"], \"categories\": [\"no adjustment\",\"1 times uptitration\",\"increase more than once\",\"reduction\",\"stop\",\"no adjustment due to side-effect\",\"other\"]}"
           },
           {
@@ -1285,36 +1305,32 @@
             "output":"{\"domain\":\"observation\",\"base_entity\":\"former smoker\",\"additional_entities\":[\"Findings of tobacco or its derivatives use or exposure\"], \"unit\":\"years\"}"
           },
           {
-            "input":"non-adher,1 due to 1, 3-7, 13, 14 at visit follow-up month 1,categorical values: 1=yes  |  0=no",
-            "output":"{\"domain\":\"observation\",\"base_entity\":\"Non-adherence to treatment\",\"additional_entities\":[\"reasons\" , \"follow-up 1 month], \"categories\": [\"yes\",\"no\"]}"
+            "input":"non-adher to treatment at visit follow-up month 1,categorical values: 1=yes  |  0=no",
+            "output":"{\"domain\":\"observation\",\"base_entity\":\"Non-adherence to treatment\",\"additional_entities\":[\"follow-up 1 month], \"categories\": [\"yes\",\"no\"]}"
           },
           {
-            "input": "Non steriodal anti inflammatory drug use at Baseline visit y/n",
-            "output": "{\"domain\":\"drug\",\"base_entity\":\"History of drug use\",\"additional_entities\": [\"Non steriodal anti inflammatory\",\"Initial evaluation\"], \"categories\": [\"Does take drug\",\"Does not take drug\"]}"
+            "input": "Non steriodal anti inflammatory drug use at Baseline visit, categorical values: 1=yes | 0=no",
+            "output": "{\"domain\":\"drug\",\"base_entity\":\"History of drug use\",\"additional_entities\": [\"Non steriodal anti inflammatory\",\"baseline\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
-            "input": "aspirin - prescribed at 6 weeks follow-up, S = Yes | N = No",
-            "output": "{\"domain\":\"observation\",\"base_entity\":\"Prescription for drug\", \"additional_entities\": [\"aspirin\", \"follow-up 6 weeks\"],\"categories\": [\"drug prescribed\", \"not prescribed\"]}"
+            "input": "aspirin - prescribed at visit 6 weeks follow-up, S = Yes | N = No",
+            "output": "{\"domain\":\"observation\",\"base_entity\":\"aspirin\", \"additional_entities\": [\"medication prescribed\", \"follow-up 6 weeks\"],\"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input": "angiotensin II receptor antagonist/blocker (ARBs)",
             "output": "{\"domain\":\"drug\",\"base_entity\":\"angiotensin II receptor antagonist\"}"
           },
           {
-            "input":"Sum of ACE-inh and ARB-dose Baseline visit in percentage of target dose",
-            "output":"{\"domain\":\"drug\",\"base_entity\":\"Optimization of drug\",\"additional_entities\":[\"angiotensin II receptor antagonist\", \"Angiotensin-converting enzyme inhibitor\", \"Initial evaluation\"], \"unit\": \"%\"}"
+            "input":"Sum of ACE-inh and ARB-dose in percentage of target dose at Baseline visit",
+            "output":"{\"domain\":\"drug\",\"base_entity\":\"Optimization of drug\",\"additional_entities\":[\"angiotensin II receptor antagonist\", \"Angiotensin-converting enzyme inhibitor\", \"baseline\"], \"unit\": \"%\"}"
           },
           {
-            "input": "optimization of insulin therapy at month 3 ",
+            "input": "optimization of insulin therapy at visit month 3 ",
             "output": "{\"domain\":\"observation\",\"base_entity\":\"Optimization of drug\",\"additional_entities\": [\"insulin therapy \",\"Follow-up 3 month\"]}"
           },
           {
             "input":"resting heart rate, unit: bpm",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Resting heart rate\", \"unit\":\"beats per minute\"}"
-          },
-          {
-            "input":"Time to first all-cause Hospitalization at 5 years FUP",
-            "output":"{\"domain\":\"observation\",\"base_entity\":\"History of Hospitalization\",\"additional_entities\":[\"History of event within 5 years\",\"Time of event\"]}"
           },
           {
             "input":"patient identification number",
@@ -1329,20 +1345,16 @@
             "output":"{\"domain\":\"demographics\",\"base_entity\":\"patient hospital number\"}"
           },
           {
-            "input":"never smoked",
-            "output":"{\"domain\":\"condition\", \"base_entity\":\"never smoked\"}"
-          },
-          {
-            "input":"Death cardiovascular (includes stroke)categorical values: 1=yes  |  0=no",
+            "input":"Death cardiovascular (includes stroke), categorical values: 1=yes  |  0=no",
             "output":"{\"domain\":\"death\", \"base_entity\":\"Cause of death\", \"additional_entities\":[\"Cardiovascular event \",\"stroke\"]}"
           },
           {
             "input":"number of hospitalisations due to diabetes",
-            "output":"{\"domain\":\"observation\", \"base_entity\":\"Number of Admission\",\"additional_entities\":[\"Reason for hospital admission,diabetes\"]}"
+            "output":"{\"domain\":\"observation\", \"base_entity\":\"Reason for hospital admission\",\"additional_entities\":[\"diabetes mellitus\"]}"
         },
         {
           "input":"date of Echocardiography (echo)",
-          "output":"{\"domain\":\"visit\", \"base_entity\":\"Echocardiography\",\"additional_entities\":[\"date of event\"]}"
+          "output":"{\"domain\":\"visit\", \"base_entity\":\"date of event\",\"additional_entities\":[\"Echocardiography\"]}"
 
         },
         {
@@ -1354,16 +1366,12 @@
           "output":"{\"domain\":\"death\", \"base_entity\":\"Cause of death\", \"categories\": [\"alive\",\"sudden cardiac death\",\"worsening heart failure\",\"coronary ischaemia\",\"other cardiac\",\"stroke\",\"cancer\",\"infection\",\"renal failure\",\"hepatic failure\",\"other\",\"unknown\",\"missing\"]}"
       },
       {
-        "input":"acute heart failure",
-        "output":"{\"domain\":\"condition\", \"base_entity\":\"Acute heart failure\"}"
-      },
-      {
         "input":"sudden death,categorical values: 1=yes | 0=no",
         "output":"{\"domain\":\"death\", \"base_entity\":\"Sudden death\", \"categories\": [\"yes\",\"no\"]}"
       },
       {
-        "input": "CT coronary angiography not performed due to patient refusal 1,0",
-        "output": "{\"domain\":\"procedure\",\"base_entity\": \"CT coronary angiography\",\"additional_entities\"::[\"Refusal of treatment by patient\"] \"categories\": [\"performed\",\"not performed\"]}"
+        "input": "CT coronary angiography not performed due to patient refusal, categorical values: 1=yes | 0=no",
+        "output": "{\"domain\":\"procedure\",\"base_entity\": \"CT coronary angiography\",\"additional_entities\"::[\"Refusal of treatment by patient\"] \"categories\": [\"yes\",\"no\"]}"
       },
       {
         "input":"echo normal lv diastolic function",
@@ -1383,7 +1391,7 @@
       },
       {
         "input":"date of ecg",
-        "output":"{\"domain\":\"observation\", \"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"date of event\"]}"
+        "output":"{\"domain\":\"observation\", \"base_entity\":\"date of event\",\"additional_entities\":[\"Electrocardiogram\"]}"
       },
       {
         "input":"history of Carotid Endarterectomy Y/N",
@@ -1394,7 +1402,7 @@
         "output":"{\"domain\":\"observation\",\"base_entity\":\"History of Event\",\"additional_entities\":[\"Percutaneous coronary intervention\"]}"
       },
       {
-        "input": "Tissue Doppler Imaging (TDI) at month 12, lateral",
+        "input": "Tissue Doppler Imaging (TDI) at visit month 12, lateral",
         "output": "{\"domain\":\"observation\",\"base_entity\": \"Tissue Doppler Imaging (TDI)\", \"additional_entities\": [\"lateral\",\"Follow-up 1 year\"]}"
       },
       {
@@ -1419,31 +1427,23 @@
       },
       {
         "input":"at baseline visit",
-        "output":"{\"domain\":\"observation\",\"base_entity\":\"Initial evaluation\"}"
+        "output":"{\"domain\":\"observation\",\"base_entity\":\"baseline\"}"
       },
       {
-        "input": "date bypass - 6 months",
-        "output": "{\"domain\":\"observation\",\"base_entity\": \"Bypass graft\", \"additional_entities\": [\"Follow-up 6 months\",\"date of event\"]}"
+        "input": "date bypass - at visit 6 months",
+        "output": "{\"domain\":\"observation\",\"base_entity\": \"Date of Visit\", \"additional_entities\": [\"bypass graft\",\"Follow-up 6 months\"]}"
       },
       {
         "input":"ECHO left ventricular systolic function",
         "output":"{\"domain\":\"measurement\", \"base_entity\":\"Echocardiogram\",\"additional_entities\":[\"Left ventricular function\",\"Systole\"]}"
       },
       {
-        "input":"Death or Heart failure hospitalisations y/n, without cancer,categorical values: 1=yes|0=no",
-        "output":"{\"domain\":\"observation\", \"base_entity\":\"Reason for hospitalization\", \"additional_entities\":[\"fatel Heart failure\",\"exclude\",\"cancer\"], \"categories\": [\"yes\",\"no\"]}"
-      },
-      {
         "input":"death due to heart failure",
         "output":"{\"domain\":\"death\", \"base_entity\":\"Cause of death\", \"additional_entities\":[\"heart failure\"]}"
       },
       {
-        "input":"Death cardiovascular (includes stroke)categorical values: 1=yes  |  0=no",
-        "output":"{\"domain\":\"death\", \"base_entity\":\"Cause of death\", \"additional_entities\":[\"Cardiovascular event \",\"stroke\"]}"
-      },
-      {
-        "input":"categories of drug not available",
-        "output":"{\"domain\":\"observation\", \"base_entity\":\"drug not available\"}"
+        "input":"Death cardiovascular (includes stroke) categorical values: 1=yes  |  0=no",
+        "output":"{\"domain\":\"death\", \"base_entity\":\"Cause of death\", \"additional_entities\":[\"Cardiovascular event\",\"stroke\"]}"
       },
       {
         "input":"drug prescribed",
@@ -1458,24 +1458,24 @@
         "output":"{\"domain\":\"observation\", \"base_entity\":\"Total event-associated hospitalizations\",\"additional_entities\":[\"death\",\"All causes of morbidity and mortality\"]}"
       },
         {
-          "input":"Withdrawal before 12 months Y/N,categorical values: 1=yes|0=no",
+          "input":"Withdrawal before 12 months,categorical values: 1=yes|0=no",
           "output":"{\"domain\":\"observation\", \"base_entity\":\"patient Withdrawal from trial\",\"additional_entities\":[\"less than one year\"], \"categories\": [\"yes\",\"no\"]}"
         },
         {
-          "input":"hospitalisation due to heart failure Y/N,categorical values: 1=yes | 0=no",
+          "input":"hospitalisation due to heart failure,categorical values: 1=yes | 0=no",
           "output":"{\"domain\":\"observation\", \"base_entity\":\"Reason for hospitalization\", \"additional_entities\":[\"heart failure\"], \"categories\": [\"yes\",\"no\"]}"
         },
         {
           "input":"Dose Statin in mg at Baseline visit",
-          "output":"{\"domain\":\"drug\", \"base_entity\":\"Statin Therapy\",\"additional_entities\":[\"drug dose\",\"Initial evaluation\"], \"unit\":\"milligrams\"}"
+          "output":"{\"domain\":\"drug\", \"base_entity\":\"Statin Therapy\",\"additional_entities\":[\"drug dose\",\"baseline\"], \"unit\":\"milligrams\"}"
         },
         {
-          "input":"Reason for non compliance of patient at visit 1",
+          "input":"Reason for non compliance of patient at visit month 1",
           "output":"{\"domain\":\"observation\", \"base_entity\":\"Compliance behavior \",\"additional_entities\":[\"Compliance behavior\",\"Follow-up 1 month\"]}"
         },
         {
           "input":"incomplete Left bundle branch block on ECG at baseline visit ",
-          "output":"{\"domain\":\"measurement\", \"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Left bundle branch block\",\"Initial evaluation\"]}"
+          "output":"{\"domain\":\"measurement\", \"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Left bundle branch block\",\"baseline\"]}"
         },
         {
           "input":"Ejection fraction during treatment",
@@ -1495,11 +1495,11 @@
         },
         {
           "input":"echocardiography ejection fraction recorded at baseline visit",
-          "output":"{\"domain\":\"measurement\", \"base_entity\":\"Ejection fraction\",\"additional_entities\":[\"echocardiography\",\"Initial evaluation\"]}"
+          "output":"{\"domain\":\"measurement\", \"base_entity\":\"Ejection fraction\",\"additional_entities\":[\"echocardiography\",\"baseline\"]}"
         },
         {
           "input": "date of follow-up month 1",
-          "output": "{\"domain\":\"visit\", \"base_entity\":\"Date of visit \",\"additional_entities\":[\"Initial evaluation\"]}"
+          "output": "{\"domain\":\"visit\", \"base_entity\":\"Date of visit \",\"additional_entities\":[\"Follow-up 1 month\"]}"
         },
         {
             "input":"Date Myocardial Infarction year diagnosis,categories= [9999 = missing, or not filled in is  absent],  unit=yyyy",
@@ -1507,15 +1507,15 @@
         },
         {
           "input":"amount of days to first trauma fall ae adverse event, unit: days",
-          "output":"{\"domain\":\"history of events\",\"base_entity\":\"Adverse Event\",\"additional_entities\":[\"Falling injury\"], \"unit\":\"days\"}"
+          "output":"{\"domain\":\"Adverse Event\",\"base_entity\":\"Adverse Event\",\"additional_entities\":[\"Falling injury\"], \"unit\":\"days\"}"
         },
         {
           "input":"amount of days to first depression ae adverse event, unit: days",
-          "output":"{\"domain\":\"history of events\",\"base_entity\":\"Adverse Event\",\"additional_entities\":[\"Depression\"], \"unit\":\"days\"}"
+          "output":"{\"domain\":\"Adverse Event\",\"base_entity\":\"Adverse Event\",\"additional_entities\":[\"Depression\"], \"unit\":\"days\"}"
         },
         {             
           "input":"max trauma fall ae-severity adverse event-severity,categorical values: 1 mild| 2 moderately impacting daily life| 3 severely inpacting daily life 4 required hospitalisation 5 caused death",
-          "output":"{\"domain\":\"history of events\",\"base_entity\":\"Common Terminology Criteria for Adverse Events\",\"additional_entities\":[\"Falling injury\"], \"categories\": [\"Common terminology criteria for adverse events grade 1\",\"Common terminology criteria for adverse events grade 2\",\"Common terminology criteria for adverse events grade 3\",\"Common terminology criteria for adverse events grade 4\",\"Common terminology criteria for adverse events grade 5\"]}"
+          "output":"{\"domain\":\"Adverse Event\",\"base_entity\":\"Common Terminology Criteria for Adverse Events\",\"additional_entities\":[\"Falling injury\"], \"categories\": [\"Common terminology criteria for adverse events grade 1\",\"Common terminology criteria for adverse events grade 2\",\"Common terminology criteria for adverse events grade 3\",\"Common terminology criteria for adverse events grade 4\",\"Common terminology criteria for adverse events grade 5\"]}"
         },
           {
             "input": "optimization of insulin therapy at month 3 ",
@@ -1538,7 +1538,7 @@
             "output": "{\"domain\":\"unit\", \"base_entity\":\"millimeter mercury column\"}"
           },
           {
-            "input":"history of osteoporosis Y/N,categories= 1=yes | 0=no",
+            "input":"history of osteoporosis,categories= 1=yes | 0=no",
             "output":"{\"domain\":\"observation\", \"base_entity\":\"History of Event\", \"additional_entities\":[\"osteoporosis\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
@@ -1546,20 +1546,16 @@
             "output":"{\"domain\":\"observation\", \"base_entity\":\"patient Withdrawal from trial\",\"additional_entities\":[\"less than 1 year\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
-            "input":"withdrawal by investigator y/n,categorical values: 1,00=yes | ,00=no",
+            "input":"withdrawal by investigator,categorical values: 1,00=yes | ,00=no",
             "output":"{\"domain\":\"observation\", \"base_entity\":\"patient Withdrawal from trial\",\"additional_entities\":[\"Investigative specialist\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
-            "input":"withdrawal by investigatorcategorical values:0,1",
-            "output":"{\"domain\":\"observation\", \"base_entity\":\"patient Withdrawal from trial\",\"additional_entities\":[\"Investigative specialist\"], \"categories\": [\"no\",\"yes\"]}"
-          },
-          {
-            "input":"Family history of heart disease (parents) 0:unknown, 1: No history, 2: History, 3: Possible history",
+            "input":"Family history of heart disease (parents), categorical values: 0:unknown, 1: No history, 2: History, 3: Possible history",
             "output":"{\"domain\":\"family history\",\"base_entity\": \"family history with explicit context\", \"additional_entities\", [\"heart disease\",\"parent\"], \"categories\": [\"unknown\",\"no\",\"yes\",\"possible\"]}"
           },
           {
             "input":"Sum of ACE-inh and ARB-dose in percentage of target dose at baseline  visit",
-            "output":"{\"domain\":\"observation\",\"base_entity\":\"drug Dose\",\"additional_entities\":[\"angiotensin II receptor antagonist\", \"Angiotensin-converting enzyme inhibitor\", \"Initial evaluation\"], \"unit\": \"%\"}"
+            "output":"{\"domain\":\"observation\",\"base_entity\":\"drug Dose\",\"additional_entities\":[\"angiotensin II receptor antagonist\", \"Angiotensin-converting enzyme inhibitor\", \"baseline\"], \"unit\": \"%\"}"
           },
           {
             "input":"Weight at visit 3 months, unit:kg,categorical values: 1=999, 0=missing",
@@ -1571,19 +1567,19 @@
           },
           {
             "input":"Heart rythm on ECG at baseline visit",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"heart rythm\", \"ECG finding\",\"Initial evaluation\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"heart rythm\", \"ECG finding\",\"baseline\"]}"
           }
           ,
           {
             "input":"ecg: right bundle branch block (lbbb)",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"EKG:Right bundle branch block\": [\"Right bundle branch block\",\"ECG finding\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"electrocardiogram\": [\"Right bundle branch block\",\"ECG finding\"]}"
           },
           {
             "input":"ekg: left bundle branch block (lbbb)",
-            "output":"{\"domain\":\"observation\",\"base_entity\":\"ekg: left bundle branch block\",\"additional_entities\": [\"Left bundle branch block\",\"ECG finding\"]}"
+            "output":"{\"domain\":\"observation\",\"base_entity\":\"electrocardiogram\",\"additional_entities\": [\"Left bundle branch block\",\"ECG finding\"]}"
           },
           {
-            "input":"q-wave present in Lead site V3 at visit 12,categorical values: 1=yes | 0=no",
+            "input":"q-wave present in Lead site V3 at visit month 12, categorical values: 1=yes | 0=no",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Q wave - finding\",\"additional_entities\":[\"Lead site V3\",\"ECG finding\",\"Follow-up 1 year\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
@@ -1607,20 +1603,20 @@
               "output":"{\"domain\":\"death\", \"base_entity\":\"cause of death\", \"additional_entities\":[\"cardiovascular event\",\"include\",\"stroke\"]}"
           },
           {
-            "input":"total of r-wave voltage in lead v5+v6 on ecg at baseline visit , unit: mv",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"R wave amplitude in lead v5\",\"R wave amplitude in lead v6\",\"ECG finding\",\"Initial evaluation\"], \"unit\":\"millivolt\"}"
+            "input":"total of r-wave voltage in lead v5+v6 on ecg at baseline visit, unit: mv",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"R wave amplitude in lead v5\",\"R wave amplitude in lead v6\",\"ECG finding\",\"baseline\"], \"unit\":\"millivolt\"}"
           },
           {
             "input":"total of s-wave voltage in lead v1+v2 on ecg at baseline visit , unit: mv",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"S wave amplitude in lead v1\",\"S wave amplitude in lead v2\",\"ECG finding\",\"Initial evaluation\"], \"unit\":\"millivolt\"}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"S wave amplitude in lead v1\",\"S wave amplitude in lead v2\",\"ECG finding\",\"baseline\"], \"unit\":\"millivolt\"}"
           },
           {
-            "input":"r-wave voltage in lead v1 on ecg at follow-up 3 months , unit: mv",
+            "input":"total of s-wave voltage in lead v1+v2 on ecg at visit month 6, unit: mv",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"S wave amplitude in lead v1\",\"S wave amplitude in lead v2\",\"ECG finding\",\"follow-up 6 months\"], \"unit\":\"millivolt\"}"
+          },
+          {
+            "input":"r-wave voltage in lead v1 on ecg at visit follow-up 3 months , unit: mv",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"R wave amplitude in lead v1\"\"ECG finding\",\"follow-up 3 months\"], \"unit\":\"millivolt\"}"
-          },
-          {
-            "input":"gram per dose",
-            "output":"{\"domain\":\"unit\",\"base_entity\":\"gram per dose\"}"
           },
           {
             "input":"low voltages in extremity leads on ecg at visit follow-up month 1,categorical values: 1=yes | 0=no",
@@ -1640,14 +1636,14 @@
           },
           {
             "input":"left atrial overload on ecg on ecg at baseline visit,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Left atrial dilatation\",\"ECG finding\",\"Initial evaluation\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Left atrial dilatation\",\"ECG finding\",\"baseline\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
-            "input":"incomplete left bundlebranch block on ecg  at visit month 18 ,categorical values: 1=yes | 0=no",
+            "input":"incomplete left bundlebranch block on ecg at visit month 18 ,categorical values: 1=yes | 0=no",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Incomplete left bundle branch block\",\"ECG finding\",\"Follow-up 18 months\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
-            "input":"complete left bundlebranch block on ecg  at visit month 3 ,categorical values: 1=yes | 0=no",
+            "input":"complete left bundlebranch block on ecg at visit month 3 ,categorical values: 1=yes | 0=no",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"complete left bundle branch block\",\"ECG finding\",\"Follow-up 3 month\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
@@ -1656,7 +1652,7 @@
           },
           {
             "input":"inverted t-wave present in lead v1 on ecg at baseline visit,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Inverted T wave\",\"Lead Site V1\",\"ECG finding\",\"Initial evaluation\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Inverted T wave\",\"Lead Site V1\",\"ECG finding\",\"baseline\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"bifascicular block on ecg  at visit month 18,categorical values: 1=yes | 0=no",
@@ -1668,12 +1664,7 @@
           },
           {
             "input":"negative t-wave in lead v2-v3 on ecg at baseline visit,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"inverted T wave\",\"Lead Site V2\",\"Lead Site V3\",\"ECG finding\",\"Initial evaluation\"], \"categories\": [\"yes\",\"no\"]}"
-          },
-          {
-            "input":"Renin",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Renin [Mass/volume] in Plasma\"}"
-            
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"inverted T wave\",\"Lead Site V2\",\"Lead Site V3\",\"ECG finding\",\"baseline\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"Renin level at visit follow-up 6 months",
@@ -1688,11 +1679,6 @@
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Aldosterone [Mass/volume] in blood\"}"
           },
           {
-            "input":"Renin [Mass/volume] in plasma",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Renin [Mass/volume] in Plasma\"}"
-            
-          },
-          {
             "input":"total cholesterol level",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Cholesterol measurement\"}"
           },
@@ -1702,31 +1688,43 @@
           },
           {
             "input":"r-wave point of inversion (from positive to negative) on ecg at baseline visit,categorical values: 1=v1. 2=v2| 3=v3| 4=v4| 5=v5| 6=v6| 7= fully negative",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"R wave inversion\",\"ECG finding\",\"Initial evaluation\"], \"categories\": [\"Lead Site V1\",\"Lead Site V2\",\"Lead Site V3\",\"Lead Site V4\",\"Lead Site V5\",\"Lead Site V6\",\"fully negative\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"R wave inversion\",\"ECG finding\",\"baseline\"], \"categories\": [\"Lead Site V1\",\"Lead Site V2\",\"Lead Site V3\",\"Lead Site V4\",\"Lead Site V5\",\"Lead Site V6\",\"fully negative\"]}"
+          },
+          {
+            "input":"r-wave point of inversion (from positive to negative) on ecg at visit 3,categorical values: 1=v1. 2=v2| 3=v3| 4=v4| 5=v5| 6=v6| 7= fully negative",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"R wave inversion\",\"ECG finding\",\"follow-up 3 months\"], \"categories\": [\"Lead Site V1\",\"Lead Site V2\",\"Lead Site V3\",\"Lead Site V4\",\"Lead Site V5\",\"Lead Site V6\",\"fully negative\"]}"
           },
           {
             "input":"t-axis on ecg at baseline visit, unit: degrees",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"T wave axis\",\"ECG finding\",\"Initial evaluation\"], \"unit\":\"degrees\"}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"T wave axis\",\"ECG finding\",\"baseline\"], \"unit\":\"degrees\"}"
+          },
+          {
+            "input":"t-axis on ecg at visit 12 months, unit: degrees",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"T wave axis\",\"ECG finding\",\"follow-up 1 year\"], \"unit\":\"degrees\"}"
           },
           {
             "input":"st-segment depression in lead v2-v3 on ecg at baseline visit,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"ST segment depression\",\"Lead Site V2\",\"Lead Site V3\",\"ECG finding\",\"Initial evaluation\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"ST segment depression\",\"Lead Site V2\",\"Lead Site V3\",\"ECG finding\",\"baseline\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"R-wave voltage in lead V1 at baseline visit",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"R wave amplitude in lead V1\",\"Initial evaluation\",\"ECG finding\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"R wave amplitude in lead V1\",\"baseline\",\"ECG finding\"]}"
           },
           {
             "input":"new york heart association classification categorizing severity of heart failure with range i-iv",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"New York Heart Association Classification\"}"
           },
           {
-            "input":"P-wave_voltage negative_lead V1 at follow-up visit month 18",
+            "input":"P-wave_voltage negative_lead V1 at visit follow-up month 18",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"P wave amplitude in lead V1\",\"ECG finding\",\"Follow-up 18 months\"], \"categories\": [\"negative\"]}"
 
           },
           {
-            "input":"Duration_positive part P-wave in lead V1 at follow-up visit month 18",
+            "input":"Duration_positive part P-wave in lead V1 at visit follow-up month 18",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"P wave duration in lead V1\",\"Positive\",\"ECG finding\",\"Follow-up 18 months\"]}"
+          },
+          {
+            "input":"Duration_positive part P-wave in lead V1 at follow-up month 18",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"P wave duration in lead V1\",\"Positive\",\"ECG finding\",\"Follow-up 18 months\"]}"
           },
           {
@@ -1735,7 +1733,7 @@
           },
           {
             "input":"flat t-tops on precordial leads on ecg at baseline visit,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"\"Electrocardiogram\"\",\"additional_entities\":[\"Flattened T wave\",\"Chest lead\",\"ECG finding\",\"Initial evaluation\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"\"Electrocardiogram\"\",\"additional_entities\":[\"Flattened T wave\",\"Chest lead\",\"ECG finding\",\"baseline\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"other remarks (in dutch) on ecg",
@@ -1743,11 +1741,23 @@
           },
           {
             "input":"p-wave positive part_voltage_lead v1 on ecg at baseline visit, unit: mv",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"\"Electrocardiogram\"\",\"additional_entities\":[\"P wave amplitude in lead V1\",\"ECG finding\",\"Initial evaluation\"], \"categories\": [\"positive\"], \"unit\":\"millivolt\"}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"\"Electrocardiogram\"\",\"additional_entities\":[\"P wave amplitude in lead V1\",\"ECG finding\",\"baseline\"], \"categories\": [\"positive\"], \"unit\":\"millivolt\"}"
+          },
+          {
+            "input":"p-wave positive part_voltage_lead v1 on ecg at visit 18 months, unit: mv",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"\"Electrocardiogram\"\",\"additional_entities\":[\"P wave amplitude in lead V1\",\"ECG finding\",\"follow-up 18 months\"], \"categories\": [\"positive\"], \"unit\":\"millivolt\"}"
+          },
+          {
+            "input":"p-wave positive part_voltage_lead v1 on ecg at visit 12 months, unit: mv",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"\"Electrocardiogram\"\",\"additional_entities\":[\"P wave amplitude in lead V1\",\"ECG finding\",\"follow-up 1 year\"], \"categories\": [\"positive\"], \"unit\":\"millivolt\"}"
           },
           {
             "input":"low voltages in extremity leads on ecg at baseline visit,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"\"Electrocardiogram\"\",\"additional_entities\":[ \"Low QRS voltages in the limb leads\",\"ECG finding\",\"Initial evaluation\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"\"Electrocardiogram\"\",\"additional_entities\":[ \"Low QRS voltages in the limb leads\",\"ECG finding\",\"baseline\"], \"categories\": [\"yes\",\"no\"]}"
+          },
+          {
+            "input":"low voltages in extremity leads on ecg at visit 12 months,categorical values: 1=yes | 0=no",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"\"Electrocardiogram\"\",\"additional_entities\":[ \"Low QRS voltages in the limb leads\",\"ECG finding\",\"follow-up 1 year\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
               "input":"cerebral arterial disease",
@@ -1767,16 +1777,16 @@
           },
           
           {
-            "input":"reason for non-compliance of patient Follow-up month 1,categorical values: 0= missing | 1=more chf symptoms | 2=hypotension without symptoms |3=orthostasis / symptomatic hypotension | 4=fatigue / exercise intolerance | 5=renal failure 6=hyperkaliaemia | 7=bradycardia / av-block | 8=cough | 9=diarrhea | 10=obstipation | 11=headache | 12= noctural leg pain | 13=digitalis-intoxication | 14=allergy | 15=psychological reason | 16=other reason |17=not specified / unknown",
+            "input":"reason for non-compliance of patient visit follow-up month 1,categorical values: 0= missing | 1=more chf symptoms | 2=hypotension without symptoms |3=orthostasis / symptomatic hypotension | 4=fatigue / exercise intolerance | 5=renal failure 6=hyperkaliaemia | 7=bradycardia / av-block | 8=cough | 9=diarrhea | 10=obstipation | 11=headache | 12= noctural leg pain | 13=digitalis-intoxication | 14=allergy | 15=psychological reason | 16=other reason |17=not specified / unknown",
             "output":"{\"domain\":\"observation\",\"base_entity\":\"Compliance behavior\", \"additional_entities\":[\"Has reason\" , \"follow-up 1 month], \"categories\": [\"missing\",\"more chf symptoms\",\"hypotension without symptoms\",\"orthostasis / symptomatic hypotension\",\"fatigue / exercise intolerance\",\"renal failure\",\"hyperkaliaemia\",\"bradycardia / av-block\",\"cough\",\"diarrhea\",\"obstipation\",\"headache\",\"noctural leg pain\",\"digitalis-intoxication\",\"allergy\",\"psychological reason\",\"other reason\",\"not specified / unknown\"]}" 
           },
           {
-            "input":"New York Heart Association classification:categorical values:nyha i, nyha ii, nyha iii, nyha iv",
-            "output":"{\"domain\":\"observation\", \"base_entity\":\"New York Heart Classification finding\", \"categories\": [\"New York Heart Association Classification - Class I\",\"New York Heart Association Classification - Class II\",\"New York Heart Association Classification - Class III\",\"New York Heart Association Classification - Class IV\"]}"
+            "input":"New York Heart Association classification, categorical values:nyhai|nyha ii|nyha iii|nyha iv",
+            "output":"{\"domain\":\"measurement\", \"base_entity\":\"New York Heart Classification finding\", \"categories\": [\"Class I\",\"Class II\",\"Class III\",\"Class IV\"]}"
           },
           {
-            "input":"New York Heart Association Classification (NYHA):categorical values:i, ii, iii,iv",
-            "output":"{\"domain\":\"measurement\", \"base_entity\":\"New York Heart Association Classification\", \"categories\": [\"Heart failure NYHA class I\",\"Heart failure NYHA class II\",\"Heart failure NYHA class III\",\"Heart failure NYHA class IV\"]}"
+            "input":"New York Heart Association Classification (NYHA), categorical values:i,ii,iii,iv",
+            "output":"{\"domain\":\"measurement\", \"base_entity\":\"New York Heart Association Classification\", \"categories\": [\"Class I\",\"Class II\",\"Class III\",\"Class IV\"]}"
           },
           {
             "input":"family history of cardiovascular disease",
@@ -1784,7 +1794,7 @@
           },
           {
             "input":"ICD ( implanted cardiac defibrilator) at baseline visit, categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"device\", \"base_entity\":\"Implantable defibrillator\", \"additional_entities\":[\"Initial evaluation\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"device\", \"base_entity\":\"Implantable defibrillator\", \"additional_entities\":[\"baseline\"], \"categories\": [\"yes\",\"no\"]}"
 
           },
           {
@@ -3841,12 +3851,12 @@
       ]
     },
     {
-      "input":"Input: follow-up 3 weeks, Candidate terms: ['3 weeks', 'ostpartum state, 3 weeks', 'follow-up visit', 'follow-up 4-6 days', 'follow-up 1 week']",
+      "input":"Input: follow-up 3 weeks, Candidate terms: ['follow-up 3 weeks', 'ostpartum state, 3 weeks', 'follow-up visit', 'follow-up 4-6 days', 'follow-up 1 week']",
       "output":[
         {
-          "answer": "3 weeks",
-          "relationship": "partially relevant",
-          "explanation": "This answer is partially relevant as it includes the 3-week timeframe but lacks context on the nature of the follow-up."
+          "answer": "follow-up 3 weeks",
+          "relationship": "exact match",
+          "explanation": "This answer is an exact match as it directly corresponds to the query 'follow-up 3 weeks'."
         },
         {
           "answer": "ostpartum state, 3 weeks",
@@ -3871,7 +3881,7 @@
       ]
     },
     {
-      "input":"Input: baseline visit, Candidate terms: ['date of first visit','Initial evaluation','first encounter by the subject', 'follow-up 1 month',]",
+      "input":"Input: baseline visit, Candidate terms: ['date of first visit','baseline','baseline state','first encounter by the subject', 'follow-up 1 month',]",
       "output":[
         {
           "answer": "date of first visit",
@@ -3879,9 +3889,14 @@
           "explanation": "This answer is partially relevant as it refers to the first visit, which is similar to a baseline visit but lacks the specific term 'baseline'."
         },
         {
-          "answer": "Initial evaluation",
+          "answer": "baseline",
           "relationship": "synonym",
-          "explanation": "This answer is an exact match as it directly corresponds to the query 'baseline visit' by specifying the initial evaluation."
+          "explanation": "This answer can be considered an accurate match out of all the options since baseline is initial event which can be interpreted as baseline visit."
+        },
+        {
+          "answer": "baseline state",
+          "relationship": "partially relevant",
+          "explanation": "This answer is partially relevant as it refers to the baseline state, which is related to the concept of a baseline visit but lacks the specific term 'visit'."
         },
         {
           "answer": "first encounter by the subject",
@@ -4991,36 +5006,6 @@
       ]
     },
     {
-      "input":"Input: baseline visit, Candidate terms: ['date of first visit', '', 'follow-up visit', 'follow-up 4-6 days', 'follow-up 1 week']",
-      "output":[
-        {
-          "answer": "3 weeks",
-          "relationship": "partially relevant",
-          "explanation": "This answer is partially relevant as it includes the 3-week timeframe but lacks context on the nature of the follow-up."
-        },
-        {
-          "answer": "ostpartum state, 3 weeks",
-          "relationship": "not relevant",
-          "explanation": "This answer is not relevant as it refers to the postpartum state at 3 weeks, not a follow-up appointment."
-        },
-        {
-          "answer": "follow-up visit",
-          "relationship": "partially relevant",
-          "explanation": "This answer is partially relevant as it mentions a follow-up visit but does not specify the 3-week timeframe."
-        },
-        {
-          "answer": "follow-up 4-6 days",
-          "relationship": "not relevant",
-          "explanation": "This answer is not relevant as it refers to a follow-up within 4-6 days, not the 3-week timeframe specified in the query."
-        },
-        {
-          "answer": "follow-up 1 week",
-          "relationship": "not relevant",
-          "explanation": "This answer is not relevant as it refers to a follow-up at 1 week, not the 3-week timeframe specified in the query."
-        }
-      ]
-    },
-    {
       "input":"Input: ecg: left ventricular diastolic dysfunctio,Candidate terms: [left ventricular diastolic dysfunction, late diastolic, echocardiogram shows left ventricular diastolic dysfunction, heart failure, diastolic, ventricular dysfunction, left, early diastolic, left atrial pressure diastolic, ekg: left ventricular strain, diastolic filling period | heart ventricle xxx | cardiac ultrasound, diastolic heart failure stage a, ventricular diastolic filling period by us, murmur-diastolic, diastolic filling period | mitral valve | cardiac ultrasound]",
       "output":[
         {
@@ -5526,9 +5511,9 @@
     ]
   },
   {
-      "input": "date of baseline visit, Candidate terms: ['date of Initial evaluation', 'baseline visit', 'baseline visit date']",
+      "input": "date of baseline visit, Candidate terms: ['date of baseline', 'baseline visit', 'baseline visit date']",
       "output": [
-        {"answer": "date of Initial evaluation","score": 10,"explanation": "Exact match; directly refers to the date of the baseline visit."},
+        {"answer": "date of baseline","score": 10,"explanation": "Exact match; directly refers to the date of the baseline visit."},
         {"answer": "baseline visit","score": 8,"explanation": "Highly relevant; refers to the baseline visit but lacks specific date context."},
         {"answer": "baseline visit date","score": 10,"explanation": "Exact match; directly refers to the date of the baseline visit."}
       ]
@@ -5925,17 +5910,17 @@
     ]
 },
 {
-    "input": "date of baseline visit, Candidate terms: \"['date of Initial evaluation', 'baseline visit', 'baseline visit date']\"",
+    "input": "date of baseline visit, Candidate terms: \"['date of baseline', 'baseline visit', 'baseline visit date']\"",
     "output": [
-      {"answer": "date of Initial evaluation","score": 10,"explanation": "Exact match; directly refers to the date of the baseline visit."},
+      {"answer": "date of baseline","score": 10,"explanation": "Exact match; directly refers to the date of the baseline visit."},
       {"answer": "baseline visit","score": 8,"explanation": "Highly relevant; refers to the baseline visit but lacks specific date context."},
       {"answer": "baseline visit date","score": 10,"explanation": "Exact match; directly refers to the date of the baseline visit."}
     ]
 },
 {
-    "input": "date of baseline visit, Candidate terms: \"['date of Initial evaluation', 'baseline visit', 'baseline visit date']\"",
+    "input": "date of baseline visit, Candidate terms: \"['date of baseline', 'baseline visit', 'baseline visit date']\"",
     "output": [
-      {"answer": "date of Initial evaluation","score": 10,"explanation": "Exact match; directly refers to the date of the baseline visit."},
+      {"answer": "date of baseline","score": 10,"explanation": "Exact match; directly refers to the date of the baseline visit."},
       {"answer": "baseline visit","score": 8,"explanation": "Highly relevant; refers to the baseline visit but lacks specific date context."},
       {"answer": "baseline visit date","score": 10,"explanation": "Exact match; directly refers to the date of the baseline visit."}
     ]
@@ -6783,17 +6768,17 @@
     ]
 },
 {
-    "input": "date of baseline visit, Candidate terms: \"['date of Initial evaluation', 'baseline visit', 'baseline visit date']\"",
+    "input": "date of baseline visit, Candidate terms: \"['date of baseline', 'baseline visit', 'baseline visit date']\"",
     "output": [
-      {"answer": "date of Initial evaluation","score": 10,"explanation": "Exact match; directly refers to the date of the baseline visit."},
+      {"answer": "date of baseline","score": 10,"explanation": "Exact match; directly refers to the date of the baseline visit."},
       {"answer": "baseline visit","score": 8,"explanation": "Highly relevant; refers to the baseline visit but lacks specific date context."},
       {"answer": "baseline visit date","score": 10,"explanation": "Exact match; directly refers to the date of the baseline visit."}
     ]
 },
 {
-    "input": "date of baseline visit, Candidate terms: \"['date of Initial evaluation', 'baseline visit', 'baseline visit date']\"",
+    "input": "date of baseline visit, Candidate terms: \"['date of baseline', 'baseline visit', 'baseline visit date']\"",
     "output": [
-      {"answer": "date of Initial evaluation","score": 10,"explanation": "Exact match; directly refers to the date of the baseline visit."},
+      {"answer": "date of baseline","score": 10,"explanation": "Exact match; directly refers to the date of the baseline visit."},
       {"answer": "baseline visit","score": 8,"explanation": "Highly relevant; refers to the baseline visit but lacks specific date context."},
       {"answer": "baseline visit date","score": 10,"explanation": "Exact match; directly refers to the date of the baseline visit."}
     ]
@@ -7320,7 +7305,7 @@
   ]
 },
 {
-  "input":"Input: baseline visit, Candidate terms: ['date of first visit','Initial evaluation','first encounter by the subject', 'follow-up 1 month',]",
+  "input":"Input: baseline visit, Candidate terms: ['date of first visit','baseline','first encounter by the subject', 'follow-up 1 month',]",
   "output":[
     {
       "answer": "date of first visit",
@@ -7328,9 +7313,14 @@
       "explanation": "This answer is partially relevant as it refers to the first visit, which is similar to a baseline visit but lacks the specific term 'baseline'."
     },
     {
-      "answer": "Initial evaluation",
-       "score": 9,
-      "explanation": "This answer is an highly related and appropritate be considered match for baseline visit as it directly corresponds to the query 'baseline visit' by specifying the initial evaluation."
+      "answer":"baseline",
+      "score": 10,
+      "explanation": "This answer can be considered an accurate match out of all the options since baseline is initial event which can be interpreted as baseline visit."
+    },
+    {
+      "answer":"baseline state",
+      "score": 5,
+      "explanation": "This answer is partially relevant as it refers to the baseline state, which is similar to a baseline visit but lacks the specific term 'visit'."
     },
     {
       "answer": "first encounter by the subject",
@@ -7343,5 +7333,7 @@
       "explanation": "This answer is not relevant as it refers to a follow-up visit at 1 month, not the initial baseline visit."
     }
 ]
-}]
+}
+
+]
 }}
