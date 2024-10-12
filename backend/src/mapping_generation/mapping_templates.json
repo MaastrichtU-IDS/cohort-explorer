@@ -136,8 +136,8 @@
             "output":"{\"domain\":\"unit\", \"base_entity\":\"Cubic centimeter\"}"
           },
           {
-            "input":"nitrate maintenance dose (oral) - 6 weeks follow-up, categorical values: 0|5|10|15",
-            "output":"{\"domain\":\"drug\", \"base_entity\":\"Nitrate therapy\", \"additional_entities\":[\"drug dosage\",\"Administration via oral route\", \"follow-up 6 weeks\"], \"categories\": [\"0\",\"5\",\"10\",\"15\"]}"
+            "input":"nitrate maintenance dose (oral)- 6 weeks follow-up, categorical values: 0|5|10|15",
+            "output":"{\"domain\":\"drug\", \"base_entity\":\"Nitrate therapy\", \"additional_entities\":[\"drug dosage\",\"Administration via oral route\", \"follow-up 6 weeks\"], \"categories\": [\"none\",\"5 times per week\",\"10 times per time\",\"15 times per week\"]}"
 
           },
           {
@@ -309,7 +309,7 @@
           },
           {
             "input":"gp general practitioner compliance Follow-up month 1,categorical values: 1=yes | 2=partly | 3=no | 9=missinggp general practitioner compliance Follow-up month 1,categorical values: 1=yes | 2=partly | 3=no | 9=missing",
-            "output":"{\"domain\":\"visit\", \"base_entity\":\"compliance behavior to treatment\",\"additional_entities\":[\"General Practioner\",\"baseline\"], \"categories\": [\"Compliant\",\"Partially compliant\",\"non-Compliant\",\"missing\"]}"
+            "output":"{\"domain\":\"visit\", \"base_entity\":\"compliance behavior to treatment\",\"additional_entities\":[\"General Practioner\",\"baseline\"], \"categories\": [\"yes\",\"partially\",\"no\",\"missing\"]}"
           },
           {
             "input":"reason for non compliance of patient Follow-up month 1,categorical values: 0= missing | 1=more chf symptoms | 2=hypotension without symptoms |3=orthostasis / symptomatic hypotension | 4=fatigue / exercise intolerance | 5=renal failure 6=hyperkaliaemia | 7=bradycardia / av-block | 8=cough | 9=diarrhea | 10=obstipation | 11=headache | 12= noctural leg pain | 13=digitalis-intoxication | 14=allergy | 15=psychological reason | 16=other reason |17=not specified / unknown",
@@ -317,19 +317,19 @@
           },
           {
             "input":"patient compliance Follow-up month 1,categorical values: 1=yes | 2=partly | 3=no | 9=missing",
-            "output":"{\"domain\":\"observation\", \"base_entity\":\"compliance behavior to treatment\",\"additional_entities\":[\"patient\",\"baseline\"], \"categories\": [\"Compliant\",\"Partially compliant\",\"non-Compliant\",\"missing\"]}"
+            "output":"{\"domain\":\"observation\", \"base_entity\":\"compliance behavior to treatment\",\"additional_entities\":[\"patient\",\"baseline\"], \"categories\": [\"yes\",\"partially\",\"no\",\"missing\"]}"
           },
           {
             "input":"patient compliance month 1,categorical values: 1=yes | 2=partly | 3=no | 9=missing",
-            "output":"{\"domain\":\"observation\", \"base_entity\":\"compliance behavior to treatment\",\"additional_entities\":[\"patient\",\"baseline\"], \"categories\": [\"Compliant\",\"Partially compliant\",\"non-Compliant\",\"missing\"]}"
+            "output":"{\"domain\":\"observation\", \"base_entity\":\"compliance behavior to treatment\",\"additional_entities\":[\"patient\",\"baseline\"], \"categories\": [\"yes\",\"partially\",\"no\",\"missing\"]}"
           },
           {
             "input":"patient compliance at visit 1,categorical values: 1=yes | 2=partly | 3=no | 9=missing",
-            "output":"{\"domain\":\"observation\", \"base_entity\":\"compliance behavior to treatment\",\"additional_entities\":[\"patient\",\"Follow-up 1 month\"], \"categories\": [\"Compliant\",\"Partially compliant\",\"non-Compliant\",\"missing\"]}"
+            "output":"{\"domain\":\"observation\", \"base_entity\":\"compliance behavior to treatment\",\"additional_entities\":[\"patient\",\"Follow-up 1 month\"],\"categories\": [\"yes\",\"partially\",\"no\",\"missing\"]}"
           },
           {
             "input":"patient compliance at visit 0,categorical values: 1=yes | 2=partly | 3=no | 9=missing",
-            "output":"{\"domain\":\"observation\", \"base_entity\":\"compliance behavior to treatment\",\"additional_entities\":[\"patient\",\"baseline\"], \"categories\": [\"Compliant\",\"Partially compliant\",\"non-Compliant\",\"missing\"]}"
+            "output":"{\"domain\":\"observation\", \"base_entity\":\"compliance behavior to treatment\",\"additional_entities\":[\"patient\",\"baseline\"], \"categories\": [\"yes\",\"partially\",\"no\",\"missing\"]}"
           },
           {
             "input": "date of baseline visit",
@@ -341,7 +341,7 @@
           },
           {
             "input":"gp general practitioner compliance at visit 6 months,categorical values: 1=yes | 2=partly | 3=no | 9=missing",
-            "output":"{\"domain\":\"observation\", \"base_entity\":\"compliance behavior to treatment\",\"additional_entities\":[\"General Practioner\",\"Follow-up 6 months \"], \"categories\": [\"Compliant\",\"Partially compliant\",\"non-Compliant\",\"missing\"]}"
+            "output":"{\"domain\":\"observation\", \"base_entity\":\"compliance behavior to treatment\",\"additional_entities\":[\"General Practioner\",\"Follow-up 6 months \"], \"categories\":[\"yes\",\"partially\",\"no\",\"missing\"]}"
           },
           {
             "input":"qtc= qt time adjusted for heart frequency at baseline on ecg, unit: ms",
@@ -753,8 +753,48 @@
           "output":"{\"domain\":\"drug\", \"base_entity\":\"Mineralocorticoid receptor antagonist\", \"additional_entities\":[\"Follow-up 1 year\"], \"unit\":\"mg\"}"
         },
         {
+          "input":"MRA drug total daily dosage,unit:mg (miligram), categorical values: o.i.d, b.i.d",
+          "output":"{\"domain\":\"drug\", \"base_entity\":\"Mineralocorticoid receptor antagonist\", \"unit\":\"mg\", \"additional_entities\":[\"frequency per day\"], \"categories\": [\"1 time per day\",\"2 times per day\"]}"
+        },
+        {
+          "input":"statin:total daily dosage,unit:mg (miligram), categorical values:o.i.d, b.i.d",
+          "output":"{\"domain\":\"drug\", \"base_entity\":\"Statin therapy\", \"unit\":\"miligram\", \"additional_entities\":[\"frequency per day\"], \"categories\": [\"1 time per day\",\"2 times per day\"]}"
+        },
+        {
+          "input":"statin:daily dosage,unit:mg (miligram)|o.i.d, b.i.d",
+          "output":"{\"domain\":\"drug\", \"base_entity\":\"Statin therapy\", \"unit\":\"miligram\", \"additional_entities\":[\"frequency per day\"], \"categories\": [\"1 time per day\",\"2 times per day\"]}"
+        },
+        {
+          "input":"Daily dose amount of Amiodarone, mg (miligram)",
+          "output":"{\"domain\":\"drug\", \"base_entity\":\"Amiodarone\", \"additional_entities\":[\"frequency per day\"],\"unit\":\"miligram\"}"
+        },
+        {
+          "input":"Amiodarone:total daily dosage, mg (miligram)",
+          "output":"{\"domain\":\"drug\", \"base_entity\":\"Amiodarone\", \"additional_entities\":[\"frequency per day\"],\"unit\":\"miligram\"}"
+        },
+        {
+          "input":"total daily dosage",
+          "output":"{\"domain\":\"drug\", \"base_entity\":\"frequency per day\"}"
+        },
+        {
+          "input":"total daily dose",
+          "output":"{\"domain\":\"drug\", \"base_entity\":\"frequency per day\"}"
+        },
+        {
           "input":"patient height at baseline visit",
           "output":"{\"domain\":\"measurement\", \"base_entity\":\"Body height\", \"additional_entities\":[\"baseline\"]}"
+        },
+        {
+          "input":"ivabradina total daily dose",
+          "output":"{\"domain\":\"drug\", \"base_entity\":\"Ivabradine\", \"additional_entities\":[\"frequency per day\"]}"
+        },  
+        {
+          "input":"diuretics: daily dosage, unit: mg (miligram)| o.i.d| b.i.d",
+          "output":"{\"domain\":\"drug\", \"base_entity\":\"Diuretics\", \"additional_entities\":[\"frequency per day\"], \"categories\": [\"1 time per day\",\"2 times per day\"],\"unit\":\"miligram\"}"
+        },
+        {
+          "input":"Mineralocorticoid Receptor Antagonists:Medication administered,categorical values: 1=yes | 0=no",
+          "output":"{\"domain\":\"drug\", \"base_entity\":\"Mineralocorticoid receptor antagonist\", \"additional_entities\":[\"medication administeration\"], \"categories\": [\"yes\",\"no\"]}"
         },
         {
           "input":"Diabetes-main cause of first hospitalization, Y/N,categories= 1|0",
@@ -921,8 +961,16 @@
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Heart Rate\",\"baseline\"], \"unit\": \"bpm\"}"
           },
           {
-              "input":"Optimization of drug dose of Angiotensin-converting enzyme inhibitor therapy, possible values: 0= hydration, 1= max dose, 2=target dose , 3= NVT, 4= contraindication",
+              "input":"Optimization of drug dose of Angiotensin-converting enzyme inhibitor therapy, categrical values: 0= hydration, 1= max dose, 2=target dose , 3= NVT, 4= contraindication",
               "output":"{\"domain\":\"drug\",\"base_entity\":\"Optimization of drug\",\"additional_entities\":[\"Angiotensin-converting enzyme inhibitor\",\"categories\": [\"Fluid balance regulation\",\"Patient on maximum tolerated dose\",\"Angiotensin converting enzyme inhibitor target dose achieved\",\"not applicable\",\"contraindication\"]}" 
+          },
+          {
+            "input":"ACE inhibitors: contraindicated,categrical values: 1=yes | 0=no",
+            "output":"{\"domain\":\"drug\",\"base_entity\":\"Angiotensin-converting enzyme inhibitor\",\"additional_entities\":[\"contraindicated\"], \"categories\": [\"yes\",\"no\"]}"
+          },
+          {
+            "input":"ARBs inhibitors: contraindication,categrical values: 1=yes | 0=no",
+            "output":"{\"domain\":\"drug\",\"base_entity\":\"Angiotensin II receptor antagonist\",\"additional_entities\":[\"contraindicated\"], \"categories\": [\"yes\",\"no\"]}"
           },
           { 
             "input":"QTc= Corrected QT Interval time adjusted for heartfrequencyon ECG at baseline , unit:ms",
@@ -1096,11 +1144,11 @@
           },  
           {
             "input": "Latest HbA1c level measured at baseline",
-            "output": "{\"domain\":\"measurement\",\"base_entity\": \"Hemoglobin A1C \", \"unit\": \"%\",\"additional_entities\":[\"baseline\"], \"categories\": [\"recent\"]}"
+            "output": "{\"domain\":\"measurement\",\"base_entity\": \"Hemoglobin A1C \", \"unit\": \"%\",\"additional_entities\":[\"baseline\"]}"
           },
           {
             "input":"echo normal lv function",
-            "output":"{\"domain\":\"procedure\",\"base_entity\":\"Echocardiogram\",\"additional_entities\": [\"Echocardiogram shows normal Left ventricular function\"], \"categories\": [\"normal\"]}"
+            "output":"{\"domain\":\"procedure\",\"base_entity\":\"Echocardiogram\",\"additional_entities\": [\"Echocardiogram shows normal Left ventricular function\"]}"
           },
           {
             "input":"copeptin (ct-proavp)  moles/volum in serum or plasma",
@@ -1322,11 +1370,11 @@
           },
           {
             "input":"Sum of ACE-inh and ARB-dose in percentage of target dose at Baseline visit",
-            "output":"{\"domain\":\"drug\",\"base_entity\":\"Optimization of drug\",\"additional_entities\":[\"angiotensin II receptor antagonist\", \"Angiotensin-converting enzyme inhibitor\", \"baseline\"], \"unit\": \"%\"}"
+            "output":"{\"domain\":\"drug\",\"base_entity\":\"Combined Therapy\",\"additional_entities\":[\"angiotensin II receptor antagonist\", \"Angiotensin-converting enzyme inhibitor\", \"baseline\"], \"unit\": \"%\"}"
           },
           {
             "input": "optimization of insulin therapy at visit month 3 ",
-            "output": "{\"domain\":\"observation\",\"base_entity\":\"Optimization of drug\",\"additional_entities\": [\"insulin therapy \",\"Follow-up 3 month\"]}"
+            "output": "{\"domain\":\"observation\",\"base_entity\":\"Optimization of drug dosage\",\"additional_entities\": [\"insulin therapy \",\"Follow-up 3 month\"]}"
           },
           {
             "input":"resting heart rate, unit: bpm",
@@ -1415,7 +1463,7 @@
       },
       {
         "input":"total daily dose of Digoxine, unit: milligrams",
-        "output":"{\"domain\":\"drug\",\"base_entity\":\"Digoxin\",\"additional_entities\":[\"drug dose\",\"frequency per day\"], \"unit\":\"milligrams\"}"
+        "output":"{\"domain\":\"drug\",\"base_entity\":\"Digoxin\",\"additional_entities\":[\"frequency per day\"], \"unit\":\"milligrams\"}"
       },
       {
         "input":"statin dosing frequency, categorical values: 1=once daily | 2=twice daily | 3=three times daily, unit: milligrams",
@@ -1467,7 +1515,7 @@
         },
         {
           "input":"Dose Statin in mg at Baseline visit",
-          "output":"{\"domain\":\"drug\", \"base_entity\":\"Statin Therapy\",\"additional_entities\":[\"drug dose\",\"baseline\"], \"unit\":\"milligrams\"}"
+          "output":"{\"domain\":\"drug\", \"base_entity\":\"Statin Therapy\",\"additional_entities\":[\"baseline\"], \"unit\":\"milligrams\"}"
         },
         {
           "input":"Reason for non compliance of patient at visit month 1",
@@ -1502,7 +1550,7 @@
           "output": "{\"domain\":\"visit\", \"base_entity\":\"Date of visit \",\"additional_entities\":[\"Follow-up 1 month\"]}"
         },
         {
-            "input":"Date Myocardial Infarction year diagnosis,categories= [9999 = missing, or not filled in is  absent],  unit=yyyy",
+            "input":"Date Myocardial Infarction year diagnosis,categorical values: [9999 = missing, or not filled in is  absent],  unit=yyyy",
             "output":"{\"domain\":\"visit\", \"base_entity\":\"Date of diagnosis\",\"additional_entities\":[\"Myocardial Infarction\"], \"unit\":\"year\", \"categories\": [\"missing\"]}"
         },
         {
@@ -1538,7 +1586,7 @@
             "output": "{\"domain\":\"unit\", \"base_entity\":\"millimeter mercury column\"}"
           },
           {
-            "input":"history of osteoporosis,categories= 1=yes | 0=no",
+            "input":"history of osteoporosis,categorica values:1=yes | 0=no",
             "output":"{\"domain\":\"observation\", \"base_entity\":\"History of Event\", \"additional_entities\":[\"osteoporosis\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
@@ -1555,7 +1603,7 @@
           },
           {
             "input":"Sum of ACE-inh and ARB-dose in percentage of target dose at baseline  visit",
-            "output":"{\"domain\":\"observation\",\"base_entity\":\"drug Dose\",\"additional_entities\":[\"angiotensin II receptor antagonist\", \"Angiotensin-converting enzyme inhibitor\", \"baseline\"], \"unit\": \"%\"}"
+            "output":"{\"domain\":\"observation\",\"base_entity\":\"Combined therapy\",\"additional_entities\":[\"angiotensin II receptor antagonist\", \"Angiotensin-converting enzyme inhibitor\", \"baseline\"], \"unit\": \"%\"}"
           },
           {
             "input":"Weight at visit 3 months, unit:kg,categorical values: 1=999, 0=missing",
@@ -1716,7 +1764,7 @@
           },
           {
             "input":"P-wave_voltage negative_lead V1 at visit follow-up month 18",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"P wave amplitude in lead V1\",\"ECG finding\",\"Follow-up 18 months\"], \"categories\": [\"negative\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"P wave amplitude in lead V1\",\"negative\",\"ECG finding\",\"Follow-up 18 months\"]}"
 
           },
           {
@@ -1741,15 +1789,15 @@
           },
           {
             "input":"p-wave positive part_voltage_lead v1 on ecg at baseline visit, unit: mv",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"\"Electrocardiogram\"\",\"additional_entities\":[\"P wave amplitude in lead V1\",\"ECG finding\",\"baseline\"], \"categories\": [\"positive\"], \"unit\":\"millivolt\"}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"\"Electrocardiogram\"\",\"additional_entities\":[\"P wave amplitude in lead V1\",\"positive\",\"ECG finding\",\"baseline\"],\"unit\":\"millivolt\"}"
           },
           {
             "input":"p-wave positive part_voltage_lead v1 on ecg at visit 18 months, unit: mv",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"\"Electrocardiogram\"\",\"additional_entities\":[\"P wave amplitude in lead V1\",\"ECG finding\",\"follow-up 18 months\"], \"categories\": [\"positive\"], \"unit\":\"millivolt\"}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"\"Electrocardiogram\"\",\"additional_entities\":[\"P wave amplitude in lead V1\",\"positive\",\"ECG finding\",\"follow-up 18 months\"], \"unit\":\"millivolt\"}"
           },
           {
             "input":"p-wave positive part_voltage_lead v1 on ecg at visit 12 months, unit: mv",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"\"Electrocardiogram\"\",\"additional_entities\":[\"P wave amplitude in lead V1\",\"ECG finding\",\"follow-up 1 year\"], \"categories\": [\"positive\"], \"unit\":\"millivolt\"}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"\"Electrocardiogram\"\",\"additional_entities\":[\"P wave amplitude in lead V1\",\"positive\",\"ECG finding\",\"follow-up 1 year\"], \"unit\":\"millivolt\"}"
           },
           {
             "input":"low voltages in extremity leads on ecg at baseline visit,categorical values: 1=yes | 0=no",
@@ -1812,11 +1860,11 @@
           },
           {
             "input":"dose nitrate(transdermal)",
-            "output":"{\"domain\":\"drug\", \"base_entity\":\"nitrate\", \"additional_entities\":[\"Administration of substance via transdermal route\",\"Drug dose\"]}"
+            "output":"{\"domain\":\"drug\", \"base_entity\":\"nitrate\", \"additional_entities\":[\"Administration of substance via transdermal route\"]}"
           },
           {
             "input":"lisinopril dosage at day 2",
-            "output":"{\"domain\":\"drug\", \"base_entity\":\"Lisinopril\", \"additional_entities\":[\"Drug dose\",\"follow-up day 2\"]}"
+            "output":"{\"domain\":\"drug\", \"base_entity\":\"Lisinopril\", \"additional_entities\":[\"follow-up day 2\"]}"
           },
           {
             "input":"date restarted lisinopril, unit: dd-mm-yyyy",

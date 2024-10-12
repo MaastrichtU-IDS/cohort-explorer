@@ -281,25 +281,7 @@ def load_vocabulary(file_path=MAPPING_FILE) -> dict:
     return config["vocabulary_rules"]
 
 
-def select_vocabulary(query_text=None, config_path=MAPPING_FILE, domain=None):
-    global VOCAB_CACHE
-    # Normalize the domain name to lower case or set to 'unknown' if not provided
-    domain = domain.lower() if domain else "all"
 
-    # Check if the vocabulary for the domain is alRETRIEVER_CACHEready loaded
-    if domain in VOCAB_CACHE:
-        selected_vocab = VOCAB_CACHE[domain]
-    else:
-        # Load the configuration file if the domain's vocabulary isn't cached
-        vocabulary_rules = load_vocabulary(config_path)
-
-        # Get domain-specific vocabulary or default to 'unknown' if not found
-        selected_vocab = vocabulary_rules["domains"].get(domain, vocabulary_rules["domains"]["unknown"])
-
-        # Cache the selected vocabulary
-        VOCAB_CACHE[domain] = selected_vocab
-
-    return selected_vocab
 
 
 def post_process_candidates(candidates: List[Document], max=1):
@@ -328,6 +310,19 @@ def post_process_candidates(candidates: List[Document], max=1):
 
     return processed_candidates
 
+def select_vocabulary(query_text=None, config_path=MAPPING_FILE, domain=None):
+    global VOCAB_CACHE
+    domain = domain.lower() if domain else 'all'
+
+    if domain in VOCAB_CACHE:
+        selected_vocab = VOCAB_CACHE[domain]
+    else:
+        vocabulary_rules = load_vocabulary(config_path)
+        # Store the vocabulary as a tuple for immutability
+        selected_vocab = tuple(vocabulary_rules['domains'].get(domain, vocabulary_rules['domains']['all']))
+        VOCAB_CACHE[domain] = selected_vocab
+
+    return selected_vocab
 
 
 def save_to_csv(data, filename):
@@ -464,53 +459,17 @@ def save_result_to_jsonl(array: Iterable[dict], file_path: str) -> None:
     print(f"Saved {len(array)} documents to {file_path}")
 
 
-# def exact_match_found(query_text, documents, domain=None):
-#     # print(f"documents={documents}")
-#     if not query_text or not documents:
-#         # print("NO DOCUMENTS FOUND FOR QUERY={query_text}")
-#         return []
-#     for doc in documents:
-#         if "score" in doc.metadata:
-#             if doc.metadata["score"] >= 0.95:
-#                 # print(f"EXACT MATCH FOUND FOR QUERY using Score={query_text}")
-#                 return [doc]
-
-#     # Create a database and populate it
-#     db = DictDatabase(CharacterNgramFeatureExtractor(2))
-#     for doc in documents:
-#         if doc.metadata.get("label", None):
-#             db.add(doc.metadata["label"])
-
-#     # Create a searcher with cosine similarity
-#     searcher = Searcher(db, CosineMeasure())
-
-#     # Normalize query text
-#     results = searcher.search(query_text, 0.95)  # Set threshold to 0.95 for high similarity
-
-#     matched_docs = []
-#     selected_vocab = select_vocabulary(query_text, domain=domain)
-
-#     for result in results:
-#         for doc in documents:
-#             if doc.metadata["label"].strip().lower() == result:
-#                 if "vocab" in doc.metadata and doc.metadata["vocab"] in selected_vocab:
-#                     # print(f"EXACT MATCH FOUND FOR QUERY={query_text}")
-#                     matched_docs.append(doc)
-#     return matched_docs[:1]
-
-
+from itertools import chain
 
 def exact_match_found(query_text, documents, domain=None):
-    # print(f"documents={documents}") 
     if not query_text or not documents:
-        # print("NO DOCUMENTS FOUND FOR QUERY={query_text}")
         return []
+
+    # Check if there is a high score match
     for doc in documents:
-        if 'score' in doc.metadata:
-            if doc.metadata['score'] >= 0.95:
-                # print(f"EXACT MATCH FOUND FOR QUERY using Score={query_text}")
-                return [doc]
-        
+        if 'score' in doc.metadata and doc.metadata['score'] >= 0.95:
+            return [doc]
+
     # Create a database and populate it
     label_to_docs = {}
     db = DictDatabase(CharacterNgramFeatureExtractor(2))
@@ -522,17 +481,17 @@ def exact_match_found(query_text, documents, domain=None):
             if label_key not in label_to_docs:
                 label_to_docs[label_key] = []
             label_to_docs[label_key].append(doc)
-            
 
     # Create a searcher with cosine similarity
     searcher = Searcher(db, CosineMeasure())
 
     # Normalize query text
-    results = searcher.search(query_text, 0.9)  # Set threshold to 0.95 for high similarity
+    results = searcher.search(query_text, 0.9)
 
-    matched_docs = []
+    # Select vocabulary
     selected_vocab = select_vocabulary(query_text, domain=domain)
- 
+
+    # Match documents with the selected vocabulary
     matched_docs = [
         doc
         for result in results
@@ -540,29 +499,37 @@ def exact_match_found(query_text, documents, domain=None):
         for doc in label_to_docs[result]
         if doc.metadata.get('vocab') in selected_vocab
     ]
-    
+
     if len(matched_docs) > 1:
-        
         if query_text in DEFAULT_QUALIFIER_VALUES:
-                selected_vocab = ['loinc'] + selected_vocab
-                matched_docs = sorted(matched_docs, key=lambda x: selected_vocab.index(x.metadata['vocab']))
+            # Use itertools.chain to concatenate 'loinc' and selected_vocab without modifying the original list
+            combined_vocab = list(chain(['loinc'], selected_vocab))
+            matched_docs = sorted(matched_docs, key=lambda x: combined_vocab.index(x.metadata['vocab']))
         else:
-            domain_ = set(list({doc.metadata['domain'] for doc in matched_docs}))
+            domain_ = set({doc.metadata['domain'] for doc in matched_docs})
             unique_domain = len(domain_) == 1
-            # match_docs_vocab =select_vocabulary(query_text, domain=domain_)
-            print(f"is domain unique :{unique_domain}")
+
             if unique_domain:
                 domain_ = domain_.pop()
-                match_docs_vocab =select_vocabulary(query_text, domain=domain_)
-                match_docs_vocab += selected_vocab
+                match_docs_vocab = select_vocabulary(query_text, domain=domain_)
                 print(f"selected_vocab for domain={selected_vocab}.. matching docs vocab={match_docs_vocab}")
-                first_priority_vocab = match_docs_vocab[0]
-                matched_docs = sorted(matched_docs, key=lambda x: (x.metadata['vocab'] != first_priority_vocab, match_docs_vocab.index(x.metadata['vocab'])))
+                # Use itertools.chain to concatenate match_docs_vocab and selected_vocab
+                combined_vocab = list(chain(match_docs_vocab, selected_vocab))
+
+                first_priority_vocab = combined_vocab[0]
+                matched_docs = sorted(
+                    matched_docs,
+                    key=lambda x: (x.metadata['vocab'] != first_priority_vocab, combined_vocab.index(x.metadata['vocab']))
+                )
             else:
                 matched_docs = sorted(matched_docs, key=lambda x: selected_vocab.index(x.metadata['vocab']))
+
         print(f"Exact match candidates")
         pretty_print_docs(matched_docs)
+
     return matched_docs
+
+
 
 def exact_match_wo_vocab(query_text, documents, domain=None):
     if not query_text or not documents:
@@ -1153,15 +1120,20 @@ def print_docs(docs):
         # print("LABEL: " + res.metadata["label"])
         print(f"{res.metadata['label']}:{res.metadata['domain']}")
 
-
 def filter_irrelevant_domain_candidates(docs, domain) -> List[RetrieverResultsModel]:
+    # Get selected vocabularies for the given domain
     select_vocabs = select_vocabulary(domain=domain)
 
-    docs_ = [doc for doc in docs if doc.metadata["vocab"] in select_vocabs]
-    if len(docs_) == 0:
-        # use snomed as base ontology
-        select_vocabs.append("snomed")
-        docs_ = [doc for doc in docs if doc.metadata["vocab"] in select_vocabs]
+    # Filter documents based on selected vocabularies
+    docs_ = [doc for doc in docs if doc.metadata['vocab'] in select_vocabs]
+    # If no documents match, add 'snomed' to the vocabularies using chain
+    if not docs_:
+        # Use chain to combine 'snomed' with the original selected vocabularies
+        combined_vocabs = chain(['snomed'], select_vocabs)
+
+        # Filter again with the combined vocabularies
+        docs_ = [doc for doc in docs if doc.metadata['vocab'] in combined_vocabs]
+
     return docs_
 
 
