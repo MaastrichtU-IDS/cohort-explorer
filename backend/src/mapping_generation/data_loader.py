@@ -89,7 +89,10 @@ def custom_data_loader(source_path):
             if not label or not name:
                 print(f"Row {index} has an empty 'VARIABLE LABEL'. Skipping.")
                 continue
-
+            defintion_raw = row.get('Definition', None)
+            definition = str(defintion_raw).lower().strip() if pd.notna(defintion_raw) else None
+            if definition:
+                label = f"{label}, definition is '{definition}'"
             # Handle 'CATEGORICAL' field
             categorical_raw = row.get('CATEGORICAL', None)
             if pd.notna(categorical_raw) and str(categorical_raw).strip():

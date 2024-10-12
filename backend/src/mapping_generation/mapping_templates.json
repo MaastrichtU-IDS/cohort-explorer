@@ -296,6 +296,10 @@
             "output":"{\"domain\":\"observation\",\"base_entity\":\"General practitioner compliance with therapy\",\"additional_entities\":[\"Follow-up 18 months\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
+            "input":"general practicioner compliant with therapy at visit 18,categorical values: 1=yes | 0=no",
+            "output":"{\"domain\":\"observation\",\"base_entity\":\"General practitioner compliance with therapy\",\"additional_entities\":[\"Follow-up 18 months\"], \"categories\": [\"yes\",\"no\"]}"
+          },
+          {
             "input":"follow-up after month 6 visit in days, unit: days",
             "output":"{\"domain\":\"visit\", \"base_entity\":\"Follow-up 6 months\",\"unit\":\"days\"}"
           },
@@ -388,11 +392,24 @@
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Mean corpuscular volume\",\"additional_entities\":[\"Follow-up 1 year\"], \"unit\":\"fl/cell\"}"
           },
           {
+            "input":"mean corpuscular volume at at visit 12 , unit: fl/cell",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Mean corpuscular volume\",\"additional_entities\":[\"Follow-up 1 year\"], \"unit\":\"fl/cell\"}"
+          },
+          {
             "input":"mean corpuscular volume at 18 month follow-up, unit: fl/cell",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Mean corpuscular volume\",\"additional_entities\":[\"Follow-up 18 monthss\"], \"unit\":\"fl/cell\"}"
           },
           {
+            "input":"mean corpuscular volume at visit 18, unit: fl/cell",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Mean corpuscular volume\",\"additional_entities\":[\"Follow-up 18 monthss\"], \"unit\":\"fl/cell\"}"
+          },
+          {
             "input":"velocity time integral (vti) aortic valve at visit month 18 on ecg, unit: cm",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"electrocardiogram\",\"additional_entities\":[\"Velocity time integral\",\"Aortic valve\",\"ECG finding\",\"Follow-up 18 months \"], \"unit\":\"cm\"}"
+          },
+
+          {
+            "input":"velocity time integral (vti) aortic valve at visit 18 on ecg, unit: cm",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"electrocardiogram\",\"additional_entities\":[\"Velocity time integral\",\"Aortic valve\",\"ECG finding\",\"Follow-up 18 months \"], \"unit\":\"cm\"}"
           },
           {
@@ -405,6 +422,10 @@
           },
           {
             "input":"rv/ra at visit month 18 on ecg",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Right ventricle to right atrium ratio\",\"ECG finding\",\"Follow-up 18 months \"]}"
+          },
+          {
+            "input":"rv/ra at visit 18 on ecg",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Right ventricle to right atrium ratio\",\"ECG finding\",\"Follow-up 18 months \"]}"
           },
           {
@@ -441,6 +462,10 @@
           },
           {
             "input":"ST-segment depression in lead V2-V3 at visit month 18",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"ST-segment depression\",\"lead site v2\",\"lead site v3\",\"ECG finding\",\"Follow-up 18 months\"]}"
+          },
+          {
+            "input":"ST-segment depression in lead V2-V3 at visit 18",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"ST-segment depression\",\"lead site v2\",\"lead site v3\",\"ECG finding\",\"Follow-up 18 months\"]}"
           },
           {
@@ -497,6 +522,10 @@
           },
           {
             "input":"type of bundle branch block at visit month 18",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Bundle branch block\",\"additional_entities\":[\"Follow-up 18 months\"]}"
+          },
+          {
+            "input":"type of bundle branch block at visit 18",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Bundle branch block\",\"additional_entities\":[\"Follow-up 18 months\"]}"
           },
           {
@@ -601,6 +630,10 @@
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"C reactive protein [Mass/volume] in Serum or Plasma\", \"additional_entities\":[\"Follow-up 1 year\"]}"
           },
           {
+            "input":"c-reactive protein (CRP) at visit 12",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"C reactive protein [Mass/volume] in Serum or Plasma\", \"additional_entities\":[\"Follow-up 1 year\"]}"
+          },
+          {
             "input":"eGFR, formula:ckd-epi",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Glomerular filtration rate/1.73 sq M.predicted [Volume Rate/Area] in Serum, Plasma or Blood by Creatinine and Cystatin C-based formula (CKD-EPI)\"}"
           },
@@ -630,6 +663,10 @@
           },
           {
             "input":"c-reactive protein (CRP) mass/volume in serum/plasma at visit month 12",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"C reactive protein [Mass/volume] in Serum or Plasma\", \"additional_entities\":[\"Follow-up 1 year\"]}"
+          },
+          {
+            "input":"c-reactive protein (CRP) mass/volume in serum/plasma at visit 12",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"C reactive protein [Mass/volume] in Serum or Plasma\", \"additional_entities\":[\"Follow-up 1 year\"]}"
           },
           {
@@ -671,14 +708,6 @@
           {
             "input": "Family history of hypertension(mother)",
             "output": "{\"domain\":\"family history\",\"base_entity\": \"Family history with explicit context pertaining to mother\", \"additional_entities\": [\"hypertensive disorder\"]}"
-          },
-          {
-            "input":"Sum Hyperkalemia AE-Severity adverse events severities",
-            "output":"{\"domain\":\"Condition\", \"base_entity\":\"Adverse Event\",\"additional_entities\":[\"Hyperkalemia\"]}"
-          },
-          {
-            "input":"Total duration all Aes Adverse Events in  days",
-          "output":"{\"domain\":\"Condition\", \"base_entity\":\"Adverse Event\", \"unit\":\"days\"}"
           },
           {
             "input": "Family history of diabetes from uncle",
@@ -823,6 +852,10 @@
         {
           "input":"History of alcohol abuse Y/N,categorical values: 1=yes|0=no",
           "output":"{\"domain\":\"condition\", \"base_entity\":\"History of event\", \"additional_entities\":[\"alcohol abuse\"], \"categories\": [\"yes\",\"no\"]}"
+        },
+        {
+          "input":"History of valve replacement",
+          "output":"{\"domain\":\"condition\", \"base_entity\":\"History of event\", \"additional_entities\":[\"valve replacement\"]}"
         },
         {
           "input":"Withdrawal from study before 12 months Y/N,categorical values: 1=yes|0=no",
@@ -1007,6 +1040,10 @@
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Type 1 procollagen N-terminal propeptide [Mass/volume] in Serum or Plasma\", \"additional_entities\":[\"Follow-up 1 year\"], \"unit\":\"Nanograms per milliliter\"}"
           },
           {
+            "input":"type 1 procollagen N-terminal pro B-type peptide (tP1NP) [Mass/volume] in Serum or Plasma at visit 12, unit:ng/ml",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Type 1 procollagen N-terminal propeptide [Mass/volume] in Serum or Plasma\", \"additional_entities\":[\"Follow-up 1 year\"], \"unit\":\"Nanograms per milliliter\"}"
+          },
+          {
             "input": "glucose [Mass/volume] in blood, unit: mg/dL",
             "output": "{\"domain\":\"measurement\",\"base_entity\": \"Glucose [Mass/volume] in Blood\",  \"unit\":\"Milligrams per Decilitel\"}"
           },
@@ -1017,6 +1054,10 @@
           {
               "input":"QRS-duration at visit month 18",
               "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"QRS duration\"], \"unit\":\"ms\", \"additional_entities\":[\"Follow-up 18 monthss\"]}"
+          },
+          {
+            "input":"QRS-duration at visit 18",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"QRS duration\"], \"unit\":\"ms\", \"additional_entities\":[\"Follow-up 18 monthss\"]}"
           },
           { 
             "input":"body fat mass calculated",
@@ -1066,43 +1107,6 @@
           {
             "input":"Aspartate Aminotransferase [Enzymatic activity/volume] in Blood (GOT or SGOT), unit:U/L",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Aspartate aminotransferase [Enzymatic activity/volume] in Blood\", \"unit\":\"Units per Liter\"}"
-          },
-          {
-              "input":"Max Constipation AE-Severity adverse event-severity,categorical values:1: mild| 2: moderately impacting daily life| 3: severely inpacting daily life| 4: required hospitalisation(life threatening) |5: caused death",
-              "output":"{\"domain\":\"history of events\",\"base_entity\":\"Common Terminology Criteria for Adverse Events\",\"additional_entities\":[\"Constipation\"], \"categories\": [\"Common terminology criteria for adverse events grade 1\",\"Common terminology criteria for adverse events grade 2\",\"Common terminology criteria for adverse events grade 3\",\"Common terminology criteria for adverse events grade 4\",\"Common terminology criteria for adverse events grade 5\"]}"
-          },
-          {
-            "input":"maximum HF AE-Severity adverse event-severity,categorical values:1 mild| 2 moderately impacting daily life| 3 severely inpacting daily life 4 required hospitalisation 5 caused death",
-            "output":"{\"domain\":\"history of events\",\"base_entity\":\"Common Terminology Criteria for Adverse Events\",\"additional_entities\":[\"Heart Failure\"], \"categories\": [\"Common terminology criteria for adverse events grade 1\",\"Common terminology criteria for adverse events grade 2\",\"Common terminology criteria for adverse events grade 3\",\"Common terminology criteria for adverse events grade 4\",\"Common terminology criteria for adverse events grade 5\"]}"
-          },
-          {
-            "input":"Max CV cardiovascular AE (Adverse Event)-Severity,categorical values:1 mild| 2 moderately impacting daily life| 3 severely inpacting daily life 4 required hospitalisation 5 caused death",
-            "output":"{\"domain\":\"history of events\",\"base_entity\":\"Common Terminology Criteria for Adverse Events\",\"additional_entities\":[\"cardiovascular disease\"], \"categories\": [\"Common terminology criteria for adverse events grade 1\",\"Common terminology criteria for adverse events grade 2\",\"Common terminology criteria for adverse events grade 3\",\"Common terminology criteria for adverse events grade 4\",\"Common terminology criteria for adverse events grade 5\"]}"
-          },
-          {
-            "input":"Max non-CV AE-Severity non-cardiovascular adverse event,categorical values:1 mild| 2 moderately impacting daily life| 3 severely inpacting daily life 4 required hospitalisation 5 caused death",
-            "output":"{\"domain\":\"history of events\",\"base_entity\":\"Common Terminology Criteria for Adverse Events\",\"additional_entities\":[\"Non-cardiovascular disease\"], \"categories\": [\"Common terminology criteria for adverse events grade 1\",\"Common terminology criteria for adverse events grade 2\",\"Common terminology criteria for adverse events grade 3\",\"Common terminology criteria for adverse events grade 4\",\"Common terminology criteria for adverse events grade 5\"]}"
-          },
-          {
-            "input":"cerebrovascular Aes advsere events",
-            "output":"{\"domain\":\"history of events\",\"base_entity\":\"Adverse Events\",\"additional_entities\":[\"cerebrovascular disease\"]}"
-          },
-          {
-            "input":"Total duration non-CV non-cardiovascular adverse event, unit:days",
-            "output":"{\"domain\":\"history of events\",\"base_entity\":\"Adverse Events\",\"additional_entities\":[\"Non-cardiovascular disease\" , \"Time symptom lasts\"], \"unit\":\"days\"}"
-
-          },
-          {
-            "input":"Total duration Vascular adverse events, unit:days",
-            "output":"{\"domain\":\"history of events\",\"base_entity\":\"Adverse Events\",\"additional_entities\":[\"Vascular disease\" , \"Time symptom lasts\"], \"unit\":\"days\"}"
-          },
-          {
-            "input":"Total time in days for Vascular adverse events, unit:days",
-            "output":"{\"domain\":\"history of events\",\"base_entity\":\"Adverse Events\",\"additional_entities\":[\"Vascular disease\" , \"Time symptom lasts\"], \"unit\":\"days\"}"
-          },
-          {
-            "input":"Sum non-CV AE-Severity non-cardiovascular adverse event",
-            "output":"{\"domain\":\"history of events\",\"base_entity\":\"Adverse Events\",\"additional_entities\":[\"Non-cardiovascular disease\" , \"Severity\"]}"
           },
           { 
             "input":"Alanine Transaminase (ALT, GPT, SGPT or ALAT)",
@@ -1199,6 +1203,10 @@
             "output":"{\"domain\":\"observation\",\"base_entity\":\"6-minute walk test\",\"additional_entities\":[\"Follow-up 18 months\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
+            "input":"6mWT (6 minute walking test) performed at visit 18,categorical values:1=yes | 0=no",
+            "output":"{\"domain\":\"observation\",\"base_entity\":\"6-minute walk test\",\"additional_entities\":[\"Follow-up 18 months\"], \"categories\": [\"yes\",\"no\"]}"
+          },
+          {
             "input":"\"Prealbumin at visit 3 months, unit:g/L\"",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Prealbumin [Mass/volume] in Serum or Plasma\", \"additional_entities\":[\"Follow-up 3 month\"], \"unit\":\"grams per liter\"}"
           },
@@ -1265,6 +1273,10 @@
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Mean corpuscular hemoglobin concentration in Blood\", \"additional_entities\":[\"Follow-up 18 months\"], \"unit\":\"grams per decilitre\"}"
           },
           {
+            "input":"mean corpuscular hemoglobin concentration at visit 18, unit: gr/dl",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Mean corpuscular hemoglobin concentration in Blood\", \"additional_entities\":[\"Follow-up 18 months\"], \"unit\":\"grams per decilitre\"}"
+          },
+          {
             "input":"placental growth factor (plgf) at Follow-up 12 months visit, unit: pg/ml",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Placental growth factor [Mass/volume] in Serum or Plasma\", \"additional_entities\":[\"Follow-up 1 year\"], \"unit\":\"picograms per milliliter\"}"
           },
@@ -1317,7 +1329,15 @@
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"E/e' ratio lateral\",\"additional_entities\":[\"echocardiography\",\"Follow-up 3 month\"]}"
           },
           {
+            "input":"e/e'ratio lateral calculated from echocardiography at visit 3",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"E/e' ratio lateral\",\"additional_entities\":[\"echocardiography\",\"Follow-up 3 month\"]}"
+          },
+          {
             "input":"mean corpuscular hemoglobin at visit month 6, unit: pg/ cell",
+             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Mean corpuscular hemoglobin in Blood\", \"additional_entities\":[\"Follow-up 6 monthss\"], \"unit\":\"picograms per cell\"}" 
+           },
+           {
+            "input":"mean corpuscular hemoglobin at visit 6, unit: pg/ cell",
              "output":"{\"domain\":\"measurement\",\"base_entity\":\"Mean corpuscular hemoglobin in Blood\", \"additional_entities\":[\"Follow-up 6 monthss\"], \"unit\":\"picograms per cell\"}" 
            },
            {
@@ -1522,6 +1542,10 @@
           "output":"{\"domain\":\"observation\", \"base_entity\":\"Compliance behavior \",\"additional_entities\":[\"Compliance behavior\",\"Follow-up 1 month\"]}"
         },
         {
+          "input":"Reason for non compliance of patient at visit 1",
+          "output":"{\"domain\":\"observation\", \"base_entity\":\"Compliance behavior \",\"additional_entities\":[\"Compliance behavior\",\"Follow-up 1 month\"]}"
+        },
+        {
           "input":"incomplete Left bundle branch block on ECG at baseline visit ",
           "output":"{\"domain\":\"measurement\", \"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Left bundle branch block\",\"baseline\"]}"
         },
@@ -1552,18 +1576,6 @@
         {
             "input":"Date Myocardial Infarction year diagnosis,categorical values: [9999 = missing, or not filled in is  absent],  unit=yyyy",
             "output":"{\"domain\":\"visit\", \"base_entity\":\"Date of diagnosis\",\"additional_entities\":[\"Myocardial Infarction\"], \"unit\":\"year\", \"categories\": [\"missing\"]}"
-        },
-        {
-          "input":"amount of days to first trauma fall ae adverse event, unit: days",
-          "output":"{\"domain\":\"Adverse Event\",\"base_entity\":\"Adverse Event\",\"additional_entities\":[\"Falling injury\"], \"unit\":\"days\"}"
-        },
-        {
-          "input":"amount of days to first depression ae adverse event, unit: days",
-          "output":"{\"domain\":\"Adverse Event\",\"base_entity\":\"Adverse Event\",\"additional_entities\":[\"Depression\"], \"unit\":\"days\"}"
-        },
-        {             
-          "input":"max trauma fall ae-severity adverse event-severity,categorical values: 1 mild| 2 moderately impacting daily life| 3 severely inpacting daily life 4 required hospitalisation 5 caused death",
-          "output":"{\"domain\":\"Adverse Event\",\"base_entity\":\"Common Terminology Criteria for Adverse Events\",\"additional_entities\":[\"Falling injury\"], \"categories\": [\"Common terminology criteria for adverse events grade 1\",\"Common terminology criteria for adverse events grade 2\",\"Common terminology criteria for adverse events grade 3\",\"Common terminology criteria for adverse events grade 4\",\"Common terminology criteria for adverse events grade 5\"]}"
         },
           {
             "input": "optimization of insulin therapy at month 3 ",
@@ -1631,7 +1643,15 @@
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Q wave - finding\",\"additional_entities\":[\"Lead site V3\",\"ECG finding\",\"Follow-up 1 year\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
+            "input":"q-wave present in Lead site V3 at visit 12, categorical values: 1=yes | 0=no",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Q wave - finding\",\"additional_entities\":[\"Lead site V3\",\"ECG finding\",\"Follow-up 1 year\"], \"categories\": [\"yes\",\"no\"]}"
+          },
+          {
             "input":"q-wave present in Lead site V3 at visit month 18,categorical values: 1=yes | 0=no",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Q wave - finding\",\"additional_entities\":[\"Lead site V3\",\"ECG finding\",\"Follow-up 18 monthss\"], \"categories\": [\"yes\",\"no\"]}"
+          },
+          {
+            "input":"q-wave present in Lead site V3 at visit 18,categorical values: 1=yes | 0=no",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Q wave - finding\",\"additional_entities\":[\"Lead site V3\",\"ECG finding\",\"Follow-up 18 monthss\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
@@ -1643,8 +1663,12 @@
             "output":"{\"domain\":\"death\", \"base_entity\":\"Cause of death\", \"additional_entities\":[\"exclude\", \"cancer\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
-            "input":"death or all-cause hospitalisations y/n, excluding cancer,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"observation\", \"base_entity\":\"Hopsital admission\", \"additional_entities\":[\"\"All causes of morbidity and mortality\",\"death\",\"exclude\",\"cancer\"], \"categories\": [\"yes\",\"no\"]}"
+            "input":"death or all-cause hospitalisations excluding cancer,categorical values: 1=yes | 0=no",
+            "output":"{\"domain\":\"observation\", \"base_entity\":\"All causes of morbidity and mortality\", \"additional_entities\":[\"death\",\"exclude\",\"cancer\"], \"categories\": [\"yes\",\"no\"]}"
+          },
+          {
+            "input":"death or all-cause hospitalisations excluding cancer, definition is 'EP=endpoint of study ( was defined as all cause hospitalisation or mortality, but excluding cancer related death)', categorical values: 1=yes | 0=no",
+            "output":"{\"domain\":\"observation\", \"base_entity\":\"All causes of morbidity and mortality\", \"additional_entities\":[\"death\",\"exclude\",\"cancer\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
               "input":"death cardiovascular (includes stroke),categorical values: 1=yes | 0=no",
@@ -1660,6 +1684,10 @@
           },
           {
             "input":"total of s-wave voltage in lead v1+v2 on ecg at visit month 6, unit: mv",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"S wave amplitude in lead v1\",\"S wave amplitude in lead v2\",\"ECG finding\",\"follow-up 6 months\"], \"unit\":\"millivolt\"}"
+          },
+          {
+            "input":"total of s-wave voltage in lead v1+v2 on ecg at visit 6, unit: mv",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"S wave amplitude in lead v1\",\"S wave amplitude in lead v2\",\"ECG finding\",\"follow-up 6 months\"], \"unit\":\"millivolt\"}"
           },
           {
@@ -1691,11 +1719,23 @@
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Incomplete left bundle branch block\",\"ECG finding\",\"Follow-up 18 months\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
+            "input":"incomplete left bundlebranch block on ecg at visit 18 ,categorical values: 1=yes | 0=no",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Incomplete left bundle branch block\",\"ECG finding\",\"Follow-up 18 months\"], \"categories\": [\"yes\",\"no\"]}"
+          },
+          {
             "input":"complete left bundlebranch block on ecg at visit month 3 ,categorical values: 1=yes | 0=no",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"complete left bundle branch block\",\"ECG finding\",\"Follow-up 3 month\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
+            "input":"complete left bundlebranch block on ecg at visit 3 ,categorical values: 1=yes | 0=no",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"complete left bundle branch block\",\"ECG finding\",\"Follow-up 3 month\"], \"categories\": [\"yes\",\"no\"]}"
+          },
+          {
             "input":"inverted t-wave present in lead v1 on ecg at visit month 18,categorical values: 1=yes | 0=no",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Inverted T wave\",\"Lead Site V1\",\"ECG finding\",\"Follow-up 18 months\"], \"categories\": [\"yes\",\"no\"]}"
+          },
+          {
+            "input":"inverted t-wave present in lead v1 on ecg at visit 18,categorical values: 1=yes | 0=no",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Inverted T wave\",\"Lead Site V1\",\"ECG finding\",\"Follow-up 18 months\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
@@ -1707,7 +1747,15 @@
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Bifascicular block\",\"ECG finding\",\"Follow-up 18 months\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
+            "input":"bifascicular block on ecg  at visit 18,categorical values: 1=yes | 0=no",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Bifascicular block\",\"ECG finding\",\"Follow-up 18 months\"], \"categories\": [\"yes\",\"no\"]}"
+          },
+          {
             "input":"p-wave_voltage_ ii at visit month 18, unit: mv",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\" P wave amplitude in lead V1\",\"ECG finding\",\"Follow-up 18 months\"], \"unit\":\"millivolt\"}"
+          },
+          {
+            "input":"p-wave_voltage_ ii at visit 18, unit: mv",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\" P wave amplitude in lead V1\",\"ECG finding\",\"Follow-up 18 months\"], \"unit\":\"millivolt\"}"
           },
           {
@@ -1869,6 +1917,240 @@
           {
             "input":"date restarted lisinopril, unit: dd-mm-yyyy",
             "output":"{\"domain\":\"drug\", \"base_entity\":\"Lisinopril\", \"additional_entities\":[\"Restart of medication\",\"Start date of treatment or therapy\"], \"unit\":\"dd-mm-yyyy\"}"
+          },
+          {
+            "input":"Hodkinson Abbreviated Mental Test at Baseline, definition is '7 or below ( 3 wrong) = severe cognitive impairment'",
+            "output":"{\"domain\":\"measurement\", \"base_entity\":\"Hodkinson Abbreviated Mental Test\", \"additional_entities\":[\"severe cognitive impairment\", \"baseline\"]}"
+          },
+          {
+            "input":"time trade off, max is 2 years = 730days, at baseline, definition is 'Suppose you have only 2 years left to live. Would you prefer to live those 2 years as they are now, or 1 year with perfect health? At what point, in terms of days, would you think differently about it'?",
+            "output":"{\"domain\":\"measurement\", \"base_entity\":\"Time trade off analysis\", \"additional_entities\":[\"baseline\", \"2 years\"]}"
+          },
+          {
+            "input":"month 0/baseline",
+            "output":"{\"domain\":\"visit\", \"base_entity\":\"baseline\"}"
+          },
+          {
+            "input":"biplane",
+            "output":"{\"domain\":\"imaging\", \"base_entity\":\"Left ventricular Ejection fraction Calculated by biplane method\"}"
+          },
+          {
+            "input":"biplane at baseline on echocardiography, categorical values: 1=yes | 0=no",
+            "output":"{\"domain\":\"imaging\", \"base_entity\":\"echocardiography\", \"additional_entities\":[\"Left ventricular Ejection fraction Calculated by biplane method\",\"baseline\"], \"categories\": [\"yes\",\"no\"]}"
+          },
+          {
+            "input":"principal component analysis (PCA) with Last observation carried forward (LOCF), first component of RAS medication",
+            "output":"{\"domain\":\"analysis\", \"base_entity\":\"Renin-angiotensin system inhibitor\", \"additional_entities\":[\"Principal component analysis\",\"Last observation carried forward(LOCF)\"]}"
+          },
+          {
+            "input":"ace",
+            "output":"{\"domain\":\"drug\", \"base_entity\":\"ACE gene\"}"
+          },
+          {
+            "input":"ace-i",
+            "output":"{\"domain\":\"drug\", \"base_entity\":\"Angiotensin-converting enzyme inhibitor\"}"
+          },
+          {
+            "input":"Pacemaker_12,pacemaker setting based on ECG  at visit month 12,  categorical values:  1= ventricular pacing| 2= atrial pacing| 3= AV-pacing| 9=unknown",
+            "output":"{\"domain\":\"device\", \"base_entity\":\"Pacemaker\", \"additional_entities\":[\"Pacemaker care assessment\",\"ECG finding\",\"Follow-up 1 year\"], \"categories\": [\"ventricular pacing\",\"atrial pacing\",\"AV-pacing\",\"unknown\"]}"
+          },
+          {
+            "input":"Pacemaker_12,pacemaker setting based on ECG  at visit 12,  categorical values:  1= ventricular pacing| 2= atrial pacing| 3= AV-pacing| 9=unknown",
+            "output":"{\"domain\":\"device\", \"base_entity\":\"Pacemaker\", \"additional_entities\":[\"Pacemaker care assessment\",\"ECG finding\",\"Follow-up 1 year\"], \"categories\": [\"ventricular pacing\",\"atrial pacing\",\"AV-pacing\",\"unknown\"]}"
+          },
+          {
+            "input":"nyha ( classification of severity of heart failure) class at baseline in half increments, categorical values: 0=i  |  1=i-ii  |  2=ii  |  3=ii-iii  |  4=iii  |  5=iii-iv  |  6= iv",
+            "output":"{\"domain\":\"measurement\", \"base_entity\":\"New York Heart Association Classification\", \"additional_entities\":[\"baseline\"], \"categories\": [\"Class I\",\"Class I\",\"Class II\",\"Class II\",\"Class III\",\"Class III\",\"Class IV\"]}"
+          },
+          {
+            "input":"follow up in days after visit month 12, unit: days",
+            "output":"{\"domain\":\"visit\", \"base_entity\":\"Follow-up encounter\", \"additional_entities\":[\"within 12 months\"], \"unit\":\"days\"}"
+          },
+          {
+            "input":"follow up in days after visit 12, unit: days",
+            "output":"{\"domain\":\"visit\", \"base_entity\":\"Follow-up encounter\", \"additional_entities\":[\"within 12 months\"], \"unit\":\"days\"}"
+          },
+          {
+            "input":"follow up in days after visit month 6, unit: days",
+            "output":"{\"domain\":\"visit\", \"base_entity\":\"Follow-up encounter\", \"additional_entities\":[\"within 6 months\"], \"unit\":\"days\"}"
+          },
+          {
+            "input":"follow up in days after visit 6, unit: days",
+            "output":"{\"domain\":\"visit\", \"base_entity\":\"Follow-up encounter\", \"additional_entities\":[\"within 6 months\"], \"unit\":\"days\"}"
+          },
+
+          {
+            "input":"Total duration of all Aes Adverse Events in days",
+          "output":"{\"domain\":\"adverse event\", \"base_entity\":\"Adverse events\", \"unit\":\"days\"}"
+          },
+          {
+              "input":"Max Constipation AE-Severity,categorical values:1: mild| 2: moderately impacting daily life| 3: severely inpacting daily life| 4: required hospitalisation(life threatening) |5: caused death",
+              "output":"{\"domain\":\"advsere event\",\"base_entity\":\"Common Terminology Criteria for Adverse Events\",\"additional_entities\":[\"Constipation\"], \"categories\": [\"Common terminology criteria for adverse events grade 1\",\"Common terminology criteria for adverse events grade 2\",\"Common terminology criteria for adverse events grade 3\",\"Common terminology criteria for adverse events grade 4\",\"Common terminology criteria for adverse events grade 5\"]}"
+          },
+          {
+            "input":"maximum HF AE-Severity,categorical values:1 mild| 2 moderately impacting daily life| 3 severely inpacting daily life 4 required hospitalisation 5 caused death",
+            "output":"{\"domain\":\"advsere event\",\"base_entity\":\"Common Terminology Criteria for Adverse Events\",\"additional_entities\":[\"Heart Failure\"], \"categories\": [\"Common terminology criteria for adverse events grade 1\",\"Common terminology criteria for adverse events grade 2\",\"Common terminology criteria for adverse events grade 3\",\"Common terminology criteria for adverse events grade 4\",\"Common terminology criteria for adverse events grade 5\"]}"
+          },
+          {
+            "input":"maximum heart failure AE-Severity, categorical values:1 mild| 2 moderately impacting daily life| 3 severely inpacting daily life 4 required hospitalisation 5 caused death",
+            "output":"{\"domain\":\"advsere event\",\"base_entity\":\"Common Terminology Criteria for Adverse Events\",\"additional_entities\":[\"Heart Failure\"], \"categories\": [\"Common terminology criteria for adverse events grade 1\",\"Common terminology criteria for adverse events grade 2\",\"Common terminology criteria for adverse events grade 3\",\"Common terminology criteria for adverse events grade 4\",\"Common terminology criteria for adverse events grade 5\"]}"
+          },
+          {
+            "input":"maximum heart failure Adverse event severity,categorical values:1 mild| 2 moderately impacting daily life| 3 severely inpacting daily life 4 required hospitalisation 5 caused death",
+            "output":"{\"domain\":\"advsere event\",\"base_entity\":\"Common Terminology Criteria for Adverse Events\",\"additional_entities\":[\"Heart Failure\"], \"categories\": [\"Common terminology criteria for adverse events grade 1\",\"Common terminology criteria for adverse events grade 2\",\"Common terminology criteria for adverse events grade 3\",\"Common terminology criteria for adverse events grade 4\",\"Common terminology criteria for adverse events grade 5\"]}"
+          },
+          {
+            "input":"Max CV cardiovascular AE (Adverse Event)-Severity,categorical values:1 mild| 2 moderately impacting daily life| 3 severely inpacting daily life 4 required hospitalisation 5 caused death",
+            "output":"{\"domain\":\"advsere event\",\"base_entity\":\"Common Terminology Criteria for Adverse Events\",\"additional_entities\":[\"cardiovascular\"], \"categories\": [\"Common terminology criteria for adverse events grade 1\",\"Common terminology criteria for adverse events grade 2\",\"Common terminology criteria for adverse events grade 3\",\"Common terminology criteria for adverse events grade 4\",\"Common terminology criteria for adverse events grade 5\"]}"
+          },
+          {
+            "input":"Max non-CV Adverse Event Severity non-cardiovascular,categorical values:1 mild| 2 moderately impacting daily life| 3 severely inpacting daily life 4 required hospitalisation 5 caused death",
+            "output":"{\"domain\":\"advsere event\",\"base_entity\":\"Common Terminology Criteria for Adverse Events\",\"additional_entities\":[\"Non-cardiovascular\"], \"categories\": [\"Common terminology criteria for adverse events grade 1\",\"Common terminology criteria for adverse events grade 2\",\"Common terminology criteria for adverse events grade 3\",\"Common terminology criteria for adverse events grade 4\",\"Common terminology criteria for adverse events grade 5\"]}"
+          },
+          {
+            "input":"Max non-CV AE-Severity non-cardiovascular,categorical values:1 mild| 2 moderately impacting daily life| 3 severely inpacting daily life 4 required hospitalisation 5 caused death",
+            "output":"{\"domain\":\"advsere event\",\"base_entity\":\"Common Terminology Criteria for Adverse Events\",\"additional_entities\":[\"Non-cardiovascular\"], \"categories\": [\"Common terminology criteria for adverse events grade 1\",\"Common terminology criteria for adverse events grade 2\",\"Common terminology criteria for adverse events grade 3\",\"Common terminology criteria for adverse events grade 4\",\"Common terminology criteria for adverse events grade 5\"]}"
+          },
+          {
+            "input":"cerebrovascular Aes advsere events",
+            "output":"{\"domain\":\"advsere event\",\"base_entity\":\"Adverse event\",\"additional_entities\":[\"cerebrovascular\"]}"
+          },
+          {
+            "input":"cerebrovascular advsere events",
+            "output":"{\"domain\":\"advsere event\",\"base_entity\":\"Adverse event\",\"additional_entities\":[\"cerebrovascular\"]}"
+          },
+          {
+            "input":"Total duration non-CV non-cardiovascular adverse event, unit:days",
+            "output":"{\"domain\":\"advsere event\",\"base_entity\":\"\",\"additional_entities\":[\"Non-cardiovascular\" , \"Observation duration\"], \"unit\":\"days\"}"
+
+          },
+          {
+            "input":"Total duration non-CV non-cardiovascular AE, unit:days",
+            "output":"{\"domain\":\"advsere event\",\"base_entity\":\"\",\"additional_entities\":[\"Non-cardiovascular\" , \"Observation duration\"], \"unit\":\"days\"}"
+
+          },
+          {
+            "input":"Total duration Vascular adverse events, unit:days",
+            "output":"{\"domain\":\"advsere event\",\"base_entity\":\"Adverse Events\",\"additional_entities\":[\"Vascular\" , \"Observation duration\"], \"unit\":\"days\"}"
+          },
+          {
+            "input":"Total duration Vascular AE, unit:days",
+            "output":"{\"domain\":\"advsere event\",\"base_entity\":\"Adverse Events\",\"additional_entities\":[\"Vascular\" , \"Observation duration\"], \"unit\":\"days\"}"
+          },
+          {
+            "input":"Total time in days for Vascular adverse events, unit:days",
+            "output":"{\"domain\":\"advsere event\",\"base_entity\":\"Adverse Events\",\"additional_entities\":[\"Vascular\" , \"Observation duration\"], \"unit\":\"days\"}"
+          },
+          {
+            "input":"Total time in days for Vascular AE, unit:days",
+            "output":"{\"domain\":\"advsere event\",\"base_entity\":\"Adverse Events\",\"additional_entities\":[\"Vascular\" , \"Observation duration\"], \"unit\":\"days\"}"
+          },
+          {
+            "input":"Sum of non-CV AE-Severity. It defines collective severity of non-cardiovascular adverse events",
+            "output":"{\"domain\":\"advsere event\",\"base_entity\":\"Adverse Events\",\"additional_entities\":[\"Severity score\",\"Non-cardiovascular\"]}"
+          },
+          {
+            "input":"Sum of Adverse Event Severity non-cardiovascular",
+            "output":"{\"domain\":\"advsere event\",\"base_entity\":\"Adverse Events\",\"additional_entities\":[\"Severity score\",\"Non-cardiovascular\"]}"
+          },
+          {
+            "input":"Sum Hyperkalemia AE-Severity adverse events severities",
+            "output":"{\"domain\":\"adverse event\", \"base_entity\":\"Adverse events\",\"additional_entities\":[\"Severity score\",\"Hyperkalemia\"]}"
+          },
+          {
+            "input":"Sum Dementia AE-Severity adverse events severities",
+            "output":"{\"domain\":\"advsere event\",\"base_entity\":\"Adverse Events\",\"additional_entities\":[\"Severity score\",\"Dementia\"]}"
+
+          },
+          {
+              "input":"First non-cardiovascular adverse event, unit: days",
+              "output":"{\"domain\":\"Adverse Event\",\"base_entity\":\"Adverse Event\",\"additional_entities\":[\"Time between start of treatment and onset of adverse event\",\"Non-cardiovascular\"], \"unit\":\"days\"}"
+          },
+
+          {
+            "input":"amount of days to first trauma fall AE, unit: days",
+            "output":"{\"domain\":\"Adverse Event\",\"base_entity\":\"Adverse Event\",\"additional_entities\":[\"Falling injury\"], \"unit\":\"days\"}"
+          },
+          {
+            "input":"amount of days to first depression adverse event, unit: days",
+            "output":"{\"domain\":\"Adverse Event\",\"base_entity\":\"Adverse Event\",\"additional_entities\":[\"Depression\"], \"unit\":\"days\"}"
+          },
+          {
+            "input":"amount of days to first depression AE, unit: days",
+            "output":"{\"domain\":\"Adverse Event\",\"base_entity\":\"Adverse Event\",\"additional_entities\":[\"Depression\"], \"unit\":\"days\"}"
+          },
+          {             
+            "input":"max trauma fall ae-severity (It defined maximum score assigned for Adverse event from possible value), categorical values: 1 mild| 2 moderately impacting daily life| 3 severely inpacting daily life 4 required hospitalisation 5 caused death",
+            "output":"{\"domain\":\"Adverse Event\",\"base_entity\":\"Common Terminology Criteria for Adverse Events\",\"additional_entities\":[\"Falling injury\"], \"categories\": [\"Common terminology criteria for adverse events grade 1\",\"Common terminology criteria for adverse events grade 2\",\"Common terminology criteria for adverse events grade 3\",\"Common terminology criteria for adverse events grade 4\",\"Common terminology criteria for adverse events grade 5\"]}"
+          },
+          {
+            "input":"Max Psychiatric AE-Severity adverse event-severity (It defined maximum score assigned for Adverse event from possible value), categorical values:1 mild| 2 moderately impacting daily life| 3 severely inpacting daily life 4 required hospitalisation 5 caused death",
+            "output":"{\"domain\":\"Adverse Event\",\"base_entity\":\"Common Terminology Criteria for Adverse Events\",\"additional_entities\":[\"Psychiatric\"], \"categories\": [\"Common terminology criteria for adverse events grade 1\",\"Common terminology criteria for adverse events grade 2\",\"Common terminology criteria for adverse events grade 3\",\"Common terminology criteria for adverse events grade 4\",\"Common terminology criteria for adverse events grade 5\"]}"
+          },
+          {             
+            "input":"max trauma fall adverse event severity(It defined maximum score assigned for Adverse event from possible value), categorical values: 1 mild| 2 moderately impacting daily life| 3 severely inpacting daily life 4 required hospitalisation 5 caused death",
+            "output":"{\"domain\":\"Adverse Event\",\"base_entity\":\"Common Terminology Criteria for Adverse Events\",\"additional_entities\":[\"Falling injury\"], \"categories\": [\"Common terminology criteria for adverse events grade 1\",\"Common terminology criteria for adverse events grade 2\",\"Common terminology criteria for adverse events grade 3\",\"Common terminology criteria for adverse events grade 4\",\"Common terminology criteria for adverse events grade 5\"]}"
+          },
+          {
+            "input":"rheumatology related Adverse Event at month 0/baseline",
+            "output":"{\"domain\":\"Adverse Event\",\"base_entity\":\"Adverse events\",\"additional_entities\":[\"Rheumatology\"], \"unit\":\"baseline\"}"
+          },
+          {
+            "input":"rheumatology: AEs at month 0/baseline",
+            "output":"{\"domain\":\"Adverse Event\",\"base_entity\":\"Adverse events\",\"additional_entities\":[\"Rheumatology\"], \"unit\":\"baseline\"}"
+          },
+          {
+            "input":"rheumatology related Aes Adverse Event at month 0/baseline",
+            "output":"{\"domain\":\"Adverse Event\",\"base_entity\":\"Adverse events\",\"additional_entities\":[\"Rheumatology\"], \"unit\":\"baseline\"}"
+          },
+          {
+            "input":"Any therapy adjustment at Baseline, categorical values: 1=yes | 0=no",
+            "output":"{\"domain\":\"therapy\",\"base_entity\":\"medication therapy change\",\"additional_entities\":[\"baseline\"], \"categories\": [\"yes\",\"no\"]}"
+          },
+          {
+            "input":"Any therapy changes at month 0, categorical values: 1=yes | 0=no",
+            "output":"{\"domain\":\"therapy\",\"base_entity\":\"medication therapy change\",\"additional_entities\":[\"baseline\"], \"categories\": [\"yes\",\"no\"]}"
+          },
+          {
+            "input":"ACE inhibitor adjustment at Visit month 1, categorical values: 1=yes | 0=no",
+            "output":"{\"domain\":\"therapy\",\"base_entity\":\"Angiotensin-converting enzyme inhibitor\",\"additional_entities\":[\"medication therapy change\",\"follow-up 1 month\"], \"categories\": [\"yes\",\"no\"]}"
+          },
+          {
+            "input":"Spironolacton (=MRA) adjustment at Visit 12, categorical values: 1=yes | 0=no",
+            "output":"{\"domain\":\"therapy\",\"base_entity\":\"Spironolacton\",\"additional_entities\":[\"medication therapy change\",\"follow-up 1 year\"], \"categories\": [\"yes\",\"no\"]}"
+
+          },
+          {
+            "input":"Spironolacton (=MRA) change at Visit 12 months, categorical values: 1=yes | 0=no",
+            "output":"{\"domain\":\"therapy\",\"base_entity\":\"Spironolacton\",\"additional_entities\":[\"medication therapy change\",\"follow-up 1 year\"], \"categories\": [\"yes\",\"no\"]}"
+
+          },
+          {
+            "input":"Spironolacton change at Visit 12 months, categorical values: 1=yes | 0=no",
+            "output":"{\"domain\":\"therapy\",\"base_entity\":\"Spironolacton\",\"additional_entities\":[\"medication therapy change\",\"follow-up 1 year\"], \"categories\": [\"yes\",\"no\"]}"
+
+          },
+          {
+            "input":"Nitrate adjustment at Visit 6, categorical values: 1=yes | 0=no",
+            "output":"{\"domain\":\"therapy\",\"base_entity\":\"nitroglycerin\",\"additional_entities\":[\"medication therapy change\",\"follow-up 6 months\"], \"categories\": [\"yes\",\"no\"]}"
+
+          },
+          {
+            "input":"which ATII-antagonistat Visit 1 (reported use of which type of ATII-antagonistat), categorical values:0=none |1=Candesartan | 2=Eprosartan | 3=Irbesartan | 4=Losartan | 5=Telmisartan| 6=Valsartan | 7=other",
+            "output":"{\"domain\":\"therapy\",\"base_entity\":\"Angiotensin II receptor antagonist\",\"additional_entities\":[\"follow-up 1 month\"], \"categories\": [\"none\",\"Candesartan\",\"Eprosartan\",\"Irbesartan\",\"Losartan\",\"Telmisartan\",\"Valsartan\",\"other\"]}"
+
+          },
+          {
+            "input":"Dose ATII-antagonist expressed as % of target dose at Visit 6 months",
+            "output":"{\"domain\":\"therapy\",\"base_entity\":\"Angiotensin II receptor antagonist\",\"additional_entities\":[\"drug dose\",\"follow-up 6 months\"], \"unit\":\"percentage\"}"
+          },
+          {
+            "input":"Dose Spironolacton expressed as % of target dose at Visit 6 months",
+            "output":"{\"domain\":\"therapy\",\"base_entity\":\"Spironolacton\",\"additional_entities\":[\"drug dose\",\"follow-up 6 months\"], \"unit\":\"percentage\"}"
+          },
+          {
+            "input":"Dose of Nitrat Visit 18, unit: mg",
+            "output":"{\"domain\":\"therapy\",\"base_entity\":\"nitroglycerin\",\"additional_entities\":[\"drug dose\",\"follow-up 18 months\"], \"unit\":\"milligram\"}"
           }
 
         ]

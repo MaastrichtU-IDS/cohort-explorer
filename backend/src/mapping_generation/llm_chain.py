@@ -456,11 +456,10 @@ def extract_information(query, model_name=LLM_ID, prompt=None):
                     -Domain: Determine the most appropriate OHDSI OMOP standards from list of following domains: [Condition, Anatomic Site, Body Structure, Measurement, Procedure, Drug, Device, Unit,  Visit,  Death,  Demographics, Family History, Life Style, History of Events].
                     Extract Entities:
                         - Base Entity: The primary concept mentioned in the medical query. It represents the key medical or clinical element being measured, observed, or evaluated.
-                        - Associated Entities: Extract list of associated entities like time points, anatomical locations, related procedures, or clinical events that clarify the base entity's context within the query.
+                        - Associated Entities: Provide list of associated entities like time points, anatomical locations, related procedures, or clinical events that clarify the base entity's context within the query.
                     Extract Unit: Unit of measurement associated if mentioned.
                     Extract categories: 
-                       - If mentioned, list all provided categorical values.
-                       - Normalize categorical values and Transform them given as 1/0 to 'yes'/'no'.
+                       - If mentioned, Provide list of categories associated with the base entity. categories values are qualifiers that provide outcome context.
                 **Considerations::
                     -Don't consider categorical values as context. Assume they are categorical values.
                     -Don't add additional unit of measurement if not mentioned in the query.
