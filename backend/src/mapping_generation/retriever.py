@@ -12,7 +12,6 @@ from .utils import global_logger as logger
 from .vector_index import (
     generate_vector_index,
     initiate_api_retriever,
-    set_compression_retriever,
     set_merger_retriever,
     update_merger_retriever,
 )
@@ -335,7 +334,7 @@ def map_csv_to_standard_codes(meta_path: str):
     # compressed_hybrid_retriever =  set_compression_retriever(hybrid_search)
     athena_api_retriever = initiate_api_retriever()
     merger_retriever = set_merger_retriever(retrievers=[hybrid_search, athena_api_retriever])
-    merger_retriever = set_compression_retriever(merger_retriever)
+    # merger_retriever = set_compression_retriever(merger_retriever)
     data = map_data(
         data,
         merger_retriever,

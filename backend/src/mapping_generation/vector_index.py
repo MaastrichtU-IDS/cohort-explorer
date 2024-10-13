@@ -4,14 +4,14 @@ import argparse
 import time
 
 import qdrant_client.http.models as rest
-from langchain.retrievers import MergerRetriever
+# from langchain.retrievers import MergerRetriever
 from langchain_qdrant import FastEmbedSparse, RetrievalMode
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import Distance
 
 from .athena_api_retriever import AthenaFilters, RetrieverAthenaAPI
 from .bi_encoder import SAPEmbeddings
-from .compress import CustomCompressionRetriever
+from .compress import CustomCompressionRetriever,CustomMergeRetriever
 from .data_loader import load_data
 from .embeddingfilter import MyEmbeddingsFilter
 from .llm_chain import pass_to_chat_llm_chain
@@ -22,7 +22,7 @@ from .utils import global_logger as logger
 
 
 def set_merger_retriever(retrievers):
-    ensemble_retriever = MergerRetriever(retrievers=retrievers)
+    ensemble_retriever = CustomMergeRetriever(retrievers=retrievers)
     return ensemble_retriever
 
 
@@ -321,14 +321,14 @@ def update_qdrant_search_filter(retriever, domain="all", topk=10):
 
 
 def update_merger_retriever(
-    merger_retriever: CustomCompressionRetriever, domain="all", topk=10
-) -> CustomCompressionRetriever:
+    merger_retriever: CustomMergeRetriever, domain="all", topk=10
+) -> CustomMergeRetriever:
     try:
-        retrievers = merger_retriever.base_retriever.retrievers
+        retrievers = merger_retriever.retrievers
         api_retriever = update_api_search_filter(retrievers[1].base_retriever, domain=domain, topk=topk)
         dense_retriever = update_qdrant_search_filter(retrievers[0], domain=domain, topk=topk)
-        merger_retriever = MergerRetriever(retrievers=[dense_retriever, api_retriever])
-        return set_compression_retriever(merger_retriever)
+        merger_retriever = CustomMergeRetriever(retrievers=[dense_retriever, api_retriever])
+        return merger_retriever
     except Exception as e:
         logger.info(f"Error updating merger retriever: {e}")
         return merger_retriever
