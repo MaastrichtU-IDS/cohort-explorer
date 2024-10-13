@@ -138,11 +138,6 @@ class CustomMergeRetriever(MergerRetriever):
         if not all(isinstance(doc, Document) for docs in retriever_docs for doc in docs):
             print("retriever_docs format is not correct")
 
-        
-        # print doc.metadata['label'] for doc in matching_documents retriever_docs is list of list of documents
-        print(f"Qeury = {query} \n {[doc.metadata['label'] for doc in retriever_docs[0]]}")
-        # check if any  doc.metadata['vocab'] == 'meddra'?: {any([doc.metadata['vocab'] == 'meddra' for doc in matching_documents])}")
-        # Merge the results of the retrievers.
         merged_documents = []
         max_docs = max(map(len, retriever_docs), default=0)
         seens_documents = set()
@@ -152,8 +147,6 @@ class CustomMergeRetriever(MergerRetriever):
                 if i < len(doc) and doc[i].metadata['label'] not in seens_documents:
                         merged_documents.append(doc[i])
                         seens_documents.add(doc[i].metadata['label'])
-        print(f"type of merged_documents: {type(merged_documents)} and type of doc in merged_documents: {type(merged_documents[0])}")
-        print(f"merged_documents: {[doc.metadata['label'] for doc in merged_documents]}")
         return merged_documents
 
     async def amerge_documents(
