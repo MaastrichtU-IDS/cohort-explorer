@@ -962,12 +962,28 @@
           "output":"{\"domain\":\"condition\", \"base_entity\":\"type 1 diabetes mellitus\"}"
         },
         {
-          "input":"Bloodpressure systolic at baseline, recumbent position",
+          "input":"Blood pressure systolic at baseline, recumbent position",
           "output":"{\"domain\":\"measurement\", \"base_entity\":\"Blood pressure systolic\", \"additional_entities\":[\"baseline\",\"Recumbent body position\"]}"
         },
         {
-          "input":"Bloodpressure diastolic standing at basline",
-          "output":"{\"domain\":\"measurement\", \"base_entity\":\"Blood pressure diastolic\", \"additional_entities\":[\"baseline\",\"Standing body position\"]}"
+          "input":"Blood pressure diastolic in standing at basline",
+          "output":"{\"domain\":\"measurement\", \"base_entity\":\"Blood pressure diastolic\", \"additional_entities\":[\"standing body position\", \"baseline\"}}"
+        },
+        {
+          "input":"Blood pressure diastolic in standing position at basline",
+          "output":"{\"domain\":\"measurement\", \"base_entity\":\"Blood pressure diastolic\", \"additional_entities\":[\"standing body position\", \"baseline\"}}"
+        },
+        {
+          "input":"Blood pressure diastolic in standing position at month 6",
+          "output":"{\"domain\":\"measurement\", \"base_entity\":\"Blood pressure diastolic\", \"additional_entities\":[\"standing body position\", \"Follow-up 6 months\"}}"
+        },
+        {
+          "input":"heart rate calculated in standing position at basline",
+          "output":"{\"domain\":\"measurement\", \"base_entity\":\"Blood pressure diastolic\", \"additional_entities\":[\"standing body position\", \"baseline\"}]"
+        },
+        {
+          "input":"heart rate calculated in standing at month 3",
+          "output":"{\"domain\":\"measurement\", \"base_entity\":\"Blood pressure diastolic\", \"additional_entities\":[\"standing body position\", \"Follow-up 3 months\"]}"
         },
         {
           "input": "Type 2 diabetes-related hospitalization",
@@ -5400,7 +5416,54 @@
           "explanation": "This answer is not relevant as it refers to a murmur during diastole, not left ventricular diastolic dysfunction."
         }
       ]
+    },
+    {
+      "input":"Query: standing body position, candidate terms: ['orthostatic body position','unsupported standing position','does maintain a standing position','standing','standing up','difficulty maintaining a standing position','able to maintain a standing position','does not maintain a standing position']",
+      "output":[
+            {
+              "answer": "orthostatic body position",
+              "relationship": "synonym",
+              "explanation": "This answer is an accurate match as standing body position is interchangeable refered to orthostatic body position in clinical setting."
+            },
+            {
+              "answer": "unsupported standing position",
+              "relationship": "not relevant",
+              "explanation": "This answer is not relevant as it refers to standing without support, not the general body position of standing."
+            },
+            {
+              "answer": "does maintain a standing position",
+              "relationship": "not relevant",
+              "explanation": "This answer is not relevant as it refers to the ability to maintain a standing position, not the position itself."
+            },
+            {
+              "answer": "standing",
+              "relationship": "partially relevant",
+              "explanation": "This answer is partially relevant as it directly mentions 'standing' but lacks the specific context of body position."
+            },
+            {
+              "answer": "standing up",
+              "relationship": "partially relevant",
+              "explanation": "This answer is partially relevant as it refers to the action of standing up, not the static body position."
+            },
+            {
+              "answer": "difficulty maintaining a standing position",
+              "relationship": "not relevant",
+              "explanation": "This answer is not relevant as it refers to the challenge of maintaining a standing position, not the position itself."
+            },
+            {
+              "answer": "able to maintain a standing position",
+              "relationship": "not relevant",
+              "explanation": "This answer is not relevant as it refers to the ability to maintain a standing position, not the position itself."
+            },
+            {
+              "answer": "does not maintain a standing position",
+              "relationship": "not relevant",
+              "explanation": "This answer is not relevant as it refers to the inability to maintain a standing position, not the position itself."
+            }
+
+      ]
     }
+    
     
     
 
@@ -7663,6 +7726,52 @@
       "explanation": "This answer is not relevant as it refers to a follow-up visit at 1 month, not the initial baseline visit."
     }
 ]
+},
+{
+  "input":"Query: standing body position, candidate terms: ['orthostatic body position','unsupported standing position','does maintain a standing position','standing','standing up','difficulty maintaining a standing position','able to maintain a standing position','does not maintain a standing position']",
+  "output":[
+
+    {
+      "answer": "Orthostatic body position",
+      "score": 10,
+      "explanation": "This is an exact match as it refers to the orthostatic body position, which is synonymous with standing."
+    },
+    {
+      "answer": "unsupported standing position",
+      "score": 0,
+      "explanation": "This answer is not relevant as it refers to the action of moving a subject to a standing position, not the standing position itself."
+    },
+    {
+      "answer": "Does maintain a standing position",
+      "score": 0,
+      "explanation": "This answer is not relevant as it refers to the qualifier 'does maintain' rather than the standing position itself."
+    },
+    {
+      "answer": "standing",
+      "score": 5,
+      "explanation": "This answer is partially relevant as it refers to the general concept of standing but lacks the specific context of body position."
+    },
+    {
+      "answer": "standing up",
+      "score": 5,
+      "explanation": "This answer is partially relevant as it refers to the action of standing up rather than the standing body position."
+    },
+    {
+      "answer": "difficulty maintaining a standing position",
+      "score": 0,
+      "explanation": "This answer is not relevant as it refers to the difficulty in maintaining a standing position rather than the position itself."
+    },
+    {
+      "answer": "able to maintain a standing position",
+      "score": 0,
+      "explanation": "This answer is not relevant as it refers to the ability to maintain a standing position rather than the position itself."
+    },
+    {
+      "answer": "does not maintain a standing position",
+      "score": 0,
+      "explanation": "This answer is not relevant as it refers to the inability to maintain a standing position rather than the position itself."
+    }
+  ]
 }
 
 ]
