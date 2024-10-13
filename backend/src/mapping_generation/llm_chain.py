@@ -531,11 +531,7 @@ def generate_link_prediction_prompt(query, documents, domain=None, in_context=Tr
     if in_context:
         _, _, link_prediction_examples = load_mapping(MAPPING_FILE, "all")
         examples = get_relevant_examples(query, "link_prediction", link_prediction_examples, topk=2, min_score=0.6)
-        human_template = """
-        Task: Determine the relationship between a given medical query and candidate terms from standard medical terminologies aka. vocabularies (SNOMED, LOINC, MeSH, UCUM, ATC, RxNorm, OMOP Extension etc). You must determine relationship of each candidate term with given medical query in clinical/medical context.
-        **Instructions:
-            Medical Query: {query}
-            Candidate Terms: {documents}
+        human_template = """Task: Determine the relationship between a given medical query and candidate terms from standard medical terminologies aka. vocabularies (SNOMED, LOINC, MeSH, UCUM, ATC, RxNorm, OMOP Extension etc). You must determine relationship of each candidate term with given medical query in clinical/medical context.
         ** Categorization Criteria:
             Exact Match: The term is identical in meaning and context to the query.
             Synonym: The term has the same meaning as the query but may be phrased differently.
@@ -543,14 +539,16 @@ def generate_link_prediction_prompt(query, documents, domain=None, in_context=Tr
             Partially Relevant: The term is broadly related to the query but there are significant differences.
             Not Relevant: The term has no significant relation to the query.
         **Task Requirements: Answer following questions to determine the relationship between the medical query and candidate terms:
-            -Does the term accurately represent the query in meaning?
-            -Is there any term that is an exact match to the query?
-            -If all terms are specific than the query, which one is the closest match?
-            -If all terms are broad or generic, which one is the most relevant to determine exact match?
+                -Does the candidate term accurately represent the query with respect to its context?
+                -Is there any term that is an exact match to the query with respect to its context??
+                -If all terms are specific than the query, which one is the closest match with respect to its context??
+                -If all terms are broad or generic, which one is the most relevant to determine exact match with respect to its context??
         Provide a brief justification for your categorization, focusing on relevance, closeness in meaning, and specificity in the context of the query.Do not assign higher scores just because there is not a perfect or accurate match.
-        Check Examples: Determine if examples are provided. If examples are provided and aligned with the current medical query, use them to guide your categorization. If they are provided but not aligned, create new relevant examples using the same format. If no examples are provided, generate new examples to illustrate how to categorize the relationships.
+        Check Examples: If examples are provided and aligned with the current medical query, use them to guide your categorization. If they are provided but not aligned, create new relevant examples using the same format. If no examples are provided, generate new examples to illustrate how to categorize the relationships.
         **Desired format: Your response should be a list of dictionaries, each containing the keys "answer", "relationship", and "explanation". I repeat, provide the output in list of dictionaries format with the following fields: 'answer', 'relationship', and 'explanation'.
-        Begin your response with the '[' and include no extra comments or information.       
+        Do not add any preamble or additional comments.
+        Medical Query: {query}
+        Candidate Terms: {documents}
         """
         system = "You are a helpful assistant with expertise in clinical/medical domain and designed to respond in JSON"
         example_prompt = ChatPromptTemplate.from_messages(
@@ -605,7 +603,6 @@ def generate_ranking_prompt(query, documents, domain=None, in_context=True):
                 -Is there any term that is an exact match to the query? Does the term fully capture the intended concept expressed in the query?
                 -If all terms are specific than the query, which one is the closest match?
                 -If all terms are broad or generic, which one is the most relevant to determine exact match?
-            
             **Examples: if provided Follow the examples to understand how to rank candidate terms based on their relevance to the query.
             **Desired format: Your response should be a list of dictionaries, each containing the keys "answer", "score", and "explanation". I repeat, provide the output in list of dictionaries format with the following fields: 'answer', 'score', and 'explanation'.
             Don't add any preamble or additional comments.
@@ -797,8 +794,8 @@ def get_llm_results(prompt, query, documents, max_retries=2, llm=None, llm_name=
         midpoint = len(documents) // 2
     else: 
         midpoint = len(documents)
-    first_half = documents[:midpoint]
-    second_half = documents[midpoint:]
+    # first_half = documents[:midpoint]
+    # second_half = documents[midpoint:]
     start_times = time.time()   
     def process_half(doc_half, half_name):
         attempt = 0
@@ -852,24 +849,24 @@ def get_llm_results(prompt, query, documents, max_retries=2, llm=None, llm_name=
                 if attempt > max_retries:
                     logger.info("Max retries reached without a valid response, returning None")
                     return None
-    results_first_half = process_half(first_half, "first_half")
+    results_first_half = process_half(documents, "first_half")
     print(f"results_first_half={results_first_half}")
-    results_second_half = process_half(second_half, "second_half") if len(second_half) > 0 else None
-    print(f"results_second_half={results_second_half}")
-    if results_first_half is None and results_second_half is None:
-        logger.error("Failed to obtain valid results from both halves.",exc_info=True)
-        return None
+    # results_second_half = process_half(second_half, "second_half") if len(second_half) > 0 else None
+    # print(f"results_second_half={results_second_half}")
+    # if results_first_half is None and results_second_half is None:
+    #     logger.error("Failed to obtain valid results from both halves.",exc_info=True)
+    #     return None
 
-    # Initialize combined results
-    combined_results = []
+    # # Initialize combined results
+    # combined_results = []
 
-    if results_first_half:
-        combined_results.extend(results_first_half)
-    if results_second_half:
-        combined_results.extend(results_second_half)
+    # if results_first_half:
+    #     combined_results.extend(results_first_half)
+    # if results_second_half:
+    #     combined_results.extend(results_second_half)
     print(f"Time taken for Ranking LLM chain Per Query: {time.time() - start_times}") 
     # logger.info(f"Combined Results: {combined_results}")
-    return combined_results
+    return results_first_half
                 
 
 def pass_to_chat_llm_chain(

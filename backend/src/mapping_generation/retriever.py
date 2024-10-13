@@ -151,9 +151,11 @@ def temp_process_query_details(
                 f"main_term={main_term}, context={additional_entities}, status={categories}, domain={domain}, unit={unit}"
             )
             if additional_entities:
+
                 logger.info(f"Processing additional entities: {additional_entities}")
                 additional_entities_matches = (
                     process_values(
+                        main_term,
                         additional_entities,
                         retriever_cache,
                         llm_name,
@@ -169,6 +171,7 @@ def temp_process_query_details(
                 logger.info(f"Processing categories: {categories}")
                 categories_matches = (
                     process_values(
+                        main_term,
                         categories,
                         retriever_cache,
                         llm_name,
@@ -235,7 +238,7 @@ def process_retrieved_docs(query, docs, llm_name=None, domain=None, belief_thres
     return [], False
 
 
-def process_values(values, retriever, llm, domain=None, values_type="additional", is_omop_data=False, topk=10):
+def process_values(main_term, values, retriever, llm, domain=None, values_type="additional", is_omop_data=False, topk=10):
     if isinstance(values, str):
         values = [values]
     logger.info(f"processing values={values}")
@@ -254,6 +257,8 @@ def process_values(values, retriever, llm, domain=None, values_type="additional"
                 ):
                     all_values[q_value] = post_process_candidates(matched_docs, max=1)
                 elif categorical_value_results and len(categorical_value_results) > 0:
+                    if values_type == "additional":
+                        q_value = f"{q_value}, context={main_term}"
                     updated_results, _ = pass_to_chat_llm_chain(
                         q_value, categorical_value_results, llm_name=llm, domain=domain
                     )
