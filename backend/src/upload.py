@@ -1,4 +1,5 @@
 import glob
+import logging
 import os
 import shutil
 from datetime import datetime
@@ -36,7 +37,7 @@ def publish_graph_to_endpoint(g: Graph, graph_uri: str | None = None) -> bool:
     # response = requests.post(url, headers=headers, data=graph_data)
     # Check response status and print result
     if not response.ok:
-        print(f"Failed to upload data: {response.status_code}, {response.text}")
+        logging.warning(f"Failed to upload data: {response.status_code}, {response.text}")
     return response.ok
 
 
@@ -308,6 +309,25 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
     return g
 
 
+@router.post(
+    "/get-logs",
+    name="Get logs",
+    response_description="Logs",
+)
+async def get_logs(
+    user: Any = Depends(get_current_user),
+) -> list[str]:
+    """Delete a cohort from the triplestore and delete its metadata file from the server."""
+    user_email = user["email"]
+    if user_email not in settings.admins_list:
+        raise HTTPException(status_code=403, detail="You need to be admin to perform this action.")
+    with open(settings.logs_filepath) as log_file:
+        logs = log_file.read()
+    return logs.split("\n")
+    # return {
+    #     "message": f"Cohort {cohort_id} has been successfully deleted.",
+    # }
+
 
 @router.post(
     "/delete-cohort",
@@ -318,7 +338,7 @@ async def delete_cohort(
     user: Any = Depends(get_current_user),
     cohort_id: str = Form(...),
 ) -> dict[str, Any]:
-    """Upload a cohort metadata file to the server and add its variables to the triplestore."""
+    """Delete a cohort from the triplestore and delete its metadata file from the server."""
     user_email = user["email"]
     if user_email not in settings.admins_list:
         raise HTTPException(status_code=403, detail="You need to be admin to perform this action.")

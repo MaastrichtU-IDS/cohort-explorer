@@ -1,3 +1,4 @@
+import logging
 from typing import Any
 
 import curies
@@ -15,7 +16,6 @@ query_endpoint = SPARQLWrapper(settings.query_endpoint)
 query_endpoint.setReturnFormat(JSON)
 
 converter = curies.get_bioregistry_converter()
-
 
 def init_graph(default_graph: str | None = None) -> Dataset:
     """Initialize a new RDF graph for nquads with the iCARE4CVD namespace bindings."""
@@ -123,7 +123,7 @@ def retrieve_cohorts_metadata(user_email: str) -> dict[str, Cohort]:
     results = run_query(get_variables_query)["results"]["bindings"]
     cohorts_with_variables = {}
     cohorts_without_variables = {}
-    # print(f"Get cohorts metadata query results: {len(results)}")
+    logging.info(f"Get cohorts metadata query results: {len(results)}")
     for row in results:
         try:
             cohort_id = str(row["cohortId"]["value"])
@@ -190,6 +190,6 @@ def retrieve_cohorts_metadata(user_email: str) -> dict[str, Cohort]:
                 if new_category not in target_dict[cohort_id].variables[var_id].categories:
                     target_dict[cohort_id].variables[var_id].categories.append(new_category)
         except Exception as e:
-            print(f"Error processing row {row}: {e}")
+            logging.warning(f"Error processing row {row}: {e}")
     # Merge dictionaries, cohorts with variables first
     return {**cohorts_with_variables, **cohorts_without_variables}
