@@ -213,6 +213,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
         df["categories"] = df["CATEGORICAL"].apply(parse_categorical_string)
 
         # TODO: handle columns from Komal that maps variables:
+        # Variable Concept Label,Variable Concept Code,Variable Concept OMOP ID,DOMAIN,Additional Context Concept Label,Additional Context Concept Code,Additional Context OMOP ID,Primary to Secondary Context Relationship,Categorical Values Concept Label,Categorical Values Concept Code,Categorical Values Concept OMOP ID,Unit Concept Label,Unit Concept Code,Unit OMOP ID
         if "Label Concept Code" in df.columns:
             df["concept_id"] = df.apply(lambda row: str(row["Label Concept Code"]).strip(), axis=1)
         else:
@@ -374,16 +375,16 @@ async def upload_cohort(
         )
 
         # NOTE: waiting for more tests before sending to production
-        # background_tasks.add_task(map_csv_to_standard_codes, metadata_path)
+        background_tasks.add_task(generate_mappings, cohort_id, metadata_path, g)
         # TODO: move all the "delete_existing_triples" and "publish_graph_to_endpoint" logic to the background task after mappings have been generated
         # Return "The cohort has been successfully uploaded. The variables are being mapped to standard codes and will be available in the Cohort Explorer in a few minutes."
 
-        # Delete previous graph for this file from triplestore
-        delete_existing_triples(
-            get_cohort_mapping_uri(cohort_id), f"<{get_cohort_uri(cohort_id)!s}>", "icare:previewEnabled"
-        )
-        delete_existing_triples(get_cohort_uri(cohort_id))
-        publish_graph_to_endpoint(g)
+        # # Delete previous graph for this file from triplestore
+        # delete_existing_triples(
+        #     get_cohort_mapping_uri(cohort_id), f"<{get_cohort_uri(cohort_id)!s}>", "icare:previewEnabled"
+        # )
+        # delete_existing_triples(get_cohort_uri(cohort_id))
+        # publish_graph_to_endpoint(g)
     except Exception as e:
         os.remove(metadata_path)
         raise e
@@ -393,6 +394,15 @@ async def upload_cohort(
         "identifier": cohort_id,
         # **cohort.dict(),
     }
+
+def generate_mappings(cohort_id: str, metadata_path: str, g: Graph) -> None:
+    """Function to generate mappings for a cohort and publish them to the triplestore running as background task"""
+    map_csv_to_standard_codes(metadata_path)
+    delete_existing_triples(
+        get_cohort_mapping_uri(cohort_id), f"<{get_cohort_uri(cohort_id)!s}>", "icare:previewEnabled"
+    )
+    delete_existing_triples(get_cohort_uri(cohort_id))
+    publish_graph_to_endpoint(g)
 
 @router.post(
     "/create-provision-dcr",
