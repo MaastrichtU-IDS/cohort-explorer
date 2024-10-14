@@ -14,6 +14,7 @@ from .vector_index import (
     initiate_api_retriever,
     set_merger_retriever,
     update_merger_retriever,
+    set_compression_retriever,
 )
 
 
@@ -258,9 +259,9 @@ def process_values(main_term, values, retriever, llm, domain=None, values_type="
                     all_values[q_value] = post_process_candidates(matched_docs, max=1)
                 elif categorical_value_results and len(categorical_value_results) > 0:
                     if values_type == "additional":
-                        q_value = f"{q_value}, context={main_term}"
+                        q_value_ = f"{q_value}, context={main_term}"
                     updated_results, _ = pass_to_chat_llm_chain(
-                        q_value, categorical_value_results, llm_name=llm, domain=domain
+                        q_value_, categorical_value_results, llm_name=llm, domain=domain
                     )
                     if updated_results:
                         all_values[q_value] = post_process_candidates(updated_results, max=1)
@@ -339,7 +340,7 @@ def map_csv_to_standard_codes(meta_path: str):
     # compressed_hybrid_retriever =  set_compression_retriever(hybrid_search)
     athena_api_retriever = initiate_api_retriever()
     merger_retriever = set_merger_retriever(retrievers=[hybrid_search, athena_api_retriever])
-    # merger_retriever = set_compression_retriever(merger_retriever)
+    merger_retriever = set_compression_retriever(merger_retriever)
     data = map_data(
         data,
         merger_retriever,

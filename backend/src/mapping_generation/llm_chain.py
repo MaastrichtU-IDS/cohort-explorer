@@ -531,22 +531,23 @@ def generate_link_prediction_prompt(query, documents, domain=None, in_context=Tr
     if in_context:
         _, _, link_prediction_examples = load_mapping(MAPPING_FILE, "all")
         examples = get_relevant_examples(query, "link_prediction", link_prediction_examples, topk=2, min_score=0.6)
-        human_template = """Task: Determine the relationship between a given medical query and candidate terms from standard medical terminologies aka. vocabularies (SNOMED, LOINC, MeSH, UCUM, ATC, RxNorm, OMOP Extension etc). You must determine relationship of each candidate term with given medical query in clinical/medical context.
-        ** Categorization Criteria:
-            Exact Match: The term is identical in meaning and context to the query.
-            Synonym: The term has the same meaning as the query but may be phrased differently.
-            Highly Relevant: The term is very closely related to the query but not synonymous.
-            Partially Relevant: The term is broadly related to the query but there are significant differences.
-            Not Relevant: The term has no significant relation to the query.
-        **Task Requirements: Answer following questions to determine the relationship between the medical query and candidate terms:
-                -Does the candidate term accurately represent the query with respect to its context?
-                -Is there any term that is an exact match to the query with respect to its context??
-                -If all terms are specific than the query, which one is the closest match with respect to its context??
-                -If all terms are broad or generic, which one is the most relevant to determine exact match with respect to its context??
-        Provide a brief justification for your categorization, focusing on relevance, closeness in meaning, and specificity in the context of the query.Do not assign higher scores just because there is not a perfect or accurate match.
-        Check Examples: If examples are provided and aligned with the current medical query, use them to guide your categorization. If they are provided but not aligned, create new relevant examples using the same format. If no examples are provided, generate new examples to illustrate how to categorize the relationships.
-        **Desired format: Your response should be a list of dictionaries, each containing the keys "answer", "relationship", and "explanation". I repeat, provide the output in list of dictionaries format with the following fields: 'answer', 'relationship', and 'explanation'.
-        Do not add any preamble or additional comments.
+        human_template = """Task: Determine the relationship between a given medical query and candidate terms from standard medical terminologies (e.g., SNOMED, LOINC, MeSH, UCUM, ATC, RxNorm, OMOP Extension). Your goal is to categorize each candidate term based on its relationship to the medical query within a clinical/medical context.
+        **Categorization Criteria:
+            * Exact Match: The term has the same meaning and context as the query.
+            * Synonym: The term conveys the same concept as the query but may be phrased differently.
+            * Highly Relevant: The term is closely related to the query but not an exact match or synonym.
+            * Partially Relevant: The term is related to the query but includes significant differences in meaning or scope.
+            * Not Relevant: The term is unrelated to the query.
+       **Task Requirements:
+            * Assess Accuracy: Does the candidate term accurately represent the concept described in the query, considering its clinical context?
+            * Identify Exact Matches: Determine if any candidate term is an exact match to the query in meaning and context.
+            * Assess Specificity: If the candidate terms are more specific than the query, determine which one most closely aligns with the intended meaning.
+            *   Evaluate Broad Terms: If the candidate terms are broad, determine which term is still most relevant to the core concept of the query.
+        Provide a brief justification for your categorization, focusing on the term's relevance, closeness in meaning, and specificity. Avoid assigning higher scores simply because no perfect match exists.
+       **Examples:
+            * If provided and relevant, use examples to guide your categorization.
+            * If examples are irrelevant or missing, create new relevant examples using the same format.
+        **Desired Format: Provide your response as a list of dictionaries, each containing the keys "answer", "relationship", and "explanation". Do not include any additional comments or preamble.
         Medical Query: {query}
         Candidate Terms: {documents}
         """
@@ -564,24 +565,22 @@ def generate_link_prediction_prompt(query, documents, domain=None, in_context=Tr
         return final_prompt
     else:
         human_template = f"""
-        Task: Determine the relationship between a given medical query and candidate terms from standard medical terminologies aka. vocabularies (SNOMED, LOINC, MeSH, UCUM, ATC, RxNorm, OMOP Extension etc). You must determine relationship of each candidate term with given medical query in clinical/medical context.
-        **Instructions:
-            Medical Query: {query}
-            Candidate Terms: {documents}
-        ** Categorization Criteria:
-            Exact Match: The term is identical in meaning and context to the query.
-            Synonym: The term has the same meaning as the query but may be phrased differently.
-            Highly Relevant: The term is very closely related to the query but not synonymous.
-            Partially Relevant: The term is broadly related to the query but there are significant differences.
-            Not Relevant: The term has no significant relation to the query.
-        **Task Requirements: Answer following questions to determine the relationship between the medical query and candidate terms:
-            -Does the term accurately represent the query in meaning?
-            -Is there any term that is an exact match to the query?
-            -If all terms are specific than the query, which one is the closest match?
-            -If all terms are broad or generic, which one is the most relevant to determine exact match?
-        Provide a brief justification for your categorization, focusing on relevance, closeness in meaning, and specificity in the context of the query.Do not assign higher scores just because there is not a perfect or accurate match.
-        **Desired format: Your response should be a list of dictionaries, each containing the keys "answer", "relationship", and "explanation". I repeat, provide the output in list of dictionaries format with the following fields: 'answer', 'relationship', and 'explanation'.
-        Begin your response with the word '[' and include no extra comments or information.
+        Task: Determine the relationship between a given medical query and candidate terms from standard medical terminologies (e.g., SNOMED, LOINC, MeSH, UCUM, ATC, RxNorm, OMOP Extension). Your goal is to categorize each candidate term based on its relationship to the medical query within a clinical/medical context.
+        **Categorization Criteria:
+            * Exact Match: The term has the same meaning and context as the query.
+            * Synonym: The term conveys the same concept as the query but may be phrased differently.
+            * Highly Relevant: The term is closely related to the query but not an exact match or synonym.
+            * Partially Relevant: The term is related to the query but includes significant differences in meaning or scope.
+            * Not Relevant: The term is unrelated to the query.
+       **Task Requirements:
+            * Assess Accuracy: Does the candidate term accurately represent the concept described in the query, considering its clinical context?
+            * Identify Exact Matches: Determine if any candidate term is an exact match to the query in meaning and context.
+            * Assess Specificity: If the candidate terms are more specific than the query, determine which one most closely aligns with the intended meaning.
+            *   Evaluate Broad Terms: If the candidate terms are broad, determine which term is still most relevant to the core concept of the query.
+        Provide a brief justification for your categorization, focusing on the term's relevance, closeness in meaning, and specificity. Avoid assigning higher scores simply because no perfect match exists.
+        **Desired Format: Provide your response as a list of dictionaries, each containing the keys "answer", "relationship", and "explanation". Do not include any additional comments or preamble.
+        Medical Query: {query}
+        Candidate Terms: {documents}
             """
         system = "You are a helpful assistant expert in medical domain and designed to output JSON"
         return ChatPromptTemplate.from_messages(
@@ -595,17 +594,17 @@ def generate_ranking_prompt(query, documents, domain=None, in_context=True):
         print(f"{len(ranking_examples)}:ranking examples loaded")
         examples = get_relevant_examples(query, "ranking", ranking_examples, topk=1, min_score=0.6)
         # logger.info(f"selected_examples for Ranking Prediction={examples}")
-        human_template = """Objective: Rank candidate terms from the Standard Medical Terminologies/vocabularies(SNOMED, LOINC, MeSH, ATC, UCUM, RxNorm, OMOP Extension) based on their relevance and closeness in meaning to a given medical query.
-            **Instructions: For each given candidate term, please evaluate its relevance and closeness in meaning in medical/clinical context to the given query on a scale from 0 to 10 where,
-                -10: The candidate term is an accurate and an exact match/synonym to the input.
-                -0: The candidate term is completely irrelevant to the query.
-            **Reasoning: Ask yourself the following questions before assigning a score:
-                -Is there any term that is an exact match to the query? Does the term fully capture the intended concept expressed in the query?
-                -If all terms are specific than the query, which one is the closest match?
-                -If all terms are broad or generic, which one is the most relevant to determine exact match?
+        human_template = """Objective: Rank candidate terms from the Standard Medical Terminologies/Vocabularies (SNOMED, LOINC, MeSH, ATC, UCUM, RxNorm, OMOP Extension) based on their relevance and closeness in meaning to a given medical query.
+            **Instructions:For each candidate term, evaluate its relevance and closeness in meaning to the given query in a clinical context on a scale from 0 to 10, where:
+                *10: The candidate term is an accurate and an exact match/synonym to the input.
+                *0: The candidate term is completely irrelevant to the query.
+            **Scoring Guidance: Focus on the following aspects to determine the relevance of the candidate terms:
+                *Exact Match: Does the term precisely match or act as a synonym for the intended concept in the query? If yes, score closer to 10.
+                *Specificity: If the candidate terms are more specific than the query, determine which term adds relevant detail without deviating from the concept. Prioritize relevance to the core meaning of the query.
+                *General Relevance: If the candidate terms are broad or generic, identify which term still captures the main idea or essence of the query. Consider how well it fits in a clinical context, without being overly broad or irrelevant.
             **Examples: if provided Follow the examples to understand how to rank candidate terms based on their relevance to the query.
             **Desired format: Your response should be a list of dictionaries, each containing the keys "answer", "score", and "explanation". I repeat, provide the output in list of dictionaries format with the following fields: 'answer', 'score', and 'explanation'.
-            Don't add any preamble or additional comments.
+            Begin your response with the '[' and include no extra comments or information. 
             Input: {query}
             Candidate Terms: {documents}
             Ranked answers:
@@ -628,16 +627,17 @@ def generate_ranking_prompt(query, documents, domain=None, in_context=True):
         # logger.info(f"final_prompt={final_prompt}")
         return final_prompt
     else:
-        human_template = """Objective: Rank candidate terms from the Standard Medical Terminologies/vocabularies(SNOMED, LOINC, MeSH, ATC, UCUM, RxNorm, OMOP Extension) based on their relevance and closeness in meaning to a given medical query.
-            **Instructions: For each given candidate term, please evaluate its relevance and closeness in meaning in medical/clinical context to the given query on a scale from 0 to 10 where,
-                -10: The candidate term is an accurate and an exact match/synonym to the input.
-                -0: The candidate term is completely irrelevant to the query.
-            **Reasoning: Ask yourself the following questions before assigning a score:
-                -Is there any term that is an exact match to the query? Does the term fully capture the intended concept expressed in the query?
-                -If all terms are specific than the query, which one is the closest match?
-                -If all terms are broad or generic, which one is the most relevant to determine exact match?
+        human_template = """OObjective: Rank candidate terms from the Standard Medical Terminologies/Vocabularies (SNOMED, LOINC, MeSH, ATC, UCUM, RxNorm, OMOP Extension) based on their relevance and closeness in meaning to a given medical query.
+            **Instructions:For each candidate term, evaluate its relevance and closeness in meaning to the given query in a clinical context on a scale from 0 to 10, where:
+                *10: The candidate term is an accurate and an exact match/synonym to the input.
+                *0: The candidate term is completely irrelevant to the query.
+            **Scoring Guidance: Focus on the following aspects to determine the relevance of the candidate terms:
+                *Exact Match: Does the term precisely match or act as a synonym for the intended concept in the query? If yes, score closer to 10.
+                *Specificity: If the candidate terms are more specific than the query, determine which term adds relevant detail without deviating from the concept. Prioritize relevance to the core meaning of the query.
+                *General Relevance: If the candidate terms are broad or generic, identify which term still captures the main idea or essence of the query. Consider how well it fits in a clinical context, without being overly broad or irrelevant.
             **Desired format: Your response should be a list of dictionaries, each containing the keys "answer", "score", and "explanation". I repeat, provide the output in list of dictionaries format with the following fields: 'answer', 'score', and 'explanation'.
-            Don't add any preamble or additional comments.            Input: {query}
+            Begin your response with the '[' and include no extra comments or information. 
+            Input: {query}
             Candidate Terms: {documents}
             Ranked answers:
             """

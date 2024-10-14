@@ -321,13 +321,14 @@ def update_qdrant_search_filter(retriever, domain="all", topk=10):
 
 
 def update_merger_retriever(
-    merger_retriever: CustomMergeRetriever, domain="all", topk=10
-) -> CustomMergeRetriever:
+    merger_retriever: CustomCompressionRetriever, domain="all", topk=10
+) -> CustomCompressionRetriever:
     try:
-        retrievers = merger_retriever.retrievers
+        retrievers = merger_retriever.base_retriever.retrievers
         api_retriever = update_api_search_filter(retrievers[1].base_retriever, domain=domain, topk=topk)
         dense_retriever = update_qdrant_search_filter(retrievers[0], domain=domain, topk=topk)
         merger_retriever = CustomMergeRetriever(retrievers=[dense_retriever, api_retriever])
+        merger_retriever = set_compression_retriever(merger_retriever)
         return merger_retriever
     except Exception as e:
         logger.info(f"Error updating merger retriever: {e}")
