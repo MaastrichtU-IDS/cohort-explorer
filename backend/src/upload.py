@@ -308,6 +308,34 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
     return g
 
 
+
+@router.post(
+    "/delete-cohort",
+    name="Delete a cohort from the database",
+    response_description="Delete result",
+)
+async def delete_cohort(
+    user: Any = Depends(get_current_user),
+    cohort_id: str = Form(...),
+) -> dict[str, Any]:
+    """Upload a cohort metadata file to the server and add its variables to the triplestore."""
+    user_email = user["email"]
+    if user_email not in settings.admins_list:
+        raise HTTPException(status_code=403, detail="You need to be admin to perform this action.")
+    delete_existing_triples(
+        get_cohort_mapping_uri(cohort_id), f"<{get_cohort_uri(cohort_id)!s}>", "icare:previewEnabled"
+    )
+    delete_existing_triples(get_cohort_uri(cohort_id))
+    # Delete folder
+    cohort_folder_path = os.path.join(settings.data_folder, "cohorts", cohort_id)
+    if os.path.exists(cohort_folder_path) and os.path.isdir(cohort_folder_path):
+        shutil.rmtree(cohort_folder_path)
+    return {
+        "message": f"Cohort {cohort_id} has been successfully deleted.",
+    }
+
+
+
 @router.post(
     "/upload-cohort",
     name="Upload cohort metadata file",
