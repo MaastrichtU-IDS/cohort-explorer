@@ -548,8 +548,9 @@ def generate_link_prediction_prompt(query, documents, domain=None, in_context=Tr
             * If provided and relevant, use examples to guide your categorization.
             * If examples are irrelevant or missing, create new relevant examples using the same format.
         **Desired Format: Provide your response as a list of dictionaries, each containing the keys "answer", "relationship", and "explanation". Do not include any additional comments or preamble.
-        Medical Query: {query}
         Candidate Terms: {documents}
+        Medical Query: {query}
+        Output:
         """
         system = "You are a helpful assistant with expertise in clinical/medical domain and designed to respond in JSON"
         example_prompt = ChatPromptTemplate.from_messages(
@@ -579,8 +580,9 @@ def generate_link_prediction_prompt(query, documents, domain=None, in_context=Tr
             *   Evaluate Broad Terms: If the candidate terms are broad, determine which term is still most relevant to the core concept of the query.
         Provide a brief justification for your categorization, focusing on the term's relevance, closeness in meaning, and specificity. Avoid assigning higher scores simply because no perfect match exists.
         **Desired Format: Provide your response as a list of dictionaries, each containing the keys "answer", "relationship", and "explanation". Do not include any additional comments or preamble.
-        Medical Query: {query}
         Candidate Terms: {documents}
+        Medical Query: {query}
+        Output:
             """
         system = "You are a helpful assistant expert in medical domain and designed to output JSON"
         return ChatPromptTemplate.from_messages(
@@ -605,8 +607,8 @@ def generate_ranking_prompt(query, documents, domain=None, in_context=True):
             **Examples: if provided Follow the examples to understand how to rank candidate terms based on their relevance to the query.
             **Desired format: Your response should be a list of dictionaries, each containing the keys "answer", "score", and "explanation". I repeat, provide the output in list of dictionaries format with the following fields: 'answer', 'score', and 'explanation'.
             Begin your response with the '[' and include no extra comments or information. 
-            Input: {query}
             Candidate Terms: {documents}
+            Input: {query}
             Ranked answers:
             """
         system = "You are a helpful assistant expert in medical domain and designed to output JSON"
@@ -637,8 +639,8 @@ def generate_ranking_prompt(query, documents, domain=None, in_context=True):
                 *General Relevance: If the candidate terms are broad or generic, identify which term still captures the main idea or essence of the query. Consider how well it fits in a clinical context, without being overly broad or irrelevant.
             **Desired format: Your response should be a list of dictionaries, each containing the keys "answer", "score", and "explanation". I repeat, provide the output in list of dictionaries format with the following fields: 'answer', 'score', and 'explanation'.
             Begin your response with the '[' and include no extra comments or information. 
-            Input: {query}
             Candidate Terms: {documents}
+            Input: {query}
             Ranked answers:
             """
         system = "You are a helpful assistant"

@@ -265,7 +265,7 @@
           },
           {
             "input":"number hospitalisations cv,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"visit\", \"base_entity\":\"Total event-associated hospitalizations\", \"additional_entities\":[\"Cardiovascular event\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"visit\", \"base_entity\":\"number of hospitalizations\", \"additional_entities\":[\"Cardiovascular\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"r-r interval",
@@ -301,6 +301,10 @@
           },
           {
             "input":"follow-up after month 6 visit in days, unit: days",
+            "output":"{\"domain\":\"visit\", \"base_entity\":\"Follow-up 6 months\",\"unit\":\"days\"}"
+          },
+          {
+            "input":"follow-up visit after month 6 visit in days, unit: days",
             "output":"{\"domain\":\"visit\", \"base_entity\":\"Follow-up 6 months\",\"unit\":\"days\"}"
           },
           {
@@ -832,6 +836,10 @@
         {
           "input":"hospitalization for diabetes",
           "output":"{\"domain\":\"observation\", \"base_entity\":\"reason for hospitalization\", \"additional_entities\": [\"diabetes\"]}"
+        },
+        {
+          "input":"number of all-cause Hospistalisations",
+          "output":"{\"domain\":\"observation\", \"base_entity\":\"number of hospitalizations\"}"
         },
         {
           "input":"heart failure worsening,categorical values: 1|0",
@@ -1539,7 +1547,7 @@
       },
       {
         "input":"number of hospitalisations and death all-cause",
-        "output":"{\"domain\":\"observation\", \"base_entity\":\"Total event-associated hospitalizations\",\"additional_entities\":[\"death\",\"All causes of morbidity and mortality\"]}"
+        "output":"{\"domain\":\"observation\", \"base_entity\":\"number of hospitalizations\",\"additional_entities\":[\"All causes of morbidity and mortality\"]}"
       },
         {
           "input":"Withdrawal before 12 months,categorical values: 1=yes|0=no",
@@ -4332,8 +4340,8 @@
             },
             {
               "answer": "unsupported standing position",
-              "relationship": "partially relevant",
-              "explanation":"This answer is specific standing position within Orthostatic body position.It is less relevant as it refers to the qualifier 'unsupported' rather than the standing position itself."
+              "relationship": "not relevant",
+              "explanation":"This answer is not relevant as it refers to the unsupported nature of the standing position, not the position itself."
             },
             {
               "answer": "does maintain a standing position",
@@ -4342,8 +4350,8 @@
             },
             {
               "answer": "standing",
-              "relationship": "partially relevant",
-              "explanation": "This answer is partially relevant as it directly mentions 'standing' but lacks the specific context of body position."
+              "relationship": "synonym",
+              "explanation": "This answer is an accurate match as standing body position is interchangeable refered to standing in clinical setting."
             },
             {
               "answer": "standing up",
@@ -6864,13 +6872,13 @@
   
       {
         "answer": "Orthostatic body position",
-        "score": 10,
-        "explanation": "This is an exact match as it refers to the orthostatic body position, which is synonymous with standing."
+        "score": 8,
+        "explanation": "This is a relevant term as it refers to the specific body position of Orthostatic body position."
       },
       {
         "answer": "unsupported standing position",
-        "score": 5,
-        "explanation": "This answer is specific standing position within Orthostatic body position.It is less relevant as it refers to the qualifier 'unsupported' rather than the standing position itself."
+        "score": 2,
+        "explanation": "This answer is specific standing position within Orthostatic body position.It is not relevant as it refers to the specific nature of the standing position."
       },
       {
         "answer": "Does maintain a standing position",
@@ -6879,12 +6887,12 @@
       },
       {
         "answer": "standing",
-        "score": 5,
-        "explanation": "This answer is partially relevant as it refers to the general concept of standing but lacks the specific context of body position."
+        "score": 10,
+        "explanation": "This answer is an exact match as it directly refers to the standing body position."
       },
       {
         "answer": "standing up",
-        "score": 5,
+        "score": 3,
         "explanation": "This answer is partially relevant as it refers to the action of standing up rather than the standing body position."
       },
       {
