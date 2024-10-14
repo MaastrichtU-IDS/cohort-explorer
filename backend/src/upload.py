@@ -220,6 +220,10 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
             # Try to get IDs from old format multiple columns
             df["concept_id"] = df.apply(lambda row: get_id_from_multi_columns(row), axis=1)
 
+        duplicate_variables = df[df.duplicated(subset=["VARIABLE NAME"], keep=False)]
+        if not duplicate_variables.empty:
+            errors.append(f"Duplicate VARIABLE NAME found: {', '.join(duplicate_variables['VARIABLE NAME'].unique())}")
+
         cohort_uri = get_cohort_uri(cohort_id)
         g = init_graph()
         g.add((cohort_uri, RDF.type, ICARE.Cohort, cohort_uri))
@@ -375,24 +379,27 @@ async def upload_cohort(
         )
 
         # NOTE: waiting for more tests before sending to production
-        background_tasks.add_task(generate_mappings, cohort_id, metadata_path, g)
+        # background_tasks.add_task(generate_mappings, cohort_id, metadata_path, g)
         # TODO: move all the "delete_existing_triples" and "publish_graph_to_endpoint" logic to the background task after mappings have been generated
-        # Return "The cohort has been successfully uploaded. The variables are being mapped to standard codes and will be available in the Cohort Explorer in a few minutes."
 
-        # # Delete previous graph for this file from triplestore
-        # delete_existing_triples(
-        #     get_cohort_mapping_uri(cohort_id), f"<{get_cohort_uri(cohort_id)!s}>", "icare:previewEnabled"
-        # )
-        # delete_existing_triples(get_cohort_uri(cohort_id))
-        # publish_graph_to_endpoint(g)
+        # Delete previous graph for this file from triplestore
+        delete_existing_triples(
+            get_cohort_mapping_uri(cohort_id), f"<{get_cohort_uri(cohort_id)!s}>", "icare:previewEnabled"
+        )
+        delete_existing_triples(get_cohort_uri(cohort_id))
+        publish_graph_to_endpoint(g)
     except Exception as e:
         os.remove(metadata_path)
         raise e
 
+    # return {
+    #     "message": f"Metadata for cohort {cohort_id} have been successfully uploaded. The variables are being mapped to standard codes and will be available in the Cohort Explorer in a few minutes.",
+    #     "identifier": cohort_id,
+    #     # **cohort.dict(),
+    # }
     return {
-        "message": f"Metadata for cohort {cohort_id} have been successfully uploaded. The variables are being mapped to standard codes and will be available in the Cohort Explorer in a few minutes.",
+        "message": f"Metadata for cohort {cohort_id} have been successfully uploaded.",
         "identifier": cohort_id,
-        # **cohort.dict(),
     }
 
 def generate_mappings(cohort_id: str, metadata_path: str, g: Graph) -> None:
@@ -524,7 +531,7 @@ def init_triplestore() -> None:
                 # NOTE: default airlock preview to false if we ever need to reset cohorts,
                 # admins can easily ddl and reupload the cohorts with the correct airlock value
                 g = load_cohort_dict_file(file, folder)
-                g.serialize(f"{settings.data_folder}/cohort_explorer_triplestore.trig", format="trig")
+                # g.serialize(f"{settings.data_folder}/cohort_explorer_triplestore.trig", format="trig")
                 if publish_graph_to_endpoint(g):
                     print(f"💾 Triplestore initialization: added {len(g)} triples for cohorts {file}.")
 
