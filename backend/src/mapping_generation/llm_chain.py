@@ -871,6 +871,34 @@ def get_llm_results(prompt, query, documents, max_retries=2, llm=None, llm_name=
     return results_first_half
                 
 
+def evaluate_final_mapping(variable_object: Dict, llm_id: str = "llama3.1"):
+    active_model = LLMManager.get_instance(model=llm_id)
+    human_template = f"""
+    Task: You are tasked with evaluating the correctness of the mapping codes for a variable in a clinical context. The variable represents a measurement or concept that may be composite in nature. Your goal is to assess whether the mapping to standard clinical codes (e.g., SNOMED, LOINC, OMOP) is accurate. Focus only on evaluating the correctness of the mappings, without altering or judging the division of the variable itself. Some variables may not have additional context or unit information, so consider this in your evaluation
+    **Instructions: 
+        * Review the variable object: Evaluate the variable's name, label, domain, Visits and its mapped codes (SNOMED, LOINC, OMOP IDs).
+        * Check the codes: Verify if the provided codes (SNOMED, LOINC, OMOP) accurately reflect the correct clinical concepts.
+        * Assess additional context (if provided): If additional context is present (e.g. visit), confirm that it is accurately captured by the mapped codes.
+        ** Evaluate categories (if present): If category information is provided, ensure that the categories align with the mapped codes and the variable's clinical context.        
+        *Evaluate units (if present): If unit information is provided, ensure that the unit matches the expected unit for this measurement or concept. The absence of unit information may be acceptable for certain variables.
+    **Output Format: Return the result as a single string, with the explanation and final classification on separate lines, structured as follows:
+    ** Explanation: Provide a clear explanation of whether the mapping is correct, partially correct, or incorrect. Include reasoning based on the analysis of the variable and its mapped codes.
+    **Final Classification: Choose one of the following final classifications and return it on a new line:
+            - Correct
+            - Partially Correct
+            - Incorrect
+    Variable : {variable_object}
+    Don't add preamble or additional information. Focus on evaluating the correctness of the mapping codes.
+    """
+    system = "You are a helpful assistant with expertise in semantic web and biomedical domain."
+    prompt = ChatPromptTemplate.from_messages(
+        [("system", system), ("human", human_template)], template_format="mustache"
+    )
+
+    chain = prompt | active_model
+    result = chain.invoke({"variable_object": variable_object}).content
+    return result
+
 def pass_to_chat_llm_chain(
     query, top_candidates, n_prompts=1, threshold=0.8, llm_name="llama", domain=None, prompt_stage: int = 2
 ):
@@ -881,16 +909,6 @@ def pass_to_chat_llm_chain(
         "partially relevant": 6,
         "not relevant": 0,
     }
-    # def calculate_final_score(doc,ranking_scores):
-    #     try:
-    #         normalized_label = create_document_string(doc)
-    #         scores = [int(result['score']) for result in ranking_scores if normalize(result['answer']) == normalized_label]
-    #         final_score = np.mean(scores) if scores else 0
-    #         # logger.info(f"Final Score for {normalized_label}: {final_score}")
-    #         return final_score
-    #     except Exception as e:
-    #         logger.info(f"Error in calculate_final_score: {e}")
-    #         return 0
     try:
         try:
             model = LLMManager.get_instance(llm_name)
