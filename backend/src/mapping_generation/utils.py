@@ -440,6 +440,34 @@ def load_mapping(filename, domain):
         return None, None, None
 
 
+def remove_repeated_phrases(text):
+    words = text.split()
+    result = []
+    seen_phrases = set()
+
+    i = 0
+    while i < len(words):
+        phrase = words[i]
+        # Check if we are at the last word or the next word is not the same phrase
+        if phrase not in seen_phrases:
+            result.append(phrase)
+            seen_phrases.add(phrase)
+        i += 1
+
+    return " ".join(result)
+
+
+def extract_visit_number(visits_string):
+    num_str = ""
+    for char in visits_string:
+        if char.isdigit():
+            num_str += char
+        elif (
+            num_str
+        ):  # Break as soon as we encounter the first non-digit after a number
+            break
+    return int(num_str) if num_str else None
+
 def parse_term(extracted_terms, domain):
     domain = domain.lower() if domain else "all"
     if domain in extracted_terms.keys():
@@ -1218,3 +1246,31 @@ def append_results_to_csv(input_file, results, output_suffix="_mapped.csv") -> N
 
     print(f"File saved: {output_file}")
     return df
+
+def remove_repeated_phrases(text):
+    words = text.split()
+    result = []
+    seen_phrases = set()
+
+    i = 0
+    while i < len(words):
+        phrase = words[i]
+        # Check if we are at the last word or the next word is not the same phrase
+        if phrase not in seen_phrases:
+            result.append(phrase)
+            seen_phrases.add(phrase)
+        i += 1
+
+    return " ".join(result)
+
+
+def extract_visit_number(visits_string):
+    num_str = ""
+    for char in visits_string:
+        if char.isdigit():
+            num_str += char
+        elif (
+            num_str
+        ):  # Break as soon as we encounter the first non-digit after a number
+            break
+    return int(num_str) if num_str else None

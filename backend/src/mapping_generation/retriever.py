@@ -258,14 +258,16 @@ def process_values(main_term, values, retriever, llm, domain=None, values_type="
                 ):
                     all_values[q_value] = post_process_candidates(matched_docs, max=1)
                 elif categorical_value_results and len(categorical_value_results) > 0:
-                    if values_type == "additional":
-                        q_value_ = f"{q_value}, context={main_term}"
+                    if values_type == 'additional':
+                            q_value_ = f"{q_value}, context: {main_term}" 
+                    else:
+                            q_value_ = q_value
                     updated_results, _ = pass_to_chat_llm_chain(
                         q_value_, categorical_value_results, llm_name=llm, domain=domain
                     )
                     if updated_results:
                         all_values[q_value] = post_process_candidates(updated_results, max=1)
-            elif values_type == "categories":
+        elif values_type == "categories":
                 all_values[q_value] = [
                     RetrieverResultsModel(standard_label="na", standard_code=None, standard_omop_id=None, vocab=None)
                 ]

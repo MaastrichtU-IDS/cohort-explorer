@@ -19,7 +19,7 @@ from .graph_omop import *
 from .param import *
 from .py_model import QueryDecomposedModel
 from .utils import global_logger as logger
-from .utils import load_docs_from_jsonl, normalize, save_docs_to_jsonl
+from .utils import load_docs_from_jsonl, normalize, save_docs_to_jsonl, remove_duplicates, remove_repeated_phrases, extract_visit_number
 
 
 def clean_text(text):
@@ -80,79 +80,142 @@ def custom_data_loader(source_path):
     docs = []
 
     # Iterate through the rows with a progress bar
-    for index, row in tqdm(data.iterrows(), total=data.shape[0], desc='Retrieving input data'):
-        try:
-            # Extract and process the 'VARIABLE LABEL' field
-            # print(f"Row: {row}")
-            label = str(row.get('VARIABLE LABEL', '')).lower().strip() if pd.notna(row.get('VARIABLE LABEL')) else None
-            name = str(row.get('VARIABLE NAME', '')).lower().strip() if pd.notna(row.get('VARIABLE NAME')) else None
-            if not label or not name:
-                print(f"Row {index} has an empty 'VARIABLE LABEL'. Skipping.")
-                continue
-            defintion_raw = row.get('Definition', None)
-            definition = str(defintion_raw).lower().strip() if pd.notna(defintion_raw) else None
-            if definition:
-                label = f"{label}, definition is '{definition}'"
-            # Handle 'CATEGORICAL' field
-            categorical_raw = row.get('CATEGORICAL', None)
-            if pd.notna(categorical_raw) and str(categorical_raw).strip():
-                categories = str(categorical_raw).lower().strip().replace(',', '|').split("|")
-            else:
-                categories = None
-            visits = None
-            # Handle 'UNITS' field
-            unit_raw = row.get('UNITS', None)
-            unit = str(unit_raw).lower().strip() if pd.notna(unit_raw) else None
-            visits_raw = row.get('Visits', None)
-            visits = str(visits_raw).lower().strip() if pd.notna(visits_raw) else None
-            if visits and ('visit' not in label and 'baseline' not in label and 'month' not in label):
-                if 'visit' not in visits and 'baseline' not in visits:
-                    visits = f"visit {visits}"
-                visits = f"at {visits}"
-            # Handle 'Formula' field
-            formula_raw = row.get('Formula', None)
-            formula = str(formula_raw).lower().strip() if pd.notna(formula_raw) else None
+    for index, row in tqdm(
+            data.iterrows(), total=data.shape[0], desc="Retrieving input data"
+        ):
+            try:
+                # Extract and process the 'VARIABLE LABEL' field
+                # print(f"Row: {row}")
+                label = (
+                    str(row.get("VARIABLE LABEL", "")).lower().strip()
+                    if pd.notna(row.get("VARIABLE LABEL"))
+                    else None
+                )
+                name = (
+                    str(row.get("VARIABLE NAME", "")).lower().strip()
+                    if pd.notna(row.get("VARIABLE NAME"))
+                    else None
+                )
+                if not label or not name:
+                    print(f"Row {index} has an empty 'VARIABLE LABEL'. Skipping.")
+                    continue
+                defintion_raw = row.get("Definition", None)
+                definition = (
+                    str(defintion_raw).lower().strip() if pd.notna(defintion_raw) else None
+                )
+                if definition:
+                    label = f"{label}, definition is '{definition}'"
 
-            # Construct the 'full_query' string
-            full_query = label
-            if visits:
-                full_query += f" {visits}"
-            if categories:
-                full_query += f", categorical values: {'|'.join(categories)}"
-            if unit:
-                full_query += f", unit: {unit}"
-            if formula:
-                full_query += f", formula: {formula}"
-            
-            base_entity = f"{label} {formula}" if formula else label
-            base_entity = f"{base_entity} {visits}" if visits else base_entity
-            # Create a dictionary for the QueryDecomposedModel
-            query_dict = {
-                'name':name,
-                'full_query': full_query,
-                'base_entity':base_entity,
-                'categories': categories,
-                'unit': unit,
-                'formula': formula,
-                'domain': 'all',
-                'rel': None,
-                'original_label': label
-            }
-            # print(f"Query Dict: {query_dict}")
-            # Instantiate the QueryDecomposedModel
-            query_model = QueryDecomposedModel(**query_dict)
+                # Handle 'CATEGORICAL' field
+                categorical_raw = row.get("CATEGORICAL", None)
+                if pd.notna(categorical_raw) and str(categorical_raw).strip():
+                    categories = (
+                        str(categorical_raw).lower().strip().replace(",", "|").split("|")
+                    )
+                else:
+                    categories = None
+                visits = None
+                # Handle 'UNITS' field
+                unit_raw = row.get("UNITS", None)
+                unit = str(unit_raw).lower().strip() if pd.notna(unit_raw) else None
 
-            # Append the result as a tuple (index, query_model)
-            docs.append((index, query_model))
+                visits_raw = row.get("Visits", None)
+                visits = str(visits_raw).lower().strip() if pd.notna(visits_raw) else None
+                if visits and (
+                    "visit" not in label
+                    and "baseline" not in label
+                    and "month" not in label
+                ):
+                    if "baseline" in visits:
+                        visits = remove_repeated_phrases(visits.strip().lower())
+                        visits = (
+                            visits.replace("month 0/ baseline", "baseline time")
+                            .replace("month 0 / baseline", "baseline time")
+                            .replace("month 0/baseline", "baseline time")
+                            .replace("visit/month 0", "baseline time")
+                            .replace("baseline visit / month 0", "baseline time")
+                            .replace("first visit", "baseline time")
+                            .replace("baseline visit", "baseline time")
+                            .replace("baseline/month 0", "baseline time")
+                            .replace("visit 0", "baseline time")
+                            .replace("month 0", "baseline time")
+                        )
+                    else:
+                        visitnum = extract_visit_number(visits)
+                        if visitnum and visitnum > 0 and "follow-up" not in visits:
+                            visits = f"follow-up {visits}"
+                    visits = f"at {visits}"
+                else:
+                    visits = None
+                    if (
+                        "date of baseline visit" not in label
+                        or "date of first visit" not in label
+                    ):
+                        label = (
+                            label.replace("month 0/ baseline", "baseline time")
+                            .replace("at baseline", "at baseline time")
+                            .replace("month 0 / baseline", "baseline time")
+                            .replace("month 0/baseline", "baseline time")
+                            .replace("visit/month 0", "baseline time")
+                            .replace("baseline visit / month 0", "baseline time")
+                            .replace("first visit", "baseline time")
+                            .replace("baseline visit", "baseline time")
+                            .replace("baseline/month 0", "baseline time")
+                            .replace("visit 0", "baseline time")
+                            .replace("month 0", "baseline time")
+                        )
+                        visitnum = extract_visit_number(label)
+                        if visitnum and visitnum > 0 and "follow-up" not in label:
+                            label = f"{label} follow-up"
+                # Handle 'Formula' field
+                formula_raw = row.get("Formula", None)
+                formula = (
+                    str(formula_raw).lower().strip() if pd.notna(formula_raw) else None
+                )
 
-        except ValidationError as ve:
-            # Handle validation errors from Pydantic
-            print(f"Validation error in row {index}: {ve}")
-        except Exception as ex:
-            # Handle any other unexpected errors
-            print(f"Unexpected error in row {index}: {ex}")
+                # Construct the 'full_query' string
+                full_query = label
+                if visits:
+                    full_query += f" {visits}"
+                if categories:
+                    full_query += f", categorical values: {'|'.join(categories)}"
+                if unit:
+                    full_query += f", unit: {unit}"
+                if formula:
+                    full_query += f", formula: {formula}"
+                full_query = remove_repeated_phrases(full_query)
+                base_entity = (
+                    f"{label} calculated with formula:{formula}" if formula else label
+                )
+                base_entity = f"{base_entity} {visits}" if visits else base_entity
+                # Create a dictionary for the QueryDecomposedModel
+                query_dict = {
+                    "name": name,
+                    "full_query": full_query,
+                    "base_entity": base_entity,
+                    "categories": categories,
+                    "unit": unit,
+                    "formula": formula,
+                    "domain": "all",
+                    "rel": None,
+                    "original_label": label,
+                }
+                print(f"Query Dict: {query_dict}")
+                # Instantiate the QueryDecomposedModel
+                query_model = QueryDecomposedModel(**query_dict)
+
+                # Append the result as a tuple (index, query_model)
+                docs.append((index, query_model))
+
+            except ValidationError as ve:
+                # Handle validation errors from Pydantic
+                print(f"Validation error in row {index}: {ve}")
+            except Exception as ex:
+                # Handle any other unexpected errors
+                print(f"Unexpected error in row {index}: {ex}")
 
     return docs, is_mapped
+
 
 STOP_WORDS = [
     "stop",
