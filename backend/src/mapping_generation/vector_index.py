@@ -1,6 +1,7 @@
 # !/usr/bin/env python3
 # from langchain.schema import Document
 import argparse
+from math import e
 import time
 
 import qdrant_client.http.models as rest
@@ -83,6 +84,26 @@ def _create_payload_index(client, collection_name) -> None:
     #                 field_name="metadata.concept_class",
     #                 wait=True
     #             )
+
+
+def update_compressed_merger_retriever(
+    merger_retriever: CustomCompressionRetriever, domain="all", topk=10
+) -> CustomCompressionRetriever:
+    try:
+        retrievers = merger_retriever.base_retriever.retrievers
+        api_retriever = update_api_search_filter(
+            retrievers[1].base_retriever, domain=domain, topk=topk
+        )
+        dense_retriever = update_qdrant_search_filter(
+            retrievers[0], domain=domain, topk=topk
+        )
+        merger_retriever = CustomMergeRetriever(
+            retrievers=[dense_retriever, api_retriever]
+        )
+        return set_compression_retriever(merger_retriever)
+    except Exception as e:
+        logger.info(f"Error updating merger retriever: {e}")
+        return merger_retriever
 
 
 def generate_vector_index(
