@@ -1,3 +1,4 @@
+import logging
 import os
 from dataclasses import dataclass, field
 
@@ -64,9 +65,20 @@ class Settings:
     def admins_list(self) -> list[str]:
         return self.admins.split(",")
 
+    @property
+    def logs_filepath(self) -> str:
+        return os.path.join(settings.data_folder, "logs.log")
+
 
 settings = Settings()
 
+# Disable uvicorn logs, does not seems to really do much
+uvicorn_error = logging.getLogger("uvicorn.error")
+uvicorn_error.disabled = True
+uvicorn_access = logging.getLogger("uvicorn.access")
+uvicorn_access.disabled = True
+
+logging.basicConfig(filename=settings.logs_filepath, level=logging.INFO, format="%(asctime)s - %(message)s")
 
 # import warnings
 
