@@ -1247,6 +1247,41 @@ def append_results_to_csv(input_file, results, output_suffix="_mapped.csv") -> N
     print(f"File saved: {output_file}")
     return df
 
+
+def convert_db_result(result) -> RetrieverResultsModel:
+    #  dict must have four elemenets according to sql query result if a component of query is found as subset of variable standard_omop_id
+    resut_dict = {
+        "standard_label": str(result[1]),
+        "standard_code": str(result[2]),
+        "standard_omop_id": str(result[3]),
+        "score": 10.0,
+        "domain": "",
+        "vocab": "",
+    }
+    return [RetrieverResultsModel(**resut_dict)]
+
+def create_result_dict(tuple_item):
+    result = {
+        "VARIABLE NAME": tuple_item[0],
+        "VARIABLE LABEL": tuple_item[1],
+        "Domain": tuple_item[2],
+        "Variable Concept Label": tuple_item[3],
+        "Variable Concept Code": tuple_item[4],
+        "Variable Concept OMOP ID": tuple_item[5],
+        "Additional Context Concept Label": tuple_item[6],
+        "Additional Context Concept Code": tuple_item[7],
+        "Additional Context OMOP ID": tuple_item[8],
+        "Primary to Secondary Context Relationship": tuple_item[9],
+        "Categorical Values Concept Label": tuple_item[10],
+        "Categorical Values Concept Code": tuple_item[11],
+        "Categorical Values Concept OMOP ID": tuple_item[12],
+        "Unit Concept Label": tuple_item[13],
+        "Unit Concept Code": tuple_item[14],
+        "Unit OMOP ID": tuple_item[15],
+    }
+    print(f"EXISTING MAPPING RESULT={result}")
+    return result
+
 def remove_repeated_phrases(text):
     words = text.split()
     result = []

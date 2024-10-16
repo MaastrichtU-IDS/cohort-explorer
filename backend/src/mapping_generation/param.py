@@ -13,6 +13,7 @@ SYN_COLLECTION_NAME = "concept_mapping_1"
 NEAREST_SAMPLE_NUM = 64
 QUANT_TYPE = "scalar"
 LLM_ID = "gpt-4o-mini"  #'llama3.1'
+DB_FILE  = 'variables.db'
 CANDIDATE_GENERATOR_BATCH_SIZE = 64
 CACHE_DIR = f"{DATA_DIR}/resources/models"
 LLAMA_CACHE_DIR = f"{DATA_DIR}/resources/models/llama"
