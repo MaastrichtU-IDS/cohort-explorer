@@ -6,7 +6,7 @@ from langchain_groq import ChatGroq
 from langchain_huggingface import HuggingFaceEndpoint
 from langchain_openai import ChatOpenAI
 from langchain_together import ChatTogether
-
+from langchain_ollama import ChatOllama
 from .utils import global_logger as logger
 
 
@@ -97,6 +97,13 @@ class LLMManager:
             elif model == "gpt-4o":
                 active_model = ChatOpenAI(
                     model="gpt-4o", temperature=0, timeout=None, openai_api_key=my_openai_key, organization=my_org_id
+                )
+
+            elif model == "local_llama3.1":
+                active_model = ChatOllama(
+                    base_url="http://ollama:11434",  # Ollama server endpoint
+                    model="llama3.1:70b",
+                    temperature=0,
                 )
             elif model == "gpt-4o-mini":
                 active_model = ChatOpenAI(
