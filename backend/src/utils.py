@@ -1,3 +1,4 @@
+import logging
 from typing import Any
 
 import curies
@@ -15,7 +16,6 @@ query_endpoint = SPARQLWrapper(settings.query_endpoint)
 query_endpoint.setReturnFormat(JSON)
 
 converter = curies.get_bioregistry_converter()
-
 
 def init_graph(default_graph: str | None = None) -> Dataset:
     """Initialize a new RDF graph for nquads with the iCARE4CVD namespace bindings."""
@@ -123,70 +123,73 @@ def retrieve_cohorts_metadata(user_email: str) -> dict[str, Cohort]:
     results = run_query(get_variables_query)["results"]["bindings"]
     cohorts_with_variables = {}
     cohorts_without_variables = {}
-    print(f"Get cohorts metadata query results: {len(results)}")
+    logging.info(f"Get cohorts metadata query results: {len(results)}")
     for row in results:
-        cohort_id = str(row["cohortId"]["value"])
-        var_id = str(row["varName"]["value"]) if "varName" in row else None
-        # Determine which dictionary to use
-        target_dict = cohorts_with_variables if var_id else cohorts_without_variables
+        try:
+            cohort_id = str(row["cohortId"]["value"])
+            var_id = str(row["varName"]["value"]) if "varName" in row else None
+            # Determine which dictionary to use
+            target_dict = cohorts_with_variables if var_id else cohorts_without_variables
 
-        # Initialize cohort data structure if not exists
-        if cohort_id and cohort_id not in target_dict:
-            target_dict[cohort_id] = Cohort(
-                cohort_id=row["cohortId"]["value"],
-                cohort_type=get_value("cohortType", row),
-                cohort_email=[get_value("cohortEmail", row)] if get_value("cohortEmail", row) else [],
-                # owner=get_value("owner", row),
-                institution=get_value("cohortInstitution", row),
-                study_type=get_value("study_type", row),
-                study_participants=get_value("study_participants", row),
-                study_duration=get_value("study_duration", row),
-                study_ongoing=get_value("study_ongoing", row),
-                study_population=get_value("study_population", row),
-                study_objective=get_value("study_objective", row),
-                variables={},
-                airlock=get_bool_value("airlock", row),
-                can_edit=user_email in [*settings.admins_list, get_value("cohortEmail", row)],
-            )
-        elif get_value("cohortEmail", row) not in target_dict[cohort_id].cohort_email:
-            # Handle multiple emails for the same cohort
-            target_dict[cohort_id].cohort_email.append(get_value("cohortEmail", row))
-            if user_email == get_value("cohortEmail", row):
-                target_dict[cohort_id].can_edit = True
+            # Initialize cohort data structure if not exists
+            if cohort_id and cohort_id not in target_dict:
+                target_dict[cohort_id] = Cohort(
+                    cohort_id=row["cohortId"]["value"],
+                    cohort_type=get_value("cohortType", row),
+                    cohort_email=[get_value("cohortEmail", row)] if get_value("cohortEmail", row) else [],
+                    # owner=get_value("owner", row),
+                    institution=get_value("cohortInstitution", row),
+                    study_type=get_value("study_type", row),
+                    study_participants=get_value("study_participants", row),
+                    study_duration=get_value("study_duration", row),
+                    study_ongoing=get_value("study_ongoing", row),
+                    study_population=get_value("study_population", row),
+                    study_objective=get_value("study_objective", row),
+                    variables={},
+                    airlock=get_bool_value("airlock", row),
+                    can_edit=user_email in [*settings.admins_list, get_value("cohortEmail", row)],
+                )
+            elif get_value("cohortEmail", row) not in target_dict[cohort_id].cohort_email:
+                # Handle multiple emails for the same cohort
+                target_dict[cohort_id].cohort_email.append(get_value("cohortEmail", row))
+                if user_email == get_value("cohortEmail", row):
+                    target_dict[cohort_id].can_edit = True
 
-        # Process variables
-        if "varName" in row and var_id not in target_dict[cohort_id].variables:
-            target_dict[cohort_id].variables[var_id] = CohortVariable(
-                var_name=row["varName"]["value"],
-                var_label=row["varLabel"]["value"],
-                var_type=row["varType"]["value"],
-                count=int(row["count"]["value"]),
-                max=get_value("max", row),
-                min=get_value("min", row),
-                units=get_value("units", row),
-                visits=get_value("visits", row),
-                formula=get_value("formula", row),
-                definition=get_value("definition", row),
-                concept_id=get_curie_value("conceptId", row),
-                mapped_id=get_curie_value("mappedId", row),
-                mapped_label=get_value("mappedLabel", row),
-                omop_domain=get_value("omopDomain", row),
-                index=get_int_value("index", row),
-                na=get_int_value("na", row) or 0,
-            )
+            # Process variables
+            if "varName" in row and var_id not in target_dict[cohort_id].variables:
+                target_dict[cohort_id].variables[var_id] = CohortVariable(
+                    var_name=row["varName"]["value"],
+                    var_label=row["varLabel"]["value"],
+                    var_type=row["varType"]["value"],
+                    count=int(row["count"]["value"]),
+                    max=get_value("max", row),
+                    min=get_value("min", row),
+                    units=get_value("units", row),
+                    visits=get_value("visits", row),
+                    formula=get_value("formula", row),
+                    definition=get_value("definition", row),
+                    concept_id=get_curie_value("conceptId", row),
+                    mapped_id=get_curie_value("mappedId", row),
+                    mapped_label=get_value("mappedLabel", row),
+                    omop_domain=get_value("omopDomain", row),
+                    index=get_int_value("index", row),
+                    na=get_int_value("na", row) or 0,
+                )
+            # raise Exception(f"OLALALA")
 
-        # Process categories of variables
-        if "varName" in row and "categoryLabel" in row and "categoryValue" in row:
-            new_category = VariableCategory(
-                value=str(row["categoryValue"]["value"]),
-                label=str(row["categoryLabel"]["value"]),
-                concept_id=get_curie_value("categoryConceptId", row),
-                mapped_id=get_curie_value("categoryMappedId", row),
-                mapped_label=get_value("categoryMappedLabel", row),
-            )
-            # Check for duplicates before appending
-            if new_category not in target_dict[cohort_id].variables[var_id].categories:
-                target_dict[cohort_id].variables[var_id].categories.append(new_category)
-
+            # Process categories of variables
+            if "varName" in row and "categoryLabel" in row and "categoryValue" in row:
+                new_category = VariableCategory(
+                    value=str(row["categoryValue"]["value"]),
+                    label=str(row["categoryLabel"]["value"]),
+                    concept_id=get_curie_value("categoryConceptId", row),
+                    mapped_id=get_curie_value("categoryMappedId", row),
+                    mapped_label=get_value("categoryMappedLabel", row),
+                )
+                # Check for duplicates before appending
+                if new_category not in target_dict[cohort_id].variables[var_id].categories:
+                    target_dict[cohort_id].variables[var_id].categories.append(new_category)
+        except Exception as e:
+            logging.warning(f"Error processing row {row}: {e}")
     # Merge dictionaries, cohorts with variables first
     return {**cohorts_with_variables, **cohorts_without_variables}

@@ -73,17 +73,23 @@ class LLMManager:
                 #     temperature=0,
                 # )
             elif model == "llama3.1":
-                active_model = ChatGroq(temperature=0,groq_api_key=groq_api, model="llama-3.1-70b-versatile",max_retries=3)
-                # active_model = ChatTogether(
-                #     temperature=0,
-                #     together_api_key=togather_api,
-                #     model="meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo",
-                #     max_retries=3,
-                #     verbose=True,
-                # )  # only 12 request for free tier to switch to groq --- Add Groq API key
+                # active_model = ChatGroq(temperature=0,groq_api_key=groq_api, model="llama-3.1-70b-versatile",max_retries=3)
+                active_model = ChatTogether(
+                    temperature=0,
+                    together_api_key=togather_api,
+                    model="meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo",
+                    max_retries=3,
+                    verbose=True,
+                )  # only 12 request for free tier to switch to groq --- Add Groq API key
+
                 # active_model = ChatOllama(
                 #     base_url="http://ollama:11434",  # Ollama server endpoint
                 #     model="llama3.2",
+                #     temperature=0,
+                # )
+                # active_model = ChatOllama(
+                #     base_url="http://ollama:11434",  # Ollama server endpoint
+                #     model="llama3.1:70b",
                 #     temperature=0,
                 # )
             elif model == "gpt4":
@@ -159,7 +165,7 @@ from langchain_community.embeddings import FastEmbedEmbeddings
 
 class CustomSemanticSimilarityExampleSelector(SemanticSimilarityExampleSelector):
     """Custom Selector to check for existing vector store before creating a new one."""
-    
+
     @classmethod
     def from_examples(
         cls,
@@ -174,10 +180,10 @@ class CustomSemanticSimilarityExampleSelector(SemanticSimilarityExampleSelector)
         selector_path: Optional[str] = None,
         content_key: Optional[str] = None,
         **vectorstore_cls_kwargs: Any,) -> 'CustomSemanticSimilarityExampleSelector':
-        
+
         if selector_path is None:
                 selector_path = f'../data/faiss_index_{content_key}'
-                
+
         if os.path.exists(selector_path):
             print(f"Selector path exist: {selector_path}")
                         # Load the existing FAISS index
@@ -196,17 +202,17 @@ class CustomSemanticSimilarityExampleSelector(SemanticSimilarityExampleSelector)
             example_keys=example_keys,
             vectorstore_kwargs=vectorstore_kwargs,
         )
-        
+
 class ExampleSelectorManager:
     _lock = threading.Lock()
     _selectors = {}
 
-    
+
     @staticmethod
     def get_example_selector(context_key: str, examples: List[Dict[str, str]], k=4, score_threshold=0.6, selector_path=None):
         """
         Retrieves or creates a singleton example selector based on a context key.
-        
+
         Args:
             context_key (str): A unique key to identify the selector configuration.
             examples (List[Dict[str, str]]): List of example dictionaries.
@@ -218,7 +224,7 @@ class ExampleSelectorManager:
         Returns:
             SemanticSimilarityExampleSelector: An initialized example selector.
         """
-        
+
         with ExampleSelectorManager._lock:
             if context_key not in ExampleSelectorManager._selectors:
                 try:
@@ -231,7 +237,7 @@ class ExampleSelectorManager:
                     # Initialize the selector using the vector store
                     selector = CustomSemanticSimilarityExampleSelector.from_examples(
                             examples=examples,
-                            embeddings=embedding, 
+                            embeddings=embedding,
                             vectorstore_cls=FAISS,
                             k=k,
                             vectorstore_kwargs={"fetch_k": 40, "lambda_mult": 0.5},
@@ -240,7 +246,7 @@ class ExampleSelectorManager:
                     )
                     ExampleSelectorManager._selectors[context_key] = selector
                     logger.info(f"Example selector initialized for context: {context_key}." )
-                    
+
                 except Exception as e:
                     logger.error(f"Error initializing example selector for {context_key}: {e}", exc_info=True)
                     raise

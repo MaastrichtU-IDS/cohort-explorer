@@ -220,8 +220,8 @@ def init_logger(log_file_path=LOG_FILE) -> logging.Logger:
     logger = logging.getLogger(__name__)
     logger.setLevel(logging.DEBUG)  # Set the logging level to DEBUG
     # Create a file handler
-    # file_handler = logging.FileHandler(log_file_path)
-    # file_handler.setLevel(logging.DEBUG)  # Set the logging level for the file handler
+    file_handler = logging.FileHandler(log_file_path)
+    file_handler.setLevel(logging.DEBUG)  # Set the logging level for the file handler
 
     # Create a stream handler (to print to console)
     stream_handler = logging.StreamHandler()
@@ -233,7 +233,7 @@ def init_logger(log_file_path=LOG_FILE) -> logging.Logger:
     stream_handler.setFormatter(formatter)
 
     # Add the handlers to the logger
-    # logger.addHandler(file_handler)
+    logger.addHandler(file_handler)
     logger.addHandler(stream_handler)
 
     return logger
@@ -355,7 +355,7 @@ def save_to_csv(data, filename):
             'Unit Concept Code': row.get('Unit Concept Code', ''),
             'Unit OMOP ID': row.get('Unit OMOP ID', ''),
         }
-        
+
         # Combine fields
         # label_ids = '|'.join(filter(None, [row.get('standard_concept_id'), row.get('additional_context_omop_ids')]))
         # label_codes = '|'.join(filter(None, [row.get('standard_code'), row.get('additional_context_codes')]))
@@ -419,7 +419,6 @@ def load_mapping(filename, domain):
 
         if not mapping:
             return None, ranking_examples_string, relevance_examples_string
-
         return (
             {
                 "prompt": mapping.get("description", "No description provided."),

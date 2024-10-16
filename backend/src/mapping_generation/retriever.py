@@ -16,19 +16,18 @@ from .utils import (
     post_process_candidates,
     exact_match_found,
     filter_irrelevant_domain_candidates,
+    init_logger,
 )
 from .utils import global_logger as logger
 from .datamanager import DataManager
+import os
 from .vector_index import (
     update_compressed_merger_retriever,
     generate_vector_index,
     initiate_api_retriever,
     set_merger_retriever,
     set_compression_retriever,
-    
 )
-
-
 
 
 # Cache for retrievers based on domain
@@ -124,7 +123,7 @@ def full_query_processing(
     except Exception as e:
         logger.error(f"Error full processing query: {e}", exc_info=True)
         return {}
-    
+
 
 def temp_process_query_details_db(
     llm_query_obj: QueryDecomposedModel,
@@ -929,7 +928,7 @@ def filter_results(query, results):
 #                     all_values[q_value] = post_process_candidates(matched_docs, max=1)
 #                 elif categorical_value_results and len(categorical_value_results) > 0:
 #                     if values_type == 'additional':
-#                             q_value_ = f"{q_value}, context: {main_term}" 
+#                             q_value_ = f"{q_value}, context: {main_term}"
 #                     else:
 #                             q_value_ = q_value
 #                     updated_results, _ = pass_to_chat_llm_chain(
@@ -1004,6 +1003,11 @@ def map_csv_to_standard_codes(meta_path: str):
     data, is_mapped = load_data(meta_path, load_custom=True)
     if is_mapped:
         return data
+
+    cohort_folder = os.path.dirname(meta_path)
+    mapping_logger = init_logger(os.path.join(cohort_folder, "mapping_generation.log"))
+    mapping_logger.info(f"Logging mapping generation for {meta_path}")
+    # TODO: improve logging so that all logs are saved to a file named `mapping_generation.log` in the cohort_folder
     embeddings = SAPEmbeddings()
     sparse_embeddings = FastEmbedSparse(model_name="Qdrant/bm42-all-minilm-l6-v2-attentions")
     hybrid_search = generate_vector_index(

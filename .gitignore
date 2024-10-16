@@ -10,3 +10,4 @@ uv.lock
 __pycache__
 
 *.jar
+backend/variables.db
