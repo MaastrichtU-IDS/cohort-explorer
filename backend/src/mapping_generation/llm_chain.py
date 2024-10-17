@@ -493,7 +493,7 @@ def extract_information(query, model_name=LLM_ID, prompt=None):
                 )
                 result["rel"] = rel
                 result["full_query"] = query
-                print(f"extract_information result={result}")
+                print(f"extract information result after fixing={result}")
                 return QueryDecomposedModel(**result)
 
             except ValidationError as e:
@@ -507,7 +507,7 @@ def extract_information(query, model_name=LLM_ID, prompt=None):
             )
             result["rel"] = rel
             result["full_query"] = query
-            print(f"extract_information result={result}")
+            print(f"extract information result={result}")
             return QueryDecomposedModel(**result)
         # except Exception as e:
         #     logger.info(f"Error in prompt:{e}")
@@ -928,7 +928,7 @@ def pass_to_chat_llm_chain(
         link_predictions_results = []
 
         for _ in range(n_prompts):  # Assume n_prompts is 3
-            ranking_prompt = generate_ranking_prompt(query=query,domain=domain,in_context=False)
+            ranking_prompt = generate_ranking_prompt(query=query,domain=domain,in_context=True)
             ranking_results =  get_llm_results(prompt=ranking_prompt, query=query, documents=documents, llm=model,llm_name=llm_name)
             if ranking_results:
                 ranking_scores.extend(ranking_results)
@@ -938,7 +938,7 @@ def pass_to_chat_llm_chain(
                         logger.info(f"Exact match found in Ranking: {result['answer']} = {exact_match_found_rank}. Does it exist in original documents={result['answer'] in documents}")
             link_predictions_results = []
             if prompt_stage == 2:
-                link_prediction_prompt = generate_link_prediction_prompt(query, documents,domain=domain,in_context=False)
+                link_prediction_prompt = generate_link_prediction_prompt(query, documents,domain=domain,in_context=True)
                 lp_results =  get_llm_results(prompt=link_prediction_prompt, query=query, documents=documents, llm=model,llm_name=llm_name)
                 if lp_results:
                     for res in lp_results:

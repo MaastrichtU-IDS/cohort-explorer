@@ -217,6 +217,8 @@ def save_json_data(file_path, data):
 
 def init_logger(log_file_path=LOG_FILE) -> logging.Logger:
     # Create a logger
+    if not os.path.exists(os.path.dirname(log_file_path)):
+        os.makedirs(os.path.dirname(log_file_path))
     logger = logging.getLogger(__name__)
     logger.setLevel(logging.DEBUG)  # Set the logging level to DEBUG
     # Create a file handler

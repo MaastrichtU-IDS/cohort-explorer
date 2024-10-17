@@ -60,6 +60,7 @@ dependencies = [
     "faiss-cpu",
     "langchain-together",
     "simstring-fast",
+    "langchain_ollama",
     "langchain_huggingface",
     "langchain_groq",
     "fastembed",

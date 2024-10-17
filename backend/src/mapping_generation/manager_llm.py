@@ -229,6 +229,7 @@ class ExampleSelectorManager:
             if context_key not in ExampleSelectorManager._selectors:
                 try:
                     if selector_path is None:
+                        
                         selector_path = f'../data/faiss_index_{context_key}'
                         os.makedirs(os.path.dirname(selector_path), exist_ok=True)  # Create the directory if it doesn't exist
                     # Initialize the embeddings
