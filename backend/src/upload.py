@@ -164,25 +164,6 @@ COLUMNS_LIST = [
     "Visits",
 ]
 ACCEPTED_DATATYPES = ["STR", "FLOAT", "INT", "DATETIME"]
-# Old multiple column format for concept codes:
-ID_COLUMNS_NAMESPACES = {"ICD-10": "icd10", "SNOMED-CT": "snomedct", "ATC-DDD": "atc", "LOINC": "loinc"}
-
-
-def get_id_from_multi_columns(row):
-    """Old format to pass concepts URIs from the ID provided in the various columns of the data dictionary (ICD-10, ATC, SNOMED...)"""
-    uris_list = []
-
-    for column in ID_COLUMNS_NAMESPACES:
-        if row[column]:
-            if "," in str(row[column]):  # Handle list of IDs separated by comma
-                ids = str(row[column]).split(",")
-                uris_list.extend(
-                    [converter.expand(f"{ID_COLUMNS_NAMESPACES[column]}:{identif.strip()}") for identif in ids]
-                )
-            else:
-                uris_list.append(converter.expand(f"{ID_COLUMNS_NAMESPACES[column]}:{str(row[column]).strip()}"))
-    return ", ".join(uris_list)
-
 
 def to_camelcase(s: str) -> str:
     s = sub(r"(_|-)+", " ", s).title().replace(" ", "")
@@ -215,11 +196,8 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
 
         # TODO: handle columns from Komal that maps variables:
         # Variable Concept Label,Variable Concept Code,Variable Concept OMOP ID,DOMAIN,Additional Context Concept Label,Additional Context Concept Code,Additional Context OMOP ID,Primary to Secondary Context Relationship,Categorical Values Concept Label,Categorical Values Concept Code,Categorical Values Concept OMOP ID,Unit Concept Label,Unit Concept Code,Unit OMOP ID
-        if "Label Concept Code" in df.columns:
-            df["concept_id"] = df.apply(lambda row: str(row["Label Concept Code"]).strip(), axis=1)
-        else:
-            # Try to get IDs from old format multiple columns
-            df["concept_id"] = df.apply(lambda row: get_id_from_multi_columns(row), axis=1)
+        # if "Variable Concept Code" in df.columns:
+        #     df["concept_id"] = df.apply(lambda row: str(row["Variable Concept Code"]).strip(), axis=1)
 
         duplicate_variables = df[df.duplicated(subset=["VARIABLE NAME"], keep=False)]
         if not duplicate_variables.empty:
@@ -238,7 +216,6 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
                 errors.append(
                     f"Row {i+2} for variable `{row['VARIABLE NAME']}` is using a wrong datatype: `{row['VAR TYPE']}`. It should be one of: {', '.join(ACCEPTED_DATATYPES)}"
                 )
-            # TODO: raise error when duplicate value for VARIABLE LABEL?
 
             # Create a URI for the variable
             variable_uri = get_var_uri(cohort_id, row["VARIABLE NAME"])
@@ -301,6 +278,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
                 detail="\n\n".join(errors),
             )
     except Exception as e:
+        print(e)
         raise HTTPException(
             status_code=422,
             detail=str(e)[5:],
