@@ -208,6 +208,9 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
         g.add((cohort_uri, RDF.type, ICARE.Cohort, cohort_uri))
         g.add((cohort_uri, DC.identifier, Literal(cohort_id), cohort_uri))
 
+        # Make sure variable types are all uppercase
+        df["VAR TYPE"] = df.apply(lambda row: str(row["VAR TYPE"]).upper(), axis=1)
+
         for i, row in df.iterrows():
             # Check if required columns are present
             if not row["VARIABLE NAME"] or not row["VARIABLE LABEL"] or not row["VAR TYPE"] or not row["COUNT"]:
