@@ -1463,7 +1463,15 @@
           },
           {
             "input":"nyha iii or higher at baseline,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"condition\", \"base_entity\":\"New York Heart Association Classification\", \"categories\": [\"yes\",\"no\"], \"additional_entities\":[\">\",\"Heart failure NYHA class III\",\"baseline time\"]}"
+            "output":"{\"domain\":\"condition\", \"base_entity\":\"New York Heart Association Classification\", \"additional_entities\":[\"Class III\",\"baseline time\"],\"categories\": [\"yes\",\"no\"]}"
+          },
+          {
+            "input":"nyha iv or higher at baseline,categorical values: 1=yes | 0=no",
+            "output":"{\"domain\":\"condition\", \"base_entity\":\"New York Heart Association Classification\", \"additional_entities\":[\"Class IV\",\"baseline time\"],\"categories\": [\"yes\",\"no\"]}"
+          },
+          {
+            "input":"nyha ii or higher at baseline,categorical values: 1=yes | 0=no",
+            "output":"{\"domain\":\"condition\", \"base_entity\":\"New York Heart Association Classification\", \"additional_entities\":[\"Class II\",\"baseline time\"],\"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"morphology ves on ecg at baseline ",
