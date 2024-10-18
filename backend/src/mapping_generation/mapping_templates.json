@@ -94,10 +94,6 @@
             "output":"{\"domain\":\"visit\", \"base_entity\":\"baseline time\"}"
           },
           {
-            "input":"at visit 1",
-            "output":"{\"domain\":\"visit\", \"base_entity\":\"Follow-up 1 month\"}"
-          },
-          {
  
             "input":"hospitalisation due to non-cardiovascular disease",
             "output":"{\"domain\":\"visit\", \"base_entity\":\"Reason for hospitalisation\", \"additional_entities\":[\"non-cardiovascular disease\"]}"
@@ -920,8 +916,16 @@
           "output":"{\"domain\":\"drug\", \"base_entity\":\"Mineralocorticoid receptor antagonist\", \"additional_entities\":[\"medication administeration\"], \"categories\": [\"yes\",\"no\"]}"
         },
         {
+          "input":"date of follow-up 1 month, unit:dd-mm-yyyy",
+          "output":"{\"domain\":\"visit\", \"base_entity\":\"date of visit\", \"additional_entities\":[\"Follow-up 1 month\"], \"unit\":\"DD-MM-YYYY\"}"
+        },
+        {
           "input":"Diabetes-main cause of first hospitalization, Y/N,categories= 1|0",
           "output":"{\"domain\":\"observation\", \"base_entity\":\"reason for hospitalization\", \"additional_entities\":[\"baseline time\",\"diabetes\"], \"categories\": [\"yes\",\"no\"]}"
+        },
+        {
+          "input":"main cause hospitalization, Y/N,categories= 1|0",
+          "output":"{\"domain\":\"observation\", \"base_entity\":\"reason for hospitalization\", \"additional_entities\":[\"baseline time\"], \"categories\": [\"yes\",\"no\"]}"
         },
         {
           "input":"hospitalization for diabetes",
