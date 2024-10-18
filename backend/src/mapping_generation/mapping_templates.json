@@ -874,6 +874,10 @@
           "output":"{\"domain\":\"drug\", \"base_entity\":\"Mineralocorticoid receptor antagonist\", \"additional_entities\":[\"Follow-up 1 year\"], \"unit\":\"mg\"}"
         },
         {
+          "input":"MRA dose in mg",
+          "output":"{\"domain\":\"drug\", \"base_entity\":\"Mineralocorticoid receptor antagonist\", \"unit\":\"mg\"}"
+        },
+        {
           "input":"MRA drug total daily dosage,unit:mg (miligram), categorical values: o.i.d, b.i.d",
           "output":"{\"domain\":\"drug\", \"base_entity\":\"Mineralocorticoid receptor antagonist\", \"unit\":\"mg\", \"additional_entities\":[\"frequency per day\"], \"categories\": [\"1 time per day\",\"2 times per day\"]}"
         },
@@ -1038,6 +1042,10 @@
           "output":"{\"domain\":\"visit\", \"base_entity\":\"Follow-up 2 months\"}"
         },
         {
+          "input":"visit 12 months Follow-up ",
+          "output":"{\"domain\":\"visit\", \"base_entity\":\"Follow-up 2 1 year\"}"
+        },
+        {
           "input":"visit 3 months Follow-up ",
           "output":"{\"domain\":\"visit\", \"base_entity\":\"Follow-up 3 months\"}"
         },
@@ -1075,27 +1083,44 @@
         },
         {
           "input":"Blood pressure systolic at baseline, recumbent position",
-          "output":"{\"domain\":\"measurement\", \"base_entity\":\"Blood pressure systolic\", \"additional_entities\":[\"Recumbent body position\",\"baseline time\"]}"
+          "output":"{\"domain\":\"measurement\", \"base_entity\":\"systolic Blood pressure\", \"additional_entities\":[\"Recumbent body position\",\"baseline time\"]}"
+        },
+        {
+          "input":"Blood pressure systolic at month 12, recumbent position",
+          "output":"{\"domain\":\"measurement\", \"base_entity\":\"systolic Blood pressure\", \"additional_entities\":[\"Recumbent body position\",\"follow-up 1 year\"]}"
+        },
+        {
+          "input":"Blood pressure diastolic at baseline, recumbent position",
+          "output":"{\"domain\":\"measurement\", \"base_entity\":\"diastolic Blood pressure\", \"additional_entities\":[\"Recumbent body position\",\"baseline time\"]}"
+        },
+        {
+          "input":"Blood pressure diastolic at visit month 12, recumbent position",
+          "output":"{\"domain\":\"measurement\", \"base_entity\":\"diastolic Blood pressure\", \"additional_entities\":[\"Recumbent body position\",\"follow-up 1 year\"]}"
         },
         {
           "input":"Blood pressure diastolic in standing at basline",
-          "output":"{\"domain\":\"measurement\", \"base_entity\":\"Blood pressure diastolic\", \"additional_entities\":[\"standing body position\", \"baseline time\"}}"
+          "output":"{\"domain\":\"measurement\", \"base_entity\":\"standing diastolic Blood pressure \", \"additional_entities\":[ \"baseline time\"}}"
         },
         {
           "input":"Blood pressure diastolic in standing position at basline",
-          "output":"{\"domain\":\"measurement\", \"base_entity\":\"Blood pressure diastolic standing\", \"additional_entities\":[\"standing body position\", \"baseline time\"}}"
+          "output":"{\"domain\":\"measurement\", \"base_entity\":\"standing diastolic Blood pressure\", \"additional_entities\":[ \"baseline time\"}}"
         },
         {
-          "input":"Blood pressure diastolic in standing position at month 6",
-          "output":"{\"domain\":\"measurement\", \"base_entity\":\"Blood pressure diastolic\", \"additional_entities\":[\"standing body position\", \"Follow-up 6 months\"}}"
+          "input":"Blood pressure systolic in standing position at month 6",
+          "output":"{\"domain\":\"measurement\", \"base_entity\":\"standing systolic Blood pressure \", \"additional_entities\":[\"Follow-up 6 months\"}}"
         },
+
+        {
+        "input":"Blood pressure systolic in standing position at baseline time",
+        "output":"{\"domain\":\"measurement\", \"base_entity\":\"standing systolic Blood pressure \", \"additional_entities\":[\"baseline time\"}}"
+      },
         {
           "input":"heart rate calculated in standing position at basline",
-          "output":"{\"domain\":\"measurement\", \"base_entity\":\"Blood pressure diastolic\", \"additional_entities\":[\"standing body position\", \"baseline time\"}]"
+          "output":"{\"domain\":\"measurement\", \"base_entity\":\"heart rate\", \"additional_entities\":[\"standing body position\", \"baseline time\"}]"
         },
         {
           "input":"heart rate calculated in standing at month 3",
-          "output":"{\"domain\":\"measurement\", \"base_entity\":\"Blood pressure diastolic\", \"additional_entities\":[\"standing body position\", \"Follow-up 3 months\"]}"
+          "output":"{\"domain\":\"measurement\", \"base_entity\":\"heart rate\", \"additional_entities\":[\"standing body position\", \"Follow-up 3 months\"]}"
         },
         {
           "input": "Type 2 diabetes-related hospitalization",
@@ -1666,16 +1691,16 @@
           "output":"{\"domain\":\"drug\", \"base_entity\":\"Statin Therapy\",\"additional_entities\":[\"baseline time\"], \"unit\":\"milligrams\"}"
         },
         {
-          "input":"Reason for non compliance of patient at visit month 1",
-          "output":"{\"domain\":\"observation\", \"base_entity\":\"Compliance behavior \",\"additional_entities\":[\"Compliance behavior\",\"Follow-up 1 month\"]}"
-        },
-        {
           "input":"Reason for non compliance of patient at visit 1",
-          "output":"{\"domain\":\"observation\", \"base_entity\":\"Compliance behavior \",\"additional_entities\":[\"Compliance behavior\",\"Follow-up 1 month\"]}"
+          "output":"{\"domain\":\"observation\", \"base_entity\":\"Compliance behavior\",\"additional_entities\":[\"Reason for behaviour\",\"Follow-up 1 month\"]}"
         },
         {
-          "input":"incomplete Left bundle branch block on ECG at baseline visit ",
-          "output":"{\"domain\":\"measurement\", \"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Left bundle branch block\",\"baseline time\"]}"
+          "input":"Reason for non compliance of patient",
+          "output":"{\"domain\":\"observation\", \"base_entity\":\"Compliance behavior\",\"additional_entities\":[\"Reason for behaviour\"]}"
+        },
+        {
+          "input":"Reason for non compliance of patient at baseline time",
+          "output":"{\"domain\":\"observation\", \"base_entity\":\"Compliance behavior\",\"additional_entities\":[\"Reason for behaviour\", \"baseline time\"]}"
         },
         {
           "input":"Ejection fraction during treatment",
@@ -4020,13 +4045,14 @@
       "output":[
             {
               "answer": "orthostatic body position",
-              "relationship": "synonym",
-              "explanation": "This answer is an accurate match as standing body position is interchangeable refered to orthostatic body position in clinical setting."
+              "relationship": "partially relevant ",
+              "explanation": "This answer is less relevant as it describes the body position itself, not the blood pressure associated with it."
             },
             {
               "answer": "unsupported standing position",
-              "relationship": "exact match",
-              "explanation":"This answer is highly relevant as it refers to the unsupported nature of the standing position, which is often associated with changes in heart rate."
+              "relationship": "highly relevant",
+              "explanation": "This answer is highly relevant as it refers to the unsupported nature of the standing position, which is often associated with changes in heart rate."
+            
             },
             {
               "answer": "does maintain a standing position",
@@ -4035,8 +4061,8 @@
             },
             {
               "answer": "standing",
-              "relationship": "highly relevant",
-              "explanation": "This answer is highly relevant as it directly mentions 'standing,' which is a static body position that can affect heart rate."
+              "relationship": "exact match",
+              "explanation":"This answer is an accurate match as standing body position is interchangeable refered to standing in clinical setting."
             },
             {
               "answer": "standing up",
@@ -4066,13 +4092,13 @@
       "output":[
             {
               "answer": "orthostatic body position",
-              "relationship": "synonym",
-              "explanation": "This answer is an accurate match as standing body position is interchangeable refered to orthostatic body position in clinical setting."
+              "relationship": "partially relevant",
+              "explanation": "This answer is less relevant as it describes the body position itself, not the blood pressure associated with it."
             },
             {
               "answer": "unsupported standing position",
-              "relationship": "not relevant",
-              "explanation":"This answer is not relevant as it refers to the unsupported nature of the standing position, not the position itself."
+              "relationship": "highly relevant",
+              "explanation":"This answer is highly relevant as it refers to the unsupported nature of the standing position, which is often associated with changes in blood pressure."
             },
             {
               "answer": "does maintain a standing position",
@@ -4471,13 +4497,13 @@
             },
             {
               "answer": "standing",
-              "relationship": "partially relevant",
-              "explanation": "This answer is partially relevant as it directly mentions 'standing' but lacks the specific context of body position."
+              "relationship": "exact match",
+              "explanation": "This answer is an accurate match as standing body position is interchangeable refered to standing in clinical setting."
             },
             {
               "answer": "unsupported standing position",
-              "relationship": "not relevant",
-              "explanation": "This answer is relevant as it refers to standing without support, not the general body position of standing."
+              "relationship": "highly relevant",
+              "explanation": "This answer is highly relevant as it refers to the unsupported nature of the standing position, which is often associated with changes in heart rate."
             },
             {
               "answer": "does maintain a standing position",
@@ -4517,13 +4543,13 @@
             },
             {
               "answer": "standing",
-              "relationship": "partially relevant",
-              "explanation": "This answer is partially relevant as it directly mentions 'standing' but lacks the specific context of body position."
+              "relationship": "exact match",
+              "explanation": "This answer is an accurate match as standing body position is interchangeable refered to standing in clinical setting."
             },
             {
               "answer": "unsupported standing position",
-              "relationship": "not relevant",
-              "explanation": "This answer is relevant as it refers to standing without support, not the general body position of standing."
+              "relationship": "highly relevant",
+              "explanation": "This answer is highly relevant as it refers to the unsupported nature of the standing position, which is often associated with changes in heart rate."
             },
             {
               "answer": "does maintain a standing position",
@@ -5257,17 +5283,18 @@
   ]
     },
     {
-      "input":"Query: standing body position, candidate terms: ['orthostatic body position','unsupported standing position','does maintain a standing position','standing','standing up','difficulty maintaining a standing position','able to maintain a standing position','does not maintain a standing position']",
+      "input":"Query: standing body position heart rate, candidate terms: ['orthostatic body position','unsupported standing position','does maintain a standing position','standing','standing up','difficulty maintaining a standing position','able to maintain a standing position','does not maintain a standing position']",
       "output":[
             {
               "answer": "orthostatic body position",
-              "relationship": "synonym",
-              "explanation": "This answer is an accurate match as standing body position is interchangeable refered to orthostatic body position in clinical setting."
+              "relationship": "partially relevant ",
+              "explanation": "This answer is less relevant as it describes the body position itself, not the blood pressure associated with it."
             },
             {
               "answer": "unsupported standing position",
-              "relationship": "not relevant",
-              "explanation":"This answer is not relevant as it refers to the unsupported nature of the standing position, not the position itself."
+              "relationship": "highly relevant",
+              "explanation": "This answer is highly relevant as it refers to the unsupported nature of the standing position, which is often associated with changes in heart rate."
+            
             },
             {
               "answer": "does maintain a standing position",
@@ -5276,8 +5303,8 @@
             },
             {
               "answer": "standing",
-              "relationship": "synonym",
-              "explanation": "This answer is an accurate match as standing body position is interchangeable refered to standing in clinical setting."
+              "relationship": "exact match",
+              "explanation":"This answer is an accurate match as standing body position is interchangeable refered to standing in clinical setting."
             },
             {
               "answer": "standing up",
@@ -5303,17 +5330,17 @@
       ]
     },
     {
-      "input":"Query: standing position, candidate terms: ['orthostatic body position','unsupported standing position','does maintain a standing position','standing','standing up','difficulty maintaining a standing position','able to maintain a standing position','does not maintain a standing position']",
+      "input":"Query: standing position blood pressure, candidate terms: ['orthostatic body position','unsupported standing position','does maintain a standing position','standing','standing up','difficulty maintaining a standing position','able to maintain a standing position','does not maintain a standing position']",
       "output":[
             {
               "answer": "orthostatic body position",
-              "relationship": "synonym",
-              "explanation": "This answer is an accurate match as standing body position is interchangeable refered to orthostatic body position in clinical setting."
+              "relationship": "partially relevant",
+              "explanation": "This answer is less relevant as it describes the body position itself, not the blood pressure associated with it."
             },
             {
               "answer": "unsupported standing position",
-              "relationship": "not relevant",
-              "explanation":"This answer is not relevant as it refers to the unsupported nature of the standing position, not the position itself."
+              "relationship": "highly relevant",
+              "explanation":"This answer is highly relevant as it refers to the unsupported nature of the standing position, which is often associated with changes in blood pressure."
             },
             {
               "answer": "does maintain a standing position",
@@ -5712,13 +5739,13 @@
             },
             {
               "answer": "standing",
-              "relationship": "partially relevant",
-              "explanation": "This answer is partially relevant as it directly mentions 'standing' but lacks the specific context of body position."
+              "relationship": "exact match",
+              "explanation": "This answer is an accurate match as standing body position is interchangeable refered to standing in clinical setting."
             },
             {
               "answer": "unsupported standing position",
-              "relationship": "not relevant",
-              "explanation": "This answer is relevant as it refers to standing without support, not the general body position of standing."
+              "relationship": "highly relevant",
+              "explanation": "This answer is highly relevant as it refers to the unsupported nature of the standing position, which is often associated with changes in heart rate."
             },
             {
               "answer": "does maintain a standing position",
@@ -5758,13 +5785,13 @@
             },
             {
               "answer": "standing",
-              "relationship": "partially relevant",
-              "explanation": "This answer is partially relevant as it directly mentions 'standing' but lacks the specific context of body position."
+              "relationship": "exact match",
+              "explanation": "This answer is an accurate match as standing body position is interchangeable refered to standing in clinical setting."
             },
             {
               "answer": "unsupported standing position",
-              "relationship": "not relevant",
-              "explanation": "This answer is relevant as it refers to standing without support, not the general body position of standing."
+              "relationship": "highly relevant",
+              "explanation": "This answer is highly relevant as it refers to the unsupported nature of the standing position, which is often associated with changes in heart rate."
             },
             {
               "answer": "does maintain a standing position",
@@ -5794,10 +5821,6 @@
 
       ]
     }
-    
-    
-    
-
   ]
 },
 "ranking_examples":{
@@ -7124,7 +7147,7 @@
   
       {
         "answer": "Orthostatic body position",
-        "score": 0,
+        "score": 5,
         "explanation": "This is general concept which is typically used in medical context to describe the standing body position"
       },
       {
@@ -7134,7 +7157,7 @@
       },
       {
         "answer": "unsupported standing position",
-        "score": 7,
+        "score": 8,
         "explanation": "This answer is specific standing position within Orthostatic body position.It is not relevant as it refers to the specific nature of the standing position."
       },
       {
@@ -7171,7 +7194,7 @@
   
       {
         "answer": "Orthostatic body position",
-        "score": 0,
+        "score": 5,
         "explanation": "This is general concept which is typically used in medical context to describe the standing body position"
       },
       {
@@ -7181,7 +7204,7 @@
       },
       {
         "answer": "unsupported standing position",
-        "score": 7,
+        "score": 8,
         "explanation": "This answer is specific standing position within Orthostatic body position.It is not relevant as it refers to the specific nature of the standing position."
       },
       {
@@ -7192,8 +7215,8 @@
 
       {
         "answer": "standing up",
-        "score": 3,
-        "explanation": "This answer is partially relevant as it refers to the action of standing up rather than the standing body position."
+        "score": 2,
+        "explanation": "This answer is less relevant as it refers to the action of standing up rather than the standing body position."
       },
       {
         "answer": "difficulty maintaining a standing position",
@@ -8124,7 +8147,7 @@
     
         {
           "answer": "Orthostatic body position",
-          "score": 0,
+          "score": 5,
           "explanation": "This is general concept which is typically used in medical context to describe the standing body position"
         },
         {
@@ -8134,7 +8157,7 @@
         },
         {
           "answer": "unsupported standing position",
-          "score": 7,
+          "score": 8,
           "explanation": "This answer is specific standing position within Orthostatic body position.It is not relevant as it refers to the specific nature of the standing position."
         },
         {
@@ -8171,7 +8194,7 @@
     
         {
           "answer": "Orthostatic body position",
-          "score": 0,
+          "score": 5,
           "explanation": "This is general concept which is typically used in medical context to describe the standing body position"
         },
         {
@@ -8181,7 +8204,7 @@
         },
         {
           "answer": "unsupported standing position",
-          "score": 7,
+          "score": 8,
           "explanation": "This answer is specific standing position within Orthostatic body position.It is not relevant as it refers to the specific nature of the standing position."
         },
         {
@@ -8192,8 +8215,8 @@
   
         {
           "answer": "standing up",
-          "score": 3,
-          "explanation": "This answer is partially relevant as it refers to the action of standing up rather than the standing body position."
+          "score": 2,
+          "explanation": "This answer is less relevant as it refers to the action of standing up rather than the standing body position."
         },
         {
           "answer": "difficulty maintaining a standing position",

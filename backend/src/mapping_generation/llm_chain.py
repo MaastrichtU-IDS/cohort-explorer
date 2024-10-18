@@ -486,9 +486,10 @@ def extract_information(query, model_name=LLM_ID, prompt=None):
                     return None
                 # chat_history.extend([HumanMessage(content=f"query:{query}, output:{result}")])
                 result = sanitize_keys(result)
+                logger.info(f"extract information result={result}")
                 rel = extract_ir(
-                    result.get("base_entity", None),
-                    result.get("additional_entities", []. result.get("categories", [])),
+                   base_entity= result.get("base_entity", None),
+                    associated_entities = result.get("additional_entities", []) or result.get("categories", []),
                     active_model=active_model,
                 )
                 result["rel"] = rel
@@ -928,7 +929,7 @@ def pass_to_chat_llm_chain(
         link_predictions_results = []
 
         for _ in range(n_prompts):  # Assume n_prompts is 3
-            ranking_prompt = generate_ranking_prompt(query=query,domain=domain,in_context=True)
+            ranking_prompt = generate_ranking_prompt(query=query,domain=domain,documents=documents,in_context=True)
             ranking_results =  get_llm_results(prompt=ranking_prompt, query=query, documents=documents, llm=model,llm_name=llm_name)
             if ranking_results:
                 ranking_scores.extend(ranking_results)
