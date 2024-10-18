@@ -341,11 +341,11 @@
           },
           {
             "input":"gp general practitioner compliance Follow-up month 1,categorical values: 1=yes | 2=partly | 3=no | 9=missinggp general practitioner compliance Follow-up month 1,categorical values: 1=yes | 2=partly | 3=no | 9=missing",
-            "output":"{\"domain\":\"visit\", \"base_entity\":\"compliance behavior to treatment\",\"additional_entities\":[\"General Practioner\",\"follow-up 1 month\"], \"categories\": [\"yes\",\"partially\",\"no\",\"missing\"]}"
+            "output":"{\"domain\":\"visit\", \"base_entity\":\"General practitioner compliance with therapy\",\"additional_entities\":[\"follow-up 1 month\"], \"categories\": [\"yes\",\"partially\",\"no\",\"missing\"]}"
           },
           {
             "input":"reason for non compliance of patient Follow-up month 1,categorical values: 0= missing | 1=more chf symptoms | 2=hypotension without symptoms |3=orthostasis / symptomatic hypotension | 4=fatigue / exercise intolerance | 5=renal failure 6=hyperkaliaemia | 7=bradycardia / av-block | 8=cough | 9=diarrhea | 10=obstipation | 11=headache | 12= noctural leg pain | 13=digitalis-intoxication | 14=allergy | 15=psychological reason | 16=other reason |17=not specified / unknown",
-            "output":"{\"domain\":\"observation\", \"base_entity\":\"compliance behavior to treatment\",\"additional_entities\":[\"non-compliance\",\"follow-up 1 month\"], \"categories\": [\"missing\",\"Symptomatic congestive heart failure\",\"hypotension, no symptoms\",\"orthostasis or symptomatic hypotension\",\"fatigue or exercise intolerance\",\"renal failure\",\"hyperkaliaemia\",\"bradycardia / Atrioventricular block\",\"cough\",\"diarrhea\",\"obstipation\",\"headache\",\"noctural leg pain\",\"digitalis-intoxication\",\"allergy\",\"Psychological sign\",\"other reason\",\"not specified / unknown\"]}"
+            "output":"{\"domain\":\"observation\", \"base_entity\":\"Non-compliant behavior\",\"additional_entities\":[\"follow-up 1 month\"], \"categories\": [\"missing\",\"Symptomatic congestive heart failure\",\"hypotension, no symptoms\",\"orthostasis or symptomatic hypotension\",\"fatigue or exercise intolerance\",\"renal failure\",\"hyperkaliaemia\",\"bradycardia / Atrioventricular block\",\"cough\",\"diarrhea\",\"obstipation\",\"headache\",\"noctural leg pain\",\"digitalis-intoxication\",\"allergy\",\"Psychological sign\",\"other reason\",\"not specified / unknown\"]}"
           },
           {
             "input":"patient compliance Follow-up month 1,categorical values: 1=yes | 2=partly | 3=no | 9=missing",
@@ -667,7 +667,7 @@
 
           {
             "input":"exam quality - ecocardiography pre-discharge,categorical values:0= not significant | 1= good | 2= sufficient | 3= unsufficient | 9= missing",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Echocardiography qualit\",\"additional_entities\":[\"Pre-discharge assessment\"], \"categories\": [\"not significant\",\"good\",\"sufficient\",\"unsufficient\",\"missing\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Echocardiography quality\",\"additional_entities\":[\"Pre-discharge assessment\"], \"categories\": [\"not significant\",\"good\",\"sufficient\",\"unsufficient\",\"missing\"]}"
           },
           {
             "input":"echocardiography number,categorical values:c1= pre-discharge | 2= 6 weeks | 3= 6 months",
@@ -963,7 +963,7 @@
         },
         {
           "input":"echo lv diastolic dysfunction",
-          "output":"{\"domain\":\"observation\", \"base_entity\":\"Echocardiogram\", \"additional_entities\":[\"Echocardiogram shows left ventricular diastolic dysfunction\", \"ECG findings\"]"
+          "output":"{\"domain\":\"observation\", \"base_entity\":\"Echocardiogram shows left ventricular diastolic dysfunction\", \"additional_entities\":[\"ECG findings\"]"
         },
         {
           "input":"monocytes in blood",
@@ -1284,7 +1284,7 @@
           },
           {
             "input":"additional motivation for non compliance patient at visit follow-up month 1",
-            "output":"{\"domain\":\"observation\",\"base_entity\":\"Compliance behavior\",\"additional_entities\": [\"motivation\",\"non-compliance\",\"Follow-up 1 month\"]}"
+            "output":"{\"domain\":\"observation\",\"base_entity\":\"Non-compliant behavior\",\"additional_entities\": [\"Follow-up 1 month\"]}"
           },
 
           {
@@ -1305,7 +1305,7 @@
           },
           {
             "input":"echo normal lv function",
-            "output":"{\"domain\":\"procedure\",\"base_entity\":\"Echocardiogram\",\"additional_entities\": [\"Echocardiogram shows normal Left ventricular function\"]}"
+            "output":"{\"domain\":\"procedure\",\"base_entity\":\"Echocardiogram shows normal Left ventricular function\",\"additional_entities\": [\"Echocardiogram\"]}"
           },
           {
             "input":"copeptin (ct-proavp)  moles/volum in serum or plasma",
@@ -1515,7 +1515,7 @@
           },
           {
             "input":"pericardial effusion on echo at visit month 12",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Echocardiogram\",\"additional_entities\":[\"Pericardial effusion\",\"Follow-up 1 year\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Pericardial effusion\",\"additional_entities\":[\"Echocardiogram\",\"Follow-up 1 year\"]}"
           },
           {
             "input":"nitrate adjustment at visit month 12,categorical values: 0 = no adjustment| 1= 1 times uptitration| 2= increase more than once| 3= reduction| 4= stop| 5= no adjustment due to side-effect| 6= other",
@@ -1527,7 +1527,7 @@
           },
           {
             "input":"patient compliant with therapy at Visit month 3",
-            "output":"{\"domain\":\"observation\",\"base_entity\":\"Compliance behavior\",\"additional_entities\":[\"Follow-up 3 month\"]}"
+            "output":"{\"domain\":\"observation\",\"base_entity\":\"compliance behavior to treatment\",\"additional_entities\":[\"Follow-up 3 month\"]}"
           },
           {
             "input":"Stop years ( number of years patient has not smoked after quitting), unit:years",
@@ -1604,11 +1604,11 @@
       },
       {
         "input":"echo normal lv diastolic function",
-        "output":"{\"domain\":\"measurement\",\"base_entity\":\"Echocardiogram\",\"additional_entities\":[\"Left ventricular diastolic dysfunction\"], \"categories\": [\"normal\"]}"
+        "output":"{\"domain\":\"measurement\",\"base_entity\":\"Left ventricular diastolic dysfunction\",\"additional_entities\":[\"Echocardiogram\"], \"categories\": [\"normal\"]}"
       },
       {
         "input":"echo lv systolic dysfunction",
-        "output":"{\"domain\":\"observation\",\"base_entity\":\"Echocardiogram\",\"additional_entities\":[\"Echocardiogram shows Left ventricular systolic dysfunction\"]}"
+        "output":"{\"domain\":\"observation\",\"base_entity\":\"Echocardiogram shows Left ventricular systolic dysfunction\",\"additional_entities\":[\"Echocardiogram\"]}"
       },
       {
         "input":"Family history of cardiovascular disease",
@@ -1663,10 +1663,6 @@
         "output": "{\"domain\":\"observation\",\"base_entity\": \"Date of Visit\", \"additional_entities\": [\"bypass graft\",\"Follow-up 6 months\"]}"
       },
       {
-        "input":"ECHO left ventricular systolic function",
-        "output":"{\"domain\":\"measurement\", \"base_entity\":\"Echocardiogram\",\"additional_entities\":[\"Left ventricular function\",\"Systole\"]}"
-      },
-      {
         "input":"death due to heart failure",
         "output":"{\"domain\":\"death\", \"base_entity\":\"Cause of death\", \"additional_entities\":[\"heart failure\"]}"
       },
@@ -1700,15 +1696,15 @@
         },
         {
           "input":"Reason for non compliance of patient at visit 1",
-          "output":"{\"domain\":\"observation\", \"base_entity\":\"Compliance behavior\",\"additional_entities\":[\"Reason for behaviour\",\"Follow-up 1 month\"]}"
+          "output":"{\"domain\":\"observation\", \"base_entity\":\"Non-compliant behavior\",\"additional_entities\":[\"Reason for behaviour\",\"Follow-up 1 month\"]}"
         },
         {
           "input":"Reason for non compliance of patient",
-          "output":"{\"domain\":\"observation\", \"base_entity\":\"Compliance behavior\",\"additional_entities\":[\"Reason for behaviour\"]}"
+          "output":"{\"domain\":\"observation\", \"base_entity\":\"Non-compliant behavior\",\"additional_entities\":[\"Reason for behaviour\"]}"
         },
         {
           "input":"Reason for non compliance of patient at baseline time",
-          "output":"{\"domain\":\"observation\", \"base_entity\":\"Compliance behavior\",\"additional_entities\":[\"Reason for behaviour\", \"baseline time\"]}"
+          "output":"{\"domain\":\"observation\", \"base_entity\":\"Non-compliant behavior\",\"additional_entities\":[\"Reason for behaviour\", \"baseline time\"]}"
         },
         {
           "input":"Ejection fraction during treatment",
@@ -2035,7 +2031,7 @@
           
           {
             "input":"reason for non-compliance of patient visit follow-up month 1,categorical values: 0= missing | 1=more chf symptoms | 2=hypotension without symptoms |3=orthostasis / symptomatic hypotension | 4=fatigue / exercise intolerance | 5=renal failure 6=hyperkaliaemia | 7=bradycardia / av-block | 8=cough | 9=diarrhea | 10=obstipation | 11=headache | 12= noctural leg pain | 13=digitalis-intoxication | 14=allergy | 15=psychological reason | 16=other reason |17=not specified / unknown",
-            "output":"{\"domain\":\"observation\",\"base_entity\":\"Compliance behavior\", \"additional_entities\":[\"Has reason\" , \"follow-up 1 month], \"categories\": [\"missing\",\"more chf symptoms\",\"hypotension without symptoms\",\"orthostasis / symptomatic hypotension\",\"fatigue / exercise intolerance\",\"renal failure\",\"hyperkaliaemia\",\"bradycardia / av-block\",\"cough\",\"diarrhea\",\"obstipation\",\"headache\",\"noctural leg pain\",\"digitalis-intoxication\",\"allergy\",\"psychological reason\",\"other reason\",\"not specified / unknown\"]}" 
+            "output":"{\"domain\":\"observation\",\"base_entity\":\"Non-compliant behavior\", \"additional_entities\":[\"follow-up 1 month], \"categories\": [\"missing\",\"more chf symptoms\",\"hypotension without symptoms\",\"orthostasis / symptomatic hypotension\",\"fatigue / exercise intolerance\",\"renal failure\",\"hyperkaliaemia\",\"bradycardia / av-block\",\"cough\",\"diarrhea\",\"obstipation\",\"headache\",\"noctural leg pain\",\"digitalis-intoxication\",\"allergy\",\"psychological reason\",\"other reason\",\"not specified / unknown\"]}" 
           },
           {
             "input":"New York Heart Association classification, categorical values:nyhai|nyha ii|nyha iii|nyha iv",
@@ -2097,7 +2093,7 @@
           },
           {
             "input":"biplane at baseline on echocardiography, categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"imaging\", \"base_entity\":\"echocardiography\", \"additional_entities\":[\"Left ventricular Ejection fraction Calculated by biplane method\",\"baseline time\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"imaging\", \"base_entity\":\"Left ventricular Ejection fraction Calculated by biplane method\", \"additional_entities\":[\"echocardiography\",\"baseline time\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"principal component analysis (PCA) with Last observation carried forward (LOCF), first component of RAS medication",

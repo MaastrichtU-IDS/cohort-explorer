@@ -486,6 +486,7 @@ def extract_information(query, model_name=LLM_ID, prompt=None):
                     return None
                 # chat_history.extend([HumanMessage(content=f"query:{query}, output:{result}")])
                 result = sanitize_keys(result)
+                result = validate_result(result)
                 logger.info(f"extract information result={result}")
                 rel = extract_ir(
                    base_entity= result.get("base_entity", None),
@@ -502,6 +503,8 @@ def extract_information(query, model_name=LLM_ID, prompt=None):
                 result = None
         else:
             result = sanitize_keys(result)
+            result = validate_result(result)
+
             # chat_history.extend([HumanMessage(content=f"query:{query}, output:{result}")])
             rel = extract_ir(
                 result.get("base_entity", None), result.get("additional_entities", []), active_model=active_model
@@ -994,3 +997,10 @@ def get_json_output(input_text: str):
     results = chain.invoke({"input_text": input_text})
     # logger.info(f"json results={results}")
     return results
+def validate_result(result: Dict) -> Dict:
+    if isinstance(result.get("additional_entities"), str):
+        result["additional_entities"] = [result["additional_entities"]]
+    if isinstance(result.get("categories"), str):
+        result["categories"] = [result["categories"]]
+    if isinstance(result.get("unit"), list):
+        result["unit"] = result["unit"][0]
