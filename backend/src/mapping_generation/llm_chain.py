@@ -997,6 +997,7 @@ def get_json_output(input_text: str):
     results = chain.invoke({"input_text": input_text})
     # logger.info(f"json results={results}")
     return results
+
 def validate_result(result: Dict) -> Dict:
     if isinstance(result.get("additional_entities"), str):
         result["additional_entities"] = [result["additional_entities"]]
@@ -1004,3 +1005,4 @@ def validate_result(result: Dict) -> Dict:
         result["categories"] = [result["categories"]]
     if isinstance(result.get("unit"), list):
         result["unit"] = result["unit"][0]
+    return result
