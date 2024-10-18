@@ -1001,8 +1001,13 @@ def get_json_output(input_text: str):
 def validate_result(result: Dict) -> Dict:
     if isinstance(result.get("additional_entities"), str):
         result["additional_entities"] = [result["additional_entities"]]
+    if isinstance(result.get("additional_entities"), dict):
+        result["additional_entities"] = result["additional_entities"].values()  
     if isinstance(result.get("categories"), str):
         result["categories"] = [result["categories"]]
+    if isinstance(result.get("categories"), dict):
+        result["categories"] = result["categories"].values()
     if isinstance(result.get("unit"), list):
         result["unit"] = result["unit"][0]
     return result
+
