@@ -149,7 +149,8 @@ class DataManager:
         Returns:
             dict: A standardized response indicating success or error.
         """
-        if self.query_variable(row_data["variable_name"]):
+        results, _ = self.query_variable(row_data["variable_name"])
+        if results:
             print(
                 f"Row with variable_name '{row_data['variable_name']}' already exists."
             )
