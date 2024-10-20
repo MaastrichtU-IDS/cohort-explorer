@@ -137,7 +137,12 @@ class DataManager:
     def dict_keys_to_columns(self, row_data):
         return {k.lower().replace(" ", "_"): v for k, v in row_data.items()}
 
-    def insert_row(self, row_data):
+    def insert_row(self, row_data) -> dict:
+        if row_data is None:
+            return {
+                "status": "error",
+                "message": "No data provided for insertion.",
+            }
         row_data = self.dict_keys_to_columns(row_data)
         """
         Inserts a single row into the 'variable' table.
@@ -149,10 +154,11 @@ class DataManager:
         Returns:
             dict: A standardized response indicating success or error.
         """
-        results, _ = self.query_variable(row_data["variable_name"])
+        results, mode = self.query_variable(row_data["variable_name"])
         if results:
             print(
                 f"Row with variable_name '{row_data['variable_name']}' already exists."
+                f" Results: {results}"
             )
             return {
                 "status": "success",
@@ -211,7 +217,9 @@ class DataManager:
             """
             cursor.execute(sql, values)
             self.conn.commit()
-
+            print(
+                f"Row inserted successfully with variable_name '{row_data['variable_name']}'."
+            )
             return {
                 "status": "success",
                 "message": f"Row inserted successfully with variable_name '{row_data['variable_name']}'.",
@@ -223,6 +231,7 @@ class DataManager:
         except Exception as e:
             # Handle any other exceptions
             return {"status": "error", "message": f"An error occurred: {e}"}
+
 
     # Function to perform the query based on the given string
     def query_variable(self, input_string):
