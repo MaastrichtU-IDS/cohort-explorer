@@ -551,7 +551,7 @@ def process_values(
         return all_values
     for q_value in values:
         q_value = str(q_value).strip().lower()
-        if q_value and q_value != "unknown":
+        if q_value:
             if categorical_value_results := retriever_docs(
                 q_value, retriever, domain=domain, is_omop_data=is_omop_data, topk=topk
             ):
