@@ -235,7 +235,9 @@ class DataManager:
 
     # Function to perform the query based on the given string
     def query_variable(self, input_string):
+        input_string = input_string.strip().lower()
         print(f"string to search for {input_string}")
+
         cursor = self.conn.cursor()
         # Step 1: Check if input_string exists in variable_label
         cursor.execute(
@@ -260,7 +262,7 @@ class DataManager:
             """
             SELECT *
             FROM variable
-            WHERE variable_label LIKE ?
+            WHERE variable_label = ?
         """,
             ("%" + input_string + "%",),
         )
@@ -282,7 +284,7 @@ class DataManager:
                 categorical_values_concept_code,
                 categorical_values_concept_omop_id
             FROM variable
-            WHERE categorical_values_concept_label LIKE ?
+            WHERE categorical_values_concept_label = ?
         """,
             ("%" + input_string + "%",),
         )
@@ -299,7 +301,7 @@ class DataManager:
             """
             SELECT variable_name, variable_concept_label, variable_concept_code, variable_concept_omop_id
             FROM variable
-            WHERE variable_concept_label LIKE ?
+            WHERE variable_concept_label = ?
             """,
             ("%" + input_string + "%",),
         )
@@ -345,7 +347,7 @@ class DataManager:
             """
             SELECT variable_name, unit_concept_label, unit_concept_code, unit_omop_id
             FROM variable
-            WHERE unit_concept_label LIKE ?
+            WHERE unit_concept_label = ?
             """,
             ("%" + input_string + "%",),
         )
