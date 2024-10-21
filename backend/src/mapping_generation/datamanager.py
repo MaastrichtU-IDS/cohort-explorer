@@ -200,14 +200,14 @@ class DataManager:
 
             # Convert data types as necessary
             # Handle integer fields
-            int_fields = [
-                "variable_concept_omop_id",
-                "categorical_values_concept_omop_id",
-                "unit_omop_id",
-            ]
-            for idx, col in enumerate(columns):
-                if col in int_fields and values[idx] is not None:
-                    values[idx] = int(values[idx]) if values[idx] != "" else None
+            # int_fields = [
+            #     "variable_concept_omop_id",
+            #     "categorical_values_concept_omop_id",
+            #     "unit_omop_id",
+            # ]
+            # for idx, col in enumerate(columns):
+            #     if col in int_fields and values[idx] is not None:
+            #         values[idx] = int(values[idx]) if values[idx] != "" else None
 
             # Construct the SQL insert statement
             placeholders = ", ".join("?" * len(columns))
