@@ -88,7 +88,7 @@ class DataManager:
                         row["VARIABLE LABEL"],
                         row["Variable Concept Label"],
                         row["Variable Concept Code"],
-                        int(row["Variable Concept OMOP ID"])
+                        str(row["Variable Concept OMOP ID"])
                         if row["Variable Concept OMOP ID"]
                         else None,
                         row["Domain"],
@@ -98,12 +98,12 @@ class DataManager:
                         row["Primary to Secondary Context Relationship"],
                         row["Categorical Values Concept Label"],
                         row["Categorical Values Concept Code"],
-                        int(row["Categorical Values Concept OMOP ID"])
+                        str(row["Categorical Values Concept OMOP ID"])
                         if row["Categorical Values Concept OMOP ID"]
                         else None,
                         row["Unit Concept Label"],
                         row["Unit Concept Code"],
-                        int(row["Unit OMOP ID"]) if row["Unit OMOP ID"] else None,
+                        str(row["Unit OMOP ID"]) if row["Unit OMOP ID"] else None,
                     )
                 )
             # Insert data into the table
