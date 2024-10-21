@@ -408,7 +408,7 @@ async def upload_cohort(
         )
 
         # NOTE: waiting for more tests before sending to production
-        background_tasks.add_task(generate_mappings, cohort_id, metadata_path, g)
+        # background_tasks.add_task(generate_mappings, cohort_id, metadata_path, g)
         # TODO: move all the "delete_existing_triples" and "publish_graph_to_endpoint" logic to the background task after mappings have been generated
 
         # Delete previous graph for this file from triplestore
