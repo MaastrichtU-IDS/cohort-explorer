@@ -158,7 +158,7 @@
           },
           {
             "input":"lv diastolic dysfunction : ekg",
-            "output":"{\"domain\":\"measurement\", \"base_entity\":\"Electrocardiogram\",\"additional_entities\":[ \"Left ventricular diastolic dysfunction\",\"ECG finding\"]}"
+            "output":"{\"domain\":\"measurement\", \"base_entity\": \"Left ventricular diastolic dysfunction\",\"additional_entities\":[\"ECG finding\"]}"
           },
           {
             "input":"family history (FH) of cardiovascular disease",
@@ -283,7 +283,7 @@
           },
           {
             "input":"r-r interval",
-            "output":"{\"domain\":\"measurement\", \"base_entity\":\"Electrocardiogram\",\"additional_entities\":[ \"R-R interval\",\"ECG finding\"]}"
+            "output":"{\"domain\":\"measurement\", \"base_entity\": \"R-R interval\",\"additional_entities\":[\"ECG finding\"]}"
           },
           {
             "input":"time to first cardiac hospitalisations or death, unit: days",
@@ -299,15 +299,15 @@
           },
           {
             "input":"r-wave point of inversion ( from positive to negative) at visit 12 months on ecg,categorical values: 1=v1| 2=v2| 3=v3| 4=v4| 5=v5| 6=v6| 7= fully negative",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"electrocardiogram\",\"additional_entities\":[\"R-wave features\",\"Invsersion\",\"ECG finding\",\"Follow-up 1 year\"], \"categories\": [\"lead v1\",\" lead v2\",\" leadv3\",\"lead v4\",\"lead v5\",\"lead v6\",\"fully negative\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"R-wave features\",\"additional_entities\":[\"Invsersion\",\"ECG finding\",\"Follow-up 1 year\"], \"categories\": [\"lead v1\",\" lead v2\",\" leadv3\",\"lead v4\",\"lead v5\",\"lead v6\",\"fully negative\"]}"
           },
           {
             "input":"r-wave point of inversion ( from positive to negative) at follow-up 12 months on ecg,categorical values: 1=v1| 2=v2| 3=v3| 4=v4| 5=v5| 6=v6| 7= fully negative",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"electrocardiogram\",\"additional_entities\":[\"R-wave features\",\"Invsersion\",\"ECG finding\",\"Follow-up 1 year\"], \"categories\": [\"lead v1\",\" lead v2\",\" leadv3\",\"lead v4\",\"lead v5\",\"lead v6\",\"fully negative\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"R-wave features\",\"additional_entities\":[\"Invsersion\",\"ECG finding\",\"Follow-up 1 year\"], \"categories\": [\"lead v1\",\" lead v2\",\" leadv3\",\"lead v4\",\"lead v5\",\"lead v6\",\"fully negative\"]}"
           },
           {
             "input":"R wave: inversion ( from positive to negative) at 12 months on ecg,categorical values: 1=v1. 2=v2| 3=v3| 4=v4| 5=v5| 6=v6| 7= fully negative",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"electrocardiogram\",\"additional_entities\":[\"R-wave features\",\"Invsersion\",\"ECG finding\",\"Follow-up 1 year\"], \"categories\": [\"lead v1\",\" lead v2\",\" leadv3\",\"lead v4\",\"lead v5\",\"lead v6\",\"fully negative\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"R-wave features\",\"additional_entities\":[\"Invsersion\",\"ECG finding\",\"Follow-up 1 year\"], \"categories\": [\"lead v1\",\" lead v2\",\" leadv3\",\"lead v4\",\"lead v5\",\"lead v6\",\"fully negative\"]}"
           },
           {
             "input":"general practicioner compliant with therapy at visit month 18,categorical values: 1=yes | 0=no",
@@ -383,11 +383,11 @@
           },
           {
             "input":"qtc= qt time adjusted for heart frequency at baseline on ecg, unit: ms",
-            "output":"{\"domain\":\"measurement\", \"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Q-T interval corrected\",\"ECG finding\",\"baseline time\"], \"unit\":\"ms\"}"
+            "output":"{\"domain\":\"measurement\", \"base_entity\":\"Q-T interval corrected\",\"additional_entities\":[\"ECG finding\",\"baseline time\"], \"unit\":\"ms\"}"
           },
           {
             "input":"qtc= qt time adjusted for heart frequency at baseline time on ecg, unit: ms",
-            "output":"{\"domain\":\"measurement\", \"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Q-T interval corrected\",\"ECG finding\",\"baseline time\"], \"unit\":\"ms\"}"
+            "output":"{\"domain\":\"measurement\", \"base_entity\":\"Q-T interval corrected\",\"additional_entities\":[\"ECG finding\",\"baseline time\"], \"unit\":\"ms\"}"
           },
           {
             "input":"echocardiography at visit post-discharge 2 months follow-up unit: mm",
@@ -395,7 +395,7 @@
           },
           {
             "input":"qtc= qt time adjusted for heart frequency at visit 0 on ecg, unit: ms",
-            "output":"{\"domain\":\"measurement\", \"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Q-T interval corrected\",\"ECG finding\",\"baseline time\"], \"unit\":\"ms\"}"
+            "output":"{\"domain\":\"measurement\", \"base_entity\":\"Q-T interval corrected\",\"additional_entities\":[\"ECG finding\",\"baseline time\"], \"unit\":\"ms\"}"
           },
           {
             "input":"diastolic pressure at visit 0/entry",
@@ -419,27 +419,27 @@
           },
           {
             "input":"ecg at discharge q > 30 msec lead iii, categorical values:/= undetermined | n= no | s= yes",
-            "output":"{\"domain\":\"measurement\", \"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Q wave duration.lead III | Heart | EKG measurements\",\"ECG finding\",\"discharge time\"], \" categories\": [\"undetermined\",\"no\",\"yes\"]}"
+            "output":"{\"domain\":\"measurement\", \"base_entity\":\"Q wave duration.lead III | Heart | EKG measurements\",\"additional_entities\":[\"ECG finding\",\"discharge time\"], \" categories\": [\"undetermined\",\"no\",\"yes\"]}"
           },
           {
             "input":"ECG at entry Q > 30 msec lead avl, categorical values: / = undetermined | n = no | s = yes",
-            "output":"{\"domain\":\"measurement\", \"base_entity\":\"Electrocardiogram\",,\"additional_entities\":[\"Q wave duration.lead AVL | Heart | EKG measurements\", \"ECG finding\",\"baseline time\"], \" categories\": [\"undetermined\",\"no\",\"yes\"]}"
+            "output":"{\"domain\":\"measurement\", \"base_entity\":\"Q wave duration.lead AVL | Heart | EKG measurements\",\"additional_entities\":[ \"ECG finding\",\"baseline time\"], \" categories\": [\"undetermined\",\"no\",\"yes\"]}"
           },
           {
             "input":"rythm on ecg at baseline,categorical values: 1=sinusrythm| 2= pacemaker-rythm| 3= atrialfibbrilation| 4= atrialflutter| 5= atrial rythm| 6= av-nodal re-entry tachycardia| 7= av re-entry tachycardia| 8= ventricular tachycardia| 9= sinus arrest| 10= nodal escape rythm| 11= ventricular escape rythm| 16= wolff-parkinson-white",
-            "output":"{\"domain\":\"measurement\", \"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"cardiac rhythm\",\"ECG finding\",\"baseline time\"], \"categories\": [\"sinus rhythm\",\"pacemaker rhythm\",\"atrial fibrillation\",\"atrial flutter\",\"atrial rhythm\",\"av-nodal re-entry tachycardia\",\"av re-entry tachycardia\",\"ventricular tachycardia\",\"sinus arrest\",\"nodal escape rhythm\",\"ventricular escape rhythm\",\"wolff-parkinson-white\"]}"
+            "output":"{\"domain\":\"measurement\", \"base_entity\":\"cardiac rhythm\",\"additional_entities\":[\"ECG finding\",\"baseline time\"], \"categories\": [\"sinus rhythm\",\"pacemaker rhythm\",\"atrial fibrillation\",\"atrial flutter\",\"atrial rhythm\",\"av-nodal re-entry tachycardia\",\"av re-entry tachycardia\",\"ventricular tachycardia\",\"sinus arrest\",\"nodal escape rhythm\",\"ventricular escape rhythm\",\"wolff-parkinson-white\"]}"
           },
           {
             "input":"rythm on ecg at baseline time,categorical values: 1=sinusrythm| 2= pacemaker-rythm| 3= atrialfibbrilation| 4= atrialflutter| 5= atrial rythm| 6= av-nodal re-entry tachycardia| 7= av re-entry tachycardia| 8= ventricular tachycardia| 9= sinus arrest| 10= nodal escape rythm| 11= ventricular escape rythm| 16= wolff-parkinson-white",
-            "output":"{\"domain\":\"measurement\", \"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"cardiac rhythm\",\"ECG finding\",\"baseline time\"], \"categories\": [\"sinus rhythm\",\"pacemaker rhythm\",\"atrial fibrillation\",\"atrial flutter\",\"atrial rhythm\",\"av-nodal re-entry tachycardia\",\"av re-entry tachycardia\",\"ventricular tachycardia\",\"sinus arrest\",\"nodal escape rhythm\",\"ventricular escape rhythm\",\"wolff-parkinson-white\"]}"
+            "output":"{\"domain\":\"measurement\", \"base_entity\":\"cardiac rhythm\",\"additional_entities\":[\"ECG finding\",\"baseline time\"], \"categories\": [\"sinus rhythm\",\"pacemaker rhythm\",\"atrial fibrillation\",\"atrial flutter\",\"atrial rhythm\",\"av-nodal re-entry tachycardia\",\"av re-entry tachycardia\",\"ventricular tachycardia\",\"sinus arrest\",\"nodal escape rhythm\",\"ventricular escape rhythm\",\"wolff-parkinson-white\"]}"
           },
           {
             "input":"rythm on ecg at visit 12 months on ecg,categorical values: 1=sinusrythm| 2= pacemaker-rythm| 3= atrialfibbrilation| 4= atrialflutter| 5= atrial rythm| 6= av-nodal re-entry tachycardia| 7= av re-entry tachycardia| 8= ventricular tachycardia| 9= sinus arrest| 10= nodal escape rythm| 11= ventricular escape rythm| 16= wolff-parkinson-white",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"cardiac Rhythm\",\"ECG finding\",\"Follow-up 1 year\"], \"categories\": [\"sinus rhythm\",\"pacemaker rhythm\",\"atrial fibrillation\",\"atrial flutter\",\"atrial rhythm\",\"AV-nodal re-entry tachycardia\",\"AV re-entry tachycardia\",\"ventricular tachycardia\",\"sinus arrest\",\"nodal escape rhythm\",\"ventricular escape rhythm\",\"Wolff-Parkinson-White\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"cardiac Rhythm\",\"additional_entities\":[\"ECG finding\",\"Follow-up 1 year\"], \"categories\": [\"sinus rhythm\",\"pacemaker rhythm\",\"atrial fibrillation\",\"atrial flutter\",\"atrial rhythm\",\"AV-nodal re-entry tachycardia\",\"AV re-entry tachycardia\",\"ventricular tachycardia\",\"sinus arrest\",\"nodal escape rhythm\",\"ventricular escape rhythm\",\"Wolff-Parkinson-White\"]}"
           },
           {
             "input":"rythm on ecg at 12 months on ecg,categorical values: 1=sinusrythm| 2= pacemaker-rythm| 3= atrialfibbrilation| 4= atrialflutter| 5= atrial rythm| 6= av-nodal re-entry tachycardia| 7= av re-entry tachycardia| 8= ventricular tachycardia| 9= sinus arrest| 10= nodal escape rythm| 11= ventricular escape rythm| 16= wolff-parkinson-white",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":\"cardiac Rhythm\",[\"ECG finding\",\"Follow-up 1 year\"], \"categories\": [\"sinus rhythm\",\"pacemaker rhythm\",\"atrial fibrillation\",\"atrial flutter\",\"atrial rhythm\",\"AV-nodal re-entry tachycardia\",\"AV re-entry tachycardia\",\"ventricular tachycardia\",\"sinus arrest\",\"nodal escape rhythm\",\"ventricular escape rhythm\",\"Wolff-Parkinson-White\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"cardiac Rhythm\",\"additional_entities\":[\"ECG finding\",\"Follow-up 1 year\"], \"categories\": [\"sinus rhythm\",\"pacemaker rhythm\",\"atrial fibrillation\",\"atrial flutter\",\"atrial rhythm\",\"AV-nodal re-entry tachycardia\",\"AV re-entry tachycardia\",\"ventricular tachycardia\",\"sinus arrest\",\"nodal escape rhythm\",\"ventricular escape rhythm\",\"Wolff-Parkinson-White\"]}"
           },
           {
             "input":"mean corpuscular volume at at visit 12 months , unit: fl/cell",
@@ -459,96 +459,96 @@
           },
           {
             "input":"velocity time integral (vti) aortic valve at visit month 18 on ecg, unit: cm",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"electrocardiogram\",\"additional_entities\":[\"Velocity time integral\",\"Aortic valve\",\"ECG finding\",\"Follow-up 18 months \"], \"unit\":\"cm\"}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Velocity time integral\",\"additional_entities\":[\"Aortic valve\",\"ECG finding\",\"Follow-up 18 months \"], \"unit\":\"cm\"}"
           },
 
           {
             "input":"velocity time integral (vti) aortic valve at visit 18 on ecg, unit: cm",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"electrocardiogram\",\"additional_entities\":[\"Velocity time integral\",\"Aortic valve\",\"ECG finding\",\"Follow-up 18 months \"], \"unit\":\"cm\"}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Velocity time integral\",\"additional_entities\":[\"Aortic valve\",\"ECG finding\",\"Follow-up 18 months \"], \"unit\":\"cm\"}"
           },
           {
             "input":"rv/ra at 18 follow-up on ecg",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Right ventricle to right atrium ratio\",\"ECG finding\",\"Follow-up 18 months \"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Right ventricle to right atrium ratio\",\"additional_entities\":[\"ECG finding\",\"Follow-up 18 months \"]}"
           },
           {
             "input":"rv/ra at v18 on Electrocardiogram",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Right ventricle to right atrium ratio\",\"ECG finding\",\"Follow-up 18 months \"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Right ventricle to right atrium ratio\",\"additional_entities\":[\"ECG finding\",\"Follow-up 18 months \"]}"
           },
           {
             "input":"rv/ra at visit month 18 on ecg",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Right ventricle to right atrium ratio\",\"ECG finding\",\"Follow-up 18 months \"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Right ventricle to right atrium ratio\",\"additional_entities\":[\"ECG finding\",\"Follow-up 18 months \"]}"
           },
           {
             "input":"rv/ra at visit 18 on ecg",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Right ventricle to right atrium ratio\",\"ECG finding\",\"Follow-up 18 months \"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Right ventricle to right atrium ratio\",\"additional_entities\":[\"ECG finding\",\"Follow-up 18 months \"]}"
           },
           {
             "input":"Input: intraventricular relaxation time at baseline time on Electrocardiogram,categorical values: [0=missing]|unit: ms",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"intra-ventricular relaxation time\",\"baseline time\"], \"unit\":\"ms\", \"categories\": [\"missing\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"intra-ventricular relaxation time\",\"additional_entities\":[\"baseline time\"], \"unit\":\"ms\", \"categories\": [\"missing\"]}"
           },
           {
             "input":"Input: intraventricular relaxation time at baseline time on Electrocardiogram,categorical values: [0=missing]|unit: ms",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"intra-ventricular relaxation time\",\"baseline time\"], \"unit\":\"ms\", \"categories\": [\"missing\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"intra-ventricular relaxation time\",\"additional_entities\":[\"baseline time\"], \"unit\":\"ms\", \"categories\": [\"missing\"]}"
           },
           {
             "input":"s-wave present in lead v5 and lead v6 at v12 on ecg,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"S-wave\",\"lead site v5\",\"lead site v6\",\"ECG finding\",\"Follow-up 1 year\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"S-wave\",\"additional_entities\":[\"lead site v5\",\"lead site v6\",\"ECG finding\",\"Follow-up 1 year\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"s-wave present in lead i, q-wave present in Lead iii at baseline time on ecg,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"S-wave\",\"lead site v1\",\"Q-wave\",\"lead site V3\",\"ECG finding\",\"baseline time\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"S-wave\",\"additional_entities\":[\"lead site v1\",\"Q-wave\",\"lead site V3\",\"ECG finding\",\"baseline time\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"s-wave present in lead i, q-wave present in Lead iii at baseline time on ecg,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"S-wave\",\"lead site v1\",\"Q-wave\",\"lead site V3\",\"ECG finding\",\"baseline time\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"S-wave\",\"additional_entities\":[\"lead site v1\",\"Q-wave\",\"lead site V3\",\"ECG finding\",\"baseline time\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"nodal block on ecg at v1,categorical values: 1= sino-atrial block| 2= first degree av-block| 3= second degree av block type 1 wenckebach| 4= second degree av block type 2 mobitz-ii| 5= third degree bloeck ( total block)|  9=other",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Atrioventricular block\",\"ECG finding\",\"Follow-up month 1\"], \"categories\": [\"sino-atrial block\",\"first degree atrioventricular-block\",\"second degree: Mobitz type II atrioventricular block\",\"second degree: Mobitz type II atrioventricular block\",\"Third degree atrioventricular block( total block)\",\"other\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Atrioventricular block\",\"additional_entities\":[\"ECG finding\",\"Follow-up month 1\"], \"categories\": [\"sino-atrial block\",\"first degree atrioventricular-block\",\"second degree: Mobitz type II atrioventricular block\",\"second degree: Mobitz type II atrioventricular block\",\"Third degree atrioventricular block( total block)\",\"other\"]}"
           },
           {
             "input":"pathological q-wave in lead v2-v3 at baseline time on ecg,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"pathological q-wave\",\"lead site v2\",\"lead site v3\",\"ECG finding\",\"baseline time\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"pathological q-wave\",\"additional_entities\":[\"lead site v2\",\"lead site v3\",\"ECG finding\",\"baseline time\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"pathological q-wave in lead v2-v3 at baseline time on ecg,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"pathological q-wave\",\"lead site v2\",\"lead site v3\",\"ECG finding\",\"baseline time\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"pathological q-wave\",\"additional_entities\":[\"lead site v2\",\"lead site v3\",\"ECG finding\",\"baseline time\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"ventricular extrasystoly at baseline time on ecg,categorical values: 1|0",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Ventricular premature complex\",\"ECG finding\",\"baseline time\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Ventricular premature complex\",\"additional_entities\":[\"ECG finding\",\"baseline time\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"ventricular extrasystoly at baseline time on ecg,categorical values: 1|0",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Ventricular premature complex\",\"ECG finding\",\"baseline time\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Ventricular premature complex\",\"additional_entities\":[\"ECG finding\",\"baseline time\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"supraventricular extrasystoly at baseline time on ecg,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Supraventricular premature beats\",\"ECG finding\",\"baseline time\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Supraventricular premature beats\",\"additional_entities\":[\"ECG finding\",\"baseline time\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"supraventricular extrasystoly at baseline time on ecg,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Supraventricular premature beats\",\"ECG finding\",\"baseline time\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Supraventricular premature beats\",\"additional_entities\":[\"ECG finding\",\"baseline time\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"s-wave present in lead i at baseline time on ecg,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"S-wave\",\"lead i\",\"ECG finding\",\"baseline time\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"S-wave\",\"additional_entities\":[\"lead i\",\"ECG finding\",\"baseline time\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"s-wave present in lead i at baseline time on ecg,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"S-wave\",\"lead i\",\"ECG finding\",\"baseline time\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"S-wave\",\"additional_entities\":[\"lead i\",\"ECG finding\",\"baseline time\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"ST-segment depression in lead V2-V3 at visit month 18",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"ST-segment depression\",\"lead site v2\",\"lead site v3\",\"ECG finding\",\"Follow-up 18 months\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"ST-segment depression\",\"additional_entities\":[\"lead site v2\",\"lead site v3\",\"ECG finding\",\"Follow-up 18 months\"]}"
           },
           {
             "input":"ST-segment depression in lead V2-V3 at visit month 18 follow-up",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"ST-segment depression\",\"lead site v2\",\"lead site v3\",\"ECG finding\",\"Follow-up 18 months\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"ST-segment depression\",\"additional_entities\":[\"lead site v2\",\"lead site v3\",\"ECG finding\",\"Follow-up 18 months\"]}"
           },
           {
             "input":"ST-segment depression in lead V2-V3 at visit 18 follow-up",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"ST-segment depression\",\"lead site v2\",\"lead site v3\",\"ECG finding\",\"Follow-up 18 months\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"ST-segment depression\",\"additional_entities\":[\"lead site v2\",\"lead site v3\",\"ECG finding\",\"Follow-up 18 months\"]}"
           },
           {
             "input":"copd gold i (global initiative for chronic obstructive lung disease)",
@@ -584,23 +584,23 @@
           },
           {
             "input":"pathological q-wave in lead avl-i at visit 1,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"pathological q-wave\",\"AVL\",\"lead site v1\",\"Follow-up 1 month\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"pathological q-wave\",\"additional_entities\":[\"AVL\",\"lead site v1\",\"Follow-up 1 month\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"pq-duration on ecg at visit 12 months, unit: ms",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"PR interval duration\",\"ECG finding\",\"Follow-up 1 year\"], \"unit\":\"ms\"}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"PR interval duration\",\"additional_entities\":[\"ECG finding\",\"Follow-up 1 year\"], \"unit\":\"ms\"}"
           },
           {
             "input":"pq-duration at 1 year follow-up on ecg, unit: ms",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"PR interval duration\",\"ECG finding\",\"Follow-up 1 year\"], \"unit\":\"ms\"}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"PR interval duration\",\"additional_entities\":[\"ECG finding\",\"Follow-up 1 year\"], \"unit\":\"ms\"}"
           },
           {
             "input":"pq-duration on ecg at visit 12 months , unit: ms",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"PR interval duration\",\"ECG finding\",\"Follow-up 1 year\"], \"unit\":\"ms\"}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"PR interval duration\",\"additional_entities\":[\"ECG finding\",\"Follow-up 1 year\"], \"unit\":\"ms\"}"
           },
           {
             "input":"qrs-axis on ecg at visit 12 months , unit: degrees",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"QRS axis\",\"ECG finding\",\"Follow-up 1 year\"], \"unit\":\"degrees\"}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"QRS axis\",\"additional_entities\":[\"ECG finding\",\"Follow-up 1 year\"], \"unit\":\"degrees\"}"
           },
           {
             "input":"type of bundle branch block at visit month 18",
@@ -612,31 +612,31 @@
           },
           {
             "input":"aortic anulus-dilatation y/n at visit 12 months on Electrocardiogram,categorical values: 1=yes  |  0=no",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Aortic annulus dilatation\",\"Follow-up 1 year\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Aortic annulus dilatation\",\"additional_entities\":[\"Follow-up 1 year\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"lateral hypokinesia at baseline time on Electrocardiogram,categorical values: 0=normal| 1 = hypokinetic | 2=severely hypokin. | 3=akinetic| 4 = dyskinetic | 9 =not.determinable.",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"lateral hypokinesia\",\"baseline time\"], \"categories\": [\"normal\",\"hypokinetic\",\"severely hypokinetic\",\"akinetic\",\"dyskinetic\",\"not determinable\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"lateral hypokinesia\",\"additional_entities\":[\"baseline time\"], \"categories\": [\"normal\",\"hypokinetic\",\"severely hypokinetic\",\"akinetic\",\"dyskinetic\",\"not determinable\"]}"
           },
           {
             "input":"lateral hypokinesia at baseline time on Electrocardiogram,categorical values: 0=normal| 1 = hypokinetic | 2=severely hypokin. | 3=akinetic| 4 = dyskinetic | 9 =not.determinable.",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"lateral hypokinesia\",\"baseline time\"], \"categories\": [\"normal\",\"hypokinetic\",\"severely hypokinetic\",\"akinetic\",\"dyskinetic\",\"not determinable\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"lateral hypokinesia\",\"additional_entities\":[\"baseline time\"], \"categories\": [\"normal\",\"hypokinetic\",\"severely hypokinetic\",\"akinetic\",\"dyskinetic\",\"not determinable\"]}"
           },
           {
             "input":"ECG ST+ lead v1 at post discharge visit follow-up 1 month",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"ST amplitude.lead V1 | Heart | EKG measurements\",\"lead V1\", \"ECG finding\",\"post hospital discharge visit\", \"Follow-up 1 months\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"ST amplitude.lead V1 | Heart | EKG measurements\",\"additional_entities\":[\"lead V1\", \"ECG finding\",\"post hospital discharge visit\", \"Follow-up 1 months\"]}"
           },
           {
             "input":"ECG ST+ lead v1 at discharge",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"ST amplitude.lead V1 | Heart | EKG measurements\",\"lead V1\", \"ECG finding\", \"discharge time\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"ST amplitude.lead V1 | Heart | EKG measurements\",\"additional_entities\":[\"lead V1\", \"ECG finding\", \"discharge time\"]}"
           },
           {
             "input":"ECG ST+ lead v1 at visit follow-up 1 month",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"ST amplitude.lead V1 | Heart | EKG measurements\",\"lead V1\", \"ECG finding\", \"Follow-up 1 months\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"ST amplitude.lead V1 | Heart | EKG measurements\",\"additional_entities\":[\"lead V1\", \"ECG finding\", \"Follow-up 1 months\"]}"
           },
           {
             "input":"ECG ST+ lead v1 at post discharge follow-up 1 month",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"ST amplitude.lead V1 | Heart | EKG measurements\",\"lead V1\", \"ECG finding\",\"post hospital discharge visit\", \"Follow-up 1 month\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"ST amplitude.lead V1 | Heart | EKG measurements\",\"additional_entities\":[\"lead V1\", \"ECG finding\",\"post hospital discharge visit\", \"Follow-up 1 month\"]}"
           },
           {
             "input":"antiarrhythmics -ajmaline-prescribed drugs at post discharge visit Follow-up 2 months",
@@ -656,11 +656,11 @@
           },
           {
             "input":"ECG ST- lead v1 at post-discharge Visit follow-up 4-6 months",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"ST sagement depression.lead V1 | Heart | EKG measurements\",\"lead V1\", \"ECG finding\",\"Post hospital discharge visit\", \"Follow-up 4-6 months\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"ST sagement depression.lead V1 | Heart | EKG measurements\",\"additional_entities\":[\"lead V1\", \"ECG finding\",\"Post hospital discharge visit\", \"Follow-up 4-6 months\"]}"
           },
           {
             "input":"ECG ST- lead v1 at Visit follow-up 4-6 months",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"ST sagement depression.lead V1 | Heart | EKG measurements\",\"lead V1\", \"ECG finding\",\"Follow-up 4-6 months\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"ST sagement depression.lead V1 | Heart | EKG measurements\",\"additional_entities\":[\"lead V1\", \"ECG finding\",\"Follow-up 4-6 months\"]}"
           },
 
           {
@@ -1166,7 +1166,7 @@
           },
           {
             "input":"rate frequency on ECG at baseline, unit:bpm",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Heart Rate\",\"baseline time\"], \"unit\": \"bpm\"}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Heart Rate\",\"additional_entities\":[\"baseline time\"], \"unit\": \"bpm\"}"
           },
           {
               "input":"Optimization of drug dose of Angiotensin-converting enzyme inhibitor therapy, categrical values: 0= hydration, 1= max dose, 2=target dose , 3= NVT, 4= contraindication",
@@ -1181,13 +1181,13 @@
             "output":"{\"domain\":\"drug\",\"base_entity\":\"Angiotensin II receptor antagonist\",\"additional_entities\":[\"contraindicated\"], \"categories\": [\"yes\",\"no\"]}"
           },
           { 
-            "input":"QTc= Corrected QT Interval time adjusted for heartfrequencyon ECG at baseline , unit:ms",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Q-T interval corrected\",\"heart rate\", \"baseline time\"], \"unit\": \"ms\"}"
+            "input":"QTc= Corrected QT Interval time adjusted for heart frequency on ECG at baseline , unit:ms",
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Q-T interval corrected\",\"additional_entities\":[\"heart rate\", \"baseline time\"], \"unit\": \"ms\"}"
 
           },
           { 
             "input":"QT time adjusted for heart frequency at baseline on ecg, unit:ms",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Q-T interval\",\"heart rate\",\"ECG finding\", \"baseline time\"], \"unit\": \"ms\"}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Q-T interval\",\"additional_entities\":[\"heart rate\",\"ECG finding\", \"baseline time\"], \"unit\": \"ms\"}"
 
           },
           {
@@ -1224,15 +1224,21 @@
           },
           {
             "input":"qrs duration in lead v2",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"QRS duration in lead V2\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"QRS duration in lead V2\", \"additional_entities\":[\"ecg findings\"]}"
+
+
+
+
+
+
           },
           {
               "input":"QRS-duration at visit month 18",
-              "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"QRS duration\"], \"unit\":\"ms\", \"additional_entities\":[\"Follow-up 18 monthss\"]}"
+              "output":"{\"domain\":\"measurement\",\"base_entity\":\"QRS duration\",\"additional_entities\":[\"ecg finding\"], \"unit\":\"ms\", \"additional_entities\":[\"Follow-up 18 monthss\"]}"
           },
           {
             "input":"QRS-duration at visit 18",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"QRS duration\"], \"unit\":\"ms\", \"additional_entities\":[\"Follow-up 18 monthss\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"QRS duration\",\"additional_entities\":[\"ecg finding\"], \"unit\":\"ms\", \"additional_entities\":[\"Follow-up 18 monthss\"]}"
           },
           { 
             "input":"body fat mass calculated",
@@ -1319,7 +1325,7 @@
           },
           {
             "input":"time ti on ecg at baseline, unit: ms",
-            "output":"{\"domain\":\"measurement\",\"base_entity\": \"Electrocardiogram\", \"additional_entities\":[ \"tricuspid insufficienc\",\"Time interval\",\"ECG finding\",\"baseline time\"], \"unit\": \"ms\"}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\": \"tricuspid insufficienc\", \"additional_entities\":[ \"Time interval\",\"ECG finding\",\"baseline time\"], \"unit\": \"ms\"}"
           },  
           {
             "input": "Latest HbA1c level measured at baseline",
@@ -1461,19 +1467,15 @@
           },
           {
             "input":"time q-ti at visit 12 months on ecg, unit: ms",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Q-T Interval\",\"ECG finding\", \"Follow-up 1 year\"], \"unit\":\"milliseconds\"}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Q-T Interval\",\"additional_entities\":[\"ECG finding\", \"Follow-up 1 year\"], \"unit\":\"milliseconds\"}"
           },
           {
             "input":"time q-ti at visit follow-up 12 months on ecg, unit: ms",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Q-T Interval\",\"ECG finding\", \"Follow-up 1 year\"], \"unit\":\"milliseconds\"}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Q-T Interval\",\"additional_entities\":[\"ECG finding\", \"Follow-up 1 year\"], \"unit\":\"milliseconds\"}"
           },
           {
             "input":"RV/RA mean at baseline time",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[ \"Tricuspid valve Mean pressure gradient dur diastole by US.doppler\",\"Follow-up 1 year\"]}"
-          },
-          {
-            "input":"r:s less than 1 in lead v5/v6 at baseline on ecg,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"R wave amplitude in Lead V5\", \"S wave amplitude in Lead V6\",\"ECG finding\", \"baseline time\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Tricuspid valve Mean pressure gradient dur diastole by US.doppler\",\"additional_entities\":[ \"Follow-up 1 year\"]}"
           },
           {
            "input":"mean corpuscular hemoglobin at baseline, unit: pg/ cell",
@@ -1497,7 +1499,7 @@
           },
           {
             "input":"morphology ves on ecg at baseline ",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Ventricular extrasystoles\",\"ECG finding\",\"baseline time\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Ventricular extrasystoles\",\"additional_entities\":[\"ECG finding\",\"baseline time\"]}"
           },
           {
             "input":"osteopontin (opn) at baseline",
@@ -1806,16 +1808,16 @@
           },
           {
             "input":"Heart rythm on ECG at baseline time",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"heart rythm\", \"ECG finding\",\"baseline time\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"heart rythm\",\"additional_entities\":[ \"ECG finding\",\"baseline time\"]}"
           }
           ,
           {
             "input":"ecg: right bundle branch block (lbbb)",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"electrocardiogram\": [\"Right bundle branch block\",\"ECG finding\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Right bundle branch block\",\"additional_entities\": [\"ECG finding\"]}"
           },
           {
             "input":"ekg: left bundle branch block (lbbb)",
-            "output":"{\"domain\":\"observation\",\"base_entity\":\"electrocardiogram\",\"additional_entities\": [\"Left bundle branch block\",\"ECG finding\"]}"
+            "output":"{\"domain\":\"observation\",\"base_entity\":\"Left bundle branch block\",\"additional_entities\": [\"ECG finding\"]}"
           },
           {
             "input":"q-wave present in Lead site V3 at visit month 12, categorical values: 1=yes | 0=no",
@@ -1835,7 +1837,7 @@
           },
           {
             "input":"pathological q-wave in lead ii-iii-avf at visit 12 months on ecg,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Pathological Q wave\",\"AVF\",\"lead  II\",\"lead III\",\"ECG finding\",\"follow-up 1 year\"],\"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Pathological Q wave\",\"additional_entities\":[\"AVF\",\"lead  II\",\"lead III\",\"ECG finding\",\"follow-up 1 year\"],\"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"death without cancer-related death, part of primary endpoint,categorical values: 1=yes | 0=no",
@@ -1855,91 +1857,91 @@
           },
           {
             "input":"total of r-wave voltage in lead v5+v6 on ecg at baseline time, unit: mv",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"R wave amplitude in lead v5\",\"R wave amplitude in lead v6\",\"ECG finding\",\"baseline time\"], \"unit\":\"millivolt\"}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"r-wave voltage\",\"additional_entities\":[\"R wave amplitude in lead v5\",\"R wave amplitude in lead v6\",\"ECG finding\",\"baseline time\"], \"unit\":\"millivolt\"}"
           },
           {
             "input":"total of s-wave voltage in lead v1+v2 on ecg at baseline time , unit: mv",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"S wave amplitude in lead v1\",\"S wave amplitude in lead v2\",\"ECG finding\",\"baseline time\"], \"unit\":\"millivolt\"}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"s-wave voltage\",\"additional_entities\":[\"S wave amplitude in lead v1\",\"S wave amplitude in lead v2\",\"ECG finding\",\"baseline time\"], \"unit\":\"millivolt\"}"
           },
           {
             "input":"total of s-wave voltage in lead v1+v2 on ecg at visit month 6, unit: mv",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"S wave amplitude in lead v1\",\"S wave amplitude in lead v2\",\"ECG finding\",\"follow-up 6 months\"], \"unit\":\"millivolt\"}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"s-wave voltage\",\"additional_entities\":[\"S wave amplitude in lead v1\",\"S wave amplitude in lead v2\",\"ECG finding\",\"follow-up 6 months\"], \"unit\":\"millivolt\"}"
           },
           {
             "input":"total of s-wave voltage in lead v1+v2 on ecg at visit 6, unit: mv",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"S wave amplitude in lead v1\",\"S wave amplitude in lead v2\",\"ECG finding\",\"follow-up 6 months\"], \"unit\":\"millivolt\"}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"s-wave voltage\",\"additional_entities\":[\"S wave amplitude in lead v1\",\"S wave amplitude in lead v2\",\"ECG finding\",\"follow-up 6 months\"], \"unit\":\"millivolt\"}"
           },
           {
             "input":"r-wave voltage in lead v1 on ecg at visit follow-up 3 months , unit: mv",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"R wave amplitude in lead v1\"\"ECG finding\",\"follow-up 3 months\"], \"unit\":\"millivolt\"}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"r-wave voltage\",\"additional_entities\":[\"R wave amplitude in lead v1\"\"ECG finding\",\"follow-up 3 months\"], \"unit\":\"millivolt\"}"
           },
           {
             "input":"low voltages in extremity leads on ecg at visit follow-up month 1,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Low QRS voltages in the limb leads\",\"ECG finding\",\"Follow-up 1 month\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Low QRS voltages in the limb leads\",\"additional_entities\":[\"ECG finding\",\"Follow-up 1 month\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"low voltages in precordial leads on ecg at visit 12 months,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Low QRS voltages in the precordial leads\",\"ECG finding\",\"Follow-up 1 year\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Low QRS voltages in the precordial leads\",\"additional_entities\":[\"ECG finding\",\"Follow-up 1 year\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"lvh criterium reached on ecgon ecg,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Left ventricular hypertrophy\",\"ECG finding\",\"Follow-up 2 years\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Left ventricular hypertrophy\",\"additional_entities\":[\"ECG finding\",\"Follow-up 2 years\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"left atrial overload on ecg on ecg at visit 6 months ,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Left atrial dilatation\",\"ECG finding\",\"Follow-up 6 months\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Left atrial dilatation\",\"additional_entities\":[\"ECG finding\",\"Follow-up 6 months\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"left atrial overload on ecg on ecg at baseline time,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Left atrial dilatation\",\"ECG finding\",\"baseline time\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Left atrial dilatation\",\"additional_entities\":[\"ECG finding\",\"baseline time\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"incomplete left bundlebranch block on ecg at visit month 18 ,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Incomplete left bundle branch block\",\"ECG finding\",\"Follow-up 18 months\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Incomplete left bundle branch block\",\"additional_entities\":[\"ECG finding\",\"Follow-up 18 months\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"incomplete left bundlebranch block on ecg at visit 18 ,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Incomplete left bundle branch block\",\"ECG finding\",\"Follow-up 18 months\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Incomplete left bundle branch block\",\"additional_entities\":[\"ECG finding\",\"Follow-up 18 months\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"complete left bundlebranch block on ecg at visit month 3 ,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"complete left bundle branch block\",\"ECG finding\",\"Follow-up 3 month\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"complete left bundle branch block\",\"additional_entities\":[\"ECG finding\",\"Follow-up 3 month\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"complete left bundlebranch block on ecg at visit 3 ,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"complete left bundle branch block\",\"ECG finding\",\"Follow-up 3 month\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"complete left bundle branch block\",\"additional_entities\":[\"ECG finding\",\"Follow-up 3 month\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"inverted t-wave present in lead v1 on ecg at visit month 18,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Inverted T wave\",\"Lead Site V1\",\"ECG finding\",\"Follow-up 18 months\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Inverted T wave\",\"additional_entities\":[\"Lead Site V1\",\"ECG finding\",\"Follow-up 18 months\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"inverted t-wave present in lead v1 on ecg at visit 18,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Inverted T wave\",\"Lead Site V1\",\"ECG finding\",\"Follow-up 18 months\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Inverted T wave\",\"additional_entities\":[\"Lead Site V1\",\"ECG finding\",\"Follow-up 18 months\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"inverted t-wave present in lead v1 on ecg at baseline time,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Inverted T wave\",\"Lead Site V1\",\"ECG finding\",\"baseline time\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Inverted T wave\",\"additional_entities\":[\"Lead Site V1\",\"ECG finding\",\"baseline time\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"bifascicular block on ecg  at visit month 18,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Bifascicular block\",\"ECG finding\",\"Follow-up 18 months\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Bifascicular block\",\"additional_entities\":[\"ECG finding\",\"Follow-up 18 months\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"bifascicular block on ecg  at visit 18,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"Bifascicular block\",\"ECG finding\",\"Follow-up 18 months\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Bifascicular block\",\"additional_entities\":[\"ECG finding\",\"Follow-up 18 months\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"p-wave_voltage_ ii at visit month 18, unit: mv",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\" P wave amplitude in lead V1\",\"ECG finding\",\"Follow-up 18 months\"], \"unit\":\"millivolt\"}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"P wave amplitude in lead V1\",\"additional_entities\":[\"ECG finding\",\"Follow-up 18 months\"], \"unit\":\"millivolt\"}"
           },
           {
             "input":"p-wave_voltage_ ii at visit 18, unit: mv",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\" P wave amplitude in lead V1\",\"ECG finding\",\"Follow-up 18 months\"], \"unit\":\"millivolt\"}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"P wave amplitude in lead V1\",\"additional_entities\":[\"ECG finding\",\"Follow-up 18 months\"], \"unit\":\"millivolt\"}"
           },
           {
             "input":"negative t-wave in lead v2-v3 on ecg at baseline time,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"inverted T wave\",\"Lead Site V2\",\"Lead Site V3\",\"ECG finding\",\"baseline time\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"inverted T wave\",\"additional_entities\":[\"Lead Site V2\",\"Lead Site V3\",\"ECG finding\",\"baseline time\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"Renin level at visit follow-up 6 months",
@@ -1963,27 +1965,27 @@
           },
           {
             "input":"r-wave point of inversion (from positive to negative) on ecg at baseline time,categorical values: 1=v1. 2=v2| 3=v3| 4=v4| 5=v5| 6=v6| 7= fully negative",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"R wave inversion\",\"ECG finding\",\"baseline time\"], \"categories\": [\"Lead Site V1\",\"Lead Site V2\",\"Lead Site V3\",\"Lead Site V4\",\"Lead Site V5\",\"Lead Site V6\",\"fully negative\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"R wave inversion\",\"additional_entities\":[\"ECG finding\",\"baseline time\"], \"categories\": [\"Lead Site V1\",\"Lead Site V2\",\"Lead Site V3\",\"Lead Site V4\",\"Lead Site V5\",\"Lead Site V6\",\"fully negative\"]}"
           },
           {
             "input":"r-wave point of inversion (from positive to negative) on ecg at visit 3,categorical values: 1=v1. 2=v2| 3=v3| 4=v4| 5=v5| 6=v6| 7= fully negative",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"R wave inversion\",\"ECG finding\",\"follow-up 3 months\"], \"categories\": [\"Lead Site V1\",\"Lead Site V2\",\"Lead Site V3\",\"Lead Site V4\",\"Lead Site V5\",\"Lead Site V6\",\"fully negative\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"R wave inversion\",\"additional_entities\":[\"ECG finding\",\"follow-up 3 months\"], \"categories\": [\"Lead Site V1\",\"Lead Site V2\",\"Lead Site V3\",\"Lead Site V4\",\"Lead Site V5\",\"Lead Site V6\",\"fully negative\"]}"
           },
           {
             "input":"t-axis on ecg at baseline time, unit: degrees",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"T wave axis\",\"ECG finding\",\"baseline time\"], \"unit\":\"degrees\"}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"T wave axis\",\"additional_entities\":[\"ECG finding\",\"baseline time\"], \"unit\":\"degrees\"}"
           },
           {
             "input":"t-axis on ecg at visit 12 months, unit: degrees",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"T wave axis\",\"ECG finding\",\"follow-up 1 year\"], \"unit\":\"degrees\"}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"T wave axis\",\"additional_entities\":[\"ECG finding\",\"follow-up 1 year\"], \"unit\":\"degrees\"}"
           },
           {
             "input":"st-segment depression in lead v2-v3 on ecg at baseline time,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"ST segment depression\",\"Lead Site V2\",\"Lead Site V3\",\"ECG finding\",\"baseline time\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"ST segment depression\",\"additional_entities\":[\"Lead Site V2\",\"Lead Site V3\",\"ECG finding\",\"baseline time\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"R-wave voltage in lead V1 at baseline time",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"R wave amplitude in lead V1\",\"baseline time\",\"ECG finding\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"R wave amplitude in lead V1\",\"additional_entities\":[\"baseline time\",\"ECG finding\"]}"
           },
           {
             "input":"new york heart association classification categorizing severity of heart failure with range i-iv",
@@ -1991,48 +1993,48 @@
           },
           {
             "input":"P-wave_voltage negative_lead V1 at visit follow-up month 18",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"P wave amplitude in lead V1\",\"negative\",\"ECG finding\",\"Follow-up 18 months\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"P wave amplitude in lead V1\",\"additional_entities\":[\"negative\",\"ECG finding\",\"Follow-up 18 months\"]}"
 
           },
           {
             "input":"Duration_positive part P-wave in lead V1 at visit follow-up month 18",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"P wave duration in lead V1\",\"Positive\",\"ECG finding\",\"Follow-up 18 months\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"P wave duration in lead V1\",\"additional_entities\":[\"Positive\",\"ECG finding\",\"Follow-up 18 months\"]}"
           },
           {
             "input":"Duration_positive part P-wave in lead V1 at follow-up month 18",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Electrocardiogram\",\"additional_entities\":[\"P wave duration in lead V1\",\"Positive\",\"ECG finding\",\"Follow-up 18 months\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"P wave duration in lead V1\",\"additional_entities\":[\"Positive\",\"ECG finding\",\"Follow-up 18 months\"]}"
           },
           {
             "input":"flat t-tops on extremity leads on ecg,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"\"Electrocardiogram\"\",\"additional_entities\":[\"Flattened T wave\",\"Limb lead\",\"ECG finding\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Flattened T wave\",\"additional_entities\":[\"Limb lead\",\"ECG finding\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"flat t-tops on precordial leads on ecg at baseline time,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"\"Electrocardiogram\"\",\"additional_entities\":[\"Flattened T wave\",\"Chest lead\",\"ECG finding\",\"baseline time\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Flattened T wave\",\"additional_entities\":[,\"Chest lead\",\"ECG finding\",\"baseline time\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"other remarks (in dutch) on ecg",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"\"Electrocardiogram\"\",\"additional_entities\":[\"ECG finding\",\"Notes\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"ECG finding\",\"additional_entities\":[\"Notes\"]}"
           },
           {
             "input":"p-wave positive part_voltage_lead v1 on ecg at baseline time, unit: mv",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"\"Electrocardiogram\"\",\"additional_entities\":[\"P wave amplitude in lead V1\",\"positive\",\"ECG finding\",\"baseline time\"],\"unit\":\"millivolt\"}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"P wave amplitude in lead V1\",\"additional_entities\":[\"positive\",\"ECG finding\",\"baseline time\"],\"unit\":\"millivolt\"}"
           },
           {
             "input":"p-wave positive part_voltage_lead v1 on ecg at visit 18 months, unit: mv",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"\"Electrocardiogram\"\",\"additional_entities\":[\"P wave amplitude in lead V1\",\"positive\",\"ECG finding\",\"follow-up 18 months\"], \"unit\":\"millivolt\"}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"P wave amplitude in lead V1\",\"additional_entities\":[\"positive\",\"ECG finding\",\"follow-up 18 months\"], \"unit\":\"millivolt\"}"
           },
           {
             "input":"p-wave positive part_voltage_lead v1 on ecg at visit 12 months, unit: mv",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"\"Electrocardiogram\"\",\"additional_entities\":[\"P wave amplitude in lead V1\",\"positive\",\"ECG finding\",\"follow-up 1 year\"], \"unit\":\"millivolt\"}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"P wave amplitude in lead V1\",\"additional_entities\":[\"positive\",\"ECG finding\",\"follow-up 1 year\"], \"unit\":\"millivolt\"}"
           },
           {
             "input":"low voltages in extremity leads on ecg at baseline time,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"\"Electrocardiogram\"\",\"additional_entities\":[ \"Low QRS voltages in the limb leads\",\"ECG finding\",\"baseline time\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\": \"Low QRS voltages in the limb leads\",\"additional_entities\":[\"ECG finding\",\"baseline time\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
             "input":"low voltages in extremity leads on ecg at visit 12 months,categorical values: 1=yes | 0=no",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"\"Electrocardiogram\"\",\"additional_entities\":[ \"Low QRS voltages in the limb leads\",\"ECG finding\",\"follow-up 1 year\"], \"categories\": [\"yes\",\"no\"]}"
+            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Low QRS voltages in the limb leads\",\"additional_entities\":[ \"ECG finding\",\"follow-up 1 year\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
               "input":"cerebral arterial disease",
