@@ -119,7 +119,7 @@ def insert_triples(
         GRAPH <{graph_uri!s}> {{ <{subject_uri!s}> {predicate} {object_uri} . {label_part} }}
     }}
     """
-    print(query)
+    # print(query)
     query_endpoint = SPARQLWrapper(f"{settings.sparql_endpoint}/update")
     query_endpoint.setMethod("POST")
     query_endpoint.setRequestMethod("urlencoded")
@@ -281,7 +281,8 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
                 detail="\n\n".join(errors),
             )
     except Exception as e:
-        print(e)
+        logging.warning(f"Error loading cohort {cohort_id}")
+        logging.warning(e)
         raise HTTPException(
             status_code=422,
             detail=str(e)[5:],
@@ -298,7 +299,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
 async def get_logs(
     user: Any = Depends(get_current_user),
 ) -> list[str]:
-    """Delete a cohort from the triplestore and delete its metadata file from the server."""
+    """Get server logs (admins only)."""
     user_email = user["email"]
     if user_email not in settings.admins_list:
         raise HTTPException(status_code=403, detail="You need to be admin to perform this action.")
