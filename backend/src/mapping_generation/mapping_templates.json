@@ -41,29 +41,12 @@
       }
     }
   },
-"static_rules":{
-    "visit":{
-      "baseline":"baseline time",
-      "month 0": "baseline time",
-      "visit 0": "baseline time",
-      "visit 1": "Follow-up 1 month",
-      "visit 2": "Follow-up 2 months",
-      "visit 3": "Follow-up 3 months",
-      "visit 4": "Follow-up 4 months",
-      "visit 5": "Follow-up 5 months",
-      "visit 6": "Follow-up 6 months",
-      "visit 7": "Follow-up 7 months"
-    },
-    "standing position":{
-      "standing position, context: heart rate": "unsupported standing position",
-      "standing position, context: blood pressure": "standing position"
-    }
-},
+
 "mapping_rules": 
   {
     "all":
       {
-        "description": "Instructions:\nYou are tasked with extracting medical information from the provided text which can inlcude patient information such demographics, diagnosis, treatmeents, medical background,  health care encounters, Visit detils, etc. \nResponse Format: Provide your responses in a structured JSON format, including fields for 'domain', 'base_entity', 'additional_entities', 'unit', and 'categories' where applicable",
+        "description": "Role: You are a helpful assistant with expertise in data science and the biomedical domain. ***Task Description:- Extract information from the provided medical query which includes the base entity, associated entities, categories, and unit of measurement. This information will be used to link the medical query to standard medical terminologies ** Perform the following actions in order to identify relevant information:\n-Rewrite the medical query in english language to ensure all terms are expanded to their full forms. Always translate all non-english terms to english.\n-Identify if there are any acronyms and abbreviations in given medical query and expand them.\n-Domain: Determine the most appropriate OHDSI OMOP standards from list of following domains: [Condition, Anatomic Site, Body Structure, Measurement, Procedure, Drug, Device, Unit,  Visit,  Death,  Demographics, Family History, Life Style, History of Events].\nExtract Entities:\n- Base Entity: The primary concept mentioned in the medical query. It represents the key medical or clinical element being measured, observed, or evaluated.\n- Associated Entities: Provide list of associated entities like time points, anatomical locations, related procedures, or clinical events that clarify the base entity's context within the query.\nExtract Unit: Unit of measurement associated if mentioned.\nExtract categories:\n- If mentioned, Provide list of categories associated with the base entity. categories values are qualifiers that provide outcome context.\n**Considerations::\n-Don't consider categorical values as context. Assume they are categorical values.\n-Don't add additional unit of measurement if not mentioned in the query.\n- All visit started from 1 and onwards should be considered as follow-up visits.\n**Check Examples: If examples are provided, Please use them to guide your extraction. If no examples or relevant examples are provided, generate new examples to aid the extraction process.**Desired format: Provide the output in JSON format with the following fields: 'domain', 'base_entity', 'additional_entities', 'categories' and 'unit'. I repeat, provide the output in JSON format with the following fields: 'domain', 'base_entity', 'additional_entities', 'categories' and 'unit'.\nDo not add any preamble or explanations. Make sure to use the examples to understand the context of the query\\nmedical query: {input}\nOutput:",
         "example_output": [
           {
             "input":"time to first all-cause hospitalisation or death, unit: days",
