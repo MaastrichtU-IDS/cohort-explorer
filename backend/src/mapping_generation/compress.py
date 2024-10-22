@@ -143,10 +143,11 @@ class CustomMergeRetriever(MergerRetriever):
         seens_documents = set()
         print(f"max_docs: {max_docs}")
         for i in range(max_docs):
-            for retriever, doc in zip(self.retrievers, retriever_docs):
-                if i < len(doc) and doc[i].metadata['label'] not in seens_documents:
-                        merged_documents.append(doc[i])
-                        seens_documents.add(doc[i].metadata['label'])
+            for _, doc in zip(self.retrievers, retriever_docs):
+                label_with_code = f"{doc[i].metadata['label']}_{doc[i].metadata['sid']}"
+                if i < len(doc) and label_with_code not in seens_documents:
+                    merged_documents.append(doc[i])
+                    seens_documents.add(label_with_code)
         return merged_documents
 
     async def amerge_documents(
