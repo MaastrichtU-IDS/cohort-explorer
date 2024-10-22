@@ -33,12 +33,12 @@ class LLMManager:
     def _load_llm(model="llama3", hugging_face=False):
         load_dotenv()
         # open_ai_key = os.getenv("OPENAI_API_KEY")
-        my_openai_key = os.getenv("CT_MAPPER_OPENAI_API_KEY")
+        my_openai_key = os.getenv("CT_MAPPER_OPENAI_API_KEY", "")
         # org_id = os.getenv("OPENAI_ORG_ID")
-        my_org_id = os.getenv("CT_MAPPER_OPENAI_ORG_ID")
-        groq_api = os.getenv("GROQ_API_KEY")
-        togather_api = os.getenv("TOGATHER_API_KEY")
-        hf_key = os.getenv("HF_API_KEY")
+        my_org_id = os.getenv("CT_MAPPER_OPENAI_ORG_ID", "")
+        groq_api = os.getenv("GROQ_API_KEY", "")
+        togather_api = os.getenv("TOGATHER_API_KEY", "placeholder")
+        hf_key = os.getenv("HF_API_KEY", "")
         # mixtral_api = os.getenv("MIXTRAL_API_KEY")
         if hugging_face and "gpt" not in model:
             if model == "llama":
