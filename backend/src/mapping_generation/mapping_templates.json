@@ -13,7 +13,7 @@
       "demographics": ["snomed", "loinc"], 
       "family history": ["snomed", "loinc"],
       "visit": ["snomed","loinc","atc","rxnorm"],
-      "observation": ["snomed","loinc","omop extension"],
+      "observation": ["snomed","loinc","omop extension","atc"],
       "death":["snomed", "loinc","omop extension"],
       "history of events":["snomed", "loinc","omop extension"],
       "life style":["snomed", "loinc","omop extension"],
@@ -41,12 +41,29 @@
       }
     }
   },
-
+"static_rules":{
+    "visit":{
+      "baseline":"baseline time",
+      "month 0": "baseline time",
+      "visit 0": "baseline time",
+      "visit 1": "Follow-up 1 month",
+      "visit 2": "Follow-up 2 months",
+      "visit 3": "Follow-up 3 months",
+      "visit 4": "Follow-up 4 months",
+      "visit 5": "Follow-up 5 months",
+      "visit 6": "Follow-up 6 months",
+      "visit 7": "Follow-up 7 months"
+    },
+    "standing position":{
+      "standing position, context: heart rate": "unsupported standing position",
+      "standing position, context: blood pressure": "standing position"
+    }
+},
 "mapping_rules": 
   {
     "all":
       {
-        "description": "Role: You are a helpful assistant with expertise in data science and the biomedical domain. ***Task Description:- Extract information from the provided medical query which includes the base entity, associated entities, categories, and unit of measurement. This information will be used to link the medical query to standard medical terminologies ** Perform the following actions in order to identify relevant information:\n-Rewrite the medical query in english language to ensure all terms are expanded to their full forms. Always translate all non-english terms to english.\n-Identify if there are any acronyms and abbreviations in given medical query and expand them.\n-Domain: Determine the most appropriate OHDSI OMOP standards from list of following domains: [Condition, Anatomic Site, Body Structure, Measurement, Procedure, Drug, Device, Unit,  Visit,  Death,  Demographics, Family History, Life Style, History of Events].\nExtract Entities:\n- Base Entity: The primary concept mentioned in the medical query. It represents the key medical or clinical element being measured, observed, or evaluated.\n- Associated Entities: Provide list of associated entities like time points, anatomical locations, related procedures, or clinical events that clarify the base entity's context within the query.\nExtract Unit: Unit of measurement associated if mentioned.\nExtract categories:\n- If mentioned, Provide list of categories associated with the base entity. categories values are qualifiers that provide outcome context.\n**Considerations::\n-Don't consider categorical values as context. Assume they are categorical values.\n-Don't add additional unit of measurement if not mentioned in the query.\n- All visit started from 1 and onwards should be considered as follow-up visits.\n**Check Examples: If examples are provided, Please use them to guide your extraction. If no examples or relevant examples are provided, generate new examples to aid the extraction process.**Desired format: Provide the output in JSON format with the following fields: 'domain', 'base_entity', 'additional_entities', 'categories' and 'unit'. I repeat, provide the output in JSON format with the following fields: 'domain', 'base_entity', 'additional_entities', 'categories' and 'unit'.\nDo not add any preamble or explanations. Make sure to use the examples to understand the context of the query\\nmedical query: {input}\nOutput:",
+        "description": "Instructions:\nYou are tasked with extracting medical information from the provided text which can inlcude patient information such demographics, diagnosis, treatmeents, medical background,  health care encounters, Visit detils, etc. \nResponse Format: Provide your responses in a structured JSON format, including fields for 'domain', 'base_entity', 'additional_entities', 'unit', and 'categories' where applicable",
         "example_output": [
           {
             "input":"time to first all-cause hospitalisation or death, unit: days",
@@ -4099,7 +4116,54 @@
       ]
     },
     {
-      "input":"Query: standing position blood pressure, candidate terms: ['orthostatic body position','unsupported standing position','does maintain a standing position','standing','standing up','difficulty maintaining a standing position','able to maintain a standing position','does not maintain a standing position']",
+      "input":"Query: standing body position,context: blood pressure, candidate terms: ['orthostatic body position','unsupported standing position','does maintain a standing position','standing','standing up','difficulty maintaining a standing position','able to maintain a standing position','does not maintain a standing position']",
+      "output":[
+            {
+              "answer": "orthostatic body position",
+              "relationship": "partially relevant ",
+              "explanation": "This answer is less relevant as it describes the body position itself, not the blood pressure associated with it."
+            },
+            {
+              "answer": "unsupported standing position",
+              "relationship": "highly relevant",
+              "explanation": "This answer is highly relevant as it refers to the unsupported nature of the standing position, which is often associated with changes in heart rate."
+            
+            },
+            {
+              "answer": "does maintain a standing position",
+              "relationship": "not relevant",
+              "explanation": "This answer is not relevant as it refers to the ability to maintain a standing position, not the position itself."
+            },
+            {
+              "answer": "standing",
+              "relationship": "synonym",
+              "explanation":"This answer is an accurate match as standing body position is interchangeable refered to standing in clinical setting."
+            },
+            {
+              "answer": "standing up",
+              "relationship": "not relevant",
+              "explanation": "This answer is not relevant as it refers to the action of standing up, not the static body position."
+            },
+            {
+              "answer": "difficulty maintaining a standing position",
+              "relationship": "not relevant",
+              "explanation": "This answer is not relevant as it refers to the challenge of maintaining a standing position, not the position itself."
+            },
+            {
+              "answer": "able to maintain a standing position",
+              "relationship": "not relevant",
+              "explanation": "This answer is not relevant as it refers to the ability to maintain a standing position, not the position itself."
+            },
+            {
+              "answer": "does not maintain a standing position",
+              "relationship": "not relevant",
+              "explanation": "This answer is not relevant as it refers to the inability to maintain a standing position, not the position itself."
+            }
+
+      ]
+    },
+    {
+      "input":"Query: standing position, context: blood pressure, candidate terms: ['orthostatic body position','unsupported standing position','does maintain a standing position','standing','standing up','difficulty maintaining a standing position','able to maintain a standing position','does not maintain a standing position']",
       "output":[
             {
               "answer": "orthostatic body position",
@@ -7169,7 +7233,7 @@
       {
         "answer": "unsupported standing position",
         "score": 8,
-        "explanation": "This answer is specific standing position within Orthostatic body position.It is not relevant as it refers to the specific nature of the standing position."
+        "explanation": "This answer is specific standing position within Orthostatic body position.It is highly relevant as it refers to the specific nature of the standing position."
       },
       {
         "answer": "Does maintain a standing position",
@@ -7202,11 +7266,56 @@
   {
     "input":"Query: standing position, candidate terms: ['orthostatic body position','standing','unsupported standing position','does maintain a standing position','standing up','difficulty maintaining a standing position','able to maintain a standing position','does not maintain a standing position']",
     "output":[
-  
       {
         "answer": "Orthostatic body position",
         "score": 5,
         "explanation": "This is general concept which is typically used in medical context to describe the standing body position"
+      },
+      {
+        "answer": "standing",
+        "score": 10,
+        "explanation": "This answer is an exact match as it directly refers to the standing body position."
+      },
+      {
+        "answer": "unsupported standing position",
+        "score": 8,
+        "explanation": "This answer is specific standing position within Orthostatic body position.It is highly relevant as it refers to the specific nature of the standing position."
+      },
+      {
+        "answer": "Does maintain a standing position",
+        "score": 0,
+        "explanation": "This answer is not relevant as it refers to the qualifier 'does maintain' rather than the standing position itself."
+      },
+      {
+        "answer": "standing up",
+        "score": 2,
+        "explanation": "This answer is less relevant as it refers to the action of standing up rather than the standing body position."
+      },
+      {
+        "answer": "difficulty maintaining a standing position",
+        "score": 0,
+        "explanation": "This answer is not relevant as it refers to the difficulty in maintaining a standing position rather than the position itself."
+      },
+      {
+        "answer": "able to maintain a standing position",
+        "score": 0,
+        "explanation": "This answer is not relevant as it refers to the ability to maintain a standing position rather than the position itself."
+      },
+      {
+        "answer": "does not maintain a standing position",
+        "score": 0,
+        "explanation": "This answer is not relevant as it refers to the inability to maintain a standing position rather than the position itself."
+      }
+    ]
+  },
+  {
+    "input":"Query::'standing position, context: heart rate', candidate terms: ['orthostatic body position','standing','unsupported standing position','does maintain a standing position','standing up','difficulty maintaining a standing position','able to maintain a standing position','does not maintain a standing position']",
+    "output":[
+  
+      {
+        "answer": "Orthostatic body position",
+        "score": 5,
+        "explanation": "This is general concept which is typically used in medical context to describe the standing body position. Therefore, it is partially relevant."
       },
       {
         "answer": "standing",
@@ -7221,9 +7330,54 @@
       {
         "answer": "Does maintain a standing position",
         "score": 0,
-        "explanation": "This answer is not relevant as it refers to the qualifier 'does maintain' rather than the standing position itself."
+        "explanation": "This answer is not relevant as it refers to the qualifier status 'does maintain' rather than the standing position itself."
       },
-
+      {
+        "answer": "standing up",
+        "score": 2,
+        "explanation": "This answer is less relevant as it refers to the action of standing up rather than the standing body position."
+      },
+      {
+        "answer": "difficulty maintaining a standing position",
+        "score": 0,
+        "explanation": "This answer is not relevant as it refers to the difficulty in maintaining a standing position rather than the position itself."
+      },
+      {
+        "answer": "able to maintain a standing position",
+        "score": 0,
+        "explanation": "This answer is not relevant as it refers to the ability to maintain a standing position rather than the position itself."
+      },
+      {
+        "answer": "does not maintain a standing position",
+        "score": 0,
+        "explanation": "This answer is not relevant as it refers to the inability to maintain a standing position rather than the position itself."
+      }
+    ]
+  },
+  {
+    "input":"Query:'standing position, context: blood pressure', candidate terms: ['orthostatic body position','standing','unsupported standing position','does maintain a standing position','standing up','difficulty maintaining a standing position','able to maintain a standing position','does not maintain a standing position']",
+    "output":[
+  
+      {
+        "answer": "Orthostatic body position",
+        "score": 5,
+        "explanation": "This is general concept which is typically used in medical context to describe the standing body position. Therefore, it is partially relevant."
+      },
+      {
+        "answer": "standing",
+        "score": 10,
+        "explanation": "This answer is an exact match as it directly refers to the standing body position."
+      },
+      {
+        "answer": "unsupported standing position",
+        "score": 8,
+        "explanation": "This answer is specific standing position within Orthostatic body position.It is not relevant as it refers to the specific nature of the standing position."
+      },
+      {
+        "answer": "Does maintain a standing position",
+        "score": 0,
+        "explanation": "This answer is not relevant as it refers to the qualifier status 'does maintain' rather than the standing position itself."
+      },
       {
         "answer": "standing up",
         "score": 2,
@@ -8159,7 +8313,7 @@
         {
           "answer": "Orthostatic body position",
           "score": 5,
-          "explanation": "This is general concept which is typically used in medical context to describe the standing body position"
+          "explanation": "This is general concept which is typically used in medical context to describe the standing body position. Therefore, it is partially relevant."
         },
         {
           "answer": "standing",
@@ -8169,14 +8323,13 @@
         {
           "answer": "unsupported standing position",
           "score": 8,
-          "explanation": "This answer is specific standing position within Orthostatic body position.It is not relevant as it refers to the specific nature of the standing position."
+          "explanation": "This answer is specific standing position within Orthostatic body position.It refers to the specific nature of the standing position which can be considered as relevant."
         },
         {
           "answer": "Does maintain a standing position",
           "score": 0,
           "explanation": "This answer is not relevant as it refers to the qualifier 'does maintain' rather than the standing position itself."
         },
-  
         {
           "answer": "standing up",
           "score": 3,
@@ -8206,7 +8359,7 @@
         {
           "answer": "Orthostatic body position",
           "score": 5,
-          "explanation": "This is general concept which is typically used in medical context to describe the standing body position"
+          "explanation": "This is general concept which is typically used in medical context to describe the standing body position. Therefore, it is partially relevant."
         },
         {
           "answer": "standing",
@@ -8221,9 +8374,100 @@
         {
           "answer": "Does maintain a standing position",
           "score": 0,
-          "explanation": "This answer is not relevant as it refers to the qualifier 'does maintain' rather than the standing position itself."
+          "explanation": "This answer is not relevant as it refers to the qualifier status 'does maintain' rather than the standing position itself."
         },
-  
+        {
+          "answer": "standing up",
+          "score": 2,
+          "explanation": "This answer is less relevant as it refers to the action of standing up rather than the standing body position."
+        },
+        {
+          "answer": "difficulty maintaining a standing position",
+          "score": 0,
+          "explanation": "This answer is not relevant as it refers to the difficulty in maintaining a standing position rather than the position itself."
+        },
+        {
+          "answer": "able to maintain a standing position",
+          "score": 0,
+          "explanation": "This answer is not relevant as it refers to the ability to maintain a standing position rather than the position itself."
+        },
+        {
+          "answer": "does not maintain a standing position",
+          "score": 0,
+          "explanation": "This answer is not relevant as it refers to the inability to maintain a standing position rather than the position itself."
+        }
+      ]
+    },
+    {
+      "input":"Query::'standing position, context: heart rate', candidate terms: ['orthostatic body position','standing','unsupported standing position','does maintain a standing position','standing up','difficulty maintaining a standing position','able to maintain a standing position','does not maintain a standing position']",
+      "output":[
+    
+        {
+          "answer": "Orthostatic body position",
+          "score": 5,
+          "explanation": "This is general concept which is typically used in medical context to describe the standing body position. Therefore, it is partially relevant."
+        },
+        {
+          "answer": "standing",
+          "score": 10,
+          "explanation": "This answer is an exact match as it directly refers to the standing body position."
+        },
+        {
+          "answer": "unsupported standing position",
+          "score": 8,
+          "explanation": "This answer is specific standing position within Orthostatic body position.It is not relevant as it refers to the specific nature of the standing position."
+        },
+        {
+          "answer": "Does maintain a standing position",
+          "score": 0,
+          "explanation": "This answer is not relevant as it refers to the qualifier status 'does maintain' rather than the standing position itself."
+        },
+        {
+          "answer": "standing up",
+          "score": 2,
+          "explanation": "This answer is less relevant as it refers to the action of standing up rather than the standing body position."
+        },
+        {
+          "answer": "difficulty maintaining a standing position",
+          "score": 0,
+          "explanation": "This answer is not relevant as it refers to the difficulty in maintaining a standing position rather than the position itself."
+        },
+        {
+          "answer": "able to maintain a standing position",
+          "score": 0,
+          "explanation": "This answer is not relevant as it refers to the ability to maintain a standing position rather than the position itself."
+        },
+        {
+          "answer": "does not maintain a standing position",
+          "score": 0,
+          "explanation": "This answer is not relevant as it refers to the inability to maintain a standing position rather than the position itself."
+        }
+      ]
+    },
+    {
+      "input":"Query:'standing position, context: blood pressure', candidate terms: ['orthostatic body position','standing','unsupported standing position','does maintain a standing position','standing up','difficulty maintaining a standing position','able to maintain a standing position','does not maintain a standing position']",
+      "output":[
+    
+        {
+          "answer": "Orthostatic body position",
+          "score": 5,
+          "explanation": "This is general concept which is typically used in medical context to describe the standing body position. Therefore, it is partially relevant."
+        },
+        {
+          "answer": "standing",
+          "score": 10,
+          "explanation": "This answer is an exact match as it directly refers to the standing body position."
+        },
+        {
+          "answer": "unsupported standing position",
+          "score": 8,
+          "explanation": "This answer is specific standing position within Orthostatic body position.It is not relevant as it refers to the specific nature of the standing position."
+        },
+        {
+          "answer": "Does maintain a standing position",
+          "score": 0,
+          "explanation": "This answer is not relevant as it refers to the qualifier status 'does maintain' rather than the standing position itself."
+        },
         {
           "answer": "standing up",
           "score": 2,

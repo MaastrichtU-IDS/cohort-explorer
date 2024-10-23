@@ -488,13 +488,20 @@ def process_values_db(
                 print(f"found value in RESERVOIR={q_value}")
                 all_values[q_value] = convert_db_result(result)
             else:
-                if categorical_value_results := retriever_docs(
+                categorical_value_results = retriever_docs(
                     q_value,
                     retriever,
                     domain=domain,
                     is_omop_data=is_omop_data,
-                    topk=topk,
-                ):
+                    topk=topk)
+                if values_type == "additional":
+                    categorical_value_results += retriever_docs(
+                        f"{main_term}, {q_value}",
+                        retriever,
+                        domain=domain,
+                        is_omop_data=is_omop_data,
+                        topk=topk)[:5]
+                if categorical_value_results:
                     pretty_print_docs(categorical_value_results)
                     if matched_docs := exact_match_found(
                         query_text=q_value,
