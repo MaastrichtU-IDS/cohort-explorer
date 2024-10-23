@@ -180,6 +180,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
             detail="Only CSV files are supported. Please convert your file to CSV and try again.",
         )
     errors: list[str] = []
+    warnings: list[str] = []
     try:
         # Record all errors and raise them at the end
         df = pd.read_csv(dict_path)
@@ -270,7 +271,8 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
                                 else:
                                     g.add((cat_uri, ICARE.conceptId, URIRef(cat_code_uri), cohort_uri))
                         except Exception:
-                            errors.append(
+                            # TODO: improve handling of categories
+                            warnings.append(
                                 f"Row {i+2} for variable `{row['VARIABLE NAME']}` the {len(categories_codes)} category concept codes are not matching with {len(row['categories'])} categories provided."
                             )
         # print(g.serialize(format="turtle"))
@@ -288,6 +290,8 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
             detail=str(e)[5:],
             # detail=str(e),
         )
+    if len(warnings) > 0:
+        logging.warning(f"Warnings uploading {cohort_id}: {"\n\n".join(warnings)}")
     return g
 
 
