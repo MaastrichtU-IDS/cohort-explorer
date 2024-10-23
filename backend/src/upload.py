@@ -291,7 +291,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
             # detail=str(e),
         )
     if len(warnings) > 0:
-        logging.warning(f"Warnings uploading {cohort_id}: {"\n\n".join(warnings)}")
+        logging.warning(f"Warnings uploading {cohort_id}: " + "\n\n".join(warnings))
     return g
 
 
