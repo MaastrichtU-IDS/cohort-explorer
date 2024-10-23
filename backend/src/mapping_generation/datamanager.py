@@ -22,13 +22,13 @@ def create_sqlite_database(filename):
 # import os
 
 # Sample data (as provided)
-data = """VARIABLE NAME\tVARIABLE LABEL\tDomain\tvar\tVariable Concept Code\tVariable Concept OMOP ID\tAdditional Context Concept Label\tAdditional Context Concept Code\tAdditional Context OMOP ID\tPrimary to Secondary Context Relationship\tCategorical Values Concept Label\tCategorical Values Concept Code\tCategorical Values Concept OMOP ID\tUnit Concept Label\tUnit Concept Code\tUnit OMOP ID
-BPsyststand1\tBlood pressure systolic standing at visit month 1\tmeasurement\tsystolic blood pressure\tloinc:8480-6\t3004249\tstanding|follow-up 1 month\tloinc:LA11870-5|snomed:183623000\t45876596|4081745\thas temporal context\tmissing\tloinc:LA14698-7\t45882933\tmillimeter mercury column\tucum:mm[Hg]\t8876
-BPdiaststand1\tBP blood pressure diastolic standing at visit month 1\tmeasurement\tdiastolic blood pressure\tloinc:8462-4\t3012888\tstanding|follow-up 1 month\tloinc:LA11870-5|snomed:183623000\t45876596|4081745\thas temporal context\tmissing\tloinc:LA14698-7\t45882933\tmillimeter mercury column\tucum:mm[Hg]\t8876
-HRstand1\tHeart rate standing at visit month 1\tmeasurement\theart rate\tloinc:8867-4\t3027018\tstanding|follow-up 1 month\tloinc:LA11870-5|snomed:183623000\t45876596|4081745\thas temporal context\tmissing\tloinc:LA14698-7\t45882933\tcounts per minute\tucum:{counts}/min\t8483
-BPsyststand3\tBP blood pressure systolic standing at visit month 3\tmeasurement\tsystolic blood pressure\tloinc:8480-6\t3004249\tstanding|follow-up 3 months\tloinc:LA11870-5|snomed:200521000000107\t45876596|44789369\thas temporal context\tmissing\tloinc:LA14698-7\t45882933\tmillimeter mercury column\tucum:mm[Hg]\t8876
-BPdiaststand3\tBP blood pressure diastolic standing at visit month 3\tmeasurement\tdiastolic blood pressure\tloinc:8462-4\t3012888\tstanding|follow-up 3 months\tloinc:LA11870-5|snomed:200521000000107\t45876596|44789369\thas temporal context\tmissing\tloinc:LA14698-7\t45882933\tmillimeter mercury column\tucum:mm[Hg]\t8876
-HRstand3\tHeart rate standing at visit month 3\tmeasurement\theart rate\tloinc:8867-4\t3027018\tstanding|follow-up 3 months\tloinc:LA11870-5|snomed:200521000000107\t45876596|44789369\thas temporal context\tmissing\tloinc:LA14698-7\t45882933\tcounts per minute\tucum:{counts}/min\t8483"""
+# data = """VARIABLE NAME\tVARIABLE LABEL\tDomain\tvar\tVariable Concept Code\tVariable Concept OMOP ID\tAdditional Context Concept Label\tAdditional Context Concept Code\tAdditional Context OMOP ID\tPrimary to Secondary Context Relationship\tCategorical Values Concept Label\tCategorical Values Concept Code\tCategorical Values Concept OMOP ID\tUnit Concept Label\tUnit Concept Code\tUnit OMOP ID
+# BPsyststand1\tBlood pressure systolic standing at visit month 1\tmeasurement\tsystolic blood pressure\tloinc:8480-6\t3004249\tstanding|follow-up 1 month\tloinc:LA11870-5|snomed:183623000\t45876596|4081745\thas temporal context\tmissing\tloinc:LA14698-7\t45882933\tmillimeter mercury column\tucum:mm[Hg]\t8876
+# BPdiaststand1\tBP blood pressure diastolic standing at visit month 1\tmeasurement\tdiastolic blood pressure\tloinc:8462-4\t3012888\tstanding|follow-up 1 month\tloinc:LA11870-5|snomed:183623000\t45876596|4081745\thas temporal context\tmissing\tloinc:LA14698-7\t45882933\tmillimeter mercury column\tucum:mm[Hg]\t8876
+# HRstand1\tHeart rate standing at visit month 1\tmeasurement\theart rate\tloinc:8867-4\t3027018\tstanding|follow-up 1 month\tloinc:LA11870-5|snomed:183623000\t45876596|4081745\thas temporal context\tmissing\tloinc:LA14698-7\t45882933\tcounts per minute\tucum:{counts}/min\t8483
+# BPsyststand3\tBP blood pressure systolic standing at visit month 3\tmeasurement\tsystolic blood pressure\tloinc:8480-6\t3004249\tstanding|follow-up 3 months\tloinc:LA11870-5|snomed:200521000000107\t45876596|44789369\thas temporal context\tmissing\tloinc:LA14698-7\t45882933\tmillimeter mercury column\tucum:mm[Hg]\t8876
+# BPdiaststand3\tBP blood pressure diastolic standing at visit month 3\tmeasurement\tdiastolic blood pressure\tloinc:8462-4\t3012888\tstanding|follow-up 3 months\tloinc:LA11870-5|snomed:200521000000107\t45876596|44789369\thas temporal context\tmissing\tloinc:LA14698-7\t45882933\tmillimeter mercury column\tucum:mm[Hg]\t8876
+# HRstand3\tHeart rate standing at visit month 3\tmeasurement\theart rate\tloinc:8867-4\t3027018\tstanding|follow-up 3 months\tloinc:LA11870-5|snomed:200521000000107\t45876596|44789369\thas temporal context\tmissing\tloinc:LA14698-7\t45882933\tcounts per minute\tucum:{counts}/min\t8483"""
 
 
 class DataManager:
@@ -47,7 +47,7 @@ class DataManager:
         create_table_sql = """
         CREATE TABLE IF NOT EXISTS variable (
             variable_name TEXT PRIMARY KEY,
-            variable_label TEXT,
+            variable_label TEXT UNIQUE,
             domain TEXT,
             variable_concept_label TEXT,
             variable_concept_code TEXT,
@@ -67,6 +67,19 @@ class DataManager:
         cursor = self.conn.cursor()
         cursor.execute(create_table_sql)
         self.conn.commit()
+
+    def variable_name_exists(self, variable_name):
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT *
+            FROM variable
+            WHERE variable_name = ?
+        """,
+            (variable_name,),
+        )
+        results = cursor.fetchall()
+        return bool(results)
 
     def insert_data_if_empty(self, data):
         cursor = self.conn.cursor()
@@ -143,36 +156,49 @@ class DataManager:
                 "status": "error",
                 "message": "No data provided for insertion.",
             }
+
+        # Convert dict keys to match database column format
         row_data = self.dict_keys_to_columns(row_data)
-        """
-        Inserts a single row into the 'variable' table.
 
-        Parameters:
-            conn (sqlite3.Connection): The database connection.
-            row_data (dict): A dictionary containing the row data.
+        # Extract variable_name and variable_label from row_data
+        variable_name = row_data.get("variable_name", None)
+        variable_label = row_data.get("variable_label", None)
 
-        Returns:
-            dict: A standardized response indicating success or error.
-        """
-        results, _ = self.query_variable(row_data["variable_name"])
-        if results:
+        # Ensure both variable_name and variable_label are provided
+        if not variable_name or not variable_label:
+            return {
+                "status": "error",
+                "message": "Both 'variable_name' and 'variable_label' are required.",
+            }
+
+        # Check if a record with the same variable_name and variable_label already exists
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT 1 FROM variable
+            WHERE variable_name = ? AND variable_label = ?
+            """,
+            (variable_name, variable_label),
+        )
+
+        # If the query returns a result, that means a record with the same variable_name and variable_label exists
+        if cursor.fetchone():
             print(
-                f"Row with variable_name '{row_data['variable_name']}' already exists."
-                f" Results: {results}"
+                f"Row with variable_name '{variable_name}' and variable_label '{variable_label}' already exists."
             )
             return {
-                "status": "success",
-                "message": f"Row with variable_name '{row_data['variable_name']}' already exists.",
+                "status": "error",
+                "message": f"IntegrityError: Record with variable_name '{variable_name}' and variable_label '{variable_label}' already exists.",
             }
-        cursor = self.conn.cursor()
-        # List of all columns in the 'variable' table
+
+        # Proceed with the insertion if no duplicate is found
         columns = [
             "variable_name",
             "variable_label",
+            "domain",
             "variable_concept_label",
             "variable_concept_code",
             "variable_concept_omop_id",
-            "domain",
             "additional_context_concept_label",
             "additional_context_concept_code",
             "additional_context_omop_id",
@@ -185,7 +211,6 @@ class DataManager:
             "unit_omop_id",
         ]
 
-        # Prepare the data for insertion
         try:
             # Ensure that all required keys are present in the input dictionary
             missing_columns = [col for col in columns if col not in row_data]
@@ -198,17 +223,6 @@ class DataManager:
             # Extract values in the correct order
             values = [row_data.get(col) for col in columns]
 
-            # Convert data types as necessary
-            # Handle integer fields
-            # int_fields = [
-            #     "variable_concept_omop_id",
-            #     "categorical_values_concept_omop_id",
-            #     "unit_omop_id",
-            # ]
-            # for idx, col in enumerate(columns):
-            #     if col in int_fields and values[idx] is not None:
-            #         values[idx] = int(values[idx]) if values[idx] != "" else None
-
             # Construct the SQL insert statement
             placeholders = ", ".join("?" * len(columns))
             sql = f"""
@@ -218,46 +232,34 @@ class DataManager:
             cursor.execute(sql, values)
             self.conn.commit()
             print(
-                f"Row inserted successfully with variable_name '{row_data['variable_name']}'."
+                f"Row inserted successfully with variable_name '{variable_name}' and variable_label '{variable_label}'."
             )
             return {
                 "status": "success",
-                "message": f"Row inserted successfully with variable_name '{row_data['variable_name']}'.",
+                "message": f"Row inserted successfully with variable_name '{variable_name}' and variable_label '{variable_label}'.",
             }
 
         except sqlite3.IntegrityError as e:
-            # Handle duplicate primary key error
+            # Handle unique constraint failure
             return {"status": "error", "message": f"IntegrityError: {e}"}
         except Exception as e:
             # Handle any other exceptions
             return {"status": "error", "message": f"An error occurred: {e}"}
 
-
     # Function to perform the query based on the given string
+
+    def select_all(self):
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM variable")
+        rows = cursor.fetchall()
+        return rows
+
     def query_variable(self, input_string):
         input_string = input_string.strip().lower()
         print(f"string to search for {input_string}")
 
         cursor = self.conn.cursor()
-        # Step 1: Check if input_string exists in variable_label
-        # cursor.execute(
-        #     """
-        #     SELECT *
-        #     FROM variable
-        #     WHERE variable_name = ?
-        # """,
-        #     (input_string,),
-        # )
-        # results = cursor.fetchall()
-        # if results:
-        #     # Return all columns for the matching row(s)
-        #     print("Found in variable name")
-        #     for row in results:
-        #         print(row)
-        #     found = True
-        #     return results[0], "full"
-
-        # step 1.3 check if input_String exists in variable label
+        # step 1 check if input_String exists in variable label
         cursor.execute(
             """
             SELECT *

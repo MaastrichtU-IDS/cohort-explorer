@@ -106,7 +106,7 @@ def full_query_processing(
             return {}
         else:
             print(f"query_text={query_text.name}")
-            results, mode = datamanager.query_variable(query_text.name)
+            results, mode = datamanager.query_variable(query_text.original_label)
             if mode == "full" and len(results) >= 4:
                 logger.info(f"Found results for {query_text} in RESERVOIR")
                 return create_result_dict(results)
