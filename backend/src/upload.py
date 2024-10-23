@@ -179,9 +179,9 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
             status_code=422,
             detail="Only CSV files are supported. Please convert your file to CSV and try again.",
         )
+    errors: list[str] = []
     try:
         # Record all errors and raise them at the end
-        errors = []
         df = pd.read_csv(dict_path)
         df = df.dropna(how="all")
         df = df.fillna("")
@@ -233,7 +233,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
             # Get categories code if provided
             categories_codes = []
             if row.get("Categorical Value Concept Code"):
-                categories_codes = row["Categorical Value Concept Code"].split(",")
+                categories_codes = row["Categorical Value Concept Code"].split("|")
             for column, col_value in row.items():
                 if column not in ["categories"] and col_value:
                     # NOTE: we literally use the column name as the property URI in camelcase (that's what I call lazy loading!)
@@ -281,8 +281,8 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
                 detail="\n\n".join(errors),
             )
     except Exception as e:
-        logging.warning(f"Error loading cohort {cohort_id}")
-        logging.warning(e)
+        logging.warning(f"{len(errors)} errors when uploading cohort {cohort_id}")
+        # logging.warning(e)
         raise HTTPException(
             status_code=422,
             detail=str(e)[5:],
