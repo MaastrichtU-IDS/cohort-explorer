@@ -39,7 +39,12 @@ def retriever_docs(query, retriever, domain="all", is_omop_data=False, topk=10):
         retriever = update_compressed_merger_retriever(retriever, domain, topk=topk)
     try:
         results = retriever.invoke(query)
-        unique_results = filter_results(query, results)[:10]
+        unique_results = filter_results(query, results)
+        if unique_results:
+            unique_results = unique_results[:topk]
+        else:
+            logger.info(f"No results found for query={query}")
+            unique_results = None
         print(f"length of unique results={len(unique_results)}")
         return unique_results
     except Exception as e:
