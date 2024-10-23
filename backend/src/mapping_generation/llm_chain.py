@@ -520,15 +520,46 @@ def extract_information(query, model_name=LLM_ID, prompt=None):
         return None
 
 
-def save_triples_to_txt(query, triples, output_file):
-    # check if file exists
-    if not os.path.exists(output_file):
-        # create file
-        with open(output_file, "w") as f:
-            f.write("query\tsubject\tpredicate\tobject\n")
-    with open(output_file, "a") as f:
-        for triple in triples:
-            f.write(f"{query}\t{triple['subject']}\t{triple['predicate']}\t{triple['object']}\n")
+
+def evaluate_final_mapping(variable_object: Dict, llm_id: str = "llama3.1"):
+    active_model = LLMManager.get_instance(model=llm_id)
+    human_template = f"""
+    Task: You are tasked with evaluating the correctness of the mapping codes for a variable in a clinical context. The variable represents a column metadata from healthcare records that may be compound in nature. Your goal is to assess whether the mapping to standard clinical codes (e.g., SNOMED, LOINC, UCUM, RxNorm, ATC etc.) is accurate. Your goal is to assess whether the mapping to standard clinical codes (e.g., SNOMED, LOINC, OMOP) is accurate. Focus solely on evaluating the correctness of the mappings without altering or judging the division of the variable itself. Note that some variables may not have additional context or unit information; take this into account in your evaluation.
+    **Instructions: 
+        * Review the variable object: Examine the variable's label to understand the clinical concept being represented.
+        * Domain: Confirm that the Domain aligns with the type of measurement or concept.
+        * Assess additional context (if provided): If additional context is present (e.g. visit ), confirm that it is accurately captured by the mapped codes.
+        * For each provided code type: Verify that the code accurately corresponds to the clinical concept(s) described by the variable.
+        * Evaluate categories (if present): If the variable includes categorical values, verify that these categories are correctly mapped and aligned with the clinical context.
+        * Evaluate units (if present): If unit information is provided, ensure that the unit matches the expected unit for this measurement or concept. The absence of unit information may be acceptable for certain variables.
+    **Output Format: Return the result as a single string, with the explanation and final classification on separate lines, structured as follows:
+    ** Explanation: Provide a clear explanation of whether the mapping is correct, partially correct, or incorrect. Include reasoning based on the analysis of the variable and its mapped codes.
+    **Final Classification: Choose one of the following final classifications and return it on a new line:
+            - correct
+            - partially correct
+            - incorrect
+    Variable : {variable_object}
+    Don't add preamble or additional information. Focus on evaluating the correctness of the mapping codes.
+    """
+    system = "You are a helpful assistant with expertise in semantic web and biomedical domain."
+    prompt = ChatPromptTemplate.from_messages(
+        [("system", system), ("human", human_template)], template_format="mustache"
+    )
+
+    chain = prompt | active_model
+    result = chain.invoke({"variable_object": variable_object}).content
+    return result
+
+
+# def save_triples_to_txt(query, triples, output_file):
+#     # check if file exists
+#     if not os.path.exists(output_file):
+#         # create file
+#         with open(output_file, "w") as f:
+#             f.write("query\tsubject\tpredicate\tobject\n")
+#     with open(output_file, "a") as f:
+#         for triple in triples:
+#             f.write(f"{query}\t{triple['subject']}\t{triple['predicate']}\t{triple['object']}\n")
 
 
 def generate_link_prediction_prompt(query, documents, domain=None, in_context=True):

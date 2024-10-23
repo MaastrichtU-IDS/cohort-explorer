@@ -240,22 +240,22 @@ class DataManager:
 
         cursor = self.conn.cursor()
         # Step 1: Check if input_string exists in variable_label
-        cursor.execute(
-            """
-            SELECT *
-            FROM variable
-            WHERE variable_name = ?
-        """,
-            (input_string,),
-        )
-        results = cursor.fetchall()
-        if results:
-            # Return all columns for the matching row(s)
-            print("Found in variable name")
-            for row in results:
-                print(row)
-            found = True
-            return results[0], "full"
+        # cursor.execute(
+        #     """
+        #     SELECT *
+        #     FROM variable
+        #     WHERE variable_name = ?
+        # """,
+        #     (input_string,),
+        # )
+        # results = cursor.fetchall()
+        # if results:
+        #     # Return all columns for the matching row(s)
+        #     print("Found in variable name")
+        #     for row in results:
+        #         print(row)
+        #     found = True
+        #     return results[0], "full"
 
         # step 1.3 check if input_String exists in variable label
         cursor.execute(

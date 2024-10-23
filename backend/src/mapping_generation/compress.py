@@ -194,5 +194,4 @@ class CustomMergeRetriever(MergerRetriever):
                     if label_with_code not in seens_documents:
                         merged_documents.append(doc[i])
                         seens_documents.add(label_with_code)
-
         return merged_documents
