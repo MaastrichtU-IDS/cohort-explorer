@@ -1121,15 +1121,15 @@
         },
         {
           "input":"Blood pressure diastolic in standing at basline",
-          "output":"{\"domain\":\"measurement\", \"base_entity\":\"diastolic Blood pressure \", \"additional_entities\":[\"standing body position\",\"baseline time\"}}"
+          "output":"{\"domain\":\"measurement\", \"base_entity\":\"diastolic Blood pressure \", \"additional_entities\":[\"standing\",\"baseline time\"}}"
         },
         {
           "input":"Blood pressure diastolic in standing position at basline",
-          "output":"{\"domain\":\"measurement\", \"base_entity\":\"diastolic Blood pressure\", \"additional_entities\":[ \"standing body position\",\"baseline time\"}}"
+          "output":"{\"domain\":\"measurement\", \"base_entity\":\"diastolic Blood pressure\", \"additional_entities\":[ \"standing\",\"baseline time\"}}"
         },
         {
           "input":"Blood pressure systolic in standing position at month 6",
-          "output":"{\"domain\":\"measurement\", \"base_entity\":\"systolic Blood pressure \", \"additional_entities\":[\"standing body position\",\"Follow-up 6 months\"}}"
+          "output":"{\"domain\":\"measurement\", \"base_entity\":\"systolic Blood pressure \", \"additional_entities\":[\"standing\",\"Follow-up 6 months\"}}"
         },
         {
           "input":"Blood pressure systolic in sitting position at month 6",
@@ -1141,11 +1141,11 @@
       },
         {
           "input":"heart rate calculated in standing position at basline",
-          "output":"{\"domain\":\"measurement\", \"base_entity\":\"heart rate\", \"additional_entities\":[\"standing body position\", \"baseline time\"}]"
+          "output":"{\"domain\":\"measurement\", \"base_entity\":\"heart rate\", \"additional_entities\":[\"standing\", \"baseline time\"}]"
         },
         {
           "input":"heart rate calculated in standing at month 3",
-          "output":"{\"domain\":\"measurement\", \"base_entity\":\"heart rate\", \"additional_entities\":[\"standing body position\", \"Follow-up 3 months\"]}"
+          "output":"{\"domain\":\"measurement\", \"base_entity\":\"heart rate\", \"additional_entities\":[\"standing\", \"Follow-up 3 months\"]}"
         },
         {
           "input": "Type 2 diabetes-related hospitalization",
@@ -2197,7 +2197,7 @@
           },
           {
             "input":"cerebrovascular Aes advsere events",
-            "output":"{\"domain\":\"advsere event\",\"base_entity\":\"Adverse event\",\"additional_entities\":[\"cerebrovascular\"]}"
+            "output":"{\"domain\":\"advsere event\",\"base_entity\":\"Adverse event\",\"additional_entities\":[\"\"]}"
           },
           {
             "input":"cerebrovascular advsere events",
@@ -2212,6 +2212,10 @@
             "input":"Total duration non-CV non-cardiovascular AE, unit:days",
             "output":"{\"domain\":\"advsere event\",\"base_entity\":\"\",\"additional_entities\":[\"Non-cardiovascular\" , \"Observation duration\"], \"unit\":\"days\"}"
 
+          },
+          {
+            "input":"total days of gout ae, unit:d",
+            "output":"{\"domain\":\"advsere event\",\"base_entity\":\"Adverse Events\",\"additional_entities\":[\"Gout\"], \"unit\":\"days\"}"
           },
           {
             "input":"Total duration Vascular adverse events, unit:days",
@@ -4081,8 +4085,8 @@
             },
             {
               "answer": "unsupported standing position",
-              "relationship": "highly relevant",
-              "explanation": "This answer is highly relevant as it refers to the unsupported nature of the standing position, which is often associated with changes in heart rate."
+              "relationship": "synonym",
+              "explanation": "This is an accurate match. This is a more general term that applies to measuring blood pressure while the patient is standing without external support, irrespective of posture changes."
             
             },
             {
@@ -4127,9 +4131,14 @@
               "explanation": "This answer is less relevant as it describes the body position itself, not the blood pressure associated with it."
             },
             {
-              "answer": "unsupported standing position",
+              "answer": "standing",
               "relationship": "highly relevant",
-              "explanation": "This answer is highly relevant as it refers to the unsupported nature of the standing position, which is often associated with changes in heart rate."
+              "explanation":"This answer is highly relevant as it refers to the body position of standing, which is directly related to the query about blood pressure in a standing position."
+            },
+            {
+              "answer": "unsupported standing position",
+              "relationship": "synonym",
+              "explanation": "This is an accurate match. This is a more general term that applies to measuring blood pressure while the patient is standing without external support, irrespective of posture changes."
             
             },
             {
@@ -4137,11 +4146,7 @@
               "relationship": "not relevant",
               "explanation": "This answer is not relevant as it refers to the ability to maintain a standing position, not the position itself."
             },
-            {
-              "answer": "standing",
-              "relationship": "s",
-              "explanation":"This answer is an accurate match as standing body position is interchangeable refered to standing in clinical setting."
-            },
+           
             {
               "answer": "standing up",
               "relationship": "not relevant",
@@ -4174,19 +4179,20 @@
               "explanation": "This answer is less relevant as it describes the body position itself, not the blood pressure associated with it."
             },
             {
-              "answer": "unsupported standing position",
+              "answer": "standing",
               "relationship": "highly relevant",
-              "explanation":"This answer is highly relevant as it refers to the unsupported nature of the standing position, which is often associated with changes in blood pressure."
+              "explanation":"This answer is highly relevant as it refers to the body position of standing, which is directly related to the query about blood pressure in a standing position."
+            },
+            {
+              "answer": "unsupported standing position",
+              "relationship": "synonym",
+              "explanation": "This is an accurate match. This is a more general term that applies to measuring blood pressure while the patient is standing without external support, irrespective of posture changes."
+            
             },
             {
               "answer": "does maintain a standing position",
               "relationship": "not relevant",
               "explanation": "This answer is not relevant as it refers to the ability to maintain a standing position, not the position itself."
-            },
-            {
-              "answer": "standing",
-              "relationship": "synonym",
-              "explanation": "This answer is an accurate match as standing body position is interchangeable refered to standing in clinical setting."
             },
             {
               "answer": "standing up",
@@ -4575,13 +4581,14 @@
             },
             {
               "answer": "standing",
-              "relationship": "exact match",
-              "explanation": "This answer is an accurate match as standing body position is interchangeable refered to standing in clinical setting."
+              "relationship": "highly relevant",
+              "explanation":"This answer is highly relevant as it refers to the body position of standing, which is directly related to the query about blood pressure in a standing position."
             },
             {
               "answer": "unsupported standing position",
-              "relationship": "highly relevant",
-              "explanation": "This answer is highly relevant as it refers to the unsupported nature of the standing position, which is often associated with changes in heart rate."
+              "relationship": "synonym",
+              "explanation": "This is an accurate match. This is a more general term that applies to measuring blood pressure while the patient is standing without external support, irrespective of posture changes."
+            
             },
             {
               "answer": "does maintain a standing position",
@@ -4621,13 +4628,14 @@
             },
             {
               "answer": "standing",
-              "relationship": "exact match",
-              "explanation": "This answer is an accurate match as standing body position is interchangeable refered to standing in clinical setting."
+              "relationship": "highly relevant",
+              "explanation":"This answer is highly relevant as it refers to the body position of standing, which is directly related to the query about blood pressure in a standing position."
             },
             {
               "answer": "unsupported standing position",
-              "relationship": "highly relevant",
-              "explanation": "This answer is highly relevant as it refers to the unsupported nature of the standing position, which is often associated with changes in heart rate."
+              "relationship": "synonym",
+              "explanation": "This is an accurate match. This is a more general term that applies to measuring blood pressure while the patient is standing without external support, irrespective of posture changes."
+            
             },
             {
               "answer": "does maintain a standing position",
@@ -5369,20 +5377,20 @@
               "explanation": "This answer is less relevant as it describes the body position itself, not the blood pressure associated with it."
             },
             {
-              "answer": "unsupported standing position",
+              "answer": "standing",
               "relationship": "highly relevant",
-              "explanation": "This answer is highly relevant as it refers to the unsupported nature of the standing position, which is often associated with changes in heart rate."
+              "explanation":"This answer is highly relevant as it refers to the body position of standing, which is directly related to the query about blood pressure in a standing position."
+            },
+            {
+              "answer": "unsupported standing position",
+              "relationship": "synonym",
+              "explanation": "This is an accurate match. This is a more general term that applies to measuring blood pressure while the patient is standing without external support, irrespective of posture changes."
             
             },
             {
               "answer": "does maintain a standing position",
               "relationship": "not relevant",
               "explanation": "This answer is not relevant as it refers to the ability to maintain a standing position, not the position itself."
-            },
-            {
-              "answer": "standing",
-              "relationship": "exact match",
-              "explanation":"This answer is an accurate match as standing body position is interchangeable refered to standing in clinical setting."
             },
             {
               "answer": "standing up",
@@ -5416,19 +5424,20 @@
               "explanation": "This answer is less relevant as it describes the body position itself, not the blood pressure associated with it."
             },
             {
-              "answer": "unsupported standing position",
+              "answer": "standing",
               "relationship": "highly relevant",
-              "explanation":"This answer is highly relevant as it refers to the unsupported nature of the standing position, which is often associated with changes in blood pressure."
+              "explanation":"This answer is highly relevant as it refers to the body position of standing, which is directly related to the query about blood pressure in a standing position."
+            },
+            {
+              "answer": "unsupported standing position",
+              "relationship": "synonym",
+              "explanation": "This is an accurate match. This is a more general term that applies to measuring blood pressure while the patient is standing without external support, irrespective of posture changes."
+            
             },
             {
               "answer": "does maintain a standing position",
               "relationship": "not relevant",
               "explanation": "This answer is not relevant as it refers to the ability to maintain a standing position, not the position itself."
-            },
-            {
-              "answer": "standing",
-              "relationship": "synonym",
-              "explanation": "This answer is an accurate match as standing body position is interchangeable refered to standing in clinical setting."
             },
             {
               "answer": "standing up",
@@ -5817,13 +5826,14 @@
             },
             {
               "answer": "standing",
-              "relationship": "exact match",
-              "explanation": "This answer is an accurate match as standing body position is interchangeable refered to standing in clinical setting."
+              "relationship": "highly relevant",
+              "explanation":"This answer is highly relevant as it refers to the body position of standing, which is directly related to the query about blood pressure in a standing position."
             },
             {
               "answer": "unsupported standing position",
-              "relationship": "highly relevant",
-              "explanation": "This answer is highly relevant as it refers to the unsupported nature of the standing position, which is often associated with changes in heart rate."
+              "relationship": "synonym",
+              "explanation": "This is an accurate match. This is a more general term that applies to measuring blood pressure while the patient is standing without external support, irrespective of posture changes."
+            
             },
             {
               "answer": "does maintain a standing position",
@@ -5858,18 +5868,19 @@
       "output":[
             {
               "answer": "orthostatic body position",
-              "relationship": "partially relevant",
-              "explanation": "it could refer to any position that is upright, including standing, but it is not a direct match to the query."
+              "relationship": "not relevant",
+              "explanation": "It appropriate match if specifically referring to orthostatic hypotension,a condition where blood pressure drops significantly when moving from a sitting or lying position to standing. This term would generally be used when the focus is on blood pressure responses to posture changes."
             },
             {
               "answer": "standing",
-              "relationship": "exact match",
-              "explanation": "This answer is an accurate match as standing body position is interchangeable refered to standing in clinical setting."
+              "relationship": "highly relevant",
+              "explanation":"This answer is highly relevant as it refers to the body position of standing, which is directly related to the query about blood pressure in a standing position."
             },
             {
               "answer": "unsupported standing position",
-              "relationship": "highly relevant",
-              "explanation": "This answer is highly relevant as it refers to the unsupported nature of the standing position, which is often associated with changes in heart rate."
+              "relationship": "synonym",
+              "explanation": "This is an accurate match. This is a more general term that applies to measuring blood pressure while the patient is standing without external support, irrespective of posture changes."
+            
             },
             {
               "answer": "does maintain a standing position",
@@ -7224,19 +7235,20 @@
     "output":[
   
       {
-        "answer": "Orthostatic body position",
-        "score": 5,
-        "explanation": "This is general concept which is typically used in medical context to describe the standing body position"
+        "answer": "orthostatic body position",
+        "score": 4,
+        "explanation": "It appropriate match if specifically referring to orthostatic hypotension,a condition where blood pressure drops significantly when moving from a sitting or lying position to standing. This term would generally be used when the focus is on blood pressure responses to posture changes."
       },
       {
         "answer": "standing",
-        "score": 10,
-        "explanation": "This answer is an exact match as it directly refers to the standing body position."
+       "score": 9,
+        "explanation":"This answer is highly relevant as it refers to the body position of standing, which is directly related to the query about blood pressure in a standing position."
       },
       {
         "answer": "unsupported standing position",
-        "score": 8,
-        "explanation": "This answer is specific standing position within Orthostatic body position.It is highly relevant as it refers to the specific nature of the standing position."
+        "score": 10,
+        "explanation": "This is an accurate match. This is a more general term that applies to measuring blood pressure while the patient is standing without external support, irrespective of posture changes."
+      
       },
       {
         "answer": "Does maintain a standing position",
@@ -7271,18 +7283,19 @@
     "output":[
       {
         "answer": "Orthostatic body position",
-        "score": 5,
-        "explanation": "This is general concept which is typically used in medical context to describe the standing body position"
+        "score": 4,
+        "explanation": "This is general concept specifically referring to orthostatic hypotension, a condition where blood pressure drops significantly when moving from a sitting or lying position to standing. This term would generally be used when the focus is on blood pressure responses to posture changes."
       },
       {
         "answer": "standing",
-        "score": 10,
-        "explanation": "This answer is an exact match as it directly refers to the standing body position."
+       "score": 9,
+        "explanation":"This answer is highly relevant as it refers to the body position of standing, which is directly related to the query about blood pressure in a standing position."
       },
       {
         "answer": "unsupported standing position",
-        "score": 8,
-        "explanation": "This answer is specific standing position within Orthostatic body position.It is highly relevant as it refers to the specific nature of the standing position."
+        "score": 10,
+        "explanation": "This is an accurate match. This is a more general term that applies to measuring blood pressure while the patient is standing without external support, irrespective of posture changes."
+      
       },
       {
         "answer": "Does maintain a standing position",
@@ -7318,17 +7331,18 @@
       {
         "answer": "Orthostatic body position",
         "score": 5,
-        "explanation": "This is general concept which is typically used in medical context to describe the standing body position. Therefore, it is partially relevant."
+        "explanation": "This is general concept specifically referring to orthostatic hypotension, a condition where blood pressure drops significantly when moving from a sitting or lying position to standing. This term would generally be used when the focus is on blood pressure responses to posture changes.."
       },
       {
         "answer": "standing",
-        "score": 10,
-        "explanation": "This answer is an exact match as it directly refers to the standing body position."
+       "score": 9,
+        "explanation":"This answer is highly relevant as it refers to the body position of standing, which is directly related to the query about blood pressure in a standing position."
       },
       {
         "answer": "unsupported standing position",
-        "score": 8,
-        "explanation": "This answer is specific standing position within Orthostatic body position.It is not relevant as it refers to the specific nature of the standing position."
+        "score": 10,
+        "explanation": "This is an accurate match. This is a more general term that applies to measuring blood pressure while the patient is standing without external support, irrespective of posture changes."
+      
       },
       {
         "answer": "Does maintain a standing position",
@@ -7368,13 +7382,14 @@
       },
       {
         "answer": "standing",
-        "score": 10,
-        "explanation": "This answer is an exact match as it directly refers to the standing body position."
+       "score": 9,
+        "explanation":"This answer is highly relevant as it refers to the body position of standing, which is directly related to the query about blood pressure in a standing position."
       },
       {
         "answer": "unsupported standing position",
-        "score": 8,
-        "explanation": "This answer is specific standing position within Orthostatic body position.It is not relevant as it refers to the specific nature of the standing position."
+        "score": 10,
+        "explanation": "This is an accurate match. This is a more general term that applies to measuring blood pressure while the patient is standing without external support, irrespective of posture changes."
+      
       },
       {
         "answer": "Does maintain a standing position",
@@ -8320,13 +8335,13 @@
         },
         {
           "answer": "standing",
-          "score": 10,
-          "explanation": "This answer is an exact match as it directly refers to the standing body position."
+          "score": 9,
+          "explanation": "This answer is highly relevant as it directly refers to the standing body position."
         },
         {
           "answer": "unsupported standing position",
-          "score": 8,
-          "explanation": "This answer is specific standing position within Orthostatic body position.It refers to the specific nature of the standing position which can be considered as relevant."
+          "score": 10,
+          "explanation": "This answer is an accurate match for standing position.This is a more general term that applies to measuring blood pressure while the patient is standing without external support, irrespective of posture changes."
         },
         {
           "answer": "Does maintain a standing position",
@@ -8366,13 +8381,13 @@
         },
         {
           "answer": "standing",
-          "score": 10,
-          "explanation": "This answer is an exact match as it directly refers to the standing body position."
+          "score": 9,
+          "explanation": "This answer is highly relevant as it directly refers to the standing body position." 
         },
         {
           "answer": "unsupported standing position",
-          "score": 8,
-          "explanation": "This answer is specific standing position within Orthostatic body position.It is not relevant as it refers to the specific nature of the standing position."
+          "score": 10,
+          "explanation": "This answer is an accurate match for standing position.This is a more general term that applies to measuring blood pressure while the patient is standing without external support, irrespective of posture changes."
         },
         {
           "answer": "Does maintain a standing position",
@@ -8412,13 +8427,13 @@
         },
         {
           "answer": "standing",
-          "score": 10,
-          "explanation": "This answer is an exact match as it directly refers to the standing body position."
+          "score": 9,
+          "explanation": "This answer is highly relevant as it directly refers to the standing body position."
         },
         {
           "answer": "unsupported standing position",
-          "score": 8,
-          "explanation": "This answer is specific standing position within Orthostatic body position.It is not relevant as it refers to the specific nature of the standing position."
+          "score": 10,
+          "explanation": "This answer is an accurate match for standing position.This is a more general term that applies to measuring blood pressure while the patient is standing without external support, irrespective of posture changes."
         },
         {
           "answer": "Does maintain a standing position",
@@ -8458,13 +8473,13 @@
         },
         {
           "answer": "standing",
-          "score": 10,
-          "explanation": "This answer is an exact match as it directly refers to the standing body position."
+          "score": 9,
+          "explanation": "This answer is highly relevant as it directly refers to the standing body position."
         },
         {
           "answer": "unsupported standing position",
-          "score": 8,
-          "explanation": "This answer is specific standing position within Orthostatic body position.It is not relevant as it refers to the specific nature of the standing position."
+          "score": 10,
+          "explanation": "This answer is an accurate match for standing position.This is a more general term that applies to measuring blood pressure while the patient is standing without external support, irrespective of posture changes."
         },
         {
           "answer": "Does maintain a standing position",
