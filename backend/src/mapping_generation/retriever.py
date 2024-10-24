@@ -45,7 +45,6 @@ def retriever_docs(query, retriever, domain="all", is_omop_data=False, topk=10):
         else:
             logger.info(f"No results found for query={query}")
             unique_results = None
-        print(f"length of unique results={len(unique_results)}")
         return unique_results
     except Exception as e:
         logger.error(f"Error retrieving docs: {e}")

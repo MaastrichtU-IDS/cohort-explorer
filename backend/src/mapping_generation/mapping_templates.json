@@ -1121,20 +1121,23 @@
         },
         {
           "input":"Blood pressure diastolic in standing at basline",
-          "output":"{\"domain\":\"measurement\", \"base_entity\":\"standing diastolic Blood pressure \", \"additional_entities\":[ \"baseline time\"}}"
+          "output":"{\"domain\":\"measurement\", \"base_entity\":\"diastolic Blood pressure \", \"additional_entities\":[\"standing body position\",\"baseline time\"}}"
         },
         {
           "input":"Blood pressure diastolic in standing position at basline",
-          "output":"{\"domain\":\"measurement\", \"base_entity\":\"standing diastolic Blood pressure\", \"additional_entities\":[ \"baseline time\"}}"
+          "output":"{\"domain\":\"measurement\", \"base_entity\":\"diastolic Blood pressure\", \"additional_entities\":[ \"standing body position\",\"baseline time\"}}"
         },
         {
           "input":"Blood pressure systolic in standing position at month 6",
-          "output":"{\"domain\":\"measurement\", \"base_entity\":\"standing systolic Blood pressure \", \"additional_entities\":[\"Follow-up 6 months\"}}"
+          "output":"{\"domain\":\"measurement\", \"base_entity\":\"systolic Blood pressure \", \"additional_entities\":[\"standing body position\",\"Follow-up 6 months\"}}"
         },
-
         {
-        "input":"Blood pressure systolic in standing position at baseline time",
-        "output":"{\"domain\":\"measurement\", \"base_entity\":\"standing systolic Blood pressure \", \"additional_entities\":[\"baseline time\"}}"
+          "input":"Blood pressure systolic in sitting position at month 6",
+          "output":"{\"domain\":\"measurement\", \"base_entity\":\"systolic Blood pressure \", \"additional_entities\":[\"sitting body position\",\"Follow-up 6 months\"}}"
+        },
+        {
+        "input":"bp systolic in standing position at baseline time",
+        "output":"{\"domain\":\"measurement\", \"base_entity\":\"systolic Blood pressure \", \"additional_entities\":[\"baseline time\"}}"
       },
         {
           "input":"heart rate calculated in standing position at basline",
@@ -4136,7 +4139,7 @@
             },
             {
               "answer": "standing",
-              "relationship": "synonym",
+              "relationship": "s",
               "explanation":"This answer is an accurate match as standing body position is interchangeable refered to standing in clinical setting."
             },
             {

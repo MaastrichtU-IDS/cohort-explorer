@@ -844,7 +844,7 @@ def get_llm_results(prompt, query, documents, max_retries=2, llm=None, llm_name=
                 # config={'callbacks': [ConsoleCallbackHandler()]}) for verbose
                 results =  chain.invoke({"query": query, "documents": documents})
                 results = results.content
-                print(f"llm results={results}")
+                # print(f"llm results={results}")
                 if results is None:
                         logger.info(f"Received None result, retrying...")
                         attempt += 1
@@ -887,7 +887,7 @@ def get_llm_results(prompt, query, documents, max_retries=2, llm=None, llm_name=
                     logger.info("Max retries reached without a valid response, returning None")
                     return None
     results_first_half = process_half(documents, "first_half")
-    print(f"results_first_half={results_first_half}")
+    # print(f"results_first_half={results_first_half}")
     # results_second_half = process_half(second_half, "second_half") if len(second_half) > 0 else None
     # print(f"results_second_half={results_second_half}")
     # if results_first_half is None and results_second_half is None:

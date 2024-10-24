@@ -187,8 +187,8 @@ class DataManager:
                 f"Row with variable_name '{variable_name}' and variable_label '{variable_label}' already exists."
             )
             return {
-                "status": "error",
-                "message": f"IntegrityError: Record with variable_name '{variable_name}' and variable_label '{variable_label}' already exists.",
+                "status": "info",
+                "message": f"IntegrityConstraint: Record with variable_name '{variable_name}' and variable_label '{variable_label}' already exists.",
             }
 
         # Proceed with the insertion if no duplicate is found

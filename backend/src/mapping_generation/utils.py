@@ -1167,8 +1167,9 @@ def filter_irrelevant_domain_candidates(docs, domain) -> List[RetrieverResultsMo
 
 
 def pretty_print_docs(docs) -> None:
-    for doc in docs:
-        print(f"****{doc.metadata['label']}****")
+    if docs:
+        for doc in docs:
+            print(f"****{doc.metadata['label']}****")
 
 
 # def estimate_token_cost(text,filename):
