@@ -1,4 +1,5 @@
 from copy import deepcopy
+import json
 from typing import Any
 
 import decentriq_platform as dq
@@ -107,16 +108,11 @@ def pandas_script_merge_cohorts(merged_cohorts: dict[str, list[str]], all_cohort
     return merge_script
 
 
-@router.post(
-    "/create-dcr",
-    name="Create Data Clean Room for computing",
-    response_description="Upload result",
-)
-async def create_compute_dcr(
+async def get_compute_dcr_definition(
     cohorts_request: dict[str, Any],
-    user: Any = Depends(get_current_user),
-) -> dict[str, Any]:
-    """Create a Data Clean Room for computing with the cohorts requested using Decentriq SDK"""
+    user: Any,
+    client: Any,
+) -> Any:
     # users = [user["email"]]
     # TODO: cohorts_request could also be a dict of union of cohorts to merge
     # {"cohorts": {"cohort_id": ["var1", "var2"], "merged_cohort3": {"cohort1": ["weight", "sex"], "cohort2": ["gender", "patient weight"]}}}
@@ -143,8 +139,6 @@ async def create_compute_dcr(
         else:
             raise HTTPException(status_code=400, detail=f"Invalid structure for cohort {cohort_id}")
 
-    # Establish connection to Decentriq
-    client = dq.create_client(settings.decentriq_email, settings.decentriq_token)
 
     # Creation of a Data Clean Room (DCR)
     data_nodes = []
@@ -231,13 +225,51 @@ async def create_compute_dcr(
         )
 
     # Build and publish DCR
-    dcr_definition = builder.build()
+    return builder.build(), dcr_title
+
+
+
+@router.post(
+    "/create-compute-dcr",
+    name="Create Data Clean Room for computing",
+    response_description="Upload result",
+)
+async def create_compute_dcr(
+    cohorts_request: dict[str, Any],
+    user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Create a Data Clean Room for computing with the cohorts requested using Decentriq SDK"""
+    # Establish connection to Decentriq
+    client = dq.create_client(settings.decentriq_email, settings.decentriq_token)
+
+    dcr_definition, dcr_title = await get_compute_dcr_definition(cohorts_request, user, client)
+
     dcr = client.publish_analytics_dcr(dcr_definition)
     dcr_url = f"https://platform.decentriq.com/datarooms/p/{dcr.id}"
     return {
         "message": f"Data Clean Room available for compute at {dcr_url}",
         "dcr_url": dcr_url,
         "dcr_title": dcr_title,
-        "merge_script": pandas_script,
+        # "merge_script": pandas_script,
         **cohorts_request,
     }
+
+
+@router.post(
+    "/get-compute-dcr-definition",
+    name="Get the Data Clean Room definition for computing as JSON",
+    response_description="Upload result",
+)
+async def api_get_compute_dcr_definition(
+    cohorts_request: dict[str, Any],
+    user: Any = Depends(get_current_user),
+) -> Any:
+    """Create a Data Clean Room for computing with the cohorts requested using Decentriq SDK"""
+    # Establish connection to Decentriq
+    client = dq.create_client(settings.decentriq_email, settings.decentriq_token)
+
+    dcr_definition, _dcr_title = await get_compute_dcr_definition(cohorts_request, user, client)
+
+    # return dcr_definition.model_dump_json(by_alias=True)
+    # return json.dumps(dcr_definition.high_level)
+    return dcr_definition.high_level
