@@ -601,6 +601,7 @@ def load_data(input_file, load_custom=False):
                                 seen_labels.add(query)
                                 queries.append(
                                     (
+                                        (
                                         cui,
                                         QueryDecomposedModel(
                                             full_query=query,
@@ -613,14 +614,9 @@ def load_data(input_file, load_custom=False):
                                             original_label=query,
                                         ),
                                     )
+
+                                    )
                                 )
-                            # print(f"CUI: {cui}, Query: {query}")
-
-                        # else:
-                        #     if cui != 'cui-less':
-                        #         # print(f"CUI: {cui}, Query: {query}")
-                        #         queries.append((cui, query))
-
         # filter duplicates
         print(f"Total queries loaded = {len(queries)}")
         # queries = list(dict.fromkeys(queries))
