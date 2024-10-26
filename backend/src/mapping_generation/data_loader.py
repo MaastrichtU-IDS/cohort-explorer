@@ -562,6 +562,8 @@ def load_data(input_file, load_custom=False):
                         for item in data
                     ]
             elif input_file.endswith(".txt"):
+                seen_labels = set()
+
                 with open(input_file, encoding="utf-8") as file:
                     for line in tqdm(file, desc="Loading queries from input file"):
                         line = line.strip()
@@ -574,38 +576,44 @@ def load_data(input_file, load_custom=False):
                             cui, query = str(parts[0]).lower(), normalize(parts[1])
                             if cui == "cui-less":
                                 continue
-                            queries.append(
-                                (
-                                    cui,
-                                    QueryDecomposedModel(
-                                        full_query=query,
-                                        base_entity=query,
-                                        categories=[],
-                                        unit=None,
-                                        formula=None,
-                                        domain="all",
-                                        rel=None,
-                                        original_label=query,
-                                    ),
+                            if query not in seen_labels:
+                                seen_labels.add(query)
+                                queries.append(
+                                    (
+                                        cui,
+                                        QueryDecomposedModel(
+                                            full_query=query,
+                                            base_entity=query,
+                                            categories=[],
+                                            unit=None,
+                                            formula=None,
+                                            domain="all",
+                                            rel=None,
+                                            original_label=query,
+                                        ),
+                                    )
                                 )
-                            )
                         elif len(parts) > 2:
-                            cui, query, _ = str(parts[0]).lower(), normalize(parts[1]), normalize(parts[2])
+                            cui, query, domain = str(parts[0]).lower(), normalize(parts[1]), normalize(parts[2])
                             if cui == "cui-less":
                                 continue
-                            queries.append(
-                                cui,
-                                QueryDecomposedModel(
-                                    full_query=query,
-                                    base_entity=query,
-                                    categories=[],
-                                    unit=None,
-                                    formula=None,
-                                    domain="all",
-                                    rel=None,
-                                    original_label=query,
-                                ),
-                            )
+                            if query not in seen_labels:
+                                seen_labels.add(query)
+                                queries.append(
+                                    (
+                                        cui,
+                                        QueryDecomposedModel(
+                                            full_query=query,
+                                            base_entity=query,
+                                            categories=[],
+                                            unit=None,
+                                            formula=None,
+                                            domain=domain,
+                                            rel=None,
+                                            original_label=query,
+                                        ),
+                                    )
+                                )
                             # print(f"CUI: {cui}, Query: {query}")
 
                         # else:
