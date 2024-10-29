@@ -26,7 +26,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "decentriq_platform >=0.26.3",
+    "decentriq_platform >=0.33.0",
     "curies",
     "pandas[excel,spss]",
     "pyarrow",
@@ -123,6 +123,8 @@ cov-check = [
 ]
 compile = "pip-compile -o requirements.txt pyproject.toml"
 # TODO: use uv
+# uv venv
+# uv pip install .
 # uv pip compile pyproject.toml -o requirements.txt
 # uv run ruff format
 # uv run ruff check src --fix

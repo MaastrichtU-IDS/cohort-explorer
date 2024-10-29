@@ -119,7 +119,7 @@ def insert_triples(
         GRAPH <{graph_uri!s}> {{ <{subject_uri!s}> {predicate} {object_uri} . {label_part} }}
     }}
     """
-    print(query)
+    # print(query)
     query_endpoint = SPARQLWrapper(f"{settings.sparql_endpoint}/update")
     query_endpoint.setMethod("POST")
     query_endpoint.setRequestMethod("urlencoded")
@@ -179,9 +179,10 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
             status_code=422,
             detail="Only CSV files are supported. Please convert your file to CSV and try again.",
         )
+    errors: list[str] = []
+    warnings: list[str] = []
     try:
         # Record all errors and raise them at the end
-        errors = []
         df = pd.read_csv(dict_path)
         df = df.dropna(how="all")
         df = df.fillna("")
@@ -233,7 +234,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
             # Get categories code if provided
             categories_codes = []
             if row.get("Categorical Value Concept Code"):
-                categories_codes = row["Categorical Value Concept Code"].split(",")
+                categories_codes = row["Categorical Value Concept Code"].split("|")
             for column, col_value in row.items():
                 if column not in ["categories"] and col_value:
                     # NOTE: we literally use the column name as the property URI in camelcase (that's what I call lazy loading!)
@@ -270,7 +271,8 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
                                 else:
                                     g.add((cat_uri, ICARE.conceptId, URIRef(cat_code_uri), cohort_uri))
                         except Exception:
-                            errors.append(
+                            # TODO: improve handling of categories
+                            warnings.append(
                                 f"Row {i+2} for variable `{row['VARIABLE NAME']}` the {len(categories_codes)} category concept codes are not matching with {len(row['categories'])} categories provided."
                             )
         # print(g.serialize(format="turtle"))
@@ -281,12 +283,15 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
                 detail="\n\n".join(errors),
             )
     except Exception as e:
-        print(e)
+        logging.warning(f"{len(errors)} errors when uploading cohort {cohort_id}")
+        # logging.warning(e)
         raise HTTPException(
             status_code=422,
             detail=str(e)[5:],
             # detail=str(e),
         )
+    if len(warnings) > 0:
+        logging.warning(f"Warnings uploading {cohort_id}: " + "\n\n".join(warnings))
     return g
 
 
@@ -298,7 +303,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
 async def get_logs(
     user: Any = Depends(get_current_user),
 ) -> list[str]:
-    """Delete a cohort from the triplestore and delete its metadata file from the server."""
+    """Get server logs (admins only)."""
     user_email = user["email"]
     if user_email not in settings.admins_list:
         raise HTTPException(status_code=403, detail="You need to be admin to perform this action.")

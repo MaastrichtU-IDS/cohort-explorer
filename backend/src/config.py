@@ -73,8 +73,8 @@ class Settings:
 settings = Settings()
 
 # Disable uvicorn logs, does not seems to really do much
-uvicorn_error = logging.getLogger("uvicorn.error")
-uvicorn_error.disabled = True
+# uvicorn_error = logging.getLogger("uvicorn.error")
+# uvicorn_error.disabled = True
 uvicorn_access = logging.getLogger("uvicorn.access")
 uvicorn_access.disabled = True
 
