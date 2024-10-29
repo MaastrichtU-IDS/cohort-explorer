@@ -70,6 +70,10 @@
             "output":"{\"domain\":\"visit\", \"base_entity\":\"hospital admission\", \"additional_entities\":[\"All causes of morbidity and mortality\",\"Death\",\"baseline time\"], \"unit\":\"days\"}"
           },
           {
+            "input":"estimated glomerular filtration rate using cg formula",
+            "output":"{\"domain\":\"measurement\", \"base_entity\":\"Glomerular filtration rate estimated\", \"additional_entities\":[\"Cockcroft-Gault formula\"]}"
+          },
+          {
             "input":"previous acute myocardial infarction,categorical values: 1= yes | 2= no | 9= missing",
             "output":"{\"domain\":\"condition\", \"base_entity\":\"History of Event\", \"additional_entities\":[\"Acute myocardial infarction\"], \"categories\": [\"yes\",\"no\",\"missing\"]}"
           },
@@ -2341,96 +2345,91 @@
             "output":"{\"domain\":\"therapy\",\"base_entity\":\"nitroglycerin\",\"additional_entities\":[\"drug dose\",\"follow-up 18 months\"], \"unit\":\"milligram\"}"
           },
           {
-            "input":"Abnormal QRS-T angle, consider primary T wave abnormality on ECG",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: T wave abnormal\"}"
+          "input":"Abnormal R-wave progression on ECG",
+          "output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: R wave abnormal\"}"
           },
-            {
-              "input":"Abnormal R-wave progression on ECG",
-              "output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: R wave abnormal\"}"
-              },
-              {"input":"Abnormal R-wave progression on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: R wave abnormal\"}"},
-              {"input":"AV Block on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Atrioventricular block\"}"},
-              {"input":"A-V dual-paced complexes on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"AV sequential pacing pattern\"}"},
-              {"input":"A-V dual-paced rhythm on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"AV sequential pacing pattern\"}"},
-              {"input":"A-V sequential or dual chamber electronic pacemaker on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"AV sequential pacing pattern\"}"},
-              {"input":"Fewer leads exhibit flat T waves in on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Flattened T wave\"}"},
-              {"input":"Flat T waves have replaced inverted T waves in on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Flattened T wave\"}"},
-              {"input":"Flat T waves now evident in on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Flattened T wave\"}"},
-              {"input":"Idioventricular rhythm with A-V block on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"ECG: idioventricular rhythm\"}"},
-              {"input":"Inverted T waves have replaced flat T waves in on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Inverted T wave\"}"},
-              {"input":"Inverted T waves have replaced nonspecific T wave abnormality in on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Inverted T wave\"}"},
-              {"input":"Marked T wave abnormality, consider anterior ischemia on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: T wave abnormal\", \"additional_entities\":[\"EKG: anterior ischemia\"]"
-             },
-              {"input":"Marked T wave abnormality, consider anterolateral ischemia on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: T wave abnormal\", \"additional_entities\":[\"ekg:Anterolateral myocardial ischemia\"]}"},
-              {"input":"Marked T wave abnormality, consider inferior ischemia on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: T wave abnormal\", \"additional_entities\":[\"ekg:inferior ischemia\"]}"
-            
-            },
-              {"input":"Marked T wave abnormality, consider inferolateral ischemia on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: T wave abnormal\", \"additional_entities\":[\"ekg:inferolateral ischemia\"]}"
-            
-            },
-              {"input":"Marked T wave abnormality, consider lateral ischemia on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: T wave abnormal\", \"additional_entities\":[\"ekg:lateral ischemia\"]}"
-              
-          },
-              {"input":"More leads exhibit flat T waves in on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Flattened T wave\"}"},
-              {"input":"Nonspecific intraventricular block on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Intraventricular conduction defect\"}"},
-              {"input":"Nonspecific intraventricular conduction delay on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Non-specific intraventricular conduction delay\"}"},
-              {"input":"Nonspecific ST and T wave abnormality on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Nonspecific ST-T abnormality on electrocardiogram\"}"},
-              {"input":"Nonspecific T wave abnormality on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: T wave abnormal\"}"},
-              {"input":"Nonspecific T wave abnormality has replaced inverted T waves in on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: T wave abnormal\"}"},
-              {"input":"Nonspecific T wave abnormality now evident in on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: T wave abnormal\"}"},
-              {"input":"Nonspecific T wave abnormality, improved in on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: T wave abnormal\"}"},
-              {"input":"Nonspecific T wave abnormality, worse in on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: T wave abnormal\"}"},
-              {"input":"premature supraventricular complexes on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Supraventricular premature beats\"}"},
-              {"input":"supraventricular complexes on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Supraventricular premature beats\"}"},
-              {"input":"Supraventricular tachycardia on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Supraventricular tachycardia\"}"},
-              {"input":"Suspect A-V conduction defect on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Atrioventricular conduction disorder\"}"},
-              {"input":"T wave abnormality on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: T wave abnormal\"}"},
-              {"input":"Tall T waves on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Tall T wave\"}"},
-              {"input":"Ventricular tachycardia (ventricular or supraventricular with aberration) on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: ventricular tachycardia\"}"},
-              {"input":"with A-V dissociation on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Atrioventricular dissociation\"}"},
-              {"input":"with S-A block or transient A-V block on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Sinoatrial block\"}"},
-              {"input":"with sinus arrest or transient A-V block on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Sinus arrest\"}"},
-              {"input":"with variable A-V block on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Atrioventricular block\"}"},
-              {"input":"notched p wave on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Notched P wave\"}"},
-              {"input":"U wave on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"U wave - finding\"}"},
-              {"input":"?> ACUTE ISCHEMIA ?< on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG myocardial ischemia\"}"},
-              {"input":"?> ACUTE Ml ?< on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG myocardial ischemia\"}"},
-              {"input":"?> COMPLETE HEART BLOCK ?< on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: heart block\"}"},
-              {"input":"Aberrant complex on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Aberrantly conducted complex\"}"},
-              {"input":"Aberrant conduction of supraventricular complex(es) on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Aberrantly conducted complex\"}"},
-              {"input":"Aberrant conduction of SV complex(es) on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Aberrantly conducted complex\"}"},
-              {"input":"Abnormal inferior Q waves on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: Q wave abnormal\"}"},
-              {"input":"Abnormal lateral Q waves on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: Q wave abnormal\"}"},
-              {"input":"Abnormal P-wave axis on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: P wave abnormal\"}"},
-              {"input":"Abnormal Q suggests anterior infarct on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: Q wave abnormal\"}"},
-              {"input":"Abnormal Q suggests anterolateral infarct on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: Q wave abnormal\"}"},
-              {"input":"Abnormal Q suggests inferior infarct on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: Q wave abnormal\"}"},
-              {"input":"Abnormal Q suggests lateral infarct on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: Q wave abnormal\"}"},
-              {"input":"Abnormal Q wave in V1 on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: Q wave abnormal\"}"},
-              {"input":"Abnormal R-wave progression, early transition on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: R wave abnormal\"}"},
-              {"input":"Abnormal R-wave progression, late transition on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: R wave abnormal\"}"},
-              {"input":"Abnormal T waves, anterior leads on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: T wave abnormal\"}"},
-              {"input":"Abnormal T waves, anterolateral leads on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: T wave abnormal\"}"},
-              {"input":"Abnormal T waves, anteroseptal leads on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: T wave abnormal\"}"},
-              {"input":"Abnormal T waves, inferior leads on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: T wave abnormal\"}"},
-              {"input":"Abnormal T waves, lateral leads on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: T wave abnormal\"}"},
-              {"input":"Abnormal T, prob secondary to RVH, ant leads on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: T wave abnormal\"}"},
-              {"input":"Abnormal T, probably due to LVH, ant-lat Ids on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: T wave abnormal\"}"},
-              {"input":"Abnrm R prog, consider ASMI or lead placement on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: R wave abnormal\"}"},
-              {"input":"Abnrm T, probable ischemia, anterolateral lds on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: T wave abnormal\"}"},
-              {"input":"Accelerated idioventricular rhythm on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Accelerated idioventricular rhythm\"}"},
-              {"input":"Accelerated junctional rhythm on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: accelerated junctional rhythm\"}"},
-              {"input":"Acute IMI, suggest recording right precordial leads on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Inferior myocardial infarction on electrocardiogram\"}"},
-              {"input":"Acute right ventricular overload on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: right ventricle hypertrophy\"}"},
-              {"input":"Afib/Flut and V-paced complexes on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"ECG: atrial fibrillation\"}"},
-              {"input":"Afib/Flut, v-paced complexes with inhibition on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"ECG: atrial fibrillation\"}"},
-              {"input":"Afib/Flutter and ventricular-paced rhythm on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"ECG: atrial fibrillation\"}"},
-              {"input":"A-flutter w/ predom 2:1 AV block on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: atrial flutter\"}"},
-              {"input":"A-flutter w/ predom 3:1 AV block on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: atrial flutter\"}"},
-              {"input":"A-flutter w/ predom 4:1 AV block on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: atrial flutter\"}"},
-              {"input":"A-flutter w/ varied AV block on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: atrial flutter\"}"},
-              {"input":"A-flutter/fibrillation w/ complete AV block on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: atrial flutter\"}"}
-    
+          {"input":"Abnormal R-wave progression on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: R wave abnormal\"}"},
+          {"input":"AV Block on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Atrioventricular block\"}"},
+          {"input":"A-V dual-paced complexes on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"AV sequential pacing pattern\"}"},
+          {"input":"A-V dual-paced rhythm on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"AV sequential pacing pattern\"}"},
+          {"input":"A-V sequential or dual chamber electronic pacemaker on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"AV sequential pacing pattern\"}"},
+          {"input":"Fewer leads exhibit flat T waves in on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Flattened T wave\"}"},
+          {"input":"Flat T waves have replaced inverted T waves in on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Flattened T wave\"}"},
+          {"input":"Flat T waves now evident in on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Flattened T wave\"}"},
+          {"input":"Idioventricular rhythm with A-V block on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"ECG: idioventricular rhythm\"}"},
+          {"input":"Inverted T waves have replaced flat T waves in on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Inverted T wave\"}"},
+          {"input":"Inverted T waves have replaced nonspecific T wave abnormality in on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Inverted T wave\"}"},
+          {"input":"Marked T wave abnormality, consider anterior ischemia on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: T wave abnormal\", \"additional_entities\":[\"EKG: anterior ischemia\"]"
+         },
+          {"input":"Marked T wave abnormality, consider anterolateral ischemia on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: T wave abnormal\", \"additional_entities\":[\"ekg:Anterolateral myocardial ischemia\"]}"},
+          {"input":"Marked T wave abnormality, consider inferior ischemia on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: T wave abnormal\", \"additional_entities\":[\"ekg:inferior ischemia\"]}"
+        
+        },
+          {"input":"Marked T wave abnormality, consider inferolateral ischemia on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: T wave abnormal\", \"additional_entities\":[\"ekg:inferolateral ischemia\"]}"
+        
+        },
+          {"input":"Marked T wave abnormality, consider lateral ischemia on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: T wave abnormal\", \"additional_entities\":[\"ekg:lateral ischemia\"]}"
+          
+      },
+          {"input":"More leads exhibit flat T waves in on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Flattened T wave\"}"},
+          {"input":"Nonspecific intraventricular block on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Intraventricular conduction defect\"}"},
+          {"input":"Nonspecific intraventricular conduction delay on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Non-specific intraventricular conduction delay\"}"},
+          {"input":"Nonspecific ST and T wave abnormality on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Nonspecific ST-T abnormality on electrocardiogram\"}"},
+          {"input":"Nonspecific T wave abnormality on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: T wave abnormal\"}"},
+          {"input":"Nonspecific T wave abnormality has replaced inverted T waves in on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: T wave abnormal\"}"},
+          {"input":"Nonspecific T wave abnormality now evident in on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: T wave abnormal\"}"},
+          {"input":"Nonspecific T wave abnormality, improved in on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: T wave abnormal\"}"},
+          {"input":"Nonspecific T wave abnormality, worse in on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: T wave abnormal\"}"},
+          {"input":"premature supraventricular complexes on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Supraventricular premature beats\"}"},
+          {"input":"supraventricular complexes on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Supraventricular premature beats\"}"},
+          {"input":"Supraventricular tachycardia on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Supraventricular tachycardia\"}"},
+          {"input":"Suspect A-V conduction defect on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Atrioventricular conduction disorder\"}"},
+          {"input":"T wave abnormality on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: T wave abnormal\"}"},
+          {"input":"Tall T waves on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Tall T wave\"}"},
+          {"input":"Ventricular tachycardia (ventricular or supraventricular with aberration) on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: ventricular tachycardia\"}"},
+          {"input":"with A-V dissociation on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Atrioventricular dissociation\"}"},
+          {"input":"with S-A block or transient A-V block on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Sinoatrial block\"}"},
+          {"input":"with sinus arrest or transient A-V block on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Sinus arrest\"}"},
+          {"input":"with variable A-V block on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Atrioventricular block\"}"},
+          {"input":"notched p wave on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Notched P wave\"}"},
+          {"input":"U wave on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"U wave - finding\"}"},
+          {"input":"?> ACUTE ISCHEMIA ?< on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG myocardial ischemia\"}"},
+          {"input":"?> ACUTE Ml ?< on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG myocardial ischemia\"}"},
+          {"input":"?> COMPLETE HEART BLOCK ?< on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: heart block\"}"},
+          {"input":"Aberrant complex on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Aberrantly conducted complex\"}"},
+          {"input":"Aberrant conduction of supraventricular complex(es) on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Aberrantly conducted complex\"}"},
+          {"input":"Aberrant conduction of SV complex(es) on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Aberrantly conducted complex\"}"},
+          {"input":"Abnormal inferior Q waves on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: Q wave abnormal\"}"},
+          {"input":"Abnormal lateral Q waves on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: Q wave abnormal\"}"},
+          {"input":"Abnormal P-wave axis on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: P wave abnormal\"}"},
+          {"input":"Abnormal Q suggests anterior infarct on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: Q wave abnormal\"}"},
+          {"input":"Abnormal Q suggests anterolateral infarct on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: Q wave abnormal\"}"},
+          {"input":"Abnormal Q suggests inferior infarct on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: Q wave abnormal\"}"},
+          {"input":"Abnormal Q suggests lateral infarct on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: Q wave abnormal\"}"},
+          {"input":"Abnormal Q wave in V1 on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: Q wave abnormal\"}"},
+          {"input":"Abnormal R-wave progression, early transition on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: R wave abnormal\"}"},
+          {"input":"Abnormal R-wave progression, late transition on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: R wave abnormal\"}"},
+          {"input":"Abnormal T waves, anterior leads on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: T wave abnormal\"}"},
+          {"input":"Abnormal T waves, anterolateral leads on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: T wave abnormal\"}"},
+          {"input":"Abnormal T waves, anteroseptal leads on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: T wave abnormal\"}"},
+          {"input":"Abnormal T waves, inferior leads on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: T wave abnormal\"}"},
+          {"input":"Abnormal T waves, lateral leads on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: T wave abnormal\"}"},
+          {"input":"Abnormal T, prob secondary to RVH, ant leads on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: T wave abnormal\"}"},
+          {"input":"Abnormal T, probably due to LVH, ant-lat Ids on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: T wave abnormal\"}"},
+          {"input":"Abnrm R prog, consider ASMI or lead placement on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: R wave abnormal\"}"},
+          {"input":"Abnrm T, probable ischemia, anterolateral lds on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: T wave abnormal\"}"},
+          {"input":"Accelerated idioventricular rhythm on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Accelerated idioventricular rhythm\"}"},
+          {"input":"Accelerated junctional rhythm on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: accelerated junctional rhythm\"}"},
+          {"input":"Acute IMI, suggest recording right precordial leads on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Inferior myocardial infarction on electrocardiogram\"}"},
+          {"input":"Acute right ventricular overload on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: right ventricle hypertrophy\"}"},
+          {"input":"Afib/Flut and V-paced complexes on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"ECG: atrial fibrillation\"}"},
+          {"input":"Afib/Flut, v-paced complexes with inhibition on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"ECG: atrial fibrillation\"}"},
+          {"input":"Afib/Flutter and ventricular-paced rhythm on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"ECG: atrial fibrillation\"}"},
+          {"input":"A-flutter w/ predom 2:1 AV block on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: atrial flutter\"}"},
+          {"input":"A-flutter w/ predom 3:1 AV block on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: atrial flutter\"}"},
+          {"input":"A-flutter w/ predom 4:1 AV block on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: atrial flutter\"}"},
+          {"input":"A-flutter w/ varied AV block on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: atrial flutter\"}"},
+          {"input":"A-flutter/fibrillation w/ complete AV block on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: atrial flutter\"}"}
 
         ]
 
@@ -4755,7 +4754,38 @@
             }
 
       ]
+    },
+    {
+      "input": "Input:left ventricular end-systolic diameter, candidate terms: ['left ventricular end-systolic cavity size','left ventricular end-systolic wall thickness','left ventricular end-diastolic cavity size','left ventricular end-systolic volume by us','left ventricular short axis diameter']",
+      "output": [
+        {
+          "answer": "left ventricular end-systolic cavity size",
+          "relationship": "synonym",
+          "explanation": "This answer is a close match as 'left ventricular end-systolic diameter' is often interchangeably referred to as 'cavity size' in echocardiographic assessments when describing the end-systolic measurement."
+        },
+        {
+          "answer": "left ventricular end-systolic wall thickness",
+          "relationship": "partially relevant ",
+          "explanation": "This term is related but distinct, as 'wall thickness' measures the thickness of the left ventricular wall at end-systole, rather than the internal diameter or cavity size."
+        },
+        {
+          "answer": "left ventricular end-diastolic cavity size",
+          "relationship": "not relevant",
+          "explanation": "This term is not much related as it describes the cavity size at end-diastole, the phase when the heart is relaxed and filled, not end-systole."
+        },
+        {
+          "answer": "left ventricular end-systolic volume by us",
+          "relationship": "highly relevant",
+          "explanation": "This term is closely related as it represents a measure taken at end-systole; however, 'volume' is a different metric than 'diameter' or 'cavity size' and involves volumetric assessment."
+        },
+        {
+          "answer": "left ventricular short axis diameter",
+          "relationship": "not relevant",
+          "explanation": "This term is different as it refers to a cross-sectional (short-axis) measurement, while the end-systolic diameter is typically measured in the long-axis plane."
+        }
+      ]
     }
+    
   ],
   "unknown":[
     {
