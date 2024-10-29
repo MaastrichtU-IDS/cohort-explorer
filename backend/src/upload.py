@@ -183,7 +183,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
     warnings: list[str] = []
     try:
         # Record all errors and raise them at the end
-        df = pd.read_csv(dict_path)
+        df = pd.read_csv(dict_path, na_values=[""], keep_default_na=False)
         df = df.dropna(how="all")
         df = df.fillna("")
         df.columns = df.columns.str.strip()
@@ -214,8 +214,8 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
 
         for i, row in df.iterrows():
             # Check if required columns are present
-            if not row["VARIABLE NAME"] or not row["VARIABLE LABEL"] or not row["VAR TYPE"] or not row["COUNT"]:
-                errors.append(f"Row {i+2} is missing required data: VARIABLE NAME, VARIABLE LABEL, VAR TYPE, or COUNT")
+            if not row["VARIABLE NAME"] or not row["VARIABLE LABEL"] or not row["VAR TYPE"]:
+                errors.append(f"Row {i+2} is missing required data: VARIABLE NAME, VARIABLE LABEL, or VAR TYPE")
             if row["VAR TYPE"] not in ACCEPTED_DATATYPES:
                 errors.append(
                     f"Row {i+2} for variable `{row['VARIABLE NAME']}` is using a wrong datatype: `{row['VAR TYPE']}`. It should be one of: {', '.join(ACCEPTED_DATATYPES)}"
@@ -418,11 +418,11 @@ async def upload_cohort(
 
         # Delete previous graph for this file from triplestore
         # TODO: will move to background task
-        delete_existing_triples(
-            get_cohort_mapping_uri(cohort_id), f"<{get_cohort_uri(cohort_id)!s}>", "icare:previewEnabled"
-        )
-        delete_existing_triples(get_cohort_uri(cohort_id))
-        publish_graph_to_endpoint(g)
+        # delete_existing_triples(
+        #     get_cohort_mapping_uri(cohort_id), f"<{get_cohort_uri(cohort_id)!s}>", "icare:previewEnabled"
+        # )
+        # delete_existing_triples(get_cohort_uri(cohort_id))
+        # publish_graph_to_endpoint(g)
     except Exception as e:
         os.remove(metadata_path)
         raise e

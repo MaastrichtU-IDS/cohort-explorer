@@ -161,7 +161,7 @@ def retrieve_cohorts_metadata(user_email: str) -> dict[str, Cohort]:
                     var_name=row["varName"]["value"],
                     var_label=row["varLabel"]["value"],
                     var_type=row["varType"]["value"],
-                    count=int(row["count"]["value"]),
+                    count=get_int_value("count", row) or 0,
                     max=get_value("max", row),
                     min=get_value("min", row),
                     units=get_value("units", row),
