@@ -21,7 +21,7 @@ def create_sqlite_database(filename):
 
 # import os
 
-# Sample data (as provided)
+# # Sample data (as provided)
 # data = """VARIABLE NAME\tVARIABLE LABEL\tDomain\tvar\tVariable Concept Code\tVariable Concept OMOP ID\tAdditional Context Concept Label\tAdditional Context Concept Code\tAdditional Context OMOP ID\tPrimary to Secondary Context Relationship\tCategorical Values Concept Label\tCategorical Values Concept Code\tCategorical Values Concept OMOP ID\tUnit Concept Label\tUnit Concept Code\tUnit OMOP ID
 # BPsyststand1\tBlood pressure systolic standing at visit month 1\tmeasurement\tsystolic blood pressure\tloinc:8480-6\t3004249\tstanding|follow-up 1 month\tloinc:LA11870-5|snomed:183623000\t45876596|4081745\thas temporal context\tmissing\tloinc:LA14698-7\t45882933\tmillimeter mercury column\tucum:mm[Hg]\t8876
 # BPdiaststand1\tBP blood pressure diastolic standing at visit month 1\tmeasurement\tdiastolic blood pressure\tloinc:8462-4\t3012888\tstanding|follow-up 1 month\tloinc:LA11870-5|snomed:183623000\t45876596|4081745\thas temporal context\tmissing\tloinc:LA14698-7\t45882933\tmillimeter mercury column\tucum:mm[Hg]\t8876
@@ -61,7 +61,9 @@ class DataManager:
             categorical_values_concept_omop_id INTEGER,
             unit_concept_label TEXT,
             unit_concept_code TEXT,
-            unit_omop_id INTEGER
+            unit_omop_id INTEGER,
+            reasoning TEXT,
+            prediction TEXT
         );
         """
         cursor = self.conn.cursor()
@@ -209,6 +211,8 @@ class DataManager:
             "unit_concept_label",
             "unit_concept_code",
             "unit_omop_id",
+            "reasoning",
+            "prediction",
         ]
 
         try:
@@ -259,7 +263,25 @@ class DataManager:
         print(f"string to search for {input_string}")
 
         cursor = self.conn.cursor()
-        # step 1 check if input_String exists in variable label
+        # Step 1: Check if input_string exists in variable_label
+        # cursor.execute(
+        #     """
+        #     SELECT *
+        #     FROM variable
+        #     WHERE variable_name = ?
+        # """,
+        #     (input_string,),
+        # )
+        # results = cursor.fetchall()
+        # if results:
+        #     # Return all columns for the matching row(s)
+        #     print("Found in variable name")
+        #     for row in results:
+        #         print(row)
+        #     found = True
+        #     return results[0], "full"
+
+        # step 1.3 check if input_String exists in variable label
         cursor.execute(
             """
             SELECT *
@@ -402,40 +424,3 @@ class DataManager:
     def close_connection(self):
         self.conn.close()
 
-
-# db = DataManager('variables.db')
-
-# # Create the table if it doesn't exist
-# # db.create_table()
-
-# # # # # Insert data if the table is empty
-# # db.insert_data_if_empty(data)
-
-
-# # # Example usage
-# print("=== Query for input string 'heart rate' ===")
-# print(db.query_variable('heart rate'))
-
-
-# print("=== Query for input string 'diastolic blood pressure' ===")
-# print(db.query_variable('systolic blood pressure'))
-
-# print("\n=== Query for input string 'missing' ===")
-# print(db.query_variable('missing'))
-
-# print("\n=== Query for input string 'standing' ===")
-# print(db.query_variable('standing'))
-
-# print(db.query_relationship('heart rate', ['standing', 'follow-up 1 month']))
-
-# print(db.insert_row({'VARIABLE NAME': 'bpdiast12', 'VARIABLE LABEL': 'bp blood pressure diastolic in recumbent position at visit month 12 month 12',
-#                   'Domain': 'measurement', 'Variable Concept Label': 'diastolic blood pressure', 'Variable Concept Code': 'loinc:8462-4', 'Variable Concept OMOP ID': '3012888',
-#                   'Additional Context Concept Label': 'recumbent body position|follow-up 2 months', 'Additional Context Concept Code': 'snomed:102538003|snomed:200891000000107', 'Additional Context OMOP ID': '4009887|44788749', 'Primary to Secondary Context Relationship': 'has temporal context',
-#                   'Categorical Values Concept Label': 'missing',
-#                   'Categorical Values Concept Code': 'loinc:LA14698-7',
-#                   'Categorical Values Concept OMOP ID': '45882933', 'Unit Concept Label': 'millimeter mercury column',
-#                   'Unit Concept Code': 'ucum:mm[Hg]', 'Unit OMOP ID': '8876'}))
-
-
-# # Close the database connection
-# CONN.close()
