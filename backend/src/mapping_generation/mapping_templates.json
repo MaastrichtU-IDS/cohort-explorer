@@ -82,6 +82,14 @@
             "output":"{\"domain\":\"observation\", \"base_entity\":\"Patient entered into trial\",\"additional_entities\":[\"Heart failure\"]}"
           },
           {
+            "input":"Coffee at baseline time, categorical values:2 = never | 3 = 1-2 cups a day | 4 = 3-4 cups a day | 5 = 5+ cups a day",
+            "output":"{\"domain\":\"life style\", \"base_entity\":\"Coffee intake\", \"additional_entities\":[\"baseline\"], \"categories\": [\"never\",\"1-2 times per day\",\"3 or more time per day\",\"5 or more time per day\"]}"
+          },
+          {
+            "input":"NYHA class at baseline in full increments, categorical values:1=I  |  2=II  |  3= III  |  4= IV",
+            "output":"{\"domain\":\"condition\",\"base_entity\":\"New York Heart Association Functional Classification\",\"additional_entities\":[\"baseline\"], \"categories\": [\"class I\",\"class II\",\"class III\",\"class IV\"]}"
+          },
+          {
             "input":"death without cancer-related death,part of primary endpoint",
             "output":"{\"domain\":\"death\", \"base_entity\":\"cause of death\", \"additional_entities\":[\"Not\",\"Neoplasm malignant\",\"Primary endpoint\"]}"
           },

@@ -110,7 +110,9 @@ DEFAULT_QUALIFIER_VALUES = ["yes","no","not available","unknown","missing",
                             "once daily","twice daily","three times daily",
                             "twice a day","three times a day","1 time per day",
                             "2 times per day","3 times per day",
-                            "1 time","2 times","3 times"]
+                            "1 time","2 times","3 times","never","none","more than once a day","once a day",
+                            "2-3 times a week","on a daily basis","frequently","sometimes"
+                            ]
 
 
 def save_jsonl(data, file):
@@ -962,7 +964,7 @@ def create_processed_result(result_object: ProcessedResultsModel) -> dict:
     # query_text = result_object.original_query
 
     additional_entities_labels, additional_entities_codes, additional_entities_omop_ids = format_categorical_values(
-        additional_entities_matches, additional_entities, type='additional'
+        additional_entities_matches, additional_entities, type_='additional'
     )
     categorical_values_labels, categorical_values_codes, categorical_values_omop_ids = format_categorical_values(
         categorical_values_matches, categorical_values

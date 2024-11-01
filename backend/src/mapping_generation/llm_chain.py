@@ -947,7 +947,8 @@ def create_overlapping_segments(documents, overlap=2):
     return segments
 
 
-def get_llm_results(
+
+def get_llm_results_with_overlap(
     prompt, query, documents, max_retries=2, llm=None, llm_name="llama3.1"
 ):
     if len(documents) >= 5:
@@ -1023,6 +1024,79 @@ def get_llm_results(
         if result:
             results.extend(result)
 
+    end_time = time.time()
+    logger.info(f"Total processing time: {end_time - start_times} seconds")
+    return results
+
+
+def get_llm_results(
+    prompt, query, documents, max_retries=2, llm=None, llm_name="llama3.1"
+):
+    
+
+    def process_half(doc_half,max_retries=2):
+        attempt = 0
+        while attempt <= max_retries:
+            logger.info(f"Attempt {attempt} to invoke {llm_name} ")
+            try:
+                chain = prompt | llm
+
+                # config={'callbacks': [ConsoleCallbackHandler()]}) for verbose
+                results = chain.invoke({"query": query, "documents": documents})
+                results = results.content
+                # print(f"llm results={results}")
+                if results is None:
+                    logger.info("Received None result, retrying...")
+                    attempt += 1
+                    continue
+                elif isinstance(results, list) and all(
+                    isinstance(item, dict) for item in results
+                ):
+                    return results
+                elif isinstance(results, str):
+                    fixed_results = fix_json_quotes(results)
+                    if isinstance(fixed_results, list) and all(
+                        isinstance(item, dict) for item in fixed_results
+                    ):
+                        return fixed_results
+                    else:
+                        try:
+                            results = fixing_parser.parse(results)
+                            if isinstance(results, list) and all(
+                                isinstance(item, dict) for item in results
+                            ):
+                                return results
+                            else:
+                                logger.info(("failed to parse results"))
+                                attempt += 1
+                        except Exception as e:  # Broad exception handling for any error from fixing_parser
+                            logger.info(f"Error in fixing_parser: {e}", exc_info=True)
+                            # time.sleep(0.00005)
+                            attempt += 1
+                            continue  # Retry if fixing_parser parsing fails
+
+                # logger.info(f"Results \n{results} are not in the expected format after attempts to parse, retrying...")
+                else:
+                    logger.info(f"error in result {type(results)}")
+                    attempt += 1
+
+            except ValidationError as e:
+                logger.info(f"Validation Error: {e}")
+                attempt += 1
+                continue  # Retry on validation errors
+
+            except Exception as e:
+                logger.info(f"LLM Unexpected Error: {e}")
+                attempt += 1
+                if attempt > max_retries:
+                    logger.info(
+                        "Max retries reached without a valid response, returning None"
+                    )
+                    return None
+
+    start_times = time.time()
+    results = process_half(documents)
+    
     end_time = time.time()
     logger.info(f"Total processing time: {end_time - start_times} seconds")
     return results

@@ -1,4 +1,4 @@
-from rag.llm_chain import evaluate_final_mapping
+from .llm_chain import evaluate_final_mapping
 import re
 
 
