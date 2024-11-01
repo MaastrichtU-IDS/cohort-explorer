@@ -627,25 +627,3 @@ def load_data(input_file, load_custom=False):
     except Exception as e:
         print(f"Error loading data: {e}")
         return None, is_mapped
-
-
-# import argparse
-# if __name__ == "__main__":
-
-#     parser = argparse.ArgumentParser(description="Build a synonym graph")
-#     parser.add_argument("--data_dir", type=str, default=DATA_DIR, help="Path to the data directory")
-#     parser.add_argument("--output_dir", default=f"{args.data_dir}/output/concept.jsonl", type=str, help="Path to the output directory")
-#     args = parser.parse_args()
-#     # input_file = os.path.basename(input_file)
-#     data_dir = args.data_dir
-#     output_dir = args.output_dir
-#     print(f"data_dir={data_dir}")
-#     print(f"data_dir={data_dir}")
-#     concepts, max_len = load_concepts(None, data_dir)
-#     chunk_size =  max_len
-#     overlap = 0
-#     if max_len > 1300:
-#         chunk_size = 1300
-#         overlap = 100
-#     documents = split_text(concepts, [chunk_size], [overlap])[0]
-#     save_docs_to_jsonl(documents, output_dir)

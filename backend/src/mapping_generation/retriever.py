@@ -1,6 +1,12 @@
-from .vector_index import update_compressed_merger_retriever
 import time
-from .utils import global_logger as logger
+
+from langchain_qdrant import FastEmbedSparse
+
+from .bi_encoder import SAPEmbeddings
+from .data_loader import load_data
+from .llm_chain import *
+from .param import *
+from .py_model import *
 from .utils import (
     pretty_print_docs,
     save_to_csv,
@@ -10,38 +16,24 @@ from .utils import (
     post_process_candidates,
     exact_match_found,
     filter_irrelevant_domain_candidates,
+    init_logger,
+    append_results_to_csv,
 )
-from .evalmap import perform_mapping_eval_for_variable
-from .llm_chain import pass_to_chat_llm_chain, extract_information
-from .eval import evaluate_with_multiple_mappings
-from .py_model import QueryDecomposedModel, ProcessedResultsModel, RetrieverResultsModel
-from .sql import DataManager
-from .param import DB_FILE
-from typing import Any
+from .eval_mapping import perform_mapping_eval_for_variable
+from .utils import global_logger as logger
+from .datamanager import DataManager
+import os
+from .vector_index import (
+    update_compressed_merger_retriever,
+    generate_vector_index,
+    initiate_api_retriever,
+    set_merger_retriever,
+    set_compression_retriever,
+)
+
 
 # Cache for retrievers based on domain
 RETRIEVER_CACHE = {}
-
-# def get_cached_retriever(retriever, domain, topk=10):
-#     cache_key = (domain, topk)
-#     if cache_key not in RETRIEVER_CACHE:
-#         if domain != 'all':
-#             retriever = update_merger_retriever(retriever, domain, topk=topk)
-#         RETRIEVER_CACHE[cache_key] = retriever
-#     return RETRIEVER_CACHE[cache_key]
-
-
-# def retriever_docs(query, retriever, domain='all', is_omop_data=False, topk=10):
-#     print(f"selected domain={domain}")
-#     retriever = get_cached_retriever(retriever, domain, topk)
-#     try:
-#         results = retriever.invoke(query)
-#         unique_results = filter_results(query, results)[:10]
-#         print(f"length of unique results={len(unique_results)}")
-#         return unique_results
-#     except Exception as e:
-#         logger.error(f"Error retrieving docs: {e}")
-#         return None
 
 
 def retriever_docs(query, retriever, domain="all", is_omop_data=False, topk=10):
@@ -107,10 +99,6 @@ def map_data(
     end_time = time.time()
     total_time = end_time - start_time
     save_results(results, output_file)
-    if do_eval:
-        return evaluate_with_multiple_mappings(
-            data[:max_queries], results, model_name=llm_name
-        )
     logger.info(
         f"Total execution time for {max_queries} queries is {total_time} seconds."
     )
@@ -156,72 +144,6 @@ def full_query_processing_db(
         return {}
 
 
-def full_query_processing(
-    query_text: QueryDecomposedModel,
-    retriever: Any,
-    llm_name: str,
-    topk: int,
-    is_omop_data=True,
-):
-    try:
-        logger.info(f"Processing query: {query_text}")
-        # normalized_query_text = rule_base_decomposition(query_text)
-        # processes_results = []
-        # if not is_omop_data:
-        #     query_decomposed = find_domain(query_text)
-        #     query_decomposed['domain'] = 'all'
-        #     processes_results = temp_process_query_details(query_decomposed, retriever, llm_name, topk, query_text)
-        # else:
-        # if not custom_data:
-        #     query_decomposed = find_domain(query_text)
-        #     processes_results = temp_process_query_details(query_decomposed, retriever, llm_name, topk, query_text)
-        # else:
-        if query_text is None:
-            return {}
-        else:
-            print(f"query_text={query_text.name}")
-            query_decomposed = extract_information(query_text.full_query, llm_name)
-            logger.info(f"Query decomposed:{query_decomposed}")
-            processes_results = temp_process_query_details(
-                llm_query_obj=query_decomposed,
-                retriever_cache=retriever,
-                llm_name=llm_name,
-                topk=topk,
-                original_query_obj=query_text,
-                is_omop_data=is_omop_data,
-            )
-            logger.info("Mapping result:", processes_results)
-            return processes_results
-    except Exception as e:
-        logger.error(f"Error full processing query: {e}", exc_info=True)
-        return {}
-
-
-# def create_input_dict(query_text):
-#     query_dict = {}
-#     rest_term = query_text
-#     query_dict['base_entity'] = query_text
-
-#     # Check if there are categorical values in the text
-#     if 'categorical values' in query_text:
-#         main_term = rest_term.split('|categorical values:')[0].strip()
-#         query_dict['base_entity'] = main_term  # Extract base entity
-#         values = rest_term.split('|categorical values:')[1].strip()  # Extract categorical values
-#         query_dict['categories'] = [value.strip() for value in values.strip().replace(',', '|').split('|')]  # Convert categories to a list
-#     else:
-#         # If no categorical values, ensure main entity is parsed properly
-#         main_term = rest_term.split('|')[0].strip()
-#         query_dict['base_entity'] = main_term
-#     # Check if there is a unit in the text
-#     if 'unit' in rest_term:
-#         unit = rest_term.split('|unit:')[1].strip()  # Extract unit without further splitting
-#         query_dict['unit'] = unit
-
-#     # Check if there is a formula in the text
-#     if 'formula' in rest_term:
-#         formula = rest_term.split('|formula:')[1].strip()  # Extract formula
-#         query_dict['formula'] = formula
-#     return query_dict
 
 
 def temp_process_query_details_db(
@@ -378,6 +300,7 @@ def temp_process_query_details_db(
         return {}
 
 
+
 def temp_process_query_details(
     llm_query_obj: QueryDecomposedModel,
     retriever_cache: Any,
@@ -412,7 +335,7 @@ def temp_process_query_details(
                 ),
                 llm_name,
                 "all",
-                belief_threshold=0.85,
+                belief_threshold=0.9,
             )
             if found_match and len(variable_label_matches) > 0:
                 main_term = (
@@ -539,9 +462,6 @@ def process_retrieved_docs(
                 domain=domain,
                 threshold=belief_threshold,
             )
-            print(
-                f"number of candidates={len(llm_ranks)} and exact match={match_found}"
-            )
             return post_process_candidates(llm_ranks, max=1), match_found
         else:
             return docs, False
@@ -561,7 +481,7 @@ def process_context(context, retriever, llm, domain=None, topk=10):
             llm_results, _ = pass_to_chat_llm_chain(
                 context, docs, llm_name=llm, domain=domain
             )
-            return post_process_candidates(llm_results, max=2)
+            return post_process_candidates(llm_results, max=1)
     return []
 
 
@@ -584,38 +504,32 @@ def process_values_db(
         return all_values
     for q_value in values:
         q_value = str(q_value).strip().lower()
-        if q_value:
+        if q_value and q_value != "unknown":
             result, mode = db.query_variable(q_value)
             if result and mode == "subset":
                 print(f"found value in RESERVOIR={q_value}")
                 all_values[q_value] = convert_db_result(result)
             else:
-                contextaware_categorical_value_results = []
                 categorical_value_results = retriever_docs(
                     q_value,
                     retriever,
                     domain=domain,
                     is_omop_data=is_omop_data,
-                    topk=topk,
-                )
+                    topk=topk)
                 if values_type == "additional":
-                    contextaware_categorical_value_results = retriever_docs(
+                    categorical_value_results += retriever_docs(
                         f"{main_term}, {q_value}",
                         retriever,
                         domain=domain,
                         is_omop_data=is_omop_data,
-                        topk=topk,
-                    )[:5]
+                        topk=topk)[:5]
                 if categorical_value_results:
-                    categorical_value_results += contextaware_categorical_value_results
                     pretty_print_docs(categorical_value_results)
                     if matched_docs := exact_match_found(
                         query_text=q_value,
                         documents=categorical_value_results,
                         domain=domain,
                     ):
-                        # max_results = 2 if ('or' in q_value or 'and' in q_value) else 1
-                        # logger.info(f"max_results={max_results} for {updated_q_value}")
                         all_values[q_value] = post_process_candidates(
                             matched_docs, max=1
                         )
@@ -633,8 +547,6 @@ def process_values_db(
                             domain=domain,
                         )
                         if updated_results:
-                            # max_results = 2 if ('or' in q_value or 'and' in q_value) else 1
-                            # logger.info(f"max_results={max_results} for {updated_q_value}")
                             all_values[q_value] = post_process_candidates(
                                 updated_results, max=1
                             )
@@ -642,9 +554,9 @@ def process_values_db(
             all_values[q_value] = [
                 RetrieverResultsModel(
                     standard_label="na",
-                    standard_code="na",
-                    standard_omop_id="na",
-                    vocab="na",
+                    standard_code=None,
+                    standard_omop_id=None,
+                    vocab=None,
                 )
             ]
     return all_values
@@ -668,7 +580,7 @@ def process_values(
         return all_values
     for q_value in values:
         q_value = str(q_value).strip().lower()
-        if q_value and q_value != "unknown":
+        if q_value:
             if categorical_value_results := retriever_docs(
                 q_value, retriever, domain=domain, is_omop_data=is_omop_data, topk=topk
             ):
@@ -786,121 +698,12 @@ def save_results(results, file_path):
         logger.info("No results to save.")
 
 
-# def update_api_search_filter(api_retriever, domain='observation'):
-
-#     if domain == 'unit':
-#          api_retriever.filters = AthenaFilters(domain=None, vocabulary=['UCUM'], standard_concept=['Standard'])
-#     elif domain == 'condition' or domain == 'anatomic site':
-#         api_retriever.filters  = AthenaFilters(domain=['Condition','Meas Value','Spec Anatomic Site'], vocabulary=['SNOMED'],standard_concept=['Standard'])
-#     elif domain == 'measurement':
-#         api_retriever.filters  = AthenaFilters(domain=['Measurement','Meas Value','Observation'], vocabulary=['LOINC','MeSH','SNOMED'],standard_concept=['Standard'])
-#     elif domain == 'drug':
-#         api_retriever.filters  = AthenaFilters(domain=['Drug'], vocabulary=['RxNorm','ATC','SNOMED'], standard_concept=['Standard','Classification'])
-#     elif domain == 'observation':
-#         api_retriever.filters  = AthenaFilters(domain=['Observation','Meas Value'], vocabulary=['SNOMED','LOINC','OMOP Extension'])
-#     elif domain == 'visit':
-#         api_retriever.filters  = AthenaFilters(domain=['Visit','Observation'], vocabulary=['SNOMED','LOINC','OMOP Extension'])
-#     elif domain == 'demographics':
-#         api_retriever.filters  = AthenaFilters(domain=['Observation','Meas Value'], vocabulary=['SNOMED','LOINC','OMOP Extension','Gender','Race','Ethnicity'])
-#     else:
-#         api_retriever.filters  = AthenaFilters()
-#     return api_retriever
-
-
-# def update_qdrant_search_filter(retriever, domain='unknown'):
-#     if domain == 'unit':
-#         retriever.search_kwargs['filter'] = rest.Filter(
-#                     must=[
-#                         rest.FieldCondition(
-#                             key="metadata.vocab",
-#                             match=rest.MatchValue(value='ucum')
-#                         )
-#                     ]
-#                 )
-#     elif domain == 'condition' or domain == 'anatomic site':
-#         retriever.search_kwargs['filter'] = rest.Filter(
-#                     must=[
-#                         rest.FieldCondition(
-#                             key="metadata.vocab",
-#                             match=rest.MatchAny(any=['snomed'])
-
-#                         )
-#                     ]
-#                 )
-#     elif domain == 'demographics':
-#         retriever.search_kwargs['filter'] = rest.Filter(
-#                     must=[
-#                         rest.FieldCondition(
-#                             key="metadata.vocab",
-#                             match=rest.MatchAny(any=['snomed','loinc'])
-#                         ),
-#                         rest.FieldCondition(
-#                             key="metadata.domain",
-#                             match=rest.MatchAny(any=['observation','meas value'])
-#                         )
-#                     ]
-#                 )
-#     elif domain == 'measurement':
-#         retriever.search_kwargs['filter'] = rest.Filter(
-#                     must=[
-#                         rest.FieldCondition(
-#                             key="metadata.vocab",
-#                             match=rest.MatchAny(any=['loinc','mesh','snomed'])
-#                         ),
-#                         rest.FieldCondition(
-#                             key="metadata.domain",
-#                             match=rest.MatchAny(any=['measurement','meas value','observation'])
-#                         )
-#                     ]
-#                 )
-#     elif domain == 'drug':
-#         retriever.search_kwargs['filter'] = rest.Filter(
-#                     must=[
-#                         rest.FieldCondition(
-#                             key="metadata.vocab",
-#                             match=rest.MatchAny(any=['rxnorm','atc','snomed'])
-#                         ),
-#                         rest.FieldCondition(
-#                             key="metadata.is_standard",
-#                             match=rest.MatchAny(any=['S','C'])
-#                         )
-#                     ]
-#                 )
-#     elif domain == 'observation' or domain == 'visit' or domain == 'demographics' or domain == 'history of events' or domain == 'life style':
-#         retriever.search_kwargs['filter'] = rest.Filter(
-#                     must=[
-#                         rest.FieldCondition(
-#                             key="metadata.vocab",
-#                             match=rest.MatchAny(any=['snomed','loinc','omop extension'])
-#                         ),
-#                         rest.FieldCondition(
-#                             key="metadata.domain",
-#                             match=rest.MatchAny(any=['observation','meas value'])
-#                         )
-#                     ]
-#         )
-#     elif domain == 'procedure':
-#         retriever.search_kwargs['filter'] = rest.Filter(
-#                     must=[
-#                         rest.FieldCondition(
-#                             key="metadata.vocab",
-#                             match=rest.MatchAny(any=['snomed'])
-#                         )
-#                     ]
-#                 )
-#     else:
-#         retriever.search_kwargs['filter'] = None
-#     return retriever
-
-
 def filter_results(query, results):
     # pretty_print_docs(results)
     prioritized = []
     non_prioritized = []
     seen_metadata = []  # Use a list to track seen metadata and preserve order
     query = query.strip().lower()  # Normalize the query for comparison
-
-    # First pass: collect prioritized and non-prioritized results
     for res in results:
         label = (
             res.metadata["label"].strip().lower()
@@ -925,3 +728,114 @@ def filter_results(query, results):
     print("unique docs")
     pretty_print_docs(combined_results)
     return combined_results
+
+def map_csv_to_standard_codes(meta_path: str):
+    """Map the data dictionary to standard codes using the LLM and save the results to a CSV file"""
+    data, is_mapped = load_data(meta_path, load_custom=True)
+    if is_mapped:
+        return data
+
+    cohort_folder = os.path.dirname(meta_path)
+    mapping_logger = init_logger(os.path.join(cohort_folder, "mapping_generation.log"))
+    mapping_logger.info(f"Logging mapping generation for {meta_path}")
+    # TODO: improve logging so that all logs are saved to a file named `mapping_generation.log` in the cohort_folder
+    embeddings = SAPEmbeddings()
+    sparse_embeddings = FastEmbedSparse(model_name="Qdrant/bm42-all-minilm-l6-v2-attentions")
+    hybrid_search = generate_vector_index(
+        embeddings, sparse_embeddings, docs_file="", mode="inference", collection_name=SYN_COLLECTION_NAME, topk=10
+    )
+    # compressed_hybrid_retriever =  set_compression_retriever(hybrid_search)
+    athena_api_retriever = initiate_api_retriever()
+    merger_retriever = set_merger_retriever(retrievers=[hybrid_search, athena_api_retriever])
+    merger_retriever = set_compression_retriever(merger_retriever)
+    data = map_data(
+        data,
+        merger_retriever,
+        custom_data=True,
+        output_file=LOOK_UP_FILE,
+        llm_name=LLM_ID,
+        topk=TOPK,
+        do_eval=False,
+        is_omop_data=True,
+    )
+    mapped_csv = append_results_to_csv(meta_path, data)
+    mapped_csv.to_csv(meta_path, index=False)
+    # TODO: store mappings in the triplestore
+    return mapped_csv
+
+
+
+
+# def process_values_db(
+#     main_term,
+#     values,
+#     retriever,
+#     llm,
+#     domain=None,
+#     values_type="additional",
+#     is_omop_data=False,
+#     topk=10,
+#     db: DataManager = None,
+# ):
+#     if isinstance(values, str):
+#         values = [values]
+#     logger.info(f"processing values={values}")
+#     all_values = {}
+#     if not values:
+#         return all_values
+#     for q_value in values:
+#         q_value = str(q_value).strip().lower()
+#         if q_value and q_value != "unknown":
+#             result, mode = db.query_variable(q_value)
+#             if result and mode == "subset":
+#                 print(f"found value in RESERVOIR={q_value}")
+#                 all_values[q_value] = convert_db_result(result)
+#             else:
+#                 if categorical_value_results := retriever_docs(
+#                     q_value,
+#                     retriever,
+#                     domain=domain,
+#                     is_omop_data=is_omop_data,
+#                     topk=topk,
+#                 ):
+#                     pretty_print_docs(categorical_value_results)
+#                     if matched_docs := exact_match_found(
+#                         query_text=q_value,
+#                         documents=categorical_value_results,
+#                         domain=domain,
+#                     ):
+#                         # max_results = 2 if ('or' in q_value or 'and' in q_value) else 1
+#                         # logger.info(f"max_results={max_results} for {updated_q_value}")
+#                         all_values[q_value] = post_process_candidates(
+#                             matched_docs, max=1
+#                         )
+#                     elif (
+#                         categorical_value_results and len(categorical_value_results) > 0
+#                     ):
+#                         if values_type == "additional":
+#                             q_value_ = f"{q_value}, context: {main_term}"
+#                         else:
+#                             q_value_ = q_value
+#                         updated_results, _ = pass_to_chat_llm_chain(
+#                             q_value_,
+#                             categorical_value_results,
+#                             llm_name=llm,
+#                             domain=domain,
+#                         )
+#                         if updated_results:
+#                             # max_results = 2 if ('or' in q_value or 'and' in q_value) else 1
+#                             # logger.info(f"max_results={max_results} for {updated_q_value}")
+#                             all_values[q_value] = post_process_candidates(
+#                                 updated_results, max=1
+#                             )
+#         elif values_type == "categories":
+#             all_values[q_value] = [
+#                 RetrieverResultsModel(
+#                     standard_label="na",
+#                     standard_code=None,
+#                     standard_omop_id=None,
+#                     vocab=None,
+#                 )
+#             ]
+#     return all_values
+

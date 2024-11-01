@@ -1,7 +1,5 @@
 from rag.llm_chain import evaluate_final_mapping
-import pandas as pd
 import re
-import time
 
 
 def clean_output(explanation, predicted_class):
@@ -10,18 +8,49 @@ def clean_output(explanation, predicted_class):
     predicted_class_clean = predicted_class.strip()
 
     # Format output as a single string with clean explanation and prediction
-    return f"Explanation: {explanation_clean}", predicted_class_clean
+    return explanation_clean, predicted_class_clean
 
 
-LLM_ID = "local_llama3.1"
 EXPLANATION_PATTERN = re.compile(
     r"(.*)\s*\*\*final classification:\*\*\s*(.*)", re.IGNORECASE | re.DOTALL
 )
 
-def perform_eval_for_variable(variable):
-    explanation = evaluate_final_mapping(variable, LLM_ID)
+
+# def perform_eval_for_variable(variable):
+#     explanation = evaluate_final_mapping(variable, LLM_ID)
+#     explanation = explanation.lower().strip()
+#     print(f"Explanation for {variable}: {explanation}")
+#     match = EXPLANATION_PATTERN.search(explanation)
+#     if match:
+#         explanation, prediction = match.groups()
+#     else:
+#         # If no match is found, use default values
+#         explanation = explanation
+#         prediction = "unknown"
+#         if "correct" in explanation:
+#             prediction = "correct"
+#         elif "incorrect" in explanation:
+#             prediction = "incorrect"
+#         elif "partially correct" in explanation:
+#             prediction = "partially correct"
+
+#     # Now call clean_output with the explanation and prediction and use its result
+#     cleaned_reasoning, cleaned_prediction = clean_output(explanation, prediction)
+#     pred_dict = {
+#         "reasoning": cleaned_reasoning,  # Cleaned reasoning as text
+#         "prediction": cleaned_prediction,  # Cleaned prediction as text
+#     }
+#     print(pred_dict)
+#     return pred_dict
+
+
+def perform_mapping_eval_for_variable(var_: dict, llm_id: str = "llama3.1"):
+    variable = var_
+    # delete VARIABLE NAME key from variable
+    # variable.pop("VARIABLE NAME")
+    explanation = evaluate_final_mapping(variable, llm_id)
     explanation = explanation.lower().strip()
-    print(f"Explanation for {variable}: {explanation}")
+    print(f"Explanation for {variable['VARIABLE LABEL']}: {explanation}")
     match = EXPLANATION_PATTERN.search(explanation)
     if match:
         explanation, prediction = match.groups()
@@ -29,69 +58,19 @@ def perform_eval_for_variable(variable):
         # If no match is found, use default values
         explanation = explanation
         prediction = "unknown"
-        if "correct" in explanation:
-            prediction = "correct"
-        elif "incorrect" in explanation:
+
+        if "incorrect" in explanation:
             prediction = "incorrect"
         elif "partially correct" in explanation:
             prediction = "partially correct"
+        elif "partially incorrect" in explanation:
+            prediction = "partially correct"
+        elif "correct" in explanation:
+            prediction = "correct"
 
     # Now call clean_output with the explanation and prediction and use its result
     cleaned_reasoning, cleaned_prediction = clean_output(explanation, prediction)
-    pred_dict = {
-        "reasoning": cleaned_reasoning,  # Cleaned reasoning as text
-        "prediction": cleaned_prediction,  # Cleaned prediction as text
-    }
-    print(pred_dict)
-    return pred_dict
-def perform_mapping_eval(csv_file):
-    start_time = time.time()
-    variables = pd.read_csv(csv_file)
-    list_of_dictionaries = variables.to_dict(orient="records")
-    print(f"length of list of dictionaries: {len(list_of_dictionaries)}")
-
-    predictions = []
-    for var in list_of_dictionaries:
-        explanation = evaluate_final_mapping(var, LLM_ID)
-        explanation = explanation.lower().strip()
-        print(f"Explanation for {var['VARIABLE NAME']}: {explanation}")
-        match = EXPLANATION_PATTERN.search(explanation)
-        if match:
-            explanation, prediction = match.groups()
-        else:
-            # If no match is found, use default values
-            explanation = explanation
-            prediction = "unknown"
-            if "correct" in explanation:
-                prediction = "correct"
-            elif "incorrect" in explanation:
-                prediction = "incorrect"
-            elif "partially correct" in explanation:
-                prediction = "partially correct"
-
-        # Now call clean_output with the explanation and prediction and use its result
-        cleaned_reasoning, cleaned_prediction = clean_output(explanation, prediction)
-
-        pred_dict = {
-            "variable": var["VARIABLE NAME"],
-            "reasoning": cleaned_reasoning,  # Cleaned reasoning as text
-            "prediction": cleaned_prediction,  # Cleaned prediction as text
-        }
-        print(pred_dict)
-        predictions.append(pred_dict)
-
-    # create csv file with reasoning and predictions
-    df = pd.DataFrame(predictions)
-    df.to_csv(
-        f"/workspace/mapping_tool/data/output/reasoning_predictions_{LLM_ID}.csv",
-        index=False,
-    )
-    print(f"Time taken: {time.time() - start_time}")
-
-
-if __name__ == "__main__":
-    perform_mapping_eval(
-        "file_name.csv"
-    )
-    # perform_eval_for_variable("dict object") from retriever.py map_data function
-    # we can add extra two columns for mapping confidence and reasoning -- correct, partially correct, incorrect
+    variable["reasoning"] = cleaned_reasoning
+    variable["prediction"] = cleaned_prediction
+    # variable["VARIABLE NAME"] = var_["VARIABLE NAME"]
+    return variable

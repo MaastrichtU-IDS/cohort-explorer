@@ -18,7 +18,7 @@ from collections import defaultdict
 import os
 from .param import MAPPING_FILE, LLM_ID
 from .py_model import QueryDecomposedModel, sanitize_keys
-from .manager import LLMManager, ExampleSelectorManager
+from .manager_llm import LLMManager, ExampleSelectorManager
 
 parsing_llm = LLMManager.get_instance("llama3.1")
 parser = JsonOutputParser()

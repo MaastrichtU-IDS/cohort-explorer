@@ -962,7 +962,7 @@ def create_processed_result(result_object: ProcessedResultsModel) -> dict:
     # query_text = result_object.original_query
 
     additional_entities_labels, additional_entities_codes, additional_entities_omop_ids = format_categorical_values(
-        additional_entities_matches, additional_entities
+        additional_entities_matches, additional_entities, type='additional'
     )
     categorical_values_labels, categorical_values_codes, categorical_values_omop_ids = format_categorical_values(
         categorical_values_matches, categorical_values
@@ -1038,7 +1038,7 @@ def create_processed_result_from_components(query_text, component_cache, query_f
 
 
 def format_categorical_values(
-    values_matches_documents: Dict[str, List[RetrieverResultsModel]], values_list: List[str]
+    values_matches_documents: Dict[str, List[RetrieverResultsModel]], values_list: List[str], type_:str='categorical'
 ) -> Tuple[str, str, str]:
     labels = []
     codes = []
@@ -1061,7 +1061,7 @@ def format_categorical_values(
             labels.append(docs[0].standard_label)
             codes.append(docs[0].standard_code)
             ids.append(docs[0].standard_omop_id)
-        else:
+        elif type_ == 'categorical':
             labels.append("na")
             codes.append("na")
             ids.append("na")
