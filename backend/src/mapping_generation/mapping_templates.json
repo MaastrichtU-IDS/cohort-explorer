@@ -226,6 +226,10 @@
             "output":"{\"domain\":\"demographics\", \"base_entity\":\"Age\", \"additional_entities\":[\"baseline time\"]}"
           },
           {
+              "input":"Patient code at baseline time",
+              "output":"{\"domain\":\"demographics\", \"base_entity\":\"Patient hospital number\", \"additional_entities\":[\"baseline time\"]}"
+          },
+          {
             "input":"duration of heart failure",
             "output":"{\"domain\":\"condition\", \"base_entity\":\"Heart failure\", \"additional_entities\":[\"duration\"]}"
           },

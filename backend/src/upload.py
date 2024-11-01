@@ -438,7 +438,9 @@ async def upload_cohort(
     }
 
 def generate_mappings(cohort_id: str, metadata_path: str, g: Graph) -> None:
+
     """Function to generate mappings for a cohort and publish them to the triplestore running as background task"""
+    print(f"Generating mappings for cohort {cohort_id}")
     map_csv_to_standard_codes(metadata_path)
     delete_existing_triples(
         get_cohort_mapping_uri(cohort_id), f"<{get_cohort_uri(cohort_id)!s}>", "icare:previewEnabled"

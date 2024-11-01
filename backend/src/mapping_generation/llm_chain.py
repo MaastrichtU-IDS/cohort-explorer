@@ -381,11 +381,11 @@ def extract_ir(base_entity, associated_entities, active_model):
         "Before",
         "After",
         "Towards",
-        "Subject of",
+        "Subject of"
     ]
 
     # Refined prompt with examples
-    base_prompt = base_prompt = f"""
+    base_prompt  = f"""
 
     Given the **Base Entity** (primary concept) and **Associated Entities** (secondary concepts), select the most appropriate relationship from the provided options.
 
@@ -399,12 +399,15 @@ def extract_ir(base_entity, associated_entities, active_model):
 
         **Examples:**
             1. Base Entity: 'heart failure'
-            Associated Entity: []'ischemic infarct']
-            Selected Relationship: 'Has Etiology'
+            Associated Entity: ['ischemic infarct']
+            Selected Relationship: 'Has associated finding'
+            2. Base Entity: 'gender'
+            Associated Entity: ['male', 'female']
+            Selected Relationship: 'Has Category'
 
             2. Base Entity: 'diabetes mellitus'
             Associated Entity: ['insulin']
-            Selected Relationship: 'Treated with'
+            Selected Relationship: 'Has associated finding'
 
             Now, apply the same logic to the following:
             Base Entity: {base_entity}
