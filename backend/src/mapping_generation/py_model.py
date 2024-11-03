@@ -26,12 +26,12 @@ class QueryDecomposedModel(BaseModel):
 
     # original label is full_query.split('|')[0]
     # first check if full_query is none, if not split and return the first element
-    @validator('original_label', pre=True, always=True)
-    def parse_original_label(cls, value, values):
-        full_query = values.get('full_query', '')
-        if full_query:
-            return full_query.split('categorical values')[0].strip().lower().replace(',', '')
-        return value
+    # @validator('original_label', pre=True, always=True)
+    # def parse_original_label(cls, value, values):
+    #     full_query = values.get('full_query', '')
+    #     if full_query:
+    #         return full_query.split('categorical values')[0].strip().lower().replace(',', '')
+    #     return value
     
 
     @validator('unit', pre=True, always=True)
@@ -50,11 +50,11 @@ class QueryDecomposedModel(BaseModel):
                 return [str(value).strip().lower()]
         return None
     
-    @validator('name', pre=True, always=True)
-    def assign_name(cls, value, values):
-        if value is None:  # If name is None, assign full_query value to it
-            return values.get('full_query', '')
-        return value
+    # @validator('name', pre=True, always=True)
+    # def assign_name(cls, value, values):
+    #     if value is None:  # If name is None, assign full_query value to it
+    #         return values.get('full_query', '')
+    #     return value
 
     validator('additional_entities', pre=True, always=True)
     def parse_additional_entities(cls, value, values):
@@ -74,7 +74,7 @@ class QueryDecomposedModel(BaseModel):
         return value
     
     # Validator for base_entity and other string values, ensuring they are cleaned
-    @validator('base_entity', 'domain', 'formula','rel', pre=True, always=True)
+    @validator('base_entity', 'domain', 'formula','rel','name',pre=True, always=True)
     def clean_strings(cls, value: Optional[str]):
         if isinstance(value, list):
             return str(value[0]).strip().lower() if value else None

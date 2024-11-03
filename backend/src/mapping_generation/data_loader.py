@@ -96,9 +96,12 @@ def custom_data_loader(source_path):
                     if pd.notna(row.get("VARIABLE NAME"))
                     else None
                 )
-                if not label or not name:
-                    print(f"Row {index} has an empty 'VARIABLE LABEL'. Skipping.")
-                    continue
+                if not label:
+                    if not name:
+                        print(f"Row {index} has an empty 'VARIABLE LABEL'. Skipping.")
+                        continue
+                    else:
+                        label = "na"
                 defintion_raw = row.get("Definition", None)
                 definition = (
                     str(defintion_raw).lower().strip() if pd.notna(defintion_raw) else None
@@ -122,10 +125,11 @@ def custom_data_loader(source_path):
                 visits_raw = row.get("Visits", None)
                 visits = str(visits_raw).lower().strip() if pd.notna(visits_raw) else None
                 if visits and (
-                    "visit" not in label
-                    and "baseline" not in label
-                    and "month" not in label
-                ):
+                "visit" not in label
+                or "baseline time" not in label
+                or "months" not in label
+                or "month" not in label
+            ):
                     if "baseline" in visits:
                         visits = remove_repeated_phrases(visits.strip().lower())
                         visits = (

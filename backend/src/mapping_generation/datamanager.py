@@ -21,7 +21,7 @@ def create_sqlite_database(filename):
 
 # import os
 
-# # Sample data (as provided)
+# Sample data (as provided)
 # data = """VARIABLE NAME\tVARIABLE LABEL\tDomain\tvar\tVariable Concept Code\tVariable Concept OMOP ID\tAdditional Context Concept Label\tAdditional Context Concept Code\tAdditional Context OMOP ID\tPrimary to Secondary Context Relationship\tCategorical Values Concept Label\tCategorical Values Concept Code\tCategorical Values Concept OMOP ID\tUnit Concept Label\tUnit Concept Code\tUnit OMOP ID
 # BPsyststand1\tBlood pressure systolic standing at visit month 1\tmeasurement\tsystolic blood pressure\tloinc:8480-6\t3004249\tstanding|follow-up 1 month\tloinc:LA11870-5|snomed:183623000\t45876596|4081745\thas temporal context\tmissing\tloinc:LA14698-7\t45882933\tmillimeter mercury column\tucum:mm[Hg]\t8876
 # BPdiaststand1\tBP blood pressure diastolic standing at visit month 1\tmeasurement\tdiastolic blood pressure\tloinc:8462-4\t3012888\tstanding|follow-up 1 month\tloinc:LA11870-5|snomed:183623000\t45876596|4081745\thas temporal context\tmissing\tloinc:LA14698-7\t45882933\tmillimeter mercury column\tucum:mm[Hg]\t8876
@@ -58,7 +58,7 @@ class DataManager:
             primary_to_secondary_context_relationship TEXT,
             categorical_values_concept_label TEXT,
             categorical_values_concept_code TEXT,
-            categorical_values_concept_omop_id INTEGER,
+            categorical_values_omop_id INTEGER,
             unit_concept_label TEXT,
             unit_concept_code TEXT,
             unit_omop_id INTEGER,
@@ -118,7 +118,11 @@ class DataManager:
                         else None,
                         row["Unit Concept Label"],
                         row["Unit Concept Code"],
-                        str(row["Unit OMOP ID"]) if row["Unit OMOP ID"] else None,
+                        str(row["Unit Concept OMOP ID"])
+                        if row["Unit Concept OMOP ID"]
+                        else None,
+                        str(row["Reasoning"]) if row["Reasoning"] else None,
+                        str(row["Prediction"]) if row["Prediction"] else None,
                     )
                 )
             # Insert data into the table
@@ -137,11 +141,13 @@ class DataManager:
                     primary_to_secondary_context_relationship,
                     categorical_values_concept_label,
                     categorical_values_concept_code,
-                    categorical_values_concept_omop_id,
+                    categorical_values_omop_id,
                     unit_concept_label,
                     unit_concept_code,
-                    unit_omop_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    unit_omop_id,
+                    reasoning,
+                    prediction
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 to_db,
             )
@@ -207,7 +213,7 @@ class DataManager:
             "primary_to_secondary_context_relationship",
             "categorical_values_concept_label",
             "categorical_values_concept_code",
-            "categorical_values_concept_omop_id",
+            "categorical_values_omop_id",
             "unit_concept_label",
             "unit_concept_code",
             "unit_omop_id",
@@ -258,6 +264,12 @@ class DataManager:
         rows = cursor.fetchall()
         return rows
 
+    # def extract_all(self):
+    #     cursor = self.conn.cursor()
+    #     cursor.execute("SELECT * FROM variable")
+    #     rows = cursor.fetchall()
+    #     return rows
+
     def query_variable(self, input_string):
         input_string = input_string.strip().lower()
         print(f"string to search for {input_string}")
@@ -284,13 +296,14 @@ class DataManager:
         # step 1.3 check if input_String exists in variable label
         cursor.execute(
             """
-            SELECT *
-            FROM variable
-            WHERE variable_label = ?
-        """,
-            ("%" + input_string + "%",),
+                SELECT *
+                FROM variable
+                WHERE LOWER(variable_label) = LOWER(?)
+            """,
+            (input_string,),
         )
         results = cursor.fetchall()
+        print(f"result for search in label {results}")
         if results:
             # Return all columns for the matching row(s)
             print("Found in variable label:")
@@ -306,9 +319,9 @@ class DataManager:
                 variable_name,
                 categorical_values_concept_label,
                 categorical_values_concept_code,
-                categorical_values_concept_omop_id
+                categorical_values_omop_id
             FROM variable
-            WHERE categorical_values_concept_label = ?
+            WHERE LOWER(categorical_values_concept_label) = LOWER(?)
         """,
             ("%" + input_string + "%",),
         )
@@ -325,7 +338,7 @@ class DataManager:
             """
             SELECT variable_name, variable_concept_label, variable_concept_code, variable_concept_omop_id
             FROM variable
-            WHERE variable_concept_label = ?
+            WHERE LOWER(variable_concept_label) = LOWER(?)
             """,
             ("%" + input_string + "%",),
         )
@@ -371,7 +384,7 @@ class DataManager:
             """
             SELECT variable_name, unit_concept_label, unit_concept_code, unit_omop_id
             FROM variable
-            WHERE unit_concept_label = ?
+            WHERE LOWER(unit_concept_label) = LOWER(?)
             """,
             ("%" + input_string + "%",),
         )
@@ -394,7 +407,7 @@ class DataManager:
             """
             SELECT *
             FROM variable
-            WHERE variable_concept_label = ?
+            WHERE LOWER(variable_label) = LOWER(?)
         """,
             (main_term,),
         )
@@ -424,3 +437,59 @@ class DataManager:
     def close_connection(self):
         self.conn.close()
 
+
+# db = DataManager("variables.db")
+# print(db.select_all())
+# # rows = db.extract_all()
+# # print(f"length of rows {len(rows)}")
+# # with open(
+# #     "/workspace/mapping_tool/variables.csv_evaluated_mapping_v3.csv", "w", newline=""
+# # ) as file:
+# #     writer = csv.writer(file)
+# #     writer.writerows(rows)
+# # print("done")
+
+# # after manyuall updating data in csv insert it back to sql
+
+# # with open(
+# #     "/workspace/mapping_tool/variables.csv_evaluated_mapping_v4.csv", "r", newline=""
+# # ) as file:
+# #     reader = csv.DictReader(file)
+# #     for row in reader:
+# #         result = db.insert_row(row)
+# #         print(result)
+# print(db.query_variable("c-reactive protein high sensitivity at baseline time"))
+# # # Create the table if it doesn't exist
+# # # db.create_table()
+
+# # # # # # Insert data if the table is empty
+# # # db.insert_data_if_empty(data)
+
+
+# # # # Example usage
+# # print("=== Query for input string 'heart rate' ===")
+# # print(db.query_variable('heart rate'))
+
+
+# # print("=== Query for input string 'diastolic blood pressure' ===")
+# # print(db.query_variable('systolic blood pressure'))
+
+# # print("\n=== Query for input string 'missing' ===")
+# # print(db.query_variable('missing'))
+
+# # print("\n=== Query for input string 'standing' ===")
+# # print(db.query_variable('standing'))
+
+# # print(db.query_relationship('heart rate', ['standing', 'follow-up 1 month']))
+
+# # print(db.insert_row({'VARIABLE NAME': 'bpdiast12', 'VARIABLE LABEL': 'bp blood pressure diastolic in recumbent position at visit month 12 month 12',
+# #                   'Domain': 'measurement', 'Variable Concept Label': 'diastolic blood pressure', 'Variable Concept Code': 'loinc:8462-4', 'Variable Concept OMOP ID': '3012888',
+# #                   'Additional Context Concept Label': 'recumbent body position|follow-up 2 months', 'Additional Context Concept Code': 'snomed:102538003|snomed:200891000000107', 'Additional Context OMOP ID': '4009887|44788749', 'Primary to Secondary Context Relationship': 'has temporal context',
+# #                   'Categorical Values Concept Label': 'missing',
+# #                   'Categorical Values Concept Code': 'loinc:LA14698-7',
+# #                   'Categorical Values Concept OMOP ID': '45882933', 'Unit Concept Label': 'millimeter mercury column',
+# #                   'Unit Concept Code': 'ucum:mm[Hg]', 'Unit OMOP ID': '8876'}))
+
+
+# # # Close the database connection
+# # CONN.close()
