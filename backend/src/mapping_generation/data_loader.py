@@ -126,9 +126,10 @@ def custom_data_loader(source_path):
                 visits = str(visits_raw).lower().strip() if pd.notna(visits_raw) else None
                 if visits and (
                 "visit" not in label
-                or "baseline time" not in label
-                or "months" not in label
-                or "month" not in label
+                and "baseline time" not in label
+                and "baseline" not in label
+                and "months" not in label
+                and "month" not in label
             ):
                     if "baseline" in visits:
                         visits = remove_repeated_phrases(visits.strip().lower())
@@ -146,14 +147,16 @@ def custom_data_loader(source_path):
                         )
                     else:
                         visitnum = extract_visit_number(visits)
-                        if visitnum and visitnum > 0 and "follow-up" not in visits:
+                        if visitnum and visitnum > 0 and ("follow-up" not in label or 'follow up' not in label):
                             visits = f"follow-up {visits}"
                     visits = f"at {visits}"
                 else:
                     visits = None
                     if (
                         "date of baseline visit" not in label
-                        or "date of first visit" not in label
+                        and "date of first visit" not in label
+                        and "at baseline time" not in label
+                    
                     ):
                         label = (
                             label.replace("month 0/ baseline", "baseline time")
