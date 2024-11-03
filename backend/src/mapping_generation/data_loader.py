@@ -171,9 +171,13 @@ def custom_data_loader(source_path):
                             .replace("visit 0", "baseline time")
                             .replace("month 0", "baseline time")
                         )
-                        visitnum = extract_visit_number(label)
-                        if visitnum and visitnum > 0 and "follow-up" not in label:
-                            label = f"{label} follow-up"
+                        # visitnum = extract_visit_number(label)
+                        # if visitnum and visitnum > 0 and "follow-up" not in label:
+                        #     label = f"{label} follow-up"
+                        if "follow-up" not in label and "follow up" not in label:
+                            visitnum = extract_visit_number(label)
+                            if visitnum and visitnum > 0:
+                                label = f"{label} follow-up"
                 # Handle 'Formula' field
                 formula_raw = row.get("Formula", None)
                 formula = (
