@@ -22,13 +22,14 @@ def create_sqlite_database(filename):
 # import os
 
 # Sample data (as provided)
-# data = """VARIABLE NAME\tVARIABLE LABEL\tDomain\tvar\tVariable Concept Code\tVariable Concept OMOP ID\tAdditional Context Concept Label\tAdditional Context Concept Code\tAdditional Context OMOP ID\tPrimary to Secondary Context Relationship\tCategorical Values Concept Label\tCategorical Values Concept Code\tCategorical Values Concept OMOP ID\tUnit Concept Label\tUnit Concept Code\tUnit OMOP ID
-# BPsyststand1\tBlood pressure systolic standing at visit month 1\tmeasurement\tsystolic blood pressure\tloinc:8480-6\t3004249\tstanding|follow-up 1 month\tloinc:LA11870-5|snomed:183623000\t45876596|4081745\thas temporal context\tmissing\tloinc:LA14698-7\t45882933\tmillimeter mercury column\tucum:mm[Hg]\t8876
-# BPdiaststand1\tBP blood pressure diastolic standing at visit month 1\tmeasurement\tdiastolic blood pressure\tloinc:8462-4\t3012888\tstanding|follow-up 1 month\tloinc:LA11870-5|snomed:183623000\t45876596|4081745\thas temporal context\tmissing\tloinc:LA14698-7\t45882933\tmillimeter mercury column\tucum:mm[Hg]\t8876
-# HRstand1\tHeart rate standing at visit month 1\tmeasurement\theart rate\tloinc:8867-4\t3027018\tstanding|follow-up 1 month\tloinc:LA11870-5|snomed:183623000\t45876596|4081745\thas temporal context\tmissing\tloinc:LA14698-7\t45882933\tcounts per minute\tucum:{counts}/min\t8483
-# BPsyststand3\tBP blood pressure systolic standing at visit month 3\tmeasurement\tsystolic blood pressure\tloinc:8480-6\t3004249\tstanding|follow-up 3 months\tloinc:LA11870-5|snomed:200521000000107\t45876596|44789369\thas temporal context\tmissing\tloinc:LA14698-7\t45882933\tmillimeter mercury column\tucum:mm[Hg]\t8876
-# BPdiaststand3\tBP blood pressure diastolic standing at visit month 3\tmeasurement\tdiastolic blood pressure\tloinc:8462-4\t3012888\tstanding|follow-up 3 months\tloinc:LA11870-5|snomed:200521000000107\t45876596|44789369\thas temporal context\tmissing\tloinc:LA14698-7\t45882933\tmillimeter mercury column\tucum:mm[Hg]\t8876
-# HRstand3\tHeart rate standing at visit month 3\tmeasurement\theart rate\tloinc:8867-4\t3027018\tstanding|follow-up 3 months\tloinc:LA11870-5|snomed:200521000000107\t45876596|44789369\thas temporal context\tmissing\tloinc:LA14698-7\t45882933\tcounts per minute\tucum:{counts}/min\t8483"""
+data = """VARIABLE NAME\tVARIABLE LABEL\tDomain\tvar\tVariable Concept Code\tVariable Concept OMOP ID\tAdditional Context Concept Label\tAdditional Context Concept Code\tAdditional Context OMOP ID\tPrimary to Secondary Context Relationship\tCategorical Values Concept Label\tCategorical Values Concept Code\tCategorical Values Concept OMOP ID\tUnit Concept Label\tUnit Concept Code\tUnit OMOP ID
+month30_a\tfollow-up 30 months\tvisit\tfollow-up 30 months\ticare:icv2000000001\2000000001\tfollow-up 30 months\ticare:icv2000000001\2000000001\thas temporal context\t\t\t\t
+month30_b\tfollow-up 30 month\tvisit\tfollow-up 30 months\ticare:icv2000000001\2000000001\tfollow-up 30 months\ticare:icv2000000001\2000000001\thas temporal context\t\t\t\t
+month30_c\tfollow-up month 30\tvisit\tfollow-up 30 months\ticare:icv2000000001\2000000001\tfollow-up 30 months\ticare:icv2000000001\2000000001\thas temporal context\t\t\t\t
+month30_d\t30 month follow up\tvisit\tfollow-up 30 months\ticare:icv2000000001\2000000001\tfollow-up 30 months\ticare:icv2000000001\2000000001\thas temporal context\t\t\t\t
+month42_d\t42 month follow up\tvisit\tfollow-up 30 months\ticare:icv2000000001\2000000001\tfollow-up 30 months\ticare:icv2000000001\2000000001\thas temporal context\t\t\t\t
+
+"""
 
 
 class DataManager:
@@ -270,6 +271,26 @@ class DataManager:
     #     rows = cursor.fetchall()
     #     return rows
 
+    def query_variable_name(self, input_string):
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT *
+            FROM variable
+            WHERE LOWER(variable_name) = LOWER(?)
+        """,
+            (input_string,),
+        )
+        results = cursor.fetchall()
+        if results:
+            # Return all columns for the matching row(s)
+            # for row in results:
+            #     print(row)
+            return results, "full"
+        else:
+            print("Input string not found.")
+            return None, ""
+
     def query_variable(self, input_string):
         input_string = input_string.strip().lower()
         print(f"string to search for {input_string}")
@@ -407,7 +428,7 @@ class DataManager:
             """
             SELECT *
             FROM variable
-            WHERE LOWER(variable_label) = LOWER(?)
+            WHERE variable_concept_label = ?
         """,
             (main_term,),
         )
@@ -437,59 +458,80 @@ class DataManager:
     def close_connection(self):
         self.conn.close()
 
-
-# db = DataManager("variables.db")
-# print(db.select_all())
-# # rows = db.extract_all()
-# # print(f"length of rows {len(rows)}")
-# # with open(
-# #     "/workspace/mapping_tool/variables.csv_evaluated_mapping_v3.csv", "w", newline=""
-# # ) as file:
-# #     writer = csv.writer(file)
-# #     writer.writerows(rows)
-# # print("done")
-
-# # after manyuall updating data in csv insert it back to sql
-
-# # with open(
-# #     "/workspace/mapping_tool/variables.csv_evaluated_mapping_v4.csv", "r", newline=""
-# # ) as file:
-# #     reader = csv.DictReader(file)
-# #     for row in reader:
-# #         result = db.insert_row(row)
-# #         print(result)
+db = DataManager("variables.db")
+try:
+    with open(
+        "../data/custom_codes.csv",
+        "r",
+        newline="",
+    ) as file:
+        reader = csv.DictReader(file)
+        for row in reader:
+            result = db.insert_row(row)
+            print(result)
+except Exception as e:
+    print(e)
 # print(db.query_variable("c-reactive protein high sensitivity at baseline time"))
-# # # Create the table if it doesn't exist
-# # # db.create_table()
+# # Create the table if it doesn't exist
+# # db.create_table()
 
-# # # # # # Insert data if the table is empty
-# # # db.insert_data_if_empty(data)
-
-
-# # # # Example usage
-# # print("=== Query for input string 'heart rate' ===")
-# # print(db.query_variable('heart rate'))
+# # # # # Insert data if the table is empty
+# # db.insert_data_if_empty(data)
 
 
-# # print("=== Query for input string 'diastolic blood pressure' ===")
-# # print(db.query_variable('systolic blood pressure'))
-
-# # print("\n=== Query for input string 'missing' ===")
-# # print(db.query_variable('missing'))
-
-# # print("\n=== Query for input string 'standing' ===")
-# # print(db.query_variable('standing'))
-
-# # print(db.query_relationship('heart rate', ['standing', 'follow-up 1 month']))
-
-# # print(db.insert_row({'VARIABLE NAME': 'bpdiast12', 'VARIABLE LABEL': 'bp blood pressure diastolic in recumbent position at visit month 12 month 12',
-# #                   'Domain': 'measurement', 'Variable Concept Label': 'diastolic blood pressure', 'Variable Concept Code': 'loinc:8462-4', 'Variable Concept OMOP ID': '3012888',
-# #                   'Additional Context Concept Label': 'recumbent body position|follow-up 2 months', 'Additional Context Concept Code': 'snomed:102538003|snomed:200891000000107', 'Additional Context OMOP ID': '4009887|44788749', 'Primary to Secondary Context Relationship': 'has temporal context',
-# #                   'Categorical Values Concept Label': 'missing',
-# #                   'Categorical Values Concept Code': 'loinc:LA14698-7',
-# #                   'Categorical Values Concept OMOP ID': '45882933', 'Unit Concept Label': 'millimeter mercury column',
-# #                   'Unit Concept Code': 'ucum:mm[Hg]', 'Unit OMOP ID': '8876'}))
+# # # Example usage
+# print("=== Query for input string 'heart rate' ===")
+# print(db.query_variable('heart rate'))
 
 
-# # # Close the database connection
-# # CONN.close()
+# print("=== Query for input string 'diastolic blood pressure' ===")
+# print(db.query_variable('systolic blood pressure'))
+
+# print("\n=== Query for input string 'missing' ===")
+# print(db.query_variable('missing'))
+
+# print("\n=== Query for input string 'standing' ===")
+# print(db.query_variable('standing'))
+
+# print(db.query_relationship('heart rate', ['standing', 'follow-up 1 month']))
+
+# print(db.insert_row({'VARIABLE NAME': 'bpdiast12', 'VARIABLE LABEL': 'bp blood pressure diastolic in recumbent position at visit month 12 month 12',
+#                   'Domain': 'measurement', 'Variable Concept Label': 'diastolic blood pressure', 'Variable Concept Code': 'loinc:8462-4', 'Variable Concept OMOP ID': '3012888',
+#                   'Additional Context Concept Label': 'recumbent body position|follow-up 2 months', 'Additional Context Concept Code': 'snomed:102538003|snomed:200891000000107', 'Additional Context OMOP ID': '4009887|44788749', 'Primary to Secondary Context Relationship': 'has temporal context',
+#                   'Categorical Values Concept Label': 'missing',
+#                   'Categorical Values Concept Code': 'loinc:LA14698-7',
+#                   'Categorical Values Concept OMOP ID': '45882933', 'Unit Concept Label': 'millimeter mercury column',
+#                   'Unit Concept Code': 'ucum:mm[Hg]', 'Unit OMOP ID': '8876'}))
+
+
+# # Close the database connection
+# CONN.close()
+# db = DataManager("variables.db")
+# import pandas as pd
+
+# unmapped_rows = []
+# df = pd.read_csv(
+#     "/workspace/mapping_tool/data/eval_datasets/Icare_data/iCARE4CVD_GISSI_HF.csv"
+# )
+# for index, row in df.iterrows():
+#     variable_name = row["VARIABLE NAME"]
+#     if pd.notna(variable_name):
+#         result, _ = db.query_variable_name(variable_name.strip().lower())
+#         if not result or len(result) == 0:
+#             unmapped_rows.append(row)
+#         else:
+#             print("found")
+
+# unmapped_df = pd.DataFrame(unmapped_rows)
+# if not unmapped_df.empty:
+#     unmapped_df.columns = df.columns  # Assign columns only if DataFrame is not empty
+
+# # Save to CSV if there are unmapped rows
+# if not unmapped_df.empty:
+#     unmapped_df.to_csv(
+#         "/workspace/mapping_tool/data/eval_datasets/Icare_data/GISSI_HF_part2.csv",
+#         index=False,
+#     )
+#     print(f"Length of unmapped rows: {len(unmapped_rows)}")
+# else:
+#     print("No unmapped rows found.")
