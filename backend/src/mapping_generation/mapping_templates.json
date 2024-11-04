@@ -82,14 +82,6 @@
             "output":"{\"domain\":\"observation\", \"base_entity\":\"Patient entered into trial\",\"additional_entities\":[\"Heart failure\"]}"
           },
           {
-            "input":"Coffee at baseline time, categorical values:2 = never | 3 = 1-2 cups a day | 4 = 3-4 cups a day | 5 = 5+ cups a day",
-            "output":"{\"domain\":\"life style\", \"base_entity\":\"Coffee intake\", \"additional_entities\":[\"baseline\"], \"categories\": [\"never\",\"1-2 times per day\",\"3 or more time per day\",\"5 or more time per day\"]}"
-          },
-          {
-            "input":"NYHA class at baseline in full increments, categorical values:1=I  |  2=II  |  3= III  |  4= IV",
-            "output":"{\"domain\":\"condition\",\"base_entity\":\"New York Heart Association Functional Classification\",\"additional_entities\":[\"baseline\"], \"categories\": [\"class I\",\"class II\",\"class III\",\"class IV\"]}"
-          },
-          {
             "input":"death without cancer-related death,part of primary endpoint",
             "output":"{\"domain\":\"death\", \"base_entity\":\"cause of death\", \"additional_entities\":[\"Not\",\"Neoplasm malignant\",\"Primary endpoint\"]}"
           },
@@ -244,6 +236,14 @@
           {
             "input":"age first diagnosed: chronic liver disease(ckd): unit: years",
             "output":"{\"domain\":\"condition\", \"base_entity\":\"Age\", \"additional_entities\":[\"Chronic liver disease\",\"baseline time\"], \"unit\":\"years\"}"
+          },
+          {
+            "input":"treatment r2",
+            "output":"{\"domain\":\"drug\", \"base_entity\":\"therapeutic regimen\", \"additional_entities\":[\"lenalidomide\",\"rituximab\"]}"
+          },
+          {
+            "input":"cardiac troponin t high sensitivity at baseline time",
+            "output":"{\"domain\":\"measurement\", \"base_entity\":\"Troponin T.cardiac panel - Serum or Plasma by High sensitivity method\",\"additional_entities\":[\"baseline time\"]}"
           },
           {
             "input":"age first diagnosed: ckd",
@@ -2376,13 +2376,53 @@
           {"input":"Marked T wave abnormality, consider anterolateral ischemia on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: T wave abnormal\", \"additional_entities\":[\"ekg:Anterolateral myocardial ischemia\"]}"},
           {"input":"Marked T wave abnormality, consider inferior ischemia on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: T wave abnormal\", \"additional_entities\":[\"ekg:inferior ischemia\"]}"
         
-        },
+          },
           {"input":"Marked T wave abnormality, consider inferolateral ischemia on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: T wave abnormal\", \"additional_entities\":[\"ekg:inferolateral ischemia\"]}"
         
-        },
+          },
           {"input":"Marked T wave abnormality, consider lateral ischemia on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"EKG: T wave abnormal\", \"additional_entities\":[\"ekg:lateral ischemia\"]}"
           
-      },
+        },
+          {
+            "input":"48 month follow up",
+            "output":"{\"domain\":\"visit\",\"base_entity\":\"follow-up 48 months\"}"
+          },
+          {
+            "input":"54 month follow up",
+            "output":"{\"domain\":\"visit\",\"base_entity\":\"follow-up 54 months\"}"
+          },
+          {
+            "input":"60 month follow up",
+            "output":"{\"domain\":\"visit\",\"base_entity\":\"follow-up 60 months\"}"
+          },
+          {
+            "input":"42 month follow up",
+            "output":"{\"domain\":\"visit\",\"base_entity\":\"follow-up 42 months\"}"
+          },
+          {
+            "input":"3 years follow up",
+            "output":"{\"domain\":\"visit\",\"base_entity\":\"follow-up 3 years\"}"
+          },
+          {
+            "input":"at end of study follow-up visit",
+            "output": "{\"domain\":\"visit\",\"base_entity\":\"end of end of protocol\",\"additional_entities\":[\"follow-up visit\"]}"
+          },
+          {
+            "input":"dose of medication x at  month 1 follow-up",
+            "output": "{\"domain\":\"drug\",\"base_entity\":\"medication x\",\"additional_entities\":[\"drug dose\",\"follow-up 1 month\"]}"
+          },
+          {
+            "input":"dose of medication x at  month 48 follow-up",
+            "output": "{\"domain\":\"drug\",\"base_entity\":\"medication x\",\"additional_entities\":[\"drug dose\",\"follow-up 48 months\"]}"
+          },
+          {
+            "input":"dose of medication x at  month 30 follow-up",
+            "output": "{\"domain\":\"drug\",\"base_entity\":\"medication x\",\"additional_entities\":[\"drug dose\",\"follow-up 30 months\"]}"
+          },
+          {
+            "input":"dose of medication x at  month 60 follow-up",
+            "output": "{\"domain\":\"drug\",\"base_entity\":\"medication x\",\"additional_entities\":[\"drug dose\",\"follow-up 60 months\"]}"
+          },
           {"input":"More leads exhibit flat T waves in on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Flattened T wave\"}"},
           {"input":"Nonspecific intraventricular block on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Intraventricular conduction defect\"}"},
           {"input":"Nonspecific intraventricular conduction delay on ECG","output":"{\"domain\":\"measurement\",\"base_entity\":\"Non-specific intraventricular conduction delay\"}"},
