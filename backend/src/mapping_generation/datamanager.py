@@ -271,7 +271,7 @@ class DataManager:
     #     rows = cursor.fetchall()
     #     return rows
 
-    def query_variable_name(self, input_string):
+    def query_variable_name(self, input_string, ):
         cursor = self.conn.cursor()
         cursor.execute(
             """
@@ -291,38 +291,32 @@ class DataManager:
             print("Input string not found.")
             return None, ""
 
-    def query_variable(self, input_string):
+    def query_variable(self, input_string, var_name=None):
         input_string = input_string.strip().lower()
         print(f"string to search for {input_string}")
 
         cursor = self.conn.cursor()
-        # Step 1: Check if input_string exists in variable_label
-        # cursor.execute(
-        #     """
-        #     SELECT *
-        #     FROM variable
-        #     WHERE variable_name = ?
-        # """,
-        #     (input_string,),
-        # )
-        # results = cursor.fetchall()
-        # if results:
-        #     # Return all columns for the matching row(s)
-        #     print("Found in variable name")
-        #     for row in results:
-        #         print(row)
-        #     found = True
-        #     return results[0], "full"
-
-        # step 1.3 check if input_String exists in variable label
-        cursor.execute(
-            """
+        # step 1.3 check if input_String exists in variable label and variable name (if provided)
+        if var_name:
+            # check for both variable name and variable label
+            cursor.execute(
+                """
                 SELECT *
                 FROM variable
-                WHERE LOWER(variable_label) = LOWER(?)
+                WHERE LOWER(variable_name) = LOWER(?) and LOWER(variable_label) = LOWER(?)
             """,
-            (input_string,),
-        )
+        
+                (var_name, input_string),
+            )
+        else:
+            cursor.execute(
+                """
+                    SELECT *
+                    FROM variable
+                    WHERE LOWER(variable_label) = LOWER(?)
+                """,
+                (input_string,),
+            )
         results = cursor.fetchall()
         print(f"result for search in label {results}")
         if results:

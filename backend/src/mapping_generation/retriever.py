@@ -77,23 +77,28 @@ def map_data(
         #     is_omop_data=is_omop_data,
         #     topk=topk,
         # )
-        query_result = full_query_processing_db(
-            query_text=query_obj,
-            retriever=retriever,
-            llm_name=llm_name,
-            is_omop_data=is_omop_data,
-            topk=topk,
-            datamanager=db,
-        )
-        if query_result:
-            query_result = perform_mapping_eval_for_variable(
-                var_=query_result, llm_id=llm_name
+        if query_obj:
+            query_result = full_query_processing_db(
+                query_text=query_obj,
+                retriever=retriever,
+                llm_name=llm_name,
+                is_omop_data=is_omop_data,
+                topk=topk,
+                datamanager=db,
             )
-            if query_result["prediction"].strip().lower() == "correct":
-                print(db.insert_row(query_result))
+            if query_result:
+                query_result = perform_mapping_eval_for_variable(
+                    var_=query_result, llm_id=llm_name
+                )
+                if query_result["prediction"].strip().lower() == "correct":
+                    print(db.insert_row(query_result))
+            else:
+                logger.info(f"NO RESULT FOR {item}")
+                query_result = create_processed_result()
             results.append(query_result)
         else:
-            logger.info(f"NO RESULT FOR {item}")
+            logger.info(f"NO QUERY OBJECT FOR {item}")
+            results.append(create_processed_result())
         # time.sleep(0.05)  # Adjusted to be more appropriate than 0.0005
     db.close_connection()
     end_time = time.time()
@@ -120,7 +125,7 @@ def full_query_processing_db(
             return {}
         else:
             print(f"query_text={query_text.name}")
-            results, mode = datamanager.query_variable(query_text.original_label)
+            results, mode = datamanager.query_variable(query_text.original_label, var_name=query_text.name)
             if mode == "full" and len(results) >= 4:
                 logger.info(f"Found results for {query_text} in RESERVOIR")
                 return create_result_dict(results)

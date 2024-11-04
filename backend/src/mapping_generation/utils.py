@@ -978,7 +978,7 @@ def join_or_single(items, seperator="|") -> str:
     return "|".join(unique_items) if len(unique_items) > 1 else unique_items[0] if unique_items else ""
 
 
-def create_processed_result(result_object: ProcessedResultsModel) -> dict:
+def create_processed_result(result_object: ProcessedResultsModel=None) -> dict:
     """
     Processes the input query and maps it to standardized concepts, returning the processed result.
 
@@ -999,6 +999,25 @@ def create_processed_result(result_object: ProcessedResultsModel) -> dict:
         - 'standard_concept_id': The combined concept IDs.
         - 'additional_context', 'categorical_values', 'unit': Processed values, status, and unit information.
     """
+    if result_object is None:
+        return {
+            "VARIABLE NAME": None,
+            "VARIABLE LABEL": None,
+            "Domain": None,
+            "Variable Concept Label": None,
+            "Variable Concept Code": None,
+            "Variable Concept OMOP ID": None,
+            "Additional Context Concept Label": None,
+            "Additional Context Concept Code": None,
+            "Additional Context OMOP ID": None,
+            "Primary to Secondary Context Relationship": None,
+            "Categorical Values Concept Label": None,
+            "Categorical Values Concept Code": None,
+            "Categorical Values OMOP ID": None,
+            "Unit Concept Label": None,
+            "Unit Concept Code": None,
+            "Unit OMOP ID": None,
+        }
     additional_entities = result_object.additional_entities
     additional_entities_matches = result_object.additional_entities_matches
     categorical_values = result_object.categories
@@ -1297,8 +1316,21 @@ def append_results_to_csv(input_file, results, output_suffix="_mapped.csv") -> N
 
 
 def convert_db_result(result) -> RetrieverResultsModel:
+
     #  dict must have four elemenets according to sql query result if a component of query is found as subset of variable standard_omop_id
-    resut_dict = {
+
+    if len(result) >= 6:
+        resut_dict = {
+
+            "standard_label": str(result[3]),
+            "standard_code": str(result[4]),
+            "standard_omop_id": str(result[5]),
+            "score": 10.0,
+            "domain": "",
+            "vocab": "",
+        }
+    else:
+        resut_dict = {
         "standard_label": str(result[1]),
         "standard_code": str(result[2]),
         "standard_omop_id": str(result[3]),

@@ -1176,10 +1176,6 @@
             "output":"{\"domain\":\"observation\", \"base_entity\":\"laboratory test\",\"additional_entities\":[\"date of event\"]}"
           },
           {
-            "input":"beta-blockers",
-            "output":"{\"domain\":\"drug\",\"base_entity\":\"Beta adrenergic receptor antagonist\"}"
-          },
-          {
               "input":"dapagliflozin (medicament: sglt2)",
               "output":"{\"domain\":\"drug\",\"base_entity\":\"dapagliflozin\",\"additional_entities\":[\"SGLT2 inhibitor\"]}"
           },
@@ -4563,26 +4559,6 @@
       ]
     },
     {
-      "input": "Input: beta-blockers (BB), Candidate terms: ['Beta adrenergic receptor antagonist', 'Beta blocker identification', 'Prescription of beta blocker']",
-      "output": [
-        {
-          "answer": "Beta adrenergic receptor antagonist",
-          "relationship": "synonym",
-          "explanation": "This answer is an exact match, correctly identifying the class of drug referred to by 'beta-blockers'."
-        },
-        {
-          "answer": "Beta blocker identification.",
-          "relationship": "partially relevant",
-          "explanation": "This answer mentions identification of beta-blockers, which is related but provides a different context than requested."
-        },
-        {
-          "answer": "Prescription of beta blocker.",
-          "relationship": "partially relevant",
-          "explanation": "This answer is partially relevant as it refers to the prescription of beta-blockers, which is related but does not directly match the query."
-        }
-      ]
-    },
-    {
       "input": "Input: age, Candidate terms: ['your age', 'patient age', 'Age']",
       "output": [
         {
@@ -7620,7 +7596,25 @@
         "explanation": "This answer is not relevant as it refers to a follow-up visit at 1 month, not the initial baseline visit."
       }
   ]
-  }
+  },
+  {
+    "input": "Input: 30 months follow-up, Candidate terms: \"['follow-up 3 months', 'follow-up 3 weeks','follow-up 6 months', 'follow-up 6 weeks']\"",
+    "output": [
+      {"answer": "follow-up 3 months","score": 0,"explanation": "This answer is not relevant as it refers to a different follow-up duration."},
+      {"answer": "follow-up 3 weeks","score": 0,"explanation": "This answer is not relevant as it refers to a different follow-up duration."},
+      {"answer": "follow-up 6 months","score": 0,"explanation": "This answer is not relevant as it refers to a different follow-up duration."},
+      {"answer": "follow-up 6 weeks","score": 0,"explanation": "This answer is not relevant as it refers to a different follow-up duration."}
+    ]
+},
+{
+  "input": "Input: 42 months follow-up, Candidate terms: \"['follow-up 3 months', 'follow-up 1 year','follow-up 18 months', 'follow-up 2 years']\"",
+  "output": [
+    {"answer": "follow-up 3 months","score": 0,"explanation": "This answer is not relevant as it refers to a different follow-up duration."},
+    {"answer": "follow-up 1 year","score": 0,"explanation": "This answer is not relevant as it refers to a different follow-up duration."},
+    {"answer": "follow-up 18 months","score": 0,"explanation": "This answer is not relevant as it refers to a different follow-up duration."},
+    {"answer": "follow-up 2 years","score": 0,"explanation": "This answer is not relevant as it refers to a different follow-up duration."}
+  ]
+}
 ],
 "unknown":[
   {
@@ -7820,6 +7814,24 @@
         {"answer": "10*12/l","score": 0,"explanation": "This answer refers to a concentration measurement and does not match the volumetric unit mm³."}
       ]
   },
+  {
+    "input": "Input: 30 months follow-up, Candidate terms: \"['follow-up 3 months', 'follow-up 3 weeks','follow-up 6 months', 'follow-up 6 weeks']\"",
+    "output": [
+      {"answer": "follow-up 3 months","score": 0,"explanation": "This answer is not relevant as it refers to a different follow-up duration."},
+      {"answer": "follow-up 3 weeks","score": 0,"explanation": "This answer is not relevant as it refers to a different follow-up duration."},
+      {"answer": "follow-up 6 months","score": 0,"explanation": "This answer is not relevant as it refers to a different follow-up duration."},
+      {"answer": "follow-up 6 weeks","score": 0,"explanation": "This answer is not relevant as it refers to a different follow-up duration."}
+    ]
+},
+{
+  "input": "Input: 42 months follow-up, Candidate terms: \"['follow-up 3 months', 'follow-up 1 year','follow-up 18 months', 'follow-up 2 years']\"",
+  "output": [
+    {"answer": "follow-up 3 months","score": 0,"explanation": "This answer is not relevant as it refers to a different follow-up duration."},
+    {"answer": "follow-up 1 year","score": 0,"explanation": "This answer is not relevant as it refers to a different follow-up duration."},
+    {"answer": "follow-up 18 months","score": 0,"explanation": "This answer is not relevant as it refers to a different follow-up duration."},
+    {"answer": "follow-up 2 years","score": 0,"explanation": "This answer is not relevant as it refers to a different follow-up duration."}
+  ]
+},
   {
     "input": "Input: Sacubitril/valsartan, Candidate terms: ['sacubitril/valsartan pill', 'valsartan and sacubitril; oral', 'sacubitril / valsartan oral tablet', 'sacubitril / valsartan oral product', 'sacubitril 49 mg / valsartan 51 mg oral tablet [entresto]', 'valsartan', 'sacubitril / valsartan oral tablet [entresto]']",
     "output": [
