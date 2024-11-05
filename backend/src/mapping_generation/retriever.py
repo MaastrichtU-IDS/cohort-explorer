@@ -467,7 +467,10 @@ def process_retrieved_docs(
                 domain=domain,
                 threshold=belief_threshold,
             )
-            return post_process_candidates(llm_ranks, max=1), match_found
+            if llm_ranks and len(llm_ranks) > 0:
+                return post_process_candidates(llm_ranks, max=1), match_found
+            else:
+                return [], False
         else:
             return docs, False
     else:
