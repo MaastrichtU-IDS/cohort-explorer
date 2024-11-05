@@ -813,7 +813,7 @@ def generate_link_prediction_prompt(query, documents, domain=None, in_context=Tr
         )
 
 
-def generate_ranking_prompt(query, domain=None, in_context=True):
+def generate_ranking_prompt(query, domain=None, in_context=True, documents=None):
     if in_context:
         _, ranking_examples, _ = load_mapping(MAPPING_FILE, domain=domain)
         print(f"{len(ranking_examples)}:ranking examples loaded")
@@ -1151,7 +1151,7 @@ def pass_to_chat_llm_chain(
 
         for _ in range(n_prompts):  # Assume n_prompts is 3
             ranking_prompt = generate_ranking_prompt(
-                query=query, domain=domain, in_context=in_context
+                query=query, domain=domain, in_context=in_context, documents=documents
             )
             ranking_results = get_llm_results(
                 prompt=ranking_prompt,
