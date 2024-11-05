@@ -1235,7 +1235,7 @@ def pass_to_chat_llm_chain(
 
     except Exception as e:
         logger.info(f"Error in pass_to_chat_llm_chain: {e}")
-        return ["na"], False
+        return [], False
 
 
 def get_json_output(input_text: str):
