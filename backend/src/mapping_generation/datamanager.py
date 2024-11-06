@@ -21,15 +21,15 @@ def create_sqlite_database(filename):
 
 # import os
 
-# Sample data (as provided)
-data = """VARIABLE NAME\tVARIABLE LABEL\tDomain\tvar\tVariable Concept Code\tVariable Concept OMOP ID\tAdditional Context Concept Label\tAdditional Context Concept Code\tAdditional Context OMOP ID\tPrimary to Secondary Context Relationship\tCategorical Values Concept Label\tCategorical Values Concept Code\tCategorical Values Concept OMOP ID\tUnit Concept Label\tUnit Concept Code\tUnit OMOP ID
-month30_a\tfollow-up 30 months\tvisit\tfollow-up 30 months\ticare:icv2000000001\2000000001\tfollow-up 30 months\ticare:icv2000000001\2000000001\thas temporal context\t\t\t\t
-month30_b\tfollow-up 30 month\tvisit\tfollow-up 30 months\ticare:icv2000000001\2000000001\tfollow-up 30 months\ticare:icv2000000001\2000000001\thas temporal context\t\t\t\t
-month30_c\tfollow-up month 30\tvisit\tfollow-up 30 months\ticare:icv2000000001\2000000001\tfollow-up 30 months\ticare:icv2000000001\2000000001\thas temporal context\t\t\t\t
-month30_d\t30 month follow up\tvisit\tfollow-up 30 months\ticare:icv2000000001\2000000001\tfollow-up 30 months\ticare:icv2000000001\2000000001\thas temporal context\t\t\t\t
-month42_d\t42 month follow up\tvisit\tfollow-up 30 months\ticare:icv2000000001\2000000001\tfollow-up 30 months\ticare:icv2000000001\2000000001\thas temporal context\t\t\t\t
+# # Sample data (as provided)
+# data = """VARIABLE NAME\tVARIABLE LABEL\tDomain\tvar\tVariable Concept Code\tVariable Concept OMOP ID\tAdditional Context Concept Label\tAdditional Context Concept Code\tAdditional Context OMOP ID\tPrimary to Secondary Context Relationship\tCategorical Values Concept Label\tCategorical Values Concept Code\tCategorical Values Concept OMOP ID\tUnit Concept Label\tUnit Concept Code\tUnit OMOP ID
+# month30_a\tfollow-up 30 months\tvisit\tfollow-up 30 months\ticare:icv2000000001\2000000001\tfollow-up 30 months\ticare:icv2000000001\2000000001\thas temporal context\t\t\t\t
+# month30_b\tfollow-up 30 month\tvisit\tfollow-up 30 months\ticare:icv2000000001\2000000001\tfollow-up 30 months\ticare:icv2000000001\2000000001\thas temporal context\t\t\t\t
+# month30_c\tfollow-up month 30\tvisit\tfollow-up 30 months\ticare:icv2000000001\2000000001\tfollow-up 30 months\ticare:icv2000000001\2000000001\thas temporal context\t\t\t\t
+# month30_d\t30 month follow up\tvisit\tfollow-up 30 months\ticare:icv2000000001\2000000001\tfollow-up 30 months\ticare:icv2000000001\2000000001\thas temporal context\t\t\t\t
+# month42_d\t42 month follow up\tvisit\tfollow-up 30 months\ticare:icv2000000001\2000000001\tfollow-up 30 months\ticare:icv2000000001\2000000001\thas temporal context\t\t\t\t
 
-"""
+# """
 
 
 class DataManager:
@@ -67,13 +67,12 @@ class DataManager:
             prediction TEXT
         );
         """
-        cursor = self.conn.cursor()
-        cursor.execute(create_table_sql)
+
+        self.cursor.execute(create_table_sql)
         self.conn.commit()
 
     def variable_name_exists(self, variable_name):
-        cursor = self.conn.cursor()
-        cursor.execute(
+        self.cursor.execute(
             """
             SELECT *
             FROM variable
@@ -81,13 +80,12 @@ class DataManager:
         """,
             (variable_name,),
         )
-        results = cursor.fetchall()
+        results = self.cursor.fetchall()
         return bool(results)
 
     def insert_data_if_empty(self, data):
-        cursor = self.conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM variable")
-        count = cursor.fetchone()[0]
+        self.cursor.execute("SELECT COUNT(*) FROM variable")
+        count = self.cursor.fetchone()[0]
         if count == 0:
             print("Inserting data into the 'variable' table...")
             reader = csv.DictReader(io.StringIO(data), delimiter="\t")
@@ -127,7 +125,7 @@ class DataManager:
                     )
                 )
             # Insert data into the table
-            cursor.executemany(
+            self.cursor.executemany(
                 """
                 INSERT INTO variable (
                     variable_name,
@@ -181,8 +179,8 @@ class DataManager:
             }
 
         # Check if a record with the same variable_name and variable_label already exists
-        cursor = self.conn.cursor()
-        cursor.execute(
+
+        self.cursor.execute(
             """
             SELECT 1 FROM variable
             WHERE variable_name = ? AND variable_label = ?
@@ -191,7 +189,7 @@ class DataManager:
         )
 
         # If the query returns a result, that means a record with the same variable_name and variable_label exists
-        if cursor.fetchone():
+        if self.cursor.fetchone():
             print(
                 f"Row with variable_name '{variable_name}' and variable_label '{variable_label}' already exists."
             )
@@ -240,7 +238,7 @@ class DataManager:
                 INSERT INTO variable ({', '.join(columns)})
                 VALUES ({placeholders})
             """
-            cursor.execute(sql, values)
+            self.cursor.execute(sql, values)
             self.conn.commit()
             print(
                 f"Row inserted successfully with variable_name '{variable_name}' and variable_label '{variable_label}'."
@@ -260,9 +258,8 @@ class DataManager:
     # Function to perform the query based on the given string
 
     def select_all(self):
-        cursor = self.conn.cursor()
-        cursor.execute("SELECT * FROM variable")
-        rows = cursor.fetchall()
+        self.cursor.execute("SELECT * FROM variable")
+        rows = self.cursor.fetchall()
         return rows
 
     # def extract_all(self):
@@ -271,9 +268,8 @@ class DataManager:
     #     rows = cursor.fetchall()
     #     return rows
 
-    def query_variable_name(self, input_string, ):
-        cursor = self.conn.cursor()
-        cursor.execute(
+    def query_variable_name(self, input_string):
+        self.cursor.execute(
             """
             SELECT *
             FROM variable
@@ -281,7 +277,7 @@ class DataManager:
         """,
             (input_string,),
         )
-        results = cursor.fetchall()
+        results = self.cursor.fetchall()
         if results:
             # Return all columns for the matching row(s)
             # for row in results:
@@ -291,25 +287,41 @@ class DataManager:
             print("Input string not found.")
             return None, ""
 
-    def query_variable(self, input_string, var_name=None):
+    def query_variable(self, input_string: str, var_name=None):
         input_string = input_string.strip().lower()
         print(f"string to search for {input_string}")
 
-        cursor = self.conn.cursor()
-        # step 1.3 check if input_String exists in variable label and variable name (if provided)
+        # Step 1: Check if input_string exists in variable_label
+        # cursor.execute(
+        #     """
+        #     SELECT *
+        #     FROM variable
+        #     WHERE variable_name = ?
+        # """,
+        #     (input_string,),
+        # )
+        # results = cursor.fetchall()
+        # if results:
+        #     # Return all columns for the matching row(s)
+        #     print("Found in variable name")
+        #     for row in results:
+        #         print(row)
+        #     found = True
+        #     return results[0], "full"
+
+        # step 1.3 check if input_String exists in variable label
         if var_name:
             # check for both variable name and variable label
-            cursor.execute(
+            self.cursor.execute(
                 """
                 SELECT *
                 FROM variable
                 WHERE LOWER(variable_name) = LOWER(?) and LOWER(variable_label) = LOWER(?)
             """,
-        
                 (var_name, input_string),
             )
         else:
-            cursor.execute(
+            self.cursor.execute(
                 """
                     SELECT *
                     FROM variable
@@ -317,7 +329,7 @@ class DataManager:
                 """,
                 (input_string,),
             )
-        results = cursor.fetchall()
+        results = self.cursor.fetchall()
         print(f"result for search in label {results}")
         if results:
             # Return all columns for the matching row(s)
@@ -328,7 +340,7 @@ class DataManager:
             return results[0], "full"
 
         # Step 2: Check if input_string exists in categorical_values_concept_label
-        cursor.execute(
+        self.cursor.execute(
             """
             SELECT
                 variable_name,
@@ -340,7 +352,7 @@ class DataManager:
         """,
             ("%" + input_string + "%",),
         )
-        results = cursor.fetchall()
+        results = self.cursor.fetchall()
         if results:
             # Return categorical label, code, omop_id
             print("Found in categorical_values_concept_label:")
@@ -349,7 +361,7 @@ class DataManager:
             found = True
             return results[0], "subset"
         # step 2.1 check if input_String exists in variable_concept_label
-        cursor.execute(
+        self.cursor.execute(
             """
             SELECT variable_name, variable_concept_label, variable_concept_code, variable_concept_omop_id
             FROM variable
@@ -357,7 +369,7 @@ class DataManager:
             """,
             ("%" + input_string + "%",),
         )
-        result = cursor.fetchall()
+        result = self.cursor.fetchall()
         if result:
             print("Found in variable_concept_label:")
             # for row in result:
@@ -367,7 +379,7 @@ class DataManager:
         # Step 3: Check if input_string exists in additional_context_concept_label
         # which can be pipe-separated
         # We'll need to split the values and check for matches
-        cursor.execute("""
+        self.cursor.execute("""
             SELECT
                 variable_name,
                 additional_context_concept_label,
@@ -376,7 +388,7 @@ class DataManager:
             FROM variable
             WHERE additional_context_concept_label IS NOT NULL
         """)
-        rows = cursor.fetchall()
+        rows = self.cursor.fetchall()
         found = False
         for row in rows:
             variable_name, labels, codes, omop_ids = row
@@ -395,7 +407,7 @@ class DataManager:
                 found = True
                 return (variable_name, input_string, code, omop_id), "subset"
         # step check the string in Unit concept label
-        cursor.execute(
+        self.cursor.execute(
             """
             SELECT variable_name, unit_concept_label, unit_concept_code, unit_omop_id
             FROM variable
@@ -403,7 +415,7 @@ class DataManager:
             """,
             ("%" + input_string + "%",),
         )
-        result = cursor.fetchall()
+        result = self.cursor.fetchall()
         if result:
             print("Found in unit_concept_label:")
             # for row in result:
@@ -416,9 +428,8 @@ class DataManager:
 
     # Function to handle main term and associated entities
     def query_relationship(self, main_term, associated_entities):
-        cursor = self.conn.cursor()
         # Step 1: Check if main_term exists in variable_label
-        cursor.execute(
+        self.cursor.execute(
             """
             SELECT *
             FROM variable
@@ -426,7 +437,7 @@ class DataManager:
         """,
             (main_term,),
         )
-        variables = cursor.fetchall()
+        variables = self.cursor.fetchall()
         if not variables:
             print(f"Main term '{main_term}' not found in variable_label.")
             return None
@@ -451,81 +462,3 @@ class DataManager:
 
     def close_connection(self):
         self.conn.close()
-
-db = DataManager("variables.db")
-try:
-    with open(
-        "../data/custom_codes.csv",
-        "r",
-        newline="",
-    ) as file:
-        reader = csv.DictReader(file)
-        for row in reader:
-            result = db.insert_row(row)
-            print(result)
-except Exception as e:
-    print(e)
-# print(db.query_variable("c-reactive protein high sensitivity at baseline time"))
-# # Create the table if it doesn't exist
-# # db.create_table()
-
-# # # # # Insert data if the table is empty
-# # db.insert_data_if_empty(data)
-
-
-# # # Example usage
-# print("=== Query for input string 'heart rate' ===")
-# print(db.query_variable('heart rate'))
-
-
-# print("=== Query for input string 'diastolic blood pressure' ===")
-# print(db.query_variable('systolic blood pressure'))
-
-# print("\n=== Query for input string 'missing' ===")
-# print(db.query_variable('missing'))
-
-# print("\n=== Query for input string 'standing' ===")
-# print(db.query_variable('standing'))
-
-# print(db.query_relationship('heart rate', ['standing', 'follow-up 1 month']))
-
-# print(db.insert_row({'VARIABLE NAME': 'bpdiast12', 'VARIABLE LABEL': 'bp blood pressure diastolic in recumbent position at visit month 12 month 12',
-#                   'Domain': 'measurement', 'Variable Concept Label': 'diastolic blood pressure', 'Variable Concept Code': 'loinc:8462-4', 'Variable Concept OMOP ID': '3012888',
-#                   'Additional Context Concept Label': 'recumbent body position|follow-up 2 months', 'Additional Context Concept Code': 'snomed:102538003|snomed:200891000000107', 'Additional Context OMOP ID': '4009887|44788749', 'Primary to Secondary Context Relationship': 'has temporal context',
-#                   'Categorical Values Concept Label': 'missing',
-#                   'Categorical Values Concept Code': 'loinc:LA14698-7',
-#                   'Categorical Values Concept OMOP ID': '45882933', 'Unit Concept Label': 'millimeter mercury column',
-#                   'Unit Concept Code': 'ucum:mm[Hg]', 'Unit OMOP ID': '8876'}))
-
-
-# # Close the database connection
-# CONN.close()
-# db = DataManager("variables.db")
-# import pandas as pd
-
-# unmapped_rows = []
-# df = pd.read_csv(
-#     "/workspace/mapping_tool/data/eval_datasets/Icare_data/iCARE4CVD_GISSI_HF.csv"
-# )
-# for index, row in df.iterrows():
-#     variable_name = row["VARIABLE NAME"]
-#     if pd.notna(variable_name):
-#         result, _ = db.query_variable_name(variable_name.strip().lower())
-#         if not result or len(result) == 0:
-#             unmapped_rows.append(row)
-#         else:
-#             print("found")
-
-# unmapped_df = pd.DataFrame(unmapped_rows)
-# if not unmapped_df.empty:
-#     unmapped_df.columns = df.columns  # Assign columns only if DataFrame is not empty
-
-# # Save to CSV if there are unmapped rows
-# if not unmapped_df.empty:
-#     unmapped_df.to_csv(
-#         "/workspace/mapping_tool/data/eval_datasets/Icare_data/GISSI_HF_part2.csv",
-#         index=False,
-#     )
-#     print(f"Length of unmapped rows: {len(unmapped_rows)}")
-# else:
-#     print("No unmapped rows found.")

@@ -69,7 +69,6 @@
             "input":"time to first all-cause hospitalisation or death, unit: days",
             "output":"{\"domain\":\"visit\", \"base_entity\":\"hospital admission\", \"additional_entities\":[\"All causes of morbidity and mortality\",\"Death\",\"baseline time\"], \"unit\":\"days\"}"
           },
-
           {
             "input":"estimated glomerular filtration rate using cg formula",
             "output":"{\"domain\":\"measurement\", \"base_entity\":\"Glomerular filtration rate estimated\", \"additional_entities\":[\"Cockcroft-Gault formula\"]}"
@@ -115,11 +114,7 @@
             "input":"diastolic pressure - echocardiography pre-discharge at post hospitalization 1 month",
             "output":"{\"domain\":\"measurement\", \"base_entity\":\"diastolic dysfunction\",\"additional_entities\":[\"echocardiography\",\"pre discharge assessment\",\"Follow-up 1 month\"]}"
           },
-          {
-            "input":"total cholesterol",
-            "output":"{\"domain\":\"measurement\", \"base_entity\":\"Cholesterol [Mass/volume] in Serum or Plasma\"}"
 
-          },
           {
             "input":"creatinine",
             "output":"{\"domain\":\"measurement\", \"base_entity\":\"Creatinine [Mass/volume] in Blood\"}"
@@ -147,10 +142,6 @@
           {
             "input":"spontaneous angina at 6 weeks",
             "output":"{\"domain\":\"condition\", \"base_entity\":\"spontaneous angina\", \"additional_entities\":[\"Follow-up 6 weeks\"]}"
-          },
-          {
-            "input":"mild to moderate asthma exacerbations",
-            "output":"{\"domain\":\"condition\", \"base_entity\":\"Asthma exacerbation\", \"additional_entities\":[\"Mild to Moderate\"]}"
           },
           {
             "input":"cm³",
@@ -245,10 +236,6 @@
           {
             "input":"treatment r2",
             "output":"{\"domain\":\"drug\", \"base_entity\":\"therapeutic regimen\", \"additional_entities\":[\"lenalidomide\",\"rituximab\"]}"
-          },
-          {
-            "input":"cardiac troponin t high sensitivity at baseline time",
-            "output":"{\"domain\":\"measurement\", \"base_entity\":\"Troponin T.cardiac panel - Serum or Plasma by High sensitivity method\",\"additional_entities\":[\"baseline time\"]}"
           },
           {
             "input":"age first diagnosed: ckd",
@@ -664,18 +651,6 @@
             "output":"{\"domain\":\"drug\",\"base_entity\":\"Ajmaline\",\"additional_entities\":[\"drug prescribed\",\"post hospital discharge visit\",\"Follow-up 2 months\"]}"
           },
           {
-            "input":"urea at post discharge follow-up 1 month",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Urea nitrogen [Mass/volume] in Serum or Plasma\",\"additional_entities\":[\"post hospital discharge visit\",\"Follow-up 1 month\"]}"
-          },
-          {
-            "input":"which Betablocker at baseline time",
-            "output":"{\"domain\":\"drug\",\"base_entity\":\"beta blocking agents\",\"additional_entities\":[\"baseline time\"]}"
-          },
-          {
-            "input":"which Betablocker at baseline time",
-            "output":"{\"domain\":\"drug\",\"base_entity\":\"beta blocking agents\",\"additional_entities\":[\"baseline time\"]}"
-          },
-          {
             "input":"ECG ST- lead v1 at post-discharge Visit follow-up 4-6 months",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"ST sagement depression.lead V1 | Heart | EKG measurements\",\"additional_entities\":[\"lead V1\", \"ECG finding\",\"Post hospital discharge visit\", \"Follow-up 4-6 months\"]}"
           },
@@ -693,16 +668,8 @@
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Echocardiography\",\"additional_entities\":[\"Pre-discharge assessment\"], \"categories\": [\"discharge time\",\"follow-up 6 weeks\",\"Follow-up 6 monthss\"]}"
           },
           {
-            "input":"lipoprotein A",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Lipoprotein a [Moles/volume] in Serum or Plasma \"}"
-          },
-          {
               "input":"white blood cell count at visit 1",
               "output":"{\"domain\":\"measurement\",\"base_entity\":\"White blood cell count in blood\",\"additional_entities\":[\"Follow-up 1 month\"]}"
-          },
-          {
-            "input":"sex hormone-binding globulin (shbg) moler concentration in serum at baseline, unit: nmol/l",
-            "output": "{\"domain\":\"measurement\",\"base_entity\":\"shbg (sex hormone binding globulin) molar concentration in serum\", \"unit\":\"Nanomoles per liter\", \"additional_entities\":[\"baseline time\"]}"
           },
           {
             "input":"sex hormone-binding globulin (shbg) at v6, unit: nmol/l",
@@ -729,22 +696,6 @@
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Alanine aminotransferase [Enzymatic activity/volume] in Blood\", \"additional_entities\":[\"Follow-up 1 month\"]}"
           },
           {
-            "input":"c-reactive protein (CRP)",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"C reactive protein [Mass/volume] in Serum or Plasma\"}"
-          },
-          {
-            "input":"c-reactive protein (CRP) at baseline",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"C reactive protein [Mass/volume] in Serum or Plasma\", \"additional_entities\":[\"baseline time\"]}"
-          },
-          {
-            "input":"c-reactive protein (CRP) at visit month 12",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"C reactive protein [Mass/volume] in Serum or Plasma\", \"additional_entities\":[\"Follow-up 1 year\"]}"
-          },
-          {
-            "input":"c-reactive protein (CRP) at visit 12",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"C reactive protein [Mass/volume] in Serum or Plasma\", \"additional_entities\":[\"Follow-up 1 year\"]}"
-          },
-          {
             "input":"eGFR, formula:ckd-epi",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Glomerular filtration rate/1.73 sq M.predicted [Volume Rate/Area] in Serum, Plasma or Blood by Creatinine and Cystatin C-based formula (CKD-EPI)\"}"
           },
@@ -767,18 +718,6 @@
           {
             "input":"heart failure etiology due to Atrial Fibrillation or Atrial Flutter or not,categorical values:yes,no",
             "output":"{\"domain\":\"condition\",\"base_entity\":\"heart failure \",\"additional_entities\":[\"etiology\",\"Atrial Fibrillation\",\"Atrial Flutter\"], \"categories\": [\"yes\",\"no\"]}"
-          },
-          {
-            "input":"c-reactive protein (CRP) mass/volume in serum/plasma",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"C reactive protein [Mass/volume] in Serum or Plasma\"}"
-          },
-          {
-            "input":"c-reactive protein (CRP) mass/volume in serum/plasma at visit month 12",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"C reactive protein [Mass/volume] in Serum or Plasma\", \"additional_entities\":[\"Follow-up 1 year\"]}"
-          },
-          {
-            "input":"c-reactive protein (CRP) mass/volume in serum/plasma at visit 12",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"C reactive protein [Mass/volume] in Serum or Plasma\", \"additional_entities\":[\"Follow-up 1 year\"]}"
           },
           {
             "input":"monocytes",
@@ -886,15 +825,15 @@
         },
         {
           "input":"mra drug dosage at visit 12 month, unit: mg",
-          "output":"{\"domain\":\"drug\", \"base_entity\":\"Mineralocorticoid receptor antagonist\", \"additional_entities\":[\"Follow-up 1 year\"], \"unit\":\"mg\"}"
+          "output":"{\"domain\":\"drug\", \"base_entity\":\"Mineralocorticoid receptor antagonist\", \"additional_entities\":[\"drug dose\",\"Follow-up 1 year\"], \"unit\":\"mg\"}"
         },
         {
           "input":"MRA dose in mg",
-          "output":"{\"domain\":\"drug\", \"base_entity\":\"Mineralocorticoid receptor antagonist\", \"unit\":\"mg\"}"
+          "output":"{\"domain\":\"drug\", \"base_entity\":\"Mineralocorticoid receptor antagonist\", \"additional_entities\":[\"drug dose\"], \"unit\":\"mg\"}"
         },
         {
           "input":"MRA drug total daily dosage,unit:mg (miligram), categorical values: o.i.d, b.i.d",
-          "output":"{\"domain\":\"drug\", \"base_entity\":\"Mineralocorticoid receptor antagonist\", \"unit\":\"mg\", \"additional_entities\":[\"frequency per day\"], \"categories\": [\"1 time per day\",\"2 times per day\"]}"
+          "output":"{\"domain\":\"drug\", \"base_entity\":\"Mineralocorticoid receptor antagonist\", \"unit\":\"mg\", \"additional_entities\":[\"drug dose\",\"frequency per day\"], \"categories\": [\"1 time per day\",\"2 times per day\"]}"
         },
         {
           "input":"statin:total daily dosage,unit:mg (miligram), categorical values:o.i.d, b.i.d",
@@ -902,15 +841,15 @@
         },
         {
           "input":"statin:daily dosage,unit:mg (miligram)|o.i.d, b.i.d",
-          "output":"{\"domain\":\"drug\", \"base_entity\":\"Statin therapy\", \"unit\":\"miligram\", \"additional_entities\":[\"frequency per day\"], \"categories\": [\"1 time per day\",\"2 times per day\"]}"
+          "output":"{\"domain\":\"drug\", \"base_entity\":\"Statin therapy\", \"unit\":\"miligram\", \"additional_entities\":[\"drug dose\",\"frequency per day\"], \"categories\": [\"1 time per day\",\"2 times per day\"]}"
         },
         {
           "input":"Daily dose amount of Amiodarone, mg (miligram)",
-          "output":"{\"domain\":\"drug\", \"base_entity\":\"Amiodarone\", \"additional_entities\":[\"frequency per day\"],\"unit\":\"miligram\"}"
+          "output":"{\"domain\":\"drug\", \"base_entity\":\"Amiodarone\", \"additional_entities\":[\"drug dose\",\"frequency per day\"],\"unit\":\"miligram\"}"
         },
         {
           "input":"Amiodarone:total daily dosage, mg (miligram)",
-          "output":"{\"domain\":\"drug\", \"base_entity\":\"Amiodarone\", \"additional_entities\":[\"frequency per day\"],\"unit\":\"miligram\"}"
+          "output":"{\"domain\":\"drug\", \"base_entity\":\"Amiodarone\", \"additional_entities\":[\"drug dose\",\"frequency per day\"],\"unit\":\"miligram\"}"
         },
         {
           "input":"total daily dosage",
@@ -930,7 +869,7 @@
         },  
         {
           "input":"diuretics: daily dosage, unit: mg (miligram)| o.i.d| b.i.d",
-          "output":"{\"domain\":\"drug\", \"base_entity\":\"Diuretics\", \"additional_entities\":[\"frequency per day\"], \"categories\": [\"1 time per day\",\"2 times per day\"],\"unit\":\"miligram\"}"
+          "output":"{\"domain\":\"drug\", \"base_entity\":\"Diuretics\", \"additional_entities\":[\"drug dose\",\"frequency per day\"], \"categories\": [\"1 time per day\",\"2 times per day\"],\"unit\":\"miligram\"}"
         },
         {
           "input":"Mineralocorticoid Receptor Antagonists:Medication administered,categorical values: 1=yes | 0=no",
@@ -1219,37 +1158,12 @@
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Mid-regional proatrial natriuretic peptide\", \"unit\":\"picomoles per liter\", \"additional_entities\":[\"baseline time\"]}"
           },
           {
-            "input":"lipoprotein a moles/volume in serum/plasma",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Lipoprotein a [Moles/volume] in Serum or Plasma\"}"
-          },
-          {
-            "input":"type 1 procollagen N-terminal pro B-type peptide (tP1NP) at Follow-up 12 month, unit:ng/ml",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Type 1 procollagen N-terminal propeptide [Mass/volume] in Serum or Plasma\",  \"additional_entities\":[\"Follow-up 1 year\"], \"unit\":\"Nanograms per milliliter\"}"
-          },
-          {
-            "input":"type 1 procollagen N-terminal pro B-type peptide (tP1NP) [Mass/volume] in Serum or Plasma at month12, unit:ng/ml",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Type 1 procollagen N-terminal propeptide [Mass/volume] in Serum or Plasma\", \"additional_entities\":[\"Follow-up 1 year\"], \"unit\":\"Nanograms per milliliter\"}"
-          },
-          {
-            "input":"type 1 procollagen N-terminal pro B-type peptide (tP1NP) [Mass/volume] in Serum or Plasma at visit month 12, unit:ng/ml",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Type 1 procollagen N-terminal propeptide [Mass/volume] in Serum or Plasma\", \"additional_entities\":[\"Follow-up 1 year\"], \"unit\":\"Nanograms per milliliter\"}"
-          },
-          {
-            "input":"type 1 procollagen N-terminal pro B-type peptide (tP1NP) [Mass/volume] in Serum or Plasma at visit 12, unit:ng/ml",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Type 1 procollagen N-terminal propeptide [Mass/volume] in Serum or Plasma\", \"additional_entities\":[\"Follow-up 1 year\"], \"unit\":\"Nanograms per milliliter\"}"
-          },
-          {
             "input": "glucose [Mass/volume] in blood, unit: mg/dL",
             "output": "{\"domain\":\"measurement\",\"base_entity\": \"Glucose [Mass/volume] in Blood\",  \"unit\":\"Milligrams per Decilitel\"}"
           },
           {
             "input":"qrs duration in lead v2",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"QRS duration in lead V2\", \"additional_entities\":[\"ecg findings\"]}"
-
-
-
-
-
 
           },
           {
@@ -1313,18 +1227,6 @@
             "input":"Alanine Transaminase (ALT, GPT, SGPT or ALAT)",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Alanine aminotransferase [Enzymatic activity/volume] in Blood\"}"
           },
-          {
-            "input":"Gamma-glutamyl transferase (GGT) [Enzymatic activity/volume] in Serum or Plasma",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Gamma-glutamyl transferase [Enzymatic activity/volume] in Serum or Plasma\"}"
-          },
-          {
-            "input":"eosinophils, Pure number fraction, in Blood by Manual count",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Eosinophils/Leukocytes [Pure number fraction] in Blood by Manual count\"}"
-          },
-          {
-              "input":"Cystatin C [Mass/volume] in Serum or Plasm at visit follow-up 1 month ",
-              "output":"{\"domain\":\"measurement\",\"base_entity\":\"Cystatin C [Mass/volume] in Serum or Plasma\", \"additional_entities\":[\"Follow-up 1 month\"]}"
-          },
           { 
               "input":"total glycosylated haemoglobin (HbA1c) in blood",
               "output":"{\"domain\":\"measurement\",\"base_entity\":\"Hemoglobin A1c/Hemoglobin.total in Blood\"}"
@@ -1354,10 +1256,6 @@
           {
             "input":"echo normal lv function",
             "output":"{\"domain\":\"procedure\",\"base_entity\":\"Echocardiogram shows normal Left ventricular function\",\"additional_entities\": [\"Echocardiogram\"]}"
-          },
-          {
-            "input":"copeptin (ct-proavp)  moles/volum in serum or plasma",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Provasopressin.C-terminal [Moles/volume] in Serum or Plasma by Immunoassay\"}"
           },
           {
             "input":"Ejection fraction measured at centre of inclusion",
@@ -1408,14 +1306,6 @@
             "output":"{\"domain\":\"observation\",\"base_entity\":\"6-minute walk test\",\"additional_entities\":[\"Follow-up 18 months\"], \"categories\": [\"yes\",\"no\"]}"
           },
           {
-            "input":"\"Prealbumin at visit 3 months, unit:g/L\"",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Prealbumin [Mass/volume] in Serum or Plasma\", \"additional_entities\":[\"Follow-up 3 month\"], \"unit\":\"grams per liter\"}"
-          },
-          {
-            "input":"Uric acid [Mass/volume] in Serum or Plasma at visit 1, unit:mg/dL",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Uric acid [Mass/volume] in Serum or Plasma\", \"additional_entities\":[\"Follow-up 1 month\"], \"unit\":\"Milligrams per decilitre\"}"
-          },
-          {
             "input":"6mWT reasonable effort at baseline ,categorical values:1=yes  |  0=no",
             "output":"{\"domain\":\"observation\",\"base_entity\":\"6-minute walk test\",\"additional_entities\":[\"reasonable effort\",\"baseline time\"], \"categories\": [\"yes\",\"no\"]}"
           },
@@ -1435,22 +1325,6 @@
           {
             "input":"smokingcategories,categorical values: 0=never | 1=previous | 2=current | 9=missing,smoking",
             "output":"{\"domain\":\"observation\",\"base_entity\":\"smokingcategories\",\"categories\": [\"never\",\"previous\",\"current\",\"missing\"]}"
-          },
-          {
-            "input":"gamma-glutamyl transferase (ggt) [Enzymatic activity/volume] in Serum or Plasma",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Gamma-glutamyl transferase [Enzymatic activity/volume] in Serum or Plasma\"}"
-          },
-          {
-            "input":"gamma-glutamyl transferase (ggt): serum or plasma",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Gamma-glutamyl transferase [Enzymatic activity/volume] in Serum or Plasma\"}"
-          },
-          {
-            "input":"gamma-glutamyl transferase (ggt) [Enzymatic activity/volume] in serum or plasma",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Gamma-glutamyl transferase [Enzymatic activity/volume] in Serum or Plasma\"}"
-          },
-          {
-            "input":"angiotensin receptor neprilysin inhibitor medication",
-            "output":"{\"domain\":\"drug\",\"base_entity\":\"Angiotensin receptor neprilysin inhibitor\"}"
           },
           {
             "input":"date of ct-scan",
@@ -1480,14 +1354,6 @@
           {
             "input":"mean corpuscular hemoglobin concentration at visit 18, unit: gr/dl",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Mean corpuscular hemoglobin concentration in Blood\", \"additional_entities\":[\"Follow-up 18 months\"], \"unit\":\"grams per decilitre\"}"
-          },
-          {
-            "input":"placental growth factor (plgf) at Follow-up 12 months visit, unit: pg/ml",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Placental growth factor [Mass/volume] in Serum or Plasma\", \"additional_entities\":[\"Follow-up 1 year\"], \"unit\":\"picograms per milliliter\"}"
-          },
-          {
-            "input":"placental growth factor (plgf) at baseline time, unit: pg/ml",
-            "output":"{\"domain\":\"measurement\",\"base_entity\":\"Placental growth factor [Mass/volume] in Serum or Plasma\", \"additional_entities\":[\"baseline time\"], \"unit\":\"picograms per milliliter\"}"
           },
           {
             "input":"time q-ti at visit 12 months on ecg, unit: ms",
@@ -1691,10 +1557,6 @@
         "output": "{\"domain\":\"observation\",\"base_entity\": \"Tissue Doppler Imaging (TDI)\", \"additional_entities\": [\"lateral\",\"Follow-up 1 year\"]}"
       },
       {
-        "input":"creatinine level in micromoles per liter",
-        "output":"{\"domain\":\"measurement\",\"base_entity\":\"Creatinine [Mass/volume] in Serum or Plasma\", \"unit\":\"micromoles per liter\"}"
-      },
-      {
         "input":"lisinopril suspension date, unit: DD-MM-YYYY",
         "output":"{\"domain\":\"drug\",\"base_entity\":\"Lisinopril\",\"additional_entities\":[\"date drugs stopped\"], \"unit\":\"DD-MM-YYYY\"}"
       },
@@ -1740,7 +1602,7 @@
         },
         {
           "input":"Dose Statin in mg at baseline time",
-          "output":"{\"domain\":\"drug\", \"base_entity\":\"Statin Therapy\",\"additional_entities\":[\"baseline time\"], \"unit\":\"milligrams\"}"
+          "output":"{\"domain\":\"drug\", \"base_entity\":\"Statin Therapy\",\"additional_entities\":[\"drug dose\",\"baseline time\"], \"unit\":\"milligrams\"}"
         },
         {
           "input":"Reason for non compliance of patient at visit 1",
@@ -2779,66 +2641,6 @@
         }
       ]
     },       
-    {
-      "input": "Input: copeptin (ct-proavp) [Moles/volume] in serum or plasma, Candidate terms: ['Provasopressin.C-terminal [Moles/volume] in Serum or Plasma by Immunoassay', 'copeptin molar concentration in plasma', 'copeptin molar concentration in serum', 'acv tripeptide. ', 'vasoactive intestinal peptide. ', 'caprooyl tetrapeptide-3. ', 'calotropin', 'c-pap. ', 'plasma vasoactive intestinal polypeptide measurement', 'desmopressin. ', 'argipressin. ']",
-      "output": [
-        {
-          "answer": "Provasopressin.C-terminal [Moles/volume] in Serum or Plasma by Immunoassay",
-          "relationship": "synonym",
-          "explanation": "This is an exact match as it precisely describes copeptin measurement in serum or plasma by immunoassay."
-        },
-        {
-          "answer": "copeptin molar concentration in plasma.",
-          "relationship": "highly relevant",
-          "explanation": "Highly relevant as it correctly mentions copeptin measurement in plasma, aligning closely with the query"
-        },
-        {
-          "answer": "copeptin molar concentration in serum.",
-          "relationship": "highly relevant",
-          "explanation": "Highly relevant as it mentions copeptin in serum, aligning closely with the query."
-        },
-        {
-          "answer": "acv tripeptide.",
-          "relationship": "not relevant",
-          "explanation": "Not relevant; refers to a different peptide"
-        },
-        {
-          "answer": "vasoactive intestinal peptide.",
-          "relationship": "not relevant",
-          "explanation": "Not relevant; refers to a different peptide"
-        },
-        {
-          "answer": "caprooyl tetrapeptide-3.",
-          "relationship": "not relevant",
-          "explanation": "Not relevant; refers to a different peptide"
-        },
-        {
-          "answer": "calotropin.",
-          "relationship": "not relevant",
-          "explanation": "Not relevant; refers to a different peptide"
-        },
-        {
-          "answer": "c-pap.",
-          "relationship": "not relevant",
-          "explanation": "Not relevant; refers to a different peptide"
-        },
-        {
-          "answer": "plasma vasoactive intestinal polypeptide measurement.",
-          "relationship": "partially relevant",
-          "explanation": "Partially relevant; refers to a different polypeptide"
-        },
-        {
-          "answer": "desmopressin.",
-          "relationship": "not relevant",
-          "explanation": "Not relevant; refers to a different drug"
-        },
-        {
-          "answer": "argipressin.",
-          "relationship": "not relevant",
-          "explanation": "Not relevant; refers to a different drug"
-        }
-      ]
-    },
     {
       "input": "Input: geriatric depression score (original long form), Candidate terms: ['Geriatric depression scale original long form', 'Geriatric depression scale short form', 'Geriatric depression scale', 'Geriatric depression scale (GDS) short version total', 'Geriatric depression scale (GDS) total']",
       "output": [
@@ -6247,14 +6049,6 @@
         ]
       },      
       {
-        "input":"Input: low-density lipoprotein cholesterol (ldl-c) , Candidate terms: ['LDL-C (low density lipoprotein cholesterol) substance concentration in plasma. ,'Cholesterol in LDL [Mass/volume] in Serum or Plasma','LDL (low density lipoprotein)/HDL (high density lipoprotein) molar concentration ratio in plasma. ']",
-        "output": [
-          {"answer": "LDL-C (low density lipoprotein cholesterol) substance concentration in plasma", "score": 7, "explanation":"This is a partial match as it mentions LDL-C in plasma"}, 
-          {"answer": "Cholesterol in LDL [Mass/volume] in Serum or Plasma.", "score": 10, "explanation":"This is the most relevant answer as it precisely matches the query in terms of the measurement context and substance."}, 
-          {"answer": "LDL (low density lipoprotein)/HDL (high density lipoprotein) molar concentration ratio in plasma.", "score": 7, "explanation":"This answer is relevant but less specific as it includes HDL along with LDL which makes it less precise."}
-        ]
-      },
-      {
         "input":"Input: glucose , Candidate terms: ['Glucose [Mass/volume] in Blood','Glucose measurement']",
         "output":[
           {"answer": "Glucose [Mass/volume] in Blood", "score": 10, "explanation":"This is a precise match for the query as it specifically mentions glucose in terms of its concentration by mass/volume in blood, directly aligning with the query's request for a measurement of glucose."}, 
@@ -7035,20 +6829,6 @@
     {"answer": "Pacemaker care assessment","score": 0,"explanation": "not relevant; refers to pacemaker care assessment, implying the presence of a pacemaker but not confirming implantation."}
   ]
 
-},
-{
-  "input":"Input: low-density lipoprotein cholesterol (ldl-c), Candidate terms: ['LDL-C (low density lipoprotein cholesterol) substance concentration in plasma. ,'Cholesterol in LDL [Mass/volume] in Serum or Plasma','LDL (low density lipoprotein)/HDL (high density lipoprotein) molar concentration ratio in plasma. ']",
-  "output": [
-    {"answer": "LDL-C (low density lipoprotein cholesterol) substance concentration in plasma", "score": 7, "explanation":"This is a partial match as it mentions LDL-C in plasma"}, 
-    {
-      "answer": "Cholesterol in LDL [Mass/volume] in Serum or Plasma.", 
-      "score": 10, 
-      "explanation":"This term precisely matches the query and includes both serum and plasma, making it the most relevant answer because it can be used for either measurement."
-  
-    },
-
-    {"answer": "LDL (low density lipoprotein)/HDL (high density lipoprotein) molar concentration ratio in plasma.", "score": 7, "explanation":"This answer is relevant but less specific as it includes HDL along with LDL which makes it less precise."}
-  ]
 },
 {
   "input":"Input: glucose , Candidate terms: ['Glucose [Mass/volume] in Blood','Glucose measurement']",
@@ -8165,20 +7945,6 @@
       {"answer": "Pacemaker care assessment","score": 0,"explanation": "not relevant; refers to pacemaker care assessment, implying the presence of a pacemaker but not confirming implantation."}
     ]
   
-  },
-  {
-    "input":"Input: low-density lipoprotein cholesterol (ldl-c), Candidate terms: ['LDL-C (low density lipoprotein cholesterol) substance concentration in plasma. ,'Cholesterol in LDL [Mass/volume] in Serum or Plasma','LDL (low density lipoprotein)/HDL (high density lipoprotein) molar concentration ratio in plasma. ']",
-    "output": [
-      {"answer": "LDL-C (low density lipoprotein cholesterol) substance concentration in plasma", "score": 7, "explanation":"This is a partial match as it mentions LDL-C in plasma"}, 
-      {
-        "answer": "Cholesterol in LDL [Mass/volume] in Serum or Plasma.", 
-        "score": 10, 
-        "explanation":"This term precisely matches the query and includes both serum and plasma, making it the most relevant answer because it can be used for either measurement."
-    
-      },
-  
-      {"answer": "LDL (low density lipoprotein)/HDL (high density lipoprotein) molar concentration ratio in plasma.", "score": 7, "explanation":"This answer is relevant but less specific as it includes HDL along with LDL which makes it less precise."}
-    ]
   },
   {
     "input":"Input: glucose , Candidate terms: ['Glucose [Mass/volume] in Blood','Glucose measurement']",

@@ -1057,7 +1057,7 @@ def create_processed_result(result_object: ProcessedResultsModel=None) -> dict:
         "Primary to Secondary Context Relationship": result_object.primary_to_secondary_rel,
         "Categorical Values Concept Label": categorical_values_labels,
         "Categorical Values Concept Code": categorical_values_codes,
-        "Categorical Values Concept OMOP ID": categorical_values_omop_ids,
+        "Categorical Values OMOP ID": categorical_values_omop_ids,
         "Unit Concept Label": result_object.unit_matches[0].standard_label
         if len(result_object.unit_matches) >= 1
         else None,

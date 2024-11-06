@@ -672,7 +672,9 @@ def validate_result(result: Dict) -> Dict:
         result["categories"] = [result["categories"]]
     if isinstance(result.get("categories"), dict):
         result["categories"] = result["categories"].values()
-    if isinstance(result.get("unit"), list):
+    if result.get("unit") == "":
+            result["unit"] = None
+    if isinstance(result.get("unit", None), list):
         if len(result["unit"]) > 0:
             result["unit"] = result["unit"][0]
     return result
