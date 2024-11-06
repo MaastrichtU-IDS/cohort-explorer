@@ -69,6 +69,7 @@
             "input":"time to first all-cause hospitalisation or death, unit: days",
             "output":"{\"domain\":\"visit\", \"base_entity\":\"hospital admission\", \"additional_entities\":[\"All causes of morbidity and mortality\",\"Death\",\"baseline time\"], \"unit\":\"days\"}"
           },
+
           {
             "input":"estimated glomerular filtration rate using cg formula",
             "output":"{\"domain\":\"measurement\", \"base_entity\":\"Glomerular filtration rate estimated\", \"additional_entities\":[\"Cockcroft-Gault formula\"]}"
@@ -146,6 +147,10 @@
           {
             "input":"spontaneous angina at 6 weeks",
             "output":"{\"domain\":\"condition\", \"base_entity\":\"spontaneous angina\", \"additional_entities\":[\"Follow-up 6 weeks\"]}"
+          },
+          {
+            "input":"mild to moderate asthma exacerbations",
+            "output":"{\"domain\":\"condition\", \"base_entity\":\"Asthma exacerbation\", \"additional_entities\":[\"Mild to Moderate\"]}"
           },
           {
             "input":"cm³",
@@ -1442,6 +1447,10 @@
           {
             "input":"gamma-glutamyl transferase (ggt) [Enzymatic activity/volume] in serum or plasma",
             "output":"{\"domain\":\"measurement\",\"base_entity\":\"Gamma-glutamyl transferase [Enzymatic activity/volume] in Serum or Plasma\"}"
+          },
+          {
+            "input":"angiotensin receptor neprilysin inhibitor medication",
+            "output":"{\"domain\":\"drug\",\"base_entity\":\"Angiotensin receptor neprilysin inhibitor\"}"
           },
           {
             "input":"date of ct-scan",
