@@ -1,4 +1,4 @@
-from langchain_core.prompts import (
+from langchain_core.prompts import (  # noqa: I001
     ChatPromptTemplate,
     PromptTemplate,
     FewShotChatMessagePromptTemplate,
@@ -81,11 +81,11 @@ TIME_WINDOW = 60
 def get_relevant_examples(
     query: str,
     content_key: str,
-    examples: List[Dict[str, str]],
+    examples: list[dict[str, str]],
     topk=2,
     min_score=0.5,
     selector_path=None,
-) -> List[Dict]:
+) -> list[dict]:
     try:
         # Obtain the singleton example selector
         if examples is None or len(examples) == 0:
@@ -465,10 +465,7 @@ def extract_ir(base_entity, associated_entities, active_model):
         f"extract_ir base_entity={base_entity}, associated_entities={associated_entities}"
     )
     # Refined prompt with examples
-    base_prompt = f"""
-
-    Given the **Base Entity** (primary concept) and **Associated Entities** (secondary concepts), select the most appropriate relationship from the provided options.
-
+    base_prompt = f"""Given the **Base Entity** (primary concept) and **Associated Entities** (secondary concepts), select the most appropriate relationship from the provided options.
         **Instructions:**
         - The relationship should describe how the **Base Entity** relates **to** the **Associated Entity**. The relationship should be unidirectional.
         - Review the Base Entity and each Associated Entity.
@@ -493,7 +490,7 @@ def extract_ir(base_entity, associated_entities, active_model):
             Base Entity: {base_entity}
             Associated Entities: {associated_entities}
             **Relationship Options:**: {', '.join([rel.lower() for rel in relations])}
-            """
+            """  # noqa: S608
 
     system = "You are a helpful assistant with expertise in the biomedical domain."
     final_prompt = ChatPromptTemplate.from_messages(
@@ -514,7 +511,7 @@ def extract_ir(base_entity, associated_entities, active_model):
 
 class CustomHandler(BaseCallbackHandler):
     def on_llm_start(
-        self, serialized: Dict[str, Any], prompts: List[str], **kwargs: Any
+        self, serialized: dict[str, Any], prompts: list[str], **kwargs: Any
     ) -> Any:
         formatted_prompts = "\n".join(prompts)
         print(f"Prompt:\n{formatted_prompts}")
@@ -593,7 +590,7 @@ def extract_information(query, model_name=LLM_ID, prompt=None):
                     -Rewrite the medical query in english language to ensure all terms are expanded to their full forms. Always translate all non-english terms to english.
                     -Identify if there are any acronyms and abbreviations in given medical query and expand them.
                     -Before breaking down the query, assess whether it contains more than one clinical concept.
-                    **Extract Domain: Determine the most appropriate OHDSI OMOP standards from list of following domains: [Condition, Anatomic Site, Body Structure, Measurement, Procedure, Drug, Device, Unit,  Visit,  Death,  Demographics, Family History, Life Style, History of Events].
+                    **Extract Domain: Determine the most appropriate OHDSI OMOP standards from list of following domains: [Person, Obervation, Observation period, Condition, Anatomic Site, Body Structure, Measurement, Procedure, Drug exposure, Device, Unit, Visit,  Death, Demographics, Family History, Life Style, History of Events].
                     **Extract Entities:
                         - Base Entity: The primary concept mentioned in the medical query. It represents the key medical or clinical element being measured, observed, or evaluated.
                         - Associated Entities: Extract list of associated entities like time points, anatomical locations, related procedures, or clinical events that clarify the base entity's context within the query. Don't mention entities not given in the query.
@@ -663,7 +660,7 @@ def extract_information(query, model_name=LLM_ID, prompt=None):
         return None
 
 
-def validate_result(result: Dict) -> Dict:
+def validate_result(result: dict) -> Dict:
     if isinstance(result.get("additional_entities"), str):
         result["additional_entities"] = [result["additional_entities"]]
     if isinstance(result.get("additional_entities"), dict):
@@ -674,13 +671,12 @@ def validate_result(result: Dict) -> Dict:
         result["categories"] = result["categories"].values()
     if result.get("unit") == "":
             result["unit"] = None
-    if isinstance(result.get("unit", None), list):
-        if len(result["unit"]) > 0:
+    if isinstance(result.get("unit"), list) and len(result["unit"]) > 0:
             result["unit"] = result["unit"][0]
     return result
 
 
-def evaluate_final_mapping(variable_object: Dict, llm_id: str = "llama3.1"):
+def evaluate_final_mapping(variable_object: dict, llm_id: str = "llama3.1"):
     active_model = LLMManager.get_instance(model=llm_id)
     human_template = f"""
     Task: You are tasked with evaluating the correctness of the mapping codes for a variable in a clinical context. The variable represents a column metadata from healthcare records that may be compound in nature. Your goal is to assess whether the mapping to standard clinical codes (e.g., SNOMED, LOINC, UCUM, RxNorm, ATC etc.) is accurate. Your goal is to assess whether the mapping to standard clinical codes (e.g., SNOMED, LOINC, OMOP) is accurate. Focus solely on evaluating the correctness of the mappings without altering or judging the division of the variable itself. Note that some variables may not have additional context or unit information; take this into account in your evaluation.
@@ -804,7 +800,6 @@ def generate_link_prediction_prompt(query, documents, domain=None, in_context=Tr
             * Highly Relevant: The term is closely related to the query but not an exact match or synonym.
             * Partially Relevant: The term is related to the query but includes significant differences in meaning or scope.
             * Not Relevant: The term is unrelated to the query.
-        
         Provide a brief justification for your categorization, focusing on the term's relevance, closeness in meaning, and specificity.Don't classify a term higher than it deserves simply because no perfect match exists.
         **Desired Format: Provide your response as a list of dictionaries, each containing the keys "answer", "relationship", and "explanation". Do not include any additional comments or preamble.
         Candidate Terms: {documents}
@@ -954,10 +949,8 @@ def create_overlapping_segments(documents, overlap=2):
 def get_llm_results_with_overlap(
     prompt, query, documents, max_retries=2, llm=None, llm_name="llama3.1"
 ):
-    if len(documents) >= 5:
-        overlapping_segments = create_overlapping_segments(documents, overlap=2)
-    else:
-        overlapping_segments = [documents]
+    overlapping_segments = create_overlapping_segments(documents, overlap=2) if len(documents) > 5 else [documents]
+
 
     start_times = time.time()
 
@@ -994,7 +987,7 @@ def get_llm_results_with_overlap(
                             ):
                                 return results
                             else:
-                                logger.info(("failed to parse results"))
+                                logger.info("failed to parse results")
                                 attempt += 1
                         except Exception as e:  # Broad exception handling for any error from fixing_parser
                             logger.info(f"Error in fixing_parser: {e}", exc_info=True)
@@ -1035,7 +1028,6 @@ def get_llm_results_with_overlap(
 def get_llm_results(
     prompt, query, documents, max_retries=2, llm=None, llm_name="llama3.1"
 ):
-    
 
     def process_half(doc_half,max_retries=2):
         attempt = 0
@@ -1070,7 +1062,7 @@ def get_llm_results(
                             ):
                                 return results
                             else:
-                                logger.info(("failed to parse results"))
+                                logger.info("failed to parse results")
                                 attempt += 1
                         except Exception as e:  # Broad exception handling for any error from fixing_parser
                             logger.info(f"Error in fixing_parser: {e}", exc_info=True)
@@ -1099,7 +1091,6 @@ def get_llm_results(
 
     start_times = time.time()
     results = process_half(documents)
-    
     end_time = time.time()
     logger.info(f"Total processing time: {end_time - start_times} seconds")
     return results
@@ -1168,7 +1159,7 @@ def pass_to_chat_llm_chain(
                 for result in ranking_results:
                     if isinstance(result, dict) and int(result.get("score", 0)) == 10:
                         exact_match_found_rank = (
-                            True if result["answer"] in documents else False
+                            result["answer"] in documents
                         )
                         logger.info(
                             f"Exact match found in Ranking: {result['answer']} = {exact_match_found_rank}. Does it exist in original documents={result['answer'] in documents}"

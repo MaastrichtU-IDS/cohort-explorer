@@ -1,36 +1,36 @@
+import os
 import time
+from typing import Any
 
 from langchain_qdrant import FastEmbedSparse
 
 from .bi_encoder import SAPEmbeddings
 from .data_loader import load_data
-from .llm_chain import *
-from .param import *
-from .py_model import *
+from .datamanager import DataManager
+from .eval_mapping import perform_mapping_eval_for_variable
+from .llm_chain import extract_information, pass_to_chat_llm_chain
+from .param import DB_FILE, LLM_ID, LOOK_UP_FILE, SYN_COLLECTION_NAME, TOPK
+from .py_model import ProcessedResultsModel, QueryDecomposedModel, RetrieverResultsModel
 from .utils import (
-    pretty_print_docs,
-    save_to_csv,
-    create_result_dict,
+    append_results_to_csv,
     convert_db_result,
     create_processed_result,
-    post_process_candidates,
+    create_result_dict,
     exact_match_found,
     filter_irrelevant_domain_candidates,
     init_logger,
-    append_results_to_csv,
+    post_process_candidates,
+    pretty_print_docs,
+    save_to_csv,
 )
-from .eval_mapping import perform_mapping_eval_for_variable
 from .utils import global_logger as logger
-from .datamanager import DataManager
-import os
 from .vector_index import (
-    update_compressed_merger_retriever,
     generate_vector_index,
     initiate_api_retriever,
-    set_merger_retriever,
     set_compression_retriever,
+    set_merger_retriever,
+    update_compressed_merger_retriever,
 )
-
 
 # Cache for retrievers based on domain
 RETRIEVER_CACHE = {}
@@ -42,10 +42,7 @@ def retriever_docs(query, retriever, domain="all", is_omop_data=False, topk=10):
     try:
         results = retriever.invoke(query)
         unique_results = filter_results(query, results)
-        if unique_results:
-            unique_results = unique_results[:10]
-        else:
-            unique_results = []
+        unique_results = unique_results[:10] if len(unique_results) > 10 else unique_results
         print(f"length of unique results={len(unique_results)}")
         return unique_results
     except Exception as e:
@@ -480,16 +477,15 @@ def process_retrieved_docs(
 
 def process_context(context, retriever, llm, domain=None, topk=10):
     # context = normalize(context)
-    if context:
-        if docs := retriever_docs(context, retriever, domain="all", topk=topk):
-            if matched_docs := exact_match_found(
-                query_text=context, documents=docs, domain=domain
-            ):
-                return post_process_candidates(matched_docs, max=1)
-            llm_results, _ = pass_to_chat_llm_chain(
-                context, docs, llm_name=llm, domain=domain
-            )
-            return post_process_candidates(llm_results, max=1)
+    if context and (docs := retriever_docs(context, retriever, domain="all", topk=topk)):
+        if matched_docs := exact_match_found(
+            query_text=context, documents=docs, domain=domain
+        ):
+            return post_process_candidates(matched_docs, max=1)
+        llm_results, _ = pass_to_chat_llm_chain(
+            context, docs, llm_name=llm, domain=domain
+        )
+        return post_process_candidates(llm_results, max=1)
     return []
 
 
@@ -511,7 +507,7 @@ def process_values_db(
     if not values:
         return all_values
     for q_value in values:
-        q_value = str(q_value).strip().lower()
+        q_value = str(q_value).strip().lower()  # noqa: PLW2901
         if q_value and q_value != "unknown":
             result, mode = db.query_variable(q_value)
             if result and mode == "subset":
@@ -544,10 +540,7 @@ def process_values_db(
                     elif (
                         categorical_value_results and len(categorical_value_results) > 0
                     ):
-                        if values_type == "additional":
-                            q_value_ = f"{q_value}, context: {main_term}"
-                        else:
-                            q_value_ = q_value
+                        q_value_ = f"{q_value}, context: {main_term}" if values_type == "additional" else q_value
                         updated_results, _ = pass_to_chat_llm_chain(
                             q_value_,
                             categorical_value_results,
@@ -587,7 +580,7 @@ def process_values(
     if not values:
         return all_values
     for q_value in values:
-        q_value = str(q_value).strip().lower()
+        q_value = str(q_value).strip().lower()  # noqa: PLW2901
         if q_value:
             if categorical_value_results := retriever_docs(
                 q_value, retriever, domain=domain, is_omop_data=is_omop_data, topk=topk
@@ -602,10 +595,7 @@ def process_values(
                     # logger.info(f"max_results={max_results} for {updated_q_value}")
                     all_values[q_value] = post_process_candidates(matched_docs, max=1)
                 elif categorical_value_results and len(categorical_value_results) > 0:
-                    if values_type == "additional":
-                        q_value_ = f"{q_value}, context: {main_term}"
-                    else:
-                        q_value_ = q_value
+                    q_value_ = f"{q_value}, context: {main_term}" if values_type == "additional" else q_value
                     updated_results, _ = pass_to_chat_llm_chain(
                         q_value_, categorical_value_results, llm_name=llm, domain=domain
                     )
