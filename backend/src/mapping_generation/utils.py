@@ -342,13 +342,16 @@ def post_process_candidates(candidates: List[Document], max=1):
 
     for _, doc in enumerate(candidates[:max]):
 
-        label = doc.metadata.get('label', 'none')
-        label = f'"{label}"' if '|' in label else label
+        label = doc.metadata.get("label", 'none')
+        label = f'"{label}"' if "|" in label else label
+        vocab = doc.metadata.get("vocab", "none").upper()
+        if "snomed" in vocab:
+            vocab  = "SNOMEDCT"
         current_doc_dict = {
             "standard_label":label,
             "domain": f"{doc.metadata['domain']}",
             "concept_class": f"{doc.metadata['concept_class']}",
-            "standard_code": f"{doc.metadata['vocab']}:{doc.metadata['scode']}",
+            "standard_code": f"{vocab}:{doc.metadata['scode']}",
             "standard_omop_id": str(doc.metadata["sid"]),
             "vocab": doc.metadata["vocab"],
         }
