@@ -196,7 +196,8 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
         df["categories"] = df["CATEGORICAL"].apply(parse_categorical_string)
 
         # TODO: handle columns from Komal that maps variables:
-        # Variable Concept Label,Variable Concept Code,Variable Concept OMOP ID,DOMAIN,Additional Context Concept Label,Additional Context Concept Code,Additional Context OMOP ID,Primary to Secondary Context Relationship,Categorical Values Concept Label,Categorical Values Concept Code,Categorical Values Concept OMOP ID,Unit Concept Label,Unit Concept Code,Unit OMOP ID
+        # Variable Concept Name,Variable Concept Code,Variable OMOP ID,DOMAIN,Additional Context Concept Name,Additional Context Concept Code, Additional Context OMOP ID,Primary to Secondary Context Relationship,Categorical Value Concept Name,Categorical Value Concept Code,Categorical Values OMOP ID,Unit Concept Name,Unit Concept Code,Unit OMOP ID
+        # Visit Concept Name, Visit Concept Code, Visit OMOP ID can be created using last part of Additional context Columns respectively
         # if "Variable Concept Code" in df.columns:
         #     df["concept_id"] = df.apply(lambda row: str(row["Variable Concept Code"]).strip(), axis=1)
 
