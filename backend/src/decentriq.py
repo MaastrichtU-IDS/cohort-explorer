@@ -66,7 +66,15 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
     builder.add_participant(
         user["email"],
         data_owner_of=[data_node_id],
+        # Permission to run stuff:
+        # analyst_of=[data_node_id],
     )
+
+    # # TODO: Add script that perform EDA to get info about the dataset as a PNG image
+    # builder.add_node_definition(
+    #     PythonComputeNodeDefinition(name=f"eda-{data_node_id}", script=eda_script, dependencies=[data_node_id])
+    # )
+
     # builder.add_participant(
     #     settings.decentriq_email,
     #     data_owner_of=[data_node_id],

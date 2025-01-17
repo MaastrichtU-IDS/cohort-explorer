@@ -50,7 +50,7 @@ This platform is composed of 3 main components:
 
 🔐 Authentication is done through the Decentriq OAuth provider, but it could be replaced by any other OAuth provider easily. Once the user logged in through the external OAuth provider, the backend generates an encrypted JWT token, which is passed to the frontend using HTTP-only cookies.
 
-> [!NOTE] 
+> [!NOTE]
 >
 > All metadata about cohorts and variables are retrieved by one mighty SPARQL query, and passed to the frontend as one big dictionary. Filtering and searching is then done in TypeScript on this cohorts dictionary.
 >
@@ -58,7 +58,7 @@ This platform is composed of 3 main components:
 
 ## ☑️ To do
 
-*   [ ] Integrate the LUCE blockchain component for data sharing consent: 
+*   [ ] Integrate the LUCE blockchain component for data sharing consent:
     *   [ ] We will store blockchain addresses, handle authentication, and add the UI elements directly in the Cohort Explorer (we can even store private keys or do wallet stuff there too if needed)
     *   [ ] But we need to be able to query the blockchain easily through an API from our system (a basic HTTP OpenAPI would suffice, e.g. built with [FastAPI](https://fastapi.tiangolo.com))
 
@@ -121,14 +121,14 @@ Requirements: [Docker](https://docs.docker.com/engine/install/)
 > ```bash
 >docker compose up db
 > ```
-> 
+>
 > In a different terminal, start the backend with [hatch](https://hatch.pypa.io/latest/install/):
 >
 > ```bash
 >cd backend
 > hatch run dev
 > ```
-> 
+>
 > In another terminal, start the frontend with [pnpm](https://pnpm.io/installation):
 >
 > ```bash
@@ -136,7 +136,7 @@ Requirements: [Docker](https://docs.docker.com/engine/install/)
 > pnpm install
 > pnpm dev
 > ```
-> 
+>
 
 ### 🧹 Code formatting and linting
 
@@ -151,7 +151,7 @@ Automatically format Python code with ruff and black, and TypeScript code with p
 For the python backend, update the locked dependencies in `backend/requirements.txt` to the latest available (accepted ranges can be updated inside the `backend/pyproject.toml` file):
 
 ```bash
-cd backend 
+cd backend
 hatch run compile
 ```
 
@@ -274,3 +274,6 @@ Run profiling, supports `.csv`, `.xlsx`, `.sav`:
 csvw-ontomap data/COHORT_data.sav -o data/COHORT_datadictionary.csv
 ```
 
+## TODO
+
+- [ ] For each variable add button to show popup of image with stats
