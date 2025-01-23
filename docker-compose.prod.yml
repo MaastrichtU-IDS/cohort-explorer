@@ -5,6 +5,7 @@ services:
     extends:
       file: docker-compose.base.yml
       service: backend
+    restart: unless-stopped
     environment:
       FRONTEND_URL: https://explorer.icare4cvd.eu
       VIRTUAL_HOST: api.explorer.icare4cvd.eu
@@ -17,6 +18,7 @@ services:
     extends:
       file: docker-compose.base.yml
       service: frontend
+    restart: unless-stopped
     build:
       args:
         - NEXT_PUBLIC_API_URL=https://api.explorer.icare4cvd.eu
@@ -26,6 +28,7 @@ services:
       VIRTUAL_PORT: 3000
 
   db:
+    restart: unless-stopped
     extends:
       file: docker-compose.base.yml
       service: db

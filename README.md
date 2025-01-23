@@ -122,12 +122,11 @@ Requirements: [Docker](https://docs.docker.com/engine/install/)
 > docker compose up db
 > ```
 >
-> In a different terminal, start the backend with [hatch](https://hatch.pypa.io/latest/install/):
+> In a different terminal, start the backend with [uv](https://docs.astral.sh/uv/):
 >
 > ```bash
 > cd backend
 > DEV_MODE=true uv run uvicorn src.main:app --port 3000 --reload
-> hatch run dev
 > ```
 >
 > In another terminal, start the frontend with [pnpm](https://pnpm.io/installation):
