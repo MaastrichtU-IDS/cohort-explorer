@@ -267,7 +267,6 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
                                 #allowing for some flexibility in capitalizing the category codes:
                                 cat_codes_normalized = str(categories_codes[index]).strip().replace("snomed", "SNOMED").replace("LOINC", "loinc")
                                 cat_code_uri = converter.expand(cat_codes_normalized)
-                                print(f"row:{i+2}, cat code: {cat_code_uri}, original: {str(categories_codes[index])}, normalized: {cat_codes_normalized}")
                                 if not cat_code_uri:
                                     # NOTE: We use a CURIE to URI converter to handle the conversion of CURIEs to URIs
                                     # If a prefix is not found you can add it to the converter with .add_prefix(prefix, uri) in utils.py
