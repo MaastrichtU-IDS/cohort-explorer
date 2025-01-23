@@ -266,6 +266,8 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
                             if categories_codes and str(categories_codes[index]).strip() != "na":
                                 cat_code_uri = converter.expand(str(categories_codes[index]).strip())
                                 if not cat_code_uri:
+                                    # NOTE: We use a CURIE to URI converter to handle the conversion of CURIEs to URIs
+                                    # If a prefix is not found you can add it to the converter with .add_prefix(prefix, uri) in utils.py
                                     errors.append(
                                         f"Row {i+2} for variable `{row['VARIABLE NAME']}` the category concept code provided for `{categories_codes[index]}` is not valid. Use one of snomedct:, icd10:, atc: or loinc: prefixes."
                                     )

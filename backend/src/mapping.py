@@ -8,6 +8,7 @@ from src.utils import converter, run_query
 
 router = APIRouter()
 
+# NOTE: not really use now, Komal do the mappings in mapping_generation folder
 
 @router.get("/search-concepts")
 async def search_concepts(

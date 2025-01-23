@@ -15,7 +15,9 @@ ICARE = Namespace("https://w3id.org/icare4cvd/")
 query_endpoint = SPARQLWrapper(settings.query_endpoint)
 query_endpoint.setReturnFormat(JSON)
 
+# https://biopragmatics.github.io/curies.rs/getting-started/#modifying-a-context
 converter = curies.get_bioregistry_converter()
+converter.add_prefix("icare", str(ICARE))
 
 def init_graph(default_graph: str | None = None) -> Dataset:
     """Initialize a new RDF graph for nquads with the iCARE4CVD namespace bindings."""
