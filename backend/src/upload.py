@@ -163,7 +163,7 @@ COLUMNS_LIST = [
     "OMOP",
     "Visits",
 ]
-ACCEPTED_DATATYPES = ["STR", "FLOAT", "INT", "DATETIME"]
+ACCEPTED_DATATYPES = ["STR", "FLOAT", "INT", "DATETIME", "COMPLEX"]
 
 def to_camelcase(s: str) -> str:
     s = sub(r"(_|-)+", " ", s).title().replace(" ", "")
@@ -264,7 +264,10 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
                         g.add((cat_uri, RDFS.label, Literal(category["label"]), cohort_uri))
                         try:
                             if categories_codes and str(categories_codes[index]).strip() != "na":
-                                cat_code_uri = converter.expand(str(categories_codes[index]).strip())
+                                #allowing for some flexibility in capitalizing the category codes:
+                                cat_codes_normalized = str(categories_codes[index]).strip().replace("snomed", "SNOMED").replace("LOINC", "loinc")
+                                cat_code_uri = converter.expand(cat_codes_normalized)
+                                print(f"row:{i+2}, cat code: {cat_code_uri}, original: {str(categories_codes[index])}, normalized: {cat_codes_normalized}")
                                 if not cat_code_uri:
                                     # NOTE: We use a CURIE to URI converter to handle the conversion of CURIEs to URIs
                                     # If a prefix is not found you can add it to the converter with .add_prefix(prefix, uri) in utils.py
