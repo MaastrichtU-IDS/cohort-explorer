@@ -119,20 +119,21 @@ Requirements: [Docker](https://docs.docker.com/engine/install/)
 > Start the database with docker:
 >
 > ```bash
->docker compose up db
+> docker compose up db
 > ```
 >
 > In a different terminal, start the backend with [hatch](https://hatch.pypa.io/latest/install/):
 >
 > ```bash
->cd backend
+> cd backend
+> DEV_MODE=true uv run uvicorn src.main:app --port 3000 --reload
 > hatch run dev
 > ```
 >
 > In another terminal, start the frontend with [pnpm](https://pnpm.io/installation):
 >
 > ```bash
->cd frontend
+> cd frontend
 > pnpm install
 > pnpm dev
 > ```

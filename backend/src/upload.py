@@ -413,17 +413,16 @@ async def upload_cohort(
             )
         )
 
-        # NOTE: waiting for more tests before sending to production
-        background_tasks.add_task(generate_mappings, cohort_id, metadata_path, g)
-        # TODO: move all the "delete_existing_triples" and "publish_graph_to_endpoint" logic to the background task after mappings have been generated
+        # TODO: waiting for more tests before sending to production
+        # background_tasks.add_task(generate_mappings, cohort_id, metadata_path, g)
 
         # Delete previous graph for this file from triplestore
-        # TODO: will move to background task
-        # delete_existing_triples(
-        #     get_cohort_mapping_uri(cohort_id), f"<{get_cohort_uri(cohort_id)!s}>", "icare:previewEnabled"
-        # )
-        # delete_existing_triples(get_cohort_uri(cohort_id))
-        # publish_graph_to_endpoint(g)
+        # TODO: remove these lines once we move to generating mapping through the background task
+        delete_existing_triples(
+            get_cohort_mapping_uri(cohort_id), f"<{get_cohort_uri(cohort_id)!s}>", "icare:previewEnabled"
+        )
+        delete_existing_triples(get_cohort_uri(cohort_id))
+        publish_graph_to_endpoint(g)
     except Exception as e:
         os.remove(metadata_path)
         raise e

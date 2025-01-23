@@ -55,7 +55,7 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
         .with_description(f"A data clean room to provision the data for the {cohort.cohort_id} cohort")
     )
 
-    # Create data node for cohort
+    # Create data node for Cohort Data
     data_node_id = cohort.cohort_id.replace(" ", "-")
     # builder.add_node_definition(RawDataNodeDefinition(name=data_node_id, is_required=True))
     # TODO: providing schema is broken in new SDK
@@ -69,6 +69,8 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
         # Permission to run stuff:
         # analyst_of=[data_node_id],
     )
+
+    # TODO: add Cohort metadatadictionary to the DCR
 
     # # TODO: Add script that perform EDA to get info about the dataset as a PNG image
     # builder.add_node_definition(

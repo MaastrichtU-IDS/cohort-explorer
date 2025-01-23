@@ -1,19 +1,26 @@
-FROM tiangolo/uvicorn-gunicorn-fastapi:python3.10
-# FROM python:3.10
+FROM ghcr.io/astral-sh/uv:python3.10-bookworm-slim
+# FROM ghcr.io/astral-sh/uv:python3.10-bookworm
+# https://docs.astral.sh/uv/guides/integration/docker/#available-images
 
-RUN pip install --upgrade pip
+# RUN pip install --upgrade pip
 
 WORKDIR /app
 
-COPY requirements.txt ./
-RUN pip install -r requirements.txt
+COPY pyproject.toml /app/
+
+RUN uv sync
+
+# COPY requirements.txt ./
+# RUN pip install -r requirements.txt
 
 COPY . /app/
 
-ENV PYTHONUNBUFFERED='1' \
-    PYTHONPATH=/app \
-    APP_MODULE=src.main:app
+ENV PYTHONUNBUFFERED='1'
 
-RUN pip install -e .
+# ENV PYTHONUNBUFFERED='1' \
+#     PYTHONPATH=/app \
+#     APP_MODULE=src.main:app
 
-# ENTRYPOINT [ "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "80" ]
+# RUN pip install -e .
+
+ENTRYPOINT ["uv", "run", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "80", "--workers", "6" ]
