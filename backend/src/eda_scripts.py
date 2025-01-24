@@ -1,15 +1,19 @@
 """Exploratory Data Analysis (EDA) module."""
 
-c1_data_dict_check = """
+
+def c1_data_dict_check(cohort_id: str) -> str:
+    return f"""
 import pandas as pd
 import decentriq_util
 
-# load the TIME-CHF dictionary
-dictionary_df = decentriq_util.read_tabular_data("/input/TIME_CHF_metadatadictionary")
+# Load the metadata dictionary
+dictionary_df = decentriq_util.read_tabular_data("/input/{cohort_id}-metadata")
 
-# load the TIME-CHF dataset
-dataset_df = pd.read_spss("/input/TIME_CHF_dataset")
-
+# Load the dataset
+try:
+    dataset_df = pd.read_spss("/input/{cohort_id}")
+except Exception as e:
+    dataset_df = decentriq_util.read_tabular_data("/input/{cohort_id}")
 
 # Validate that the dictionary file contains the 'VARIABLE NAME' column
 if 'VARIABLE NAME' not in dictionary_df.columns:
@@ -24,18 +28,20 @@ in_dictionary_not_in_dataset = dictionary_variables - dataset_columns
 in_dataset_not_in_dictionary = dataset_columns - dictionary_variables
 
 # Optionally save the results to files for reference
-pd.DataFrame({'In Dataset Not in Dictionary': list(in_dataset_not_in_dictionary)}).to_csv("/output/in_dataset_not_in_dictionary.csv",index = False)
-pd.DataFrame({'In Dictionary Not in Dataset': list(in_dictionary_not_in_dataset)}).to_csv("/output/in_dictionary_not_in_dataset.csv",index = False)
+pd.DataFrame({{'In Dataset Not in Dictionary': list(in_dataset_not_in_dictionary)}}).to_csv("/output/in_dataset_not_in_dictionary.csv",index = False)
+pd.DataFrame({{'In Dictionary Not in Dataset': list(in_dictionary_not_in_dataset)}}).to_csv("/output/in_dictionary_not_in_dataset.csv",index = False)
 """
 
-c2_save_to_json = """
+
+def c2_save_to_json(cohort_id: str) -> str:
+    return f"""
 import decentriq_util
 import pandas as pd
 import os
 import json
 
 # Load dictionary
-dictionary = decentriq_util.read_tabular_data("/input/TIME_CHF_metadatadictionary")
+dictionary = decentriq_util.read_tabular_data("/input/{cohort_id}-metadata")
 
 # Clean column names to ensure uniformity
 dictionary.columns = dictionary.columns.str.strip().str.upper()
@@ -49,8 +55,8 @@ include_pattern = r'\||='   # Look for strings containing either a | or =.
 categorical_dict = dictionary[dictionary['CATEGORICAL'].astype(str).str.contains(include_pattern, regex=True)]
 
 # Prepare to extract classes and their meanings, along with MIN, MAX, and VAR TYPE
-class_details = {}
-numerical_details = {}
+class_details = {{}}
+numerical_details = {{}}
 
 for index, row in dictionary.iterrows():
     variable_name = row['VARIABLE NAME']
@@ -63,7 +69,7 @@ for index, row in dictionary.iterrows():
     if pd.notna(categories_info) and isinstance(categories_info, str) and categories_info.strip():
         # Handle categorical variables
         categories = [item for sublist in categories_info.split('|') for item in sublist.split(',')]
-        class_names = {}
+        class_names = {{}}
 
         for category in categories:
                 key_value = category.split('=')
@@ -77,7 +83,7 @@ for index, row in dictionary.iterrows():
                         missing_key = key
 
         # Save MIN, MAX, and VAR TYPE values if they exist to class_details
-        class_details[variable_name] = {
+        class_details[variable_name] = {{
             'categories': class_names,
 
             'missing': missing_key,  # Add missing indicator if found
@@ -85,16 +91,16 @@ for index, row in dictionary.iterrows():
             'min': min_value if pd.notna(min_value) else None,
             'max': max_value if pd.notna(max_value) else None,
             'var_type': var_type if pd.notna(var_type) else None
-        }
+        }}
 
     elif pd.isna(categories_info) or categories_info.strip() == '':
         # Handle numerical variables
-        numerical_details[variable_name] = {
+        numerical_details[variable_name] = {{
             'min': min_value if pd.notna(min_value) else None,
             'max': max_value if pd.notna(max_value) else None,
             'var_type': var_type if pd.notna(var_type) else None,
             'missing': missing_key
-        }
+        }}
 
 json_dir = '/output/'
 
@@ -109,14 +115,16 @@ with open(numerical_json_path, 'w') as json_file:
     json.dump(numerical_details, json_file, indent=4)
 
 # Print confirmation messages and the first 5 items in a formatted way
-print(f"Categorical variables saved to {categorical_json_path}")
-print(json.dumps({key: class_details[key] for key in list(class_details.keys())[:5]}, indent=4))
+print(f"Categorical variables saved to {{categorical_json_path}}")
+print(json.dumps({{key: class_details[key] for key in list(class_details.keys())[:5]}}, indent=4))
 
-print(f"Numerical variables saved to {numerical_json_path}")
-print(json.dumps({key: numerical_details[key] for key in list(numerical_details.keys())[:5]}, indent=4))
+print(f"Numerical variables saved to {{numerical_json_path}}")
+print(json.dumps({{key: numerical_details[key] for key in list(numerical_details.keys())[:5]}}, indent=4))
 """
 
-c3_map_missing_do_not_run = """
+
+def c3_map_missing_do_not_run(cohort_id: str) -> str:
+    return f"""
 import decentriq_util
 import pandas as pd
 import json
@@ -130,14 +138,14 @@ numerical_data = pd.read_json("/input/C2_Save_to_JSON/numerical_variables.json")
 
 
 # Step 2: Load the dataset
-df = pd.read_spss("/input/TIME_CHF_dataset")
+df = pd.read_spss("/input/{cohort_id}_dataset")
 
 # Step 3: Normalize column names in the dataset to lowercase to match JSON keys
 df.columns = df.columns.str.lower()  # Convert column names to lowercase for consistency
 
 # Normalize keys in the JSON files to lowercase for consistent comparison
-numerical_data = {k.lower(): v for k, v in numerical_data.items()}
-categorical_data = {k.lower(): v for k, v in categorical_data.items()}
+numerical_data = {{k.lower(): v for k, v in numerical_data.items()}}
+categorical_data = {{k.lower(): v for k, v in categorical_data.items()}}
 
 # Extract unique missing values
 unique_missing_numerical = set(item.get('missing') for item in numerical_data.values())
@@ -174,7 +182,7 @@ for column in df.columns:
 
             elif var_type in ['str', None]:
                 # Skip numeric range validation for string or undefined variable types
-                print(f"Skipping range validation for column: {column} (var_type: {var_type})")
+                print(f"Skipping range validation for column: {{column}} (var_type: {{var_type}})")
 
 
             # Clean missing_value to remove brackets and convert to numeric
@@ -207,7 +215,7 @@ for column in df.columns:
             elif var_type == 'str':
                 if categories:
                     # Map categories to their standardized values
-                    category_mapping = {str(k).strip(): v for k, v in categories.items()}
+                    category_mapping = {{str(k).strip(): v for k, v in categories.items()}}
                     df[column] = df[column].apply(
                         lambda x: category_mapping.get(str(x).strip(), x)
                         if pd.notna(x) and str(x).strip() in category_mapping else x
@@ -228,15 +236,17 @@ for column in df.columns:
 
     except Exception as e:
         # Print the column name and the problematic value that caused the error
-        print(f"Error occurred in column: {column}")
-        print(f"Problematic value: {df[column].dropna().unique()}")
+        print(f"Error occurred in column: {{column}}")
+        print(f"Problematic value: {{df[column].dropna().unique()}}")
         raise e
 
 # Step 5: Save the cleaned dataset
 df.to_csv("/output/data_correct.csv",index = False, header = True)
 """
 
-c3_eda_data_profiling = """
+
+def c3_eda_data_profiling() -> str:
+    return """
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -408,7 +418,6 @@ def variable_eda(df):
             plt.tight_layout()
             plt.savefig(f"/output/eda_{column}.png")
             plt.close()
-
 
 variable_eda(data_correct_missing)
 """

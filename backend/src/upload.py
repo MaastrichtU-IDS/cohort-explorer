@@ -271,7 +271,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
                                     # NOTE: We use a CURIE to URI converter to handle the conversion of CURIEs to URIs
                                     # If a prefix is not found you can add it to the converter with .add_prefix(prefix, uri) in utils.py
                                     errors.append(
-                                        f"Row {i+2} for variable `{row['VARIABLE NAME']}` the category concept code provided for `{categories_codes[index]}` is not valid. Use one of snomedct:, icd10:, atc: or loinc: prefixes."
+                                        f"Row {i+2} for variable `{row['VARIABLE NAME']}` the category concept code provided for `{categories_codes[index]}` is not valid. Use one of snomedct:, icd10:, atc:, loinc: or icare: prefixes."
                                     )
                                 else:
                                     g.add((cat_uri, ICARE.conceptId, URIRef(cat_code_uri), cohort_uri))
@@ -379,17 +379,16 @@ async def upload_cohort(
     cohort_info.airlock = airlock
 
     # Create directory named after cohort_id
-    cohorts_folder = os.path.join(settings.data_folder, "cohorts", cohort_id)
-    os.makedirs(cohorts_folder, exist_ok=True)
+    os.makedirs(cohort_info.folder_path, exist_ok=True)
     # Check if cohort already uploaded
     if cohort_info and len(cohort_info.variables) > 0:
         # Check for existing data dictionary file and back it up
-        for file_name in os.listdir(cohorts_folder):
+        for file_name in os.listdir(cohort_info.folder_path):
             if file_name.endswith("_datadictionary.csv"):
                 # Construct the backup file name with the current date
                 backup_file_name = f"{file_name.rsplit('.', 1)[0]}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-                backup_file_path = os.path.join(cohorts_folder, backup_file_name)
-                existing_file_path = os.path.join(cohorts_folder, file_name)
+                backup_file_path = os.path.join(cohort_info.folder_path, backup_file_name)
+                existing_file_path = os.path.join(cohort_info.folder_path, file_name)
                 # Rename (backup) the existing file
                 os.rename(existing_file_path, backup_file_path)
                 break  # Assuming there's only one data dictionary file per cohort
@@ -401,7 +400,7 @@ async def upload_cohort(
         filename += "_datadictionary"
 
     # Store metadata file on disk in the cohorts folder
-    metadata_path = os.path.join(cohorts_folder, filename + ext)
+    metadata_path = os.path.join(cohort_info.folder_path, filename + ext)
     with open(metadata_path, "wb") as buffer:
         shutil.copyfileobj(cohort_dictionary.file, buffer)
 
@@ -420,7 +419,7 @@ async def upload_cohort(
         # TODO: waiting for more tests before sending to production
         # if settings.dev_mode:
         if False:
-            background_tasks.add_task(generate_mappings, cohort_id, metadata_path, g)
+            background_tasks.add_task(generate_mappings, cohort_id, cohort_info.metadata_filepath, g)
         else:
             # Delete previous graph for this file from triplestore
             # TODO: remove these lines once we move to generating mapping through the background task
@@ -430,7 +429,7 @@ async def upload_cohort(
             delete_existing_triples(get_cohort_uri(cohort_id))
             publish_graph_to_endpoint(g)
     except Exception as e:
-        os.remove(metadata_path)
+        os.remove(cohort_info.metadata_filepath)
         raise e
 
     # return {

@@ -1,10 +1,8 @@
-from copy import deepcopy
 import json
+from copy import deepcopy
 from typing import Any
 
 import decentriq_platform as dq
-
-# import decentriq_platform.sql as dqsql
 from decentriq_platform.analytics import (
     AnalyticsDcrBuilder,
     Column,
@@ -17,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from src.auth import get_current_user
 from src.config import settings
+from src.eda_scripts import c1_data_dict_check, c2_save_to_json, c3_eda_data_profiling, c3_map_missing_do_not_run
 from src.models import Cohort
 from src.utils import retrieve_cohorts_metadata
 
@@ -38,6 +37,37 @@ def get_cohort_schema(cohort_dict: Cohort) -> list[Column]:
         schema.append(Column(name=variable_id, format_type=prim_type, is_nullable=True))
     return schema
 
+metadatadict_cols = [
+    Column(name="VARIABLE NAME", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="VARIABLE LABEL", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="VAR TYPE", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="UNITS", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="CATEGORICAL", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="MISSING", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="COUNT", format_type=FormatType.INTEGER, is_nullable=True),
+    Column(name="NA", format_type=FormatType.INTEGER, is_nullable=True),
+    Column(name="MIN", format_type=FormatType.FLOAT, is_nullable=True),
+    Column(name="MAX", format_type=FormatType.FLOAT, is_nullable=True),
+    Column(name="Definition", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Formula", format_type=FormatType.INTEGER, is_nullable=True),
+    Column(name="Categorical Value Concept Code", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Categorical Value Name", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Categorical Value Concept ID", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Label Concept Code", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Label Concept Name", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Label Concept ID", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Additional Context Concept Label", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Additional Context Concept ID", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Additional Context OMOP ID", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Unit Concept Name", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Unit Concept Code", format_type=FormatType.INTEGER, is_nullable=True),
+    Column(name="Unit OMOP ID", format_type=FormatType.INTEGER, is_nullable=True),
+    Column(name="OMOP", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Visits ", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Visit OMOP ID", format_type=FormatType.INTEGER, is_nullable=True),
+    Column(name="Visit Concept Name", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Visit Concept Code", format_type=FormatType.STRING, is_nullable=True),
+]
 
 # https://docs.decentriq.com/sdk/python-getting-started
 def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
@@ -57,34 +87,59 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
 
     # Create data node for Cohort Data
     data_node_id = cohort.cohort_id.replace(" ", "-")
-    # builder.add_node_definition(RawDataNodeDefinition(name=data_node_id, is_required=True))
-    # TODO: providing schema is broken in new SDK
     builder.add_node_definition(
         TableDataNodeDefinition(name=data_node_id, columns=get_cohort_schema(cohort), is_required=True)
     )
 
-    builder.add_participant(
-        user["email"],
-        data_owner_of=[data_node_id],
-        # Permission to run stuff:
-        # analyst_of=[data_node_id],
+    # Create data node for metadata dictionary file
+    metadata_node_id = f"{data_node_id}-metadata"
+    builder.add_node_definition(
+        TableDataNodeDefinition(name=metadata_node_id, columns=metadatadict_cols, is_required=True)
     )
 
-    # TODO: add Cohort metadatadictionary to the DCR
+    # Add scripts that perform EDA to get info about the dataset as a PNG image
+    builder.add_node_definition(
+        PythonComputeNodeDefinition(name="c1_data_dict_check", script=c1_data_dict_check(cohort.cohort_id), dependencies=[metadata_node_id, data_node_id])
+    )
+    builder.add_node_definition(
+        PythonComputeNodeDefinition(name="c2_save_to_json", script=c2_save_to_json(cohort.cohort_id), dependencies=[metadata_node_id])
+    )
+    # This one is auto run by the last script c3_eda_data_profiling:
+    builder.add_node_definition(
+        PythonComputeNodeDefinition(name="c3_map_missing_do_not_run", script=c3_map_missing_do_not_run(cohort.cohort_id), dependencies=[metadata_node_id, data_node_id, "c2_save_to_json"])
+    )
+    builder.add_node_definition(
+        PythonComputeNodeDefinition(name="c3_eda_data_profiling", script=c3_eda_data_profiling(), dependencies=["c2_save_to_json", "c3_map_missing_do_not_run"])
+    )
 
-    # # TODO: Add script that perform EDA to get info about the dataset as a PNG image
-    # builder.add_node_definition(
-    #     PythonComputeNodeDefinition(name=f"eda-{data_node_id}", script=eda_script, dependencies=[data_node_id])
-    # )
+    # Add permissions for data owners
+    all_participants = set(cohort.cohort_email)
+    if settings.dev_mode:
+        all_participants = set()
+        print(f"Dev mode, only adding {user['email']} as data owner")
+    all_participants.add(user["email"])
 
-    # builder.add_participant(
-    #     settings.decentriq_email,
-    #     data_owner_of=[data_node_id],
-    # )
+    # TODO: Separate permissions
+    for participant in all_participants:
+        print(f"Adding {participant} as data owner and analyst")
+        builder.add_participant(
+            participant,
+            data_owner_of=[data_node_id, metadata_node_id],
+            # Permission to run stuff:
+            analyst_of=["c1_data_dict_check", "c2_save_to_json", "c3_eda_data_profiling"],
+        )
+
     # Build and publish DCR
     dcr_definition = builder.build()
     dcr = client.publish_analytics_dcr(dcr_definition)
     dcr_url = f"https://platform.decentriq.com/datarooms/p/{dcr.id}"
+
+    # Now the DCR has been created we can upload the metadata file and run computations
+    key = dq.Key()  # generate an encryption key with which to encrypt the dataset
+    metadata_node = dcr.get_node(metadata_node_id)
+    with open(cohort.metadata_filepath, "rb") as data:
+        metadata_node.upload_and_publish_dataset(data, key, f"{metadata_node_id}.csv")
+
     return {
         "message": f"Data Clean Room for {cohort.cohort_id} provisioned at {dcr_url}",
         "identifier": cohort.cohort_id,

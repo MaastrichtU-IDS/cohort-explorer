@@ -1,5 +1,8 @@
+import os
 from dataclasses import asdict, dataclass, field
-from typing import Dict, List, Optional
+from typing import Optional
+
+from src.config import settings
 
 
 @dataclass
@@ -33,7 +36,7 @@ class CohortVariable:
     omop_domain: Optional[str] = None
     index: Optional[int] = None
     na: int = 0
-    categories: List[VariableCategory] = field(default_factory=list)
+    categories: list[VariableCategory] = field(default_factory=list)
 
 
 @dataclass
@@ -50,9 +53,22 @@ class Cohort:
     study_ongoing: Optional[str] = None
     study_population: Optional[str] = None
     study_objective: Optional[str] = None
-    variables: Dict[str, CohortVariable] = field(default_factory=dict)
+    variables: dict[str, CohortVariable] = field(default_factory=dict)
     airlock: bool = False
     can_edit: bool = False
 
     def dict(self):
         return {k: str(v) for k, v in asdict(self).items()}
+
+    @property
+    def folder_path(self) -> str:
+        return os.path.join(settings.data_folder, "cohorts", self.cohort_id)
+
+    @property
+    def metadata_filepath(self) -> str:
+        for file in os.listdir(self.folder_path):
+            if file.endswith("_datadictionary.csv"):
+                return os.path.join(self.folder_path, file)
+        raise FileNotFoundError(f"No metadata file found for cohort {self.cohort_id}")
+        # return os.path.join(self.folder_path, f"{self.cohort_id}_datadictionary.csv")
+        # return os.path.join(self.folder_path, f"{self.cohort_id}-metadata.csv")
