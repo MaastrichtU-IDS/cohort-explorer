@@ -213,6 +213,12 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
         # Make sure variable types are all uppercase
         df["VAR TYPE"] = df.apply(lambda row: str(row["VAR TYPE"]).upper(), axis=1)
 
+        # Normalize vocabulary codes LOINC and SNOMED:
+        df["Categorical Value Concept Code"] = df.apply(lambda row: 
+                                                        str(row["Categorical Value Concept Code"])
+                                                        .replace("snomed", "SNOMED")
+                                                        .replace("LOINC", "loinc"), axis=1)
+
         for i, row in df.iterrows():
             # Check if required columns are present
             if not row["VARIABLE NAME"] or not row["VARIABLE LABEL"] or not row["VAR TYPE"]:
@@ -264,9 +270,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
                         g.add((cat_uri, RDFS.label, Literal(category["label"]), cohort_uri))
                         try:
                             if categories_codes and str(categories_codes[index]).strip() != "na":
-                                #allowing for some flexibility in capitalizing the category codes:
-                                cat_codes_normalized = str(categories_codes[index]).strip().replace("snomed", "SNOMED").replace("LOINC", "loinc")
-                                cat_code_uri = converter.expand(cat_codes_normalized)
+                                cat_code_uri = converter.expand(str(categories_codes[index]).strip())
                                 if not cat_code_uri:
                                     # NOTE: We use a CURIE to URI converter to handle the conversion of CURIEs to URIs
                                     # If a prefix is not found you can add it to the converter with .add_prefix(prefix, uri) in utils.py
