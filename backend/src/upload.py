@@ -163,7 +163,7 @@ COLUMNS_LIST = [
     "OMOP",
     "Visits",
 ]
-ACCEPTED_DATATYPES = ["STR", "FLOAT", "INT", "DATETIME", "COMPLEX"]
+ACCEPTED_DATATYPES = ["STR", "FLOAT", "INT", "DATETIME"]
 
 def to_camelcase(s: str) -> str:
     s = sub(r"(_|-)+", " ", s).title().replace(" ", "")
