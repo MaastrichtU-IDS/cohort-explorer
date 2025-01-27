@@ -17,7 +17,7 @@ from src.auth import get_current_user
 from src.config import settings
 from src.decentriq import create_provision_dcr
 from src.mapping_generation.retriever import map_csv_to_standard_codes
-from src.utils import ICARE, converter, init_graph, retrieve_cohorts_metadata, run_query
+from src.utils import ICARE, curie_converter, init_graph, prefix_map, retrieve_cohorts_metadata, run_query
 
 router = APIRouter()
 
@@ -107,7 +107,7 @@ def insert_triples(
         # TODO: handle when a category is provided (we add triple to the category instead of the variable)
     delete_existing_triples(graph_uri, f"<{subject_uri!s}>", predicate)
     label_part = ""
-    object_uri = f"<{converter.expand(value)}>"
+    object_uri = f"<{curie_converter.expand(value)}>"
     if label:
         delete_existing_triples(graph_uri, f"{object_uri}", "rdfs:label")
         label_part = f'{object_uri} rdfs:label "{label}" .'
@@ -214,7 +214,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
         df["VAR TYPE"] = df.apply(lambda row: str(row["VAR TYPE"]).upper(), axis=1)
 
         # Normalize vocabulary codes LOINC and SNOMED:
-        df["Categorical Value Concept Code"] = df.apply(lambda row: 
+        df["Categorical Value Concept Code"] = df.apply(lambda row:
                                                         str(row["Categorical Value Concept Code"])
                                                         .replace("snomed", "SNOMED")
                                                         .replace("LOINC", "loinc"), axis=1)
@@ -270,12 +270,12 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
                         g.add((cat_uri, RDFS.label, Literal(category["label"]), cohort_uri))
                         try:
                             if categories_codes and str(categories_codes[index]).strip() != "na":
-                                cat_code_uri = converter.expand(str(categories_codes[index]).strip())
+                                cat_code_uri = curie_converter.expand(str(categories_codes[index]).strip())
                                 if not cat_code_uri:
                                     # NOTE: We use a CURIE to URI converter to handle the conversion of CURIEs to URIs
                                     # If a prefix is not found you can add it to the converter with .add_prefix(prefix, uri) in utils.py
                                     errors.append(
-                                        f"Row {i+2} for variable `{row['VARIABLE NAME']}` the category concept code provided for `{categories_codes[index]}` is not valid. Use one of snomedct:, icd10:, atc:, loinc: or icare: prefixes."
+                                        f"Row {i+2} for variable `{row['VARIABLE NAME']}` the category concept code provided for `{categories_codes[index]}` is not valid. Use one of these prefixes: {', '.join([record['prefix'] + ':' for record in prefix_map])}."
                                     )
                                 else:
                                     g.add((cat_uri, ICARE.conceptId, URIRef(cat_code_uri), cohort_uri))

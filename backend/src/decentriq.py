@@ -81,7 +81,6 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
         AnalyticsDcrBuilder(client=client)
             .with_name(dcr_title)
             .with_owner(user["email"])
-            # .with_owner(settings.decentriq_email)
             .with_description(f"A data clean room to provision the data for the {cohort.cohort_id} cohort")
     )
 
@@ -118,14 +117,12 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
         all_participants = set()
         print(f"Dev mode, only adding {user['email']} as data owner")
     all_participants.add(user["email"])
-
-    # TODO: Separate permissions
     for participant in all_participants:
         print(f"Adding {participant} as data owner and analyst")
         builder.add_participant(
             participant,
             data_owner_of=[data_node_id, metadata_node_id],
-            # Permission to run stuff:
+            # Permission to run scripts:
             analyst_of=["c1_data_dict_check", "c2_save_to_json", "c3_eda_data_profiling"],
         )
 
