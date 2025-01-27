@@ -40,6 +40,11 @@ prefix_map = [
         "prefix": "atc",
         "uri_prefix": "http://www.whocc.no/atc_ddd_index/?code=",
     },
+    {   
+        "prefix": "rxnorm",
+        "uri_prefix": "https://mor.nlm.nih.gov/RxNav/search?searchBy=RXCUI&searchTerm=",
+        "prefix_synonyms": ["RXNORM"]
+    }
 ]
 curie_converter = curies.load_extended_prefix_map(prefix_map)
 
