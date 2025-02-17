@@ -155,6 +155,35 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
             Download CSV
           </button>
         )}
+        {/* NOTE: You will need to create an API endpoint just to ddl the imgs for the cohort stats
+        If the <img> I set up dont work, then you'll need to use a fetch call
+        e.g. const response = await fetch(`${apiUrl}/cohort-stats/${cohortId}`, {credentials: 'include'});
+        You could also add "stats_available=True/False" field when sending the list of variables from the API
+        This way you only show the "Cohort stats" button for cohorts where you have stats
+        cohortsData[cohortId].stats_available to check if the stats are available
+        */}
+        <button
+          onClick={() => {document.getElementById('stats_modal')?.showModal();}}
+          className="btn btn-neutral btn-sm mb-2 hover:bg-slate-600 tooltip tooltip-right"
+          data-tip="View cohort statistics"
+        >
+          Cohort stats
+        </button>
+        <dialog id="stats_modal" className="modal">
+          <div className="modal-box max-w-5xl">
+            <h3 className="font-bold text-lg mb-4">{cohortId} Cohort Statistics</h3>
+            <img
+              // src={`${apiUrl}/cohort-stats/${cohortId}`}
+              src="/icare4cvd_logo.png"
+              alt="Cohort statistics"
+              className="w-full"
+              crossOrigin="use-credentials"
+            />
+          </div>
+          <form method="dialog" className="modal-backdrop">
+            <button>close</button>
+          </form>
+        </dialog>
         {filteredVars.length == Object.keys(cohortsData[cohortId]['variables']).length ? (
           <span className="badge badge-ghost mb-2">
             {Object.keys(cohortsData[cohortId]['variables']).length} variables

@@ -23,7 +23,8 @@ services:
       service: frontend
     volumes:
       - ./frontend/src:/app/src
-    entrypoint: pnpm dev
+    # entrypoint: pnpm dev
+    entrypoint: npm run dev
     ports:
       - 3001:3001
 
