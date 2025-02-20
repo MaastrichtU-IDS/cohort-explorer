@@ -36,101 +36,101 @@ pd.DataFrame({'In Dictionary Not in Dataset': list(in_dictionary_not_in_dataset)
 
 def c2_save_to_json(cohort_id: str) -> str:
     raw_script = """
-    import decentriq_util
-    import pandas as pd
-    import os
-    import json
+import decentriq_util
+import pandas as pd
+import os
+import json
 
-    # Load dictionary
-    dictionary = decentriq_util.read_tabular_data("/input/{cohort_id}-metadata")
+# Load dictionary
+dictionary = decentriq_util.read_tabular_data("/input/{cohort_id}-metadata")
 
-    # Clean column names to ensure uniformity
-    dictionary.columns = dictionary.columns.str.strip().str.upper()
-    dictionary['VARIABLE NAME'] = dictionary['VARIABLE NAME'].str.strip().str.lower()
-    dictionary['VAR TYPE'] = dictionary['VAR TYPE'].str.strip().str.lower()
+# Clean column names to ensure uniformity
+dictionary.columns = dictionary.columns.str.strip().str.upper()
+dictionary['VARIABLE NAME'] = dictionary['VARIABLE NAME'].str.strip().str.lower()
+dictionary['VAR TYPE'] = dictionary['VAR TYPE'].str.strip().str.lower()
 
-    # Define the pattern for entries to exclude non-categorical variables
-    include_pattern = r'\||='   # Look for strings containing either a | or =.
+# Define the pattern for entries to exclude non-categorical variables
+include_pattern = r'\||='   # Look for strings containing either a | or =.
 
-    # Exclude rows in the dictionary where the 'CATEGORICAL' column contains the defined pattern
-    categorical_dict = dictionary[dictionary['CATEGORICAL'].astype(str).str.contains(include_pattern, regex=True)]
+# Exclude rows in the dictionary where the 'CATEGORICAL' column contains the defined pattern
+categorical_dict = dictionary[dictionary['CATEGORICAL'].astype(str).str.contains(include_pattern, regex=True)]
 
-    # Prepare to extract classes and their meanings, along with MIN, MAX, and VAR TYPE
-    class_details = {}
-    numerical_details = {}
+# Prepare to extract classes and their meanings, along with MIN, MAX, and VAR TYPE
+class_details = {}
+numerical_details = {}
 
-    for index, row in dictionary.iterrows():
-        variable_name = row['VARIABLE NAME']
-        var_type = row['VAR TYPE'] if 'VAR TYPE' in dictionary.columns else None
-        categories_info = row['CATEGORICAL']
-        min_value = row['MIN'] if 'MIN' in dictionary.columns else None
-        max_value = row['MAX'] if 'MAX' in dictionary.columns else None
-        missing_key = row['MISSING'] if 'MISSING' in dictionary.columns else None
+for index, row in dictionary.iterrows():
+    variable_name = row['VARIABLE NAME']
+    var_type = row['VAR TYPE'] if 'VAR TYPE' in dictionary.columns else None
+    categories_info = row['CATEGORICAL']
+    min_value = row['MIN'] if 'MIN' in dictionary.columns else None
+    max_value = row['MAX'] if 'MAX' in dictionary.columns else None
+    missing_key = row['MISSING'] if 'MISSING' in dictionary.columns else None
 
-        if pd.notna(categories_info) and isinstance(categories_info, str) and categories_info.strip():
-            # Handle categorical variables
-            categories = [item for sublist in categories_info.split('|') for item in sublist.split(',')]
-            class_names = {}
+    if pd.notna(categories_info) and isinstance(categories_info, str) and categories_info.strip():
+        # Handle categorical variables
+        categories = [item for sublist in categories_info.split('|') for item in sublist.split(',')]
+        class_names = {}
 
-            for category in categories:
-                    key_value = category.split('=')
-                    if len(key_value) == 2:
-                        #print("inside if statement: ", variable_name, key_value)
-                        key = key_value[0].strip()
-                        value = key_value[1].strip()
-                        class_names[key] = value
-                    else:
-                        print("Encountered a possible parsing error. Check category info for variable ", variable_name, key_value)
+        for category in categories:
+                key_value = category.split('=')
+                if len(key_value) == 2:
+                    #print("inside if statement: ", variable_name, key_value)
+                    key = key_value[0].strip()
+                    value = key_value[1].strip()
+                    class_names[key] = value
+                else:
+                    print("Encountered a possible parsing error. Check category info for variable ", variable_name, key_value)
 
 
-            # Check if there is a value that corresponds to  'missing'
-            if 'missing' in class_names.values():
-                missing_key = [x[0] for x in class_names.items() if x[1].strip().lower() == 'missing'][0]
-                print("MISSING value exists for variable: ", variable_name, missing_key)
-            else:
-                print("No 'missing' value for variable ", variable_name)
-                #needed the line below, otherwise the "missing_key" will still store the value for the previous var
-                missing_key = None
-                    
-            # Save MIN, MAX, and VAR TYPE values if they exist to class_details
-            class_details[variable_name] = {
-                'categories': class_names,
+        # Check if there is a value that corresponds to  'missing'
+        if 'missing' in class_names.values():
+            missing_key = [x[0] for x in class_names.items() if x[1].strip().lower() == 'missing'][0]
+            print("MISSING value exists for variable: ", variable_name, missing_key)
+        else:
+            print("No 'missing' value for variable ", variable_name)
+            #needed the line below, otherwise the "missing_key" will still store the value for the previous var
+            missing_key = None
+                
+        # Save MIN, MAX, and VAR TYPE values if they exist to class_details
+        class_details[variable_name] = {
+            'categories': class_names,
 
-                'missing': missing_key,  # Add missing indicator if found
+            'missing': missing_key,  # Add missing indicator if found
 
-                'min': min_value if pd.notna(min_value) else None,
-                'max': max_value if pd.notna(max_value) else None,
-                'var_type': var_type if pd.notna(var_type) else None
-            }
+            'min': min_value if pd.notna(min_value) else None,
+            'max': max_value if pd.notna(max_value) else None,
+            'var_type': var_type if pd.notna(var_type) else None
+        }
 
-        elif (pd.isna(categories_info) or categories_info.strip() == '') and var_type != 'str':
-            # Handle numerical variables, if the variable has type "str" (like PatientID, the analysis does not apply to it)
-            numerical_details[variable_name] = {
-                'min': min_value if pd.notna(min_value) else None,
-                'max': max_value if pd.notna(max_value) else None,
-                'var_type': var_type if pd.notna(var_type) else None,
-                'missing': missing_key
-            }
+    elif (pd.isna(categories_info) or categories_info.strip() == '') and var_type != 'str':
+        # Handle numerical variables, if the variable has type "str" (like PatientID, the analysis does not apply to it)
+        numerical_details[variable_name] = {
+            'min': min_value if pd.notna(min_value) else None,
+            'max': max_value if pd.notna(max_value) else None,
+            'var_type': var_type if pd.notna(var_type) else None,
+            'missing': missing_key
+        }
 
-    json_dir = '/output/'
+json_dir = '/output/'
 
-    # Save categorical variables to a JSON file
-    categorical_json_path = os.path.join(json_dir, 'categorical_variables.json')
-    with open(categorical_json_path, 'w') as json_file:
-        json.dump(class_details, json_file, indent=4)
+# Save categorical variables to a JSON file
+categorical_json_path = os.path.join(json_dir, 'categorical_variables.json')
+with open(categorical_json_path, 'w') as json_file:
+    json.dump(class_details, json_file, indent=4)
 
-    # Save numerical variables to a JSON file
-    numerical_json_path = os.path.join(json_dir, 'numerical_variables.json')
-    with open(numerical_json_path, 'w') as json_file:
-        json.dump(numerical_details, json_file, indent=4)
+# Save numerical variables to a JSON file
+numerical_json_path = os.path.join(json_dir, 'numerical_variables.json')
+with open(numerical_json_path, 'w') as json_file:
+    json.dump(numerical_details, json_file, indent=4)
 
-    # Print confirmation messages and the first 5 items in a formatted way
-    #print(f"Categorical variables saved to {categorical_json_path}")
-    print(json.dumps({key: class_details[key] for key in list(class_details.keys())[:5]}, indent=4))
+# Print confirmation messages and the first 5 items in a formatted way
+#print(f"Categorical variables saved to {categorical_json_path}")
+print(json.dumps({key: class_details[key] for key in list(class_details.keys())[:5]}, indent=4))
 
-    print(f"Numerical variables saved to {numerical_json_path}")
-    print(json.dumps({key: numerical_details[key] for key in list(numerical_details.keys())[:5]}, indent=4))
-    """
+print(f"Numerical variables saved to {numerical_json_path}")
+print(json.dumps({key: numerical_details[key] for key in list(numerical_details.keys())[:5]}, indent=4))
+"""
     return raw_script.replace("{cohort_id}", cohort_id)
 
 
@@ -252,7 +252,7 @@ def variable_eda(df, categorical_vars, numerical_vars):
 
             # Get the categories mapping and normalize keys
             categories_mapping = categorical_vars[column].get("categories", [])
-            categories_mapping = {str(k): v for (k, v) in categories_mapping}
+            categories_mapping = {str(k): v for (k, v) in categories_mapping.items()}
 
             if value_counts.empty:
                 stats_text = (
@@ -343,138 +343,137 @@ def create_save_graph(df, varname, stats_text, vartype):
         plt.close()
 
 
-    def integrate_eda_with_metadata(vars_stats):
-        meta_data = decentriq_util.read_tabular_data("/input/{cohort_id}-metadata")
-        metadata_vars = [x.lower().strip() for x in meta_data['VARIABLE NAME'].values]
-        #print("vars from var_stats:", vars_stats.keys())
-        #print("vars in metadata: ", metadata_vars)
-        #print(" vars in common: ", [x for x in metadata_vars if x in vars_stats.keys()])
-        #print(" vars no stats: ", [x for x in metadata_vars if x not in vars_stats.keys()])
-        additional_cols = set()
-        for s in vars_stats.values():
-            additional_cols.update(s.keys())
-        for c in additional_cols:
-            cvals = []
-            for vname in metadata_vars:
-                if not vname in vars_stats or not c in vars_stats[vname]:
-                    cvals.append(None)
-                else:
-                    cvals.append(vars_stats[vname][c])
-            meta_data[c] =cvals
-        meta_data.to_csv("/output/meta_data_enriched.csv")
-        return meta_data
-
-
-
-    def generate_graph_file(df):
-        max_str_length = 20
-
-        def clean_name(text):
-            return re.sub(r'[^\w\s-]', '', str(text)).strip().replace(' ', '_').lower()
-
-        def get_xsd_type(value):
-            if pd.isna(value):
-                return None
-            elif isinstance(value, int):
-                return 'xsd:integer'
-            elif isinstance(value, float):
-                return 'xsd:decimal'
-            elif isinstance(value, datetime):
-                return 'xsd:dateTime'
+def integrate_eda_with_metadata(vars_stats):
+    meta_data = decentriq_util.read_tabular_data("/input/{cohort_id}-metadata")
+    metadata_vars = [x.lower().strip() for x in meta_data['VARIABLE NAME'].values]
+    #print("vars from var_stats:", vars_stats.keys())
+    #print("vars in metadata: ", metadata_vars)
+    #print(" vars in common: ", [x for x in metadata_vars if x in vars_stats.keys()])
+    #print(" vars no stats: ", [x for x in metadata_vars if x not in vars_stats.keys()])
+    additional_cols = set()
+    for s in vars_stats.values():
+        additional_cols.update(s.keys())
+    for c in additional_cols:
+        cvals = []
+        for vname in metadata_vars:
+            if not vname in vars_stats or not c in vars_stats[vname]:
+                cvals.append(None)
             else:
-                return 'xsd:string'
+                cvals.append(vars_stats[vname][c])
+        meta_data[c] =cvals
+    meta_data.to_csv("/output/meta_data_enriched.csv")
+    return meta_data
 
-        def format_value(value, xsd_type):
-            if pd.isna(value):
-                return None
-            elif xsd_type == 'xsd:decimal':
-                return f'{value:.6f}'.rstrip('0').rstrip('.')
-            elif xsd_type == 'xsd:string':
-                return f'{str(value)}'
-            elif xsd_type == 'xsd:dateTime':
-                return value.isoformat()
-            else:
-                return str(value)
 
-        domain_col_name = [x for x in df.columns if x.strip().lower() == 'domain' or x.strip().lower() == 'omop'][0]
-        with open('/output/enriched_metadata_graph.ttl', 'w', encoding='utf-8') as f:
-            # Write standard prefixes
-            f.write('@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n')
-            f.write('@prefix omop: <http://omop.org/> .\n')
+def generate_graph_file(df):
+    max_str_length = 20
+
+    def clean_name(text):
+        return re.sub(r'[^\w\s-]', '', str(text)).strip().replace(' ', '_').lower()
+
+    def get_xsd_type(value):
+        if pd.isna(value):
+            return None
+        elif isinstance(value, int):
+            return 'xsd:integer'
+        elif isinstance(value, float):
+            return 'xsd:decimal'
+        elif isinstance(value, datetime):
+            return 'xsd:dateTime'
+        else:
+            return 'xsd:string'
+
+    def format_value(value, xsd_type):
+        if pd.isna(value):
+            return None
+        elif xsd_type == 'xsd:decimal':
+            return f'{value:.6f}'.rstrip('0').rstrip('.')
+        elif xsd_type == 'xsd:string':
+            return f'{str(value)}'
+        elif xsd_type == 'xsd:dateTime':
+            return value.isoformat()
+        else:
+            return str(value)
+
+    domain_col_name = [x for x in df.columns if x.strip().lower() == 'domain' or x.strip().lower() == 'omop'][0]
+    with open('/output/enriched_metadata_graph.ttl', 'w', encoding='utf-8') as f:
+        # Write standard prefixes
+        f.write('@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .')
+        f.write('@prefix omop: <http://omop.org/> .')
+        
+        #write domain specific prefixes
+        domains = df[domain_col_name].unique()
+        for domain in domains:
+            domain_clean = clean_name(domain)
+            f.write(f'@prefix {domain_clean}: <http://omop.org/{domain_clean}/> .')
+        f.write('')
+        
+        for idx, row in df.iterrows():
+            domain = clean_name(row[domain_col_name])
+            var_name = clean_name(row['VARIABLE NAME'])
             
-            #write domain specific prefixes
-            domains = df[domain_col_name].unique()
-            for domain in domains:
-                domain_clean = clean_name(domain)
-                f.write(f'@prefix {domain_clean}: <http://omop.org/{domain_clean}/> .\n')
-            f.write('\n')
+            # Start variable definition
+            f.write(f'{domain}:{var_name}')
+            f.write(f'    a omop:{row[domain_col_name]} ;')
             
-            for idx, row in df.iterrows():
-                domain = clean_name(row[domain_col_name])
-                var_name = clean_name(row['VARIABLE NAME'])
-                
-                # Start variable definition
-                f.write(f'{domain}:{var_name}\n')
-                f.write(f'    a omop:{row[domain_col_name]} ;\n')
-                
-                # Process all columns except VARIABLE NAME and domain
-                properties = []
-                for col in df.columns:
-                    if (col in ['VARIABLE NAME', domain_col_name] or 
-                        pd.isna(row[col]) or 
-                        (type(row[col]) == str and len(row[col])>max_str_length)):
-                        continue
-                    else:
-                        value = row[col]
-                        xsd_type = get_xsd_type(value)
-                        
-                        if xsd_type is not None:
-                            formatted_value = format_value(value, xsd_type)
-                            if formatted_value is not None:
-                                # Clean column name for property
-                                prop_name = clean_name(col)
-                                
-                                # Add property with typed literal
-                                if xsd_type == 'xsd:string':
-                                    properties.append(f'    omop:{prop_name} {formatted_value}^^{xsd_type}')
-                                else:
-                                    properties.append(f'    omop:{prop_name} {formatted_value}')
-                
-                # Write all properties with proper punctuation
-                for i, prop in enumerate(properties):
-                    if i == len(properties) - 1:
-                        f.write(f'{prop} .\n\n')
-                    else:
-                        f.write(f'{prop} ;\n')
-
-        print("RDF file generated successfully!")
-
-
-
-    def generate_edgelist_graph(df):
-        max_str_length = 20
-        edges = []
-        other_cols = [col for col in df.columns if col != 'VARIABLE NAME']
-    
-        for _, row in df.iterrows():
-            source = row['VARIABLE NAME']
-            for col in other_cols:
-                target = row[col]
-                if pd.isna(target) or (type(target) == str and len(target)>max_str_length):
+            # Process all columns except VARIABLE NAME and domain
+            properties = []
+            for col in df.columns:
+                if (col in ['VARIABLE NAME', domain_col_name] or 
+                    pd.isna(row[col]) or 
+                    (type(row[col]) == str and len(row[col])>max_str_length)):
                     continue
                 else:
-                    edges.append((str(source), str(target), col))
-        with open("/output/enriched_kg.csv", 'w', encoding='utf-8') as f:
-            f.write('source,target,type\n')
-            for source, target, edge_type in edges:
-                f.write(f'{source},{target},{edge_type}\n')
-        print("Edgelist file generated successfully!")
+                    value = row[col]
+                    xsd_type = get_xsd_type(value)
+                    
+                    if xsd_type is not None:
+                        formatted_value = format_value(value, xsd_type)
+                        if formatted_value is not None:
+                            # Clean column name for property
+                            prop_name = clean_name(col)
+                            
+                            # Add property with typed literal
+                            if xsd_type == 'xsd:string':
+                                properties.append(f'    omop:{prop_name} {formatted_value}^^{xsd_type}')
+                            else:
+                                properties.append(f'    omop:{prop_name} {formatted_value}')
+            
+            # Write all properties with proper punctuation
+            for i, prop in enumerate(properties):
+                if i == len(properties) - 1:
+                    f.write(f'{prop} .')
+                else:
+                    f.write(f'{prop} ;')
+
+    print("RDF file generated successfully!")
 
 
 
-    vars_to_stats = variable_eda(data, categorical_vars, numerical_vars)
-    meta_data_enriched = integrate_eda_with_metadata(vars_to_stats)
-    generate_graph_file(meta_data_enriched)
-    generate_edgelist_graph(meta_data_enriched)
-    """
-    return raw_script.replace("{cohort-id}", cohort_id)
+def generate_edgelist_graph(df):
+    max_str_length = 20
+    edges = []
+    other_cols = [col for col in df.columns if col != 'VARIABLE NAME']
+
+    for _, row in df.iterrows():
+        source = row['VARIABLE NAME']
+        for col in other_cols:
+            target = row[col]
+            if pd.isna(target) or (type(target) == str and len(target)>max_str_length):
+                continue
+            else:
+                edges.append((str(source), str(target), col))
+    with open("/output/enriched_kg.csv", 'w', encoding='utf-8') as f:
+        f.write('source,target,type')
+        for source, target, edge_type in edges:
+            f.write(f'{source},{target},{edge_type}')
+    print("Edgelist file generated successfully!")
+
+
+
+vars_to_stats = variable_eda(data, categorical_vars, numerical_vars)
+meta_data_enriched = integrate_eda_with_metadata(vars_to_stats)
+generate_graph_file(meta_data_enriched)
+generate_edgelist_graph(meta_data_enriched)
+"""
+    return raw_script.replace("{cohort_id}", cohort_id)
