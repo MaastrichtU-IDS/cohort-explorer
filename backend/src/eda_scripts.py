@@ -2,18 +2,18 @@
 
 
 def c1_data_dict_check(cohort_id: str) -> str:
-    return f"""
+    return """
 import pandas as pd
 import decentriq_util
 
 # Load the metadata dictionary
-dictionary_df = decentriq_util.read_tabular_data("/input/{cohort_id}-metadata")
+dictionary_df = decentriq_util.read_tabular_data(f"/input/{cohort_id}-metadata")
 
 # Load the dataset
 try:
-    dataset_df = pd.read_spss("/input/{cohort_id}")
+    dataset_df = pd.read_spss(f"/input/{cohort_id}")
 except Exception as e:
-    dataset_df = decentriq_util.read_tabular_data("/input/{cohort_id}")
+    dataset_df = decentriq_util.read_tabular_data(f"/input/{cohort_id}")
 
 # Validate that the dictionary file contains the 'VARIABLE NAME' column
 if 'VARIABLE NAME' not in dictionary_df.columns:
@@ -34,14 +34,14 @@ pd.DataFrame({{'In Dictionary Not in Dataset': list(in_dictionary_not_in_dataset
 
 
 def c2_save_to_json(cohort_id: str) -> str:
-    return f"""
+    return """
 import decentriq_util
 import pandas as pd
 import os
 import json
 
 # Load dictionary
-dictionary = decentriq_util.read_tabular_data("/input/TIME-CHF-metadata")
+dictionary = decentriq_util.read_tabular_data(f"/input/{cohort_id}-metadata")
 
 # Clean column names to ensure uniformity
 dictionary.columns = dictionary.columns.str.strip().str.upper()
@@ -132,7 +132,7 @@ print(json.dumps({key: numerical_details[key] for key in list(numerical_details.
 
 
 def c3_map_missing_do_not_run(cohort_id: str) -> str:
-    return f"""
+    return """
 import decentriq_util
 import pandas as pd
 import json
@@ -146,7 +146,7 @@ numerical_data = pd.read_json("/input/C2_Save_to_JSON/numerical_variables.json")
 
 
 # Step 2: Load the dataset
-df = pd.read_spss("/input/{cohort_id}_dataset")
+df = pd.read_spss(f"/input/{cohort_id}_dataset")
 
 # Step 3: Normalize column names in the dataset to lowercase to match JSON keys
 df.columns = df.columns.str.lower()  # Convert column names to lowercase for consistency
@@ -275,7 +275,7 @@ categorical_vars = pd.read_json("/input/c2_save_to_json/categorical_variables.js
 print("the categorical data: ", categorical_vars.keys())
 numerical_vars = pd.read_json("/input/c2_save_to_json/numerical_variables.json")
 #print("the numerical data: ", numerical_vars)
-data = decentriq_util.read_tabular_data("/input/TIME-CHF")
+data = decentriq_util.read_tabular_data(f"/input/{cohort_id}")
 #print(data)
 
 #variables that should be graphed

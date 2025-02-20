@@ -18,6 +18,7 @@ from src.config import settings
 from src.eda_scripts import c1_data_dict_check, c2_save_to_json, c3_eda_data_profiling, c3_map_missing_do_not_run
 from src.models import Cohort
 from src.utils import retrieve_cohorts_metadata
+from datetime import datetime
 
 router = APIRouter()
 
@@ -335,3 +336,22 @@ async def api_get_compute_dcr_definition(
     # return dcr_definition.model_dump_json(by_alias=True)
     # return json.dumps(dcr_definition.high_level)
     return dcr_definition.high_level
+
+
+@router.get("/dcr-log/{dcr_id}", 
+            name = "display the log file of the specified DCR")
+def get_dcr_log(dcr_id: str,  user: Any = Depends(get_current_user)):
+    print("now inside get-dcr-log!!!")
+    #id = "d2b060860906f94bce726a6cba3d948e236386359956c47cdc2dc477bbe199ee"
+    client = dq.create_client(settings.decentriq_email, settings.decentriq_token)
+    dcr = client.retrieve_analytics_dcr(dcr_id)
+    log = dcr.retrieve_audit_log()
+    events = [x for x in log.split("\n") if x.strip() != ""]
+    print(events)
+    events_j = [{"timestamp": datetime.fromtimestamp(int(x.split(",")[0])/1000),
+                  "user": x.split(",")[1], 
+                  "desc": " - ".join(x.split(",")[2:])} for x in events]
+    #return log.replace('\\n', '\n\n\n')
+    #formatted_log = pformat(events_j, indent=2, width=80)
+    #return formatted_log
+    return events_j

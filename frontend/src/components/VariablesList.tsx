@@ -163,12 +163,15 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
         cohortsData[cohortId].stats_available to check if the stats are available
         */}
         <button
-          onClick={() => {document.getElementById('stats_modal')?.showModal();}}
-          className="btn btn-neutral btn-sm mb-2 hover:bg-slate-600 tooltip tooltip-right"
-          data-tip="View cohort statistics"
+        onClick={() => {
+          const modal = document.getElementById('stats_modal') as HTMLDialogElement;
+          modal?.showModal();
+        }}
+        className="btn btn-neutral btn-sm mb-2 hover:bg-slate-600 tooltip tooltip-right"
+        data-tip="View cohort statistics"
         >
-          Cohort stats
-        </button>
+        Cohort stats
+       </button>
         <dialog id="stats_modal" className="modal">
           <div className="modal-box max-w-5xl">
             <h3 className="font-bold text-lg mb-4">{cohortId} Cohort Statistics</h3>
