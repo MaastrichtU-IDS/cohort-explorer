@@ -2,6 +2,7 @@ import React, {useState, useMemo} from 'react';
 import {useCohorts} from '@/components/CohortsContext';
 import AutocompleteConcept from '@/components/AutocompleteConcept';
 import FilterByMetadata from '@/components/FilterByMetadata';
+import VariableGraphModal from '@/components/VariableGraphModal';
 import {InfoIcon} from '@/components/Icons';
 import {Concept, Variable} from '@/types';
 import {apiUrl} from '@/utils';
@@ -13,6 +14,7 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
   const [includeCategorical, setIncludeCategorical] = useState(true);
   const [includeNonCategorical, setIncludeNonCategorical] = useState(true);
   const [openedModal, setOpenedModal] = useState('');
+  const [openedGraphModal, setOpenedGraphModal] = useState<string | null>(null);
 
   // When concept is selected, insert the triples into the database
   const handleConceptSelect = (varId: any, concept: Concept, categoryId: any = null) => {
@@ -115,6 +117,11 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
+  };
+
+
+  const handleCloseGraphModal = () => {
+    setOpenedGraphModal(null);
   };
 
   // Function to count filtered vars based on filter type
@@ -275,6 +282,18 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
                       <InfoIcon />
                     </button>
                     {/* <div className="grow"></div> */}
+                    <button
+                      className="btn-sm hover:bg-base-300 rounded-lg"
+                      onClick={() => {
+                        setOpenedGraphModal(variable.var_name);
+                        setTimeout(() => {
+                          const modal = document.getElementById(`graph_modal_${cohortId}_${variable.var_name}`) as HTMLDialogElement;
+                          if (modal) modal.showModal();
+                        }, 0);
+                      }}
+                    >
+                      📊
+                    </button>
                   </div>
                   {!dataCleanRoom.cohorts[cohortId]?.includes(variable.var_name) ? (
                     <button
@@ -379,6 +398,22 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
                   </dialog>
                 )}
 
+
+                {/* Variable info modal */}
+                {openedModal === variable.var_name && (
+                  <dialog id={`source_modal_${cohortId}_${variable.var_name}`} className="modal">
+                    {/* ... existing modal content ... */}
+                  </dialog>
+                )}
+                
+                {/* Graph modal - now using the separate component */}
+                <VariableGraphModal
+                  isOpen={openedGraphModal === variable.var_name}
+                  cohortId={cohortId}
+                  variableName={variable.var_name}
+                  variableLabel={variable.var_label}
+                  onClose={handleCloseGraphModal}
+                />
                 {/* <div className='flex-grow'/>
                   <AutocompleteConcept
                     query={variable.var_label}
