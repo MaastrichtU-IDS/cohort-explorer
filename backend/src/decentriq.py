@@ -1,6 +1,8 @@
+import csv
 import json
 from copy import deepcopy
 from typing import Any
+import os
 
 import decentriq_platform as dq
 from decentriq_platform.analytics import (
@@ -355,3 +357,41 @@ def get_dcr_log(dcr_id: str,  user: Any = Depends(get_current_user)):
     #formatted_log = pformat(events_j, indent=2, width=80)
     #return formatted_log
     return events_j
+
+
+@router.get("/compute-get-output/{dcr_id}", 
+            name = "run the scripts for a given DCR and download the output")
+def run_computation_get_output(dcr_id: str,  user: Any = Depends(get_current_user)):
+    #example id = "9e2715f4b32a646d2da3d8952b7fa7ca48537ee6731627417f735d15fa17d4f6"
+    client = dq.create_client(settings.decentriq_email, settings.decentriq_token)
+    dcr = client.retrieve_analytics_dcr(dcr_id)
+    cohort_id = dcr.node_definitions[0].name.strip()
+    c2_node = dcr.get_node("c2_save_to_json") 
+    c2_node.run_computation()
+    c3_node = dcr.get_node("c3_eda_data_profiling")
+    result = c3_node.run_computation_and_get_results_as_zip()
+    #timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    storage_dir = f"/data/dcr_output_{cohort_id}"
+
+    data_to_log = {"DCR_id": dcr_id, 
+                   "user": settings.decentriq_email,
+                   "cohort_id": cohort_id,  "datetime": datetime.now(),
+                   "storage_directory": os.path.abspath(storage_dir)}
+    print("Compute evet: ", data_to_log)
+
+    compute_events_log = "/data/dcr_computations.csv"
+    if not os.path.exists(compute_events_log):
+        print(f"Note: The file '{compute_events_log}' does not exist.")
+    else:
+        # Append to the existing file
+        with open(compute_events_log, 'a', newline='') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=data_to_log.keys())
+            writer.writerow(data_to_log)
+            
+
+    #print("Full path of storage directory: ", storage_dir.resolve())
+    os.makedirs(storage_dir, mode=0o777, exist_ok=True)
+    result.extractall(str(storage_dir))
+    os.sync()
+        
+    return {"status": "success", "saved_path": str(storage_dir)}

@@ -145,6 +145,7 @@ import warnings
 import decentriq_util
 import re
 from datetime import datetime
+import json
 warnings.filterwarnings('ignore')
 
 
@@ -221,7 +222,9 @@ def variable_eda(df, categorical_vars, numerical_vars):
 
             # Stats Text
             stats_text = (
-                f"Count:               {stats['count']}",
+                f"Column: {column}",
+                f"Number of non-null observations: {int(stats['count'])}",
+                f"Number of Unique Values/Categories: {df[column].nunique()}",
                 f"Mean:                {stats['mean']:.2f}",
                 f"Median:              {stats['50%']:.2f}",
                 f"Mode:                {mode_value:.2f}",
@@ -247,6 +250,7 @@ def variable_eda(df, categorical_vars, numerical_vars):
 
         # Categorical variables
         elif column in categorical_vars.keys():
+            stats = df[column].describe()
             value_counts = df[column].value_counts(dropna=False)
             total = len(df)
 
@@ -256,7 +260,7 @@ def variable_eda(df, categorical_vars, numerical_vars):
 
             if value_counts.empty:
                 stats_text = (
-                    f"Variabl: {column}",
+                    f"Column: {column}",
                     f"Number of Unique Categories: 0",
                     f"Missing Values: {df[column].isnull().sum()} ({df[column].isnull().mean() * 100:.2f}%)"
                 )
@@ -267,18 +271,19 @@ def variable_eda(df, categorical_vars, numerical_vars):
 
                 # Class balance with corrected mapping
                 class_balance_text = " - ".join([
-                    f"{categories_mapping.get(str(key), 'Unknown')}:  {round(count / total * 100)}%"
+                    f"{(key, categories_mapping.get(str(key), 'Unknown'))} -> {round(count / total * 100)}%"
                     for key, count in value_counts.items()
                 ])
 
                 stats_text = (
                     f"Column: {column}",
-                    f"Number of Unique Categories: {len(value_counts)}",
+                    f"Number of Unique Values/Categories: {len(value_counts)}",
                     f"Most Frequent Category: {categories_mapping.get(str(value_counts.idxmax()).split('.')[0], 'Unknown')} ",
-                    f"Number of observations: {value_counts.sum()}",
-                    f"Missing Values: {df[column].isnull().sum()} ({df[column].isnull().mean() * 100:.2f}%)",
+                    f"Number of non-null observations: {df[column].count()}",
+                    f"Missing: {df[column].isnull().sum()} ({df[column].isnull().mean() * 100:.2f}%)",
                     f"Class Balance: {class_balance_text}",
-                    f"Chi-Square Test Statistic: {chi_square_stat:.2f}"
+                    f"Chi-Square Test Statistic: {chi_square_stat:.2f}",
+                    f"Data Type:           {df[column].dtype}"
                 )
 
             if column in vars_to_graph:
@@ -291,22 +296,27 @@ def variable_eda(df, categorical_vars, numerical_vars):
 
 
 def create_save_graph(df, varname, stats_text, vartype):
-
     if vartype == 'numerical':
-        fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+        fig, axes = plt.subplots(1, 2, figsize=(12, 6))
 
         # Left: Display Summary Stats
-        axes[0].text(0.05, 0.9, stats_text, fontsize=10, va='top', ha='left', linespacing=1.2, family='monospace', wrap=True)
+
+        props = dict(boxstyle="round,pad=0.5", facecolor="whitesmoke", alpha=0.8, edgecolor="lightgray")
+        text_obj = axes[0].text(0.05, 0.95, '\\n'.join(stats_text), transform=axes[0].transAxes, fontsize=11, va='top', ha='left', 
+        family='monospace',  bbox=props, wrap=True, linespacing=1.5)
+        if hasattr(text_obj, "_get_wrap_line_width"):
+            text_obj._get_wrap_line_width = lambda: 400
+        #axes[0].text(0.05, 0.9, , fontsize=10, va='top', ha='left', linespacing=1.2, family='monospace', wrap=True)
         axes[0].axis("off")
 
         # Right: Plot histogram
         sns.histplot(df[varname].dropna(), kde=True, ax=axes[1])
-        axes[1].set_title(f"Histogram for {varname}")
+        axes[0].set_title(f"Statistics Summary for {varname}", fontsize=12)
         axes[1].tick_params(axis='x')
 
         # Save the figure for the current feature
         plt.tight_layout()
-        plt.savefig(f"/output/eda_numerical_{varname}.png")
+        plt.savefig(f"/output/{varname.lower()}.png")
         print(f"figure for {varname} saved!! ")
         plt.close()
 
@@ -314,17 +324,23 @@ def create_save_graph(df, varname, stats_text, vartype):
 
         value_counts = df[varname].value_counts(dropna=False)
         total = len(df)
-        fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+        fig, axes = plt.subplots(1, 2, figsize=(12, 6))
 
         # Summary stats text
-        axes[0].text(0.1, 0.5, stats_text, fontsize=10, va='center', ha='left', family='monospace', wrap=True)
+        props = dict(boxstyle="round,pad=0.5", facecolor="whitesmoke", alpha=0.8, edgecolor="lightgray")
+        text_obj = axes[0].text(0.05, 0.95, '\\n'.join(stats_text), transform=axes[0].transAxes, fontsize=11, va='top', ha='left', 
+        family='monospace', bbox=props, wrap=True, linespacing=1.5)
+        if hasattr(text_obj, "_get_wrap_line_width"):
+            text_obj._get_wrap_line_width = lambda: 400
+        #axes[0].text(0.1, 0.5, stats_text, fontsize=10, va='center', ha='left', family='monospace', wrap=True)
+        
         axes[0].axis("off")
 
         # Bar chart
         if not value_counts.empty:
             colors = sns.color_palette("husl", len(value_counts))
             ax = value_counts.plot(kind='bar', color=colors, edgecolor='black', ax=axes[1])
-            ax.set_title(f"Distribution in {varname}")
+            axes[0].set_title(f"Statistics Summary for {varname}", fontsize=12)
             ax.set_xlabel("Categories")
             ax.set_ylabel("Count")
 
@@ -338,7 +354,7 @@ def create_save_graph(df, varname, stats_text, vartype):
             ax.set_xticklabels(value_counts.index.astype(str), rotation=0, fontsize=10)
 
         plt.tight_layout()
-        plt.savefig(f"/output/eda_categorical_{varname}.png")
+        plt.savefig(f"/output/{varname.lower()}.png")
         print(f"figure for {varname} saved!! ")
         plt.close()
 
@@ -365,115 +381,21 @@ def integrate_eda_with_metadata(vars_stats):
     return meta_data
 
 
-def generate_graph_file(df):
-    max_str_length = 20
-
-    def clean_name(text):
-        return re.sub(r'[^\w\s-]', '', str(text)).strip().replace(' ', '_').lower()
-
-    def get_xsd_type(value):
-        if pd.isna(value):
-            return None
-        elif isinstance(value, int):
-            return 'xsd:integer'
-        elif isinstance(value, float):
-            return 'xsd:decimal'
-        elif isinstance(value, datetime):
-            return 'xsd:dateTime'
-        else:
-            return 'xsd:string'
-
-    def format_value(value, xsd_type):
-        if pd.isna(value):
-            return None
-        elif xsd_type == 'xsd:decimal':
-            return f'{value:.6f}'.rstrip('0').rstrip('.')
-        elif xsd_type == 'xsd:string':
-            return f'{str(value)}'
-        elif xsd_type == 'xsd:dateTime':
-            return value.isoformat()
-        else:
-            return str(value)
-
-    domain_col_name = [x for x in df.columns if x.strip().lower() == 'domain' or x.strip().lower() == 'omop'][0]
-    with open('/output/enriched_metadata_graph.ttl', 'w', encoding='utf-8') as f:
-        # Write standard prefixes
-        f.write('@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .')
-        f.write('@prefix omop: <http://omop.org/> .')
-        
-        #write domain specific prefixes
-        domains = df[domain_col_name].unique()
-        for domain in domains:
-            domain_clean = clean_name(domain)
-            f.write(f'@prefix {domain_clean}: <http://omop.org/{domain_clean}/> .')
-        f.write('')
-        
-        for idx, row in df.iterrows():
-            domain = clean_name(row[domain_col_name])
-            var_name = clean_name(row['VARIABLE NAME'])
-            
-            # Start variable definition
-            f.write(f'{domain}:{var_name}')
-            f.write(f'    a omop:{row[domain_col_name]} ;')
-            
-            # Process all columns except VARIABLE NAME and domain
-            properties = []
-            for col in df.columns:
-                if (col in ['VARIABLE NAME', domain_col_name] or 
-                    pd.isna(row[col]) or 
-                    (type(row[col]) == str and len(row[col])>max_str_length)):
-                    continue
-                else:
-                    value = row[col]
-                    xsd_type = get_xsd_type(value)
-                    
-                    if xsd_type is not None:
-                        formatted_value = format_value(value, xsd_type)
-                        if formatted_value is not None:
-                            # Clean column name for property
-                            prop_name = clean_name(col)
-                            
-                            # Add property with typed literal
-                            if xsd_type == 'xsd:string':
-                                properties.append(f'    omop:{prop_name} {formatted_value}^^{xsd_type}')
-                            else:
-                                properties.append(f'    omop:{prop_name} {formatted_value}')
-            
-            # Write all properties with proper punctuation
-            for i, prop in enumerate(properties):
-                if i == len(properties) - 1:
-                    f.write(f'{prop} .')
-                else:
-                    f.write(f'{prop} ;')
-
-    print("RDF file generated successfully!")
-
-
-
-def generate_edgelist_graph(df):
-    max_str_length = 20
-    edges = []
-    other_cols = [col for col in df.columns if col != 'VARIABLE NAME']
-
+def dataframe_to_json_dicts(df):
+    json_dicts = {}
     for _, row in df.iterrows():
-        source = row['VARIABLE NAME']
-        for col in other_cols:
-            target = row[col]
-            if pd.isna(target) or (type(target) == str and len(target)>max_str_length):
-                continue
-            else:
-                edges.append((str(source), str(target), col))
-    with open("/output/enriched_kg.csv", 'w', encoding='utf-8') as f:
-        f.write('source,target,type')
-        for source, target, edge_type in edges:
-            f.write(f'{source},{target},{edge_type}')
-    print("Edgelist file generated successfully!")
-
+        variable_name = row['VARIABLE NAME']
+        var_dict = {}
+        for col in df.columns:
+            if col not in ['VARIABLE NAME', 'Column'] and pd.notna(row[col]) and row[col] != "":
+                var_dict[col] = row[col]
+        json_dicts[variable_name] = var_dict
+    with open("/output/eda_output_{cohort_id}.json", 'w', encoding='utf-8') as f:
+        json.dump(json_dicts, f, indent=4)
 
 
 vars_to_stats = variable_eda(data, categorical_vars, numerical_vars)
 meta_data_enriched = integrate_eda_with_metadata(vars_to_stats)
-generate_graph_file(meta_data_enriched)
-generate_edgelist_graph(meta_data_enriched)
+json_dicts = dataframe_to_json_dicts(meta_data_enriched)
 """
     return raw_script.replace("{cohort_id}", cohort_id)

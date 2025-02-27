@@ -9,7 +9,7 @@ export default function handler(req, res) {
   
   // Construct the path to the image file
   const cwd = process.cwd();
-  const imagePath = path.join(cwd, 'public', 'graphs', cohortId, `${variableName}.png`);
+  const imagePath = path.join('/data', `dcr_output_${cohortId}`, `${variableName.toLowerCase()}.png`);
   
   console.log('Looking for image at:', imagePath);
   console.log('File exists?', fs.existsSync(imagePath));
@@ -21,24 +21,6 @@ export default function handler(req, res) {
       res.setHeader('Content-Type', 'image/png');
       return res.send(imageBuffer);
     } else {
-      // If the file doesn't exist, check the directory contents to help debugging
-      const graphsDir = path.join(cwd, 'public', 'graphs');
-      const cohortDir = path.join(graphsDir, cohortId);
-      
-      console.log('Current working directory:', cwd);
-      
-      if (fs.existsSync(graphsDir)) {
-        console.log('Graphs directory exists, contents:', fs.readdirSync(graphsDir));
-      } else {
-        console.log('Graphs directory does not exist at:', graphsDir);
-      }
-      
-      if (fs.existsSync(cohortDir)) {
-        console.log('Cohort directory exists, contents:', fs.readdirSync(cohortDir));
-      } else {
-        console.log('Cohort directory does not exist at:', cohortDir);
-      }
-      
       // Return 404 with debugging information
       return res.status(404).json({
         error: 'Image not found',
