@@ -169,7 +169,7 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
         This way you only show the "Cohort stats" button for cohorts where you have stats
         cohortsData[cohortId].stats_available to check if the stats are available
         */}
-        <button
+        {/*<button  //we will add this button back when we have a ready knowledge graph 
         onClick={() => {
           const modal = document.getElementById('stats_modal') as HTMLDialogElement;
           modal?.showModal();
@@ -178,7 +178,7 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
         data-tip="View cohort statistics"
         >
         Cohort stats
-       </button>
+       </button> */}
         <dialog id="stats_modal" className="modal">
           <div className="modal-box max-w-5xl">
             <h3 className="font-bold text-lg mb-4">{cohortId} Cohort Statistics</h3>
@@ -395,14 +395,6 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
                     <form method="dialog" className="modal-backdrop">
                       <button>close</button>
                     </form>
-                  </dialog>
-                )}
-
-
-                {/* Variable info modal */}
-                {openedModal === variable.var_name && (
-                  <dialog id={`source_modal_${cohortId}_${variable.var_name}`} className="modal">
-                    {/* ... existing modal content ... */}
                   </dialog>
                 )}
                 

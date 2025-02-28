@@ -359,6 +359,15 @@ def get_dcr_log(dcr_id: str,  user: Any = Depends(get_current_user)):
     return events_j
 
 
+
+@router.get("/dcr-log-main/{dcr_id}", 
+            name = "display the main events in the log file of the specified DCR (excludes log fetching events)")
+def get_dcr_log(dcr_id: str,  user: Any = Depends(get_current_user)):
+    all_events = get_dcr_log(dcr_id, user)
+    main_events = [e for e in all_events if e['desc'].find("log has been retrieved") == -1]
+    return main_events
+
+
 @router.get("/compute-get-output/{dcr_id}", 
             name = "run the scripts for a given DCR and download the output")
 def run_computation_get_output(dcr_id: str,  user: Any = Depends(get_current_user)):
