@@ -4,4 +4,4 @@ cd backend
 hatch run fmt
 
 cd ../frontend
-pnpm fmt
+npm run fmt

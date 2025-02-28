@@ -15,9 +15,46 @@ ICARE = Namespace("https://w3id.org/icare4cvd/")
 query_endpoint = SPARQLWrapper(settings.query_endpoint)
 query_endpoint.setReturnFormat(JSON)
 
-# https://biopragmatics.github.io/curies.rs/getting-started/#modifying-a-context
-converter = curies.get_bioregistry_converter()
-converter.add_prefix("icare", str(ICARE))
+# CURIES converter docs: https://curies.readthedocs.io/en/latest/
+# Using URIs from from https://bioregistry.io/
+prefix_map = [
+    {
+        "prefix": "snomedct",
+        "uri_prefix": "http://snomed.info/id/",
+        "prefix_synonyms": ["snomed", "SNOMED"],
+    },
+    {
+        "prefix": "loinc",
+        "uri_prefix": "http://loinc.org/rdf/",
+        "prefix_synonyms": ["LOINC"],
+    },
+    {
+        "prefix": "icare",
+        "uri_prefix": str(ICARE),
+    },
+    {
+        "prefix": "icd10",
+        "uri_prefix": "https://icd.who.int/browse10/2019/en#/",
+    },
+    {
+        "prefix": "atc",
+        "uri_prefix": "http://www.whocc.no/atc_ddd_index/?code=",
+    },
+    {   
+        "prefix": "rxnorm",
+        "uri_prefix": "https://mor.nlm.nih.gov/RxNav/search?searchBy=RXCUI&searchTerm=",
+        "prefix_synonyms": ["RXNORM"]
+    },
+    {
+        "prefix": "cdisc",
+        "uri_prefix": "https://www.cdisc.org/search?search_api_fulltext="
+    }
+]
+curie_converter = curies.load_extended_prefix_map(prefix_map)
+
+# Old way to do it using the predefined bioregistry:
+# curie_converter = curies.get_bioregistry_converter()
+# curie_converter.add_prefix("icare", str(ICARE))
 
 def init_graph(default_graph: str | None = None) -> Dataset:
     """Initialize a new RDF graph for nquads with the iCARE4CVD namespace bindings."""
@@ -117,7 +154,7 @@ def get_bool_value(key: str, row: dict[str, Any]) -> bool:
 
 
 def get_curie_value(key: str, row: dict[str, Any]) -> int | None:
-    return converter.compress(get_value(key, row)) if get_value(key, row) else None
+    return curie_converter.compress(get_value(key, row)) if get_value(key, row) else None
 
 
 def retrieve_cohorts_metadata(user_email: str) -> dict[str, Cohort]:

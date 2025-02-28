@@ -1,0 +1,23 @@
+
+# [project]
+# name = "whatever"
+
+[tool.uv]
+package = false
+
+# https://docs.astral.sh/uv/concepts/projects/workspaces
+[tool.uv.workspace]
+members = ["backend"]
+
+# [dependency-groups]
+# dev = [
+#     "pytest",
+#     "pytest-cov",
+#     "ruff",
+#     "mypy",
+#     "pyright",
+#     "SPARQLWrapper",
+#     "ipykernel",
+#     "python-dotenv",
+#     "pandas",
+# ]

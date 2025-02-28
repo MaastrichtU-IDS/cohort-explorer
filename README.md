@@ -76,7 +76,9 @@ This platform is composed of 3 main components:
 
 ### ⚡ Start for development
 
-Requirements: [Docker](https://docs.docker.com/engine/install/)
+### 🐳 Dev with docker (easiest)
+
+Requirements: [Docker](https://docs.docker.com/engine/install/). Optionally [uv](https://docs.astral.sh/uv/) for better IDE autocompletion in the python code.
 
 1. Create a `.env` file with the secret configuration at the root of the repository (ask admins for the client ID and secret, and retrieve you Decentriq token from decentriq):
 
@@ -104,6 +106,14 @@ Requirements: [Docker](https://docs.docker.com/engine/install/)
     docker compose up
     ```
 
+> [!TIP]
+>
+> When running in Docker we recommend to also install the python dependencies locally to get proper autocompletion in your IDE:
+>
+> ```sh
+> uv sync
+> ```
+
 > [!IMPORTANT]
 >
 > For the authentication to the Decentriq OAuth provider to work you need to deploy the backend on <http://localhost:3000>
@@ -112,31 +122,31 @@ Requirements: [Docker](https://docs.docker.com/engine/install/)
 >
 > In development the user requesting a DCR will be added to as data owner of all cohorts dataset requested for development purpose (so they can provision the data themselves, and to avoid spamming emails owners when developing)
 
-> [!TIP]
->
-> Alternatively you can start the different component in in different terminals outside of docker. For this, put the `.env` file in the `backend` folder
->
-> Start the database with docker:
->
-> ```bash
-> docker compose up db
-> ```
->
-> In a different terminal, start the backend with [uv](https://docs.astral.sh/uv/):
->
-> ```bash
-> cd backend
-> DEV_MODE=true uv run uvicorn src.main:app --port 3000 --reload
-> ```
->
-> In another terminal, start the frontend with [pnpm](https://pnpm.io/installation):
->
-> ```bash
-> cd frontend
-> pnpm install
-> pnpm dev
-> ```
->
+#### Dev outside of docker
+
+Alternatively you can start the different component in in different terminals outside of docker. For this, put the `.env` file in the `backend` folder
+
+Start the database with docker:
+
+```bash
+docker compose up db
+```
+
+In a different terminal, start the backend with [uv](https://docs.astral.sh/uv/):
+
+```bash
+cd backend
+DEV_MODE=true uv run uvicorn src.main:app --port 3000 --reload
+```
+
+In another terminal, start the frontend with [pnpm](https://pnpm.io/installation):
+
+```bash
+cd frontend
+pnpm install
+pnpm dev
+```
+
 
 ### 🧹 Code formatting and linting
 
@@ -162,7 +172,7 @@ cd frontend
 pnpm up --latest
 ```
 
-## 🐳 Deploy
+## 🐳 Deploy in production
 
 Deploy on a server in production with docker compose.
 
