@@ -44,6 +44,10 @@ prefix_map = [
         "prefix": "rxnorm",
         "uri_prefix": "https://mor.nlm.nih.gov/RxNav/search?searchBy=RXCUI&searchTerm=",
         "prefix_synonyms": ["RXNORM"]
+    },
+    {
+        "prefix": "cdisc",
+        "uri_prefix": "https://www.cdisc.org/search?search_api_fulltext="
     }
 ]
 curie_converter = curies.load_extended_prefix_map(prefix_map)

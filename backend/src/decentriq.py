@@ -63,7 +63,7 @@ metadatadict_cols = [
     Column(name="Additional Context Concept ID", format_type=FormatType.STRING, is_nullable=True),
     Column(name="Additional Context OMOP ID", format_type=FormatType.STRING, is_nullable=True),
     Column(name="Unit Concept Name", format_type=FormatType.STRING, is_nullable=True),
-    Column(name="Unit Concept Code", format_type=FormatType.INTEGER, is_nullable=True),
+    Column(name="Unit Concept Code", format_type=FormatType.STRING, is_nullable=True),
     Column(name="Unit OMOP ID", format_type=FormatType.INTEGER, is_nullable=True),
     Column(name="OMOP", format_type=FormatType.STRING, is_nullable=True),
     Column(name="Visits ", format_type=FormatType.STRING, is_nullable=True),
@@ -362,7 +362,7 @@ def get_dcr_log(dcr_id: str,  user: Any = Depends(get_current_user)):
 
 @router.get("/dcr-log-main/{dcr_id}", 
             name = "display the main events in the log file of the specified DCR (excludes log fetching events)")
-def get_dcr_log(dcr_id: str,  user: Any = Depends(get_current_user)):
+def get_dcr_log_main(dcr_id: str,  user: Any = Depends(get_current_user)):
     all_events = get_dcr_log(dcr_id, user)
     main_events = [e for e in all_events if e['desc'].find("log has been retrieved") == -1]
     return main_events

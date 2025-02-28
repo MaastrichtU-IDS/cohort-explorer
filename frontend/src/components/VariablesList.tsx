@@ -169,7 +169,7 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
         This way you only show the "Cohort stats" button for cohorts where you have stats
         cohortsData[cohortId].stats_available to check if the stats are available
         */}
-        {/*<button  //we will add this button back when we have a ready knowledge graph 
+        {/*<button
         onClick={() => {
           const modal = document.getElementById('stats_modal') as HTMLDialogElement;
           modal?.showModal();
@@ -397,7 +397,9 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
                     </form>
                   </dialog>
                 )}
-                
+
+
+               
                 {/* Graph modal - now using the separate component */}
                 <VariableGraphModal
                   isOpen={openedGraphModal === variable.var_name}
