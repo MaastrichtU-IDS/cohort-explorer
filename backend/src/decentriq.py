@@ -49,9 +49,8 @@ metadatadict_cols = [
     Column(name="MISSING", format_type=FormatType.STRING, is_nullable=True),
     Column(name="COUNT", format_type=FormatType.INTEGER, is_nullable=True),
     Column(name="NA", format_type=FormatType.INTEGER, is_nullable=True),
-    Column(name="MIN", format_type=FormatType.FLOAT, is_nullable=True),
-    Column(name="MAX", format_type=FormatType.FLOAT, is_nullable=True),
-    Column(name="Definition", format_type=FormatType.STRING, is_nullable=True),
+    #Column(name="MIN", format_type=FormatType.FLOAT, is_nullable=True),
+    #Column(name="MAX", format_type=FormatType.FLOAT, is_nullable=True),
     Column(name="Formula", format_type=FormatType.INTEGER, is_nullable=True),
     Column(name="Categorical Value Concept Code", format_type=FormatType.STRING, is_nullable=True),
     Column(name="Categorical Value Name", format_type=FormatType.STRING, is_nullable=True),
@@ -137,6 +136,21 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
     # Now the DCR has been created we can upload the metadata file and run computations
     key = dq.Key()  # generate an encryption key with which to encrypt the dataset
     metadata_node = dcr.get_node(metadata_node_id)
+
+    
+    with open(cohort.metadata_filepath, 'r') as file:
+        header = next(file)
+        if header.lower().startswith("var"):
+            csv_reader = csv.reader(file)
+            data = list(csv_reader)
+            file_path_without_header = (cohort.metadata_filepath.split(".")[0] + 
+                                        "_headerRemoved" + cohort.metadata_filepath.split(".")[1])
+            with open(file_path_without_header, 'w', newline='') as output_file:
+                csv_writer = csv.writer(output_file)
+                csv_writer.writerows(data)
+        else:
+            file_path_without_header = cohort.metadata_filepath
+
     with open(cohort.metadata_filepath, "rb") as data:
         metadata_node.upload_and_publish_dataset(data, key, f"{metadata_node_id}.csv")
 
@@ -349,7 +363,6 @@ def get_dcr_log(dcr_id: str,  user: Any = Depends(get_current_user)):
     dcr = client.retrieve_analytics_dcr(dcr_id)
     log = dcr.retrieve_audit_log()
     events = [x for x in log.split("\n") if x.strip() != ""]
-    print(events)
     events_j = [{"timestamp": datetime.fromtimestamp(int(x.split(",")[0])/1000),
                   "user": x.split(",")[1], 
                   "desc": " - ".join(x.split(",")[2:])} for x in events]
