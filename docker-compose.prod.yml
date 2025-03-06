@@ -11,8 +11,8 @@ services:
       VIRTUAL_HOST: api.explorer.icare4cvd.eu
       LETSENCRYPT_HOST: api.explorer.icare4cvd.eu
       VIRTUAL_PORT: 80
-    # volumes:
-    #   - ./data:/data
+    volumes:
+      - ./data:/data
 
   frontend:
     extends:
@@ -26,6 +26,8 @@ services:
       VIRTUAL_HOST: explorer.icare4cvd.eu
       LETSENCRYPT_HOST: explorer.icare4cvd.eu
       VIRTUAL_PORT: 3000
+    volumes:
+      - ./data:/data
 
   db:
     restart: unless-stopped

@@ -15,7 +15,7 @@ from SPARQLWrapper import SPARQLWrapper
 
 from src.auth import get_current_user
 from src.config import settings
-from src.decentriq import create_provision_dcr
+from src.decentriq import create_provision_dcr, metadatadict_cols
 from src.mapping_generation.retriever import map_csv_to_standard_codes
 from src.utils import ICARE, curie_converter, init_graph, prefix_map, retrieve_cohorts_metadata, run_query
 
@@ -147,22 +147,20 @@ def parse_categorical_string(s: str) -> list[dict[str, str]]:
         )
     return result
 
+COLUMNS_LIST = [c.name for c in metadatadict_cols]
 
-COLUMNS_LIST = [
-    "VARIABLE NAME",
-    "VARIABLE LABEL",
-    "VAR TYPE",
-    "UNITS",
-    "CATEGORICAL",
-    "COUNT",
-    "NA",
-    "MIN",
-    "MAX",
-    "Definition",
-    "Formula",
-    "OMOP",
-    "Visits",
-]
+# an older variation of some of the metadata column names:
+alt_colnames = {"VARIABLE NAME": "VARIABLENAME", 
+            "VARIABLE LABEL": "VARIABLELABEL",
+            "VAR TYPE": "VARTYPE",
+            "Categorical Value Concept ID": "Categorical Value OMOP ID",
+            "Label Concept Code":"Variable Concept Code",
+            "Label Concept Name": "Variable Concept Name",
+            "Label Concept ID": "Variable OMOP ID",
+            "Additional Context Concept Label": "Additional Context Concept Name",
+            "Additional Context Concept ID": "Additional Context Concept Code",
+            "OMOP": "Domain"}
+
 ACCEPTED_DATATYPES = ["STR", "FLOAT", "INT", "DATETIME"]
 
 def to_camelcase(s: str) -> str:
@@ -183,10 +181,14 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
     warnings: list[str] = []
     try:
         # Record all errors and raise them at the end
-        df = pd.read_csv(dict_path, na_values=[""], keep_default_na=False)
+        df = pd.read_csv(dict_path, na_values=[""], keep_default_na=False, sep=";")
+        if len(df.columns) == 1:
+            #this means the file is using commas as a separator - read the file again the right way
+            df = pd.read_csv(dict_path, na_values=[""], keep_default_na=False, sep=",")
         df = df.dropna(how="all")
         df = df.fillna("")
         df.columns = df.columns.str.strip()
+        df.columns = [alt_colnames.get(c, c) for c in df.columns]
         for column in COLUMNS_LIST:
             if column not in df.columns.values.tolist():
                 raise HTTPException(
@@ -201,9 +203,9 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
         # if "Variable Concept Code" in df.columns:
         #     df["concept_id"] = df.apply(lambda row: str(row["Variable Concept Code"]).strip(), axis=1)
 
-        duplicate_variables = df[df.duplicated(subset=["VARIABLE NAME"], keep=False)]
+        duplicate_variables = df[df.duplicated(subset=["VARIABLENAME"], keep=False)]
         if not duplicate_variables.empty:
-            errors.append(f"Duplicate VARIABLE NAME found: {', '.join(duplicate_variables['VARIABLE NAME'].unique())}")
+            errors.append(f"Duplicate VARIABLENAME found: {', '.join(duplicate_variables['VARIABLENAME'].unique())}")
 
         cohort_uri = get_cohort_uri(cohort_id)
         g = init_graph()
@@ -211,31 +213,31 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
         g.add((cohort_uri, DC.identifier, Literal(cohort_id), cohort_uri))
 
         # Make sure variable types are all uppercase
-        df["VAR TYPE"] = df.apply(lambda row: str(row["VAR TYPE"]).upper(), axis=1)
+        df["VARTYPE"] = df.apply(lambda row: str(row["VARTYPE"]).upper(), axis=1)
 
         # Normalize vocabulary codes LOINC and SNOMED:
-        df["Categorical Value Concept Code"] = df.apply(lambda row:
-                                                        str(row["Categorical Value Concept Code"])
-                                                        .replace("snomed", "SNOMED")
-                                                        .replace("LOINC", "loinc"), axis=1)
+        #df["Categorical Value Concept Code"] = df.apply(lambda row:
+        #                                                str(row["Categorical Value Concept Code"])
+        #                                                .replace("snomed", "SNOMED")
+        #                                                .replace("LOINC", "loinc"), axis=1)
 
         for i, row in df.iterrows():
             # Check if required columns are present
-            if not row["VARIABLE NAME"] or not row["VARIABLE LABEL"] or not row["VAR TYPE"]:
-                errors.append(f"Row {i+2} is missing required data: VARIABLE NAME, VARIABLE LABEL, or VAR TYPE")
-            if row["VAR TYPE"] not in ACCEPTED_DATATYPES:
+            if not row["VARIABLENAME"] or not row["VARIABLELABEL"] or not row["VARTYPE"]:
+                errors.append(f"Row {i+2} is missing required data: VARIABLENAME, VARIABLELABEL, or VARTYPE")
+            if row["VARTYPE"] not in ACCEPTED_DATATYPES:
                 errors.append(
-                    f"Row {i+2} for variable `{row['VARIABLE NAME']}` is using a wrong datatype: `{row['VAR TYPE']}`. It should be one of: {', '.join(ACCEPTED_DATATYPES)}"
+                    f"Row {i+2} for variable `{row['VARIABLENAME']}` is using a wrong datatype: `{row['VARTYPE']}`. It should be one of: {', '.join(ACCEPTED_DATATYPES)}"
                 )
 
             # Create a URI for the variable
-            variable_uri = get_var_uri(cohort_id, row["VARIABLE NAME"])
+            variable_uri = get_var_uri(cohort_id, row["VARIABLENAME"])
             g.add((cohort_uri, ICARE.hasVariable, variable_uri, cohort_uri))
 
             # Add the type of the resource
             g.add((variable_uri, RDF.type, ICARE.Variable, cohort_uri))
-            g.add((variable_uri, DC.identifier, Literal(row["VARIABLE NAME"]), cohort_uri))
-            g.add((variable_uri, RDFS.label, Literal(row["VARIABLE LABEL"]), cohort_uri))
+            g.add((variable_uri, DC.identifier, Literal(row["VARIABLENAME"]), cohort_uri))
+            g.add((variable_uri, RDFS.label, Literal(row["VARIABLELABEL"]), cohort_uri))
             g.add((variable_uri, ICARE["index"], Literal(i, datatype=XSD.integer), cohort_uri))
 
             # Get categories code if provided
@@ -259,7 +261,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
                 if column in ["categories"]:
                     if len(col_value) == 1:
                         errors.append(
-                            f"Row {i+2} for variable `{row['VARIABLE NAME']}` has only one category `{row['categories'][0]['value']}`. It should have at least two."
+                            f"Row {i+2} for variable `{row['VARIABLENAME']}` has only one category `{row['categories'][0]['value']}`. It should have at least two."
                         )
                         continue
                     for index, category in enumerate(col_value):
@@ -275,14 +277,14 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
                                     # NOTE: We use a CURIE to URI converter to handle the conversion of CURIEs to URIs
                                     # If a prefix is not found you can add it to the converter with .add_prefix(prefix, uri) in utils.py
                                     errors.append(
-                                        f"Row {i+2} for variable `{row['VARIABLE NAME']}` the category concept code provided for `{categories_codes[index]}` is not valid. Use one of these prefixes: {', '.join([record['prefix'] + ':' for record in prefix_map])}."
+                                        f"Row {i+2} for variable `{row['VARIABLENAME']}` the category concept code provided for `{categories_codes[index]}` is not valid. Use one of these prefixes: {', '.join([record['prefix'] + ':' for record in prefix_map])}."
                                     )
                                 else:
                                     g.add((cat_uri, ICARE.conceptId, URIRef(cat_code_uri), cohort_uri))
                         except Exception:
                             # TODO: improve handling of categories
                             warnings.append(
-                                f"Row {i+2} for variable `{row['VARIABLE NAME']}` the {len(categories_codes)} category concept codes are not matching with {len(row['categories'])} categories provided."
+                                f"Row {i+2} for variable `{row['VARIABLENAME']}` the {len(categories_codes)} category concept codes are not matching with {len(row['categories'])} categories provided."
                             )
         # print(g.serialize(format="turtle"))
         # Print all errors at once

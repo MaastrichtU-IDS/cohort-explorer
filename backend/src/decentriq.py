@@ -3,6 +3,7 @@ import json
 from copy import deepcopy
 from typing import Any
 import os
+import pandas as pd
 
 import decentriq_platform as dq
 from decentriq_platform.analytics import (
@@ -41,9 +42,9 @@ def get_cohort_schema(cohort_dict: Cohort) -> list[Column]:
     return schema
 
 metadatadict_cols = [
-    Column(name="VARIABLE NAME", format_type=FormatType.STRING, is_nullable=True),
-    Column(name="VARIABLE LABEL", format_type=FormatType.STRING, is_nullable=True),
-    Column(name="VAR TYPE", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="VARIABLENAME", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="VARIABLELABEL", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="VARTYPE", format_type=FormatType.STRING, is_nullable=True),
     Column(name="UNITS", format_type=FormatType.STRING, is_nullable=True),
     Column(name="CATEGORICAL", format_type=FormatType.STRING, is_nullable=True),
     Column(name="MISSING", format_type=FormatType.STRING, is_nullable=True),
@@ -54,18 +55,18 @@ metadatadict_cols = [
     Column(name="Formula", format_type=FormatType.INTEGER, is_nullable=True),
     Column(name="Categorical Value Concept Code", format_type=FormatType.STRING, is_nullable=True),
     Column(name="Categorical Value Name", format_type=FormatType.STRING, is_nullable=True),
-    Column(name="Categorical Value Concept ID", format_type=FormatType.STRING, is_nullable=True),
-    Column(name="Label Concept Code", format_type=FormatType.STRING, is_nullable=True),
-    Column(name="Label Concept Name", format_type=FormatType.STRING, is_nullable=True),
-    Column(name="Label Concept ID", format_type=FormatType.STRING, is_nullable=True),
-    Column(name="Additional Context Concept Label", format_type=FormatType.STRING, is_nullable=True),
-    Column(name="Additional Context Concept ID", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Categorical Value OMOP ID", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Variable Concept Code", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Variable Concept Name", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Variable OMOP ID", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Additional Context Concept Name", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Additional Context Concept Code", format_type=FormatType.STRING, is_nullable=True),
     Column(name="Additional Context OMOP ID", format_type=FormatType.STRING, is_nullable=True),
     Column(name="Unit Concept Name", format_type=FormatType.STRING, is_nullable=True),
     Column(name="Unit Concept Code", format_type=FormatType.STRING, is_nullable=True),
     Column(name="Unit OMOP ID", format_type=FormatType.INTEGER, is_nullable=True),
-    Column(name="OMOP", format_type=FormatType.STRING, is_nullable=True),
-    Column(name="Visits ", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Domain", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Visits", format_type=FormatType.STRING, is_nullable=True),
     Column(name="Visit OMOP ID", format_type=FormatType.INTEGER, is_nullable=True),
     Column(name="Visit Concept Name", format_type=FormatType.STRING, is_nullable=True),
     Column(name="Visit Concept Code", format_type=FormatType.STRING, is_nullable=True),
@@ -137,21 +138,34 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
     key = dq.Key()  # generate an encryption key with which to encrypt the dataset
     metadata_node = dcr.get_node(metadata_node_id)
 
-    
-    with open(cohort.metadata_filepath, 'r') as file:
+    seperator = ";"
+    df = pd.read_csv(cohort.metadata_filepath, sep=seperator)
+    print("Number of columns in metadata file after opening with ; ", len(df.columns))
+    if len(df.columns) == 1:  #wrong separator
+        seperator = ","
+        df = pd.read_csv(cohort.metadata_filepath, sep=seperator)
+        print("Number of columns in metadata file after opening with , ", len(df.columns))
+    df = df.drop(columns=['Definition', 'MIN', 'MAX'], errors='ignore')
+    print("Number of columns in metadata file after dropping unnecessary columns: ", len(df.columns))
+    cols_removed_file_path = (cohort.metadata_filepath.split(".")[0] + 
+                                        "_extraColsRemoved.csv")
+    df.to_csv(cols_removed_file_path, index=False, sep=seperator)
+
+
+    with open(cols_removed_file_path, 'r') as file:
         header = next(file)
         if header.lower().startswith("var"):
             csv_reader = csv.reader(file)
             data = list(csv_reader)
-            file_path_without_header = (cohort.metadata_filepath.split(".")[0] + 
-                                        "_headerRemoved" + cohort.metadata_filepath.split(".")[1])
+            file_path_without_header = (cols_removed_file_path.split(".")[0] + 
+                                        "_headerRemoved.csv")
             with open(file_path_without_header, 'w', newline='') as output_file:
                 csv_writer = csv.writer(output_file)
                 csv_writer.writerows(data)
         else:
-            file_path_without_header = cohort.metadata_filepath
+            file_path_without_header = cols_removed_file_path
 
-    with open(cohort.metadata_filepath, "rb") as data:
+    with open(file_path_without_header, "rb") as data:
         metadata_node.upload_and_publish_dataset(data, key, f"{metadata_node_id}.csv")
 
     return {
