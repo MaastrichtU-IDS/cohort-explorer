@@ -2,6 +2,7 @@ import React, {useState, useMemo} from 'react';
 import {useCohorts} from '@/components/CohortsContext';
 import AutocompleteConcept from '@/components/AutocompleteConcept';
 import FilterByMetadata from '@/components/FilterByMetadata';
+import VariableGraphModal from '@/components/VariableGraphModal';
 import {InfoIcon} from '@/components/Icons';
 import {Concept, Variable} from '@/types';
 import {apiUrl} from '@/utils';
@@ -13,6 +14,7 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
   const [includeCategorical, setIncludeCategorical] = useState(true);
   const [includeNonCategorical, setIncludeNonCategorical] = useState(true);
   const [openedModal, setOpenedModal] = useState('');
+  const [openedGraphModal, setOpenedGraphModal] = useState<string | null>(null);
 
   // When concept is selected, insert the triples into the database
   const handleConceptSelect = (varId: any, concept: Concept, categoryId: any = null) => {
@@ -117,6 +119,11 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
     document.body.removeChild(a);
   };
 
+
+  const handleCloseGraphModal = () => {
+    setOpenedGraphModal(null);
+  };
+
   // Function to count filtered vars based on filter type
   // const countMatches = (filterType: string, item: string | null) => {
   //   return filteredVars.filter(variable => {
@@ -155,6 +162,38 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
             Download CSV
           </button>
         )}
+        {/* NOTE: You will need to create an API endpoint just to ddl the imgs for the cohort stats
+        If the <img> I set up dont work, then you'll need to use a fetch call
+        e.g. const response = await fetch(`${apiUrl}/cohort-stats/${cohortId}`, {credentials: 'include'});
+        You could also add "stats_available=True/False" field when sending the list of variables from the API
+        This way you only show the "Cohort stats" button for cohorts where you have stats
+        cohortsData[cohortId].stats_available to check if the stats are available
+        */}
+        {/*<button
+        onClick={() => {
+          const modal = document.getElementById('stats_modal') as HTMLDialogElement;
+          modal?.showModal();
+        }}
+        className="btn btn-neutral btn-sm mb-2 hover:bg-slate-600 tooltip tooltip-right"
+        data-tip="View cohort statistics"
+        >
+        Cohort stats
+       </button> */}
+        <dialog id="stats_modal" className="modal">
+          <div className="modal-box max-w-5xl">
+            <h3 className="font-bold text-lg mb-4">{cohortId} Cohort Statistics</h3>
+            <img
+              // src={`${apiUrl}/cohort-stats/${cohortId}`}
+              src="/icare4cvd_logo.png"
+              alt="Cohort statistics"
+              className="w-full"
+              crossOrigin="use-credentials"
+            />
+          </div>
+          <form method="dialog" className="modal-backdrop">
+            <button>close</button>
+          </form>
+        </dialog>
         {filteredVars.length == Object.keys(cohortsData[cohortId]['variables']).length ? (
           <span className="badge badge-ghost mb-2">
             {Object.keys(cohortsData[cohortId]['variables']).length} variables
@@ -243,6 +282,18 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
                       <InfoIcon />
                     </button>
                     {/* <div className="grow"></div> */}
+                    <button
+                      className="btn-sm hover:bg-base-300 rounded-lg"
+                      onClick={() => {
+                        setOpenedGraphModal(variable.var_name);
+                        setTimeout(() => {
+                          const modal = document.getElementById(`graph_modal_${cohortId}_${variable.var_name}`) as HTMLDialogElement;
+                          if (modal) modal.showModal();
+                        }, 0);
+                      }}
+                    >
+                      📊
+                    </button>
                   </div>
                   {!dataCleanRoom.cohorts[cohortId]?.includes(variable.var_name) ? (
                     <button
@@ -347,6 +398,16 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
                   </dialog>
                 )}
 
+
+               
+                {/* Graph modal - now using the separate component */}
+                <VariableGraphModal
+                  isOpen={openedGraphModal === variable.var_name}
+                  cohortId={cohortId}
+                  variableName={variable.var_name}
+                  variableLabel={variable.var_label}
+                  onClose={handleCloseGraphModal}
+                />
                 {/* <div className='flex-grow'/>
                   <AutocompleteConcept
                     query={variable.var_label}

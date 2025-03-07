@@ -4,7 +4,7 @@ import requests
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from src.auth import get_current_user
-from src.utils import converter, run_query
+from src.utils import curie_converter, run_query
 
 router = APIRouter()
 
@@ -49,7 +49,7 @@ async def search_concepts(
         found_concepts.append(
             {
                 "id": concept_id,
-                "uri": converter.expand(concept_id),
+                "uri": curie_converter.expand(concept_id),
                 "label": res.get("name"),
                 "domain": res.get("domain"),
                 "vocabulary": res.get("vocabulary"),

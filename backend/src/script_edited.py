@@ -1,143 +1,3 @@
-"""Exploratory Data Analysis (EDA) module."""
-
-
-def c1_data_dict_check(cohort_id: str) -> str:
-    raw_script = """
-import pandas as pd
-import decentriq_util
-
-# Load the metadata dictionary
-dictionary_df = decentriq_util.read_tabular_data("/input/{cohort_id}-metadata")
-try:
-    varname_col = [x for x in ['VARIABLE NAME', 'VARIABLENAME', 'VAR NAME'] if x in dictionary_df.columns][0]
-except:
-    raise ValueError("The dictionary file does not contain a 'VARIABLE NAME'/'VARIABLENAME' column.")
-
-print("variable names: ", [v for v in dictionary_df[varname_col]])
-
-# Load the dataset
-try:
-    dataset_df = pd.read_spss("/input/{cohort_id}")
-except Exception as e:
-    dataset_df = decentriq_util.read_tabular_data("/input/{cohort_id}")
-
-# Extract 'VARIABLE NAME' column from dictionary and dataset column names
-dictionary_variables = set(dictionary_df[varname_col].unique())
-dataset_columns = set(dataset_df.columns)
-
-# Compare the sets
-in_dictionary_not_in_dataset = dictionary_variables - dataset_columns
-in_dataset_not_in_dictionary = dataset_columns - dictionary_variables
-
-# Optionally save the results to files for reference
-pd.DataFrame({'In Dataset Not in Dictionary': list(in_dataset_not_in_dictionary)}).to_csv("/output/in_dataset_not_in_dictionary.csv",index = False)
-pd.DataFrame({'In Dictionary Not in Dataset': list(in_dictionary_not_in_dataset)}).to_csv("/output/in_dictionary_not_in_dataset.csv",index = False)
-#print("variable names: ", [v for v in dictionary_df[varname_col]])
-"""
-    return raw_script.replace("{cohort_id}", cohort_id)
-
-
-def c2_save_to_json(cohort_id: str) -> str:
-    raw_script = """
-import decentriq_util
-import pandas as pd
-import os
-import json
-
-# Load dictionary
-dictionary = decentriq_util.read_tabular_data("/input/{cohort_id}-metadata")
-
-# Clean column names to ensure uniformity
-dictionary.columns = dictionary.columns.str.strip().str.upper()
-
-varname_col = [x for x in ['VARIABLE NAME', 'VARIABLENAME', 'VAR NAME'] if x in dictionary.columns][0]
-vartype_col = [x for x in ['VAR TYPE', 'VARTYPE'] if x in dictionary.columns][0]
-varlabel_col = [x for x in ['VARIABLE LABEL', 'VARIABLELABEL', 'VAR LABEL'] if x in dictionary.columns][0]
-
-dictionary[varname_col] = dictionary[varname_col].str.strip().str.lower()
-dictionary[vartype_col] = dictionary[vartype_col].str.strip().str.lower()
-
-# Define the pattern for entries to exclude non-categorical variables
-include_pattern = r'\||='   # Look for strings containing either a | or =.
-
-# Exclude rows in the dictionary where the 'CATEGORICAL' column contains the defined pattern
-categorical_dict = dictionary[dictionary['CATEGORICAL'].astype(str).str.contains(include_pattern, regex=True)]
-
-# Prepare to extract classes and their meanings, along with MIN, MAX, and VAR TYPE
-class_details = {}
-numerical_details = {}
-
-for index, row in dictionary.iterrows():
-    variable_name = row[varname_col]
-    var_type = row[vartype_col]
-    categories_info = row['CATEGORICAL']
-    missing_key = row['MISSING'] if 'MISSING' in dictionary.columns else None
-
-    if (pd.notna(categories_info) and isinstance(categories_info, str) and categories_info.strip()) or var_type=='datetime':
-        # Handle categorical variables
-        categories = [item for sublist in categories_info.split('|') for item in sublist.split(',')]
-        class_names = {}
-
-        for category in categories:
-                key_value = category.split('=')
-                if len(key_value) == 2:
-                    #print("inside if statement: ", variable_name, key_value)
-                    key = key_value[0].strip()
-                    value = key_value[1].strip()
-                    class_names[key] = value
-                else:
-                    print("Encountered a possible parsing error. Check category info for variable ", variable_name, key_value)
-
-
-        # Check if there is a value that corresponds to  'missing'
-        if 'missing' in class_names.values():
-            missing_key = [x[0] for x in class_names.items() if x[1].strip().lower() == 'missing'][0]
-            print("MISSING value exists for variable: ", variable_name, missing_key)
-        else:
-            print("No 'missing' value for variable ", variable_name)
-            #needed the line below, otherwise the "missing_key" will still store the value for the previous var
-            missing_key = None
-                
-        # Save MIN, MAX, and VAR TYPE values if they exist to class_details
-        class_details[variable_name] = {
-            'categories': class_names,
-            'var_label': row[varlabel_col],
-            'missing': missing_key,  # Add missing indicator if found
-            'var_type': var_type if pd.notna(var_type) else None
-        }
-
-    elif (pd.isna(categories_info) or categories_info.strip() == '') and var_type != 'str':
-        # Handle numerical variables, if the variable has type "str" (like PatientID, the analysis does not apply to it)
-        numerical_details[variable_name] = {
-            'var_type': var_type if pd.notna(var_type) else None,
-            'var_label': row[varlabel_col],
-            'missing': missing_key
-        }
-
-json_dir = '/output/'
-
-# Save categorical variables to a JSON file
-categorical_json_path = os.path.join(json_dir, 'categorical_variables.json')
-with open(categorical_json_path, 'w') as json_file:
-    json.dump(class_details, json_file, indent=4)
-
-# Save numerical variables to a JSON file
-numerical_json_path = os.path.join(json_dir, 'numerical_variables.json')
-with open(numerical_json_path, 'w') as json_file:
-    json.dump(numerical_details, json_file, indent=4)
-
-# Print confirmation messages and the first 5 items in a formatted way
-print(f"Categorical variables saved to {categorical_json_path}")
-print(json.dumps({key: class_details[key] for key in list(class_details.keys())[:5]}, indent=4))
-
-print(f"Numerical variables saved to {numerical_json_path}")
-print(json.dumps({key: numerical_details[key] for key in list(numerical_details.keys())[:5]}, indent=4))
-"""
-    return raw_script.replace("{cohort_id}", cohort_id)
-
-
-def c3_eda_data_profiling(cohort_id: str) -> str:
-    raw_script = """
 
 import pandas as pd
 import numpy as np
@@ -162,7 +22,7 @@ categorical_vars = pd.read_json("/input/c2_save_to_json/categorical_variables.js
 print("the categorical data: ", categorical_vars.keys())
 numerical_vars = pd.read_json("/input/c2_save_to_json/numerical_variables.json")
 #print("the numerical data: ", numerical_vars)
-data = decentriq_util.read_tabular_data("/input/{cohort_id}")
+data = decentriq_util.read_tabular_data("/input/GISSI-HF")
 #print(data)
 
 #variables that should be graphed
@@ -281,7 +141,7 @@ def variable_eda(df, categorical_vars, numerical_vars):
                 chi_square_stat = ((value_counts - expected) ** 2 / expected).sum()
 
                 # Class balance with corrected mapping
-                class_balance_text = "\\n" + "\\n     ".join([
+                class_balance_text = "\n" + "\n     ".join([
                     f"{(key, categories_mapping.get(str(key), 'Unknown'))} -> {round(count / total * 100)}%"
                     for key, count in value_counts.items()
                 ])
@@ -332,7 +192,7 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
         # Left: Display Summary Stats
 
         props = dict(boxstyle="round,pad=0.5", facecolor="whitesmoke", alpha=0.8, edgecolor="lightgray")
-        text_obj = axes[0].text(0.05, 0.95, '\\n'.join(stats_text), transform=axes[0].transAxes, fontsize=11, va='top', ha='left', 
+        text_obj = axes[0].text(0.05, 0.95, '\n'.join(stats_text), transform=axes[0].transAxes, fontsize=11, va='top', ha='left', 
         family='monospace',  bbox=props, wrap=True, linespacing=1.5)
         if hasattr(text_obj, "_get_wrap_line_width"):
             text_obj._get_wrap_line_width = lambda: 400
@@ -355,20 +215,21 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
         # Left: Display Summary Stats
 
         props = dict(boxstyle="round,pad=0.5", facecolor="whitesmoke", alpha=0.8, edgecolor="lightgray")
-        text_obj = axes[0].text(0.05, 0.95, '\\n'.join(stats_text), transform=axes[0].transAxes, fontsize=11, va='top', ha='left', 
+        text_obj = axes[0].text(0.05, 0.95, '\n'.join(stats_text), transform=axes[0].transAxes, fontsize=11, va='top', ha='left', 
         family='monospace',  bbox=props, wrap=True, linespacing=1.5)
         if hasattr(text_obj, "_get_wrap_line_width"):
             text_obj._get_wrap_line_width = lambda: 400
         #axes[0].text(0.05, 0.9, , fontsize=10, va='top', ha='left', linespacing=1.2, family='monospace', wrap=True)
         axes[0].axis("off")
-        axes[0].set_title(f"Statistics Summary for {varname}", fontsize=12)
 
         # Right: Plot histogram
-        sorted_dates = sorted(df[varname].dropna())
-
-        axes[1].xaxis.set_major_locator(mdates.MonthLocator())  # Show ticks at month intervals
-        axes[1].xaxis.set_minor_locator(mdates.WeekdayLocator())  # Minor ticks at weeks
-        axes[1].xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+        sns.histplot(df[varname].dropna(), kde=True, ax=axes[1])
+        axes[0].set_title(f"Statistics Summary for {varname}", fontsize=12)
+        axes[1].tick_params(axis='x')
+        N = 10  # Show every 10th date
+        indices = np.arange(0, len(sorted_dates), N)
+        axes.set_xticks([sorted_dates[i] for i in indices])
+        axes.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
         plt.xticks(rotation=90)
 
 
@@ -380,7 +241,7 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
 
         # Summary stats text
         props = dict(boxstyle="round,pad=0.5", facecolor="whitesmoke", alpha=0.8, edgecolor="lightgray")
-        text_obj = axes[0].text(0.05, 0.95, '\\n'.join(stats_text), transform=axes[0].transAxes, fontsize=11, va='top', ha='left', 
+        text_obj = axes[0].text(0.05, 0.95, '\n'.join(stats_text), transform=axes[0].transAxes, fontsize=11, va='top', ha='left', 
         family='monospace', bbox=props, wrap=True, linespacing=1.5)
         if hasattr(text_obj, "_get_wrap_line_width"):
             text_obj._get_wrap_line_width = lambda: 400
@@ -418,7 +279,7 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
 
 
 def integrate_eda_with_metadata(vars_stats):
-    meta_data = decentriq_util.read_tabular_data("/input/{cohort_id}-metadata")
+    meta_data = decentriq_util.read_tabular_data("/input/GISSI-HF-metadata")
     metadata_vars = [x.lower().strip() for x in meta_data['VARIABLE NAME'].values]
     #print("vars from var_stats:", vars_stats.keys())
     #print("vars in metadata: ", metadata_vars)
@@ -448,12 +309,10 @@ def dataframe_to_json_dicts(df):
             if col not in ['VARIABLE NAME', 'Column'] and pd.notna(row[col]) and row[col] != "":
                 var_dict[col] = row[col]
         json_dicts[variable_name] = var_dict
-    with open("/output/eda_output_{cohort_id}.json", 'w', encoding='utf-8') as f:
+    with open("/output/eda_output_GISSI-HF.json", 'w', encoding='utf-8') as f:
         json.dump(json_dicts, f, indent=4)
 
 
 vars_to_stats = variable_eda(data, categorical_vars, numerical_vars)
 meta_data_enriched = integrate_eda_with_metadata(vars_to_stats)
 json_dicts = dataframe_to_json_dicts(meta_data_enriched)
-"""
-    return raw_script.replace("{cohort_id}", cohort_id)

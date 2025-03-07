@@ -1,10 +1,10 @@
-from copy import deepcopy
+import csv
 import json
+from copy import deepcopy
 from typing import Any
+import os
 
 import decentriq_platform as dq
-
-# import decentriq_platform.sql as dqsql
 from decentriq_platform.analytics import (
     AnalyticsDcrBuilder,
     Column,
@@ -17,8 +17,10 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from src.auth import get_current_user
 from src.config import settings
+from src.eda_scripts import c1_data_dict_check, c2_save_to_json, c3_eda_data_profiling #, c3_map_missing_do_not_run
 from src.models import Cohort
 from src.utils import retrieve_cohorts_metadata
+from datetime import datetime
 
 router = APIRouter()
 
@@ -38,6 +40,37 @@ def get_cohort_schema(cohort_dict: Cohort) -> list[Column]:
         schema.append(Column(name=variable_id, format_type=prim_type, is_nullable=True))
     return schema
 
+metadatadict_cols = [
+    Column(name="VARIABLE NAME", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="VARIABLE LABEL", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="VAR TYPE", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="UNITS", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="CATEGORICAL", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="MISSING", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="COUNT", format_type=FormatType.INTEGER, is_nullable=True),
+    Column(name="NA", format_type=FormatType.INTEGER, is_nullable=True),
+    Column(name="MIN", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="MAX", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Definition", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Formula", format_type=FormatType.INTEGER, is_nullable=True),
+    Column(name="Categorical Value Concept Code", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Categorical Value Name", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Categorical Value Concept ID", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Label Concept Code", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Label Concept Name", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Label Concept ID", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Additional Context Concept Label", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Additional Context Concept ID", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Additional Context OMOP ID", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Unit Concept Name", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Unit Concept Code", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Unit OMOP ID", format_type=FormatType.INTEGER, is_nullable=True),
+    Column(name="OMOP", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Visits ", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Visit OMOP ID", format_type=FormatType.INTEGER, is_nullable=True),
+    Column(name="Visit Concept Name", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Visit Concept Code", format_type=FormatType.STRING, is_nullable=True),
+]
 
 # https://docs.decentriq.com/sdk/python-getting-started
 def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
@@ -51,40 +84,68 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
         AnalyticsDcrBuilder(client=client)
             .with_name(dcr_title)
             .with_owner(user["email"])
-            # .with_owner(settings.decentriq_email)
             .with_description(f"A data clean room to provision the data for the {cohort.cohort_id} cohort")
     )
 
     # Create data node for Cohort Data
     data_node_id = cohort.cohort_id.replace(" ", "-")
-    # builder.add_node_definition(RawDataNodeDefinition(name=data_node_id, is_required=True))
-    # TODO: providing schema is broken in new SDK
+    #print("\n\nIn create_provision_dcr - columns from get_cohort_schema: ", get_cohort_schema(cohort))
     builder.add_node_definition(
-        TableDataNodeDefinition(name=data_node_id, columns=get_cohort_schema(cohort), is_required=True)
+        TableDataNodeDefinition(name=data_node_id, columns=get_cohort_schema(cohort), is_required=False)
     )
 
-    builder.add_participant(
-        user["email"],
-        data_owner_of=[data_node_id],
-        # Permission to run stuff:
-        # analyst_of=[data_node_id],
+    # Create data node for metadata dictionary file
+    metadata_node_id = f"{data_node_id}-metadata"
+    builder.add_node_definition(
+        TableDataNodeDefinition(name=metadata_node_id, columns=metadatadict_cols, is_required=True)
     )
 
-    # TODO: add Cohort metadatadictionary to the DCR
+    # Add scripts that perform EDA to get info about the dataset as a PNG image
+    builder.add_node_definition(
+        PythonComputeNodeDefinition(name="c1_data_dict_check", script=c1_data_dict_check(cohort.cohort_id), dependencies=[metadata_node_id, data_node_id])
+    )
+    builder.add_node_definition(
+        PythonComputeNodeDefinition(name="c2_save_to_json", script=c2_save_to_json(cohort.cohort_id), dependencies=[metadata_node_id, data_node_id])
+    )
+    # This one is auto run by the last script c3_eda_data_profiling:
+    #builder.add_node_definition(
+    #    PythonComputeNodeDefinition(name="c3_map_missing_do_not_run", script=c3_map_missing_do_not_run(cohort.cohort_id), dependencies=[metadata_node_id, data_node_id, "c2_save_to_json"])
+    #)
+    builder.add_node_definition(
+        PythonComputeNodeDefinition(name="c3_eda_data_profiling", script=c3_eda_data_profiling(cohort.cohort_id), dependencies=["c1_data_dict_check", "c2_save_to_json", metadata_node_id, data_node_id])
+    )
 
-    # # TODO: Add script that perform EDA to get info about the dataset as a PNG image
-    # builder.add_node_definition(
-    #     PythonComputeNodeDefinition(name=f"eda-{data_node_id}", script=eda_script, dependencies=[data_node_id])
-    # )
+    # Add permissions for data owners
+    all_participants = set(cohort.cohort_email)
+    if settings.dev_mode:
+        all_participants = set()
+        print(f"Dev mode, only adding {user['email']} as data owner")
+    all_participants.add(user["email"])
+    for participant in all_participants:
+        print(f"Adding {participant} as data owner and analyst")
+        builder.add_participant(
+            participant,
+            data_owner_of=[data_node_id, metadata_node_id],
+            # Permission to run scripts:
+            analyst_of=["c1_data_dict_check", "c2_save_to_json", "c3_eda_data_profiling"],
+        )
 
-    # builder.add_participant(
-    #     settings.decentriq_email,
-    #     data_owner_of=[data_node_id],
-    # )
     # Build and publish DCR
     dcr_definition = builder.build()
     dcr = client.publish_analytics_dcr(dcr_definition)
     dcr_url = f"https://platform.decentriq.com/datarooms/p/{dcr.id}"
+
+    # Now the DCR has been created we can upload the metadata file and run computations
+    key = dq.Key()  # generate an encryption key with which to encrypt the dataset
+    metadata_node = dcr.get_node(metadata_node_id)
+    with open(cohort.metadata_filepath, "rb") as data:
+        metadata_node.upload_and_publish_dataset(data, key, f"{metadata_node_id}.csv")
+
+    #print("columns of the metadata node: ", metadata_node.columns)
+
+    #data_node = dcr.get_node(data_node_id)
+    #print("columns of the data node: ", data_node.columns)
+
     return {
         "message": f"Data Clean Room for {cohort.cohort_id} provisioned at {dcr_url}",
         "identifier": cohort.cohort_id,
@@ -283,3 +344,69 @@ async def api_get_compute_dcr_definition(
     # return dcr_definition.model_dump_json(by_alias=True)
     # return json.dumps(dcr_definition.high_level)
     return dcr_definition.high_level
+
+
+@router.get("/dcr-log/{dcr_id}", 
+            name = "display the log file of the specified DCR")
+def get_dcr_log(dcr_id: str,  user: Any = Depends(get_current_user)):
+    print("now in get-dcr-log function")
+    #id = "d2b060860906f94bce726a6cba3d948e236386359956c47cdc2dc477bbe199ee"
+    client = dq.create_client(settings.decentriq_email, settings.decentriq_token)
+    dcr = client.retrieve_analytics_dcr(dcr_id)
+    log = dcr.retrieve_audit_log()
+    events = [x for x in log.split("\n") if x.strip() != ""]
+    #print(events)
+    events_j = [{"timestamp": datetime.fromtimestamp(int(x.split(",")[0])/1000),
+                  "user": x.split(",")[1], 
+                  "desc": " - ".join(x.split(",")[2:])} for x in events]
+    #return log.replace('\\n', '\n\n\n')
+    #formatted_log = pformat(events_j, indent=2, width=80)
+    #return formatted_log
+    return events_j
+
+
+
+@router.get("/dcr-log-main/{dcr_id}", 
+            name = "display the main events in the log file of the specified DCR (excludes log fetching events)")
+def get_dcr_log_main(dcr_id: str,  user: Any = Depends(get_current_user)):
+    all_events = get_dcr_log(dcr_id, user)
+    main_events = [e for e in all_events if e['desc'].find("log has been retrieved") == -1]
+    return main_events
+
+
+@router.get("/compute-get-output/{dcr_id}", 
+            name = "run the scripts for a given DCR and download the output")
+def run_computation_get_output(dcr_id: str,  user: Any = Depends(get_current_user)):
+    #example id = "9e2715f4b32a646d2da3d8952b7fa7ca48537ee6731627417f735d15fa17d4f6"
+    client = dq.create_client(settings.decentriq_email, settings.decentriq_token)
+    dcr = client.retrieve_analytics_dcr(dcr_id)
+    cohort_id = dcr.node_definitions[0].name.strip()
+    c2_node = dcr.get_node("c2_save_to_json") 
+    c2_node.run_computation()
+    c3_node = dcr.get_node("c3_eda_data_profiling")
+    result = c3_node.run_computation_and_get_results_as_zip()
+    #timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    storage_dir = f"/data/dcr_output_{cohort_id}"
+
+    data_to_log = {"DCR_id": dcr_id, 
+                   "user": settings.decentriq_email,
+                   "cohort_id": cohort_id,  "datetime": datetime.now(),
+                   "storage_directory": os.path.abspath(storage_dir)}
+    print("Compute evet: ", data_to_log)
+
+    compute_events_log = "/data/dcr_computations.csv"
+    if not os.path.exists(compute_events_log):
+        print(f"Note: The file '{compute_events_log}' does not exist.")
+    else:
+        # Append to the existing file
+        with open(compute_events_log, 'a', newline='') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=data_to_log.keys())
+            writer.writerow(data_to_log)
+            
+
+    #print("Full path of storage directory: ", storage_dir.resolve())
+    os.makedirs(storage_dir, mode=0o777, exist_ok=True)
+    result.extractall(str(storage_dir))
+    os.sync()
+        
+    return {"status": "success", "saved_path": str(storage_dir)}

@@ -9,9 +9,11 @@ services:
       service: backend
     volumes:
       - ./backend:/app
+      - ./data:/data
     entrypoint: uv run uvicorn src.main:app --host 0.0.0.0 --port 80 --reload --log-level debug
     environment:
       - DEV_MODE=true
+      - UV_HTTP_TIMEOUT=90
     ports:
       - 3000:80
 
@@ -23,7 +25,9 @@ services:
       service: frontend
     volumes:
       - ./frontend/src:/app/src
-    entrypoint: pnpm dev
+      - ./data:/data
+    # entrypoint: pnpm dev
+    entrypoint: npm run dev
     ports:
       - 3001:3001
 

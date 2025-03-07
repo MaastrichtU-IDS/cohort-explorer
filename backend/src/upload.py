@@ -17,7 +17,7 @@ from src.auth import get_current_user
 from src.config import settings
 from src.decentriq import create_provision_dcr
 from src.mapping_generation.retriever import map_csv_to_standard_codes
-from src.utils import ICARE, converter, init_graph, retrieve_cohorts_metadata, run_query
+from src.utils import ICARE, curie_converter, init_graph, prefix_map, retrieve_cohorts_metadata, run_query
 
 router = APIRouter()
 
@@ -107,7 +107,7 @@ def insert_triples(
         # TODO: handle when a category is provided (we add triple to the category instead of the variable)
     delete_existing_triples(graph_uri, f"<{subject_uri!s}>", predicate)
     label_part = ""
-    object_uri = f"<{converter.expand(value)}>"
+    object_uri = f"<{curie_converter.expand(value)}>"
     if label:
         delete_existing_triples(graph_uri, f"{object_uri}", "rdfs:label")
         label_part = f'{object_uri} rdfs:label "{label}" .'
@@ -213,6 +213,12 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
         # Make sure variable types are all uppercase
         df["VAR TYPE"] = df.apply(lambda row: str(row["VAR TYPE"]).upper(), axis=1)
 
+        # Normalize vocabulary codes LOINC and SNOMED:
+        #df["Categorical Value Concept Code"] = df.apply(lambda row:
+        #                                                str(row["Categorical Value Concept Code"])
+        #                                                .replace("snomed", "SNOMED")
+        #                                                .replace("LOINC", "loinc"), axis=1)
+
         for i, row in df.iterrows():
             # Check if required columns are present
             if not row["VARIABLE NAME"] or not row["VARIABLE LABEL"] or not row["VAR TYPE"]:
@@ -264,12 +270,12 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
                         g.add((cat_uri, RDFS.label, Literal(category["label"]), cohort_uri))
                         try:
                             if categories_codes and str(categories_codes[index]).strip() != "na":
-                                cat_code_uri = converter.expand(str(categories_codes[index]).strip())
+                                cat_code_uri = curie_converter.expand(str(categories_codes[index]).strip())
                                 if not cat_code_uri:
                                     # NOTE: We use a CURIE to URI converter to handle the conversion of CURIEs to URIs
                                     # If a prefix is not found you can add it to the converter with .add_prefix(prefix, uri) in utils.py
                                     errors.append(
-                                        f"Row {i+2} for variable `{row['VARIABLE NAME']}` the category concept code provided for `{categories_codes[index]}` is not valid. Use one of snomedct:, icd10:, atc: or loinc: prefixes."
+                                        f"Row {i+2} for variable `{row['VARIABLE NAME']}` the category concept code provided for `{categories_codes[index]}` is not valid. Use one of these prefixes: {', '.join([record['prefix'] + ':' for record in prefix_map])}."
                                     )
                                 else:
                                     g.add((cat_uri, ICARE.conceptId, URIRef(cat_code_uri), cohort_uri))
@@ -377,17 +383,16 @@ async def upload_cohort(
     cohort_info.airlock = airlock
 
     # Create directory named after cohort_id
-    cohorts_folder = os.path.join(settings.data_folder, "cohorts", cohort_id)
-    os.makedirs(cohorts_folder, exist_ok=True)
+    os.makedirs(cohort_info.folder_path, exist_ok=True)
     # Check if cohort already uploaded
     if cohort_info and len(cohort_info.variables) > 0:
         # Check for existing data dictionary file and back it up
-        for file_name in os.listdir(cohorts_folder):
+        for file_name in os.listdir(cohort_info.folder_path):
             if file_name.endswith("_datadictionary.csv"):
                 # Construct the backup file name with the current date
                 backup_file_name = f"{file_name.rsplit('.', 1)[0]}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-                backup_file_path = os.path.join(cohorts_folder, backup_file_name)
-                existing_file_path = os.path.join(cohorts_folder, file_name)
+                backup_file_path = os.path.join(cohort_info.folder_path, backup_file_name)
+                existing_file_path = os.path.join(cohort_info.folder_path, file_name)
                 # Rename (backup) the existing file
                 os.rename(existing_file_path, backup_file_path)
                 break  # Assuming there's only one data dictionary file per cohort
@@ -399,7 +404,7 @@ async def upload_cohort(
         filename += "_datadictionary"
 
     # Store metadata file on disk in the cohorts folder
-    metadata_path = os.path.join(cohorts_folder, filename + ext)
+    metadata_path = os.path.join(cohort_info.folder_path, filename + ext)
     with open(metadata_path, "wb") as buffer:
         shutil.copyfileobj(cohort_dictionary.file, buffer)
 
@@ -418,7 +423,7 @@ async def upload_cohort(
         # TODO: waiting for more tests before sending to production
         # if settings.dev_mode:
         if False:
-            background_tasks.add_task(generate_mappings, cohort_id, metadata_path, g)
+            background_tasks.add_task(generate_mappings, cohort_id, cohort_info.metadata_filepath, g)
         else:
             # Delete previous graph for this file from triplestore
             # TODO: remove these lines once we move to generating mapping through the background task
@@ -428,7 +433,7 @@ async def upload_cohort(
             delete_existing_triples(get_cohort_uri(cohort_id))
             publish_graph_to_endpoint(g)
     except Exception as e:
-        os.remove(metadata_path)
+        os.remove(cohort_info.metadata_filepath)
         raise e
 
     # return {

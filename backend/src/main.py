@@ -9,8 +9,11 @@ from src.explore import router as explore_router
 from src.mapping import router as mapping_router
 from src.upload import init_triplestore
 from src.upload import router as upload_router
+from src.monitoring import run_periodic_monitoring
+import asyncio
 
 init_triplestore()
+asyncio.create_task(run_periodic_monitoring())
 
 app = FastAPI(
     title="iCARE4CVD API",
@@ -38,7 +41,7 @@ def redirect_root_to_docs() -> RedirectResponse:
     return RedirectResponse(url="/docs")
 
 
+
 if __name__ == "__main__":
     import uvicorn
-
     uvicorn.run(app, host="0.0.0.0", port=8000)
