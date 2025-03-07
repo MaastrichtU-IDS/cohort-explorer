@@ -49,8 +49,8 @@ metadatadict_cols = [
     Column(name="MISSING", format_type=FormatType.STRING, is_nullable=True),
     Column(name="COUNT", format_type=FormatType.INTEGER, is_nullable=True),
     Column(name="NA", format_type=FormatType.INTEGER, is_nullable=True),
-    Column(name="MIN", format_type=FormatType.FLOAT, is_nullable=True),
-    Column(name="MAX", format_type=FormatType.FLOAT, is_nullable=True),
+    Column(name="MIN", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="MAX", format_type=FormatType.STRING, is_nullable=True),
     Column(name="Definition", format_type=FormatType.STRING, is_nullable=True),
     Column(name="Formula", format_type=FormatType.INTEGER, is_nullable=True),
     Column(name="Categorical Value Concept Code", format_type=FormatType.STRING, is_nullable=True),
@@ -89,8 +89,9 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
 
     # Create data node for Cohort Data
     data_node_id = cohort.cohort_id.replace(" ", "-")
+    #print("\n\nIn create_provision_dcr - columns from get_cohort_schema: ", get_cohort_schema(cohort))
     builder.add_node_definition(
-        TableDataNodeDefinition(name=data_node_id, columns=get_cohort_schema(cohort), is_required=True)
+        TableDataNodeDefinition(name=data_node_id, columns=get_cohort_schema(cohort), is_required=False)
     )
 
     # Create data node for metadata dictionary file
@@ -139,6 +140,11 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
     metadata_node = dcr.get_node(metadata_node_id)
     with open(cohort.metadata_filepath, "rb") as data:
         metadata_node.upload_and_publish_dataset(data, key, f"{metadata_node_id}.csv")
+
+    #print("columns of the metadata node: ", metadata_node.columns)
+
+    #data_node = dcr.get_node(data_node_id)
+    #print("columns of the data node: ", data_node.columns)
 
     return {
         "message": f"Data Clean Room for {cohort.cohort_id} provisioned at {dcr_url}",
@@ -343,13 +349,13 @@ async def api_get_compute_dcr_definition(
 @router.get("/dcr-log/{dcr_id}", 
             name = "display the log file of the specified DCR")
 def get_dcr_log(dcr_id: str,  user: Any = Depends(get_current_user)):
-    print("now inside get-dcr-log!!!")
+    print("now in get-dcr-log function")
     #id = "d2b060860906f94bce726a6cba3d948e236386359956c47cdc2dc477bbe199ee"
     client = dq.create_client(settings.decentriq_email, settings.decentriq_token)
     dcr = client.retrieve_analytics_dcr(dcr_id)
     log = dcr.retrieve_audit_log()
     events = [x for x in log.split("\n") if x.strip() != ""]
-    print(events)
+    #print(events)
     events_j = [{"timestamp": datetime.fromtimestamp(int(x.split(",")[0])/1000),
                   "user": x.split(",")[1], 
                   "desc": " - ".join(x.split(",")[2:])} for x in events]

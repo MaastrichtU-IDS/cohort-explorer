@@ -214,10 +214,10 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
         df["VAR TYPE"] = df.apply(lambda row: str(row["VAR TYPE"]).upper(), axis=1)
 
         # Normalize vocabulary codes LOINC and SNOMED:
-        df["Categorical Value Concept Code"] = df.apply(lambda row:
-                                                        str(row["Categorical Value Concept Code"])
-                                                        .replace("snomed", "SNOMED")
-                                                        .replace("LOINC", "loinc"), axis=1)
+        #df["Categorical Value Concept Code"] = df.apply(lambda row:
+        #                                                str(row["Categorical Value Concept Code"])
+        #                                                .replace("snomed", "SNOMED")
+        #                                                .replace("LOINC", "loinc"), axis=1)
 
         for i, row in df.iterrows():
             # Check if required columns are present

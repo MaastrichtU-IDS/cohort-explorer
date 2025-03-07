@@ -13,6 +13,7 @@ services:
     entrypoint: uv run uvicorn src.main:app --host 0.0.0.0 --port 80 --reload --log-level debug
     environment:
       - DEV_MODE=true
+      - UV_HTTP_TIMEOUT=90
     ports:
       - 3000:80
 

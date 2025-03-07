@@ -14,8 +14,8 @@ def get_last_data_prov_event(log_json):
 
 async def run_periodic_monitoring():
     #waiting for the app to fully launch
-    print("run_periodic_monitoring called. Will wait a few minutes before first check!")
-    await asyncio.sleep(120)
+    print("run_periodic_monitoring called. Will wait 30 minutes before first check!")
+    await asyncio.sleep(1800)
     while True:
         try:
             with open("/data/monitoring_config.json", 'r') as f:

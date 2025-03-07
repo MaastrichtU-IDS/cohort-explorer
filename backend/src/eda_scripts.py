@@ -8,6 +8,12 @@ import decentriq_util
 
 # Load the metadata dictionary
 dictionary_df = decentriq_util.read_tabular_data("/input/{cohort_id}-metadata")
+try:
+    varname_col = [x for x in ['VARIABLE NAME', 'VARIABLENAME', 'VAR NAME'] if x in dictionary_df.columns][0]
+except:
+    raise ValueError("The dictionary file does not contain a 'VARIABLE NAME'/'VARIABLENAME' column.")
+
+print("variable names: ", [v for v in dictionary_df[varname_col]])
 
 # Load the dataset
 try:
@@ -15,12 +21,8 @@ try:
 except Exception as e:
     dataset_df = decentriq_util.read_tabular_data("/input/{cohort_id}")
 
-# Validate that the dictionary file contains the 'VARIABLE NAME' column
-if 'VARIABLE NAME' not in dictionary_df.columns:
-    raise ValueError("The dictionary file does not contain a 'VARIABLE NAME' column.")
-
 # Extract 'VARIABLE NAME' column from dictionary and dataset column names
-dictionary_variables = set(dictionary_df['VARIABLE NAME'].dropna().unique())
+dictionary_variables = set(dictionary_df[varname_col].unique())
 dataset_columns = set(dataset_df.columns)
 
 # Compare the sets
@@ -30,6 +32,7 @@ in_dataset_not_in_dictionary = dataset_columns - dictionary_variables
 # Optionally save the results to files for reference
 pd.DataFrame({'In Dataset Not in Dictionary': list(in_dataset_not_in_dictionary)}).to_csv("/output/in_dataset_not_in_dictionary.csv",index = False)
 pd.DataFrame({'In Dictionary Not in Dataset': list(in_dictionary_not_in_dataset)}).to_csv("/output/in_dictionary_not_in_dataset.csv",index = False)
+#print("variable names: ", [v for v in dictionary_df[varname_col]])
 """
     return raw_script.replace("{cohort_id}", cohort_id)
 
@@ -46,8 +49,13 @@ dictionary = decentriq_util.read_tabular_data("/input/{cohort_id}-metadata")
 
 # Clean column names to ensure uniformity
 dictionary.columns = dictionary.columns.str.strip().str.upper()
-dictionary['VARIABLE NAME'] = dictionary['VARIABLE NAME'].str.strip().str.lower()
-dictionary['VAR TYPE'] = dictionary['VAR TYPE'].str.strip().str.lower()
+
+varname_col = [x for x in ['VARIABLE NAME', 'VARIABLENAME', 'VAR NAME'] if x in dictionary.columns][0]
+vartype_col = [x for x in ['VAR TYPE', 'VARTYPE'] if x in dictionary.columns][0]
+varlabel_col = [x for x in ['VARIABLE LABEL', 'VARIABLELABEL', 'VAR LABEL'] if x in dictionary.columns][0]
+
+dictionary[varname_col] = dictionary[varname_col].str.strip().str.lower()
+dictionary[vartype_col] = dictionary[vartype_col].str.strip().str.lower()
 
 # Define the pattern for entries to exclude non-categorical variables
 include_pattern = r'\||='   # Look for strings containing either a | or =.
@@ -60,14 +68,12 @@ class_details = {}
 numerical_details = {}
 
 for index, row in dictionary.iterrows():
-    variable_name = row['VARIABLE NAME']
-    var_type = row['VAR TYPE'] if 'VAR TYPE' in dictionary.columns else None
+    variable_name = row[varname_col]
+    var_type = row[vartype_col]
     categories_info = row['CATEGORICAL']
-    min_value = row['MIN'] if 'MIN' in dictionary.columns else None
-    max_value = row['MAX'] if 'MAX' in dictionary.columns else None
     missing_key = row['MISSING'] if 'MISSING' in dictionary.columns else None
 
-    if pd.notna(categories_info) and isinstance(categories_info, str) and categories_info.strip():
+    if (pd.notna(categories_info) and isinstance(categories_info, str) and categories_info.strip()) or var_type=='datetime':
         # Handle categorical variables
         categories = [item for sublist in categories_info.split('|') for item in sublist.split(',')]
         class_names = {}
@@ -95,20 +101,16 @@ for index, row in dictionary.iterrows():
         # Save MIN, MAX, and VAR TYPE values if they exist to class_details
         class_details[variable_name] = {
             'categories': class_names,
-
+            'var_label': row[varlabel_col],
             'missing': missing_key,  # Add missing indicator if found
-
-            'min': min_value if pd.notna(min_value) else None,
-            'max': max_value if pd.notna(max_value) else None,
             'var_type': var_type if pd.notna(var_type) else None
         }
 
     elif (pd.isna(categories_info) or categories_info.strip() == '') and var_type != 'str':
         # Handle numerical variables, if the variable has type "str" (like PatientID, the analysis does not apply to it)
         numerical_details[variable_name] = {
-            'min': min_value if pd.notna(min_value) else None,
-            'max': max_value if pd.notna(max_value) else None,
             'var_type': var_type if pd.notna(var_type) else None,
+            'var_label': row[varlabel_col],
             'missing': missing_key
         }
 
@@ -125,7 +127,7 @@ with open(numerical_json_path, 'w') as json_file:
     json.dump(numerical_details, json_file, indent=4)
 
 # Print confirmation messages and the first 5 items in a formatted way
-#print(f"Categorical variables saved to {categorical_json_path}")
+print(f"Categorical variables saved to {categorical_json_path}")
 print(json.dumps({key: class_details[key] for key in list(class_details.keys())[:5]}, indent=4))
 
 print(f"Numerical variables saved to {numerical_json_path}")
@@ -136,9 +138,11 @@ print(json.dumps({key: numerical_details[key] for key in list(numerical_details.
 
 def c3_eda_data_profiling(cohort_id: str) -> str:
     raw_script = """
+
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 import seaborn as sns
 from scipy.stats import shapiro, skew, kurtosis, zscore
 import warnings
@@ -147,6 +151,7 @@ import re
 from datetime import datetime
 import json
 warnings.filterwarnings('ignore')
+
 
 
 # Load the dataset with corrected missing values replaced with NA from previous step
@@ -162,8 +167,11 @@ data = decentriq_util.read_tabular_data("/input/{cohort_id}")
 
 #variables that should be graphed
 #vars_to_graph = ['age', 'weight', 'cough1', 'angina1', 'hscrp_v6']
-vars_to_graph = list(categorical_vars.columns) + list(numerical_vars.columns)
-vars_to_graph = [x.strip().lower() for x in vars_to_graph]
+vars_to_graph = ['age', 'ALCOOL', 'ALLOPURI', 'ALT', 'ALTACE', 'ALTANO', 'COLETOT', 'CREATIN', 'DALTACE', 'DATAECG', 'DATALAB']
+vars_to_graph = ['age', 'ALCOOL', 'DATAECG', 'DATALAB']
+vars_to_graph = [x.lower() for x in vars_to_graph]
+#vars_to_graph = list(categorical_vars.columns) + list(numerical_vars.columns)
+#vars_to_graph = [x.strip().lower() for x in vars_to_graph]
 
 
 def variable_eda(df, categorical_vars, numerical_vars):
@@ -223,6 +231,8 @@ def variable_eda(df, categorical_vars, numerical_vars):
             # Stats Text
             stats_text = (
                 f"Column: {column}",
+                f"Label: {numerical_vars[column]['var_label']}",
+                f"Type: Numeric (encoded as {df[column].dtype})",
                 f"Number of non-null observations: {int(stats['count'])}",
                 f"Number of Unique Values/Categories: {df[column].nunique()}",
                 f"Mean:                {stats['mean']:.2f}",
@@ -240,8 +250,7 @@ def variable_eda(df, categorical_vars, numerical_vars):
                 f"Skewness:            {skewness:.2f}",
                 f"Kurtosis:            {kurt:.2f}",
                 f"W_Test:              {w_test_stat:.2f}",
-                f"Normality Test: p-value={p_value_str} => {normality}",
-                f"Data Type:           {df[column].dtype}"
+                f"Normality Test: p-value={p_value_str} => {normality}"
             )
 
             if column in vars_to_graph:
@@ -249,7 +258,7 @@ def variable_eda(df, categorical_vars, numerical_vars):
 
 
         # Categorical variables
-        elif column in categorical_vars.keys():
+        elif column in categorical_vars.keys() and categorical_vars[column]['var_type'] != 'datetime':
             stats = df[column].describe()
             value_counts = df[column].value_counts(dropna=False)
             total = len(df)
@@ -261,6 +270,8 @@ def variable_eda(df, categorical_vars, numerical_vars):
             if value_counts.empty:
                 stats_text = (
                     f"Column: {column}",
+                    f"Label: {categorical_vars[column]['var_label']}",
+                    f"Type: Categorical (encoded as {df[column].dtype})",
                     f"Number of Unique Categories: 0",
                     f"Missing Values: {df[column].isnull().sum()} ({df[column].isnull().mean() * 100:.2f}%)"
                 )
@@ -270,32 +281,51 @@ def variable_eda(df, categorical_vars, numerical_vars):
                 chi_square_stat = ((value_counts - expected) ** 2 / expected).sum()
 
                 # Class balance with corrected mapping
-                class_balance_text = " - ".join([
+                class_balance_text = "\\n" + "\\n     ".join([
                     f"{(key, categories_mapping.get(str(key), 'Unknown'))} -> {round(count / total * 100)}%"
                     for key, count in value_counts.items()
                 ])
 
                 stats_text = (
                     f"Column: {column}",
-                    f"Number of Unique Values/Categories: {len(value_counts)}",
-                    f"Most Frequent Category: {categories_mapping.get(str(value_counts.idxmax()).split('.')[0], 'Unknown')} ",
+                    f"Label: {categorical_vars[column]['var_label']}",
+                    f"Type: Categorical (encoded as {df[column].dtype})",
+                    f"Number of unique values/categories: {len(value_counts)}",
+                    f"Most frequent category: {categories_mapping.get(str(value_counts.idxmax()).split('.')[0], 'Unknown')} ",
                     f"Number of non-null observations: {df[column].count()}",
                     f"Missing: {df[column].isnull().sum()} ({df[column].isnull().mean() * 100:.2f}%)",
-                    f"Class Balance: {class_balance_text}",
-                    f"Chi-Square Test Statistic: {chi_square_stat:.2f}",
-                    f"Data Type:           {df[column].dtype}"
+                    f"Class balance: {class_balance_text}",
+                    f"Chi-Square Test Statistic: {chi_square_stat:.2f}"
                 )
 
             if column in vars_to_graph:
-                create_save_graph(df, column, stats_text, 'categorical')
+                create_save_graph(df, column, stats_text, 'categorical', category_mapping = categories_mapping)
+        elif column in categorical_vars.keys() and categorical_vars[column]['var_type'] == 'datetime':
+            stats = pd.to_datetime(df[column], format='%Y-%m-%d').describe()
+            value_counts = df[column].value_counts(dropna=False)
+            total = len(df)
+            stats_text = [
+                    f"Column: {column}",
+                    f"Label: {categorical_vars[column]['var_label']}",
+                    f"Type: Date (encoded as {df[column].dtype})",
+                    f"Number of unique values: {len(value_counts)}",
+                    f"Most frequent value: {categories_mapping.get(str(value_counts.idxmax()).split('.')[0], 'Unknown')}",
+                    f"Number of non-null observations: {df[column].count()}",
+                    f"Missing: {df[column].isnull().sum()} ({df[column].isnull().mean() * 100:.2f}%)"
+            ]
+            stats_text.extend([f"{k.capitalize()}: {v}" for k,v in stats.items()])
+            if column in vars_to_graph:
+                create_save_graph(df, column, stats_text, 'datetime')
 
         stats_text_dict = {i.split(":")[0].strip():i.split(":")[1].strip() for i in stats_text}
+        if 'Class balance' in stats_text_dict:
+            stats_text_dict['Class balance'].replace(" ->", ":")
         vars_stats[column] = stats_text_dict
     return vars_stats
 
 
 
-def create_save_graph(df, varname, stats_text, vartype):
+def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
     if vartype == 'numerical':
         fig, axes = plt.subplots(1, 2, figsize=(12, 6))
 
@@ -319,6 +349,28 @@ def create_save_graph(df, varname, stats_text, vartype):
         plt.savefig(f"/output/{varname.lower()}.png")
         print(f"figure for {varname} saved!! ")
         plt.close()
+    elif vartype == 'datetime':
+        fig, axes = plt.subplots(1, 2, figsize=(12, 6))
+
+        # Left: Display Summary Stats
+
+        props = dict(boxstyle="round,pad=0.5", facecolor="whitesmoke", alpha=0.8, edgecolor="lightgray")
+        text_obj = axes[0].text(0.05, 0.95, '\\n'.join(stats_text), transform=axes[0].transAxes, fontsize=11, va='top', ha='left', 
+        family='monospace',  bbox=props, wrap=True, linespacing=1.5)
+        if hasattr(text_obj, "_get_wrap_line_width"):
+            text_obj._get_wrap_line_width = lambda: 400
+        #axes[0].text(0.05, 0.9, , fontsize=10, va='top', ha='left', linespacing=1.2, family='monospace', wrap=True)
+        axes[0].axis("off")
+        axes[0].set_title(f"Statistics Summary for {varname}", fontsize=12)
+
+        # Right: Plot histogram
+        sorted_dates = sorted(df[varname].dropna())
+
+        axes[1].xaxis.set_major_locator(mdates.MonthLocator())  # Show ticks at month intervals
+        axes[1].xaxis.set_minor_locator(mdates.WeekdayLocator())  # Minor ticks at weeks
+        axes[1].xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+        plt.xticks(rotation=90)
+
 
     elif vartype == 'categorical':
 
@@ -351,7 +403,13 @@ def create_save_graph(df, varname, stats_text, vartype):
                         ha='center', fontsize=10)
 
             # Adjust x-axis labels to be horizontal
-            ax.set_xticklabels(value_counts.index.astype(str), rotation=0, fontsize=10)
+            xticks = []
+            for v in value_counts.index.astype(str):
+                if v in category_mapping:
+                    xticks.append(category_mapping[v])
+                else:
+                    xticks.append(v)
+            ax.set_xticklabels(xticks, rotation=90, fontsize=10)
 
         plt.tight_layout()
         plt.savefig(f"/output/{varname.lower()}.png")
