@@ -166,11 +166,11 @@ data = decentriq_util.read_tabular_data("/input/{cohort_id}")
 
 #variables that should be graphed
 #vars_to_graph = ['age', 'weight', 'cough1', 'angina1', 'hscrp_v6']
-vars_to_graph = ['age', 'ALCOOL', 'ALLOPURI', 'ALT', 'ALTACE', 'ALTANO', 'COLETOT', 'CREATIN', 'DALTACE', 'DATAECG', 'DATALAB']
-vars_to_graph = ['age', 'ALCOOL', 'DATAECG', 'DATALAB']
-vars_to_graph = [x.lower() for x in vars_to_graph]
-#vars_to_graph = list(categorical_vars.columns) + list(numerical_vars.columns)
-#vars_to_graph = [x.strip().lower() for x in vars_to_graph]
+#vars_to_graph = ['age', 'ALCOOL', 'ALLOPURI', 'ALT', 'ALTACE', 'ALTANO', 'COLETOT', 'CREATIN', 'DALTACE', 'DATAECG', 'DATALAB']
+#vars_to_graph = ['age', 'ALCOOL', 'DATAECG', 'DATALAB']
+#vars_to_graph = [x.lower() for x in vars_to_graph]
+vars_to_graph = list(categorical_vars.columns) + list(numerical_vars.columns)
+vars_to_graph = [x.strip().lower() for x in vars_to_graph]
 
 
 def variable_eda(df, categorical_vars, numerical_vars):
