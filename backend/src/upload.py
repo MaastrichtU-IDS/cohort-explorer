@@ -158,7 +158,7 @@ COLUMNS_LIST = [
     "NA",
     "MIN",
     "MAX",
-    "Definition",
+#    "Definition",
     "Formula",
     "OMOP",
     "Visits",

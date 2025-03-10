@@ -51,7 +51,7 @@ metadatadict_cols = [
     Column(name="NA", format_type=FormatType.INTEGER, is_nullable=True),
     Column(name="MIN", format_type=FormatType.STRING, is_nullable=True),
     Column(name="MAX", format_type=FormatType.STRING, is_nullable=True),
-    Column(name="Definition", format_type=FormatType.STRING, is_nullable=True),
+ #   Column(name="Definition", format_type=FormatType.STRING, is_nullable=True),
     Column(name="Formula", format_type=FormatType.INTEGER, is_nullable=True),
     Column(name="Categorical Value Concept Code", format_type=FormatType.STRING, is_nullable=True),
     Column(name="Categorical Value Name", format_type=FormatType.STRING, is_nullable=True),
@@ -138,8 +138,16 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
     # Now the DCR has been created we can upload the metadata file and run computations
     key = dq.Key()  # generate an encryption key with which to encrypt the dataset
     metadata_node = dcr.get_node(metadata_node_id)
+    metadata_noheader_filepath = cohort.metadata_filepath.split(".")[0] + "_noHeader.csv"
     with open(cohort.metadata_filepath, "rb") as data:
-        metadata_node.upload_and_publish_dataset(data, key, f"{metadata_node_id}.csv")
+        header = data.readline()
+        print("header read from the file: ", header.decode('utf-8'))
+        restfile = data.read()
+    with open( metadata_noheader_filepath, "wb") as data_noheader:
+        data_noheader.write(restfile)
+    os.sync()
+    with open(metadata_noheader_filepath, "rb") as data_noheader:
+        metadata_node.upload_and_publish_dataset(data_noheader, key, f"{metadata_node_id}.csv")
 
     #print("columns of the metadata node: ", metadata_node.columns)
 
