@@ -138,6 +138,7 @@ print(json.dumps({key: numerical_details[key] for key in list(numerical_details.
 
 def c3_eda_data_profiling(cohort_id: str) -> str:
     raw_script = """
+
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -149,6 +150,7 @@ import decentriq_util
 import re
 from datetime import datetime
 import json
+import collections.abc
 warnings.filterwarnings('ignore')
 
 
@@ -158,7 +160,7 @@ warnings.filterwarnings('ignore')
 
 #Load the JSON files from C2
 categorical_vars = pd.read_json("/input/c2_save_to_json/categorical_variables.json")
-print("the categorical data: ", categorical_vars.keys())
+#print("the categorical data: ", categorical_vars.keys())
 numerical_vars = pd.read_json("/input/c2_save_to_json/numerical_variables.json")
 #print("the numerical data: ", numerical_vars)
 data = decentriq_util.read_tabular_data("/input/{cohort_id}")
@@ -175,10 +177,11 @@ vars_to_graph = [x.strip().lower() for x in vars_to_graph]
 
 def variable_eda(df, categorical_vars, numerical_vars):
     vars_stats = {}
+    graph_tick_data = {}
     df.columns = df.columns.str.lower().str.strip()
     for column in df.columns.tolist():
         # Continuous variables
-        if column in list(numerical_vars.keys()):
+        if column in numerical_vars.keys():
 
             #if not pd.api.types.is_numeric_dtype(df[column]):
                 # Skip if the column is not numeric
@@ -188,8 +191,13 @@ def variable_eda(df, categorical_vars, numerical_vars):
             # Descriptive Stats
             stats = df[column].describe()
             mode_value = df[column].mode()[0] if not df[column].mode().empty else np.nan
-            total_missing = df[column].isnull().sum()
+            value_counts = df[column].value_counts(dropna=False)
+            if numerical_vars[column]['missing'] == None:
+                total_missing = 0
+            else:
+                total_missing = value_counts.get(numerical_vars[column]['missing'], 0)
             missing_percent = total_missing / len(df) * 100
+            empty = df[column].isnull().sum()
 
             # Check for numeric values before computing skewness and kurtosis
             if len(df[column].dropna()) > 0:
@@ -243,7 +251,8 @@ def variable_eda(df, categorical_vars, numerical_vars):
                 f"Q1:                  {Q1:.2f}",
                 f"Q3:                  {Q3:.2f}",
                 f"IQR:                 {IQR:.2f}",
-                f"Missing:             {total_missing} ({missing_percent:.2f}%)",
+                f"Count empty:         {empty} ({empty/len(df[column]) * 100:.2f}%)"
+                f"Count missing:       {total_missing} ({total_missing/len(df[column]) * 100:.2f}%)",
                 f"Outliers (IQR):      {outliers} ({(outliers / len(df) * 100):.2f}%)",
                 f"Outliers (Z):        {z_outliers}",
                 f"Skewness:            {skewness:.2f}",
@@ -253,7 +262,8 @@ def variable_eda(df, categorical_vars, numerical_vars):
             )
 
             if column in vars_to_graph:
-                create_save_graph(df, column, stats_text, 'numerical')
+                graph_tick_data[column] = create_save_graph(df, column, stats_text, 'numerical')
+                
 
 
         # Categorical variables
@@ -278,9 +288,15 @@ def variable_eda(df, categorical_vars, numerical_vars):
                 # Chi-square test
                 expected = total / len(value_counts)
                 chi_square_stat = ((value_counts - expected) ** 2 / expected).sum()
+                if categorical_vars[column]['missing'] == None:
+                    missing_count = 0
+                else:
+                    missing_count = value_counts.get(categorical_vars[column]['missing'], 0)
+                
+
 
                 # Class balance with corrected mapping
-                class_balance_text = "\\n" + "\\n     ".join([
+                class_balance_text = "\\n\\t" + "\\n\\t".join([
                     f"{(key, categories_mapping.get(str(key), 'Unknown'))} -> {round(count / total * 100)}%"
                     for key, count in value_counts.items()
                 ])
@@ -292,17 +308,23 @@ def variable_eda(df, categorical_vars, numerical_vars):
                     f"Number of unique values/categories: {len(value_counts)}",
                     f"Most frequent category: {categories_mapping.get(str(value_counts.idxmax()).split('.')[0], 'Unknown')} ",
                     f"Number of non-null observations: {df[column].count()}",
-                    f"Missing: {df[column].isnull().sum()} ({df[column].isnull().mean() * 100:.2f}%)",
+                    f"Code for missing value: {categorical_vars[column]['missing']}",
+                    f"Count missing: {missing_count} ({missing_count/len(df[column]) * 100:.2f}%)",
+                    f"Count empty: {df[column].isnull().sum()} ({df[column].isnull().mean() * 100:.2f}%)",
                     f"Class balance: {class_balance_text}",
                     f"Chi-Square Test Statistic: {chi_square_stat:.2f}"
                 )
 
             if column in vars_to_graph:
-                create_save_graph(df, column, stats_text, 'categorical', category_mapping = categories_mapping)
+                graph_tick_data[column] = create_save_graph(df, column, stats_text, 'categorical', category_mapping = categories_mapping)
         elif column in categorical_vars.keys() and categorical_vars[column]['var_type'] == 'datetime':
             stats = pd.to_datetime(df[column], format='%Y-%m-%d').describe()
             value_counts = df[column].value_counts(dropna=False)
             total = len(df)
+            if categorical_vars[column]['missing'] == None:
+                missing_count = 0
+            else:
+                missing_count = value_counts.get(categorical_vars[column]['missing'], 0)
             stats_text = [
                     f"Column: {column}",
                     f"Label: {categorical_vars[column]['var_label']}",
@@ -310,16 +332,20 @@ def variable_eda(df, categorical_vars, numerical_vars):
                     f"Number of unique values: {len(value_counts)}",
                     f"Most frequent value: {categories_mapping.get(str(value_counts.idxmax()).split('.')[0], 'Unknown')}",
                     f"Number of non-null observations: {df[column].count()}",
-                    f"Missing: {df[column].isnull().sum()} ({df[column].isnull().mean() * 100:.2f}%)"
+                    f"Count missing: {missing_count} ({missing_count/len(df[column]) * 100:.2f}%)",
+                    f"Count empty: {df[column].isnull().sum()} ({df[column].isnull().mean() * 100:.2f}%)"
             ]
             stats_text.extend([f"{k.capitalize()}: {v}" for k,v in stats.items()])
             if column in vars_to_graph:
-                create_save_graph(df, column, stats_text, 'datetime')
+                graph_tick_data[column] = create_save_graph(df, column, stats_text, 'datetime')
 
         stats_text_dict = {i.split(":")[0].strip():i.split(":")[1].strip() for i in stats_text}
         if 'Class balance' in stats_text_dict:
             stats_text_dict['Class balance'].replace(" ->", ":")
+        stats_text_dict['url'] = f"api.explorer.icare4cvd.eu/{cohort_id}/{column}"
         vars_stats[column] = stats_text_dict
+    for col, ticks  in graph_tick_data.items():
+        vars_stats[col].update(ticks)
     return vars_stats
 
 
@@ -346,8 +372,8 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
         # Save the figure for the current feature
         plt.tight_layout()
         plt.savefig(f"/output/{varname.lower()}.png")
-        print(f"figure for {varname} saved!! ")
-        plt.close()
+        #print(f"figure for {varname} saved!! ")
+       #plt.close()
     elif vartype == 'datetime':
         fig, axes = plt.subplots(1, 2, figsize=(12, 6))
 
@@ -381,9 +407,9 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
         axes[1].set_title(f"Distribution of {varname}.upper()", fontsize=12)
         axes[1].xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
     
-        if date_range.days > 365*2:
-            axes[1].xaxis.set_major_locator(mdates.YearLocator())
-        elif date_range.days > 180:
+        #if date_range.days > 365*2:
+        #    axes[1].xaxis.set_major_locator(mdates.YearLocator())
+        if date_range.days > 180:
             axes[1].xaxis.set_major_locator(mdates.MonthLocator(interval=3))  # Quarterly
         else:
             axes[1].xaxis.set_major_locator(mdates.MonthLocator())  # Monthly
@@ -392,7 +418,7 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
         
         plt.tight_layout()
         plt.savefig(f"/output/{varname.lower()}.png")
-        print(f"figure for {varname} saved!! ")
+        #print(f"figure for {varname} saved!! ")
 
 
     elif vartype == 'categorical':
@@ -436,13 +462,20 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
 
         plt.tight_layout()
         plt.savefig(f"/output/{varname.lower()}.png")
-        print(f"figure for {varname} saved!! ")
-        plt.close()
+        #print(f"figure for {varname} saved!! ")
+
+    x_ticks = axes[1].get_xticks()
+    x_tick_labels = axes[1].get_xticklabels()
+    y_ticks = axes[1].get_yticks()
+    y_tick_labels = axes[1].get_yticklabels()
+    return {"x-ticks": " - ".join([str(_) for _ in x_ticks]), "x-labels": " - ".join([str(_) for _ in x_tick_labels]),
+            "y-ticks": " - ".join([str(_) for _ in y_ticks]), "y-labels": " - ".join([str(_) for _ in y_tick_labels])}
 
 
 def integrate_eda_with_metadata(vars_stats):
     meta_data = decentriq_util.read_tabular_data("/input/{cohort_id}-metadata")
-    metadata_vars = [x.lower().strip() for x in meta_data['VARIABLE NAME'].values]
+    varname_col = [x for x in ['VARIABLE NAME', 'VARIABLENAME', 'VAR NAME'] if x in meta_data.columns][0]
+    metadata_vars = [x.lower().strip() for x in meta_data[varname_col].values]
     #print("vars from var_stats:", vars_stats.keys())
     #print("vars in metadata: ", metadata_vars)
     #print(" vars in common: ", [x for x in metadata_vars if x in vars_stats.keys()])
@@ -463,12 +496,13 @@ def integrate_eda_with_metadata(vars_stats):
 
 
 def dataframe_to_json_dicts(df):
+    varname_col = [x for x in ['VARIABLE NAME', 'VARIABLENAME', 'VAR NAME'] if x in df.columns][0]
     json_dicts = {}
     for _, row in df.iterrows():
-        variable_name = row['VARIABLE NAME']
+        variable_name = row[varname_col]
         var_dict = {}
         for col in df.columns:
-            if col not in ['VARIABLE NAME', 'Column'] and pd.notna(row[col]) and row[col] != "":
+            if col not in [varname_col, 'Column'] and pd.notna(row[col]) and row[col] != "" :
                 var_dict[col] = row[col]
         json_dicts[variable_name] = var_dict
     with open("/output/eda_output_{cohort_id}.json", 'w', encoding='utf-8') as f:

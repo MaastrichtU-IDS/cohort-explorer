@@ -147,6 +147,9 @@ def parse_categorical_string(s: str) -> list[dict[str, str]]:
         )
     return result
 
+cols_normalized = {"VARIABLENAME": "VARIABLE NAME", 
+                   "VARIABLELABEL": "VARIABLE LABEL",
+                   "VARTYPE": "VAR TYPE"}
 
 COLUMNS_LIST = [
     "VARIABLE NAME",
@@ -163,6 +166,7 @@ COLUMNS_LIST = [
     "OMOP",
     "Visits",
 ]
+
 ACCEPTED_DATATYPES = ["STR", "FLOAT", "INT", "DATETIME"]
 
 def to_camelcase(s: str) -> str:
@@ -186,6 +190,11 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
         df = pd.read_csv(dict_path, na_values=[""], keep_default_na=False)
         df = df.dropna(how="all")
         df = df.fillna("")
+        print("df columns pre normalize: ", df.columns.values.tolist())
+        print("df.columns pre normalize: ", df.columns)
+        df.columns = [cols_normalized.get(c, c) for c in df.columns]
+        print("df columns post normalize: ", df.columns.values.tolist())
+        print("df columns post normalize: ", df.columns)
         df.columns = df.columns.str.strip()
         for column in COLUMNS_LIST:
             if column not in df.columns.values.tolist():

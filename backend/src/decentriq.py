@@ -1,5 +1,4 @@
 import csv
-import json
 from copy import deepcopy
 from typing import Any
 import os
@@ -41,9 +40,9 @@ def get_cohort_schema(cohort_dict: Cohort) -> list[Column]:
     return schema
 
 metadatadict_cols = [
-    Column(name="VARIABLE NAME", format_type=FormatType.STRING, is_nullable=True),
-    Column(name="VARIABLE LABEL", format_type=FormatType.STRING, is_nullable=True),
-    Column(name="VAR TYPE", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="VARIABLENAME", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="VARIABLELABEL", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="VARTYPE", format_type=FormatType.STRING, is_nullable=True),
     Column(name="UNITS", format_type=FormatType.STRING, is_nullable=True),
     Column(name="CATEGORICAL", format_type=FormatType.STRING, is_nullable=True),
     Column(name="MISSING", format_type=FormatType.STRING, is_nullable=True),
@@ -51,22 +50,22 @@ metadatadict_cols = [
     Column(name="NA", format_type=FormatType.INTEGER, is_nullable=True),
     Column(name="MIN", format_type=FormatType.STRING, is_nullable=True),
     Column(name="MAX", format_type=FormatType.STRING, is_nullable=True),
- #   Column(name="Definition", format_type=FormatType.STRING, is_nullable=True),
+    #Column(name="Definition", format_type=FormatType.STRING, is_nullable=True),
     Column(name="Formula", format_type=FormatType.INTEGER, is_nullable=True),
     Column(name="Categorical Value Concept Code", format_type=FormatType.STRING, is_nullable=True),
     Column(name="Categorical Value Name", format_type=FormatType.STRING, is_nullable=True),
-    Column(name="Categorical Value Concept ID", format_type=FormatType.STRING, is_nullable=True),
-    Column(name="Label Concept Code", format_type=FormatType.STRING, is_nullable=True),
-    Column(name="Label Concept Name", format_type=FormatType.STRING, is_nullable=True),
-    Column(name="Label Concept ID", format_type=FormatType.STRING, is_nullable=True),
-    Column(name="Additional Context Concept Label", format_type=FormatType.STRING, is_nullable=True),
-    Column(name="Additional Context Concept ID", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Categorical Value OMOP ID", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Variable Concept Code", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Variable Concept Name", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Variable OMOP ID", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Additional Context Concept Name", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Additional Context Concept Code", format_type=FormatType.STRING, is_nullable=True),
     Column(name="Additional Context OMOP ID", format_type=FormatType.STRING, is_nullable=True),
     Column(name="Unit Concept Name", format_type=FormatType.STRING, is_nullable=True),
     Column(name="Unit Concept Code", format_type=FormatType.STRING, is_nullable=True),
     Column(name="Unit OMOP ID", format_type=FormatType.INTEGER, is_nullable=True),
-    Column(name="OMOP", format_type=FormatType.STRING, is_nullable=True),
-    Column(name="Visits ", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Domain", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Visits", format_type=FormatType.STRING, is_nullable=True),
     Column(name="Visit OMOP ID", format_type=FormatType.INTEGER, is_nullable=True),
     Column(name="Visit Concept Name", format_type=FormatType.STRING, is_nullable=True),
     Column(name="Visit Concept Code", format_type=FormatType.STRING, is_nullable=True),
@@ -141,7 +140,7 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
     metadata_noheader_filepath = cohort.metadata_filepath.split(".")[0] + "_noHeader.csv"
     with open(cohort.metadata_filepath, "rb") as data:
         header = data.readline()
-        print("header read from the file: ", header.decode('utf-8'))
+        print("header removed from the file: ", header.decode('utf-8'))
         restfile = data.read()
     with open( metadata_noheader_filepath, "wb") as data_noheader:
         data_noheader.write(restfile)
