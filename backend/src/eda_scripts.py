@@ -366,7 +366,7 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
 
         # Right: Plot histogram
         sns.histplot(df[varname].dropna(), kde=True, ax=axes[1])
-        axes[0].set_title(f"Statistics Summary for {varname}.upper()", fontsize=12)
+        axes[0].set_title(f"Statistics Summary for {varname.upper()}", fontsize=12)
         axes[1].tick_params(axis='x')
 
         # Save the figure for the current feature
@@ -384,7 +384,7 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
             text_obj._get_wrap_line_width = lambda: 400
         #axes[0].text(0.05, 0.9, , fontsize=10, va='top', ha='left', linespacing=1.2, family='monospace', wrap=True)
         axes[0].axis("off")
-        axes[0].set_title(f"Statistics Summary for {varname}.upper()", fontsize=12)
+        axes[0].set_title(f"Statistics Summary for {varname.upper()}", fontsize=12)
         date_vals =  pd.to_datetime(df[varname].dropna(), format='%Y-%m-%d')
     
         date_nums = mdates.date2num(date_vals)
@@ -404,7 +404,7 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
         bins = mdates.date2num(pd.date_range(min_date, max_date, freq=bin_freq))
         
         axes[1].hist(date_nums, bins=bins, alpha=0.7)
-        axes[1].set_title(f"Distribution of {varname}.upper()", fontsize=12)
+        axes[1].set_title(f"Distribution of {varname.upper()}", fontsize=12)
         axes[1].xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
     
         #if date_range.days > 365*2:
@@ -441,7 +441,7 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
         if not value_counts.empty:
             colors = sns.color_palette("husl", len(value_counts))
             ax = value_counts.plot(kind='bar', color=colors, edgecolor='black', ax=axes[1])
-            axes[0].set_title(f"Statistics Summary for {varname}.upper()", fontsize=12)
+            axes[0].set_title(f"Statistics Summary for {varname.upper()}", fontsize=12)
             ax.set_xlabel("Categories")
             ax.set_ylabel("Count")
 
