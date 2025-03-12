@@ -138,7 +138,6 @@ print(json.dumps({key: numerical_details[key] for key in list(numerical_details.
 
 def c3_eda_data_profiling(cohort_id: str) -> str:
     raw_script = """
-
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -197,7 +196,7 @@ def variable_eda(df, categorical_vars, numerical_vars):
             else:
                 total_missing = value_counts.get(numerical_vars[column]['missing'], 0)
             missing_percent = total_missing / len(df) * 100
-            empty = df[column].isnull().sum()
+            empty = df[column].isnull().sum() + df[column].str.strip().eq('').sum()
 
             # Check for numeric values before computing skewness and kurtosis
             if len(df[column].dropna()) > 0:
@@ -293,7 +292,7 @@ def variable_eda(df, categorical_vars, numerical_vars):
                 else:
                     missing_count = value_counts.get(categorical_vars[column]['missing'], 0)
                 
-
+                empty_count = df[column].isnull().sum() + df[column].str.strip().eq('').sum()
 
                 # Class balance with corrected mapping
                 class_balance_text = "\\n\\t" + "\\n\\t".join([
@@ -310,7 +309,7 @@ def variable_eda(df, categorical_vars, numerical_vars):
                     f"Number of non-null observations: {df[column].count()}",
                     f"Code for missing value: {categorical_vars[column]['missing']}",
                     f"Count missing: {missing_count} ({missing_count/len(df[column]) * 100:.2f}%)",
-                    f"Count empty: {df[column].isnull().sum()} ({df[column].isnull().mean() * 100:.2f}%)",
+                    f"Count empty: {empty_count} ({empty_count * 100:.2f}%)",
                     f"Class balance: {class_balance_text}",
                     f"Chi-Square Test Statistic: {chi_square_stat:.2f}"
                 )
@@ -325,6 +324,7 @@ def variable_eda(df, categorical_vars, numerical_vars):
                 missing_count = 0
             else:
                 missing_count = value_counts.get(categorical_vars[column]['missing'], 0)
+            empty_count = df[column].isnull().sum() + df[column].str.strip().eq('').sum()
             stats_text = [
                     f"Column: {column}",
                     f"Label: {categorical_vars[column]['var_label']}",
@@ -333,7 +333,7 @@ def variable_eda(df, categorical_vars, numerical_vars):
                     f"Most frequent value: {categories_mapping.get(str(value_counts.idxmax()).split('.')[0], 'Unknown')}",
                     f"Number of non-null observations: {df[column].count()}",
                     f"Count missing: {missing_count} ({missing_count/len(df[column]) * 100:.2f}%)",
-                    f"Count empty: {df[column].isnull().sum()} ({df[column].isnull().mean() * 100:.2f}%)"
+                    f"Count empty: {empty_count} ({empty_count * 100:.2f}%)"
             ]
             stats_text.extend([f"{k.capitalize()}: {v}" for k,v in stats.items()])
             if column in vars_to_graph:
@@ -393,13 +393,14 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
         max_date = date_vals.max()
         date_range = max_date - min_date
     
-        # bin frequency based on date range
-        if date_range.days > 365:
-            bin_freq = 'M'  # Monthly bins for ranges > 1 year
-        elif date_range.days > 90:
-            bin_freq = 'W'  # Weekly bins for ranges > 3 months
+        if date_range.days > 365 :
+            bin_freq = 'Q'  # Quarterly
+        elif date_range.days > 90 :
+            bin_freq = 'M'  
+        elif date_range.days > 30:
+            bin_freq = 'W'  # Weekly bins
         else:
-            bin_freq = 'D'  # Daily bins for shorter ranges
+            bin_freq = 'D'  # Daily
         
         bins = mdates.date2num(pd.date_range(min_date, max_date, freq=bin_freq))
         

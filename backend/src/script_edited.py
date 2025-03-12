@@ -253,13 +253,14 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
         max_date = date_vals.max()
         date_range = max_date - min_date
     
-        # bin frequency based on date range
-        if date_range.days > 365:
-            bin_freq = 'M'  # Monthly bins for ranges > 1 year
-        elif date_range.days > 90:
-            bin_freq = 'W'  # Weekly bins for ranges > 3 months
+        if date_range.days > 365 :
+            bin_freq = 'Q'  # Quarterly
+        elif date_range.days > 90 :
+            bin_freq = 'M'  
+        elif date_range.days > 30:
+            bin_freq = 'W'  # Weekly bins
         else:
-            bin_freq = 'D'  # Daily bins for shorter ranges
+            bin_freq = 'D'  # Daily
         
         bins = mdates.date2num(pd.date_range(min_date, max_date, freq=bin_freq))
         
