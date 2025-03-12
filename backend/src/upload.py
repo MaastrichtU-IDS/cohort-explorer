@@ -178,7 +178,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
     """Parse the cohort dictionary uploaded as excel or CSV spreadsheet, and load it to the triplestore"""
     # print(f"Loading dictionary {dict_path}")
     # df = pd.read_csv(dict_path) if dict_path.endswith(".csv") else pd.read_excel(dict_path)
-    print("NOW PROCESSING DICTIONARY FILE FOR COHORT, " cohort_id, "\nFile path: ", dict_path)
+    print("NOW PROCESSING DICTIONARY FILE FOR COHORT: ", cohort_id, "\nFile path: ", dict_path)
     if not dict_path.endswith(".csv"):
         raise HTTPException(
             status_code=422,
