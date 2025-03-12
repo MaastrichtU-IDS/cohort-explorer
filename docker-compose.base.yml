@@ -19,6 +19,8 @@ services:
         - NEXT_PUBLIC_API_URL=http://localhost:3000
     env_file:
       - .env
+    volumes:
+      - ./data:/data
 
   db:
     image: oxigraph/oxigraph:latest
