@@ -158,13 +158,13 @@ COLUMNS_LIST = [
     "UNITS",
     "CATEGORICAL",
     "COUNT",
-    "NA",
-    "MIN",
-    "MAX",
+#    "NA",
+#    "MIN",
+#    "MAX",
 #    "Definition",
-    "Formula",
-    "OMOP",
-    "Visits",
+#    "Formula",
+#    "OMOP",
+#    "Visits",
 ]
 
 ACCEPTED_DATATYPES = ["STR", "FLOAT", "INT", "DATETIME"]
