@@ -196,7 +196,10 @@ def variable_eda(df, categorical_vars, numerical_vars):
             else:
                 total_missing = value_counts.get(numerical_vars[column]['missing'], 0)
             missing_percent = total_missing / len(df) * 100
-            empty = df[column].isnull().sum() + df[column].str.strip().eq('').sum()
+            try:
+                empty = df[column].isnull().sum() + df[column].str.strip().eq('').sum()
+            except:
+                empty = df[column].isnull().sum()
 
             # Check for numeric values before computing skewness and kurtosis
             if len(df[column].dropna()) > 0:
@@ -292,7 +295,10 @@ def variable_eda(df, categorical_vars, numerical_vars):
                 else:
                     missing_count = value_counts.get(categorical_vars[column]['missing'], 0)
                 
-                empty_count = df[column].isnull().sum() + df[column].str.strip().eq('').sum()
+                try:
+                    empty_count = df[column].isnull().sum() + df[column].str.strip().eq('').sum()
+                except:
+                    empty_count = df[column].isnull().sum()
 
                 # Class balance with corrected mapping
                 class_balance_text = "\\n\\t" + "\\n\\t".join([
@@ -324,7 +330,11 @@ def variable_eda(df, categorical_vars, numerical_vars):
                 missing_count = 0
             else:
                 missing_count = value_counts.get(categorical_vars[column]['missing'], 0)
-            empty_count = df[column].isnull().sum() + df[column].str.strip().eq('').sum()
+                
+            try:
+                    empty_count = df[column].isnull().sum() + df[column].str.strip().eq('').sum()
+            except:
+                    empty_count = df[column].isnull().sum()
             stats_text = [
                     f"Column: {column}",
                     f"Label: {categorical_vars[column]['var_label']}",
