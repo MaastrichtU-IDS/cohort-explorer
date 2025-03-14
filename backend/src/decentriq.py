@@ -1,7 +1,7 @@
 import csv
 from copy import deepcopy
 from typing import Any
-import os
+import os, json
 
 import decentriq_platform as dq
 from decentriq_platform.analytics import (
@@ -51,7 +51,7 @@ metadatadict_cols = [
     Column(name="MIN", format_type=FormatType.STRING, is_nullable=True),
     Column(name="MAX", format_type=FormatType.STRING, is_nullable=True),
     #Column(name="Definition", format_type=FormatType.STRING, is_nullable=True),
-    Column(name="Formula", format_type=FormatType.INTEGER, is_nullable=True),
+    Column(name="Formula", format_type=FormatType.STRING, is_nullable=True),
     Column(name="Categorical Value Concept Code", format_type=FormatType.STRING, is_nullable=True),
     Column(name="Categorical Value Name", format_type=FormatType.STRING, is_nullable=True),
     Column(name="Categorical Value OMOP ID", format_type=FormatType.STRING, is_nullable=True),
@@ -91,6 +91,8 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
     #print("\n\nIn create_provision_dcr - columns from get_cohort_schema: ", get_cohort_schema(cohort))
     builder.add_node_definition(
         TableDataNodeDefinition(name=data_node_id, columns=get_cohort_schema(cohort), is_required=False)
+        #RawDataNodeDefinition
+        #https://docs.decentriq.com/sdk/guides/advanced-analytics-dcr/create_dcr
     )
 
     # Create data node for metadata dictionary file
@@ -131,6 +133,10 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
 
     # Build and publish DCR
     dcr_definition = builder.build()
+    
+    #for debugging:
+    #with open("dcr_json_test.json", "w") as f:
+    #    json.dumps(dcr_definition._get_high_level_representation(), f)
     dcr = client.publish_analytics_dcr(dcr_definition)
     dcr_url = f"https://platform.decentriq.com/datarooms/p/{dcr.id}"
 
