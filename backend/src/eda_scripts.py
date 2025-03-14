@@ -253,7 +253,7 @@ def variable_eda(df, categorical_vars, numerical_vars):
                 f"Q1:                  {Q1:.2f}",
                 f"Q3:                  {Q3:.2f}",
                 f"IQR:                 {IQR:.2f}",
-                f"Count empty:         {empty} ({empty/len(df[column]) * 100:.2f}%)"
+                f"Count empty:         {empty} ({empty/len(df[column]) * 100:.2f}%)",
                 f"Count missing:       {total_missing} ({total_missing/len(df[column]) * 100:.2f}%)",
                 f"Outliers (IQR):      {outliers} ({(outliers / len(df) * 100):.2f}%)",
                 f"Outliers (Z):        {z_outliers}",
@@ -330,7 +330,7 @@ def variable_eda(df, categorical_vars, numerical_vars):
                 missing_count = 0
             else:
                 missing_count = value_counts.get(categorical_vars[column]['missing'], 0)
-                
+
             try:
                     empty_count = df[column].isnull().sum() + df[column].str.strip().eq('').sum()
             except:
