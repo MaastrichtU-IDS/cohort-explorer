@@ -356,6 +356,7 @@ def variable_eda(df, categorical_vars, numerical_vars):
                 graph_tick_data[column] = create_save_graph(df, column, stats_text, 'datetime')
         else:
             print("ELSE case: variable name ", column, "var type: ", categorical_vars[column]['var_type'])
+            stats_text = []
         stats_text_dict = {i.split(":")[0].strip():i.split(":")[1].strip() for i in stats_text}
         if 'Class balance' in stats_text_dict:
             stats_text_dict['Class balance'].replace(" ->", ":")
