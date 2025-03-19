@@ -31,8 +31,8 @@ data = decentriq_util.read_tabular_data("/input/TIME-CHF")
 #vars_to_graph = ['age', 'ALCOOL', 'ALLOPURI', 'ALT', 'ALTACE', 'ALTANO', 'COLETOT', 'CREATIN', 'DALTACE', 'DATAECG', 'DATALAB']
 #vars_to_graph = ['age', 'ALCOOL', 'DATAECG', 'DATALAB']
 #vars_to_graph = [x.lower() for x in vars_to_graph]
-#vars_to_graph = ['age', 'ALCOOL', 'DATAECG', 'DATALAB', 'AATHORAX', 'AATHORAXDIM', 'ACE_AT_V1']
-vars_to_graph = list(categorical_vars.columns) + list(numerical_vars.columns)
+vars_to_graph = ['age', 'ALCOOL', 'DATAECG', 'DATALAB', 'AATHORAX', 'AATHORAXDIM', 'ACE_AT_V1']
+#vars_to_graph = list(categorical_vars.columns) + list(numerical_vars.columns)
 vars_to_graph = [x.strip().lower() for x in vars_to_graph]
 
 
@@ -215,6 +215,7 @@ def variable_eda(df, categorical_vars, numerical_vars):
                 graph_tick_data[column] = create_save_graph(df, column, stats_text, 'datetime')
         else:
             print("ELSE case: variable name ", column, "var type: ", categorical_vars[column]['var_type'])
+            stats_text = []
         stats_text_dict = {i.split(":")[0].strip():i.split(":")[1].strip() for i in stats_text}
         if 'Class balance' in stats_text_dict:
             stats_text_dict['Class balance'].replace(" ->", ":")
@@ -242,7 +243,7 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
 
         # Right: Plot histogram
         sns.histplot(df[varname].dropna(), kde=True, ax=axes[1])
-        axes[0].set_title(f"Statistics Summary for {varname.upper()}", fontsize=12)
+        axes[0].set_title(f"Summary Stats for {varname.upper()}", fontsize=12)
         axes[1].set_title(f"Distribution of {varname.upper()}", fontsize=12)
         axes[1].tick_params(axis='x')
 
@@ -261,7 +262,7 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
             text_obj._get_wrap_line_width = lambda: 400
         #axes[0].text(0.05, 0.9, , fontsize=10, va='top', ha='left', linespacing=1.2, family='monospace', wrap=True)
         axes[0].axis("off")
-        axes[0].set_title(f"Statistics Summary for {varname.upper()}", fontsize=12)
+        axes[0].set_title(f"Summary Stats for {varname.upper()}", fontsize=12)
         try:
             date_vals =  pd.to_datetime(df[varname].dropna(), format='mixed')
         except:
@@ -305,7 +306,10 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
 
     elif vartype == 'categorical':
 
-        value_counts = df[varname].value_counts(dropna=False)
+        if df[varname].isna().sum() > 0:
+            value_counts = df[varname].value_counts(dropna=False)
+        else:
+            value_counts = df[varname].value_counts(dropna=True)
         total = len(df)
         fig, axes = plt.subplots(1, 2, figsize=(12, 6))
         
@@ -324,7 +328,7 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
         if not value_counts.empty:
             colors = sns.color_palette("husl", len(value_counts))
             ax = value_counts.plot(kind='bar', color=colors, edgecolor='black', ax=axes[1])
-            axes[0].set_title(f"Statistics Summary for {varname.upper()}", fontsize=12)
+            axes[0].set_title(f"Summary Stats for {varname.upper()}", fontsize=12)
             axes[1].set_title(f"Distribution of {varname.upper()}", fontsize=12)
             ax.set_xlabel("Categories")
             ax.set_ylabel("Count")
@@ -344,7 +348,8 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
                     xticks.append(v)
             ax.set_xticklabels(xticks, rotation=90, fontsize=10)
 
-        plt.subplots_adjust(top=0.85)
+        
+        plt.ylim(0, max(value_counts.values) * 1.1)
         plt.tight_layout()
         plt.savefig(f"/output/{varname.lower()}.png")
         #print(f"figure for {varname} saved!! ")
