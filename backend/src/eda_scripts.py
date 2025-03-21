@@ -167,9 +167,11 @@ categorical_vars = pd.read_json("/input/c2_save_to_json/categorical_variables.js
 #print("the categorical data: ", categorical_vars.keys())
 numerical_vars = pd.read_json("/input/c2_save_to_json/numerical_variables.json")
 #print("the numerical data: ", numerical_vars)
-#data = decentriq_util.read_tabular_data("/input/{cohort_id}")
-data = pd.read_csv("/input/{cohort_id}")
-#print(data)
+try:
+    data = pd.read_csv("/input/{cohort_id}")
+    #data = decentriq_util.read_tabular_data("/input/{cohort_id}")
+except Exception as e:
+    data = pd.read_spss("/input/{cohort_id}")
 
 #variables that should be graphed
 #vars_to_graph = ['age', 'weight', 'cough1', 'angina1', 'hscrp_v6']
