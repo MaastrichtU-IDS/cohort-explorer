@@ -11,6 +11,7 @@ from decentriq_platform.analytics import (
     PreviewComputeNodeDefinition,
     PythonComputeNodeDefinition,
     TableDataNodeDefinition,
+    RawDataNodeDefinition
 )
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -90,9 +91,9 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
     data_node_id = cohort.cohort_id.replace(" ", "-")
     #print("\n\nIn create_provision_dcr - columns from get_cohort_schema: ", get_cohort_schema(cohort))
     builder.add_node_definition(
-        TableDataNodeDefinition(name=data_node_id, columns=get_cohort_schema(cohort), is_required=False)
-        #RawDataNodeDefinition
+        #TableDataNodeDefinition(name=data_node_id, columns=get_cohort_schema(cohort), is_required=False)
         #https://docs.decentriq.com/sdk/guides/advanced-analytics-dcr/create_dcr
+        RawDataNodeDefinition(name=data_node_id, is_required=True)
     )
 
     # Create data node for metadata dictionary file
@@ -135,8 +136,8 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
     dcr_definition = builder.build()
     
     #for debugging:
-    #with open("dcr_json_test.json", "w") as f:
-    #    json.dumps(dcr_definition._get_high_level_representation(), f)
+    with open(f"dcr_{data_node_id}_representation.json", "w") as f:
+        json.dump(dcr_definition._get_high_level_representation(), f)
     dcr = client.publish_analytics_dcr(dcr_definition)
     dcr_url = f"https://platform.decentriq.com/datarooms/p/{dcr.id}"
 

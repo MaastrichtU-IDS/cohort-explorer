@@ -13,17 +13,21 @@ try:
 except:
     raise ValueError("The dictionary file does not contain a 'VARIABLE NAME'/'VARIABLENAME' column.")
 
-print("variable names: ", [v for v in dictionary_df[varname_col]])
+print("metadata variable names: ", [v for v in dictionary_df[varname_col]])
 
 # Load the dataset
 try:
-    dataset_df = pd.read_spss("/input/{cohort_id}")
+    dataset_df = pd.read_csv("/input/{cohort_id}")
+    #dataset_df = decentriq_util.read_tabular_data("/input/{cohort_id}")
 except Exception as e:
-    dataset_df = decentriq_util.read_tabular_data("/input/{cohort_id}")
+    dataset_df = pd.read_spss("/input/{cohort_id}")
+    
+    
 
 # Extract 'VARIABLE NAME' column from dictionary and dataset column names
 dictionary_variables = set(dictionary_df[varname_col].unique())
 dataset_columns = set(dataset_df.columns)
+print("\\n\\n\\nDataset columns: ", dataset_columns)
 
 # Compare the sets
 in_dictionary_not_in_dataset = dictionary_variables - dataset_columns
@@ -163,7 +167,8 @@ categorical_vars = pd.read_json("/input/c2_save_to_json/categorical_variables.js
 #print("the categorical data: ", categorical_vars.keys())
 numerical_vars = pd.read_json("/input/c2_save_to_json/numerical_variables.json")
 #print("the numerical data: ", numerical_vars)
-data = decentriq_util.read_tabular_data("/input/{cohort_id}")
+#data = decentriq_util.read_tabular_data("/input/{cohort_id}")
+data = pd.read_csv("/input/{cohort_id}")
 #print(data)
 
 #variables that should be graphed
@@ -171,8 +176,8 @@ data = decentriq_util.read_tabular_data("/input/{cohort_id}")
 #vars_to_graph = ['age', 'ALCOOL', 'ALLOPURI', 'ALT', 'ALTACE', 'ALTANO', 'COLETOT', 'CREATIN', 'DALTACE', 'DATAECG', 'DATALAB']
 #vars_to_graph = ['age', 'ALCOOL', 'DATAECG', 'DATALAB']
 #vars_to_graph = [x.lower() for x in vars_to_graph]
-vars_to_graph = ['age', 'ALCOOL', 'DATAECG', 'DATALAB', 'AATHORAX', 'AATHORAXDIM', 'ACE_AT_V1']
-#vars_to_graph = list(categorical_vars.columns) + list(numerical_vars.columns)
+#vars_to_graph = ['age', 'ALCOOL', 'DATAECG', 'DATALAB', 'AATHORAX', 'AATHORAXDIM', 'ACE_AT_V1']
+vars_to_graph = list(categorical_vars.columns) + list(numerical_vars.columns)
 vars_to_graph = [x.strip().lower() for x in vars_to_graph]
 
 
