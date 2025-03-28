@@ -130,7 +130,7 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
             participant,
             data_owner_of=[data_node_id, metadata_node_id],
             # Permission to run scripts:
-            analyst_of=["c1_data_dict_check", "c3_eda_data_profiling"],
+            analyst_of=["c1_data_dict_check", "c2_save_to_json", "c3_eda_data_profiling"],
         )
 
     # Build and publish DCR
@@ -407,6 +407,8 @@ def run_computation_get_output(dcr_id: str,  user: Any = Depends(get_current_use
     client = dq.create_client(settings.decentriq_email, settings.decentriq_token)
     dcr = client.retrieve_analytics_dcr(dcr_id)
     cohort_id = dcr.node_definitions[0].name.strip()
+    c1_node = dcr.get_node("c1_data_dict_check") 
+    c1_node.run_computation()
     c2_node = dcr.get_node("c2_save_to_json") 
     c2_node.run_computation()
     c3_node = dcr.get_node("c3_eda_data_profiling")
