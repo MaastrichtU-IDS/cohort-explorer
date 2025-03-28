@@ -134,8 +134,10 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
 
     # Build and publish DCR
     dcr_definition = builder.build()
-    
+
     #for debugging:
+    print("NOW INSIDE THE provision function!!!", datetime.now())
+    print("User ", user)
     with open(f"dcr_{data_node_id}_representation.json", "w") as f:
         json.dump(dcr_definition._get_high_level_representation(), f)
     dcr = client.publish_analytics_dcr(dcr_definition)
@@ -160,8 +162,13 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
     #data_node = dcr.get_node(data_node_id)
     #print("columns of the data node: ", data_node.columns)
 
-    print("NOW INSIDE THE provision function!!!", datetime.now())
-    print("User ", user)
+    #logging the creation of the DCR:
+    
+    update_provision_log({"DCR_id": dcr.id, "DCR_url": dcr_url,
+                        "cohort_id": cohort.cohort_id,
+                      "User": user, "Prov Time":datetime.now(),
+                      "Metadata file path":cohort.metadata_filepath})
+
 
     return {
         "message": f"Data Clean Room for {cohort.cohort_id} provisioned at {dcr_url}",
@@ -428,3 +435,14 @@ def run_computation_get_output(dcr_id: str,  user: Any = Depends(get_current_use
     os.sync()
         
     return {"status": "success", "saved_path": str(storage_dir)}
+
+
+def update_provision_log(new_dcr):
+    try:
+        with open("/data/provisions_log.jsonl") as f:
+            log = json.load(f)
+            log.append(new_dcr)
+    except:
+        log = [new_dcr]
+    with open("/data/provisions_log.jsonl", "w") as f:
+        json.dump(log, f)
