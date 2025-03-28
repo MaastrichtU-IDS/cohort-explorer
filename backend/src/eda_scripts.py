@@ -27,7 +27,7 @@ except Exception as e:
 # Extract 'VARIABLE NAME' column from dictionary and dataset column names
 dictionary_variables = set(dictionary_df[varname_col].unique())
 dataset_columns = set(dataset_df.columns)
-print("\\n\\n\\nDataset columns: ", dataset_columns)
+print("\\\n\\\n\\\nDataset columns: ", dataset_columns)
 
 # Compare the sets
 in_dictionary_not_in_dataset = dictionary_variables - dataset_columns
@@ -43,11 +43,19 @@ pd.DataFrame({'In Dictionary Not in Dataset': list(in_dictionary_not_in_dataset)
 
 def c2_save_to_json(cohort_id: str) -> str:
     raw_script = """
-
 import decentriq_util
 import pandas as pd
 import os
 import json
+
+
+
+def _column_is_date(series):
+    try:
+        pd.to_datetime(series)
+        return True
+    except (ValueError, TypeError):
+        return False
 
 # Load dictionary
 dictionary = decentriq_util.read_tabular_data("/input/{cohort_id}-metadata")
@@ -62,12 +70,22 @@ varlabel_col = [x for x in ['VARIABLE LABEL', 'VARIABLELABEL', 'VAR LABEL'] if x
 dictionary[varname_col] = dictionary[varname_col].str.strip().str.lower()
 dictionary[vartype_col] = dictionary[vartype_col].str.strip().str.lower()
 
+try:
+    data = pd.read_csv("/input/{cohort_id}")
+except Exception as e:
+    data = pd.read_spss("/input/{cohort_id}")
+
+data.columns = [c.lower().strip() for c in data.columns]
+for col in data.columns:
+    if data[col].dropna().apply(lambda x: str(x).isdigit() or str(x).endswith('.0')).all():
+        data[col] = data[col].astype('Int64')
+
 # Define the pattern for entries to exclude non-categorical variables
-include_pattern = r'\||='   # Look for strings containing either a | or =.
-
+#include_pattern = r'\||='   # Look for strings containing either a | or =.
 # Exclude rows in the dictionary where the 'CATEGORICAL' column contains the defined pattern
-categorical_dict = dictionary[dictionary['CATEGORICAL'].astype(str).str.contains(include_pattern, regex=True)]
+# categorical_dict = dictionary[dictionary['CATEGORICAL'].astype(str).str.contains(include_pattern, regex=True)]
 
+vars_to_process = {}
 # Prepare to extract classes and their meanings, along with MIN, MAX, and VAR TYPE
 class_details = {}
 numerical_details = {}
@@ -76,20 +94,45 @@ for index, row in dictionary.iterrows():
     variable_name = row[varname_col]
     var_type = row[vartype_col]
     categories_info = row['CATEGORICAL']
-    missing_key = row['MISSING'] if 'MISSING' in dictionary.columns else None
 
-    if (pd.notna(categories_info) and isinstance(categories_info, str) and categories_info.strip()) or var_type in ['datetime', 'str']:
-        # Handle categorical variables
+    if variable_name.lower() in ['patientid', 'pat.id']:
+        continue
+
+    if (pd.notna(categories_info) and isinstance(categories_info, str) and categories_info.strip() != ""):
+        vars_to_process[variable_name] = 'categorical'
+    elif data[variable_name].dropna().apply(lambda x: str(x).isdigit() or str(x).endswith('.0')).all():
+        vars_to_process[variable_name] = 'numeric'
+    elif _column_is_date(data[variable_name]):
+        vars_to_process[variable_name] = 'date'
+    else:
+        #assume categorical:
+        print("The following variable deemed categorical by process of elimination: ", variable_name)
+        vars_to_process[variable_name] = 'categorical'
+
+
+
+for index, row in dictionary.iterrows():
+    variable_name = row[varname_col]
+    if variable_name not in vars_to_process:
+        continue
+    else:
+        t = vars_to_process[variable_name]
+    categories_info = row['CATEGORICAL']
+
+    if t == 'categorical':
         categories = [item for sublist in categories_info.split('|') for item in sublist.split(',')]
         class_names = {}
 
         for category in categories:
-                key_value = category.split('=')
+                key_value = category.lower().split('=')
                 if len(key_value) == 2:
                     #print("inside if statement: ", variable_name, key_value)
                     key = key_value[0].strip()
                     value = key_value[1].strip()
                     class_names[key] = value
+                elif len(key_value) == 1:  
+                    #category does not have "="
+                    class_names[key_value[0].strip()] = key_value[0].strip()
                 else:
                     print("Encountered a possible parsing error. Check category info for variable ", variable_name, key_value)
 
@@ -108,15 +151,14 @@ for index, row in dictionary.iterrows():
             'categories': class_names,
             'var_label': row[varlabel_col],
             'missing': missing_key,  # Add missing indicator if found
-            'var_type': var_type if pd.notna(var_type) else None
+            'var_type': t
         }
 
-    elif (pd.isna(categories_info) or categories_info.strip() == '') and var_type != 'str':
-        # Handle numerical variables, if the variable has type "str" (like PatientID, the analysis does not apply to it)
+    else: #numeric or dates:
         numerical_details[variable_name] = {
-            'var_type': var_type if pd.notna(var_type) else None,
+            'var_type': t,
             'var_label': row[varlabel_col],
-            'missing': missing_key
+            'missing': row['MISSING'] if 'MISSING' in dictionary.columns and row['MISSING'].strip() != "" else None
         }
 
 json_dir = '/output/'
@@ -133,12 +175,13 @@ with open(numerical_json_path, 'w') as json_file:
 
 # Print confirmation messages and the first 5 items in a formatted way
 print(f"Categorical variables saved to {categorical_json_path}")
-print(json.dumps({key: class_details[key] for key in list(class_details.keys())[:5]}, indent=4))
+print(json.dumps({key: class_details[key] for key in list(class_details.keys())[:-1]}, indent=4))
 
 print(f"Numerical variables saved to {numerical_json_path}")
-print(json.dumps({key: numerical_details[key] for key in list(numerical_details.keys())[:5]}, indent=4))
+print(json.dumps({key: numerical_details[key] for key in list(numerical_details.keys())[:-1]}, indent=4))
 """
     return raw_script.replace("{cohort_id}", cohort_id)
+
 
 
 def c3_eda_data_profiling(cohort_id: str) -> str:
@@ -173,6 +216,12 @@ try:
 except Exception as e:
     data = pd.read_spss("/input/{cohort_id}")
 
+
+data.columns = [c.lower().strip() for c in data.columns]
+for col in data.columns:
+    if data[col].dropna().apply(lambda x: str(x).isdigit() or str(x).endswith('.0')).all():
+        data[col] = data[col].astype('Int64')
+
 #variables that should be graphed
 #vars_to_graph = ['age', 'weight', 'cough1', 'angina1', 'hscrp_v6']
 #vars_to_graph = ['age', 'ALCOOL', 'ALLOPURI', 'ALT', 'ALTACE', 'ALTANO', 'COLETOT', 'CREATIN', 'DALTACE', 'DATAECG', 'DATALAB']
@@ -182,6 +231,12 @@ except Exception as e:
 vars_to_graph = list(categorical_vars.columns) + list(numerical_vars.columns)
 vars_to_graph = [x.strip().lower() for x in vars_to_graph]
 
+
+
+def _lowercase_if_string(x):
+    if isinstance(x, str):
+        return x.lower()
+    return x
 
 def variable_eda(df, categorical_vars, numerical_vars):
     vars_stats = {}
@@ -278,14 +333,15 @@ def variable_eda(df, categorical_vars, numerical_vars):
 
 
         # Categorical variables
-        elif column in categorical_vars.keys() and categorical_vars[column]['var_type'] != 'datetime':
+        elif column in categorical_vars.keys() and categorical_vars[column]['var_type'] != 'date':
             stats = df[column].describe()
-            value_counts = df[column].value_counts(dropna=False)
+            value_counts = df[column].apply(_lowercase_if_string).value_counts(dropna=False)
             total = len(df)
 
             # Get the categories mapping and normalize keys
             categories_mapping = categorical_vars[column].get("categories", [])
             categories_mapping = {str(k): v for (k, v) in categories_mapping.items()}
+            print("variable: ", column, "categories:", categories_mapping, value_counts, )
 
             if value_counts.empty:
                 stats_text = (
@@ -310,17 +366,19 @@ def variable_eda(df, categorical_vars, numerical_vars):
                     empty_count = df[column].isnull().sum()
 
                 # Class balance with corrected mapping
-                class_balance_text = "\\n\\t" + "\\n\\t".join([
-                    f"{(key, categories_mapping.get(str(key), 'Unknown'))} -> {round(count / total * 100)}%"
-                    for key, count in value_counts.items()
-                ])
+                class_balance_text = "\\n\\t"
+                for key, count in value_counts.items():
+                    if str(key) in categories_mapping and str(key) != categories_mapping[str(key)]:
+                        class_balance_text += f"{(key, categories_mapping[str(key)])} -> {round(count / total * 100)}%\\n\\t"
+                    else:
+                        class_balance_text += f"{key} -> {round(count / total * 100)}%\\n\\t"
 
                 stats_text = (
                     f"Column: {column}",
                     f"Label: {categorical_vars[column]['var_label']}",
                     f"Type: Categorical (encoded as {df[column].dtype})",
                     f"Number of unique values/categories: {len(value_counts)}",
-                    f"Most frequent category: {categories_mapping.get(str(value_counts.idxmax()).split('.')[0], 'Unknown')} ",
+                    f"Most frequent category: {categories_mapping.get(str(value_counts.idxmax()), 'Unknown')} ",
                     f"Number of non-null observations: {df[column].count()}",
                     f"Code for missing value: {categorical_vars[column]['missing']}",
                     f"Count missing: {missing_count} ({(missing_count/len(df[column])) * 100:.2f}%)",
@@ -331,7 +389,8 @@ def variable_eda(df, categorical_vars, numerical_vars):
 
             if column in vars_to_graph:
                 graph_tick_data[column] = create_save_graph(df, column, stats_text, 'categorical', category_mapping = categories_mapping)
-        elif column in categorical_vars.keys() and categorical_vars[column]['var_type'] == 'datetime':
+        
+        elif column in categorical_vars.keys() and categorical_vars[column]['var_type'] == 'date':
             try:
                 stats = pd.to_datetime(df[column], format='mixed').describe()
             except:

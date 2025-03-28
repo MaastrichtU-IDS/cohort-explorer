@@ -160,6 +160,9 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
     #data_node = dcr.get_node(data_node_id)
     #print("columns of the data node: ", data_node.columns)
 
+    print("NOW INSIDE THE provision function!!!", datetime.now())
+    print("User ", user)
+
     return {
         "message": f"Data Clean Room for {cohort.cohort_id} provisioned at {dcr_url}",
         "identifier": cohort.cohort_id,
@@ -328,7 +331,8 @@ async def create_compute_dcr(
     client = dq.create_client(settings.decentriq_email, settings.decentriq_token)
 
     dcr_definition, dcr_title = await get_compute_dcr_definition(cohorts_request, user, client)
-
+    print("NOW INSIDE THE create_compute_dcr function!!!", datetime.now())
+    print("Loggedin User", user)
     dcr = client.publish_analytics_dcr(dcr_definition)
     dcr_url = f"https://platform.decentriq.com/datarooms/p/{dcr.id}"
     return {
