@@ -122,6 +122,7 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
     if settings.dev_mode:
         all_participants = set()
         print(f"Dev mode, only adding {user['email']} as data owner")
+    all_participants.add("anas.elghafari@maastrichtuniversity.nl")
     all_participants.add(user["email"])
     for participant in all_participants:
         print(f"Adding {participant} as data owner and analyst")
@@ -129,7 +130,7 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
             participant,
             data_owner_of=[data_node_id, metadata_node_id],
             # Permission to run scripts:
-            analyst_of=["c1_data_dict_check", "c2_save_to_json", "c3_eda_data_profiling"],
+            analyst_of=["c1_data_dict_check", "c3_eda_data_profiling"],
         )
 
     # Build and publish DCR
