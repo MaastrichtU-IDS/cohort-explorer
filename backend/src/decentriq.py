@@ -166,7 +166,7 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
     
     update_provision_log({"DCR_id": dcr.id, "DCR_url": dcr_url,
                         "cohort_id": cohort.cohort_id,
-                      "User": user, "Prov Time":datetime.now(),
+                      "User": user, "Prov Time":str(datetime.now()),
                       "Metadata file path":cohort.metadata_filepath})
 
 
