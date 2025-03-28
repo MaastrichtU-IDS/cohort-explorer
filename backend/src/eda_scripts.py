@@ -53,7 +53,7 @@ import json
 def _column_is_date(series):
     try:
         pd.to_datetime(series)
-        return True
+        return False
     except (ValueError, TypeError):
         return False
 
@@ -95,7 +95,7 @@ for index, row in dictionary.iterrows():
     var_type = row[vartype_col]
     categories_info = row['CATEGORICAL']
 
-    if variable_name.lower() in ['patientid', 'pat.id']:
+    if variable_name.lower() in ['patientid', 'pat.id', 'patiëntnummer']:
         continue
 
     if (pd.notna(categories_info) and isinstance(categories_info, str) and categories_info.strip() != ""):
