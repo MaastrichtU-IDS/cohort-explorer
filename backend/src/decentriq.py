@@ -407,10 +407,12 @@ def run_computation_get_output(dcr_id: str,  user: Any = Depends(get_current_use
     client = dq.create_client(settings.decentriq_email, settings.decentriq_token)
     dcr = client.retrieve_analytics_dcr(dcr_id)
     cohort_id = dcr.node_definitions[0].name.strip()
-    c1_node = dcr.get_node("c1_data_dict_check") 
-    c1_node.run_computation()
-    c2_node = dcr.get_node("c2_save_to_json") 
-    c2_node.run_computation()
+    
+    #SINCE C3 depends on c1 and c2, they will run automatically in the background!
+    #c1_node = dcr.get_node("c1_data_dict_check") 
+    #c1_node.run_computation()
+    #c2_node = dcr.get_node("c2_save_to_json") 
+    #c2_node.run_computation()
     c3_node = dcr.get_node("c3_eda_data_profiling")
     result = c3_node.run_computation_and_get_results_as_zip()
     #timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
