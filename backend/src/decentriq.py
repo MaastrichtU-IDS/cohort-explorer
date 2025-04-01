@@ -122,7 +122,8 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
     if settings.dev_mode:
         all_participants = set()
         print(f"Dev mode, only adding {user['email']} as data owner")
-    all_participants.add("anas.elghafari@maastrichtuniversity.nl")
+    #Adding the user whose email & secret were used to create the client above
+    all_participants.add(settings.decentriq_email)
     all_participants.add(user["email"])
     for participant in all_participants:
         print(f"Adding {participant} as data owner and analyst")

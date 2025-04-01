@@ -47,18 +47,29 @@ import decentriq_util
 import pandas as pd
 import os
 import json
+from pprint import pprint
 
 
 
 def _column_is_date(series):
     try:
         pd.to_datetime(series)
-        return False
-    except (ValueError, TypeError):
+        return True
+    except:
         return False
 
+
+def _column_is_float(series):
+    try:
+        non_na = series.dropna()
+        float_series = non_na.astype(float)
+        return len(float_series) == len(non_na)
+    except:
+        return False
+
+
 # Load dictionary
-dictionary = decentriq_util.read_tabular_data("/input/{cohort_id}-metadata")
+dictionary = decentriq_util.read_tabular_data("/input/TIME-CHF-metadata")
 
 # Clean column names to ensure uniformity
 dictionary.columns = dictionary.columns.str.strip().str.upper()
@@ -71,9 +82,9 @@ dictionary[varname_col] = dictionary[varname_col].str.strip().str.lower()
 dictionary[vartype_col] = dictionary[vartype_col].str.strip().str.lower()
 
 try:
-    data = pd.read_csv("/input/{cohort_id}")
+    data = pd.read_csv("/input/TIME-CHF")
 except Exception as e:
-    data = pd.read_spss("/input/{cohort_id}")
+    data = pd.read_spss("/input/TIME-CHF")
 
 data.columns = [c.lower().strip() for c in data.columns]
 for col in data.columns:
@@ -89,6 +100,7 @@ vars_to_process = {}
 # Prepare to extract classes and their meanings, along with MIN, MAX, and VAR TYPE
 class_details = {}
 numerical_details = {}
+mismatched_types = {}
 
 for index, row in dictionary.iterrows():
     variable_name = row[varname_col]
@@ -102,6 +114,8 @@ for index, row in dictionary.iterrows():
         vars_to_process[variable_name] = 'categorical'
     elif data[variable_name].dropna().apply(lambda x: str(x).isdigit() or str(x).endswith('.0')).all():
         vars_to_process[variable_name] = 'numeric'
+    elif _column_is_float(data[variable_name]):
+        vars_to_process[variable_name] = 'numeric'
     elif _column_is_date(data[variable_name]):
         vars_to_process[variable_name] = 'date'
     else:
@@ -109,7 +123,14 @@ for index, row in dictionary.iterrows():
         print("The following variable deemed categorical by process of elimination: ", variable_name)
         vars_to_process[variable_name] = 'categorical'
 
+    if ((var_type.lower() == "datetime" and vars_to_process[variable_name] != "date") or 
+        var_type.lower() == "str" and vars_to_process[variable_name] != "categorical"):
+        mismatched_types[variable_name] = {"declared": var_type, "inferred": vars_to_process[variable_name]}
 
+print("mismatches between dictionary-specified types and inferred types:\n")
+pprint(mismatched_types)
+
+#find the mismatches between declared types (in data dictionary) and inferred types:
 
 for index, row in dictionary.iterrows():
     variable_name = row[varname_col]
@@ -211,10 +232,10 @@ categorical_vars = pd.read_json("/input/c2_save_to_json/categorical_variables.js
 numerical_vars = pd.read_json("/input/c2_save_to_json/numerical_variables.json")
 #print("the numerical data: ", numerical_vars)
 try:
-    data = pd.read_csv("/input/{cohort_id}")
-    #data = decentriq_util.read_tabular_data("/input/{cohort_id}")
+    data = pd.read_csv("/input/TIME-CHF")
+    #data = decentriq_util.read_tabular_data("/input/TIME-CHF")
 except Exception as e:
-    data = pd.read_spss("/input/{cohort_id}")
+    data = pd.read_spss("/input/TIME-CHF")
 
 
 data.columns = [c.lower().strip() for c in data.columns]
@@ -366,12 +387,12 @@ def variable_eda(df, categorical_vars, numerical_vars):
                     empty_count = df[column].isnull().sum()
 
                 # Class balance with corrected mapping
-                class_balance_text = "\\n\\t"
+                class_balance_text = "\n\t"
                 for key, count in value_counts.items():
                     if str(key) in categories_mapping and str(key) != categories_mapping[str(key)]:
-                        class_balance_text += f"{(key, categories_mapping[str(key)])} -> {round(count / total * 100)}%\\n\\t"
+                        class_balance_text += f"{(key, categories_mapping[str(key)])} -> {round(count / total * 100)}%\n\t"
                     else:
-                        class_balance_text += f"{key} -> {round(count / total * 100)}%\\n\\t"
+                        class_balance_text += f"{key} -> {round(count / total * 100)}%\n\t"
 
                 stats_text = (
                     f"Column: {column}",
@@ -414,7 +435,9 @@ def variable_eda(df, categorical_vars, numerical_vars):
                     f"Most frequent value: {str(value_counts.idxmax()).split('.')[0]}",
                     f"Number of non-null observations: {df[column].count()}",
                     f"Count missing: {missing_count} ({(missing_count/len(df[column])) * 100:.2f}%)",
-                    f"Count empty: {empty_count} ({(empty_count/len(df[column])) * 100:.2f}%)"
+                    f"Count empty: {empty_count} ({(empty_count/len(df[column])) * 100:.2f}%)",
+                    f"Q1:                  {stats["25%"]:.2f}",
+                    f"Q3:                  {stats["27%"]:.2f}",
             ]
             stats_text.extend([f"{k.capitalize()}: {v}" for k,v in stats.items()])
             if column in vars_to_graph:
@@ -425,7 +448,7 @@ def variable_eda(df, categorical_vars, numerical_vars):
         stats_text_dict = {i.split(":")[0].strip():i.split(":")[1].strip() for i in stats_text}
         if 'Class balance' in stats_text_dict:
             stats_text_dict['Class balance'].replace(" ->", ":")
-        stats_text_dict['url'] = f"https://explorer.icare4cvd.eu/api/variable-graph/{cohort_id}/{column}"
+        stats_text_dict['url'] = f"https://explorer.icare4cvd.eu/api/variable-graph/TIME-CHF/{column}"
         vars_stats[column] = stats_text_dict
     for col, ticks  in graph_tick_data.items():
         vars_stats[col].update(ticks)
@@ -440,7 +463,7 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
         # Left: Display Summary Stats
 
         props = dict(boxstyle="round,pad=0.5", facecolor="whitesmoke", alpha=0.8, edgecolor="lightgray")
-        text_obj = axes[0].text(0.05, 0.95, '\\n'.join(stats_text), transform=axes[0].transAxes, fontsize=11, va='top', ha='left', 
+        text_obj = axes[0].text(0.05, 0.95, '\n'.join(stats_text), transform=axes[0].transAxes, fontsize=11, va='top', ha='left', 
         family='monospace',  bbox=props, wrap=True, linespacing=1.5)
         if hasattr(text_obj, "_get_wrap_line_width"):
             text_obj._get_wrap_line_width = lambda: 400
@@ -462,7 +485,7 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
         fig, axes = plt.subplots(1, 2, figsize=(12, 6))
 
         props = dict(boxstyle="round,pad=0.5", facecolor="whitesmoke", alpha=0.8, edgecolor="lightgray")
-        text_obj = axes[0].text(0.05, 0.95, '\\n'.join(stats_text), transform=axes[0].transAxes, fontsize=11, va='top', ha='left', 
+        text_obj = axes[0].text(0.05, 0.95, '\n'.join(stats_text), transform=axes[0].transAxes, fontsize=11, va='top', ha='left', 
         family='monospace',  bbox=props, wrap=True, linespacing=1.5)
         if hasattr(text_obj, "_get_wrap_line_width"):
             text_obj._get_wrap_line_width = lambda: 400
@@ -522,7 +545,7 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
 
         # Summary stats text
         props = dict(boxstyle="round,pad=0.5", facecolor="whitesmoke", alpha=0.8, edgecolor="lightgray")
-        text_obj = axes[0].text(0.05, 0.95, '\\n'.join(stats_text), transform=axes[0].transAxes, fontsize=11, va='top', ha='left', 
+        text_obj = axes[0].text(0.05, 0.95, '\n'.join(stats_text), transform=axes[0].transAxes, fontsize=11, va='top', ha='left', 
         family='monospace', bbox=props, wrap=True, linespacing=1.5)
         if hasattr(text_obj, "_get_wrap_line_width"):
             text_obj._get_wrap_line_width = lambda: 400
@@ -540,10 +563,14 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
             ax.set_ylabel("Count")
 
             # Add labels to the bars
+            if len(value_counts)>4:
+                rot = 90
+            else:
+                rot = 0
             for idx, value in enumerate(value_counts):
                 percentage = (value / total) * 100
                 ax.text(idx, value + total * 0.02, f"{value}({percentage:.1f}%)",
-                        ha='center', fontsize=10)
+                        ha='center', fontsize=10, rotation = rot)
 
             # Adjust x-axis labels to be horizontal
             xticks = []
@@ -552,10 +579,12 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
                     xticks.append(category_mapping[v])
                 else:
                     xticks.append(v)
-            ax.set_xticklabels(xticks, rotation=90, fontsize=10)
+            
+            if len(xticks)>4:
+                ax.set_xticklabels(xticks, rotation=90, fontsize=10)
 
         
-        plt.ylim(0, max(value_counts.values) * 1.1)
+        plt.ylim(0, max(value_counts.values) * 1.4)
         plt.tight_layout()
         plt.savefig(f"/output/{varname.lower()}.png")
         #print(f"figure for {varname} saved!! ")
@@ -572,7 +601,7 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
 
 
 def integrate_eda_with_metadata(vars_stats):
-    meta_data = decentriq_util.read_tabular_data("/input/{cohort_id}-metadata")
+    meta_data = decentriq_util.read_tabular_data("/input/TIME-CHF-metadata")
     varname_col = [x for x in ['VARIABLE NAME', 'VARIABLENAME', 'VAR NAME'] if x in meta_data.columns][0]
     metadata_vars = [x.lower().strip() for x in meta_data[varname_col].values]
     #print("vars from var_stats:", vars_stats.keys())
@@ -604,7 +633,7 @@ def dataframe_to_json_dicts(df):
             if col not in [varname_col, 'Column'] and pd.notna(row[col]) and row[col] != "" :
                 var_dict[col] = row[col]
         json_dicts[variable_name] = var_dict
-    with open("/output/eda_output_{cohort_id}.json", 'w', encoding='utf-8') as f:
+    with open("/output/eda_output_TIME-CHF.json", 'w', encoding='utf-8') as f:
         json.dump(json_dicts, f, indent=4)
 
 
