@@ -27,7 +27,6 @@ except Exception as e:
 # Extract 'VARIABLE NAME' column from dictionary and dataset column names
 dictionary_variables = set(dictionary_df[varname_col].unique())
 dataset_columns = set(dataset_df.columns)
-print("\\\\n\\\\n\\\\nDataset columns: ", dataset_columns)
 
 # Compare the sets
 in_dictionary_not_in_dataset = dictionary_variables - dataset_columns
@@ -207,7 +206,6 @@ print(json.dumps({key: numerical_details[key] for key in list(numerical_details.
 
 def c3_eda_data_profiling(cohort_id: str) -> str:
     raw_script = """
-
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -233,8 +231,8 @@ categorical_vars = pd.read_json("/input/c2_save_to_json/categorical_variables.js
 numerical_vars = pd.read_json("/input/c2_save_to_json/numerical_variables.json")
 #print("the numerical data: ", numerical_vars)
 try:
-    data = pd.read_csv("/input/{cohort_id}F")
-    #data = decentriq_util.read_tabular_data("/input/{cohort_id}F")
+    data = pd.read_csv("/input/{cohort_id}", na_values=[''], keep_default_na=True)
+    #data = decentriq_util.read_tabular_data("/input/{cohort_id}")
 except Exception as e:
     data = pd.read_spss("/input/{cohort_id}")
 
@@ -252,8 +250,6 @@ for col in data.columns:
 #vars_to_graph = ['age', 'ALCOOL', 'DATAECG', 'DATALAB', 'AATHORAX', 'AATHORAXDIM', 'ACE_AT_V1']
 vars_to_graph = list(categorical_vars.columns) + list(numerical_vars.columns)
 vars_to_graph = [x.strip().lower() for x in vars_to_graph]
-
-
 
 def _lowercase_if_string(x):
     if isinstance(x, str):
@@ -335,8 +331,8 @@ def variable_eda(df, categorical_vars, numerical_vars):
                 f"Mode:                {mode_value:.2f}",
                 f"Std Dev:             {stats['std']:.2f}",
                 f"Variance:            {stats['std']**2:.2f}",
-                f"Max:                 {stats['max']:.2f},
-                f"Min:                 {stats['min']:.2f},
+                f"Max:                 {stats['max']:.2f}",
+                f"Min:                 {stats['min']:.2f}",
                 f"Range:               {range_value:.2f}", 
                 f"Q1:                  {Q1:.2f}",
                 f"Q3:                  {Q3:.2f}",
@@ -365,7 +361,7 @@ def variable_eda(df, categorical_vars, numerical_vars):
             # Get the categories mapping and normalize keys
             categories_mapping = categorical_vars[column].get("categories", [])
             categories_mapping = {str(k): v for (k, v) in categories_mapping.items()}
-            print("variable: ", column, "categories:", categories_mapping, value_counts, )
+            #print("variable: ", column, "categories:", categories_mapping, value_counts )
 
             if value_counts.empty:
                 stats_text = (
@@ -393,9 +389,9 @@ def variable_eda(df, categorical_vars, numerical_vars):
                 class_balance_text = "\\n\\t"
                 for key, count in value_counts.items():
                     if str(key) in categories_mapping and str(key) != categories_mapping[str(key)]:
-                        class_balance_text += f"{(key, categories_mapping[str(key)])} -> {round(count / total * 100)}%\\n\\t"
+                        class_balance_text += f"{(key, categories_mapping[str(key)])} -> {round(count / total * 100, 2)}%\\n\t"
                     else:
-                        class_balance_text += f"{key} -> {round(count / total * 100)}%\\n\\t"
+                        class_balance_text += f"{key} -> {round(count / total * 100, 2)}%\\n\t"
 
                 stats_text = (
                     f"Column: {column}",
@@ -444,8 +440,8 @@ def variable_eda(df, categorical_vars, numerical_vars):
                     f"Mode:                {mode_value:.2f}",
                     f"Std Dev:             {stats['std']:.2f}",
                     f"Variance:            {stats['std']**2:.2f}",
-                    f"Max:                 {stats['max'].dt.date:.2f},
-                    f"Min:                 {stats['min'].dt.date:.2f},
+                    f"Max:                 {stats['max'].dt.date:.2f}",
+                    f"Min:                 {stats['min'].dt.date:.2f}",
                     f"Range:               {range_value:.2f}", 
                     f"Q1:                  {stats['25%'].dt.date:.2f}",
                     f"Q3:                  {stats['75%'].dt.date:.2f}",
@@ -487,6 +483,8 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
         axes[0].set_title(f"Summary Stats for {varname.upper()}", fontsize=12)
         axes[1].set_title(f"Distribution of {varname.upper()}", fontsize=12)
         axes[1].tick_params(axis='x')
+        axes[1].set_xlabel("Value")
+        axes[1].set_ylabel("Count")
 
         # Save the figure for the current feature
         plt.tight_layout()
@@ -591,19 +589,20 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
                     xticks.append(category_mapping[v])
                 else:
                     xticks.append(v)
-            
+
             if len(xticks)>4:
                 ax.set_xticklabels(xticks, rotation=90, fontsize=10)
+            else:
+                ax.set_xticklabels(xticks, rotation=0, fontsize=10)
 
         
         plt.ylim(0, max(value_counts.values) * 1.4)
         plt.tight_layout()
         plt.savefig(f"/output/{varname.lower()}.png")
-        #print(f"figure for {varname} saved!! ")
 
-    x_ticks = axes[1].get_xticks()
-    #x_tick_labels = axes[1].get_xticklabels()
-    y_ticks = axes[1].get_yticks()
+    x_ticks = [_.get_text() for _ in axes[1].get_xticklabels()]
+    #x_tick_labels = axes[1].get_xticklables()
+    y_ticks =  [_.get_text() for _ in axes[1].get_yticklabels()]
     #y_tick_labels = axes[1].get_yticklabels()
     return {"x-ticks": " - ".join([str(_) for _ in x_ticks]),
     # "x-labels": " - ".join([str(_) for _ in x_tick_labels]),
@@ -616,7 +615,7 @@ def integrate_eda_with_metadata(vars_stats):
     meta_data = decentriq_util.read_tabular_data("/input/{cohort_id}-metadata")
     varname_col = [x for x in ['VARIABLE NAME', 'VARIABLENAME', 'VAR NAME'] if x in meta_data.columns][0]
     metadata_vars = [x.lower().strip() for x in meta_data[varname_col].values]
-    meta_data.columns = [c.strip() + " (metadata dictionary)" for c in meta_data.columns if c.upper() != varname_col]
+    meta_data.columns = [c.strip() + " (metadata dictionary)" if c.upper() != varname_col else c.strip() for c in meta_data.columns]
     #print("vars from var_stats:", vars_stats.keys())
     #print("vars in metadata: ", metadata_vars)
     #print(" vars in common: ", [x for x in metadata_vars if x in vars_stats.keys()])
@@ -650,7 +649,6 @@ def dataframe_to_json_dicts(df):
         json.dump(json_dicts, f, indent=4)
 
 
-
 def _convert_numeric(val):
     try:
         return int(val)
@@ -659,8 +657,6 @@ def _convert_numeric(val):
             return float(val)
         except (ValueError, TypeError):
             return val
-
-
 
 vars_to_stats = variable_eda(data, categorical_vars, numerical_vars)
 meta_data_enriched = integrate_eda_with_metadata(vars_to_stats)
