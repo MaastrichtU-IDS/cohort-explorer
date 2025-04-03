@@ -66,6 +66,14 @@ def _column_is_float(series):
     except:
         return False
 
+def _column_is_numeric(series):
+    try:
+        if series.dropna().apply(lambda x: str(x).isdigit() or str(x).endswith('.0')).all():
+            return True
+    except:
+        return False
+    return False
+        
 
 # Load dictionary
 dictionary = decentriq_util.read_tabular_data("/input/{cohort_id}-metadata")
@@ -87,8 +95,11 @@ except Exception as e:
 
 data.columns = [c.lower().strip() for c in data.columns]
 for col in data.columns:
-    if data[col].dropna().apply(lambda x: str(x).isdigit() or str(x).endswith('.0')).all():
-        data[col] = data[col].astype('Int64')
+    try:
+        if data[col].dropna().apply(lambda x: str(x).isdigit() or str(x).endswith('.0')).all():
+            data[col] = data[col].astype('Int64')
+    except:
+        continue
 
 # Define the pattern for entries to exclude non-categorical variables
 #include_pattern = r'\||='   # Look for strings containing either a | or =.
@@ -108,10 +119,13 @@ for index, row in dictionary.iterrows():
 
     if variable_name.lower() in ['patientid', 'pat.id', 'patiëntnummer']:
         continue
+        
+    if variable_name.lower() not in data.columns:
+        continue
 
     if (pd.notna(categories_info) and isinstance(categories_info, str) and categories_info.strip() != ""):
         vars_to_process[variable_name] = 'categorical'
-    elif data[variable_name].dropna().apply(lambda x: str(x).isdigit() or str(x).endswith('.0')).all():
+    elif _column_is_numeric(data[variable_name]):
         vars_to_process[variable_name] = 'numeric'
     elif _column_is_float(data[variable_name]):
         vars_to_process[variable_name] = 'numeric'
@@ -239,8 +253,11 @@ except Exception as e:
 
 data.columns = [c.lower().strip() for c in data.columns]
 for col in data.columns:
-    if data[col].dropna().apply(lambda x: str(x).isdigit() or str(x).endswith('.0')).all():
-        data[col] = data[col].astype('Int64')
+    try:
+        if data[col].dropna().apply(lambda x: str(x).isdigit() or str(x).endswith('.0')).all():
+            data[col] = data[col].astype('Int64')
+    except:
+        continue
 
 #variables that should be graphed
 #vars_to_graph = ['age', 'weight', 'cough1', 'angina1', 'hscrp_v6']
