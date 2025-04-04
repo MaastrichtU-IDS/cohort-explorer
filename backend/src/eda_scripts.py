@@ -278,6 +278,7 @@ def variable_eda(df, categorical_vars, numerical_vars):
     graph_tick_data = {}
     df.columns = df.columns.str.lower().str.strip()
     for column in df.columns.tolist():
+        print("Processing: ", column)
         # Continuous variables
         if column in numerical_vars.keys():
 
@@ -303,8 +304,8 @@ def variable_eda(df, categorical_vars, numerical_vars):
             # Check for numeric values before computing skewness and kurtosis
             if len(df[column].dropna()) > 0:
                 #print("COLUMN: ", column, "type: ", df[column].dtype, "values: ", df[column])
-                #df[column] = pd.to_numeric(df[column], errors='coerce')
-                df[column] = df[column].astype(float)
+                df[column] = pd.to_numeric(df[column], errors='coerce')
+                #df[column] = df[column].astype(float)
                 skewness = skew(df[column].dropna(), bias=False)
                 #skewness = df[column].skew()
                 kurt = kurtosis(df[column].dropna(), bias=False)
