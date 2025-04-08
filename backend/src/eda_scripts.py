@@ -151,7 +151,10 @@ for index, row in dictionary.iterrows():
         vars_to_process[variable_name] = 'float'
     elif _column_is_date(data[variable_name]):
         vars_to_process[variable_name] = 'date'
-    else:
+    elif data[variable_name].nunique()>20:
+        #assume float:
+        vars_to_process[variable_name] = 'float'
+    else: #fewer than 20 unique
         #assume categorical:
         print("The following variable deemed categorical by process of elimination: ", variable_name)
         vars_to_process[variable_name] = 'categorical'
@@ -323,11 +326,11 @@ with open('/output/data_issues.json', 'w') as json_file:
 #variables that should be graphed
 #vars_to_graph = ['age', 'weight', 'cough1', 'angina1', 'hscrp_v6']
 #vars_to_graph = ['age', 'ALCOOL', 'ALLOPURI', 'ALT', 'ALTACE', 'ALTANO', 'COLETOT', 'CREATIN', 'DALTACE', 'DATAECG', 'DATALAB']
-vars_to_graph = ['age', 'ALCOOL', 'DATAECG', 'DATALAB']
-vars_to_graph = [x.lower() for x in vars_to_graph]
+#vars_to_graph = ['age', 'ALCOOL', 'DATAECG', 'DATALAB']
+#vars_to_graph = [x.lower() for x in vars_to_graph]
 #vars_to_graph = ['age', 'ALCOOL', 'DATAECG', 'DATALAB', 'AATHORAX', 'AATHORAXDIM', 'ACE_AT_V1']
-#vars_to_graph = list(vars_details.columns)
-#vars_to_graph = [x.strip().lower() for x in vars_to_graph]
+vars_to_graph = list(vars_details.columns)
+vars_to_graph = [x.strip().lower() for x in vars_to_graph]
 
 def _lowercase_if_string(x):
     if isinstance(x, str):
@@ -664,10 +667,12 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
         plt.tight_layout()
         plt.savefig(f"/output/{varname.lower()}.png")
 
-    x_ticks = [_.get_text() for _ in axes[1].get_xticklabels()]
+    #x_ticks = [_.get_text() for _ in axes[1].get_xticklabels()]
     #x_tick_labels = axes[1].get_xticklables()
-    y_ticks =  [_.get_text() for _ in axes[1].get_yticklabels()]
+    #y_ticks =  [_.get_text() for _ in axes[1].get_yticklabels()]
     #y_tick_labels = axes[1].get_yticklabels()
+    x_ticks = axes[1].get_xticklabels()
+    y_ticks =  axes[1].get_yticklabels()
     return {"x-ticks": " - ".join([str(_) for _ in x_ticks]),
     # "x-labels": " - ".join([str(_) for _ in x_tick_labels]),
             "y-ticks": " - ".join([str(_) for _ in y_ticks]), 
