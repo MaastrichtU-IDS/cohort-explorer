@@ -111,7 +111,7 @@ except Exception as e:
 
 #Convert whitespace-only strings to NaN
 for col in data.select_dtypes(include=['object']):
-    data[col] = data[col].apply(lambda x: np.nan if isinstance(x, str) and x.isspace() else x)
+    data[col] = data[col].apply(lambda x: pd.NA if isinstance(x, str) and x.isspace() else x)
 
 data.columns = [c.lower().strip() for c in data.columns]
 
