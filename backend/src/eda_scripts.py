@@ -41,13 +41,11 @@ pd.DataFrame({'In Dictionary Not in Dataset': list(in_dictionary_not_in_dataset)
 
 
 def c2_save_to_json(cohort_id: str) -> str:
-    raw_script = """
-import decentriq_util
+    raw_script = """import decentriq_util
 import pandas as pd
 import os
 import json
 from pprint import pprint
-
 
 
 def _column_is_date(series):
@@ -57,23 +55,39 @@ def _column_is_date(series):
     except:
         return False
 
-
 def _column_is_float(series):
     try:
         non_na = series.dropna()
         float_series = non_na.astype(float)
-        return len(float_series) == len(non_na)
+        return True
     except:
         return False
 
 def _column_is_numeric(series):
+    #meaning integers
     try:
         if series.dropna().apply(lambda x: str(x).isdigit() or str(x).endswith('.0')).all():
             return True
+        else:
+            return False
     except:
         return False
-    return False
         
+def _cast_col(series, typ):
+    if typ == 'date':
+        ns = pd.to_datetime(series, errors='coerce').dt.date
+    elif typ == 'int':
+        ns = pd.to_numeric(series, errors='coerce').astype('Int64')
+    elif typ == 'float':
+        ns = pd.to_numeric(series, errors='coerce')
+    else:
+        print("unrecognized type")
+        return series, []
+    invalid_cells = []
+    for i, (c1, c2) in enumerate(zip(series, ns)):
+        if pd.notna(c1) and pd.isna(c2):
+            invalid_cells.append(i)
+    return ns, invalid_cells
 
 # Load dictionary
 dictionary = decentriq_util.read_tabular_data("/input/{cohort_id}-metadata")
@@ -89,17 +103,24 @@ dictionary[varname_col] = dictionary[varname_col].str.strip().str.lower()
 dictionary[vartype_col] = dictionary[vartype_col].str.strip().str.lower()
 
 try:
-    data = pd.read_csv("/input/{cohort_id}")
+    data = pd.read_csv("/input/{cohort_id}", na_values=[''], keep_default_na=False)
+    #data = decentriq_util.read_tabular_data("/input/{cohort_id}")
 except Exception as e:
     data = pd.read_spss("/input/{cohort_id}")
 
+
+#Convert whitespace-only strings to NaN
+for col in data.select_dtypes(include=['object']):
+    data[col] = data[col].apply(lambda x: np.nan if isinstance(x, str) and x.isspace() else x)
+
 data.columns = [c.lower().strip() for c in data.columns]
-for col in data.columns:
-    try:
-        if data[col].dropna().apply(lambda x: str(x).isdigit() or str(x).endswith('.0')).all():
-            data[col] = data[col].astype('Int64')
-    except:
-        continue
+
+#for col in data.columns:
+#    try:
+#        if data[col].dropna().apply(lambda x: str(x).isdigit() or str(x).endswith('.0')).all():
+#            data[col] = data[col].astype('Int64')
+#    except:
+#        continue
 
 # Define the pattern for entries to exclude non-categorical variables
 #include_pattern = r'\||='   # Look for strings containing either a | or =.
@@ -108,8 +129,7 @@ for col in data.columns:
 
 vars_to_process = {}
 # Prepare to extract classes and their meanings, along with MIN, MAX, and VAR TYPE
-class_details = {}
-numerical_details = {}
+vars_details = {}
 mismatched_types = {}
 
 for index, row in dictionary.iterrows():
@@ -126,9 +146,9 @@ for index, row in dictionary.iterrows():
     if (pd.notna(categories_info) and isinstance(categories_info, str) and categories_info.strip() != ""):
         vars_to_process[variable_name] = 'categorical'
     elif _column_is_numeric(data[variable_name]):
-        vars_to_process[variable_name] = 'numeric'
+        vars_to_process[variable_name] = 'int'
     elif _column_is_float(data[variable_name]):
-        vars_to_process[variable_name] = 'numeric'
+        vars_to_process[variable_name] = 'float'
     elif _column_is_date(data[variable_name]):
         vars_to_process[variable_name] = 'date'
     else:
@@ -140,13 +160,11 @@ for index, row in dictionary.iterrows():
         var_type.lower() == "str" and vars_to_process[variable_name] != "categorical"):
         mismatched_types[variable_name] = {"declared": var_type, "inferred": vars_to_process[variable_name]}
 
-print("mismatches between dictionary-specified types and inferred types:\\n")
-pprint(mismatched_types)
-
 #find the mismatches between declared types (in data dictionary) and inferred types:
 
 for index, row in dictionary.iterrows():
     variable_name = row[varname_col]
+    var_type = row[vartype_col]
     if variable_name not in vars_to_process:
         continue
     else:
@@ -162,57 +180,65 @@ for index, row in dictionary.iterrows():
                 if len(key_value) == 2:
                     #print("inside if statement: ", variable_name, key_value)
                     key = key_value[0].strip()
-                    value = key_value[1].strip()
+                    value = key_value[1].upper().strip()
                     class_names[key] = value
                 elif len(key_value) == 1:  
                     #category does not have "="
-                    class_names[key_value[0].strip()] = key_value[0].strip()
+                    class_names[key_value[0].strip().upper()] = key_value[0].strip().upper()
                 else:
                     print("Encountered a possible parsing error. Check category info for variable ", variable_name, key_value)
 
 
         # Check if there is a value that corresponds to  'missing'
-        if 'missing' in class_names.values():
-            missing_key = [x[0] for x in class_names.items() if x[1].strip().lower() == 'missing'][0]
-            print("MISSING value exists for variable: ", variable_name, missing_key)
+        if 'MISSING' in class_names.values():
+            missing_key = [x[0] for x in class_names.items() if x[1] == 'MISSING'][0]
+            print("MISSING value exists among categories: ", variable_name, missing_key)
+        elif 'MISSING' in dictionary.columns and row['MISSING'].strip() != "":
+            missing_key = str(row['MISSING']).upper()
+            print(f"MISSING value {missing_key} declared for variable: ", variable_name)
         else:
             print("No 'missing' value for variable ", variable_name)
             #needed the line below, otherwise the "missing_key" will still store the value for the previous var
             missing_key = None
-                
-        # Save MIN, MAX, and VAR TYPE values if they exist to class_details
-        class_details[variable_name] = {
-            'categories': class_names,
-            'var_label': row[varlabel_col],
-            'missing': missing_key,  # Add missing indicator if found
-            'var_type': t
-        }
 
-    else: #numeric or dates:
-        numerical_details[variable_name] = {
-            'var_type': t,
+    else: #ints or floats or dates:
+        missing_key = str(row['MISSING']).upper() if 'MISSING' in dictionary.columns and row['MISSING'].strip() != "" else None
+
+    if missing_key == None:
+        count_missing = 0
+    else:
+        count_missing = (data[variable_name] == missing_key).sum()
+
+    na_count = data[variable_name].isna().sum()
+
+    vars_details[variable_name] = {
             'var_label': row[varlabel_col],
-            'missing': row['MISSING'] if 'MISSING' in dictionary.columns and row['MISSING'].strip() != "" else None
-        }
+            'missing': missing_key,
+            'declared_type': var_type,
+            'inferred_type': t,
+            'count_missing': int(count_missing),
+            'count_na': int(na_count)
+    }
+    if t == 'categorical':
+        vars_details[variable_name]['categories'] = class_names
 
 json_dir = '/output/'
 
-# Save categorical variables to a JSON file
-categorical_json_path = os.path.join(json_dir, 'categorical_variables.json')
-with open(categorical_json_path, 'w') as json_file:
-    json.dump(class_details, json_file, indent=4)
-
-# Save numerical variables to a JSON file
-numerical_json_path = os.path.join(json_dir, 'numerical_variables.json')
-with open(numerical_json_path, 'w') as json_file:
-    json.dump(numerical_details, json_file, indent=4)
+# Save all variable details to a JSON file
+vars_details_json_path = os.path.join(json_dir, 'variable_details.json')
+with open(vars_details_json_path, 'w') as json_file:
+    json.dump(vars_details, json_file, indent=4)
 
 # Print confirmation messages and the first 5 items in a formatted way
-print(f"Categorical variables saved to {categorical_json_path}")
-print(json.dumps({key: class_details[key] for key in list(class_details.keys())[:-1]}, indent=4))
+print(f"Variable details saved to {vars_details_json_path}")
+print(json.dumps({key: vars_details[key] for key in sorted(list(vars_details.keys()))[:-1]}, indent=4))
+            
+all_data_issues = [str(i) for i in mismatched_types.items()]
 
-print(f"Numerical variables saved to {numerical_json_path}")
-print(json.dumps({key: numerical_details[key] for key in list(numerical_details.keys())[:-1]}, indent=4))
+data_issues_json_path = os.path.join(json_dir, 'data_issues.json')
+with open(data_issues_json_path, 'w') as json_file:
+    json.dump(all_data_issues, json_file, indent=4)
+pprint(all_data_issues)
 """
     return raw_script.replace("{cohort_id}", cohort_id)
 
@@ -240,47 +266,81 @@ warnings.filterwarnings('ignore')
 # data_correct_missing = pd.read_csv("/input/C3_map_missing_do_not_run/data_correct.csv", low_memory=False)
 
 #Load the JSON files from C2
-categorical_vars = pd.read_json("/input/c2_save_to_json/categorical_variables.json")
-#print("the categorical data: ", categorical_vars.keys())
-numerical_vars = pd.read_json("/input/c2_save_to_json/numerical_variables.json")
-#print("the numerical data: ", numerical_vars)
+vars_details = pd.read_json("/input/c2_save_to_json/variable_details.json")
+
+with open("/input/c2_save_to_json/data_issues.json") as f:
+    data_issues = json.load(f)
+
 try:
-    data = pd.read_csv("/input/{cohort_id}", na_values=[''], keep_default_na=True)
+    data = pd.read_csv("/input/{cohort_id}", na_values=[''], keep_default_na=False)
     #data = decentriq_util.read_tabular_data("/input/{cohort_id}")
 except Exception as e:
     data = pd.read_spss("/input/{cohort_id}")
 
 
 data.columns = [c.lower().strip() for c in data.columns]
-for col in data.columns:
+
+
+def _cast_col(series, typ):
+    if typ == 'date':
+        ns = pd.to_datetime(series, errors='coerce').dt.date
+    elif typ == 'int':
+        ns = pd.to_numeric(series, errors='coerce').astype('Int64')
+    elif typ == 'float':
+        ns = pd.to_numeric(series, errors='coerce')
+    elif typ == 'categorical':
+        try:
+            ns = series.astype('Int64').astype(str)
+        except:
+            ns = series.astype(str)
+    else:
+        print("unrecognized type")
+        return series, []
+    invalid_cells = []
+    for i, (c1, c2) in enumerate(zip(series, ns)):
+        if pd.notna(c1) and pd.isna(c2):
+            invalid_cells.append(i)
+    return ns, invalid_cells
+
+
+#type casting the data:
+for v, d in vars_details.items():
     try:
-        if data[col].dropna().apply(lambda x: str(x).isdigit() or str(x).endswith('.0')).all():
-            data[col] = data[col].astype('Int64')
-    except:
+        cast_col, inv_cells = _cast_col(data[v], d['inferred_type'])
+    except Exception as e:
+        msg = f"Error while attempting to cast {v} to {d['inferred_type']}: {e}"
+        print(msg)
+        data_issues.append(msg)
         continue
+    data[v] = cast_col
+    for x in inv_cells:
+        data_issues.append(f"Column {v} - cell {x} appears to be invalid")
+
+
+with open('/output/data_issues.json', 'w') as json_file:
+    json.dump(data_issues, json_file, indent=4)
 
 #variables that should be graphed
 #vars_to_graph = ['age', 'weight', 'cough1', 'angina1', 'hscrp_v6']
 #vars_to_graph = ['age', 'ALCOOL', 'ALLOPURI', 'ALT', 'ALTACE', 'ALTANO', 'COLETOT', 'CREATIN', 'DALTACE', 'DATAECG', 'DATALAB']
-#vars_to_graph = ['age', 'ALCOOL', 'DATAECG', 'DATALAB']
-#vars_to_graph = [x.lower() for x in vars_to_graph]
+vars_to_graph = ['age', 'ALCOOL', 'DATAECG', 'DATALAB']
+vars_to_graph = [x.lower() for x in vars_to_graph]
 #vars_to_graph = ['age', 'ALCOOL', 'DATAECG', 'DATALAB', 'AATHORAX', 'AATHORAXDIM', 'ACE_AT_V1']
-vars_to_graph = list(categorical_vars.columns) + list(numerical_vars.columns)
-vars_to_graph = [x.strip().lower() for x in vars_to_graph]
+#vars_to_graph = list(vars_details.columns)
+#vars_to_graph = [x.strip().lower() for x in vars_to_graph]
 
 def _lowercase_if_string(x):
     if isinstance(x, str):
         return x.lower()
     return x
 
-def variable_eda(df, categorical_vars, numerical_vars):
+def variable_eda(df, vars_details):
     vars_stats = {}
     graph_tick_data = {}
     df.columns = df.columns.str.lower().str.strip()
     for column in df.columns.tolist():
-        print("Processing: ", column)
         # Continuous variables
-        if column in numerical_vars.keys():
+        if vars_details[column]['inferred_type'] in ['int', 'float']:
 
             #if not pd.api.types.is_numeric_dtype(df[column]):
                 # Skip if the column is not numeric
@@ -291,24 +351,27 @@ def variable_eda(df, categorical_vars, numerical_vars):
             stats = df[column].describe()
             mode_value = df[column].mode()[0] if not df[column].mode().empty else np.nan
             value_counts = df[column].value_counts(dropna=False)
-            if numerical_vars[column]['missing'] == None:
-                total_missing = 0
-            else:
-                total_missing = value_counts.get(numerical_vars[column]['missing'], 0)
-            missing_percent = total_missing / len(df) * 100
-            try:
-                empty = df[column].isnull().sum() + df[column].str.strip().eq('').sum()
-            except:
-                empty = df[column].isnull().sum()
+            count_missing = vars_details[column]['count_missing']
+            missing_percent = count_missing / len(df) * 100
+            count_na = vars_details[column]['count_na']
+            #try:
+            #    empty = df[column].isnull().sum() + df[column].str.strip().eq('').sum()
+            #except:
+            #    empty = df[column].isnull().sum()
 
             # Check for numeric values before computing skewness and kurtosis
             if len(df[column].dropna()) > 0:
-                #print("COLUMN: ", column, "type: ", df[column].dtype, "values: ", df[column])
-                df[column] = pd.to_numeric(df[column], errors='coerce')
+                #print(f"Debug {column}: dtype={df[column].dtype}, first 5 values={df[column].head()}")
+                #print(f"After dropna: dtype={df[column].dropna().dtype}, count={len(df[column].dropna())}")
+                #df[column] = pd.to_numeric(df[column], errors='coerce')
+                #column_no_na = df[column].dropna()
+                #print(f"After numeric coerce and dropping na: dtype={column_no_na.dtype}, count={column_no_na}")
+                #print("type of column no na: ", type(column_no_na))
+                #print("type of column_no_na values: ", type(column_no_na.values))
                 #df[column] = df[column].astype(float)
-                skewness = skew(df[column].dropna(), bias=False)
+                skewness = skew([_ for _ in df[column].dropna()], bias=False)
                 #skewness = df[column].skew()
-                kurt = kurtosis(df[column].dropna(), bias=False)
+                kurt = kurtosis([_ for _ in df[column].dropna()], bias=False)
             else:
                 skewness = np.nan
                 kurt = np.nan
@@ -331,7 +394,7 @@ def variable_eda(df, categorical_vars, numerical_vars):
             outliers = df[(df[column] < lower_bound) | (df[column] > upper_bound)][column].count()
 
             # Z-Scores for Outliers
-            z_scores = zscore(df[column].dropna()) if len(df[column].dropna()) > 0 else np.array([])
+            z_scores = zscore([_ for _ in df[column].dropna()]) if len(df[column].dropna()) > 0 else np.array([])
             z_outliers = (np.abs(z_scores) > 3).sum() if z_scores.size > 0 else 0
 
             # Range Calculation
@@ -340,7 +403,7 @@ def variable_eda(df, categorical_vars, numerical_vars):
             # Stats Text
             stats_text = (
                 f"Column: {column}",
-                f"Label: {numerical_vars[column]['var_label']}",
+                f"Label: {vars_details[column]['var_label']}",
                 f"Type: Numeric (encoded as {df[column].dtype})",
                 f"Number of non-null observations: {int(stats['count'])}",
                 f"Number of Unique Values/Categories: {df[column].nunique()}",
@@ -355,8 +418,8 @@ def variable_eda(df, categorical_vars, numerical_vars):
                 f"Q1:                  {Q1:.2f}",
                 f"Q3:                  {Q3:.2f}",
                 f"IQR:                 {IQR:.2f}",
-                f"Count empty:         {empty} ({(empty/len(df[column])) * 100:.2f}%)",
-                f"Count missing:       {total_missing} ({(total_missing/len(df[column])) * 100:.2f}%)",
+                f"Count empty:         {count_na} ({(count_na/len(df[column])) * 100:.2f}%)",
+                f"Count missing:       {count_missing} ({(count_missing/len(df[column])) * 100:.2f}%)",
                 f"Outliers (IQR):      {outliers} ({(outliers / len(df)) * 100:.2f}%)",
                 f"Outliers (Z):        {z_outliers}",
                 f"Skewness:            {skewness:.2f}",
@@ -371,20 +434,20 @@ def variable_eda(df, categorical_vars, numerical_vars):
 
 
         # Categorical variables
-        elif column in categorical_vars.keys() and categorical_vars[column]['var_type'] != 'date':
+        elif vars_details[column]['inferred_type'] == 'categorical':
             stats = df[column].describe()
             value_counts = df[column].apply(_lowercase_if_string).value_counts(dropna=False)
             total = len(df)
 
             # Get the categories mapping and normalize keys
-            categories_mapping = categorical_vars[column].get("categories", [])
+            categories_mapping = vars_details[column].get("categories", [])
             categories_mapping = {str(k): v for (k, v) in categories_mapping.items()}
             #print("variable: ", column, "categories:", categories_mapping, value_counts )
 
             if value_counts.empty:
                 stats_text = (
                     f"Column: {column}",
-                    f"Label: {categorical_vars[column]['var_label']}",
+                    f"Label: {vars_details[column]['var_label']}",
                     f"Type: Categorical (encoded as {df[column].dtype})",
                     f"Number of Unique Categories: 0",
                     f"Missing Values: {df[column].isnull().sum()} ({df[column].isnull().mean() * 100:.2f}%)"
@@ -393,34 +456,27 @@ def variable_eda(df, categorical_vars, numerical_vars):
                 # Chi-square test
                 expected = total / len(value_counts)
                 chi_square_stat = ((value_counts - expected) ** 2 / expected).sum()
-                if categorical_vars[column]['missing'] == None:
-                    missing_count = 0
-                else:
-                    missing_count = value_counts.get(categorical_vars[column]['missing'], 0)
-                
-                try:
-                    empty_count = df[column].isnull().sum() + df[column].str.strip().eq('').sum()
-                except:
-                    empty_count = df[column].isnull().sum()
+                count_missing = vars_details[column]["count_missing"]
+                count_na = vars_details[column]["count_na"]
 
                 # Class balance with corrected mapping
                 class_balance_text = "\\n\\t"
                 for key, count in value_counts.items():
                     if str(key) in categories_mapping and str(key) != categories_mapping[str(key)]:
-                        class_balance_text += f"{(key, categories_mapping[str(key)])} -> {round(count / total * 100, 2)}%\\n\t"
+                        class_balance_text += f"{(key, categories_mapping[str(key)])} -> {round(count / total * 100, 2)}%\\n	"
                     else:
-                        class_balance_text += f"{key} -> {round(count / total * 100, 2)}%\\n\t"
+                        class_balance_text += f"{key} -> {round(count / total * 100, 2)}%\\n	"
 
                 stats_text = (
                     f"Column: {column}",
-                    f"Label: {categorical_vars[column]['var_label']}",
+                    f"Label: {vars_details[column]['var_label']}",
                     f"Type: Categorical (encoded as {df[column].dtype})",
                     f"Number of unique values/categories: {len(value_counts)}",
                     f"Most frequent category: {categories_mapping.get(str(value_counts.idxmax()), 'Unknown')} ",
                     f"Number of non-null observations: {df[column].count()}",
-                    f"Code for missing value: {categorical_vars[column]['missing']}",
-                    f"Count missing: {missing_count} ({(missing_count/len(df[column])) * 100:.2f}%)",
-                    f"Count empty: {empty_count} ({(empty_count/len(df[column])) * 100:.2f}%)",
+                    f"Code for missing value: {vars_details[column]['missing']}",
+                    f"Count missing: {count_missing} ({(count_missing/len(df[column])) * 100:.2f}%)",
+                    f"Count empty: {count_na} ({(count_na/len(df[column])) * 100:.2f}%)",
                     f"Class balance: {class_balance_text}",
                     f"Chi-Square Test Statistic: {chi_square_stat:.2f}"
                 )
@@ -428,48 +484,38 @@ def variable_eda(df, categorical_vars, numerical_vars):
             if column in vars_to_graph:
                 graph_tick_data[column] = create_save_graph(df, column, stats_text, 'categorical', category_mapping = categories_mapping)
         
-        elif column in categorical_vars.keys() and categorical_vars[column]['var_type'] == 'date':
+        elif vars_details[column]['inferred_type'] == 'date':
             try:
                 stats = pd.to_datetime(df[column], format='mixed').describe()
             except:
                 continue
             value_counts = df[column].value_counts(dropna=False)
             total = len(df)
-            if categorical_vars[column]['missing'] == None:
-                missing_count = 0
-            else:
-                missing_count = value_counts.get(categorical_vars[column]['missing'], 0)
-
-            try:
-                    empty_count = df[column].isnull().sum() + df[column].str.strip().eq('').sum()
-            except:
-                    empty_count = df[column].isnull().sum()
+            count_missing = vars_details[column]["count_missing"]
+            count_na = vars_details[column]["count_na"]
             stats_text = [
                     f"Column: {column}",
-                    f"Label: {categorical_vars[column]['var_label']}",
+                    f"Label: {vars_details[column]['var_label']}",
                     f"Type: Date (encoded as {df[column].dtype})",
                     f"Number of unique values: {len(value_counts)}",
                     f"Most frequent value: {str(value_counts.idxmax()).split('.')[0]}",
                     f"Number of non-null observations: {df[column].count()}",
-                    f"Count missing: {missing_count} ({(missing_count/len(df[column])) * 100:.2f}%)",
-                    f"Count empty: {empty_count} ({(empty_count/len(df[column])) * 100:.2f}%)",
-                    f"Mean:                {stats['mean'].dt.date:.2f}",
-                    f"Median:              {stats['50%'].dt.date:.2f}",
-                    f"Mode:                {mode_value:.2f}",
-                    f"Std Dev:             {stats['std']:.2f}",
-                    f"Variance:            {stats['std']**2:.2f}",
-                    f"Max:                 {stats['max'].dt.date:.2f}",
-                    f"Min:                 {stats['min'].dt.date:.2f}",
-                    f"Range:               {range_value:.2f}", 
-                    f"Q1:                  {stats['25%'].dt.date:.2f}",
-                    f"Q3:                  {stats['75%'].dt.date:.2f}",
+                    f"Count missing: {count_missing} ({(count_missing/len(df[column])) * 100:.2f}%)",
+                    f"Count empty: {count_na} ({(count_na/len(df[column])) * 100:.2f}%)",
+                    f"Mean:                {stats['mean'].date()}",
+                    f"Median:              {stats['50%'].date()}",
+                    f"Max:                 {stats['max'].date()}",
+                    f"Min:                 {stats['min'].date()}",
+                    f"Range:               {stats['max'] - stats['min']}", 
+                    f"Q1:                  {stats['25%'].date()}",
+                    f"Q3:                  {stats['75%'].date()}",
                     f"IQR:                 {stats['75%'] - stats['25%']}",
             ]
             #stats_text.extend([f"{k.capitalize()}: {v}" for k,v in stats.items()])
             if column in vars_to_graph:
                 graph_tick_data[column] = create_save_graph(df, column, stats_text, 'datetime')
         else:
-            #print("ELSE case: variable name ", column, "var type: ", categorical_vars[column]['var_type'])
+            print("ELSE case: variable name ", column, "inferred type: ", vars_details[column]['inferred_type'])
             stats_text = []
         stats_text_dict = {i.split(":")[0].strip():i.split(":")[1].strip() for i in stats_text}
         if 'Class balance' in stats_text_dict:
@@ -676,7 +722,7 @@ def _convert_numeric(val):
         except (ValueError, TypeError):
             return val
 
-vars_to_stats = variable_eda(data, categorical_vars, numerical_vars)
+vars_to_stats = variable_eda(data, vars_details)
 meta_data_enriched = integrate_eda_with_metadata(vars_to_stats)
 json_dicts = dataframe_to_json_dicts(meta_data_enriched)
 """
