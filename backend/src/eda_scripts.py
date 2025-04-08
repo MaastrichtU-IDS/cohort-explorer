@@ -175,7 +175,8 @@ for index, row in dictionary.iterrows():
     categories_info = row['CATEGORICAL']
 
     if t == 'categorical':
-        categories = [item for sublist in categories_info.split('|') for item in sublist.split(',')]
+        #categories = [item for sublist in categories_info.split('|') for item in sublist.split(',')]
+        categories = [item.strip() for item in categories_info.split('|')]
         class_names = {}
 
         for category in categories:
@@ -189,8 +190,9 @@ for index, row in dictionary.iterrows():
                     #category does not have "="
                     class_names[key_value[0].strip().upper()] = key_value[0].strip().upper()
                 else:
-                    print("Encountered a possible parsing error. Check category info for variable ", variable_name, key_value)
-
+                    msg = f"Encountered a possible parsing error. Check category info for variable {variable_name}, {key_value}, Full category info: {categories_info}"
+                    mismatched_types[variable_name + "-categories"] =  msg
+                    print(msg)
 
         # Check if there is a value that corresponds to  'missing'
         if 'MISSING' in class_names.values():
@@ -342,6 +344,8 @@ def variable_eda(df, vars_details):
     graph_tick_data = {}
     df.columns = df.columns.str.lower().str.strip()
     for column in df.columns.tolist():
+        if column not in vars_details.columns:
+            continue
         # Continuous variables
         if vars_details[column]['inferred_type'] in ['int', 'float']:
 
