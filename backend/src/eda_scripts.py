@@ -318,12 +318,9 @@ for v, d in vars_details.items():
         data_issues.append(msg)
         continue
     data[v] = cast_col
-    for x in inv_cells:
-        data_issues.append(f"Column {v} - cell {x} appears to be invalid")
+    data_issues.append(f"Column {v} the following cells appears to be invalid: {str(inv_cells)}")
 
 
-with open('/output/data_issues.json', 'w') as json_file:
-    json.dump(data_issues, json_file, indent=4)
 
 #variables that should be graphed
 #vars_to_graph = ['age', 'weight', 'cough1', 'angina1', 'hscrp_v6']
@@ -489,7 +486,12 @@ def variable_eda(df, vars_details):
                 )
 
             if column in vars_to_graph:
-                graph_tick_data[column] = create_save_graph(df, column, stats_text, 'categorical', category_mapping = categories_mapping)
+                try:
+                    graph_tick_data[column] = create_save_graph(df, column, stats_text, 'categorical', category_mapping = categories_mapping)
+                except Exception as e:
+                    data_issues.append(f"Failed to create a graph for column {column}. Exception msg: {str(e)}")
+                    
+                    
         
         elif vars_details[column]['inferred_type'] == 'date':
             try:
@@ -734,5 +736,8 @@ def _convert_numeric(val):
 vars_to_stats = variable_eda(data, vars_details)
 meta_data_enriched = integrate_eda_with_metadata(vars_to_stats)
 json_dicts = dataframe_to_json_dicts(meta_data_enriched)
+
+with open('/output/data_issues.json', 'w') as json_file:
+    json.dump(data_issues, json_file, indent=4)
 """
     return raw_script.replace("{cohort_id}", cohort_id)
