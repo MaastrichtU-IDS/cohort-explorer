@@ -433,8 +433,10 @@ def variable_eda(df, vars_details):
             )
 
             if column in vars_to_graph:
-                graph_tick_data[column] = create_save_graph(df, column, stats_text, 'numerical')
-                
+                try:
+                    graph_tick_data[column] = create_save_graph(df, column, stats_text, 'numerical')
+                except Exception as e:
+                    data_issues.append(f"Failed to create a graph for column {column}. Exception msg: {str(e)}")
 
 
         # Categorical variables
@@ -522,7 +524,10 @@ def variable_eda(df, vars_details):
             ]
             #stats_text.extend([f"{k.capitalize()}: {v}" for k,v in stats.items()])
             if column in vars_to_graph:
-                graph_tick_data[column] = create_save_graph(df, column, stats_text, 'datetime')
+                try:
+                    graph_tick_data[column] = create_save_graph(df, column, stats_text, 'datetime')
+                except Exception as e:
+                    data_issues.append(f"Failed to create a graph for column {column}. Exception msg: {str(e)}")
         else:
             print("ELSE case: variable name ", column, "inferred type: ", vars_details[column]['inferred_type'])
             stats_text = []
