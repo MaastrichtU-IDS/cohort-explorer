@@ -348,6 +348,13 @@ def variable_eda(df, vars_details):
         if column not in vars_details.columns:
             continue
         # Continuous variables
+
+        if 'missing' in vars_details[column] and vars_details[column]['missing']:
+            if vars_details[column]['inferred_type'] in ['int', 'float', 'date']:
+                df[column].replace(vars_details[column]['missing'], pd.NA, inplace=True)
+            else: #categorical
+                df[column].replace(vars_details[column]['missing'], '<missing>', inplace=True)
+    
         if vars_details[column]['inferred_type'] in ['int', 'float']:
 
             #if not pd.api.types.is_numeric_dtype(df[column]):
