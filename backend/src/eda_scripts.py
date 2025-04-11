@@ -146,7 +146,10 @@ for index, row in dictionary.iterrows():
     if (pd.notna(categories_info) and isinstance(categories_info, str) and categories_info.strip() != ""):
         vars_to_process[variable_name] = 'categorical'
     elif _column_is_numeric(data[variable_name]):
-        vars_to_process[variable_name] = 'int'
+        if data[variable_name].nunique()>9:
+            vars_to_process[variable_name] = 'int'
+        else:
+            vars_to_process[variable_name] = 'categorical'
     elif _column_is_float(data[variable_name]):
         vars_to_process[variable_name] = 'float'
     elif _column_is_date(data[variable_name]):
@@ -318,7 +321,8 @@ for v, d in vars_details.items():
         data_issues.append(msg)
         continue
     data[v] = cast_col
-    data_issues.append(f"Column {v} the following cells appears to be invalid: {str(inv_cells)}")
+    if len(inv_cells)>0:
+        data_issues.append(f"Column {v} the following cells appears to be invalid: {str(inv_cells)}")
 
 
 
@@ -592,27 +596,38 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
         max_date = date_vals.max()
         date_range = max_date - min_date
     
+        
+        if date_range.days > 365 * 10:  
+            bin_freq = 'YS'  # Yearly start
+            axes[1].xaxis.set_major_locator(mdates.YearLocator(base=2))
+        elif date_range.days > 365 * 5: 
+            bin_freq = 'YS'  # Yearly
+            axes[1].xaxis.set_major_locator(mdates.YearLocator())
         if date_range.days > 365 :
             bin_freq = 'Q'  # Quarterly
+            axes[1].xaxis.set_major_locator(mdates.MonthLocator(interval=3))
         elif date_range.days > 90 :
             bin_freq = 'M'  
+            axes[1].xaxis.set_major_locator(mdates.MonthLocator())  # Monthly
         elif date_range.days > 30:
             bin_freq = 'W'  # Weekly bins
+            axes[1].xaxis.set_major_locator(mdates.WeekdayLocator(interval=1))  # Weekly
         else:
             bin_freq = 'D'  # Daily
+            axes[1].xaxis.set_major_locator(mdates.DayLocator(interval=2))
         
         bins = mdates.date2num(pd.date_range(min_date, max_date, freq=bin_freq))
         
         axes[1].hist(date_nums, bins=bins, alpha=0.7)
         axes[1].set_title(f"Distribution of {varname.upper()}", fontsize=12)
-        axes[1].xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
-    
-        #if date_range.days > 365*2:
-        #    axes[1].xaxis.set_major_locator(mdates.YearLocator())
-        if date_range.days > 180:
-            axes[1].xaxis.set_major_locator(mdates.MonthLocator(interval=3))  # Quarterly
+
+        
+        if date_range.days <= 90:
+            axes[1].xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d')) 
+        elif date_range.days <= 365 * 2:
+            axes[1].xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))  # "2020-01" format
         else:
-            axes[1].xaxis.set_major_locator(mdates.MonthLocator())  # Monthly
+            axes[1].xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
             
         axes[1].tick_params(axis='x', rotation=90)
         
