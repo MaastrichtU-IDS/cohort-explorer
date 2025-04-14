@@ -350,7 +350,11 @@ def variable_eda(df, vars_details):
         # Continuous variables
 
         if 'missing' in vars_details[column] and vars_details[column]['missing']:
-            if vars_details[column]['inferred_type'] in ['int', 'float', 'date']:
+            if vars_details[column]['inferred_type'] in ['int']:
+                df[column].replace(int(vars_details[column]['missing']), pd.NA, inplace=True)
+            elif vars_details[column]['inferred_type'] in ['float']:
+                df[column].replace(float(vars_details[column]['missing']), pd.NA, inplace=True)
+            elif vars_details[column]['inferred_type'] in ['date']:
                 df[column].replace(vars_details[column]['missing'], pd.NA, inplace=True)
             else: #categorical
                 df[column].replace(vars_details[column]['missing'], '<missing>', inplace=True)
