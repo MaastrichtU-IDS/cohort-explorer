@@ -13,7 +13,7 @@ from src.monitoring import run_periodic_monitoring
 import asyncio
 
 init_triplestore()
-asyncio.create_task(run_periodic_monitoring())
+#asyncio.create_task(run_periodic_monitoring())
 
 app = FastAPI(
     title="iCARE4CVD API",
