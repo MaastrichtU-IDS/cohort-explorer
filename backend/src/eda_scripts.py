@@ -348,209 +348,212 @@ def variable_eda(df, vars_details):
         if column not in vars_details.columns:
             continue
         # Continuous variables
+        try:
+            if 'missing' in vars_details[column] and vars_details[column]['missing']:
+                if vars_details[column]['inferred_type'] in ['int']:
+                    df[column].replace(int(vars_details[column]['missing']), pd.NA, inplace=True)
+                elif vars_details[column]['inferred_type'] in ['float']:
+                    df[column].replace(float(vars_details[column]['missing']), pd.NA, inplace=True)
+                elif vars_details[column]['inferred_type'] in ['date']:
+                    df[column].replace(vars_details[column]['missing'], pd.NA, inplace=True)
+                else: #categorical
+                    df[column].replace(vars_details[column]['missing'], '<missing>', inplace=True)
+        
+            if vars_details[column]['inferred_type'] in ['int', 'float']:
 
-        if 'missing' in vars_details[column] and vars_details[column]['missing']:
-            if vars_details[column]['inferred_type'] in ['int']:
-                df[column].replace(int(vars_details[column]['missing']), pd.NA, inplace=True)
-            elif vars_details[column]['inferred_type'] in ['float']:
-                df[column].replace(float(vars_details[column]['missing']), pd.NA, inplace=True)
-            elif vars_details[column]['inferred_type'] in ['date']:
-                df[column].replace(vars_details[column]['missing'], pd.NA, inplace=True)
-            else: #categorical
-                df[column].replace(vars_details[column]['missing'], '<missing>', inplace=True)
-    
-        if vars_details[column]['inferred_type'] in ['int', 'float']:
+                #if not pd.api.types.is_numeric_dtype(df[column]):
+                    # Skip if the column is not numeric
+                    # print("Column ", column, " skipped because non-numeric")
+                    #continue
 
-            #if not pd.api.types.is_numeric_dtype(df[column]):
-                # Skip if the column is not numeric
-                # print("Column ", column, " skipped because non-numeric")
-                #continue
+                # Descriptive Stats
+                stats = df[column].describe()
+                mode_value = df[column].mode()[0] if not df[column].mode().empty else np.nan
+                value_counts = df[column].value_counts(dropna=False)
+                count_missing = vars_details[column]['count_missing']
+                missing_percent = count_missing / len(df) * 100
+                count_na = vars_details[column]['count_na']
+                #try:
+                #    empty = df[column].isnull().sum() + df[column].str.strip().eq('').sum()
+                #except:
+                #    empty = df[column].isnull().sum()
 
-            # Descriptive Stats
-            stats = df[column].describe()
-            mode_value = df[column].mode()[0] if not df[column].mode().empty else np.nan
-            value_counts = df[column].value_counts(dropna=False)
-            count_missing = vars_details[column]['count_missing']
-            missing_percent = count_missing / len(df) * 100
-            count_na = vars_details[column]['count_na']
-            #try:
-            #    empty = df[column].isnull().sum() + df[column].str.strip().eq('').sum()
-            #except:
-            #    empty = df[column].isnull().sum()
+                # Check for numeric values before computing skewness and kurtosis
+                if len(df[column].dropna()) > 0:
+                    #print(f"Debug {column}: dtype={df[column].dtype}, first 5 values={df[column].head()}")
+                    #print(f"After dropna: dtype={df[column].dropna().dtype}, count={len(df[column].dropna())}")
+                    #df[column] = pd.to_numeric(df[column], errors='coerce')
+                    #column_no_na = df[column].dropna()
+                    #print(f"After numeric coerce and dropping na: dtype={column_no_na.dtype}, count={column_no_na}")
+                    #print("type of column no na: ", type(column_no_na))
+                    #print("type of column_no_na values: ", type(column_no_na.values))
+                    #df[column] = df[column].astype(float)
+                    skewness = skew([_ for _ in df[column].dropna()], bias=False)
+                    #skewness = df[column].skew()
+                    kurt = kurtosis([_ for _ in df[column].dropna()], bias=False)
+                else:
+                    skewness = np.nan
+                    kurt = np.nan
 
-            # Check for numeric values before computing skewness and kurtosis
-            if len(df[column].dropna()) > 0:
-                #print(f"Debug {column}: dtype={df[column].dtype}, first 5 values={df[column].head()}")
-                #print(f"After dropna: dtype={df[column].dropna().dtype}, count={len(df[column].dropna())}")
-                #df[column] = pd.to_numeric(df[column], errors='coerce')
-                #column_no_na = df[column].dropna()
-                #print(f"After numeric coerce and dropping na: dtype={column_no_na.dtype}, count={column_no_na}")
-                #print("type of column no na: ", type(column_no_na))
-                #print("type of column_no_na values: ", type(column_no_na.values))
-                #df[column] = df[column].astype(float)
-                skewness = skew([_ for _ in df[column].dropna()], bias=False)
-                #skewness = df[column].skew()
-                kurt = kurtosis([_ for _ in df[column].dropna()], bias=False)
-            else:
-                skewness = np.nan
-                kurt = np.nan
+                # Normality Test
+                if len(df[column].dropna()) > 3:  # Shapiro requires at least 3 values
+                    w_test_stat, p = shapiro(df[column].dropna())
+                    normality = "Normal" if p > 0.05 else "Non-Normal"
+                    p_value_str = f"{p:.4f}"
+                else:
+                    normality = "Insufficient Data"
+                    p_value_str = "N/A"
 
-            # Normality Test
-            if len(df[column].dropna()) > 3:  # Shapiro requires at least 3 values
-                w_test_stat, p = shapiro(df[column].dropna())
-                normality = "Normal" if p > 0.05 else "Non-Normal"
-                p_value_str = f"{p:.4f}"
-            else:
-                normality = "Insufficient Data"
-                p_value_str = "N/A"
+                # Outlier Detection (IQR Method)
+                Q1 = stats['25%']
+                Q3 = stats['75%']
+                IQR = Q3 - Q1
+                lower_bound = Q1 - 1.5 * IQR
+                upper_bound = Q3 + 1.5 * IQR
+                outliers = df[(df[column] < lower_bound) | (df[column] > upper_bound)][column].count()
 
-            # Outlier Detection (IQR Method)
-            Q1 = stats['25%']
-            Q3 = stats['75%']
-            IQR = Q3 - Q1
-            lower_bound = Q1 - 1.5 * IQR
-            upper_bound = Q3 + 1.5 * IQR
-            outliers = df[(df[column] < lower_bound) | (df[column] > upper_bound)][column].count()
+                # Z-Scores for Outliers
+                z_scores = zscore([_ for _ in df[column].dropna()]) if len(df[column].dropna()) > 0 else np.array([])
+                z_outliers = (np.abs(z_scores) > 3).sum() if z_scores.size > 0 else 0
 
-            # Z-Scores for Outliers
-            z_scores = zscore([_ for _ in df[column].dropna()]) if len(df[column].dropna()) > 0 else np.array([])
-            z_outliers = (np.abs(z_scores) > 3).sum() if z_scores.size > 0 else 0
+                # Range Calculation
+                range_value = stats['max'] - stats['min']
 
-            # Range Calculation
-            range_value = stats['max'] - stats['min']
-
-            # Stats Text
-            stats_text = (
-                f"Column: {column}",
-                f"Label: {vars_details[column]['var_label']}",
-                f"Type: Numeric (encoded as {df[column].dtype})",
-                f"Number of non-null observations: {int(stats['count'])}",
-                f"Number of Unique Values/Categories: {df[column].nunique()}",
-                f"Mean:                {stats['mean']:.2f}",
-                f"Median:              {stats['50%']:.2f}",
-                f"Mode:                {mode_value:.2f}",
-                f"Std Dev:             {stats['std']:.2f}",
-                f"Variance:            {stats['std']**2:.2f}",
-                f"Max:                 {stats['max']:.2f}",
-                f"Min:                 {stats['min']:.2f}",
-                f"Range:               {range_value:.2f}", 
-                f"Q1:                  {Q1:.2f}",
-                f"Q3:                  {Q3:.2f}",
-                f"IQR:                 {IQR:.2f}",
-                f"Count empty:         {count_na} ({(count_na/len(df[column])) * 100:.2f}%)",
-                f"Count missing:       {count_missing} ({(count_missing/len(df[column])) * 100:.2f}%)",
-                f"Outliers (IQR):      {outliers} ({(outliers / len(df)) * 100:.2f}%)",
-                f"Outliers (Z):        {z_outliers}",
-                f"Skewness:            {skewness:.2f}",
-                f"Kurtosis:            {kurt:.2f}",
-                f"W_Test:              {w_test_stat:.2f}",
-                f"Normality Test: p-value={p_value_str} => {normality}"
-            )
-
-            if column in vars_to_graph:
-                try:
-                    graph_tick_data[column] = create_save_graph(df, column, stats_text, 'numerical')
-                except Exception as e:
-                    data_issues.append(f"Failed to create a graph for column {column}. Exception msg: {str(e)}")
-
-
-        # Categorical variables
-        elif vars_details[column]['inferred_type'] == 'categorical':
-            stats = df[column].describe()
-            value_counts = df[column].apply(_lowercase_if_string).value_counts(dropna=False)
-            total = len(df)
-
-            # Get the categories mapping and normalize keys
-            categories_mapping = vars_details[column].get("categories", [])
-            categories_mapping = {str(k): v for (k, v) in categories_mapping.items()}
-            #print("variable: ", column, "categories:", categories_mapping, value_counts )
-
-            if value_counts.empty:
+                # Stats Text
                 stats_text = (
                     f"Column: {column}",
                     f"Label: {vars_details[column]['var_label']}",
-                    f"Type: Categorical (encoded as {df[column].dtype})",
-                    f"Number of Unique Categories: 0",
-                    f"Missing Values: {df[column].isnull().sum()} ({df[column].isnull().mean() * 100:.2f}%)"
+                    f"Type: Numeric (encoded as {df[column].dtype})",
+                    f"Number of non-null observations: {int(stats['count'])}",
+                    f"Number of Unique Values/Categories: {df[column].nunique()}",
+                    f"Mean:                {stats['mean']:.2f}",
+                    f"Median:              {stats['50%']:.2f}",
+                    f"Mode:                {mode_value:.2f}",
+                    f"Std Dev:             {stats['std']:.2f}",
+                    f"Variance:            {stats['std']**2:.2f}",
+                    f"Max:                 {stats['max']:.2f}",
+                    f"Min:                 {stats['min']:.2f}",
+                    f"Range:               {range_value:.2f}", 
+                    f"Q1:                  {Q1:.2f}",
+                    f"Q3:                  {Q3:.2f}",
+                    f"IQR:                 {IQR:.2f}",
+                    f"Count empty:         {count_na} ({(count_na/len(df[column])) * 100:.2f}%)",
+                    f"Count missing:       {count_missing} ({(count_missing/len(df[column])) * 100:.2f}%)",
+                    f"Outliers (IQR):      {outliers} ({(outliers / len(df)) * 100:.2f}%)",
+                    f"Outliers (Z):        {z_outliers}",
+                    f"Skewness:            {skewness:.2f}",
+                    f"Kurtosis:            {kurt:.2f}",
+                    f"W_Test:              {w_test_stat:.2f}",
+                    f"Normality Test: p-value={p_value_str} => {normality}"
                 )
-            else:
-                # Chi-square test
-                expected = total / len(value_counts)
-                chi_square_stat = ((value_counts - expected) ** 2 / expected).sum()
+
+                if column in vars_to_graph:
+                    try:
+                        graph_tick_data[column] = create_save_graph(df, column, stats_text, 'numerical')
+                    except Exception as e:
+                        data_issues.append(f"Failed to create a graph for column {column}. Exception msg: {str(e)}")
+
+
+            # Categorical variables
+            elif vars_details[column]['inferred_type'] == 'categorical':
+                stats = df[column].describe()
+                value_counts = df[column].apply(_lowercase_if_string).value_counts(dropna=False)
+                total = len(df)
+
+                # Get the categories mapping and normalize keys
+                categories_mapping = vars_details[column].get("categories", [])
+                categories_mapping = {str(k): v for (k, v) in categories_mapping.items()}
+                #print("variable: ", column, "categories:", categories_mapping, value_counts )
+
+                if value_counts.empty:
+                    stats_text = (
+                        f"Column: {column}",
+                        f"Label: {vars_details[column]['var_label']}",
+                        f"Type: Categorical (encoded as {df[column].dtype})",
+                        f"Number of Unique Categories: 0",
+                        f"Missing Values: {df[column].isnull().sum()} ({df[column].isnull().mean() * 100:.2f}%)"
+                    )
+                else:
+                    # Chi-square test
+                    expected = total / len(value_counts)
+                    chi_square_stat = ((value_counts - expected) ** 2 / expected).sum()
+                    count_missing = vars_details[column]["count_missing"]
+                    count_na = vars_details[column]["count_na"]
+
+                    # Class balance with corrected mapping
+                    class_balance_text = "\\n\\t"
+                    for key, count in value_counts.items():
+                        if str(key) in categories_mapping and str(key) != categories_mapping[str(key)]:
+                            class_balance_text += f"{(key, categories_mapping[str(key)])} -> {round(count / total * 100, 2)}%\\n	"
+                        else:
+                            class_balance_text += f"{key} -> {round(count / total * 100, 2)}%\\n	"
+
+                    stats_text = (
+                        f"Column: {column}",
+                        f"Label: {vars_details[column]['var_label']}",
+                        f"Type: Categorical (encoded as {df[column].dtype})",
+                        f"Number of unique values/categories: {len(value_counts)}",
+                        f"Most frequent category: {categories_mapping.get(str(value_counts.idxmax()), 'Unknown')} ",
+                        f"Number of non-null observations: {df[column].count()}",
+                        f"Code for missing value: {vars_details[column]['missing']}",
+                        f"Count missing: {count_missing} ({(count_missing/len(df[column])) * 100:.2f}%)",
+                        f"Count empty: {count_na} ({(count_na/len(df[column])) * 100:.2f}%)",
+                        f"Class balance: {class_balance_text}",
+                        f"Chi-Square Test Statistic: {chi_square_stat:.2f}"
+                    )
+
+                if column in vars_to_graph:
+                    try:
+                        graph_tick_data[column] = create_save_graph(df, column, stats_text, 'categorical', category_mapping = categories_mapping)
+                    except Exception as e:
+                        data_issues.append(f"Failed to create a graph for column {column}. Exception msg: {str(e)}")
+                        
+                        
+            
+            elif vars_details[column]['inferred_type'] == 'date':
+                try:
+                    stats = pd.to_datetime(df[column], format='mixed').describe()
+                except:
+                    continue
+                value_counts = df[column].value_counts(dropna=False)
+                total = len(df)
                 count_missing = vars_details[column]["count_missing"]
                 count_na = vars_details[column]["count_na"]
-
-                # Class balance with corrected mapping
-                class_balance_text = "\\n\\t"
-                for key, count in value_counts.items():
-                    if str(key) in categories_mapping and str(key) != categories_mapping[str(key)]:
-                        class_balance_text += f"{(key, categories_mapping[str(key)])} -> {round(count / total * 100, 2)}%\\n	"
-                    else:
-                        class_balance_text += f"{key} -> {round(count / total * 100, 2)}%\\n	"
-
-                stats_text = (
-                    f"Column: {column}",
-                    f"Label: {vars_details[column]['var_label']}",
-                    f"Type: Categorical (encoded as {df[column].dtype})",
-                    f"Number of unique values/categories: {len(value_counts)}",
-                    f"Most frequent category: {categories_mapping.get(str(value_counts.idxmax()), 'Unknown')} ",
-                    f"Number of non-null observations: {df[column].count()}",
-                    f"Code for missing value: {vars_details[column]['missing']}",
-                    f"Count missing: {count_missing} ({(count_missing/len(df[column])) * 100:.2f}%)",
-                    f"Count empty: {count_na} ({(count_na/len(df[column])) * 100:.2f}%)",
-                    f"Class balance: {class_balance_text}",
-                    f"Chi-Square Test Statistic: {chi_square_stat:.2f}"
-                )
-
-            if column in vars_to_graph:
-                try:
-                    graph_tick_data[column] = create_save_graph(df, column, stats_text, 'categorical', category_mapping = categories_mapping)
-                except Exception as e:
-                    data_issues.append(f"Failed to create a graph for column {column}. Exception msg: {str(e)}")
-                    
-                    
-        
-        elif vars_details[column]['inferred_type'] == 'date':
-            try:
-                stats = pd.to_datetime(df[column], format='mixed').describe()
-            except:
-                continue
-            value_counts = df[column].value_counts(dropna=False)
-            total = len(df)
-            count_missing = vars_details[column]["count_missing"]
-            count_na = vars_details[column]["count_na"]
-            stats_text = [
-                    f"Column: {column}",
-                    f"Label: {vars_details[column]['var_label']}",
-                    f"Type: Date (encoded as {df[column].dtype})",
-                    f"Number of unique values: {len(value_counts)}",
-                    f"Most frequent value: {str(value_counts.idxmax()).split('.')[0]}",
-                    f"Number of non-null observations: {df[column].count()}",
-                    f"Count missing: {count_missing} ({(count_missing/len(df[column])) * 100:.2f}%)",
-                    f"Count empty: {count_na} ({(count_na/len(df[column])) * 100:.2f}%)",
-                    f"Mean:                {stats['mean'].date()}",
-                    f"Median:              {stats['50%'].date()}",
-                    f"Max:                 {stats['max'].date()}",
-                    f"Min:                 {stats['min'].date()}",
-                    f"Range:               {stats['max'] - stats['min']}", 
-                    f"Q1:                  {stats['25%'].date()}",
-                    f"Q3:                  {stats['75%'].date()}",
-                    f"IQR:                 {stats['75%'] - stats['25%']}",
-            ]
-            #stats_text.extend([f"{k.capitalize()}: {v}" for k,v in stats.items()])
-            if column in vars_to_graph:
-                try:
-                    graph_tick_data[column] = create_save_graph(df, column, stats_text, 'datetime')
-                except Exception as e:
-                    data_issues.append(f"Failed to create a graph for column {column}. Exception msg: {str(e)}")
-        else:
-            print("ELSE case: variable name ", column, "inferred type: ", vars_details[column]['inferred_type'])
-            stats_text = []
-        stats_text_dict = {i.split(":")[0].strip():i.split(":")[1].strip() for i in stats_text}
-        if 'Class balance' in stats_text_dict:
-            stats_text_dict['Class balance'].replace(" ->", ":")
-        stats_text_dict['url'] = f"https://explorer.icare4cvd.eu/api/variable-graph/{cohort_id}/{column}"
-        vars_stats[column] = stats_text_dict
+                stats_text = [
+                        f"Column: {column}",
+                        f"Label: {vars_details[column]['var_label']}",
+                        f"Type: Date (encoded as {df[column].dtype})",
+                        f"Number of unique values: {len(value_counts)}",
+                        f"Most frequent value: {str(value_counts.idxmax()).split('.')[0]}",
+                        f"Number of non-null observations: {df[column].count()}",
+                        f"Count missing: {count_missing} ({(count_missing/len(df[column])) * 100:.2f}%)",
+                        f"Count empty: {count_na} ({(count_na/len(df[column])) * 100:.2f}%)",
+                        f"Mean:                {stats['mean'].date()}",
+                        f"Median:              {stats['50%'].date()}",
+                        f"Max:                 {stats['max'].date()}",
+                        f"Min:                 {stats['min'].date()}",
+                        f"Range:               {stats['max'] - stats['min']}", 
+                        f"Q1:                  {stats['25%'].date()}",
+                        f"Q3:                  {stats['75%'].date()}",
+                        f"IQR:                 {stats['75%'] - stats['25%']}",
+                ]
+                #stats_text.extend([f"{k.capitalize()}: {v}" for k,v in stats.items()])
+                if column in vars_to_graph:
+                    try:
+                        graph_tick_data[column] = create_save_graph(df, column, stats_text, 'datetime')
+                    except Exception as e:
+                        data_issues.append(f"Failed to create a graph for column {column}. Exception msg: {str(e)}")
+            else:
+                print("ELSE case: variable name ", column, "inferred type: ", vars_details[column]['inferred_type'])
+                stats_text = []
+            stats_text_dict = {i.split(":")[0].strip():i.split(":")[1].strip() for i in stats_text}
+            if 'Class balance' in stats_text_dict:
+                stats_text_dict['Class balance'].replace(" ->", ":")
+            stats_text_dict['url'] = f"https://explorer.icare4cvd.eu/api/variable-graph/{cohort_id}/{column}"
+            vars_stats[column] = stats_text_dict
+        except Exception as e:
+            data_issues.append(f"Failed to perform EDA on column {column}. Exception msg: {str(e)}")
+            
     for col, ticks  in graph_tick_data.items():
         vars_stats[col].update(ticks)
     return vars_stats
