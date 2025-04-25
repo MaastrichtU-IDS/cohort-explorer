@@ -136,7 +136,8 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
 
     if settings.decentriq_email not in all_participants:
         builder.add_participant(settings.decentriq_email, 
-                                analyst_of=["c1_data_dict_check", "c2_save_to_json", "c3_eda_data_profiling"])
+                                analyst_of=["c1_data_dict_check", "c2_save_to_json", "c3_eda_data_profiling"],
+                                data_owner_of=[metadata_node_id])
 
     # Build and publish DCR
     dcr_definition = builder.build()
