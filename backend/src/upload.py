@@ -193,7 +193,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
         df = df.fillna("")
         print("df columns pre normalize: ", df.columns.values.tolist())
         print("df.columns pre normalize: ", df.columns)
-        df.columns = [cols_normalized.get(c, c) for c in df.columns]
+        df.columns = [cols_normalized.get(c.upper(), c.upper()) for c in df.columns]
         print("df columns post normalize: ", df.columns.values.tolist())
         print("df columns post normalize: ", df.columns)
         df.columns = df.columns.str.strip()

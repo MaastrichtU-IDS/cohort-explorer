@@ -345,8 +345,6 @@ async def create_compute_dcr(
     client = dq.create_client(settings.decentriq_email, settings.decentriq_token)
 
     dcr_definition, dcr_title = await get_compute_dcr_definition(cohorts_request, user, client)
-    print("NOW INSIDE THE create_compute_dcr function!!!", datetime.now())
-    print("Loggedin User", user)
     dcr = client.publish_analytics_dcr(dcr_definition)
     dcr_url = f"https://platform.decentriq.com/datarooms/p/{dcr.id}"
     return {
