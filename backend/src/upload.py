@@ -373,7 +373,6 @@ async def upload_cohort(
     cohort_id: str = Form(...),
     cohort_dictionary: UploadFile = File(...),
     cohort_data: UploadFile | None = None,
-    airlock: bool = True,
 ) -> dict[str, Any]:
     """Upload a cohort metadata file to the server and add its variables to the triplestore."""
     user_email = user["email"]
@@ -389,8 +388,6 @@ async def upload_cohort(
             status_code=403,
             detail=f"User {user_email} cannot edit cohort {cohort_id}",
         )
-
-    cohort_info.airlock = airlock
 
     # Create directory named after cohort_id
     os.makedirs(cohort_info.folder_path, exist_ok=True)
@@ -421,25 +418,25 @@ async def upload_cohort(
     try:
         g = load_cohort_dict_file(metadata_path, cohort_id)
         # Airlock preview setting goes to mapping graph because it is defined in the explorer UI
-        g.add(
-            (
-                get_cohort_uri(cohort_id),
-                ICARE.previewEnabled,
-                Literal(str(airlock).lower(), datatype=XSD.boolean),
-                get_cohort_mapping_uri(cohort_id),
-            )
-        )
+        # g.add(
+        #     (
+        #         get_cohort_uri(cohort_id),
+        #         ICARE.previewEnabled,
+        #         Literal(str(airlock).lower(), datatype=XSD.boolean),
+        #         get_cohort_mapping_uri(cohort_id),
+        #     )
+        # )
 
         # TODO: waiting for more tests before sending to production
         # if settings.dev_mode:
         if False:
-            background_tasks.add_task(generate_mappings, cohort_id, cohort_info.metadata_filepath, g)
+            background_tasks.add_task(generate_mappings, cohort_id, metadata_path, g)
         else:
             # Delete previous graph for this file from triplestore
             # TODO: remove these lines once we move to generating mapping through the background task
-            delete_existing_triples(
-                get_cohort_mapping_uri(cohort_id), f"<{get_cohort_uri(cohort_id)!s}>", "icare:previewEnabled"
-            )
+            # delete_existing_triples(
+            #     get_cohort_mapping_uri(cohort_id), f"<{get_cohort_uri(cohort_id)!s}>", "icare:previewEnabled"
+            # )
             delete_existing_triples(get_cohort_uri(cohort_id))
             publish_graph_to_endpoint(g)
     except Exception as e:
@@ -461,9 +458,9 @@ def generate_mappings(cohort_id: str, metadata_path: str, g: Graph) -> None:
     """Function to generate mappings for a cohort and publish them to the triplestore running as background task"""
     print(f"Generating mappings for cohort {cohort_id}")
     map_csv_to_standard_codes(metadata_path)
-    delete_existing_triples(
-        get_cohort_mapping_uri(cohort_id), f"<{get_cohort_uri(cohort_id)!s}>", "icare:previewEnabled"
-    )
+    # delete_existing_triples(
+    #     get_cohort_mapping_uri(cohort_id), f"<{get_cohort_uri(cohort_id)!s}>", "icare:previewEnabled"
+    # )
     delete_existing_triples(get_cohort_uri(cohort_id))
     publish_graph_to_endpoint(g)
 
@@ -476,7 +473,6 @@ async def post_create_provision_dcr(
     user: Any = Depends(get_current_user),
     # cohort_id: str = Form(..., pattern="^[a-zA-Z0-9-_\w]+$"),
     cohort_id: str = Form(...),
-    # airlock: bool = True,
 ) -> dict[str, Any]:
     cohort_info = retrieve_cohorts_metadata(user["email"]).get(cohort_id)
     if not cohort_info:

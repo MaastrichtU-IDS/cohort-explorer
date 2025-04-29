@@ -126,7 +126,6 @@ export default function CohortsList() {
                       ✉️ {email}
                     </span>
                   ))}
-                  {cohortData.airlock && <span className="badge badge-outline mx-1">🔎 Data preview</span>}
                 </div>
               </div>
               <div className="collapse-content">

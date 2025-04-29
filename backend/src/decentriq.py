@@ -146,7 +146,7 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
     print("NOW INSIDE THE provision function!!!", datetime.now())
     print("User ", user)
     with open(f"dcr_{data_node_id}_representation.json", "w") as f:
-        json.dump(dcr_definition._get_high_level_representation(), f)
+        json.dump({ "dataScienceDataRoom": dcr_definition._get_high_level_representation() }, f)
     dcr = client.publish_analytics_dcr(dcr_definition)
     dcr_url = f"https://platform.decentriq.com/datarooms/p/{dcr.id}"
 
@@ -266,18 +266,6 @@ async def get_compute_dcr_definition(
         )
         data_nodes.append(data_node_id)
 
-        if cohort.airlock:
-            # Add airlock node to make it easy to access small part of the dataset
-            preview_node_id = f"preview-{data_node_id}"
-            builder.add_node_definition(
-                PreviewComputeNodeDefinition(
-                    name=preview_node_id,
-                    dependency=data_node_id,
-                    quota_bytes=1048576,  # 10MB
-                )
-            )
-            preview_nodes.append(preview_node_id)
-
         # Add data owners to provision the data (in dev we dont add them to avoid unnecessary emails)
         if not settings.dev_mode:
             for owner in cohort.cohort_email:
@@ -316,8 +304,8 @@ async def get_compute_dcr_definition(
         participants[user["email"]]["analyst_of"].add(f"prepare-{cohort_id}")
 
     # Add users permissions for previews
-    for prev_node in preview_nodes:
-        participants[user["email"]]["analyst_of"].add(prev_node)
+    # for prev_node in preview_nodes:
+    #     participants[user["email"]]["analyst_of"].add(prev_node)
 
     for p_email, p_perm in participants.items():
         builder.add_participant(
