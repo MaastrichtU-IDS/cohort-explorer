@@ -29,6 +29,19 @@ const config: Config = {
               color: 'var(--tw-prose-pre-code)',
               'background-color': 'var(--tw-prose-pre-bg)',
               'font-weight': 'normal'
+            },
+            // Explicitly style <strong> globally
+            strong: {
+              'font-weight': 'bold',
+              color: 'inherit'
+            },
+            // Also explicitly style <strong> inside list items
+            'li strong': { // More specific selector
+              'font-weight': 'bold'
+            },
+            // Ensure paragraphs inside lists don't interfere (less likely but possible)
+            'li p strong': {
+                'font-weight': 'bold'
             }
           }
         }
