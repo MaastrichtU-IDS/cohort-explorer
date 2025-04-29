@@ -108,7 +108,7 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
   ]);
 
   // Function to handle downloading the cohort CSV
-  const downloadCohortCSV = () => {
+  const downloadMetadataCSV = () => {
     const downloadUrl = `${apiUrl}/cohort-spreadsheet/${encodeURIComponent(cohortId)}`;
     // Create a temporary anchor element and trigger a download
     const a = document.createElement('a');
@@ -155,11 +155,11 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
         )}
         {filteredVars.length > 0 && (
           <button
-            onClick={downloadCohortCSV}
+            onClick={downloadMetadataCSV}
             className="btn btn-neutral btn-sm mb-2 hover:bg-slate-600 tooltip tooltip-right"
             data-tip="Download the cohort metadata as CSV file. You can edit and re-upload it, if you are the person who published it originally."
           >
-            Download CSV
+            Download Metadata
           </button>
         )}
         {/* NOTE: You will need to create an API endpoint just to ddl the imgs for the cohort stats
