@@ -10,3 +10,14 @@ __pycache__
 
 *.jar
 backend/variables.db
+
+# Local environment files
+.env
+.env.*
+!/.env.example
+
+# Frontend local env
+frontend/.env.local
+
+# Mock data files (keep example)
+frontend/mock/data.json
