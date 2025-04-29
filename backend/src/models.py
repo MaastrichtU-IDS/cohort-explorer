@@ -54,7 +54,6 @@ class Cohort:
     study_population: Optional[str] = None
     study_objective: Optional[str] = None
     variables: dict[str, CohortVariable] = field(default_factory=dict)
-    airlock: bool = False
     can_edit: bool = False
 
     def dict(self):
