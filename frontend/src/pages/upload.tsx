@@ -43,9 +43,19 @@ export default function UploadPage() {
     } else {
       setMetadataExists(false);
     }
-    clearMetadataFile(); // Also clear file selection when cohort changes
+    // Only clear message and file input when the cohort selection changes
+    // setErrorMessage(''); // Don't clear error on cohortsData update
+    // clearMetadataFile();
+  }, [cohortId, cohortsData]); // Keep dependencies as is for checking metadataExists
+
+  // Separate effect to clear state ONLY when cohortId changes
+  useEffect(() => {
     setErrorMessage('');
-  }, [cohortId, cohortsData]);
+    setUploadedCohort(null);
+    setPublishedDCR(null);
+    setStep(1); // Reset to step 1 when cohort changes
+    clearMetadataFile();
+  }, [cohortId]);
 
   // Function to clear metadata file input
   const clearMetadataFile = () => {
@@ -98,6 +108,7 @@ export default function UploadPage() {
     } catch (error: any) {
       console.error('Error uploading file:', error);
       setErrorMessage(error.message || 'Failed to upload file');
+      setMetadataFile(null); // Clear the invalid file from state on error
     } finally {
       setIsLoading(false);
     }
@@ -159,7 +170,14 @@ export default function UploadPage() {
         {errorMessage && (
           <div role="alert" className="alert alert-error mb-4 shadow-md">
             <svg xmlns="http://www.w3.org/2000/svg" className="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-            <span>Error: {errorMessage}</span>
+            <div>
+              <span className="font-bold">Error:</span>
+              <ul className="list-disc pl-5 mt-1">
+                {errorMessage.split('\n\n').map((msg, index) => (
+                  <li key={index} className="mb-1">{msg}</li>
+                ))}
+              </ul>
+            </div>
           </div>
         )}
          {uploadedCohort && !errorMessage && (
@@ -171,7 +189,7 @@ export default function UploadPage() {
         {publishedDCR && !errorMessage && (
           <div role="alert" className="alert alert-success mb-4 shadow-md">
              <Check className="w-6 h-6" />
-            <span>{publishedDCR.message} {publishedDCR.dcr_url && <a href={publishedDCR.dcr_url} className="link link-neutral" target="_blank" rel="noopener noreferrer">View DCR (simulated)</a>}</span>
+            <span className="break-words">{publishedDCR.message} {publishedDCR.dcr_url && <a href={publishedDCR.dcr_url} className="link link-neutral" target="_blank" rel="noopener noreferrer">View DCR (simulated)</a>}</span>
           </div>
         )}
 
