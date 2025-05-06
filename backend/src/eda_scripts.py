@@ -644,6 +644,7 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
             axes[1].xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
             
         axes[1].tick_params(axis='x', rotation=90)
+        axes[1].tick_params(axis='x', which='minor', bottom=False)
         
         plt.tight_layout()
         plt.savefig(f"/output/{varname.lower()}.png")
