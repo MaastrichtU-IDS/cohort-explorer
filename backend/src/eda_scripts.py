@@ -202,7 +202,7 @@ for index, row in dictionary.iterrows():
             missing_key = [x[0] for x in class_names.items() if x[1] == 'MISSING'][0]
             print("MISSING value exists among categories: ", variable_name, missing_key)
         elif 'MISSING' in dictionary.columns and row['MISSING'].strip() != "":
-            missing_key = str(row['MISSING']).upper()
+            missing_key = str(row['MISSING']).strip()
             print(f"MISSING value {missing_key} declared for variable: ", variable_name)
         else:
             print("No 'missing' value for variable ", variable_name)
@@ -210,12 +210,12 @@ for index, row in dictionary.iterrows():
             missing_key = None
 
     else: #ints or floats or dates:
-        missing_key = str(row['MISSING']).upper() if 'MISSING' in dictionary.columns and row['MISSING'].strip() != "" else None
+        missing_key = str(row['MISSING']).strip() if 'MISSING' in dictionary.columns and row['MISSING'].strip() != "" else None
 
     if missing_key == None:
         count_missing = 0
     else:
-        count_missing = (data[variable_name] == missing_key).sum()
+        count_missing = (data[variable_name].astype(str).str.strip().str.upper() == str(missing_key).strip().upper()).sum()
 
     na_count = data[variable_name].isna().sum()
 
@@ -285,6 +285,8 @@ try:
 except Exception as e:
     data = pd.read_spss("/input/{cohort_id}")
 
+for col in data.select_dtypes(include=['object']):
+    data[col] = data[col].apply(lambda x: pd.NA if isinstance(x, str) and x.isspace() else x)
 
 data.columns = [c.lower().strip() for c in data.columns]
 
@@ -438,6 +440,7 @@ def variable_eda(df, vars_details):
                     f"Q3:                  {Q3:.2f}",
                     f"IQR:                 {IQR:.2f}",
                     f"Count empty:         {count_na} ({(count_na/len(df[column])) * 100:.2f}%)",
+                    f"Code for missing value: {vars_details[column]['missing']}",
                     f"Count missing:       {count_missing} ({(count_missing/len(df[column])) * 100:.2f}%)",
                     f"Outliers (IQR):      {outliers} ({(outliers / len(df)) * 100:.2f}%)",
                     f"Outliers (Z):        {z_outliers}",
