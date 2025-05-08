@@ -266,6 +266,7 @@ import re
 from datetime import datetime
 import json
 import collections.abc
+from collections import OrderedDict
 warnings.filterwarnings('ignore')
 
 
@@ -426,7 +427,10 @@ def variable_eda(df, vars_details):
                     f"Column: {column}",
                     f"Label: {vars_details[column]['var_label']}",
                     f"Type: Numeric (encoded as {df[column].dtype})",
-                    f"Number of non-null observations: {int(stats['count'])}",
+                    f"Count of observations (excl. missing and empty): {int(stats['count'])-vars_details[column]['missing']}",
+                    f"Count empty:         {count_na} ({(count_na/len(df[column])) * 100:.2f}%)",
+                    f"Count missing:       {count_missing} ({(count_missing/len(df[column])) * 100:.2f}%)",
+                    f"Code for missing value: {vars_details[column]['missing']}",
                     f"Number of Unique Values/Categories: {df[column].nunique()}",
                     f"Mean:                {stats['mean']:.2f}",
                     f"Median:              {stats['50%']:.2f}",
@@ -439,9 +443,6 @@ def variable_eda(df, vars_details):
                     f"Q1:                  {Q1:.2f}",
                     f"Q3:                  {Q3:.2f}",
                     f"IQR:                 {IQR:.2f}",
-                    f"Count empty:         {count_na} ({(count_na/len(df[column])) * 100:.2f}%)",
-                    f"Code for missing value: {vars_details[column]['missing']}",
-                    f"Count missing:       {count_missing} ({(count_missing/len(df[column])) * 100:.2f}%)",
                     f"Outliers (IQR):      {outliers} ({(outliers / len(df)) * 100:.2f}%)",
                     f"Outliers (Z):        {z_outliers}",
                     f"Skewness:            {skewness:.2f}",
@@ -497,10 +498,10 @@ def variable_eda(df, vars_details):
                         f"Type: Categorical (encoded as {df[column].dtype})",
                         f"Number of unique values/categories: {len(value_counts)}",
                         f"Most frequent category: {categories_mapping.get(str(value_counts.idxmax()), 'Unknown')} ",
-                        f"Number of non-null observations: {df[column].count()}",
-                        f"Code for missing value: {vars_details[column]['missing']}",
-                        f"Count missing: {count_missing} ({(count_missing/len(df[column])) * 100:.2f}%)",
+                        f"Count of observations (excl. missing and empty): {df[column].count() - vars_details[column]['missing']}",
                         f"Count empty: {count_na} ({(count_na/len(df[column])) * 100:.2f}%)",
+                        f"Count missing: {count_missing} ({(count_missing/len(df[column])) * 100:.2f}%)",
+                        f"Code for missing value: {vars_details[column]['missing']}",
                         f"Class balance: {class_balance_text}",
                         f"Chi-Square Test Statistic: {chi_square_stat:.2f}"
                     )
@@ -528,7 +529,7 @@ def variable_eda(df, vars_details):
                         f"Type: Date (encoded as {df[column].dtype})",
                         f"Number of unique values: {len(value_counts)}",
                         f"Most frequent value: {str(value_counts.idxmax()).split('.')[0]}",
-                        f"Number of non-null observations: {df[column].count()}",
+                        f"Count of observations (excl. missing and empty): {df[column].count()-count_missing}",
                         f"Count missing: {count_missing} ({(count_missing/len(df[column])) * 100:.2f}%)",
                         f"Count empty: {count_na} ({(count_na/len(df[column])) * 100:.2f}%)",
                         f"Mean:                {stats['mean'].date()}",
@@ -549,7 +550,8 @@ def variable_eda(df, vars_details):
             else:
                 print("ELSE case: variable name ", column, "inferred type: ", vars_details[column]['inferred_type'])
                 stats_text = []
-            stats_text_dict = {i.split(":")[0].strip():i.split(":")[1].strip() for i in stats_text}
+            stats_text_dict = OrderedDict()
+            stats_text_dict.update({i.split(":")[0].strip():i.split(":")[1].strip() for i in stats_text})
             if 'Class balance' in stats_text_dict:
                 stats_text_dict['Class balance'].replace(" ->", ":")
             stats_text_dict['url'] = f"https://explorer.icare4cvd.eu/api/variable-graph/{cohort_id}/{column}"
