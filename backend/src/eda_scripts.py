@@ -421,8 +421,6 @@ def variable_eda(df, vars_details):
 
                 # Range Calculation
                 range_value = stats['max'] - stats['min']
-
-                if vars
                 count_nonnull = int(stats['count'])-int(count_missing)
 
                 # Stats Text
