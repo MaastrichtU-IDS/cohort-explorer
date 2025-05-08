@@ -428,7 +428,7 @@ def variable_eda(df, vars_details):
                     f"Column: {column}",
                     f"Label: {vars_details[column]['var_label']}",
                     f"Type: Numeric (encoded as {df[column].dtype})",
-                    f"Count of observations (excl. missing and empty): {count_nonnull}",
+                    f"Count of observations (ex. missing/empty): {count_nonnull}",
                     f"Count empty:         {count_na} ({(count_na/len(df[column])) * 100:.2f}%)",
                     f"Count missing:       {count_missing} ({(count_missing/len(df[column])) * 100:.2f}%)",
                     f"Code for missing value: {vars_details[column]['missing']}",
@@ -501,7 +501,7 @@ def variable_eda(df, vars_details):
                         f"Type: Categorical (encoded as {df[column].dtype})",
                         f"Number of unique values/categories: {len(value_counts)}",
                         f"Most frequent category: {categories_mapping.get(str(value_counts.idxmax()), 'Unknown')} ",
-                        f"Count of observations (excl. missing and empty): {count_nonnull}",
+                        f"Count of observations (ex. missing/empty): {count_nonnull}",
                         f"Count empty: {count_na} ({(count_na/len(df[column])) * 100:.2f}%)",
                         f"Count missing: {count_missing} ({(count_missing/len(df[column])) * 100:.2f}%)",
                         f"Code for missing value: {vars_details[column]['missing']}",
@@ -533,7 +533,7 @@ def variable_eda(df, vars_details):
                         f"Type: Date (encoded as {df[column].dtype})",
                         f"Number of unique values: {len(value_counts)}",
                         f"Most frequent value: {str(value_counts.idxmax()).split('.')[0]}",
-                        f"Count of observations (excl. missing and empty): {count_nonnull}",
+                        f"Count of observations (ex. missing/empty): {count_nonnull}",
                         f"Count missing: {count_missing} ({(count_missing/len(df[column])) * 100:.2f}%)",
                         f"Count empty: {count_na} ({(count_na/len(df[column])) * 100:.2f}%)",
                         f"Mean:                {stats['mean'].date()}",
@@ -579,7 +579,7 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
         text_obj = axes[0].text(0.05, 0.95, '\\n'.join(stats_text), transform=axes[0].transAxes, fontsize=11, va='top', ha='left', 
         family='monospace',  bbox=props, wrap=True, linespacing=1.5)
         if hasattr(text_obj, "_get_wrap_line_width"):
-            text_obj._get_wrap_line_width = lambda: 400
+            text_obj._get_wrap_line_width = lambda: 420
         #axes[0].text(0.05, 0.9, , fontsize=10, va='top', ha='left', linespacing=1.2, family='monospace', wrap=True)
         axes[0].axis("off")
 
@@ -603,7 +603,7 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
         text_obj = axes[0].text(0.05, 0.95, '\\n'.join(stats_text), transform=axes[0].transAxes, fontsize=11, va='top', ha='left', 
         family='monospace',  bbox=props, wrap=True, linespacing=1.5)
         if hasattr(text_obj, "_get_wrap_line_width"):
-            text_obj._get_wrap_line_width = lambda: 400
+            text_obj._get_wrap_line_width = lambda: 420
         #axes[0].text(0.05, 0.9, , fontsize=10, va='top', ha='left', linespacing=1.2, family='monospace', wrap=True)
         axes[0].axis("off")
         axes[0].set_title(f"Summary Stats for {varname.upper()}", fontsize=12)
