@@ -762,7 +762,11 @@ def dataframe_to_json_dicts(df):
         var_dict = {}
         for col in df.columns:
             if col not in [varname_col, 'Column'] and pd.notna(row[col]) and row[col] != "" :
-                var_dict[col] = _convert_numeric(row[col])
+                try:
+                    valu = row[col].lower().strip()
+                except Exception:
+                    valu = row[col]
+                var_dict[col.lower()] = _convert_numeric(valu)
         json_dicts[variable_name] = var_dict
     with open("/output/eda_output_{cohort_id}.json", 'w', encoding='utf-8') as f:
         json.dump(json_dicts, f, indent=4)
