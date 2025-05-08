@@ -422,12 +422,15 @@ def variable_eda(df, vars_details):
                 # Range Calculation
                 range_value = stats['max'] - stats['min']
 
+                if vars
+                count_nonnull = int(stats['count'])-int(count_missing)
+
                 # Stats Text
                 stats_text = (
                     f"Column: {column}",
                     f"Label: {vars_details[column]['var_label']}",
                     f"Type: Numeric (encoded as {df[column].dtype})",
-                    f"Count of observations (excl. missing and empty): {int(stats['count'])-vars_details[column]['missing']}",
+                    f"Count of observations (excl. missing and empty): {count_nonnull}",
                     f"Count empty:         {count_na} ({(count_na/len(df[column])) * 100:.2f}%)",
                     f"Count missing:       {count_missing} ({(count_missing/len(df[column])) * 100:.2f}%)",
                     f"Code for missing value: {vars_details[column]['missing']}",
@@ -463,6 +466,7 @@ def variable_eda(df, vars_details):
                 stats = df[column].describe()
                 value_counts = df[column].apply(_lowercase_if_string).value_counts(dropna=False)
                 total = len(df)
+                
 
                 # Get the categories mapping and normalize keys
                 categories_mapping = vars_details[column].get("categories", [])
@@ -483,6 +487,7 @@ def variable_eda(df, vars_details):
                     chi_square_stat = ((value_counts - expected) ** 2 / expected).sum()
                     count_missing = vars_details[column]["count_missing"]
                     count_na = vars_details[column]["count_na"]
+                    count_nonnull = int(stats['count'])-int(count_missing)
 
                     # Class balance with corrected mapping
                     class_balance_text = "\\n\\t"
@@ -498,7 +503,7 @@ def variable_eda(df, vars_details):
                         f"Type: Categorical (encoded as {df[column].dtype})",
                         f"Number of unique values/categories: {len(value_counts)}",
                         f"Most frequent category: {categories_mapping.get(str(value_counts.idxmax()), 'Unknown')} ",
-                        f"Count of observations (excl. missing and empty): {df[column].count() - vars_details[column]['missing']}",
+                        f"Count of observations (excl. missing and empty): {count_nonnull}",
                         f"Count empty: {count_na} ({(count_na/len(df[column])) * 100:.2f}%)",
                         f"Count missing: {count_missing} ({(count_missing/len(df[column])) * 100:.2f}%)",
                         f"Code for missing value: {vars_details[column]['missing']}",
@@ -523,13 +528,14 @@ def variable_eda(df, vars_details):
                 total = len(df)
                 count_missing = vars_details[column]["count_missing"]
                 count_na = vars_details[column]["count_na"]
+                count_nonnull = int(stats['count'])-int(count_missing)
                 stats_text = [
                         f"Column: {column}",
                         f"Label: {vars_details[column]['var_label']}",
                         f"Type: Date (encoded as {df[column].dtype})",
                         f"Number of unique values: {len(value_counts)}",
                         f"Most frequent value: {str(value_counts.idxmax()).split('.')[0]}",
-                        f"Count of observations (excl. missing and empty): {df[column].count()-count_missing}",
+                        f"Count of observations (excl. missing and empty): {count_nonnull}",
                         f"Count missing: {count_missing} ({(count_missing/len(df[column])) * 100:.2f}%)",
                         f"Count empty: {count_na} ({(count_na/len(df[column])) * 100:.2f}%)",
                         f"Mean:                {stats['mean'].date()}",
