@@ -43,6 +43,14 @@ def publish_graph_to_endpoint(g: Graph, graph_uri: str | None = None) -> bool:
 
 def delete_existing_triples(graph_uri: str | URIRef, subject="?s", predicate="?p"):
     """Function to delete existing triples in a cohort's graph"""
+        
+    query_endpoint = SPARQLWrapper(settings.update_endpoint)
+    query_endpoint.setMethod("POST")
+    query_endpoint.setRequestMethod("urlencoded")
+    
+    query_endpoint.setQuery("START TRANSACTION")
+    query_endpoint.query()
+
     query = f"""
     PREFIX icare: <https://w3id.org/icare4cvd/>
     PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
@@ -50,10 +58,10 @@ def delete_existing_triples(graph_uri: str | URIRef, subject="?s", predicate="?p
         GRAPH <{graph_uri!s}> {{ {subject} {predicate} ?o . }}
     }}
     """
-    query_endpoint = SPARQLWrapper(settings.update_endpoint)
-    query_endpoint.setMethod("POST")
-    query_endpoint.setRequestMethod("urlencoded")
     query_endpoint.setQuery(query)
+    query_endpoint.query()
+
+    query_endpoint.setQuery("COMMIT")
     query_endpoint.query()
 
 
