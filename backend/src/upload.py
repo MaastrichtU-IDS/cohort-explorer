@@ -593,3 +593,56 @@ def init_triplestore() -> None:
     # g.serialize(f"{settings.data_folder}/cohort_explorer_triplestore.ttl", format="turtle")
     if publish_graph_to_endpoint(g):
         print(f"🪪 Triplestore initialization: added {len(g)} triples for the cohorts metadata.")
+
+
+@router.get("/test-sparql")
+def test_sparql(query: str = None, user: Any = Depends(get_current_user)) -> dict:
+    """Run test SPARQL queries"""
+    if user["email"] not in settings.admins_list:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    # If no query is provided, run the test queries
+    if not query:
+        results = {}
+        
+        # Query 1: Count triples in metadata graph
+        query1 = """
+        SELECT (COUNT(*) as ?count)
+        WHERE {
+          GRAPH <https://w3id.org/icare4cvd/graph/metadata> { ?s ?p ?o }
+        }
+        """
+        results["metadata_triples_count"] = run_query(query1)
+        
+        # Query 2: Check what cohorts exist
+        query2 = """
+        SELECT ?cohort ?cohortId
+        WHERE {
+          GRAPH <https://w3id.org/icare4cvd/graph/metadata> {
+            ?cohort a <https://w3id.org/icare4cvd/Cohort> ;
+                    <http://purl.org/dc/elements/1.1/identifier> ?cohortId .
+          }
+        }
+        """
+        results["cohorts_in_metadata"] = run_query(query2)
+        
+        # Query 3: Compare with cohorts that have variables
+        query3 = """
+        SELECT DISTINCT ?cohort
+        WHERE {
+          GRAPH ?varGraph {
+            ?cohort <https://w3id.org/icare4cvd/hasVariable> ?var .
+          }
+          FILTER NOT EXISTS {
+            GRAPH <https://w3id.org/icare4cvd/graph/metadata> {
+              ?cohort a <https://w3id.org/icare4cvd/Cohort> .
+            }
+          }
+        }
+        """
+        results["orphaned_cohorts"] = run_query(query3)
+        
+        return results
+    
+    # If a query is provided, run it
+    return run_query(query)
