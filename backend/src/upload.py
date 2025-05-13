@@ -43,19 +43,46 @@ def publish_graph_to_endpoint(g: Graph, graph_uri: str | None = None) -> bool:
 
 def delete_existing_triples(graph_uri: str | URIRef, subject="?s", predicate="?p"):
     """Function to delete existing triples in a cohort's graph"""
-    query = f"""
-    PREFIX icare: <https://w3id.org/icare4cvd/>
-    PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-    DELETE WHERE {{
-        GRAPH <{graph_uri!s}> {{ {subject} {predicate} ?o . }}
-    }}
-    """
     query_endpoint = SPARQLWrapper(settings.update_endpoint)
     query_endpoint.setMethod("POST")
     query_endpoint.setRequestMethod("urlencoded")
-    query_endpoint.setQuery(query)
-    query_endpoint.query()
-
+    
+    try:
+        # Count triples before deletion (for logging)
+        count_query = f"""
+            SELECT (COUNT(*) as ?count)
+            WHERE {{
+                GRAPH <{graph_uri!s}> {{ {subject} {predicate} ?o . }}
+            }}
+        """
+        count_endpoint = SPARQLWrapper(settings.query_endpoint)
+        count_endpoint.setReturnFormat("json")
+        count_endpoint.setQuery(count_query)
+        count_results = count_endpoint.query().convert()
+        triples_before = count_results["results"]["bindings"][0]["count"]["value"]
+        
+        # Execute the delete
+        delete_query = f"""
+            PREFIX icare: <https://w3id.org/icare4cvd/>
+            PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+            DELETE WHERE {{
+                GRAPH <{graph_uri!s}> {{ {subject} {predicate} ?o . }}
+            }}
+        """
+        query_endpoint.setQuery(delete_query)
+        query_endpoint.query()
+        
+        # Count triples after deletion (for verification)
+        count_endpoint.setQuery(count_query)
+        count_results = count_endpoint.query().convert()
+        triples_after = count_results["results"]["bindings"][0]["count"]["value"]
+        
+        logging.info(f"Deleted {int(triples_before) - int(triples_after)} triples from graph {graph_uri}")
+        
+        return True
+    except Exception as e:
+        logging.error(f"Error deleting triples: {e}")
+        return False
 
 def get_cohort_uri(cohort_id: str) -> URIRef:
     return ICARE[f"cohort/{cohort_id.replace(' ', '_')}"]

@@ -141,8 +141,8 @@ export default function UploadPage() {
 
   const handleMetadataSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!metadataExists && !metadataFile) {
-        setOperationMessage({text: "Please select a metadata dictionary file (.csv) to upload.", type: 'error'});
+    if (!isValidated || !metadataFile) {
+        setOperationMessage({text: "Please validate the metadata dictionary file first, or re-select a file if changed.", type: 'error'});
         return;
     }
     setUploadedCohort(null);
@@ -173,9 +173,8 @@ export default function UploadPage() {
       
       setUploadedCohort(result);
       fetchCohortsData();
-      clearMetadataFile();
       setOperationMessage({text: result.message || 'Metadata uploaded successfully!', type: 'success'});
-      setIsValidated(false);
+      clearMetadataFile();
       setStep(2);
     } catch (error: any) {
       console.error('Error uploading file:', error);
@@ -282,18 +281,12 @@ export default function UploadPage() {
                   <ul className="list-disc list-inside pl-1 space-y-2 bg-base-100 p-3 rounded-md shadow">
                     {validationErrors.map((err, idx) => (
                       <li key={idx} className="text-sm">
-                        {/* Optional: Could add specific icons per error type later if backend provided codes */}
                         {err}
                       </li>
                     ))}
                   </ul>
                 </div>
               )}
-
-              {/* Message when no errors AND validation was successful (covered by validationStatusMessage now) */}
-              {/* {!validationErrors && isValidated && validationStatusMessage && (
-                <p className="text-sm text-success-content">{validationStatusMessage}</p>
-              )} */}
 
               {!validationStatusMessage && (!validationErrors || validationErrors.length === 0) && (
                 <div className="alert alert-info mt-4">
@@ -342,7 +335,7 @@ export default function UploadPage() {
                     value={cohortId}
                     onChange={(event) => setCohortId(event.target.value)}
                     required
-                    disabled={isLoading}
+                    disabled={isLoading || isValdating}
                   >
                     <option value="" disabled>Select the cohort to upload metadata for</option>
                     {cohortsUserCanEdit.map((id: string) => (
@@ -367,10 +360,10 @@ export default function UploadPage() {
                         accept=".csv"
                         onChange={(event) => {if (event.target.files) setMetadataFile(event.target.files[0])}}
                         required={!metadataExists}
-                        disabled={isLoading}
+                        disabled={isLoading || isValdating}
                       />
                       {metadataFile && (
-                         <button type="button" onClick={clearMetadataFile} className="btn btn-ghost btn-sm" title="Clear file" disabled={isLoading}>
+                         <button type="button" onClick={clearMetadataFile} className="btn btn-ghost btn-sm" title="Clear file" disabled={isLoading || isValdating}>
                            <TrashIcon />
                          </button>
                       )}
