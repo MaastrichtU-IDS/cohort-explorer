@@ -1,0 +1,40 @@
+{
+  "cohorts": {
+    "mock-cohort-1": {
+      "id": "mock-cohort-1",
+      "label": "Mock Cohort One",
+      "description": "A sample cohort for frontend development.",
+      "institution": "Mock Institute",
+      "cohortType": "Prospective",
+      "email": "contact@mock.test",
+      "can_edit": true,
+      "airlock": false,
+      "variables": {
+        "var1": {
+          "id": "var1",
+          "label": "Age",
+          "varType": "INT",
+          "units": "Years",
+          "description": "Age of participant at baseline",
+          "count": 100,
+          "na": 5,
+          "min": 20,
+          "max": 85,
+          "categories": []
+        },
+        "var2": {
+          "id": "var2",
+          "label": "Sex",
+          "varType": "STR",
+          "description": "Participant gender",
+          "count": 100,
+          "na": 0,
+          "categories": [
+            { "value": "M", "label": "Male" },
+            { "value": "F", "label": "Female" }
+          ]
+        }
+      }
+    }
+  }
+} 

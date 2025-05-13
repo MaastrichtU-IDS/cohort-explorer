@@ -1,0 +1,23 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Cohort Explorer - Project Overview
+
+This project is a web application for exploring cohort metadata, consisting of a frontend, backend, and database.
+
+## Core Components & Technologies
+*   **Frontend:** [frontend/](mdc:frontend) - Next.js (React), TypeScript, TailwindCSS, DaisyUI. Manages UI and state via components like [CohortsContext.tsx](mdc:frontend/src/components/CohortsContext.tsx).
+*   **Backend:** [backend/](mdc:backend) - Python, FastAPI. Handles API logic, data processing, and external integrations.
+*   **Database:** Oxigraph RDF Triplestore (configured via Docker Compose).
+*   **Deployment:** Docker Compose ([docker-compose.yml](mdc:docker-compose.yml), [docker-compose.base.yml](mdc:docker-compose.base.yml)).
+
+## Key Files & Concepts
+*   **Documentation:** Primary overview in [README.md](mdc:README.md). Detailed technical structure in [ARCHITECTURE.md](mdc:ARCHITECTURE.md).
+*   **Data Model:** Defined by the OWL ontology in [cohort-explorer-ontology.ttl](mdc:cohort-explorer-ontology.ttl).
+*   **Data Processing:** Metadata upload (CSV/Excel), RDF generation, and triplestore interaction logic is primarily in [backend/src/upload.py](mdc:backend/src/upload.py). This file also contains `init_triplestore`.
+*   **Authentication:** Handled via Decentriq OAuth. Logic is in [backend/src/auth.py](mdc:backend/src/auth.py). Configuration relies heavily on the *root* [.env](mdc:.env) file.
+*   **Configuration:** Backend configuration is loaded via [backend/src/config.py](mdc:backend/src/config.py) from the root [.env](mdc:.env) file.
+*   **Decentriq Integration:** Code for interacting with the Decentriq API (e.g., DCR creation) is in [backend/src/decentriq.py](mdc:backend/src/decentriq.py).
+*   **Upload UI:** The frontend wizard for uploading metadata and initiating DCR creation is in [frontend/src/pages/upload.tsx](mdc:frontend/src/pages/upload.tsx).

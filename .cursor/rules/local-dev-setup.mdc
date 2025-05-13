@@ -1,0 +1,27 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Cohort Explorer - Local Development & Troubleshooting
+
+## Standard Setup (Docker Compose)
+*   The recommended local setup uses `docker compose up --build` run from the project root.
+*   Requires a **root [.env](mdc:.env) file** with correct secrets (OAuth, JWT, Decentriq API token). This is read by [docker-compose.base.yml](mdc:docker-compose.base.yml).
+*   Requires the main cohort metadata file at [data/iCARE4CVD_Cohorts.xlsx](mdc:data/iCARE4CVD_Cohorts.xlsx) for the backend to initialize correctly *the first time*.
+*   Access **Frontend UI** at `http://localhost:3001`.
+*   Access **Backend API** at `http://localhost:3000`.
+*   Frontend Docker build uses `npm` as defined in [frontend/Dockerfile](mdc:frontend/Dockerfile) and [frontend/package.json](mdc:frontend/package.json).
+*   Database data persists in [data/db/](mdc:data/db). To force re-initialization (e.g., to load a new Excel file), stop containers (`docker compose down`) and remove this directory (`rm -rf ./data/db`).
+
+## Common Issues
+*   **Port Conflicts:** Ensure host ports `3000` and `3001` are free before running `docker compose up`. Use `lsof -ti :<port>` and `kill <pid>` if needed.
+*   **Missing Root [.env](mdc:.env):** Docker compose commands (`up`, `down`) may fail. Backend auth will fail.
+*   **Missing [data/iCARE4CVD_Cohorts.xlsx](mdc:data/iCARE4CVD_Cohorts.xlsx):** Backend container will crash during the *first* database initialization attempt ([backend/src/upload.py](mdc:backend/src/upload.py)'s `init_triplestore`).
+*   **DB Initialization Skipped:** If [data/db/](mdc:data/db) already exists, the backend will log `⏩ Triplestore already contains data. Skipping initialization.` and will *not* process the Excel file on startup.
+*   **Login Failures (`404`, `detail not found`, etc.):** Usually caused by incorrect OAuth variables (`AUTH_ENDPOINT`, `CLIENT_ID`, `CLIENT_SECRET`) in the **root [.env](mdc:.env)** file not matching the Decentriq application configuration (Audience, Redirect URI `http://localhost:3000/cb`, Permissions).
+*   **Frontend Container Crashing (`SIGTERM`):** Can occur due to file watching/hot-reloading instability with Docker volume mounts ([docker-compose.yml](mdc:docker-compose.yml)). Temporarily commenting out the frontend `volumes` can help diagnose this, but disables hot-reload.
+*   **Package Manager Inconsistency:** Project uses `npm` in Docker builds/scripts ([frontend/package.json](mdc:frontend/package.json), [frontend/Dockerfile](mdc:frontend/Dockerfile)) but has a [pnpm-lock.yaml](mdc:frontend/pnpm-lock.yaml) file committed.
+
+## Mock Mode (For UI work only - Deprecated)
+*   Mock mode (setting `NEXT_PUBLIC_API_URL=mock` in `frontend/.env.local`) was explored but requires modifying [frontend/src/components/CohortsContext.tsx](mdc:frontend/src/components/CohortsContext.tsx) and potentially `next.config.js`. This setup was reverted in favor of the standard Docker environment.

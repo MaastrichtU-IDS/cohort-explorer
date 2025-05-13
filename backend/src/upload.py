@@ -176,9 +176,7 @@ def to_camelcase(s: str) -> str:
 
 def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
     """Parse the cohort dictionary uploaded as excel or CSV spreadsheet, and load it to the triplestore"""
-    # print(f"Loading dictionary {dict_path}")
-    # df = pd.read_csv(dict_path) if dict_path.endswith(".csv") else pd.read_excel(dict_path)
-    print("NOW PROCESSING DICTIONARY FILE FOR COHORT: ", cohort_id, "\nFile path: ", dict_path)
+    print(f"NOW PROCESSING DICTIONARY FILE FOR COHORT: {cohort_id} \nFile path: {dict_path}")
     if not dict_path.endswith(".csv"):
         raise HTTPException(
             status_code=422,
@@ -186,76 +184,128 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
         )
     errors: list[str] = []
     warnings: list[str] = []
+    
     try:
-        # Record all errors and raise them at the end
         df = pd.read_csv(dict_path, na_values=[""], keep_default_na=False)
-        df = df.dropna(how="all")
-        df = df.fillna("")
-        print("df columns pre normalize: ", df.columns.values.tolist())
-        print("df.columns pre normalize: ", df.columns)
-        df.columns = [cols_normalized.get(c.upper(), c.upper()) for c in df.columns]
-        print("df columns post normalize: ", df.columns.values.tolist())
-        print("df columns post normalize: ", df.columns)
-        df.columns = df.columns.str.strip()
-        for column in COLUMNS_LIST:
-            if column not in df.columns.values.tolist():
-                raise HTTPException(
-                    status_code=422,
-                    detail=f"Missing column `{column}`",
-                )
-        df["categories"] = df["CATEGORICAL"].apply(parse_categorical_string)
+        df = df.dropna(how="all") # Drop rows where all cells are NA
+        df = df.fillna("") # Fill remaining NA with empty string
+        
+        # Normalize column names (uppercase, specific substitutions)
+        df.columns = [cols_normalized.get(c.upper().strip(), c.upper().strip()) for c in df.columns]
 
-        # TODO: handle columns from Komal that maps variables:
-        # Variable Concept Name,Variable Concept Code,Variable OMOP ID,DOMAIN,Additional Context Concept Name,Additional Context Concept Code, Additional Context OMOP ID,Primary to Secondary Context Relationship,Categorical Value Concept Name,Categorical Value Concept Code,Categorical Values OMOP ID,Unit Concept Name,Unit Concept Code,Unit OMOP ID
-        # Visit Concept Name, Visit Concept Code, Visit OMOP ID can be created using last part of Additional context Columns respectively
-        # if "Variable Concept Code" in df.columns:
-        #     df["concept_id"] = df.apply(lambda row: str(row["Variable Concept Code"]).strip(), axis=1)
+        # --- Structural Validation: Check for required columns ---
+        missing_critical_columns = False
+        # Define columns absolutely essential for the row-processing logic to run without KeyErrors
+        critical_column_names_for_processing = {"VARIABLE NAME", "VARIABLE LABEL", "VAR TYPE", "CATEGORICAL"} 
+        
+        for required_col_name in COLUMNS_LIST:
+            if required_col_name not in df.columns:
+                errors.append(f"Missing required column: '{required_col_name}'")
+                if required_col_name in critical_column_names_for_processing:
+                    missing_critical_columns = True
+        
+        # If critical columns are missing, further processing is unreliable or will cause crashes.
+        # Report all errors found so far (which will include all missing column messages) and stop.
+        if missing_critical_columns:
+            errors.append("Critical columns are missing. Further detailed validation of rows cannot proceed.")
+            raise HTTPException(status_code=422, detail="\n\n".join(errors))
 
+        # --- Content Pre-processing (assuming critical columns are present) ---
+        try:
+            df["categories"] = df["CATEGORICAL"].apply(parse_categorical_string)
+        except HTTPException as e: # Catch error from parse_categorical_string
+            errors.append(f"Error processing 'CATEGORICAL' column: {e.detail}")
+            # If this parsing fails, we might still be able to report other errors, so don't raise immediately
+            # unless it's the only error. The final check `if len(errors) > 0` will handle it.
+
+        df["VAR TYPE"] = df.apply(lambda row: str(row["VAR TYPE"]).upper(), axis=1)
+
+        # --- Content Validation: DataFrame-level and Row-level ---
         duplicate_variables = df[df.duplicated(subset=["VARIABLE NAME"], keep=False)]
         if not duplicate_variables.empty:
             errors.append(f"Duplicate VARIABLE NAME found: {', '.join(duplicate_variables['VARIABLE NAME'].unique())}")
 
+        for i, row in df.iterrows():
+            var_name_for_error = row.get("VARIABLE NAME", f"UNKNOWN_VAR_ROW_{i+2}")
+
+            # Check if required values are present in rows (for critical columns)
+            if not row["VARIABLE NAME"] or not row["VARIABLE LABEL"] or not row["VAR TYPE"]:
+                errors.append(f"Row {i+2} (Variable: '{var_name_for_error}') is missing required data in 'VARIABLE NAME', 'VARIABLE LABEL', or 'VAR TYPE'.")
+            
+            if row["VAR TYPE"] not in ACCEPTED_DATATYPES:
+                errors.append(
+                    f"Row {i+2} (Variable: '{var_name_for_error}') has an invalid data type: '{row['VAR TYPE']}'. Accepted types: {', '.join(ACCEPTED_DATATYPES)}."
+                )
+
+            # Handle Category validation (from 'categories' column created by parse_categorical_string)
+            # Ensure 'categories' column exists and is a list before checking its length or content
+            current_categories = row.get("categories")
+            if isinstance(current_categories, list):
+                if len(current_categories) == 1:
+                    errors.append(
+                        f"Row {i+2} (Variable: '{var_name_for_error}') has only one category defined: '{current_categories[0]['value']}'. Categorical variables should have at least two distinct categories or be left blank if not applicable."
+                    )
+                
+                # Category Concept Code Validation (if 'Categorical Value Concept Code' column exists)
+                # This column is not in COLUMNS_LIST, so it's optional.
+                if "CATEGORICAL VALUE CONCEPT CODE" in df.columns: # Check against normalized column name
+                    categories_codes_str = str(row.get("CATEGORICAL VALUE CONCEPT CODE", "")).strip()
+                    if categories_codes_str: # Only process if there's content
+                        categories_codes = categories_codes_str.split("|")
+                        if len(categories_codes) != len(current_categories) and current_categories: # check if categories were successfully parsed
+                             warnings.append(
+                                 f"Row {i+2} (Variable: '{var_name_for_error}'): The number of category concept codes ({len(categories_codes)}) does not match the number of parsed categories ({len(current_categories)})."
+                             )
+                        else:
+                            for idx, category_data in enumerate(current_categories):
+                                if idx < len(categories_codes):
+                                    code_to_check = categories_codes[idx].strip()
+                                    if code_to_check and code_to_check.lower() != "na":
+                                        try:
+                                            expanded_uri = curie_converter.expand(code_to_check)
+                                            if not expanded_uri:
+                                                errors.append(
+                                                    f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_data['value']}'): The category concept code '{code_to_check}' is not valid or its prefix is not recognized. Valid prefixes: {', '.join([record['prefix'] + ':' for record in prefix_map if record.get('prefix')])}."
+                                                )
+                                        except Exception as curie_exc:
+                                            errors.append(
+                                                f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_data['value']}'): Error expanding CURIE '{code_to_check}': {curie_exc}."
+                                            )
+            elif row.get("CATEGORICAL") and not isinstance(current_categories, list): # If original CATEGORICAL had content but parsing failed (already logged by parse_categorical_string's own exception if it was fatal)
+                 # This case might be covered if parse_categorical_string added its own error to the 'errors' list already
+                 pass
+
+
+        # --- Final Error Check & Graph Generation ---
+        if len(errors) > 0:
+            raise HTTPException(
+                status_code=422,
+                detail="\n\n".join(errors),
+            )
+
+        # If no errors, proceed to create the graph (RDF triples)
         cohort_uri = get_cohort_uri(cohort_id)
         g = init_graph()
         g.add((cohort_uri, RDF.type, ICARE.Cohort, cohort_uri))
         g.add((cohort_uri, DC.identifier, Literal(cohort_id), cohort_uri))
 
-        # Make sure variable types are all uppercase
-        df["VAR TYPE"] = df.apply(lambda row: str(row["VAR TYPE"]).upper(), axis=1)
-
-        # Normalize vocabulary codes LOINC and SNOMED:
-        #df["Categorical Value Concept Code"] = df.apply(lambda row:
-        #                                                str(row["Categorical Value Concept Code"])
-        #                                                .replace("snomed", "SNOMED")
-        #                                                .replace("LOINC", "loinc"), axis=1)
-
         for i, row in df.iterrows():
-            # Check if required columns are present
-            if not row["VARIABLE NAME"] or not row["VARIABLE LABEL"] or not row["VAR TYPE"]:
-                errors.append(f"Row {i+2} is missing required data: VARIABLE NAME, VARIABLE LABEL, or VAR TYPE")
-            if row["VAR TYPE"] not in ACCEPTED_DATATYPES:
-                errors.append(
-                    f"Row {i+2} for variable `{row['VARIABLE NAME']}` is using a wrong datatype: `{row['VAR TYPE']}`. It should be one of: {', '.join(ACCEPTED_DATATYPES)}"
-                )
-
-            # Create a URI for the variable
             variable_uri = get_var_uri(cohort_id, row["VARIABLE NAME"])
             g.add((cohort_uri, ICARE.hasVariable, variable_uri, cohort_uri))
-
-            # Add the type of the resource
             g.add((variable_uri, RDF.type, ICARE.Variable, cohort_uri))
             g.add((variable_uri, DC.identifier, Literal(row["VARIABLE NAME"]), cohort_uri))
             g.add((variable_uri, RDFS.label, Literal(row["VARIABLE LABEL"]), cohort_uri))
             g.add((variable_uri, ICARE["index"], Literal(i, datatype=XSD.integer), cohort_uri))
 
-            # Get categories code if provided
+            # Get categories code if provided (re-fetch for graph generation phase)
             categories_codes = []
-            if row.get("Categorical Value Concept Code"):
-                categories_codes = row["Categorical Value Concept Code"].split("|")
-            for column, col_value in row.items():
-                if column not in ["categories"] and col_value:
-                    # NOTE: we literally use the column name as the property URI in camelcase (that's what I call lazy loading!)
-                    property_uri = ICARE[to_camelcase(column)]
+            if "CATEGORICAL VALUE CONCEPT CODE" in df.columns and str(row.get("CATEGORICAL VALUE CONCEPT CODE","")).strip():
+                 categories_codes = str(row["CATEGORICAL VALUE CONCEPT CODE"]).split("|")
+
+            for column_name_from_df, col_value in row.items():
+                # Use the already normalized column_name_from_df
+                if column_name_from_df not in ["categories"] and col_value: # Exclude our temporary 'categories' column
+                    property_uri = ICARE[to_camelcase(column_name_from_df)] # to_camelcase expects original-like names
                     if (
                         isinstance(col_value, str)
                         and (col_value.startswith("http://") or col_value.startswith("https://"))
@@ -264,54 +314,46 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
                         g.add((variable_uri, property_uri, URIRef(col_value), cohort_uri))
                     else:
                         g.add((variable_uri, property_uri, Literal(col_value), cohort_uri))
-
-                # Handle Category
-                if column in ["categories"]:
-                    if len(col_value) == 1:
-                        errors.append(
-                            f"Row {i+2} for variable `{row['VARIABLE NAME']}` has only one category `{row['categories'][0]['value']}`. It should have at least two."
-                        )
-                        continue
+                
+                if column_name_from_df == "categories" and isinstance(col_value, list): # 'categories' is our parsed list
                     for index, category in enumerate(col_value):
-                        cat_uri = get_category_uri(variable_uri, index)
+                        cat_uri = get_category_uri(variable_uri, index) # Use index for unique category URI part
                         g.add((variable_uri, ICARE.categories, cat_uri, cohort_uri))
                         g.add((cat_uri, RDF.type, ICARE.VariableCategory, cohort_uri))
                         g.add((cat_uri, RDF.value, Literal(category["value"]), cohort_uri))
                         g.add((cat_uri, RDFS.label, Literal(category["label"]), cohort_uri))
-                        try:
-                            if categories_codes and str(categories_codes[index]).strip() != "na":
-                                cat_code_uri = curie_converter.expand(str(categories_codes[index]).strip())
-                                if not cat_code_uri:
-                                    # NOTE: We use a CURIE to URI converter to handle the conversion of CURIEs to URIs
-                                    # If a prefix is not found you can add it to the converter with .add_prefix(prefix, uri) in utils.py
-                                    errors.append(
-                                        f"Row {i+2} for variable `{row['VARIABLE NAME']}` the category concept code provided for `{categories_codes[index]}` is not valid. Use one of these prefixes: {', '.join([record['prefix'] + ':' for record in prefix_map])}."
-                                    )
-                                else:
+                        
+                        if index < len(categories_codes):
+                            code_to_check = categories_codes[index].strip()
+                            if code_to_check and code_to_check.lower() != "na":
+                                cat_code_uri = curie_converter.expand(code_to_check)
+                                if cat_code_uri: # Only add if valid and expanded
                                     g.add((cat_uri, ICARE.conceptId, URIRef(cat_code_uri), cohort_uri))
-                        except Exception:
-                            # TODO: improve handling of categories
-                            warnings.append(
-                                f"Row {i+2} for variable `{row['VARIABLE NAME']}` the {len(categories_codes)} category concept codes are not matching with {len(row['categories'])} categories provided."
-                            )
-        # print(g.serialize(format="turtle"))
-        # Print all errors at once
-        if len(errors) > 0:
-            raise HTTPException(
-                status_code=422,
-                detail="\n\n".join(errors),
-            )
+        
+        if len(warnings) > 0: # Log warnings even if processing succeeds
+            logging.warning(f"Warnings uploading {cohort_id}: \n" + "\n".join(warnings))
+        return g
+
+    except HTTPException as http_exc: # Re-raise specific HTTPExceptions (ours or from parse_categorical_string)
+        # Log the collected errors that led to this for server-side records
+        logging.warning(f"Validation errors for cohort {cohort_id}:\n{http_exc.detail}")
+        raise http_exc 
+    except pd.errors.EmptyDataError:
+        logging.warning(f"Uploaded CSV for cohort {cohort_id} is empty or unreadable.")
+        raise HTTPException(status_code=422, detail="The uploaded CSV file is empty or could not be read.")
     except Exception as e:
-        logging.warning(f"{len(errors)} errors when uploading cohort {cohort_id}")
-        # logging.warning(e)
+        logging.error(f"Unexpected error during dictionary processing for {cohort_id}: {str(e)}", exc_info=True)
+        # Combine any validation errors found before the crash with the unexpected error message
+        final_error_detail = "\n\n".join(errors) if errors else "An unexpected error occurred."
+        if errors: # if validation errors were already collected, add the unexpected error to them
+            final_error_detail += f"\n\nAdditionally, an unexpected processing error occurred: {str(e)}"
+        else: # if no prior validation errors, just report the unexpected one
+            final_error_detail = f"An unexpected error occurred during file processing: {str(e)}"
+        
         raise HTTPException(
-            status_code=422,
-            detail=str(e)[5:],
-            # detail=str(e),
+            status_code=500, # Use 500 for truly unexpected server-side issues
+            detail=final_error_detail,
         )
-    if len(warnings) > 0:
-        logging.warning(f"Warnings uploading {cohort_id}: " + "\n\n".join(warnings))
-    return g
 
 
 @router.post(
