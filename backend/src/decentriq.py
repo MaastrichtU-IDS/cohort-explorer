@@ -2,6 +2,7 @@ import csv
 from copy import deepcopy
 from typing import Any
 import os, json
+import logging # Add logging import
 
 import decentriq_platform as dq
 from decentriq_platform.analytics import (
@@ -151,18 +152,41 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
     dcr_url = f"https://platform.decentriq.com/datarooms/p/{dcr.id}"
 
     # Now the DCR has been created we can upload the metadata file and run computations
-    key = dq.Key()  # generate an encryption key with which to encrypt the dataset
-    metadata_node = dcr.get_node(metadata_node_id)
-    metadata_noheader_filepath = cohort.metadata_filepath.split(".")[0] + "_noHeader.csv"
-    with open(cohort.metadata_filepath, "rb") as data:
-        header = data.readline()
-        print("header removed from the file: ", header.decode('utf-8'))
-        restfile = data.read()
-    with open( metadata_noheader_filepath, "wb") as data_noheader:
-        data_noheader.write(restfile)
-    os.sync()
-    with open(metadata_noheader_filepath, "rb") as data_noheader:
-        metadata_node.upload_and_publish_dataset(data_noheader, key, f"{metadata_node_id}.csv")
+    try:
+        key = dq.Key()  # generate an encryption key with which to encrypt the dataset
+        metadata_node = dcr.get_node(metadata_node_id)
+        
+        # The cohort.metadata_filepath property might raise FileNotFoundError
+        # This ensures we attempt to get the path within the try-except block
+        metadata_file_to_upload = cohort.metadata_filepath 
+        
+        # Double check existence, though property should raise if not found by its criteria
+        if not metadata_file_to_upload or not os.path.exists(metadata_file_to_upload):
+             raise FileNotFoundError(f"Physical metadata CSV file for cohort {cohort.cohort_id} not found at expected path: {metadata_file_to_upload or '[No path determined]'}")
+
+        metadata_noheader_filepath = metadata_file_to_upload.split(".")[0] + "_noHeader.csv"
+        with open(metadata_file_to_upload, "rb") as data:
+            header = data.readline()
+            print("header removed from the file: ", header.decode('utf-8'))
+            restfile = data.read()
+        with open( metadata_noheader_filepath, "wb") as data_noheader:
+            data_noheader.write(restfile)
+        os.sync()
+        with open(metadata_noheader_filepath, "rb") as data_noheader:
+            metadata_node.upload_and_publish_dataset(data_noheader, key, f"{metadata_node_id}.csv")
+
+    except FileNotFoundError as e:
+        logging.error(f"Decentriq DCR provisioning: Metadata file not found for cohort {cohort.cohort_id}. Detail: {e}")
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Cannot create DCR: The metadata dictionary file for cohort '{cohort.cohort_id}' could not be found on the server. Please upload it first via Step 1."
+        )
+    except Exception as e: 
+        logging.error(f"Decentriq DCR provisioning: Error processing metadata for {cohort.cohort_id}. Detail: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"An unexpected error occurred while preparing metadata for Decentriq for cohort '{cohort.cohort_id}': {str(e)}"
+        )
 
     #print("columns of the metadata node: ", metadata_node.columns)
 

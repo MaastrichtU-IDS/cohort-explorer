@@ -44,7 +44,7 @@ export default function UploadPage() {
   const cohortsUserCanEdit = cohortsData ? Object.keys(cohortsData).filter(cohortId => cohortsData[cohortId]['can_edit']) : [];
 
   useEffect(() => {
-    if (cohortId && cohortsData?.[cohortId]?.variables && Object.keys(cohortsData[cohortId].variables).length > 0) {
+    if (cohortId && cohortsData?.[cohortId]?.physical_dictionary_exists) {
       setMetadataExists(true);
     } else {
       setMetadataExists(false);
@@ -57,9 +57,6 @@ export default function UploadPage() {
     setPublishedDCR(null);
     setStep(1);
     clearMetadataFile();
-    setIsValidated(false);
-    setValidationErrors(null);
-    setValidationStatusMessage(null);
     setIsValidationPaneOpen(false);
   }, [cohortId]);
 
@@ -74,6 +71,7 @@ export default function UploadPage() {
     setIsValidated(false);
     setValidationErrors(null);
     setValidationStatusMessage(null);
+    setIsValidationPaneOpen(false);
     const fileInput = document.getElementById('metadataFile') as HTMLInputElement;
     if (fileInput) {
       fileInput.value = '';
@@ -212,8 +210,12 @@ export default function UploadPage() {
         }
         throw new Error(errorMsg);
       }
-      setPublishedDCR(result);
-      setOperationMessage({text: result.message || 'DCR created successfully!', type: 'success'});
+      const dcrMessage = result.message.replace(result.dcr_url, '').replace('provisioned at', 'provisioned.').trim();
+      setPublishedDCR({ 
+        ...result, 
+        message: dcrMessage
+      }); 
+      setOperationMessage({text: `${dcrMessage} You can view it on Decentriq.`, type: 'success'});
     } catch (error: any) {
       console.error('Error creating DCR:', error);
       setOperationMessage({text: error.message || 'Failed to create DCR', type: 'error'});
@@ -387,7 +389,7 @@ export default function UploadPage() {
                     disabled={isLoading || isValdating || !cohortId || !metadataFile}
                   >
                     {isValdating ? <span className="loading loading-spinner loading-xs"></span> : <Check className="w-4 h-4" />}
-                    Validate Dictionary
+                    {metadataExists ? "Re-validate Selected File" : "Validate Dictionary"}
                   </button>
 
                    <button 
@@ -447,6 +449,25 @@ export default function UploadPage() {
                </form>
              </div>
            </div>
+        )}
+
+        {/* Display publishedDCR information - this block is specifically for DCR success */}
+        {publishedDCR && !operationMessage?.text.includes("Failed to create DCR") && (
+          <div role="alert" className="alert alert-success mb-4 shadow-md">
+            <div className="flex items-start">
+              <Check className="w-6 h-6 mr-2 shrink-0" />
+              <div>
+                <span className="font-semibold">{publishedDCR.message}</span>
+                {publishedDCR.dcr_url && (
+                  <p className="text-sm mt-1">
+                    <a href={publishedDCR.dcr_url} className="link link-neutral hover:link-primary" target="_blank" rel="noopener noreferrer">
+                      View on Decentriq: <span className="break-all">{publishedDCR.dcr_url}</span>
+                    </a>
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </main>

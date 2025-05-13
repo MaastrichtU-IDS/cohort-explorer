@@ -187,7 +187,15 @@ def retrieve_cohorts_metadata(user_email: str) -> dict[str, Cohort]:
                     variables={},
                     # airlock=get_bool_value("airlock", row),
                     can_edit=user_email in [*settings.admins_list, get_value("cohortEmail", row)],
+                    physical_dictionary_exists=False # Initialize here, will attempt to set below
                 )
+                # Attempt to determine if a physical dictionary file exists
+                try:
+                    if target_dict[cohort_id].metadata_filepath: # Accessing the property
+                        target_dict[cohort_id].physical_dictionary_exists = True
+                except FileNotFoundError:
+                    target_dict[cohort_id].physical_dictionary_exists = False
+
             elif get_value("cohortEmail", row) not in target_dict[cohort_id].cohort_email:
                 # Handle multiple emails for the same cohort
                 target_dict[cohort_id].cohort_email.append(get_value("cohortEmail", row))
