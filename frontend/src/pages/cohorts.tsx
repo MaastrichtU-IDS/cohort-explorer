@@ -58,7 +58,7 @@ export default function CohortsList() {
           onFiltersChange={(optionsSelected: any) => setSelectedDataTypes(optionsSelected)}
         />
         <FilterByMetadata
-          label="Filter by study type"
+          label="Filter by study design"
           metadata_id="study_type"
           options={Array.from(new Set(Object.values(cohortsData).map((cohort: any) => cohort.study_type)))}
           searchResults={filteredCohorts}

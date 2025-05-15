@@ -606,8 +606,8 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
                 g.add((cohort_uri, ICARE.email, Literal(email.strip()), cohorts_graph))
         if row["Type"]:
             g.add((cohort_uri, ICARE.cohortType, Literal(row["Type"]), cohorts_graph))
-        if row["Study type"]:
-            g.add((cohort_uri, ICARE.studyType, Literal(row["Study type"]), cohorts_graph))
+        if row["Study Design"]:
+            g.add((cohort_uri, ICARE.studyType, Literal(row["Study Design"]), cohorts_graph))
         if row["N"]:
             g.add((cohort_uri, ICARE.studyParticipants, Literal(row["N"]), cohorts_graph))
         if row["Study duration"]:
