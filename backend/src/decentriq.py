@@ -2,6 +2,7 @@ import csv
 from copy import deepcopy
 from typing import Any
 import os, json
+import logging # Add logging import
 
 import decentriq_platform as dq
 from decentriq_platform.analytics import (
@@ -146,23 +147,46 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
     print("NOW INSIDE THE provision function!!!", datetime.now())
     print("User ", user)
     with open(f"dcr_{data_node_id}_representation.json", "w") as f:
-        json.dump(dcr_definition._get_high_level_representation(), f)
+        json.dump({ "dataScienceDataRoom": dcr_definition._get_high_level_representation() }, f)
     dcr = client.publish_analytics_dcr(dcr_definition)
     dcr_url = f"https://platform.decentriq.com/datarooms/p/{dcr.id}"
 
     # Now the DCR has been created we can upload the metadata file and run computations
-    key = dq.Key()  # generate an encryption key with which to encrypt the dataset
-    metadata_node = dcr.get_node(metadata_node_id)
-    metadata_noheader_filepath = cohort.metadata_filepath.split(".")[0] + "_noHeader.csv"
-    with open(cohort.metadata_filepath, "rb") as data:
-        header = data.readline()
-        print("header removed from the file: ", header.decode('utf-8'))
-        restfile = data.read()
-    with open( metadata_noheader_filepath, "wb") as data_noheader:
-        data_noheader.write(restfile)
-    os.sync()
-    with open(metadata_noheader_filepath, "rb") as data_noheader:
-        metadata_node.upload_and_publish_dataset(data_noheader, key, f"{metadata_node_id}.csv")
+    try:
+        key = dq.Key()  # generate an encryption key with which to encrypt the dataset
+        metadata_node = dcr.get_node(metadata_node_id)
+        
+        # The cohort.metadata_filepath property might raise FileNotFoundError
+        # This ensures we attempt to get the path within the try-except block
+        metadata_file_to_upload = cohort.metadata_filepath 
+        
+        # Double check existence, though property should raise if not found by its criteria
+        if not metadata_file_to_upload or not os.path.exists(metadata_file_to_upload):
+             raise FileNotFoundError(f"Physical metadata CSV file for cohort {cohort.cohort_id} not found at expected path: {metadata_file_to_upload or '[No path determined]'}")
+
+        metadata_noheader_filepath = metadata_file_to_upload.split(".")[0] + "_noHeader.csv"
+        with open(metadata_file_to_upload, "rb") as data:
+            header = data.readline()
+            print("header removed from the file: ", header.decode('utf-8'))
+            restfile = data.read()
+        with open( metadata_noheader_filepath, "wb") as data_noheader:
+            data_noheader.write(restfile)
+        os.sync()
+        with open(metadata_noheader_filepath, "rb") as data_noheader:
+            metadata_node.upload_and_publish_dataset(data_noheader, key, f"{metadata_node_id}.csv")
+
+    except FileNotFoundError as e:
+        logging.error(f"Decentriq DCR provisioning: Metadata file not found for cohort {cohort.cohort_id}. Detail: {e}")
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Cannot create DCR: The metadata dictionary file for cohort '{cohort.cohort_id}' could not be found on the server. Please upload it first via Step 1."
+        )
+    except Exception as e: 
+        logging.error(f"Decentriq DCR provisioning: Error processing metadata for {cohort.cohort_id}. Detail: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"An unexpected error occurred while preparing metadata for Decentriq for cohort '{cohort.cohort_id}': {str(e)}"
+        )
 
     #print("columns of the metadata node: ", metadata_node.columns)
 
@@ -266,18 +290,6 @@ async def get_compute_dcr_definition(
         )
         data_nodes.append(data_node_id)
 
-        if cohort.airlock:
-            # Add airlock node to make it easy to access small part of the dataset
-            preview_node_id = f"preview-{data_node_id}"
-            builder.add_node_definition(
-                PreviewComputeNodeDefinition(
-                    name=preview_node_id,
-                    dependency=data_node_id,
-                    quota_bytes=1048576,  # 10MB
-                )
-            )
-            preview_nodes.append(preview_node_id)
-
         # Add data owners to provision the data (in dev we dont add them to avoid unnecessary emails)
         if not settings.dev_mode:
             for owner in cohort.cohort_email:
@@ -316,8 +328,8 @@ async def get_compute_dcr_definition(
         participants[user["email"]]["analyst_of"].add(f"prepare-{cohort_id}")
 
     # Add users permissions for previews
-    for prev_node in preview_nodes:
-        participants[user["email"]]["analyst_of"].add(prev_node)
+    # for prev_node in preview_nodes:
+    #     participants[user["email"]]["analyst_of"].add(prev_node)
 
     for p_email, p_perm in participants.items():
         builder.add_participant(
@@ -329,31 +341,6 @@ async def get_compute_dcr_definition(
     # Build and publish DCR
     return builder.build(), dcr_title
 
-
-
-@router.post(
-    "/create-compute-dcr",
-    name="Create Data Clean Room for computing",
-    response_description="Upload result",
-)
-async def create_compute_dcr(
-    cohorts_request: dict[str, Any],
-    user: Any = Depends(get_current_user),
-) -> dict[str, Any]:
-    """Create a Data Clean Room for computing with the cohorts requested using Decentriq SDK"""
-    # Establish connection to Decentriq
-    client = dq.create_client(settings.decentriq_email, settings.decentriq_token)
-
-    dcr_definition, dcr_title = await get_compute_dcr_definition(cohorts_request, user, client)
-    dcr = client.publish_analytics_dcr(dcr_definition)
-    dcr_url = f"https://platform.decentriq.com/datarooms/p/{dcr.id}"
-    return {
-        "message": f"Data Clean Room available for compute at {dcr_url}",
-        "dcr_url": dcr_url,
-        "dcr_title": dcr_title,
-        # "merge_script": pandas_script,
-        **cohorts_request,
-    }
 
 
 @router.post(
@@ -373,7 +360,7 @@ async def api_get_compute_dcr_definition(
 
     # return dcr_definition.model_dump_json(by_alias=True)
     # return json.dumps(dcr_definition.high_level)
-    return dcr_definition.high_level
+    return { "dataScienceDataRoom": dcr_definition.high_level }
 
 
 @router.get("/dcr-log/{dcr_id}", 

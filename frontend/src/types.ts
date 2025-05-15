@@ -9,7 +9,6 @@ export interface Cohort {
   study_duration: string;
   study_ongoing: string;
   study_objective: string;
-  airlock: boolean;
   variables: {[key: string]: Variable};
 }
 

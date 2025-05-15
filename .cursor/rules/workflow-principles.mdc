@@ -1,0 +1,26 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Development Workflow & Principles
+
+This document outlines key principles for contributing to the Cohort Explorer project, based on established practices.
+
+## Branching Strategy
+*   **`main` Branch:** Represents the production-ready code. Direct commits to `main` should be avoided.
+*   **Feature Branches:** All development work (new features, bug fixes) should be done on separate feature branches (e.g., `feat/upload-wizard`, `fix/login-issue`). Branches should ideally be created from an up-to-date `main` branch.
+
+## Making Changes
+*   **Targeted Modifications:** Only modify files directly necessary to implement the intended feature or fix the specific bug. Avoid making unrelated changes in the same commit or branch.
+*   **Respect Existing Code:** Do not refactor or modify working parts of the codebase unless it's essential for the task at hand or part of a separately planned refactoring effort. If something works (especially configurations like Dockerfiles or build scripts), prioritize consistency unless there's a clear, necessary reason to change it.
+*   **Dependency Management:** Be mindful of lock files ([frontend/pnpm-lock.yaml](mdc:frontend/pnpm-lock.yaml)). Updates to lock files should generally correspond to intentional dependency updates listed in the relevant configuration ([frontend/package.json](mdc:frontend/package.json) or `backend/pyproject.toml`). Avoid committing lock file changes that result merely from running `install` locally if no dependencies were meant to be updated.
+
+## Local Environment
+*   **Use Standard Setup:** Utilize the Docker Compose development environment ([docker-compose.yml](mdc:docker-compose.yml)) as described in [README.md](mdc:README.md) and [.cursor/rules/local-dev-setup.mdc](mdc:.cursor/rules/local-dev-setup.mdc) for local development and testing. This ensures closer alignment with the production environment.
+*   **Prerequisites:** Ensure all prerequisites for the local setup (root [.env](mdc:.env) file, [data/iCARE4CVD_Cohorts.xlsx](mdc:data/iCARE4CVD_Cohorts.xlsx), running Docker daemon) are met.
+
+## Committing & Cleanup
+*   **Atomic Commits:** Aim for logical, atomic commits that group related changes.
+*   **Revert Temporary Changes:** Before committing final work, ensure any temporary modifications made for debugging, testing alternative approaches (like mock modes), or bypassing functionality ([backend/src/auth.py](mdc:backend/src/auth.py)) have been fully reverted.
+*   **Clean Working Directory:** Check `git status` before committing to ensure only intended files are staged and committed. Avoid committing temporary files or unnecessary changes.

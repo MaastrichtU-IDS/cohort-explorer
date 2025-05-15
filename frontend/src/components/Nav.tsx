@@ -57,40 +57,6 @@ export function Nav() {
       });
   };
 
-  const sendCohortsToDecentriq = async () => {
-    setIsLoading(true);
-    // Replace with actual API endpoint and required request format
-    // console.log('Sending request to Decentriq', dataCleanRoom);
-    try {
-      const response = await fetch(`${apiUrl}/create-compute-dcr`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(dataCleanRoom)
-      });
-      const res = await response.json();
-      console.log(res);
-      // setPublishedDCR(res);
-      setPublishedDCR((<>
-        <p>✅ Data Clean Room{' '}
-          <a href={res['dcr_url']} className="link" target="_blank">
-            <b>{res['dcr_title']}</b>
-          </a>{' '}
-          published in Decentriq.
-        </p>
-        <p>You can now access it in Decentriq to request compute.</p>
-      </>))
-      setIsLoading(false);
-      // Handle response
-    } catch (error) {
-      console.error('Error sending cohorts:', error);
-      setIsLoading(false);
-      // TODO: Handle error
-    }
-  };
-
   const getDCRDefinitionFile = async () => {
     setIsLoading(true);
     // Replace with actual API endpoint and required request format
@@ -222,18 +188,15 @@ export function Nav() {
             - A list of autocomplete using the dataCleanRoom.cohorts
             Once the first is selected we only show the cohorts with same number of variables?
             */}
-            <div className="modal-action flex flex-wrap space-2 space">
+            <div className="modal-action flex flex-wrap justify-end gap-2 mt-4">
                 {/* <div className="flex flex-wrap space-y-2"> */}
-                <button className="btn btn-warning" onClick={sendCohortsToDecentriq}>
-                  Create Data Clean Room
-                </button>
                 <button className="btn btn-neutral" onClick={getDCRDefinitionFile}>
                   Download DCR definition file
                 </button>
-                <button className="btn btn-error m-2" onClick={clearCohortsList}>
+                <button className="btn btn-error" onClick={clearCohortsList}>
                   Clear cohorts
                 </button>
-                <button className="btn  m-2" onClick={() => setShowModal(false)}>
+                <button className="btn" onClick={() => setShowModal(false)}>
                   Close
                 </button>
                 {/* </div> */}

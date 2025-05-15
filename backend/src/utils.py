@@ -78,7 +78,7 @@ PREFIX dc: <http://purl.org/dc/elements/1.1/>
 PREFIX dcterms: <http://purl.org/dc/terms/>
 
 SELECT DISTINCT ?cohortId ?cohortInstitution ?cohortType ?cohortEmail ?study_type ?study_participants
-    ?study_duration ?study_ongoing ?study_population ?study_objective ?airlock
+    ?study_duration ?study_ongoing ?study_population ?study_objective
     ?variable ?varName ?varLabel ?varType ?index ?count ?na ?max ?min ?units ?formula ?definition
     ?omopDomain ?conceptId ?mappedId ?mappedLabel ?visits ?categoryValue ?categoryLabel ?categoryConceptId ?categoryMappedId ?categoryMappedLabel
 WHERE {
@@ -133,7 +133,7 @@ WHERE {
                 ?category icare:mappedId ?categoryMappedId .
                 OPTIONAL { ?categoryMappedId rdfs:label ?categoryMappedLabel }
             }
-            OPTIONAL { ?cohort icare:previewEnabled ?airlock . }
+            # OPTIONAL { ?cohort icare:previewEnabled ?airlock . }
         }
     }
 } ORDER BY ?cohort ?index
@@ -185,9 +185,17 @@ def retrieve_cohorts_metadata(user_email: str) -> dict[str, Cohort]:
                     study_population=get_value("study_population", row),
                     study_objective=get_value("study_objective", row),
                     variables={},
-                    airlock=get_bool_value("airlock", row),
+                    # airlock=get_bool_value("airlock", row),
                     can_edit=user_email in [*settings.admins_list, get_value("cohortEmail", row)],
+                    physical_dictionary_exists=False # Initialize here, will attempt to set below
                 )
+                # Attempt to determine if a physical dictionary file exists
+                try:
+                    if target_dict[cohort_id].metadata_filepath: # Accessing the property
+                        target_dict[cohort_id].physical_dictionary_exists = True
+                except FileNotFoundError:
+                    target_dict[cohort_id].physical_dictionary_exists = False
+
             elif get_value("cohortEmail", row) not in target_dict[cohort_id].cohort_email:
                 # Handle multiple emails for the same cohort
                 target_dict[cohort_id].cohort_email.append(get_value("cohortEmail", row))

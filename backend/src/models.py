@@ -1,4 +1,5 @@
 import os
+import re # Import re for regex matching in metadata_filepath
 from dataclasses import asdict, dataclass, field
 from typing import Optional
 
@@ -54,8 +55,8 @@ class Cohort:
     study_population: Optional[str] = None
     study_objective: Optional[str] = None
     variables: dict[str, CohortVariable] = field(default_factory=dict)
-    airlock: bool = False
     can_edit: bool = False
+    physical_dictionary_exists: bool = False # New field
 
     def dict(self):
         return {k: str(v) for k, v in asdict(self).items()}
@@ -66,9 +67,32 @@ class Cohort:
 
     @property
     def metadata_filepath(self) -> str:
-        for file in os.listdir(self.folder_path):
-            if file.endswith("_datadictionary.csv"):
-                return os.path.join(self.folder_path, file)
-        raise FileNotFoundError(f"No metadata file found for cohort {self.cohort_id}")
+        if not os.path.exists(self.folder_path) or not os.path.isdir(self.folder_path):
+            # If folder doesn't exist, no file can be found.
+            raise FileNotFoundError(f"Cohort data folder not found for {self.cohort_id} at {self.folder_path}")
+
+        candidate_files = []
+        for filename in os.listdir(self.folder_path):
+            filepath = os.path.join(self.folder_path, filename)
+            if not os.path.isfile(filepath): # Skip directories
+                continue
+
+            # Check for the suffix and exclude known non-primary files
+            if filename.endswith("_datadictionary.csv") and \
+               not "_noHeader" in filename and \
+               not re.match(r'.*_\d{8}_\d{6}\.csv$', filename): # Exclude timestamped backups
+                candidate_files.append(filepath)
+        
+        if not candidate_files:
+            raise FileNotFoundError(f"No suitable metadata dictionary file found for cohort {self.cohort_id} in {self.folder_path}")
+        
+        # If multiple candidates, pick the most recently modified one
+        if len(candidate_files) > 1:
+            # Sort by modification time, most recent first
+            candidate_files.sort(key=lambda f: os.path.getmtime(f), reverse=True)
+            # Potentially log a warning if multiple candidates are found, as it might indicate a cleanup issue
+            # logging.warning(f"Multiple candidate dictionary files found for cohort {self.cohort_id}, selecting most recent: {candidate_files[0]}")
+        
+        return candidate_files[0]
         # return os.path.join(self.folder_path, f"{self.cohort_id}_datadictionary.csv")
         # return os.path.join(self.folder_path, f"{self.cohort_id}-metadata.csv")
