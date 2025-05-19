@@ -48,6 +48,11 @@ prefix_map = [
     {
         "prefix": "cdisc",
         "uri_prefix": "https://www.cdisc.org/search?search_api_fulltext="
+    },
+    {
+        "prefix": "omop",
+        "uri_prefix": "https://athena.ohdsi.org/search-terms/terms/",
+        "prefix_synonyms": ["OMOP"]
     }
 ]
 curie_converter = curies.load_extended_prefix_map(prefix_map)
