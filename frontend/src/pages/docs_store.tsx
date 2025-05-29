@@ -74,7 +74,7 @@ export default function DocsStorePage() {
         {!isLoading && error && (
           <div role="alert" className="alert alert-error mt-4">
             <AlertTriangle size={20} className="mr-2 shrink-0" />
-            <span>Error loading documents: {error}. <br/>Please ensure the backend is running, the API is reachable, and the 'documents_store' folder exists at the project root.</span>
+            <span>Error loading documents: {error}. <br/>Please ensure the backend is running, the API is reachable, and the documents_store folder exists at the project root.</span>
           </div>
         )}
 
@@ -82,7 +82,7 @@ export default function DocsStorePage() {
           <div className="text-center text-slate-500 p-10 border-2 border-dashed border-base-300 rounded-lg mt-[5%]">
             <Info size={48} className="mx-auto mb-4 opacity-50" />
             <p className="text-xl">No documents found.</p>
-            <p className="text-sm mt-2">Upload files to the 'documents_store' directory in the project root on the server.</p>
+            <p className="text-sm mt-2">Upload files to the documents_store directory in the project root on the server.</p>
           </div>
         )}
 
