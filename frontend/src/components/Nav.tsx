@@ -2,7 +2,7 @@
 
 import React, {useState, useEffect} from 'react';
 import Link from 'next/link';
-import {LogIn, LogOut, Compass, Upload, Map} from 'react-feather';
+import {LogIn, LogOut, Compass, Upload, HardDrive, Map} from 'react-feather';
 import {useCohorts} from '@/components/CohortsContext';
 import {DarkThemeIcon, LightThemeIcon} from '@/components/Icons';
 import {apiUrl} from '@/utils';
@@ -113,13 +113,20 @@ export function Nav() {
               <Compass />
               Explore
             </Link>
-          </li>
+          </li>   
           <li>
             <Link href="/mapping">
               <Map />
               Mapping
             </Link>
           </li>
+
+      <li> 
+        <Link href="/docs_store">
+          <HardDrive /> 
+          Documents
+        </Link>
+      </li>
         </ul>
         {/* <div className="dropdown lg:hidden">
         <div tabindex="0" role="button" className="btn btn-ghost lg:hidden">
