@@ -10,6 +10,43 @@ router = APIRouter()
 
 # NOTE: not really use now, Komal do the mappings in mapping_generation folder
 
+from fastapi import Body
+from fastapi.responses import StreamingResponse, JSONResponse
+import io
+import os
+import sys
+
+# Import the CohortVarLinker function
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../CohortVarLinker')))
+from CohortVarLinker.main import generate_mapping_csv
+
+@router.post("/generate-mapping")
+async def generate_mapping(
+    source_study: str = Body(...),
+    target_studies: list = Body(...)
+):
+    """
+    Generate a mapping CSV for the given source and target studies and return it as a downloadable file.
+    target_studies should be a list of [study_name, visit_constraint_bool]
+    """
+    # Call the backend function
+    # The function writes CSVs to CohortVarLinker/mapping_output/{source}_{target}_full.csv
+    # We'll return the first mapping file (for now, can be extended)
+    generate_mapping_csv(source_study, target_studies)
+    output_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'CohortVarLinker', 'mapping_output')
+    # Find the generated file(s)
+    for tstudy, _ in target_studies:
+        filename = f"{source_study}_{tstudy}_full.csv"
+        filepath = os.path.join(output_dir, filename)
+        if os.path.exists(filepath):
+            def iterfile():
+                with open(filepath, mode="rb") as file_like:
+                    yield from file_like
+            return StreamingResponse(iterfile(), media_type="text/csv", headers={
+                "Content-Disposition": f"attachment; filename={filename}"
+            })
+    return JSONResponse(status_code=404, content={"error": "Mapping file not found."})
+
 @router.get("/search-concepts")
 async def search_concepts(
     query: str, domain: list[str] | None = Query(default=None), user: Any = Depends(get_current_user)

@@ -1,53 +1,131 @@
 'use client';
 
 import React, { useState } from 'react';
+
+// Helper component for CSV preview
+interface MappingPreviewTableProps {
+  csvText: string;
+  maxRows: number;
+}
+function MappingPreviewTable({ csvText, maxRows }: MappingPreviewTableProps) {
+  // Basic CSV parsing (does not handle all edge cases, but fine for preview)
+  const rows: string[][] = csvText.trim().split(/\r?\n/).map((line: string) => {
+    const cells: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      if (char === '"') {
+        inQuotes = !inQuotes;
+      } else if (char === ',' && !inQuotes) {
+        cells.push(current);
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+    cells.push(current);
+    return cells;
+  });
+  if (!rows.length) return null;
+  const header = rows[0];
+  const data = rows.slice(1, maxRows + 1);
+  return (
+    <table className="table table-zebra w-full text-xs">
+      <thead>
+        <tr>
+          {header.map((cell: string, i: number) => <th key={i} className="font-bold bg-base-300">{cell}</th>)}
+        </tr>
+      </thead>
+      <tbody>
+        {data.map((row: string[], i: number) => (
+          <tr key={i}>
+            {row.map((cell: string, j: number) => <td key={j}>{cell}</td>)}
+          </tr>
+        ))}
+        {rows.length > maxRows + 1 && (
+          <tr><td colSpan={header.length} className="italic text-slate-400">... (truncated)</td></tr>
+        )}
+      </tbody>
+    </table>
+  );
+}
+
 import { useCohorts } from '@/components/CohortsContext';
+import {apiUrl} from '@/utils';
 
 export default function MappingPage() {
   const { cohortsData, userEmail } = useCohorts();
   const [sourceCohort, setSourceCohort] = useState('');
-  const [targetCohort, setTargetCohort] = useState('');
+  // Instead of a single target cohort, allow multiple selections with time restriction
+  type TargetCohortOption = { cohortId: string; timeRestricted: boolean };
+  const [selectedTargets, setSelectedTargets] = useState<TargetCohortOption[]>([]);
   const [mappingOutput, setMappingOutput] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
 
-  // Function to generate sample CSV content
-  const generateSampleCSV = () => {
-    const sampleData = [
-      'Source Variable,Target Variable,Mapping Type,Confidence',
-      'age,patient_age,EXACT,0.95',
-      'gender,sex,SYNONYM,0.85',
-      'weight_kg,weight,EXACT,0.92',
-      'height_cm,height,EXACT,0.90',
-      'systolic_bp,blood_pressure_systolic,RELATED,0.75',
-      'diastolic_bp,blood_pressure_diastolic,RELATED,0.75',
-      'smoking_status,smoking_history,SYNONYM,0.82',
-      'diabetes,diabetes_mellitus,EXACT,0.95',
-      'heart_disease,cardiovascular_disease,BROADER,0.70',
-      'medication_name,drug_name,SYNONYM,0.88'
-    ].join('\n');
-    return sampleData;
+  // Filtered target cohorts based on search
+  const filteredTargetCohorts = Object.entries(cohortsData).filter(([cohortId, cohort]) =>
+    cohortId.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    JSON.stringify(cohort).toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const handleSearchChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchQuery(event.target.value);
   };
 
-  const handleMapConcepts = () => {
-    if (!sourceCohort || !targetCohort) {
-      alert('Please select both cohorts');
+  // Loading and error state
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Backend integration
+  const handleMapConcepts = async () => {
+    if (!sourceCohort || selectedTargets.length === 0) {
+      alert('Please select a source cohort and at least one target cohort');
       return;
     }
-
-    // Generate sample mapping output
-    const csvContent = generateSampleCSV();
-    setMappingOutput(csvContent);
-
-    // Create and trigger download
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `mapping_${sourceCohort}_to_${targetCohort}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    window.URL.revokeObjectURL(url);
+    setLoading(true);
+    setError(null);
+    setMappingOutput('');
+    try {
+      const target_studies = selectedTargets.map(opt => [opt.cohortId, opt.timeRestricted]);
+      const response = await fetch(`${apiUrl}/api/generate-mapping`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          source_study: sourceCohort,
+          target_studies,
+        }),
+      });
+      //if (!response.ok) {
+      //throw new Error('Failed to generate mapping');
+      //}
+      const blob = await response.blob();
+      // Download
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const targetsString = selectedTargets
+        .map(t => `${t.cohortId}_${t.timeRestricted ? 'restricted' : 'unrestricted'}`)
+        .join('__');
+      a.download = `mapping_${sourceCohort}_to_${targetsString}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      // Preview
+      const text = await blob.text();
+      setMappingOutput(text);
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setError(err.message || 'Unknown error');
+    } finally {
+      setLoading(false);
+    }
   };
+
+
+
 
   // Show loading state if data is not yet loaded
   if (userEmail !== null && (!cohortsData || Object.keys(cohortsData).length === 0)) {
@@ -68,9 +146,20 @@ export default function MappingPage() {
 
   return (
     <main className="flex flex-col items-center justify-start p-8 min-h-screen bg-base-200">
-      <div className="w-full max-w-4xl space-y-8">
+      <div className="w-full max-w-6xl space-y-8">
         <h1 className="text-3xl font-bold text-center mb-8">Cohort Mapping</h1>
-        
+
+        {/* Search box for filtering target cohorts */}
+        <div className="mb-6 flex justify-center">
+          <input
+            type="text"
+            placeholder="Enter keyword/disease/co-morbidity to filter the target cohorts"
+            className="input input-bordered w-full max-w-xs"
+            value={searchQuery}
+            onChange={handleSearchChange}
+          />
+        </div>
+
         <div className="flex gap-4 justify-center">
           <div className="form-control w-full max-w-xs">
             <label className="label">
@@ -92,20 +181,36 @@ export default function MappingPage() {
 
           <div className="form-control w-full max-w-xs">
             <label className="label">
-              <span className="label-text">Target Cohort</span>
+              <span className="label-text">Target Cohorts</span>
             </label>
-            <select 
-              className="select select-bordered w-full"
-              value={targetCohort}
-              onChange={(e) => setTargetCohort(e.target.value)}
-            >
-              <option value="">Select target cohort</option>
-              {Object.entries(cohortsData).map(([cohortId, cohort]) => (
-                <option key={cohortId} value={cohortId}>
-                  {cohortId}
-                </option>
+            <div className="flex flex-col max-h-64 overflow-y-auto border rounded p-2 bg-base-100">
+              {filteredTargetCohorts.map(([cohortId]) => (
+                <React.Fragment key={cohortId}>
+                  {[true, false].map(timeRestricted => {
+                    const option: TargetCohortOption = { cohortId, timeRestricted };
+                    const checked = selectedTargets.some(
+                      t => t.cohortId === cohortId && t.timeRestricted === timeRestricted
+                    );
+                    return (
+                      <label key={cohortId + '-' + timeRestricted} className="cursor-pointer flex items-center gap-2 py-1">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={e => {
+                            if (e.target.checked) {
+                              setSelectedTargets(prev => [...prev, option]);
+                            } else {
+                              setSelectedTargets(prev => prev.filter(t => !(t.cohortId === cohortId && t.timeRestricted === timeRestricted)));
+                            }
+                          }}
+                        />
+                        <span>{cohortId} {timeRestricted ? '(time-restricted)' : '(time-unrestricted)'}</span>
+                      </label>
+                    );
+                  })}
+                </React.Fragment>
               ))}
-            </select>
+            </div>
           </div>
         </div>
 
@@ -113,24 +218,25 @@ export default function MappingPage() {
           <button 
             className="btn btn-primary"
             onClick={handleMapConcepts}
-            disabled={!sourceCohort || !targetCohort}
+            disabled={!sourceCohort || selectedTargets.length === 0 || loading}
           >
-            Map Concepts
+            {loading ? 'Mapping...' : 'Map Concepts'}
           </button>
         </div>
+
+        {error && (
+          <div className="mt-4 text-red-500 text-center">{error}</div>
+        )}
 
         {mappingOutput && (
           <div className="mt-8">
             <h2 className="text-xl font-semibold mb-4">Mapping Preview</h2>
             <div className="bg-base-100 p-4 rounded-lg shadow overflow-x-auto">
-              <pre className="whitespace-pre-wrap font-mono text-sm">
-                {mappingOutput.split('\n').slice(0, 5).join('\n')}
-                {mappingOutput.split('\n').length > 5 && '\n...'}
-              </pre>
+              <MappingPreviewTable csvText={mappingOutput} maxRows={10} />
             </div>
           </div>
         )}
       </div>
     </main>
   );
-} 
+}
