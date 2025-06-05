@@ -311,9 +311,9 @@ def generate_mapping_csv(
         return
 
     # Only run expensive computations if any mapping is missing
-    create_study_metadata_graph(cohorts_metadata_file, recreate=False)
-    create_cohort_specific_metadata_graph(cohort_file_path, recreate=False)
-    vector_db, embedding_model = generate_studies_embeddings(cohort_file_path, "localhost", "studies_metadata", recreate_db=False)
+    create_study_metadata_graph(cohorts_metadata_file, recreate=True)
+    create_cohort_specific_metadata_graph(cohort_file_path, recreate=True)
+    vector_db, embedding_model = generate_studies_embeddings(cohort_file_path, "localhost", "studies_metadata", recreate_db=True)
 
     for tstudy, vc in target_studies:
         suffix = 'restricted' if vc else 'full'
