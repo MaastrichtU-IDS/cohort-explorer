@@ -153,7 +153,7 @@ export default function MappingPage() {
         <div className="mb-6 flex justify-center">
           <input
             type="text"
-            placeholder="Enter keyword/disease/co-morbidity to filter the target cohorts"
+            placeholder="Enter a keyword to filter the target cohorts"
             className="input input-bordered w-full max-w-xs"
             value={searchQuery}
             onChange={handleSearchChange}
@@ -183,33 +183,57 @@ export default function MappingPage() {
             <label className="label">
               <span className="label-text">Target Cohorts</span>
             </label>
-            <div className="flex flex-col max-h-64 overflow-y-auto border rounded p-2 bg-base-100">
+            <div className="flex flex-col max-h-64 overflow-y-scroll border rounded p-2 bg-base-100 scrollbar scrollbar-thumb-base-300 scrollbar-track-base-200">
               {filteredTargetCohorts.map(([cohortId]) => (
-                <React.Fragment key={cohortId}>
-                  {[true, false].map(timeRestricted => {
-                    const option: TargetCohortOption = { cohortId, timeRestricted };
-                    const checked = selectedTargets.some(
-                      t => t.cohortId === cohortId && t.timeRestricted === timeRestricted
-                    );
-                    return (
-                      <label key={cohortId + '-' + timeRestricted} className="cursor-pointer flex items-center gap-2 py-1">
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={e => {
-                            if (e.target.checked) {
-                              setSelectedTargets(prev => [...prev, option]);
-                            } else {
-                              setSelectedTargets(prev => prev.filter(t => !(t.cohortId === cohortId && t.timeRestricted === timeRestricted)));
-                            }
-                          }}
-                        />
-                        <span>{cohortId} {timeRestricted ? '(time-restricted)' : '(time-unrestricted)'}</span>
-                      </label>
-                    );
-                  })}
-                </React.Fragment>
-              ))}
+  <React.Fragment key={cohortId}>
+    {/* Unrestricted (default) - just the name */}
+    {(() => {
+      const option: TargetCohortOption = { cohortId, timeRestricted: false };
+      const checked = selectedTargets.some(
+        t => t.cohortId === cohortId && t.timeRestricted === false
+      );
+      return (
+        <label key={cohortId + '-unrestricted'} className="cursor-pointer flex items-center gap-2 py-1">
+          <input
+            type="checkbox"
+            checked={checked}
+            onChange={e => {
+              if (e.target.checked) {
+                setSelectedTargets(prev => [...prev, option]);
+              } else {
+                setSelectedTargets(prev => prev.filter(t => !(t.cohortId === cohortId && t.timeRestricted === false)));
+              }
+            }}
+          />
+          <span>{cohortId}</span>
+        </label>
+      );
+    })()}
+    {/* Restricted - label with (visit times constrained) */}
+    {(() => {
+      const option: TargetCohortOption = { cohortId, timeRestricted: true };
+      const checked = selectedTargets.some(
+        t => t.cohortId === cohortId && t.timeRestricted === true
+      );
+      return (
+        <label key={cohortId + '-restricted'} className="cursor-pointer flex items-center gap-2 py-1">
+          <input
+            type="checkbox"
+            checked={checked}
+            onChange={e => {
+              if (e.target.checked) {
+                setSelectedTargets(prev => [...prev, option]);
+              } else {
+                setSelectedTargets(prev => prev.filter(t => !(t.cohortId === cohortId && t.timeRestricted === true)));
+              }
+            }}
+          />
+          <span>{cohortId} <span className="text-xs text-slate-500">(visit times constrained)</span></span>
+        </label>
+      );
+    })()}
+  </React.Fragment>
+))}
             </div>
           </div>
         </div>
