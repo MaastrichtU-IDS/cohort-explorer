@@ -18,9 +18,13 @@ class OmopGraphNX:
         :param output_file: Filename to save/load the networkx graph. Defaults to 'data/graph_nx.pkl'.
         """
         self.csv_file_path = csv_file_path
+        # Resolve output_file to absolute path if not already absolute
+        if not os.path.isabs(output_file):
+            # Project root is two levels up from this file
+            base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+            output_file = os.path.join(base_dir, output_file)
         self.output_file = output_file
         self.graph = nx.DiGraph() # networkx Graph is undirected (bidirectional by default)
-        # Always check for the graph in the data folder by default
         if os.path.exists(self.output_file):
             print(f"[INFO] Loading graph from {self.output_file}.")
             self.load_graph(self.output_file)
