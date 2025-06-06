@@ -17,14 +17,15 @@ class OmopGraphNX:
         :param csv_file_path: Path to the OMOP concept_relationship CSV.
         :param output_file: Filename to save/load the networkx graph. Defaults to 'data/graph_nx.pkl'.
         """
+        from CohortVarLinker.src.config import settings
         self.csv_file_path = csv_file_path
-        # Resolve output_file to absolute path if not already absolute
-        if not os.path.isabs(output_file):
-            # Project root is two levels up from this file
-            base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-            output_file = os.path.join(base_dir, output_file)
+        # Use data_folder for the default location of graph_nx.pkl
+        if output_file is None:
+            output_file = os.path.join(settings.data_folder, "graph_nx.pkl")
+        elif not os.path.isabs(output_file):
+            output_file = os.path.join(settings.data_folder, output_file)
         self.output_file = output_file
-        self.graph = nx.DiGraph() # networkx Graph is undirected (bidirectional by default)
+        self.graph = nx.DiGraph()
         if os.path.exists(self.output_file):
             print(f"[INFO] Loading graph from {self.output_file}.")
             self.load_graph(self.output_file)
