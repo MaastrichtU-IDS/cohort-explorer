@@ -12,19 +12,20 @@ class OmopGraphNX:
     Builds a bidirectional graph from an OMOP concept_relationship CSV using networkx.
     Provides fast path searches and supports adding direct (inferred) shortcut edges.
     """
-    def __init__(self, csv_file_path=None, output_file='graph_nx.pkl'):
+    def __init__(self, csv_file_path=None, output_file='data/graph_nx.pkl'):
         """
         :param csv_file_path: Path to the OMOP concept_relationship CSV.
-        :param output_file: Filename to save/load the networkx graph.
+        :param output_file: Filename to save/load the networkx graph. Defaults to 'data/graph_nx.pkl'.
         """
         self.csv_file_path = csv_file_path
         self.output_file = output_file
         self.graph = nx.DiGraph() # networkx Graph is undirected (bidirectional by default)
+        # Always check for the graph in the data folder by default
         if os.path.exists(self.output_file):
             print(f"[INFO] Loading graph from {self.output_file}.")
             self.load_graph(self.output_file)
         else:
-            print(f"graph file does not exist")
+            print(f"graph file does not exist at {self.output_file}")
             self.build_graph(csv_file_path, force_rebuild=True)
 
     def build_graph(self, csv_file_path=None, force_rebuild=False):
@@ -699,10 +700,9 @@ class OmopGraphNX:
         # Optionally, you can persist this update:
         self.save_graph(self.output_file)
 
-    def save_graph(self, pickle_file='data/graph_nx.pkl'):
+    def save_graph(self, pickle_file='graph_nx.pkl'):
         """
         Save the networkx graph to disk.
-        By default, saves to the 'data' folder relative to the project root.
         """
         with open(pickle_file, 'wb') as f:
             pickle.dump(self.graph, f, protocol=pickle.HIGHEST_PROTOCOL)
