@@ -98,11 +98,25 @@ export default function MappingPage() {
           target_studies,
         }),
       });
-      //if (!response.ok) {
-      //throw new Error('Failed to generate mapping');
-      //}
+      if (!response.ok) {
+        const result = await response.json();
+        let errorMsg = result.detail || result.error || 'Failed to generate mapping';
+        // Custom error message for missing cohort metadata
+        if (
+          response.status === 404 &&
+          typeof errorMsg === 'string' &&
+          errorMsg.endsWith("metadata has not been added yet!")
+        ) {
+          setError(
+            <span style={{ color: 'red', fontWeight: 500 }}>
+              {sourceCohort}'s metadata has not been added yet!
+            </span>
+          );
+          return;
+        }
+        throw new Error(errorMsg);
+      }
       const blob = await response.blob();
-      // Download
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -118,14 +132,15 @@ export default function MappingPage() {
       setMappingOutput(text);
       window.URL.revokeObjectURL(url);
     } catch (err: any) {
-      setError(err.message || 'Unknown error');
+      setError(
+        typeof err.message === 'string' && err.message.endsWith("metadata has not been added yet!") ? (
+          <span style={{ color: 'red', fontWeight: 500 }}>{sourceCohort}'s metadata has not been added yet!</span>
+        ) : (err.message || 'Unknown error')
+      );
     } finally {
       setLoading(false);
     }
   };
-
-
-
 
   // Show loading state if data is not yet loaded
   if (userEmail !== null && (!cohortsData || Object.keys(cohortsData).length === 0)) {
@@ -244,7 +259,7 @@ export default function MappingPage() {
             onClick={handleMapConcepts}
             disabled={!sourceCohort || selectedTargets.length === 0 || loading}
           >
-            {loading ? 'Mapping...' : 'Map Concepts'}
+            {loading ? 'Mapping... (may take several minutes)' : 'Map Concepts & Download File'}
           </button>
         </div>
 

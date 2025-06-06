@@ -282,14 +282,29 @@ def generate_mapping_csv(
         source_study (str): The name of the source study.
         target_studies (list of tuple): Each tuple is (target_study_name, visit_constraint_bool).
         data_dir (str, optional): Directory containing data files. Defaults to the 'data' folder inside CohortVarLinker.
-        cohort_file_path (str, optional): Path to the cohorts directory. Defaults to f"{data_dir}/cohorts".
+        cohort_file_path (str, optional): Path to the cohorts directory. Defaults to settings.cohort_folder.
         cohorts_metadata_file (str, optional): Path to the cohort metadata file. Defaults to f"{data_dir}/cohort_metadata_sheet_v2.csv".
         output_dir (str, optional): Directory to store output mapping CSVs. Defaults to 'mapping_output' inside CohortVarLinker.
     """
     if data_dir is None:
         data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
+    from CohortVarLinker.src.config import settings
     if cohort_file_path is None:
-        cohort_file_path = f"{data_dir}/cohorts"
+        cohort_file_path = settings.cohort_folder
+    # Robust check: ensure all selected cohorts exist
+    import os
+    missing_cohorts = []
+    for cohort_id in [source_study] + [t[0] for t in target_studies]:
+        cohort_dir = os.path.join(cohort_file_path, cohort_id)
+        if not os.path.exists(cohort_dir):
+            missing_cohorts.append(cohort_id)
+    if missing_cohorts:
+        # If using FastAPI, raise HTTPException; otherwise, raise ValueError
+        try:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail=f"{missing_cohorts[0]}'s metadata has not been added yet!")
+        except ImportError:
+            raise ValueError(f"{missing_cohorts[0]}'s metadata has not been added yet!")
     if cohorts_metadata_file is None:
         cohorts_metadata_file = f"{data_dir}/queries/cohort_metadata_sheet.csv"
     if output_dir is None:
@@ -305,6 +320,7 @@ def generate_mapping_csv(
         suffix = 'restricted' if vc else 'full'
         out_filename = f'{source_study}_{tstudy}_{suffix}.csv'
         out_path = os.path.join(output_dir, out_filename)
+        print(f"Checking if {out_path} exists")
         if not os.path.exists(out_path):
             all_exist = False
             missing_targets.append((tstudy, vc))

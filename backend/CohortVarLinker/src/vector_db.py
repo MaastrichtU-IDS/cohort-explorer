@@ -284,8 +284,10 @@ def search_in_db_group_by(vectordb: QdrantClient, embedding_model: 'ModelEmbeddi
     # print(f"total target ids found via similarity search={len(target_ids)}")
     return list(target_ids)
 
-def generate_studies_embeddings(dir_path:str, vectordb_path:str, collection_name:str, recreate_db=False):
-   
+def generate_studies_embeddings(dir_path:str=None, vectordb_path:str=None, collection_name:str=None, recreate_db=False):
+    from .config import settings
+    if dir_path is None:
+        dir_path = settings.cohort_folder
     vectordb, embedding_model = load_vectordb( recreate=recreate_db, collection_name=collection_name, vectordb_path=vectordb_path)
     if not recreate_db:
         return vectordb, embedding_model

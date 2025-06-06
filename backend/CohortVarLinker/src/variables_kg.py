@@ -6,6 +6,7 @@ from urllib.parse import quote
 import pandas as pd
 # import chardet
 from .config import settings
+import os
 import json
 # import os
 from .ontology_model import  Concept
@@ -57,6 +58,8 @@ def process_variables_metadata_file(file_path:str, study_metadata_graph_file_pat
         # cohort id is the folder name
         cohort_id = normalize_text(cohort_name)
         cohort_uri = get_study_uri(cohort_id)
+        # Example usage of settings.cohort_folder for cohort files:
+        # cohort_file = os.path.join(settings.cohort_folder, cohort_id, 'somefile.csv')
         data = data.apply(lambda col: col.map(lambda x: x.lower() if isinstance(x, str) else x))
         cohort_graph = URIRef(OntologyNamespaces.CMEO.value + f"graph/{cohort_id}") #named graph for the cohort
         g = init_graph(default_graph_identifier=cohort_graph)
