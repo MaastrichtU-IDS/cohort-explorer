@@ -33,3 +33,11 @@ services:
     extends:
       file: docker-compose.base.yml
       service: db
+
+  qdrant:
+    image: qdrant/qdrant:v1.9.1
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage

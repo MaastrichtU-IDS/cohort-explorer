@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-requires-python = ">=3.9"
+requires-python = ">=3.9.2,<3.14"
 version = "0.0.1"
 name = "cohort-explorer-backend"
 description = "Backend for the iCARE4CVD Cohort Explorer."
