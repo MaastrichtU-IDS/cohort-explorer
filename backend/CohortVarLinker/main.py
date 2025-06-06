@@ -296,6 +296,8 @@ def generate_mapping_csv(
         output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'mapping_output')
     os.makedirs(output_dir, exist_ok=True)
 
+    print(f"Checking for cached or ready mapping files in directory: {os.path.abspath(output_dir)}")
+
     # Check if all requested mappings already exist
     all_exist = True
     missing_targets = []
