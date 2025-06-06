@@ -699,17 +699,19 @@ class OmopGraphNX:
         # Optionally, you can persist this update:
         self.save_graph(self.output_file)
 
-    def save_graph(self, pickle_file='graph_nx.pkl'):
+    def save_graph(self, pickle_file='data/graph_nx.pkl'):
         """
         Save the networkx graph to disk.
+        By default, saves to the 'data' folder relative to the project root.
         """
         with open(pickle_file, 'wb') as f:
             pickle.dump(self.graph, f, protocol=pickle.HIGHEST_PROTOCOL)
         print(f"[INFO] Graph saved to {pickle_file}.")
 
-    def load_graph(self, pickle_file='graph_nx.pkl'):
+    def load_graph(self, pickle_file='data/graph_nx.pkl'):
         """
         Load the networkx graph from disk.
+        By default, looks for the file in the 'data' folder relative to the project root.
         """
         with open(pickle_file, 'rb') as f:
             self.graph = pickle.load(f)

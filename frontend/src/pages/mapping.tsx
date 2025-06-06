@@ -63,8 +63,8 @@ export default function MappingPage() {
   const [mappingOutput, setMappingOutput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Filtered target cohorts based on search
-  const filteredTargetCohorts = Object.entries(cohortsData).filter(([cohortId, cohort]) =>
+  // Filtered cohorts for both source and target menus based on search
+  const filteredCohorts = Object.entries(cohortsData).filter(([cohortId, cohort]) =>
     cohortId.toLowerCase().includes(searchQuery.toLowerCase()) ||
     JSON.stringify(cohort).toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -153,8 +153,8 @@ export default function MappingPage() {
         <div className="mb-6 flex justify-center">
           <input
             type="text"
-            placeholder="Enter a keyword to filter the target cohorts"
-            className="input input-bordered w-full max-w-xs"
+            placeholder="Enter a keyword to filter cohorts"
+            className="input input-bordered w-full max-w-md"
             value={searchQuery}
             onChange={handleSearchChange}
           />
@@ -171,7 +171,7 @@ export default function MappingPage() {
               onChange={(e) => setSourceCohort(e.target.value)}
             >
               <option value="">Select source cohort</option>
-              {Object.entries(cohortsData).map(([cohortId, cohort]) => (
+              {filteredCohorts.map(([cohortId, cohort]) => (
                 <option key={cohortId} value={cohortId}>
                   {cohortId}
                 </option>
@@ -184,7 +184,7 @@ export default function MappingPage() {
               <span className="label-text">Target Cohorts</span>
             </label>
             <div className="flex flex-col max-h-64 overflow-y-scroll border rounded p-2 bg-base-100 scrollbar scrollbar-thumb-base-300 scrollbar-track-base-200">
-              {filteredTargetCohorts.map(([cohortId]) => (
+              {filteredCohorts.map(([cohortId]) => (
   <React.Fragment key={cohortId}>
     {/* Unrestricted (default) - just the name */}
     {(() => {
