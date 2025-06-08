@@ -210,8 +210,11 @@ def extract_tick_values(texts: str) -> list[float]:
     Returns:
         [-2.5, 0.0, 2.5]
     """
-    ticks = []
+    if texts is None or texts == "":
+        return []
+
     # Split the string at the separators used by the user (" - ")
+    ticks = []
     for token in texts.split(" - "):
         # Regex captures the *label* part (text between the final pair of quotes)
         m = re.search(r"Text\([^,]+,\s*[^,]+,\s*'([^']+)'\)", token)
@@ -223,6 +226,8 @@ def extract_tick_values(texts: str) -> list[float]:
                 # Skip if the captured label is not a number
                 pass
     return ticks
+
+
 def is_categorical_variable(df):
     #normalizing all possible column name variations by converting to lowercase
     df.columns = [c.lower() for c in df.columns]
