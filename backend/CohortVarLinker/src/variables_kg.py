@@ -69,13 +69,16 @@ def process_variables_metadata_file(file_path:str, study_metadata_graph_file_pat
         binary_categorical, multi_class_categorical = is_categorical_variable(data)
         variables_to_update = {}
         # units_count = 0
-        for _, row in data.iterrows():
+        data.columns = [c.lower() for c in data.columns]
+        varname_col = [x for x in ['variablename', 'variable name'] 
+                    if x in data.columns][0]
+        for rownum, row in data.iterrows():
             count += 1
-            if pd.isna(row['variablename']):
+            if pd.isna(row[varname_col]):
                 print("Skipping row with missing variable name.")
                 continue
             # Instantiate MeasuredVariable
-            var_name = normalize_text(row['variablename']) 
+            var_name = normalize_text(row[varname_col]) 
             var_uri = get_var_uri(cohort_id, var_name)
             g.add((var_uri, RDF.type, OntologyNamespaces.CMEO.value.data_element, cohort_graph))
            
@@ -107,6 +110,23 @@ def process_variables_metadata_file(file_path:str, study_metadata_graph_file_pat
                 code=row['variable concept code'] if pd.notna(row['variable concept code']) else None,
                 omop_id=safe_int(row['variable omop id']) if pd.notna(row['variable omop id']) else None,
             )]
+
+            if (pd.notna(row['additional context concept name']) and 
+            pd.notna(row['additional context concept code']) and 
+            pd.notna(row['additional context omop id'])):
+                count1 = len(row['additional context concept name'].split("|"))
+                count2 = len(row['additional context concept code'].split("|"))
+                count3 = len(row['additional context omop id'].split("|"))
+                if count1 == count2 == count3:
+                    base_concept.extend([Concept(
+                        standard_label=row['additional context concept name'].split("|")[i] if pd.notna(row['additional context concept name']) else None,
+                        code=row['additional context concept code'].split("|")[i] if pd.notna(row['additional context concept code']) else None,
+                        omop_id=safe_int(row['additional context omop id'].split("|")[i]) if pd.notna(row['additional context omop id']) else None,
+                    ) for i in range(count1)])
+                else:
+                    print(f"Row number {rownum} of {cohort_name} has an unequal number of additional context concept names/codes/omop ids.")
+
+
             base_concept.extend([Concept(
                     standard_label=row['additional context concept name'].split("|")[i] if pd.notna(row['additional context concept name']) else None,
                     code=row['additional context concept code'].split("|")[i] if pd.notna(row['additional context concept code']) else None,
