@@ -299,9 +299,11 @@ def generate_studies_embeddings(dir_path:str=None, vectordb_path:str=None, colle
         if os.path.isdir(cohort_path):
                 # ➊ Grab every file that ends with .csv, .xlsx or .json
                 # Only consider CSV files with 'datadictionary' in the filename
+                # skip files with "noheader" in the filename (those are generated for decentriq-specific reasons)
                 csv_candidates = [
                     f for f in glob.glob(os.path.join(cohort_path, "*.csv"))
-                    if "datadictionary" in os.path.basename(f).lower()
+                    if ("datadictionary" in os.path.basename(f).lower() 
+                    and "noheader" not in os.path.basename(f).lower())
                 ]
                 cohort_metadata_file = None
                 if csv_candidates:
