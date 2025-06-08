@@ -298,20 +298,18 @@ def generate_studies_embeddings(dir_path:str=None, vectordb_path:str=None, colle
         print(f"cohort_path={cohort_path}")
         if os.path.isdir(cohort_path):
                 # ➊ Grab every file that ends with .csv, .xlsx or .json
-                patterns = ("*.csv", "*.xlsx", "*.json")
-                file_candidates: list[str] = []
-                for pat in patterns:
-                    file_candidates.extend(glob.glob(os.path.join(cohort_path, pat)))
+                # Only consider CSV files with 'datadictionary' in the filename
+                csv_candidates = [
+                    f for f in glob.glob(os.path.join(cohort_path, "*.csv"))
+                    if "datadictionary" in os.path.basename(f).lower()
+                ]
                 cohort_metadata_file = None
-                eda_file = None
-                # ➋ Classify the candidates
-                for file in file_candidates:
-                    print(f"File: {file}")
-
-                    # Collect *all* metadata spreadsheets
-                    if file.lower().endswith((".csv", ".xlsx")):
-                        cohort_metadata_file = file
-                        break
+                if csv_candidates:
+                    # Pick the most recently modified file
+                    cohort_metadata_file = max(csv_candidates, key=os.path.getmtime)
+                    print("Selected cohort metadata file: ", cohort_metadata_file, 
+                    " last modified: ", os.path.getmtime(cohort_metadata_file))
+                # If you need to handle EDA or other files, add logic here
         print(cohort_metadata_file)
         print(f"Processing cohort: {cohort_folder} at path: {cohort_path} for metadata file: {cohort_metadata_file}")
         if cohort_metadata_file and os.path.exists(cohort_metadata_file):

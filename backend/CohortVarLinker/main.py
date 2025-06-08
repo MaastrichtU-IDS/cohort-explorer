@@ -66,23 +66,28 @@ def create_cohort_specific_metadata_graph(dir_path, recreate=False):
             start_time = time.time()
             cohort_path = os.path.join(dir_path, cohort_folder)
             if os.path.isdir(cohort_path):
-                # ➊ Grab every file that ends with .csv, .xlsx or .json
-                patterns = ("*.csv", "*.xlsx", "*.json")
-                file_candidates: list[str] = []
-                for pat in patterns:
-                    file_candidates.extend(glob.glob(os.path.join(cohort_path, pat)))
+                # Select most recent CSV file with 'datadictionary' in the name
+                csv_candidates = [
+                    f for f in glob.glob(os.path.join(cohort_path, "*.csv"))
+                    if "datadictionary" in os.path.basename(f).lower()
+                ]
                 cohort_metadata_file = None
-                eda_file = None
-                # ➋ Classify the candidates
-                for file in file_candidates:
-                    print(f"File: {file}")
+                if csv_candidates:
+                    cohort_metadata_file = max(csv_candidates, key=os.path.getmtime)
+                    print(f"Selected metadata file for {cohort_folder}: {cohort_metadata_file}")
 
-                    # Collect *all* metadata spreadsheets
-                    if file.lower().endswith((".csv", ".xlsx")):
-                        cohort_metadata_file = file
-                    # Optionally single out an EDA JSON
-                    if os.path.basename(file).lower().startswith("eda") and file.lower().endswith(".json"):
-                        eda_file = file
+                # Find EDA file in sibling folder named dcr_output_<cohort_folder>
+                eda_file = None
+                base_dir = os.path.dirname(dir_path)
+                dcr_output_folder = os.path.join(base_dir, f"dcr_output_{cohort_folder}")
+                if os.path.isdir(dcr_output_folder):
+                    eda_candidates = [
+                        f for f in glob.glob(os.path.join(dcr_output_folder, "eda*.json"))
+                        if os.path.basename(f).lower().startswith("eda") and f.lower().endswith(".json")
+                    ]
+                    if eda_candidates:
+                        eda_file = max(eda_candidates, key=os.path.getmtime)
+                        print(f"Selected EDA file for {cohort_folder}: {eda_file}")
                 # print(f"Processing cohort: {cohort_folder} at path: {cohort_path} for metadata file: {cohort_metadata_file}")
                 if cohort_metadata_file:
                     if eda_file and os.path.exists(eda_file):
@@ -299,9 +304,13 @@ def generate_mapping_csv(
         # If using FastAPI, raise HTTPException; otherwise, raise ValueError
         try:
             from fastapi import HTTPException
-            raise HTTPException(status_code=404, detail=f"{missing_cohorts[0]}'s metadata has not been added yet!")
+            missing_str = ", ".join(missing_cohorts)
+            message = f"The metadata of the following cohorts is missing: {missing_str}"
+            raise HTTPException(status_code=404, detail=message)
         except ImportError:
-            raise ValueError(f"{missing_cohorts[0]}'s metadata has not been added yet!")
+            missing_str = ", ".join(missing_cohorts)
+            message = f"The metadata of the following cohorts is missing: {missing_str}"
+            raise ValueError(message)
     if cohorts_metadata_file is None:
         cohorts_metadata_file = f"{data_dir}/queries/cohort_metadata_sheet.csv"
     if output_dir is None:

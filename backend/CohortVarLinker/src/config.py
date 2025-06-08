@@ -171,7 +171,7 @@ class Settings:
             "DATA_FOLDER",
             os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../data"))
         ),
-        "cohort"
+        "cohorts"
     ))
     # dev_mode: bool = field(default_factory=lambda: os.getenv("DEV_MODE", "false").lower() == "true")
 
@@ -226,6 +226,9 @@ class Settings:
 settings = Settings()
 
 print("in CohortVarLinker/src/config.py : ", settings.data_folder)
+print("settings Cohort folder: ", settings.cohort_folder)
+print("settings Concepts file path: ", settings.concepts_file_path)
+
 
 # Disable uvicorn logs, does not seems to really do much
 # uvicorn_error = logging.getLogger("uvicorn.error")
