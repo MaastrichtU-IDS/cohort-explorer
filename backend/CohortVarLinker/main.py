@@ -69,7 +69,8 @@ def create_cohort_specific_metadata_graph(dir_path, recreate=False):
                 # Select most recent CSV file with 'datadictionary' in the name
                 csv_candidates = [
                     f for f in glob.glob(os.path.join(cohort_path, "*.csv"))
-                    if "datadictionary" in os.path.basename(f).lower()
+                    if ("datadictionary" in os.path.basename(f).lower()
+                    and "noheader" not in os.path.basename(f).lower())
                 ]
                 cohort_metadata_file = None
                 if csv_candidates:
