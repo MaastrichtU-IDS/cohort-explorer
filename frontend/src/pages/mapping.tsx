@@ -107,11 +107,7 @@ export default function MappingPage() {
           typeof errorMsg === 'string' &&
           errorMsg.endsWith("metadata has not been added yet!")
         ) {
-          setError(
-            <span style={{ color: 'red', fontWeight: 500 }}>
-              The metadata of {sourceCohort} has not been added yet!
-            </span>
-          );
+          setError(`The metadata of ${sourceCohort} has not been added yet!`);
           return;
         }
         throw new Error(errorMsg);
@@ -133,9 +129,9 @@ export default function MappingPage() {
       window.URL.revokeObjectURL(url);
     } catch (err: any) {
       setError(
-        typeof err.message === 'string' && err.message.endsWith("metadata has not been added yet!") ? (
-          <span style={{ color: 'red', fontWeight: 500 }}>The metadata of {sourceCohort} has not been added yet!</span>
-        ) : (err.message || 'Unknown error')
+        typeof err.message === 'string' && err.message.endsWith("metadata has not been added yet!")
+          ? `The metadata of ${sourceCohort} has not been added yet!`
+          : (err.message || 'Unknown error')
       );
     } finally {
       setLoading(false);
@@ -161,6 +157,9 @@ export default function MappingPage() {
 
   return (
     <main className="flex flex-col items-center justify-start p-8 min-h-screen bg-base-200">
+      {error && (
+        <span style={{ color: 'red', fontWeight: 500, marginBottom: 16, display: 'block' }}>{error}</span>
+      )}
       <div className="w-full max-w-6xl space-y-8">
         <h1 className="text-3xl font-bold text-center mb-8">Cohort Mapping</h1>
 
