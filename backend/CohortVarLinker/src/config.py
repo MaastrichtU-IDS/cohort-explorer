@@ -164,11 +164,14 @@ class Settings:
 
     data_folder: str = field(default_factory=lambda: os.getenv(
         "DATA_FOLDER",
-        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "../../data"))
     ))
-    cohort_folder: str = field(default_factory=lambda: os.getenv(
-        "COHORT_FOLDER",
-        os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "cohorts")
+    cohort_folder: str = field(default_factory=lambda: os.path.join(
+        os.getenv(
+            "DATA_FOLDER",
+            os.path.abspath(os.path.join(os.path.dirname(__file__), "../../data"))
+        ),
+        "cohort"
     ))
     # dev_mode: bool = field(default_factory=lambda: os.getenv("DEV_MODE", "false").lower() == "true")
 
