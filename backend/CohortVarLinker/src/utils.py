@@ -224,16 +224,16 @@ def extract_tick_values(texts: str) -> list[float]:
                 pass
     return ticks
 def is_categorical_variable(df):
-    #normalizing all possible column name variations by converting to uppercase
-    df.columns = [c.upper() for c in df.columns]
+    #normalizing all possible column name variations by converting to lowercase
+    df.columns = [c.lower() for c in df.columns]
     binary_categorical = []
     multi_class_categorical = []
     #allowing some flexibility in the name of the variable column
-    varname_col = [x for x in ['VARIABLE NAME', 'VARIABLENAME', 'VAR NAME'] 
+    varname_col = [x for x in ['variablename', 'variable name'] 
                     if x in df.columns][0]
 
     # create dict using variable name and CATREGORICAL
-    column_dict = dict(zip(df[varname_col], df['CATEGORICAL']))
+    column_dict = dict(zip(df[varname_col], df['categorical']))
     for key, value in column_dict.items():
         # if pd.notna(value) and value:
             if pd.notna(value) and value != "":
