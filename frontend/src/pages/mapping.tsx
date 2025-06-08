@@ -109,7 +109,7 @@ export default function MappingPage() {
         ) {
           setError(
             <span style={{ color: 'red', fontWeight: 500 }}>
-              {sourceCohort}'s metadata has not been added yet!
+              The metadata of {sourceCohort} has not been added yet!
             </span>
           );
           return;
@@ -134,7 +134,7 @@ export default function MappingPage() {
     } catch (err: any) {
       setError(
         typeof err.message === 'string' && err.message.endsWith("metadata has not been added yet!") ? (
-          <span style={{ color: 'red', fontWeight: 500 }}>{sourceCohort}'s metadata has not been added yet!</span>
+          <span style={{ color: 'red', fontWeight: 500 }}>The metadata of {sourceCohort} has not been added yet!</span>
         ) : (err.message || 'Unknown error')
       );
     } finally {

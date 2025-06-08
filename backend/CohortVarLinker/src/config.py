@@ -225,6 +225,8 @@ class Settings:
 
 settings = Settings()
 
+print("in CohortVarLinker/src/config.py : ", settings.data_folder)
+
 # Disable uvicorn logs, does not seems to really do much
 # uvicorn_error = logging.getLogger("uvicorn.error")
 # uvicorn_error.disabled = True

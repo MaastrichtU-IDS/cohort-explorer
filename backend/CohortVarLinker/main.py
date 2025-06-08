@@ -264,9 +264,6 @@ def cluster_variables_by_omop(endpoint_url):
 
 # from owlready2 import get_ontology
 
-
-import os
-
 def generate_mapping_csv(
     source_study,
     target_studies,
@@ -292,7 +289,7 @@ def generate_mapping_csv(
     if cohort_file_path is None:
         cohort_file_path = settings.cohort_folder
     # Robust check: ensure all selected cohorts exist
-    import os
+   
     missing_cohorts = []
     for cohort_id in [source_study] + [t[0] for t in target_studies]:
         cohort_dir = os.path.join(cohort_file_path, cohort_id)
