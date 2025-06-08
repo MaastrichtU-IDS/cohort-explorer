@@ -164,12 +164,12 @@ class Settings:
 
     data_folder: str = field(default_factory=lambda: os.getenv(
         "DATA_FOLDER",
-        os.path.abspath(os.path.join(os.path.dirname(__file__), "../../data"))
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../data"))
     ))
     cohort_folder: str = field(default_factory=lambda: os.path.join(
         os.getenv(
             "DATA_FOLDER",
-            os.path.abspath(os.path.join(os.path.dirname(__file__), "../../data"))
+            os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../data"))
         ),
         "cohort"
     ))
