@@ -12,7 +12,7 @@ class OmopGraphNX:
     Builds a bidirectional graph from an OMOP concept_relationship CSV using networkx.
     Provides fast path searches and supports adding direct (inferred) shortcut edges.
     """
-    def __init__(self, csv_file_path=None, output_file='data/graph_nx.pkl'):
+    def __init__(self, csv_file_path=None, output_file='graph_nx.pkl'):
         """
         :param csv_file_path: Path to the OMOP concept_relationship CSV.
         :param output_file: Filename to save/load the networkx graph. Defaults to 'data/graph_nx.pkl'.
