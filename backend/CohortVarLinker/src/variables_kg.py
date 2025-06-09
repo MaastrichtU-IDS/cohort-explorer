@@ -114,17 +114,20 @@ def process_variables_metadata_file(file_path:str, study_metadata_graph_file_pat
             if (pd.notna(row['additional context concept name']) and 
             pd.notna(row['additional context concept code']) and 
             pd.notna(row['additional context omop id'])):
-                count1 = len(row['additional context concept name'].split("|"))
-                count2 = len(row['additional context concept code'].split("|"))
-                count3 = len(row['additional context omop id'].split("|"))
-                if count1 == count2 == count3:
-                    base_concept.extend([Concept(
-                        standard_label=row['additional context concept name'].split("|")[i] if pd.notna(row['additional context concept name']) else None,
-                        code=row['additional context concept code'].split("|")[i] if pd.notna(row['additional context concept code']) else None,
+                try:
+                    count1 = len(str(row['additional context concept name']).split("|"))
+                    count2 = len(str(row['additional context concept code']).split("|"))
+                    count3 = len(str(row['additional context omop id']).split("|"))
+                    if count1 == count2 == count3:
+                        base_concept.extend([Concept(
+                        standard_label=str(row['additional context concept name']).split("|")[i] if pd.notna(row['additional context concept name']) else None,
+                        code=str(row['additional context concept code']).split("|")[i] if pd.notna(row['additional context concept code']) else None,
                         omop_id=safe_int(row['additional context omop id'].split("|")[i]) if pd.notna(row['additional context omop id']) else None,
                     ) for i in range(count1)])
-                else:
-                    print(f"Row number {rownum} of {cohort_name} has an unequal number of additional context concept names/codes/omop ids.")
+                except:
+                    print(f"Row number {rownum} of {cohort_name} does not have a valid string in additional context concept names/codes/omop ids.")
+            else:
+                print(f"Row number {rownum} of {cohort_name} has an unequal number of additional context concept names/codes/omop ids.")
 
             # g=add_solo_concept_info(g, var_uri, base_concept, cohort_graph)
             # g = add_concept_info(g, var_uri, base_concept, cohort_graph)
