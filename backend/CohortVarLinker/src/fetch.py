@@ -657,6 +657,8 @@ def map_source_target(source_study_name:str , target_study_name:str, vector_db, 
     sparql.setQuery(query)
     sparql.setReturnFormat(JSON)
     results = sparql.query().convert()
+    print(f"Inside fetch.map_source_target : Source cohort {source_study_name}, target cohort {target_study_name}, length of results: {len(results['results']['bindings'])}")
+    print(f"Results: {results}")
   
     final_dict = []
     source_elements = []
