@@ -124,11 +124,11 @@ def process_variables_metadata_file(file_path:str, study_metadata_graph_file_pat
                         code=str(row['additional context concept code']).split("|")[i] if pd.notna(row['additional context concept code']) else None,
                         omop_id=safe_int(row['additional context omop id'].split("|")[i]) if pd.notna(row['additional context omop id']) else None,
                     ) for i in range(count1)])
+                    else:
+                        print(f"Row number {rownum} of {cohort_name} has an unequal number of additional context concept names/codes/omop ids.")
                 except:
                     print(f"Row number {rownum} of {cohort_name} does not have a valid string in additional context concept names/codes/omop ids.")
-            else:
-                print(f"Row number {rownum} of {cohort_name} has an unequal number of additional context concept names/codes/omop ids.")
-
+            
             # g=add_solo_concept_info(g, var_uri, base_concept, cohort_graph)
             # g = add_concept_info(g, var_uri, base_concept, cohort_graph)
             g = add_data_type(g, var_uri, row['vartype'], cohort_graph)
