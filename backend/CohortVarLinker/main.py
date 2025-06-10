@@ -289,6 +289,10 @@ def generate_mapping_csv(
         cohorts_metadata_file (str, optional): Path to the cohort metadata file. Defaults to f"{data_dir}/cohort_metadata_sheet_v2.csv".
         output_dir (str, optional): Directory to store output mapping CSVs. Defaults to 'mapping_output' inside CohortVarLinker.
     """
+
+    source_study = source_study.lower()
+    target_studies = [(t[0].lower(), t[1]) for t in target_studies]
+    
     if data_dir is None:
         data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
     from CohortVarLinker.src.config import settings
