@@ -312,7 +312,7 @@ def fetch_data_elements_from_studyX_with_permissible_value(study_name, permissib
             
                     ?permissiblevalues_part a obi:categorical_value_specification;
                             obi:is_specified_input_of ?cat_data_standardization.
-                    ?cat_data_standardization a cmeo:data_standardization.
+                    ?cat_data_standardization a <https://w3id.org/CMEO/data_standardization>.
                     ?cat_data_standardization obi:has_specified_output ?cat_standardized_code.
                     ?cat_standardized_code rdfs:label ?label_value.
                 
@@ -377,11 +377,11 @@ def find_common_codes( source_study_name:str , target_study_name:str,graph_db_re
                             dc:identifier ?var_nameA ;
                             obi:is_specified_input_of ?catProcessA, ?stdProcessA .
 
-                ?catProcessA rdf:type cmeo:categorization_process ;
+                ?catProcessA rdf:type <https://w3id.org/CMEO/categorization_process> ;
                             obi:has_specified_output ?cat_outputA .
                 ?cat_outputA cmeo:has_value ?omop_domain .
 
-                ?stdProcessA rdf:type cmeo:data_standardization ;
+                ?stdProcessA rdf:type <https://w3id.org/CMEO/data_standardization> ;
                             obi:has_specified_output ?codeA .
                 ?codeA obi:denotes ?omop_id_uri;
                         rdfs:label ?code_label;
@@ -405,11 +405,11 @@ def find_common_codes( source_study_name:str , target_study_name:str,graph_db_re
                             dc:identifier ?var_nameB ;
                             obi:is_specified_input_of ?catProcessB, ?stdProcessB .
 
-                ?catProcessB rdf:type cmeo:categorization_process ;
+                ?catProcessB rdf:type <https://w3id.org/CMEO/categorization_process> ;
                             obi:has_specified_output ?cat_outputB .
                 ?cat_outputB cmeo:has_value ?omop_domain .
 
-                ?stdProcessB rdf:type cmeo:data_standardization ;
+                ?stdProcessB rdf:type <https://w3id.org/CMEO/data_standardization> ;
                             obi:has_specified_output ?codeB .
                 ?codeB obi:denotes ?omop_id_uri;
                     cmeo:has_value ?code_value ;
@@ -589,12 +589,12 @@ def map_source_target(source_study_name:str , target_study_name:str, vector_db, 
                                     
                                     ?vs_stdProcessA obi:has_specified_output ?visit_code.
                                     ?visit_code rdfs:label ?visitcodelabelA.
-                                    ?catProcessA rdf:type cmeo:categorization_process ;
+                                    ?catProcessA rdf:type <https://w3id.org/CMEO/categorization_process> ;
                                                 obi:has_specified_output ?cat_outputA .
                                     ?cat_outputA cmeo:has_value ?val .
                                     #FILTER(?val IN ("measurement", "drug_exposure"))
 
-                                    ?stdProcessA rdf:type cmeo:data_standardization ;
+                                    ?stdProcessA rdf:type <https://w3id.org/CMEO/data_standardization> ;
                                                 obi:has_specified_output ?codeA .
                                     ?codeA rdf:_1 ?primary_code_literal .
                                     ?primary_code_literal iao:denotes ?omop_id_uri ;
@@ -628,12 +628,12 @@ def map_source_target(source_study_name:str , target_study_name:str, vector_db, 
                                     
                                     ?vs_stdProcessAB obi:has_specified_output ?visit_code.
                                     ?visit_code rdfs:label ?visitcodelabelB.
-                                    ?catProcessB rdf:type cmeo:categorization_process ;
+                                    ?catProcessB rdf:type <https://w3id.org/CMEO/categorization_process> ;
                                     obi:has_specified_output ?cat_outputB .
                                     ?cat_outputB cmeo:has_value ?val .
                                     #FILTER(?val IN ("measurement", "drug_exposure"))
 
-                                    ?stdProcessB rdf:type cmeo:data_standardization ;
+                                    ?stdProcessB rdf:type <https://w3id.org/CMEO/data_standardization> ;
                                             obi:has_specified_output ?codeB .
                                     ?codeB rdf:_1 ?primary_code_literal .
                                     ?primary_code_literal iao:denotes ?omop_id_uri ;
@@ -653,6 +653,7 @@ def map_source_target(source_study_name:str , target_study_name:str, vector_db, 
     """
     # print(query)
     
+    print("Inside fetch.map_source_target, query is:\n",query)
     sparql = SPARQLWrapper(settings.query_endpoint)
     sparql.setQuery(query)
     sparql.setReturnFormat(JSON)
@@ -1325,10 +1326,10 @@ def find_hierarchy_of_variables(study_name:str) -> List[Dict]:
                       dc:identifier ?var_nameA ;
                       obi:is_specified_input_of ?catProcessA, ?stdProcessA .
 
-        ?catProcessA rdf:type cmeo:categorization_process ;
+        ?catProcessA rdf:type <https://w3id.org/CMEO/categorization_process> ;
                      obi:has_specified_output ?cat_outputA .
 
-        ?stdProcessA rdf:type cmeo:data_standardization ;
+        ?stdProcessA rdf:type <https://w3id.org/CMEO/data_standardization> ;
                      obi:has_specified_output ?codeB .
         
         ?codeB rdf:_1 ?primary_code_literal .
