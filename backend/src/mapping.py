@@ -35,6 +35,10 @@ async def generate_mapping(
     generate_mapping_csv(source_study, target_studies)
     output_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'CohortVarLinker', 'mapping_output')
     # Find the generated file(s)
+
+    source_study = source_study.lower()
+    target_studies =  [(t[0].lower(), t[1]) for t in target_studies]
+    
     for tstudy, _ in target_studies:
         filename = f"{source_study}_{tstudy}_full.csv"
         filepath = os.path.join(output_dir, filename)
