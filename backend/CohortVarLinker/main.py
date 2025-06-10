@@ -290,9 +290,6 @@ def generate_mapping_csv(
         output_dir (str, optional): Directory to store output mapping CSVs. Defaults to 'mapping_output' inside CohortVarLinker.
     """
 
-    source_study = source_study.lower()
-    target_studies = [(t[0].lower(), t[1]) for t in target_studies]
-    
     if data_dir is None:
         data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
     from CohortVarLinker.src.config import settings
@@ -324,6 +321,9 @@ def generate_mapping_csv(
 
     print(f"Checking for cached or ready mapping files in directory: {os.path.abspath(output_dir)}")
 
+    source_study = source_study.lower()
+    target_studies = [(t[0].lower(), t[1]) for t in target_studies]
+   
     # Check if all requested mappings already exist
     all_exist = True
     missing_targets = []
