@@ -361,9 +361,16 @@ def generate_mapping_csv(
             collection_name="studies_metadata",
             visit_constraint=vc
         )
-        print(mapping_transformed)
-        mapping_transformed = mapping_transformed.drop_duplicates(keep='first')
-        mapping_transformed.to_csv(out_path, index=False)
+    
+        if mapping_transformed is None or mapping_transformed.empty:
+            # If possible, preserve the expected columns
+            columns = getattr(mapping_transformed, 'columns', None)
+            if columns is None or len(columns) == 0:
+                columns = ['No mappings found']*3
+            pd.DataFrame(columns=columns).to_csv(out_path, index=False)
+        else:
+            mapping_transformed = mapping_transformed.drop_duplicates(keep='first')
+            mapping_transformed.to_csv(out_path, index=False)
 
     # res=search_in_db(
     #     vectordb=vector_db,
