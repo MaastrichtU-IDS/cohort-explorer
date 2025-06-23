@@ -22,7 +22,6 @@ from CohortVarLinker.src.utils import (
 from CohortVarLinker.src.fetch import find_hierarchy_of_variables, map_source_target
 
 
-
 def create_study_metadata_graph(file_path, recreate=False):
 
     if recreate:

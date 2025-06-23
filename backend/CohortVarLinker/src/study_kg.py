@@ -151,7 +151,7 @@ def generate_studies_kg(filepath: str) -> Graph:
                 g.add((num_participants_uri, RDFS.label, Literal("number of study participants specification", datatype=XSD.string), metadata_graph))
                 g.add((protocol_uri, OntologyNamespaces.RO.value.has_part, num_participants_uri,metadata_graph))
                 g.add((num_participants_uri, OntologyNamespaces.RO.value.is_part_of, protocol_uri,metadata_graph))
-                g.add((num_participants_uri, OntologyNamespaces.CMEO.value.has_value, Literal(num_participants, datatype=XSD.integer),metadata_graph))
+                g.add((num_participants_uri, OntologyNamespaces.CMEO.value.has_value, Literal(num_participants, datatype=XSD.string),metadata_graph))
                 
             except ValueError:
                 pass
