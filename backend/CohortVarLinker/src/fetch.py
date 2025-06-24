@@ -8,7 +8,7 @@ from collections import defaultdict
 from typing import List, Dict, Any
 # from .embed import ModelEmbedding
 
-from .utils import apply_rules, export_hierarchy_to_excel, compare_with_fuzz
+from .utils import apply_rules, export_hierarchy_to_excel
 def fetch_common_ids():
     sparql = SPARQLWrapper(settings.query_endpoint)
     query = f"""
@@ -348,84 +348,111 @@ def study_x_with_data_elements_y(inclusion_criteria:str , data_element_criteria:
 def find_common_codes( source_study_name:str , target_study_name:str,graph_db_repo="http://localhost:7200/repositories/icare4cvd/rdf-graphs"):
     query = f"""
         PREFIX rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-        PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-        PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
-        PREFIX dc:   <http://purl.org/dc/elements/1.1/>
-        PREFIX obi:  <http://purl.obolibrary.org/obo/obi.owl/>
-        PREFIX cmeo: <https://w3id.org/CMEO/>
-        PREFIX bfo:  <http://purl.obolibrary.org/obo/bfo.owl/>
+            PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+            PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
+            PREFIX dc:   <http://purl.org/dc/elements/1.1/>
+            PREFIX obi:  <http://purl.obolibrary.org/obo/obi.owl/>
+            PREFIX cmeo: <https://w3id.org/CMEO/>
+            PREFIX bfo:  <http://purl.obolibrary.org/obo/bfo.owl/>
+            PREFIX iao: <http://purl.obolibrary.org/obo/iao.owl/>
 
-        SELECT
-          ?omop_id ?code_label ?code_value
-        (COUNT(DISTINCT ?source) AS ?study_count)
-        (GROUP_CONCAT(DISTINCT ?source; SEPARATOR=", ") AS ?study_name)
-        (GROUP_CONCAT(DISTINCT ?varNameA; SEPARATOR=", ") AS ?source)
-        (GROUP_CONCAT(DISTINCT ?varNameB; SEPARATOR=", ") AS ?target)
-        (IF(CONTAINS(GROUP_CONCAT(DISTINCT ?flagA; SEPARATOR=", "), "composite"), "composite", "singular") AS ?source_code_type)
-        (IF(CONTAINS(GROUP_CONCAT(DISTINCT ?flagB; SEPARATOR=", "), "composite"), "composite", "singular") AS ?target_code_type)
-        WHERE {{
-        {{
             SELECT
-            ?omop_id ?code_label ?code_value
-        
-            (COUNT(DISTINCT ?codeA) AS ?codeCountA)
-            (GROUP_CONCAT(DISTINCT STR(?var_nameA); SEPARATOR=", ") AS ?varNameA)
-            ("{source_study_name}" AS ?source)
-            WHERE {{
-            GRAPH <{graph_db_repo}/{source_study_name}> {{
-                ?dataElementA rdf:type cmeo:data_element ;
-                            dc:identifier ?var_nameA ;
-                            obi:is_specified_input_of ?catProcessA, ?stdProcessA .
+            ?omop_id ?code_label ?code_value ?val
+            (GROUP_CONCAT(DISTINCT ?varNameA; SEPARATOR=", ") AS ?source)
+            (GROUP_CONCAT(DISTINCT ?varNameB; SEPARATOR=", ") AS ?target)
+            (GROUP_CONCAT(DISTINCT STR(?visitsA); SEPARATOR=", ") AS ?source_visit)
+            (GROUP_CONCAT(DISTINCT STR(?visitsB); SEPARATOR=", ") AS ?target_visit)
+            
+            WHERE 
+            {{
+             {{
+                        SELECT
+                        ?omop_id ?code_label ?code_value ?val
 
-                ?catProcessA rdf:type <https://w3id.org/CMEO/categorization_process> ;
-                            obi:has_specified_output ?cat_outputA .
-                ?cat_outputA cmeo:has_value ?omop_domain .
+                        (COUNT(DISTINCT ?primary_code_literal) AS ?codeCountA)
+                        (GROUP_CONCAT(DISTINCT STR(?var_nameA); SEPARATOR=", ") AS ?varNameA)
+                        (GROUP_CONCAT(CONCAT(STR(?var_nameA), "||", STR(?visitcodelabelA)); SEPARATOR=", ") AS ?visitsA)
+                        ("{source_study_name}" AS ?source)
+                        WHERE {{
+                        GRAPH <{graph_db_repo}/{source_study_name}> 
+                        {{
+                                    ?dataElementA rdf:type cmeo:data_element ;
+                                                    dc:identifier ?var_nameA ;
+                                                    obi:is_specified_input_of ?catProcessA, ?stdProcessA .
+                                     OPTIONAL {{
+                                        ?visitdatum  rdf:type cmeo:visit_measurement_datum ;
+                                                    iao:is_about ?dataElementA ;
+                                                    obi:is_specified_input_of ?vs_stdProcessA .
+                                        
+                                        
+                                        ?vs_stdProcessA obi:has_specified_output ?visit_code.
+                                        ?visit_code rdfs:label ?visitcodelabelA.
+                                    }}
+                                    ?catProcessA rdf:type cmeo:categorization_process ;
+                                                obi:has_specified_output ?cat_outputA .
+                                    ?cat_outputA cmeo:has_value ?val .
+                                    #FILTER(?val IN ("measurement", "drug_exposure"))
 
-                ?stdProcessA rdf:type <https://w3id.org/CMEO/data_standardization> ;
-                            obi:has_specified_output ?codeA .
-                ?codeA obi:denotes ?omop_id_uri;
-                        rdfs:label ?code_label;
-                        cmeo:has_value ?code_value. 
-                ?omop_id_uri rdf:type cmeo:omop_id ;
-                        cmeo:has_value ?omop_id .
-            }}
-            }}
-            GROUP BY ?omop_id ?code_label ?code_value
-        }}
-        UNION
-        {{
-            SELECT
-            ?omop_id ?code_label ?code_value
-            (COUNT(DISTINCT ?codeB) AS ?codeCountB)
-            (GROUP_CONCAT(DISTINCT STR(?var_nameB); SEPARATOR=", ") AS ?varNameB)
-            ("{target_study_name}" AS ?source)
-            WHERE {{
-            GRAPH <{graph_db_repo}/{target_study_name}> {{
-                ?dataElementB rdf:type cmeo:data_element ;
-                            dc:identifier ?var_nameB ;
-                            obi:is_specified_input_of ?catProcessB, ?stdProcessB .
+                                    ?stdProcessA rdf:type cmeo:data_standardization ;
+                                                obi:has_specified_output ?codeA .
+                                    ?codeA rdf:_1 ?primary_code_literal .
+                                    ?primary_code_literal iao:denotes ?omop_id_uri ;
+                                            cmeo:has_value ?code_value ;
+                                            rdfs:label ?code_label .
+                                    ?omop_id_uri rdf:type cmeo:omop_id ;
+                                                cmeo:has_value ?omop_id .
+                            }}
+                        }}
+                        GROUP BY ?omop_id ?code_label ?code_value ?val
+                }}
+            UNION
+            {{
+                    SELECT
+                    ?omop_id ?code_label  ?code_value ?val
+                    (COUNT(DISTINCT ?primary_code_literal) AS ?codeCountB)
+                    (GROUP_CONCAT(DISTINCT STR(?var_nameB); SEPARATOR=", ") AS ?varNameB)
+                     (GROUP_CONCAT(CONCAT(STR(?var_nameB), "||", STR(?visitcodelabelB)); SEPARATOR=", ") AS ?visitsB)
+                    ("{target_study_name}" AS ?target)
+                        WHERE 
+                        {{
+                                GRAPH <{graph_db_repo}/{target_study_name}> 
+                                {{
+                                    ?dataElementB rdf:type cmeo:data_element ;
+                                    dc:identifier ?var_nameB ;
+                                    obi:is_specified_input_of ?catProcessB, ?stdProcessB.
+                                    
+                                    OPTIONAL {{
+                                    ?visitdatum  rdf:type cmeo:visit_measurement_datum ;
+                                                iao:is_about ?dataElementB ;
+                                                obi:is_specified_input_of ?vs_stdProcessAB .
+                                    
+                                    
+                                    ?vs_stdProcessAB obi:has_specified_output ?visit_code.
+                                    ?visit_code rdfs:label ?visitcodelabelB.
+                                    }}
+                                    ?catProcessB rdf:type cmeo:categorization_process ;
+                                    obi:has_specified_output ?cat_outputB .
+                                    ?cat_outputB cmeo:has_value ?val .
+                                    #FILTER(?val IN ("measurement", "drug_exposure"))
 
-                ?catProcessB rdf:type <https://w3id.org/CMEO/categorization_process> ;
-                            obi:has_specified_output ?cat_outputB .
-                ?cat_outputB cmeo:has_value ?omop_domain .
+                                    ?stdProcessB rdf:type cmeo:data_standardization ;
+                                            obi:has_specified_output ?codeB .
+                                    ?codeB rdf:_1 ?primary_code_literal .
+                                    ?primary_code_literal iao:denotes ?omop_id_uri ;
+                                    cmeo:has_value ?code_value;
+                                    rdfs:label ?code_label.
+                                    ?omop_id_uri rdf:type cmeo:omop_id ;
+                                    cmeo:has_value ?omop_id.
+                                }}
+                        }}
 
-                ?stdProcessB rdf:type <https://w3id.org/CMEO/data_standardization> ;
-                            obi:has_specified_output ?codeB .
-                ?codeB obi:denotes ?omop_id_uri;
-                    cmeo:has_value ?code_value ;
-                    rdfs:label ?code_label .
-                ?omop_id_uri rdf:type cmeo:omop_id ;
-                        cmeo:has_value ?omop_id .
+                    GROUP BY ?omop_id  ?code_label ?code_value  ?val
+                }}
             }}
-            }}
-            GROUP BY ?omop_id  ?code_label ?code_value
-        }}
-        BIND(IF(BOUND(?codeCountA) && ?codeCountA > 2, "composite", "singular") AS ?flagA)
-        BIND(IF(BOUND(?codeCountB) && ?codeCountB > 2, "composite", "singular") AS ?flagB)
-        }}
-        GROUP BY ?omop_id ?code_label ?code_value
-        HAVING (COUNT(DISTINCT ?source) = 2)
-        ORDER BY ?omop_id
+            GROUP BY ?omop_id ?code_label ?code_value ?val
+            #HAVING (COUNT(DISTINCT ?source) < 3)
+            ORDER BY ?omop_id
+    
     """
     sparql = SPARQLWrapper(settings.query_endpoint)
     sparql.setQuery(query)
@@ -581,20 +608,21 @@ def map_source_target(source_study_name:str , target_study_name:str, vector_db, 
                                     ?dataElementA rdf:type cmeo:data_element ;
                                                     dc:identifier ?var_nameA ;
                                                     obi:is_specified_input_of ?catProcessA, ?stdProcessA .
-                                     
-                                    ?visitdatum  rdf:type cmeo:visit_measurement_datum ;
-                                                iao:is_about ?dataElementA ;
-                                                obi:is_specified_input_of ?vs_stdProcessA .
-                                    
-                                    
-                                    ?vs_stdProcessA obi:has_specified_output ?visit_code.
-                                    ?visit_code rdfs:label ?visitcodelabelA.
-                                    ?catProcessA rdf:type <https://w3id.org/CMEO/categorization_process> ;
+                                     OPTIONAL {{
+                                        ?visitdatum  rdf:type cmeo:visit_measurement_datum ;
+                                                    iao:is_about ?dataElementA ;
+                                                    obi:is_specified_input_of ?vs_stdProcessA .
+                                        
+                                        
+                                        ?vs_stdProcessA obi:has_specified_output ?visit_code.
+                                        ?visit_code rdfs:label ?visitcodelabelA.
+                                    }}
+                                    ?catProcessA rdf:type cmeo:categorization_process ;
                                                 obi:has_specified_output ?cat_outputA .
                                     ?cat_outputA cmeo:has_value ?val .
                                     #FILTER(?val IN ("measurement", "drug_exposure"))
 
-                                    ?stdProcessA rdf:type <https://w3id.org/CMEO/data_standardization> ;
+                                    ?stdProcessA rdf:type cmeo:data_standardization ;
                                                 obi:has_specified_output ?codeA .
                                     ?codeA rdf:_1 ?primary_code_literal .
                                     ?primary_code_literal iao:denotes ?omop_id_uri ;
@@ -621,6 +649,8 @@ def map_source_target(source_study_name:str , target_study_name:str, vector_db, 
                                     ?dataElementB rdf:type cmeo:data_element ;
                                     dc:identifier ?var_nameB ;
                                     obi:is_specified_input_of ?catProcessB, ?stdProcessB.
+                                    
+                                    OPTIONAL {{
                                     ?visitdatum  rdf:type cmeo:visit_measurement_datum ;
                                                 iao:is_about ?dataElementB ;
                                                 obi:is_specified_input_of ?vs_stdProcessAB .
@@ -628,12 +658,13 @@ def map_source_target(source_study_name:str , target_study_name:str, vector_db, 
                                     
                                     ?vs_stdProcessAB obi:has_specified_output ?visit_code.
                                     ?visit_code rdfs:label ?visitcodelabelB.
-                                    ?catProcessB rdf:type <https://w3id.org/CMEO/categorization_process> ;
+                                    }}
+                                    ?catProcessB rdf:type cmeo:categorization_process ;
                                     obi:has_specified_output ?cat_outputB .
                                     ?cat_outputB cmeo:has_value ?val .
                                     #FILTER(?val IN ("measurement", "drug_exposure"))
 
-                                    ?stdProcessB rdf:type <https://w3id.org/CMEO/data_standardization> ;
+                                    ?stdProcessB rdf:type cmeo:data_standardization ;
                                             obi:has_specified_output ?codeB .
                                     ?codeB rdf:_1 ?primary_code_literal .
                                     ?primary_code_literal iao:denotes ?omop_id_uri ;
@@ -650,6 +681,7 @@ def map_source_target(source_study_name:str , target_study_name:str, vector_db, 
             GROUP BY ?omop_id ?code_label ?code_value ?val
             #HAVING (COUNT(DISTINCT ?source) < 3)
             ORDER BY ?omop_id
+    
     """
     # print(query)
     
@@ -898,12 +930,11 @@ def map_source_target(source_study_name:str , target_study_name:str, vector_db, 
                         'mapping type': 'text match' if not reachable_by_graph else 'semantic match'
                     })
 
-    final_df_frame = pd.DataFrame.from_dict(final_dict)
-    print(f"length of final data frame: {len(final_df_frame)}")
+    final_df_frame = pd.DataFrame(final_dict)
+    # print(f"length of final data frame: {len(final_df_frame)}")
 
     final_df_frame.to_csv("common_codes.csv", index=False)
-    print(f"time taken: {time.time() - start_time}")    
-
+    # print(f"time taken: {time.time() - start_time}")
 
 
     #     check transformation
@@ -1075,7 +1106,7 @@ def extend_with_dervied_variables(single_source: List[Dict],
     # If the source already has bmi, reuse its variable name; otherwise "bmi (derived)"
     if len(source_derviedvar_rows) < 1 and len(target_derviedvar_rows) < 1:
         # print(f"source or target both does not have bmi: {source_derviedvar_rows} and {target_derviedvar_rows}")
-        return []
+        return {}
     
         # 1) Check if source side can produce bmi
     source_can_bmi = can_produce_variable(single_source,  parameters_codes=parameters_omop_ids,side="source")
@@ -1085,7 +1116,7 @@ def extend_with_dervied_variables(single_source: List[Dict],
 
     # If either side cannot produce bmi, do nothing
     if not (source_can_bmi and target_can_bmi):
-        return []
+        return {}
     
     # print(f"source_rows: {source_derviedvar_rows} and target_rows: {target_derviedvar_rows}")
     if source_derviedvar_rows:
