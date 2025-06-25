@@ -20,7 +20,7 @@ from CohortVarLinker.src.omop_graph import OmopGraphNX
 
 
 
-from CohortVarLinker.src.fetch import find_hierarchy_of_variables, map_source_target
+from CohortVarLinker.src.fetch import map_source_target
 
 
 def create_study_metadata_graph(file_path, recreate=False):
@@ -322,19 +322,19 @@ def generate_mapping_csv(
     print(f"Checking for cached or ready mapping files in directory: {os.path.abspath(output_dir)}")
 
     source_study = source_study.lower()
-    target_studies = [(t[0].lower(), t[1]) for t in target_studies]
-   
+    target_studies = [t[0].lower() for t in target_studies]
+
     # Check if all requested mappings already exist
     all_exist = True
     missing_targets = []
-    for tstudy, vc in target_studies:
-        suffix = 'restricted' if vc else 'full'
-        out_filename = f'{source_study}_{tstudy}_{suffix}.csv'
+    for tstudy in target_studies:
+        # suffix = 'restricted' if vc else 'full'
+        out_filename = f'{source_study}_{tstudy}_cross_mapping.csv'
         out_path = os.path.join(output_dir, out_filename)
         print(f"Checking if {out_path} exists")
         if not os.path.exists(out_path):
             all_exist = False
-            missing_targets.append((tstudy, vc))
+            missing_targets.append(tstudy)
     if all_exist:
         print("All requested mappings already exist. Skipping all computation.")
         return
@@ -346,12 +346,11 @@ def generate_mapping_csv(
     # Use 'qdrant' as the host when running in Docker Compose
     vector_db, embedding_model = generate_studies_embeddings(cohort_file_path, "qdrant", "studies_metadata", recreate_db=True)
     graph = OmopGraphNX(csv_file_path=settings.concepts_file_path)
-    for tstudy, vc in target_studies:
-        suffix = 'restricted' if vc else 'full'
-        out_filename = f'{source_study}_{tstudy}_{suffix}.csv'
+    for tstudy in target_studies:
+        out_filename = f'{source_study}_{tstudy}_cross_mapping.csv'
         out_path = os.path.join(output_dir, out_filename)
         if os.path.exists(out_path):
-            print(f"Mapping already exists for {source_study} to {tstudy} (visit_constraint={vc}), skipping computation.")
+            print(f"Mapping already exists for {source_study} to {tstudy}, skipping computation.")
             continue
         mapping_transformed = map_source_target(
             source_study_name=source_study,
@@ -359,9 +358,8 @@ def generate_mapping_csv(
             embedding_model=embedding_model,
             vector_db=vector_db,
             collection_name="studies_metadata",
-            visit_constraint=vc,
-            omop_graph=graph,
-        )
+            graph=graph,
+        ) # if empty it will return empty DataFrame with header not None
     
         if mapping_transformed is None or mapping_transformed.empty:
             # If possible, preserve the expected columns

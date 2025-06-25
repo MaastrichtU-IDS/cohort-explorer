@@ -12,13 +12,7 @@ from .utils import apply_rules, export_hierarchy_to_excel
 
 
     
-def check_visit_string(visit_string, visit_constraint: bool = True):
-    if not visit_constraint and (visit_string is None or not visit_string.startswith("baseline") or not visit_string.startswith("follow") or visit_string == ""):
-     return "baseline time"
-    else:
-        return visit_string
-    
-def build_element_list(role, elements, visits, omop_id, code_id, code_label, domain, visit_constraint: bool = True):
+def build_element_list(role, elements, visits, omop_id, code_id, code_label, domain):
     return [
         {
             'omop_id': omop_id,
@@ -26,7 +20,7 @@ def build_element_list(role, elements, visits, omop_id, code_id, code_label, dom
             'code_label': code_label,
             role: el,
             'category': domain,
-            'visit': check_visit_string(vis, visit_constraint)
+            'visit': vis,
         }
         for el, vis in zip(elements, visits)
     ]
@@ -40,14 +34,13 @@ def get_exact_matches(
                 code_label: str,
                 omop_id: int,
                 domain: str,
-                visit_constraint: bool,
             ) -> list[dict]:
    
     matches = []
     for i, s in enumerate(src_elements):
         for j, t in enumerate(tgt_elements):
-            sv = check_visit_string(src_visits[i], visit_constraint)
-            tv = check_visit_string(tgt_visits[j], visit_constraint)
+            sv = src_visits[i]
+            tv =  tgt_visits[j]
             if sv == tv:
                 matches.append({
                     'source':  s,
@@ -66,9 +59,8 @@ def get_exact_matches(
     return matches
 
 
-def map_source_target(source_study_name:str , target_study_name:str, vector_db, embedding_model,graph_db_repo="https://w3id.org/CMEO/graph", collection_name="studies_metadata",
-                      visit_constraint: bool = True, omop_graph:Any = None):
-
+def map_source_target(source_study_name:str , target_study_name:str, vector_db, embedding_model,graph_db_repo="https://w3id.org/CMEO/graph", collection_name="studies_metadata", graph:Any = None):
+ 
     from .vector_db import search_in_db 
     """
     The function is designed to identify data elements 
@@ -78,9 +70,11 @@ def map_source_target(source_study_name:str , target_study_name:str, vector_db, 
 
     
     """
-    # omopgraph is OmopGraphNX object
-    graph = omop_graph(csv_file_path=settings.concepts_file_path)
-    
+    # from .omop_graph import OmopGraphNX
+    # graph = OmopGraphNX(csv_file_path=settings.concepts_file_path)
+    start_time = time.time()
+    # common_codes_df = find_common_codes(source_study_name, target_study_name)  # via common code, its first step
+
     query = f"""
         
             PREFIX rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
@@ -189,7 +183,7 @@ def map_source_target(source_study_name:str , target_study_name:str, vector_db, 
             #HAVING (COUNT(DISTINCT ?source) < 3)
             ORDER BY ?omop_id
     """
-    print(query)
+    # print(query)
     
     sparql = SPARQLWrapper(settings.query_endpoint)
     sparql.setQuery(query)
@@ -197,6 +191,7 @@ def map_source_target(source_study_name:str , target_study_name:str, vector_db, 
     results = sparql.query().convert()
   
     final_dict = []
+    # non_matching_dict = []
     source_elements = []
     target_elements = []
     # unmatched_dict = []
@@ -208,82 +203,84 @@ def map_source_target(source_study_name:str , target_study_name:str, vector_db, 
         code_id = result['code_value']['value']
         source_data_elements = source.split(', ') if (source and source != '') else []
         target_data_elements = target.split(', ') if (target and target != '') else []
-        source_data_elements_visit = source_data_elements_visit = (
+        
+        source_data_elements_visit = (
                     [r.split("||")[-1].strip() for r in result['source_visit']['value'].split(', ')]
                     if (result['source_visit']['value'] and result['source_visit']['value'] != '')
                     else ["baseline time"] * len(source_data_elements)
                 )
-        target_data_elements_visit = [r.split("||")[-1].strip() for r in result['target_visit']['value'].split(', ')] if (result['target_visit']['value'] and result['target_visit']['value'] != '') else  ["baseline time"] * len(target_data_elements)
+        target_data_elements_visit = (
+            [r.split("||")[-1].strip() for r in result['target_visit']['value'].split(', ')]
+            if (result['target_visit']['value'] and result['target_visit']['value'] != '')
+            else ["baseline time"] * len(target_data_elements)
+        )
+        
         omop_domain = str(result['val']['value']).strip().lower()
+        # print(f"{omop_id} == source visit: {source_data_elements_visit}")
+        # print(f"{omop_id} == target visit: {target_data_elements_visit}")
         assert len(target_data_elements) == len(target_data_elements_visit), (
                 f"Visit column Length mismatch with variable labels: {len(target_data_elements)} != {len(target_data_elements_visit)}"
             )
 
         if len(source_data_elements) > 0 and len(target_data_elements) > 0:
-            final_dict += get_exact_matches(
-                src_elements=source_data_elements,
-                tgt_elements=target_data_elements,
-                src_visits=source_data_elements_visit,
-                tgt_visits=target_data_elements_visit,
-                code_id=code_id,
-                code_label=code_label,
-                omop_id=omop_id,
-                domain=omop_domain,
-                visit_constraint=visit_constraint
-            )
-
-                        
-            source_elements += build_element_list(
-                role='source', elements=source_data_elements, visits=source_data_elements_visit, omop_id=omop_id, code_id=code_id, code_label=code_label, domain=omop_domain, visit_constraint=visit_constraint
-            )
-
-            target_elements += build_element_list(
-                role='target', elements=target_data_elements, visits=target_data_elements_visit, omop_id=omop_id, code_id=code_id, code_label=code_label, domain=omop_domain, visit_constraint=visit_constraint
-            )
- 
-
+                final_dict += get_exact_matches(
+                    src_elements=source_data_elements,
+                    tgt_elements=target_data_elements,
+                    src_visits=source_data_elements_visit,
+                    tgt_visits=target_data_elements_visit,
+                    code_id=code_id,
+                    code_label=code_label,
+                    omop_id=omop_id,
+                    domain=omop_domain,
+                )   
+                source_elements += build_element_list(
+                    role='source', elements=source_data_elements, visits=source_data_elements_visit, omop_id=omop_id, code_id=code_id, code_label=code_label, domain=omop_domain
+                )
+                target_elements += build_element_list(
+                    role='target', elements=target_data_elements, visits=target_data_elements_visit, omop_id=omop_id, code_id=code_id, code_label=code_label, domain=omop_domain
+                )
+    
         else:
 
-            if len(source_data_elements) > 0:
-                
-                source_elements += build_element_list(
-                    role='source', elements=source_data_elements, visits=source_data_elements_visit, omop_id=omop_id, code_id=code_id, code_label=code_label, domain=omop_domain, visit_constraint=visit_constraint
-                )
-            
-            if len(target_data_elements) > 0:
-                target_elements += build_element_list(
-                    role='target', elements=target_data_elements, visits=target_data_elements_visit, omop_id=omop_id, code_id=code_id, code_label=code_label, domain=omop_domain, visit_constraint=visit_constraint
-                )
-                
+                if len(source_data_elements) > 0:
+                    
+                    source_elements += build_element_list(
+                        role='source', elements=source_data_elements, visits=source_data_elements_visit, omop_id=omop_id, code_id=code_id, code_label=code_label, domain=omop_domain
+                    )
+        
+
+                if len(target_data_elements) > 0:
+                    target_elements += build_element_list(
+                        role='target', elements=target_data_elements, visits=target_data_elements_visit, omop_id=omop_id, code_id=code_id, code_label=code_label, domain=omop_domain
+                    )
+           
+    
     if len(target_elements) == 0 and len(final_dict) == 0:
-        # print(f"no mappings found for {source_study_name} and {target_study_name}. Please check the study name.")
-        return None
+        # return empty dataframe if no matches found
+        print(f"No matches found for {source_study_name} and {target_study_name}.")
+        empty_df = pd.DataFrame(columns=[f"{source_study_name}_variable", f"{target_study_name}_variable", "somop_id", "tomop_id", "scode", "slabel", "tcode", "tlabel", "category", "mapping type", "source_visit", "target_visit"])
+        return empty_df
 
     single_source = {"source":source_elements, "target":target_elements, "mapped": final_dict}
     bmi_row  =  extend_with_dervied_variables(single_source, standard_derived_variable=("loinc:39156-5", "Body mass index (bmi) [ratio]", 3038553), parameters_omop_ids=[3036277, 3025315], variable_name="bmi")
     egfr_row = extend_with_dervied_variables(single_source, standard_derived_variable=("snomed:1556501000000100", "Estimated creatinine clearance calculated using actual body weight Cockcroft-Gault formula", 37169169), parameters_omop_ids=[3016723,3022304,46235213], variable_name="egfr")
-    # print(f"bmi row: {bmi_row}")
-    # print(f"egfr_row row: {egfr_row}")
+    print(f"bmi row: {bmi_row}")
+    print(f"egfr_row row: {egfr_row}")
     final_dict.append(bmi_row)
     final_dict.append(egfr_row)
-    final_dict_new =  _cross_domain_matches(source_elements, target_elements, visit_constraint=visit_constraint)
+    final_dict_new =  _cross_domain_matches(source_elements, target_elements)
     # print(f"final_dict_new: {len(final_dict_new)}")
     final_dict.extend(final_dict_new)
 
     unique_source_ids = {(s['omop_id'], s['category']) for s in source_elements}
     unique_target_ids = {(t['omop_id'], t['category'])  for t in target_elements}
 
-
    
     source_map = {(s['omop_id'], s['category']): [] for s in source_elements}
     target_map = {(t['omop_id'], t['category']): [] for t in target_elements}
     for s in source_elements:
-        # if int(s['omop_id']) == 42536101:
-        #     print(f"source_id: {s}")
         source_map[(s['omop_id'], s['category'])].append(s)
     for t in target_elements:
-        # if int(t['omop_id']) == 1338005:
-        #     print(f"target_id: {t}")
         target_map[(t['omop_id'], t['category'])].append(t)
 
     # Group all target OMOP IDs by category
@@ -294,23 +291,21 @@ def map_source_target(source_study_name:str , target_study_name:str, vector_db, 
         label_source_id = source_map[(source_id, omop_domain)][0]['code_label']
         target_ids_same_domain = target_ids_by_domain.get(omop_domain, set())
         target_ids_same_domain = {tid for tid in target_ids_same_domain if tid != source_id}
-        # if omop_domain in ['measurement','observation', 'visit','observation_period' ,'person']:
-        #     continue
+
         # 🔁 Step 1: Graph-based reachability
         reachable_by_graph = None
-        if omop_domain in ['drug_exposure' or 'drug_era']:
+        if omop_domain in ['drug_exposure', 'drug_era']:
             reachable_by_graph = graph.bfs_bidirectional_reachable(source_id, target_ids_same_domain, max_depth=3)
-            # if source_id == 21601665:
-            #     print(f"reachable_by_graph exist: {reachable_by_graph} and check omopid: {target_ids_same_domain}")
+            # if source_id == 21601554: print(f"reachable_by_graph exist: {reachable_by_graph} and check omopid: {target_ids_same_domain}")
         elif omop_domain in ['condition_occurrence', 'condition_era', 'drug_era', 'procedure_occurrence', "device_exposure"]:
             # 2 or 3 depth not sure
             reachable_by_graph = graph.bfs_bidirectional_reachable(source_id, target_ids_same_domain, max_depth=2)
         if omop_domain in ['measurement']:
             reachable_by_graph = graph.only_upward_or_downward(source_id, target_ids_same_domain, max_depth=1)
-       
+
         if reachable_by_graph:
             matched_targets = set(reachable_by_graph)
-       
+         
         else:
             # 🔁 Step 2: Fall back to vector similarity
             threshold = 0.7 if omop_domain in ['drug_exposure' or 'drug_era'] else 0.85
@@ -326,9 +321,8 @@ def map_source_target(source_study_name:str , target_study_name:str, vector_db, 
                 collection_name=collection_name
             )
             matched_targets = set(target_ids_by_similarity)
-            if  source_id == 3005456:
-                print(f"3005456: {label_source_id} and target_ids_by_similarity: {matched_targets}")
-            # print(f"[VECTOR] Found {len(matched_targets)} matches for {label_source_id}")
+            if  source_id == 21601554:
+                print(f"21601554: {label_source_id} and target_ids_by_similarity: {matched_targets}")
 
         # 🔁 Step 3: Add to final_dict if target in target_map
         for target_id in matched_targets:
@@ -339,13 +333,42 @@ def map_source_target(source_study_name:str , target_study_name:str, vector_db, 
                 continue
             for s in source_map[(source_id, omop_domain)]:
                 for t in target_map[key]:
-                    svisit = check_visit_string(s['visit'], visit_constraint)
-                    tvisit = check_visit_string(t['visit'], visit_constraint)
-                    if (s['category'] != t['category']) or svisit != tvisit:
-                        continue
-                    # print(f"mapping {s['code_label']}:{s['omop_id']} to {t['code_label']}")
 
-                
+                    svisit = s['visit']
+                    tvisit = t['visit']
+
+                    if (s['category'] != t['category']) or svisit != tvisit:
+                        
+                        # non_matching_dict.append({
+                        #     'source': s['source'],
+                        #     'target': "",
+                        #     'source_visit': svisit,
+                        #     'target_visit': "",
+                        #     'somop_id': source_id,
+                        #     'tomop_id': "",
+                        #     'scode': s['code'],
+                        #     'slabel': s['code_label'],
+                        #     'tcode': "",
+                        #     'tlabel': "",
+                        #     'category': s['category'],
+                        #     'mapping type': 'Not applicable'
+                        # })
+                        # non_matching_dict.append({
+                        #     'source': "",
+                        #     'target': t['target'],
+                        #     'source_visit': "",
+                        #     'target_visit': tvisit,
+                        #     'somop_id': "",
+                        #     'tomop_id': target_id,
+                        #     'scode': "",
+                        #     'slabel': "",
+                        #     'tcode': t['code'],
+                        #     'tlabel': t['code_label'],
+                        #     'category': t['category'],
+                        #     'mapping type': 'Not applicable'
+                        # })
+                        continue
+                        
                     final_dict.append({
                         'source': s['source'],
                         'target': t['target'],
@@ -362,10 +385,8 @@ def map_source_target(source_study_name:str , target_study_name:str, vector_db, 
                     })
 
     final_df_frame = pd.DataFrame(final_dict)
-    # print(f"length of final data frame: {len(final_df_frame)}")
+    print(f"time taken: {time.time() - start_time}")    
 
-    final_df_frame.to_csv("common_codes.csv", index=False)
-    # print(f"time taken: {time.time() - start_time}")
 
 
     #     check transformation
@@ -403,33 +424,41 @@ def map_source_target(source_study_name:str , target_study_name:str, vector_db, 
         how="left"
     )
 
-    # 5. Load rules and apply transformation rule logic
-    # rules = load_transformation_rules("transformation_rules.json")
-    # print(f"rules: {rules}")
+    # 5. Remove NaN values and duplicates
+  
+    
+    # non_matching_df = pd.DataFrame(non_matching_dict). # maybe we want to append unmatched variables to the mapping at later stage
+    # remove duplicates
     df_mapping.fillna("", inplace=True)
-    
-    
+    df_mapping.drop_duplicates(subset=["source", "target"], inplace=True)
+    # df_mapping = pd.concat([df_mapping, non_matching_df], ignore_index=True)
+    df_mapping.dropna(subset=["source", "target"], how="all", inplace=True)
+
+        
+    # 6. Add the transformation rules to the mapping DataFrame
     df_mapping["transformation_rule"] = df_mapping.apply(
         lambda row: apply_rules(
-            domain=row.get("category", ""),
+            domain=row.get("category", "") if "category" in row and pd.notna(row.get("category")) else "",
             src_info = {
-                "var_name": row.get("source", ""),
-                "stats_type": row.get("source_type", ""),
-                "unit": row.get("source_unit", ""),
-                "data_type": row.get("source_data_type", "")},
+                "var_name": row.get("source", "") if "source" in row and pd.notna(row.get("source")) else "",
+                "stats_type": row.get("source_type", "") if "source_type" in row and pd.notna(row.get("source_type")) else "",
+                "unit": row.get("source_unit", "") if "source_unit" in row and pd.notna(row.get("source_unit")) else "",
+                "data_type": row.get("source_data_type", "") if "source_data_type" in row and pd.notna(row.get("source_data_type")) else "" },
             tgt_info= {
-                "var_name": row.get("target", ""),  
-                "stats_type": row.get("target_type", ""),
-                "unit": row.get("target_unit", ""),
-                "data_type": row.get("target_data_type", ""),
+                "var_name": row.get("target", "") if "target" in row and pd.notna(row.get("target")) else "",
+                "stats_type": row.get("target_type", "") if "target_type" in row and pd.notna(row.get("target_type")) else "",
+                "unit": row.get("target_unit", "") if "target_unit" in row and pd.notna(row.get("target_unit")) else "",
+                "data_type": row.get("target_data_type", "") if "target_data_type" in row and pd.notna(row.get("target_data_type")) else "",
             },
         ),
         axis=1
-)
-
-    # remove duplicates
-    df_mapping.drop_duplicates(subset=["source", "target"], inplace=True)
+   )  
     
+    df_mapping.rename(columns={
+        "source": f"{source_study_name}_variable",
+        "target": f"{target_study_name}_variable",
+    })
+
     return  df_mapping
 
 
@@ -461,8 +490,8 @@ def _cross_domain_matches(
         key = (t["omop_id"], t["visit"])
         for s in src_index.get(key, []):
             if s['category'] in ["measurement", "observation", "condition_occurrence", "condition_era"] and t['category'] in ["measurement", "observation", "condition_occurrence", "condition_era"]:
-                tvisit= check_visit_string(t['visit'], visit_constraint)
-                svisit = check_visit_string(s['visit'], visit_constraint)
+                tvisit= t['visit']
+                svisit = s['visit']
                 mapping_type = "cross domain exact match" if s['category'] != t['category'] else "cross domain approximate match"
                 if s['visit'] == tvisit:
                     final.append({
