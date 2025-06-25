@@ -9,556 +9,65 @@ from typing import List, Dict, Any
 # from .embed import ModelEmbedding
 
 from .utils import apply_rules, export_hierarchy_to_excel
-def fetch_common_ids():
-    sparql = SPARQLWrapper(settings.query_endpoint)
-    query = f"""
-        PREFIX vo: <http://purl.obolibrary.org/obo/VO_>
-        PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-        PREFIX dc: <http://purl.org/dc/elements/1.1/>
-        PREFIX omop: <http://omop.org/>
-        PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-        PREFIX cmeo: <https://w3id.org/CMEO/>
-        PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
-
-        SELECT ?omop_id_value  ?label_value
-               (GROUP_CONCAT(DISTINCT STR(?var_name); SEPARATOR=", ") AS ?variable_name) 
-               (GROUP_CONCAT(DISTINCT STR(?studyGraph); SEPARATOR=", ") AS ?studies) 
-               (COUNT(DISTINCT ?studyGraph) AS ?studies_count)
-        WHERE {{
-          GRAPH ?studyGraph {{
-            ?variable dc:identifier ?var_name .
-            ?variable cmeo:has_standard_label ?label_uri.
-            ?label_uri rdfs:label ?label_value.
-            
-            ?variable cmeo:has_omop_id ?omop_id_uri .
-            ?omop_id_uri cmeo:has_value ?omop_id_value .
-          }}
-          FILTER (?studyGraph != <https://w3id.org/CMEO/graph/studies_metadata>)
-        }}
-        GROUP BY ?omop_id_value ?label_value
-        HAVING (COUNT(DISTINCT ?studyGraph) > 1)
-    """
-
-    sparql.setQuery(query)
-    sparql.setReturnFormat(JSON)
-    results = sparql.query().convert()
-
-    # Initialize an empty list to store the processed data
-    data = []
-
-    # Iterate over the results
-    for result in results["results"]["bindings"]:
-        omop_id_value = result['omop_id_value']['value']
-        label_value = result['label_value']['value']
-        variable_name = result['variable_name']['value'].split(', ')
-        studies = result['studies']['value'].split(', ')
-        studies_count = int(result['studies_count']['value'])
-
-        data.append({
-            'omop_id': omop_id_value,
-            'standard_label': label_value,
-            'labels_list': variable_name,
-            'graphs': studies,
-            'graphCount': studies_count
-        })
-
-    # Create a DataFrame
-    df = pd.DataFrame(data)
-
-    # Explode the lists in 'variable_names' and 'studies' columns
-    exploded_df = df.explode('labels_list').explode('graphs')
-
-    # Group and aggregate using named aggregation
-    grouped_df = exploded_df.groupby(['omop_id', 'standard_label', 'graphs']).agg(
-        variable_names=('labels_list', lambda x: list(set(x))),
-        variable_count=('labels_list', 'nunique')
-    ).reset_index()
-
-    return grouped_df
-
-def fetch_common_per_id(omop_id):
-    sparql = SPARQLWrapper(settings.query_endpoint)
-    query = f"""    
-        PREFIX vo: <http://purl.obolibrary.org/obo/VO_>
-        PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-        PREFIX dc: <http://purl.org/dc/elements/1.1/>
-        PREFIX omop: <http://omop.org/>
-        PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-        PREFIX cmeo: <https://w3id.org/CMEO/>
-        PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
-
-        SELECT ?omopId  ?label_value
-            (GROUP_CONCAT(DISTINCT STR(?var_name); SEPARATOR=", ") AS ?variable_name) 
-            (GROUP_CONCAT(DISTINCT STR(?studyGraph); SEPARATOR=", ") AS ?studies) 
-            (COUNT(DISTINCT ?studyGraph) AS ?studies_count) (COUNT(DISTINCT ?var_name) AS ?variable_count)
-        WHERE {{
-        GRAPH ?studyGraph {{
-            ?variable dc:identifier ?var_name .
-            ?variable cmeo:has_standard_label ?label_uri.
-            ?label_uri rdfs:label ?label_value.
-            
-            ?variable cmeo:has_omop_id ?omop_id_uri .
-            ?omop_id_uri cmeo:has_value ?omopId .
-        }}
-        FILTER (?studyGraph != <https://w3id.org/variable/graph/metadata>)
-        FILTER(?omopId = {omop_id})
-        }}
-        GROUP BY ?omopId ?label_value
-        HAVING (COUNT(DISTINCT ?studyGraph) > 1)
-
-    """
-    sparql.setQuery(query)
-    sparql.setReturnFormat(JSON)
-    results = sparql.query().convert()
-    
-
-    # Initialize an empty list to store the processed data
-    data = []
-        # Iterate over the results
-    for result in results["results"]["bindings"]:
-        omopId = result['omopId']['value']
-        standard_label = result['standard_label']['value']
-        labels = result['variable_name']['value'].split(', ')  # variable names
-        graphs = result['studies']['value'].split(', ')
-        graphCount = int(result['studies_count']['value'])
-        variableCount = int(result['variable_count']['value'])
-        
-        data.append({
-            'omopId': omopId,
-            'standard_label': standard_label,
-            'labels_list': labels,
-            'graphs': graphs,
-            'graphCount': graphCount,
-            'variableCount': variableCount
-        })
-
-    # Create a DataFrame
-    df = pd.DataFrame(data)
-    print(df.head())
-    print(f"columns: {df.columns}")
-    # Explode the lists in 'labels' and 'graphs' columns
-    exploded_df = df.explode('labels_list').explode('graphs')
-
-    grouped_df = exploded_df.groupby(
-        ['omop_id', 'standard_label', 'graphs']
-    ).agg(
-        variable_names=('labels_list', lambda x: list(set(x))),
-        variable_count=('labels_list', 'nunique')
-    ).reset_index()
-
-    # print(grouped_df.head())
-    return grouped_df
-
-
-
-def check_variables_with_common_categories():
-    sparql = SPARQLWrapper(settings.query_endpoint)
-    query  = f"""
-    PREFIX vo: <http://purl.obolibrary.org/obo/VO_>
-    PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-    PREFIX dc: <http://purl.org/dc/elements/1.1/>
-    PREFIX omop: <http://omop.org/>
-    PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-    PREFIX cmeo: <https://w3id.org/CMEO/>
-    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
-
-    SELECT ?omop_id_value ?label_value 
-        (GROUP_CONCAT(DISTINCT STR(?category_label); SEPARATOR=", ") AS ?categories)
-        (COUNT(DISTINCT ?category_omop_id_value) AS ?category_count)
-        ?classification
-        (GROUP_CONCAT(DISTINCT STR(?studyGraph); SEPARATOR=", ") AS ?studies)
-        (COUNT(DISTINCT ?studyGraph) AS ?studies_count)
-    WHERE {{
-    GRAPH ?studyGraph {{
-        # Fetch variable and associated OMOP ID
-        ?variable dc:identifier ?var_name .
-        ?variable cmeo:has_standard_label ?label_uri .
-        ?label_uri rdfs:label ?label_value .
-
-        ?variable cmeo:has_omop_id ?omop_id_uri .
-        ?omop_id_uri cmeo:has_value ?omop_id_value .
-        
-        # Ensure variable is either Dichotomous or Polychotomous
-        ?variable rdf:type ?classification .
-        FILTER (?classification IN (cmeo:dichotomous, cmeo:polychotomous))
-
-        # Fetch permissible values for the categorical variable
-        ?variable cmeo:has_permissible_value ?category_uri .
-        ?category_uri rdf:type cmeo:permissible_value .
-    # Optional attributes for permissible values
-        OPTIONAL {{ ?category_uri cmeo:has_categorical_label ?category_label. }}
-        OPTIONAL {{ ?category_label cmeo:has_value ?category_omop_id_value.  }}
-    }}
-
-    # Exclude metadata graph
-    FILTER (?studyGraph != <http://localhost:7200/repositories/icare4cvd/rdf-graphs/studies_metadata>)
-    }}
-    GROUP BY ?omop_id_value ?label_value ?classification
-    HAVING (COUNT(DISTINCT ?studyGraph) > 1) # Common across studies
-    ORDER BY ?omop_id_value ?label_value
-
-    """
-
-    sparql.setQuery(query)
-    sparql.setReturnFormat(JSON)
-    results = sparql.query().convert()
-    
-    # Initialize an empty list to store the processed data
-    data = []
-    # Iterate over the results
-    for result in results["results"]["bindings"]:
-        omop_id_value = result['omop_id_value']['value']
-        label_value = result['label_value']['value']
-        categories = result['categories']['value'].split(', ')
-        category_count = int(result['category_count']['value'])
-        classification = result['classification']['value']
-        studies = result['studies']['value'].split(', ')
-        studies_count = int(result['studies_count']['value'])
-
-        data.append({
-            'omop_id': omop_id_value,
-            'standard_label': label_value,
-            'categories': categories,
-            'category_count': category_count,
-            'classification': classification,
-            'graphs': studies,
-            'graphCount': studies_count
-        })
-
-    # Create a DataFrame
-    df = pd.DataFrame(data)
-    return df
-    
-
-def fetch_studies_with_disease(disease):
-    sparql = SPARQLWrapper(settings.query_endpoint)
-    query = f"""
-    PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-    PREFIX dc: <http://purl.org/dc/elements/1.1/>
-    PREFIX obi: <http://purl.obolibrary.org/obo/obi.owl/>
-    PREFIX cmeo: <https://w3id.org/CMEO/>
-    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
-    PREFIX bfo: <http://purl.obolibrary.org/obo/bfo.owl/>
-
-    SELECT DISTINCT ?study_name ?purpose ?outcome 
-    WHERE {{
-        GRAPH <http://localhost:7200/repositories/icare4cvd/rdf-graphs/studies_metadata> {{
-            ?study a obi:study_design_execution ;
-                obi:realizes ?plan .
-            ?plan obi:concretizes ?study_design .
-            ?study_design bfo:has_part ?protocol .
-            ?study dc:identifier ?study_name.
-            
-            # Primary purpose specification
-            ?protocol bfo:has_part ?purposeInst .
-            ?purposeInst a cmeo:study_primary_purpose_specification .
-            ?purposeInst cmeo:has_value ?purpose .
-            
-            # Outcome specification pattern (optional)
-            OPTIONAL {{
-                ?protocol bfo:has_part ?outcomeInst .
-                ?outcomeInst a cmeo:inclusion_criteria .
-                ?outcomeInst cmeo:has_value ?outcome .
-            }}
-            
-            # Filter: Either the purpose or outcome must contain "diabetes"
-            FILTER(
-                CONTAINS(lcase(str(?purpose)), "{disease}") ||
-                (BOUND(?outcome) && CONTAINS(lcase(str(?outcome)), "{disease}"))
-            )
-        }}
-    }}
-    """
-    # print(query)
-    sparql.setQuery(query)
-    sparql.setReturnFormat(JSON)
-    results = sparql.query().convert()
-    
-    # Initialize an empty list to store the processed data
-    data = []
-    # Iterate over the results
-    for result in results["results"]["bindings"]:
-        study_name = result['study_name']['value']
-        # purpose = result['purpose']['value']
-        # outcome = result.get('outcome', {}).get('value', None)
-        
-        data.append(study_name)
-    return data
-    # return list of study names only
-
-
-def fetch_data_elements_from_studyX_with_permissible_value(study_name, permissible_value, graph_db_repo="http://localhost:7200/repositories/icare4cvd/rdf-graphs"):
-
-    sparql = SPARQLWrapper(settings.query_endpoint)
-    query = f"""
-    PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-    PREFIX dc: <http://purl.org/dc/elements/1.1/>
-    PREFIX obi: <http://purl.obolibrary.org/obo/obi.owl/>
-    PREFIX cmeo: <https://w3id.org/CMEO/>
-    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
-    PREFIX bfo: <http://purl.obolibrary.org/obo/bfo.owl/>
-    PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-    PREFIX iao: <http://purl.obolibrary.org/obo/iao.owl/>
-    SELECT ?var_name ?s_var_val
-        WHERE {{
-            GRAPH <{graph_db_repo}/{study_name}> {{
-                ?data_element a cmeo:data_element ;
-                            dc:identifier ?var_name;
-                            rdfs:label ?var_label;
-                            iao:is_denoted_by ?s_var;
-                            obi:has_value_specification ?permissiblevalues_part.
-                    ?s_var cmeo:has_value ?s_var_val.
-                    # Retrieve permissible categorical values FIRST
-            
-                    ?permissiblevalues_part a obi:categorical_value_specification;
-                            obi:is_specified_input_of ?cat_data_standardization.
-                    ?cat_data_standardization a <https://w3id.org/CMEO/data_standardization>.
-                    ?cat_data_standardization obi:has_specified_output ?cat_standardized_code.
-                    ?cat_standardized_code rdfs:label ?label_value.
-                
-                
-                    FILTER (CONTAINS(?label_value, "{permissible_value}"))
-                }}
-        }}
-        """
-    sparql.setQuery(query)
-    sparql.setReturnFormat(JSON)
-    results = sparql.query().convert()
-    
-    # Initialize an empty list to store the processed data
-    data = []
-    # Iterate over the results
-    for result in results["results"]["bindings"]:
-        var_name = result['var_name']['value']
-        data.append(var_name)
-    return data
-    # return list of variable names
-
-
-
-
-def study_x_with_data_elements_y(inclusion_criteria:str , data_element_criteria:str):
-    studies=fetch_studies_with_disease(inclusion_criteria)
-    data_elements = {}
-    for study in studies:
-        data_elements[study] = fetch_data_elements_from_studyX_with_permissible_value(study, data_element_criteria)
-    return data_elements
-
-
-def find_common_codes( source_study_name:str , target_study_name:str,graph_db_repo="http://localhost:7200/repositories/icare4cvd/rdf-graphs"):
-    query = f"""
-        PREFIX rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-            PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-            PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
-            PREFIX dc:   <http://purl.org/dc/elements/1.1/>
-            PREFIX obi:  <http://purl.obolibrary.org/obo/obi.owl/>
-            PREFIX cmeo: <https://w3id.org/CMEO/>
-            PREFIX bfo:  <http://purl.obolibrary.org/obo/bfo.owl/>
-            PREFIX iao: <http://purl.obolibrary.org/obo/iao.owl/>
-
-            SELECT
-            ?omop_id ?code_label ?code_value ?val
-            (GROUP_CONCAT(DISTINCT ?varNameA; SEPARATOR=", ") AS ?source)
-            (GROUP_CONCAT(DISTINCT ?varNameB; SEPARATOR=", ") AS ?target)
-            (GROUP_CONCAT(DISTINCT STR(?visitsA); SEPARATOR=", ") AS ?source_visit)
-            (GROUP_CONCAT(DISTINCT STR(?visitsB); SEPARATOR=", ") AS ?target_visit)
-            
-            WHERE 
-            {{
-             {{
-                        SELECT
-                        ?omop_id ?code_label ?code_value ?val
-
-                        (COUNT(DISTINCT ?primary_code_literal) AS ?codeCountA)
-                        (GROUP_CONCAT(DISTINCT STR(?var_nameA); SEPARATOR=", ") AS ?varNameA)
-                        (GROUP_CONCAT(CONCAT(STR(?var_nameA), "||", STR(?visitcodelabelA)); SEPARATOR=", ") AS ?visitsA)
-                        ("{source_study_name}" AS ?source)
-                        WHERE {{
-                        GRAPH <{graph_db_repo}/{source_study_name}> 
-                        {{
-                                    ?dataElementA rdf:type cmeo:data_element ;
-                                                    dc:identifier ?var_nameA ;
-                                                    obi:is_specified_input_of ?catProcessA, ?stdProcessA .
-                                     OPTIONAL {{
-                                        ?visitdatum  rdf:type cmeo:visit_measurement_datum ;
-                                                    iao:is_about ?dataElementA ;
-                                                    obi:is_specified_input_of ?vs_stdProcessA .
-                                        
-                                        
-                                        ?vs_stdProcessA obi:has_specified_output ?visit_code.
-                                        ?visit_code rdfs:label ?visitcodelabelA.
-                                    }}
-                                    ?catProcessA rdf:type cmeo:categorization_process ;
-                                                obi:has_specified_output ?cat_outputA .
-                                    ?cat_outputA cmeo:has_value ?val .
-                                    #FILTER(?val IN ("measurement", "drug_exposure"))
-
-                                    ?stdProcessA rdf:type cmeo:data_standardization ;
-                                                obi:has_specified_output ?codeA .
-                                    ?codeA rdf:_1 ?primary_code_literal .
-                                    ?primary_code_literal iao:denotes ?omop_id_uri ;
-                                            cmeo:has_value ?code_value ;
-                                            rdfs:label ?code_label .
-                                    ?omop_id_uri rdf:type cmeo:omop_id ;
-                                                cmeo:has_value ?omop_id .
-                            }}
-                        }}
-                        GROUP BY ?omop_id ?code_label ?code_value ?val
-                }}
-            UNION
-            {{
-                    SELECT
-                    ?omop_id ?code_label  ?code_value ?val
-                    (COUNT(DISTINCT ?primary_code_literal) AS ?codeCountB)
-                    (GROUP_CONCAT(DISTINCT STR(?var_nameB); SEPARATOR=", ") AS ?varNameB)
-                     (GROUP_CONCAT(CONCAT(STR(?var_nameB), "||", STR(?visitcodelabelB)); SEPARATOR=", ") AS ?visitsB)
-                    ("{target_study_name}" AS ?target)
-                        WHERE 
-                        {{
-                                GRAPH <{graph_db_repo}/{target_study_name}> 
-                                {{
-                                    ?dataElementB rdf:type cmeo:data_element ;
-                                    dc:identifier ?var_nameB ;
-                                    obi:is_specified_input_of ?catProcessB, ?stdProcessB.
-                                    
-                                    OPTIONAL {{
-                                    ?visitdatum  rdf:type cmeo:visit_measurement_datum ;
-                                                iao:is_about ?dataElementB ;
-                                                obi:is_specified_input_of ?vs_stdProcessAB .
-                                    
-                                    
-                                    ?vs_stdProcessAB obi:has_specified_output ?visit_code.
-                                    ?visit_code rdfs:label ?visitcodelabelB.
-                                    }}
-                                    ?catProcessB rdf:type cmeo:categorization_process ;
-                                    obi:has_specified_output ?cat_outputB .
-                                    ?cat_outputB cmeo:has_value ?val .
-                                    #FILTER(?val IN ("measurement", "drug_exposure"))
-
-                                    ?stdProcessB rdf:type cmeo:data_standardization ;
-                                            obi:has_specified_output ?codeB .
-                                    ?codeB rdf:_1 ?primary_code_literal .
-                                    ?primary_code_literal iao:denotes ?omop_id_uri ;
-                                    cmeo:has_value ?code_value;
-                                    rdfs:label ?code_label.
-                                    ?omop_id_uri rdf:type cmeo:omop_id ;
-                                    cmeo:has_value ?omop_id.
-                                }}
-                        }}
-
-                    GROUP BY ?omop_id  ?code_label ?code_value  ?val
-                }}
-            }}
-            GROUP BY ?omop_id ?code_label ?code_value ?val
-            #HAVING (COUNT(DISTINCT ?source) < 3)
-            ORDER BY ?omop_id
-    
-    """
-    sparql = SPARQLWrapper(settings.query_endpoint)
-    sparql.setQuery(query)
-    sparql.setReturnFormat(JSON)
-    results = sparql.query().convert()
-    data = []
-    for result in results["results"]["bindings"]:
-        omop_id = result['omop_id']['value']
-        code_label = result['code_label']['value']
-        vocab_code = result['code_value']['value']
-        # study_count = int(result['study_count']['value'])
-        # study_name = result['study_name']['value']
-        source = result['source']['value']
-        target = result['target']['value']
-        # source_code_type = result['source_code_type']['value']
-        # target_code_type = result['target_code_type']['value']
-        source_data_elements = source.split(', ') if (source and source != '') else []
-        target_data_elements = target.split(', ') if (target and target != '') else []
-        for si in source_data_elements:
-            for di in target_data_elements:
-                data.append({
-                    'source': si,
-                    'target': di,
-                    'somop_id': omop_id,
-                    'tomop_id': omop_id,
-                    'scode': vocab_code,
-                    'slabel': code_label,
-                    'tcode': vocab_code,
-                    'tlabel': code_label,
-                    'path_depth': 'mapped'
-                })
-        
-    df = pd.DataFrame(data)
-    return df
-
-
-def map_category_to_omop(category: str) -> str:
-    """
-    Maps a given category to its corresponding OMOP domain.
-    :param category: The category to map.
-    :return: The corresponding OMOP domain.
-    """
-    category_mapping = {
-        "Etiology": "Observation",
-        "Measurement": "Measurement",
-        "Stages and scales": "Measurement",
-        "Functional and Behavioral Assessment Score": "Measurement",
-        "Blood measurement": "Measurement",
-        "Cardiac Measurement": "Measurement",
-        "Anthropometric Measurement": "Measurement",
-        "Consumption Measurement": "Measurement",
-        "Time to Event Measurement": "Measurement",
-        "Clinical Finding": "Condition-Occurrence",
-        "Disease or Disorder Finding": "Condition-Occurrence",
-        "Functional Finding": "Observation",
-        "Compliance Finding": "Observation",
-        "Death": "Death",
-        "Demographics": "Person",
-        "Risk Factors": "Observation",
-        "Sign or symptom": "Condition-Occurrence",
-        "General sign": "Condition-Occurrence",
-        "Cardiac Sign": "Condition-Occurrence",
-        "Respiratory Sign": "Condition-Occurrence",
-        "Neurological Sign": "Condition-Occurrence",
-        "Vital Sign": "Measurement",
-        "Symptom": "Condition-Occurrence",
-        "Device Exposure": "Device-Exposure",
-        "Medication Exposure": "Drug-Exposure",
-        "Procedure": "Procedure",
-        "Follow up Attrition": "Observation",
-        "Medical History": "Observation",
-        "Family History": "Observation",
-        "Disease or Disorder History": "Observation",
-        "Hospitalization History": "Observation",
-        "Medication History": "Observation",
-        "Procedure History": "Observation",
-        "Dietary Intake": "Measurement",
-        "Number of Occurrences": "Observation"
-    }
-    
-    return category_mapping.get(category, "Unknown Category")
-    # if domain is "family history",""
-
-def fetch_category_specific_data_elements(catgeory:str):
-    omop_domain = map_category_to_omop(catgeory)
-
-    # from all studies return data elements that have domain specific values
-    """
 
 
     
-    
-    """
-
-# # http://localhost:7200/repositories/icare4cvd/rdf-graphs
-
-
-def check_visit_sring(visit_string, visit_constraint: bool = True):
+def check_visit_string(visit_string, visit_constraint: bool = True):
     if not visit_constraint and (visit_string is None or not visit_string.startswith("baseline") or not visit_string.startswith("follow") or visit_string == ""):
      return "baseline time"
     else:
         return visit_string
+    
+def build_element_list(role, elements, visits, omop_id, code_id, code_label, domain, visit_constraint: bool = True):
+    return [
+        {
+            'omop_id': omop_id,
+            'code': code_id.strip(),
+            'code_label': code_label,
+            role: el,
+            'category': domain,
+            'visit': check_visit_string(vis, visit_constraint)
+        }
+        for el, vis in zip(elements, visits)
+    ]
+    
+def get_exact_matches(
+                src_elements: list[str],
+                tgt_elements: list[str],
+                src_visits: list[str],
+                tgt_visits: list[str],
+                code_id: str,
+                code_label: str,
+                omop_id: int,
+                domain: str,
+                visit_constraint: bool,
+            ) -> list[dict]:
+   
+    matches = []
+    for i, s in enumerate(src_elements):
+        for j, t in enumerate(tgt_elements):
+            sv = check_visit_string(src_visits[i], visit_constraint)
+            tv = check_visit_string(tgt_visits[j], visit_constraint)
+            if sv == tv:
+                matches.append({
+                    'source':  s,
+                    'target':  t,
+                    'somop_id': omop_id,
+                    'tomop_id': omop_id,
+                    'scode':   code_id.strip(),
+                    'slabel':  code_label,
+                    'tcode':   code_id.strip(),
+                    'tlabel':  code_label,
+                    'category': domain,
+                    'mapping type': 'exact match',
+                    'source_visit': sv,
+                    'target_visit': tv,
+                })
+    return matches
+
+
 def map_source_target(source_study_name:str , target_study_name:str, vector_db, embedding_model,graph_db_repo="https://w3id.org/CMEO/graph", collection_name="studies_metadata",
-                      visit_constraint: bool = True):
-
-
+                      visit_constraint: bool = True, omop_graph:Any = None):
 
     from .vector_db import search_in_db 
     """
@@ -569,11 +78,9 @@ def map_source_target(source_study_name:str , target_study_name:str, vector_db, 
 
     
     """
-    from .omop_graph import OmopGraphNX
-    graph = OmopGraphNX(csv_file_path=settings.concepts_file_path)
-    start_time = time.time()
-    # common_codes_df = find_common_codes(source_study_name, target_study_name)  # via common code, its first step
-
+    # omopgraph is OmopGraphNX object
+    graph = omop_graph(csv_file_path=settings.concepts_file_path)
+    
     query = f"""
         
             PREFIX rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
@@ -609,13 +116,13 @@ def map_source_target(source_study_name:str , target_study_name:str, vector_db, 
                                                     dc:identifier ?var_nameA ;
                                                     obi:is_specified_input_of ?catProcessA, ?stdProcessA .
                                      OPTIONAL {{
-                                        ?visitdatum  rdf:type cmeo:visit_measurement_datum ;
-                                                    iao:is_about ?dataElementA ;
-                                                    obi:is_specified_input_of ?vs_stdProcessA .
-                                        
-                                        
-                                        ?vs_stdProcessA obi:has_specified_output ?visit_code.
-                                        ?visit_code rdfs:label ?visitcodelabelA.
+                                    ?visitdatum  rdf:type cmeo:visit_measurement_datum ;
+                                                iao:is_about ?dataElementA ;
+                                                obi:is_specified_input_of ?vs_stdProcessA .
+                                    
+                                    
+                                    ?vs_stdProcessA obi:has_specified_output ?visit_code.
+                                    ?visit_code rdfs:label ?visitcodelabelA.
                                     }}
                                     ?catProcessA rdf:type cmeo:categorization_process ;
                                                 obi:has_specified_output ?cat_outputA .
@@ -655,9 +162,9 @@ def map_source_target(source_study_name:str , target_study_name:str, vector_db, 
                                                 iao:is_about ?dataElementB ;
                                                 obi:is_specified_input_of ?vs_stdProcessAB .
                                     
-                                    
                                     ?vs_stdProcessAB obi:has_specified_output ?visit_code.
                                     ?visit_code rdfs:label ?visitcodelabelB.
+                                    
                                     }}
                                     ?catProcessB rdf:type cmeo:categorization_process ;
                                     obi:has_specified_output ?cat_outputB .
@@ -681,17 +188,13 @@ def map_source_target(source_study_name:str , target_study_name:str, vector_db, 
             GROUP BY ?omop_id ?code_label ?code_value ?val
             #HAVING (COUNT(DISTINCT ?source) < 3)
             ORDER BY ?omop_id
-    
     """
-    # print(query)
+    print(query)
     
-    print("Inside fetch.map_source_target, query is:\n",query)
     sparql = SPARQLWrapper(settings.query_endpoint)
     sparql.setQuery(query)
     sparql.setReturnFormat(JSON)
     results = sparql.query().convert()
-    print(f"Inside fetch.map_source_target : Source cohort {source_study_name}, target cohort {target_study_name}, length of results: {len(results['results']['bindings'])}")
-    print(f"Results: {results}")
   
     final_dict = []
     source_elements = []
@@ -705,93 +208,57 @@ def map_source_target(source_study_name:str , target_study_name:str, vector_db, 
         code_id = result['code_value']['value']
         source_data_elements = source.split(', ') if (source and source != '') else []
         target_data_elements = target.split(', ') if (target and target != '') else []
-        source_data_elements_visit = [r.split("||")[-1].strip() for r in result['source_visit']['value'].split(', ')] if (result['source_visit']['value'] and result['source_visit']['value'] != '') else []
-        target_data_elements_visit = [r.split("||")[-1].strip() for r in result['target_visit']['value'].split(', ')] if (result['target_visit']['value'] and result['target_visit']['value'] != '') else []
+        source_data_elements_visit = source_data_elements_visit = (
+                    [r.split("||")[-1].strip() for r in result['source_visit']['value'].split(', ')]
+                    if (result['source_visit']['value'] and result['source_visit']['value'] != '')
+                    else ["baseline time"] * len(source_data_elements)
+                )
+        target_data_elements_visit = [r.split("||")[-1].strip() for r in result['target_visit']['value'].split(', ')] if (result['target_visit']['value'] and result['target_visit']['value'] != '') else  ["baseline time"] * len(target_data_elements)
         omop_domain = str(result['val']['value']).strip().lower()
-        # print(f"source_ids: {source_data_elements} and target_ids: {target_data_elements}")
+        assert len(target_data_elements) == len(target_data_elements_visit), (
+                f"Visit column Length mismatch with variable labels: {len(target_data_elements)} != {len(target_data_elements_visit)}"
+            )
+
         if len(source_data_elements) > 0 and len(target_data_elements) > 0:
-            
-            for i, s in enumerate(source_data_elements):
-                for j, t in enumerate(target_data_elements):
-                    # print(f"source visit: {source_data_elements_visit[i]} and target visit: {target_data_elements_visit[j]}")
-                    target_visit = target_data_elements_visit[j]
-                    source_visit = source_data_elements_visit[i]
+            final_dict += get_exact_matches(
+                src_elements=source_data_elements,
+                tgt_elements=target_data_elements,
+                src_visits=source_data_elements_visit,
+                tgt_visits=target_data_elements_visit,
+                code_id=code_id,
+                code_label=code_label,
+                omop_id=omop_id,
+                domain=omop_domain,
+                visit_constraint=visit_constraint
+            )
 
-                    source_visit = check_visit_sring(source_data_elements_visit[i], visit_constraint)
-                    target_visit = check_visit_sring(target_data_elements_visit[j], visit_constraint)
-                    print(f"source visit: {source_visit} and target visit: {target_visit} and visit contraint {visit_constraint}")
-                    if source_visit == target_visit:
-                        final_dict.append({   
-                            'source': s,
-                            'target': t,
-                            'somop_id': omop_id,
-                            'tomop_id': omop_id,
-                            'scode': code_id.strip(),
-                            'slabel': code_label,
-                            'tcode': code_id.strip(),
-                            'tlabel': code_label,
-                            "category": omop_domain,
-                            'mapping type': 'exact match',
-                            "source_visit": source_visit,
-                            "target_visit": target_visit,
-                        })
-            for i, si in enumerate(source_data_elements):
-                    
-                    source_visit = check_visit_sring(source_data_elements_visit[i], visit_constraint)
-                    source_elements.append({
-                        'omop_id': omop_id,
-                        'code': code_id.strip(),
-                        'code_label': code_label,
-                        'source': si,
-                        'category': omop_domain,
-                        'visit': source_visit
-                    })
-            for i, di in enumerate(target_data_elements):
-                    target_visit = check_visit_sring(target_data_elements_visit[i], visit_constraint)
-                    target_elements.append({
-                        'omop_id': omop_id,
-                        'code': code_id.strip(),
-                        'code_label': code_label,
-                        'target': di,
-                        'category': omop_domain,
-                        'visit': target_visit
-                    })
-        
+                        
+            source_elements += build_element_list(
+                role='source', elements=source_data_elements, visits=source_data_elements_visit, omop_id=omop_id, code_id=code_id, code_label=code_label, domain=omop_domain, visit_constraint=visit_constraint
+            )
 
+            target_elements += build_element_list(
+                role='target', elements=target_data_elements, visits=target_data_elements_visit, omop_id=omop_id, code_id=code_id, code_label=code_label, domain=omop_domain, visit_constraint=visit_constraint
+            )
+ 
 
         else:
 
             if len(source_data_elements) > 0:
-                for i, si in enumerate(source_data_elements):
-                    source_visit = check_visit_sring(source_data_elements_visit[i], visit_constraint)
-                    source_elements.append({
-                        'omop_id': omop_id,
-                        'code': code_id.strip(),
-                        'code_label': code_label,
-                        'source': si,
-                        'category': omop_domain,
-                        'visit': source_visit
-                    })
-
+                
+                source_elements += build_element_list(
+                    role='source', elements=source_data_elements, visits=source_data_elements_visit, omop_id=omop_id, code_id=code_id, code_label=code_label, domain=omop_domain, visit_constraint=visit_constraint
+                )
+            
             if len(target_data_elements) > 0:
-                for i, di in enumerate(target_data_elements):
-                    target_visit = check_visit_sring(target_data_elements_visit[i], visit_constraint)
-                    target_elements.append({
-                        'omop_id': omop_id,
-                        'code': code_id.strip(),
-                        'code_label': code_label,
-                        'target': di,
-                        'category': omop_domain,
-                        'visit': target_visit
-                    })
-        
-    
-    # print(f"existing OMOP IDs mappings: {len(final_dict)}")
+                target_elements += build_element_list(
+                    role='target', elements=target_data_elements, visits=target_data_elements_visit, omop_id=omop_id, code_id=code_id, code_label=code_label, domain=omop_domain, visit_constraint=visit_constraint
+                )
+                
     if len(target_elements) == 0 and len(final_dict) == 0:
         # print(f"no mappings found for {source_study_name} and {target_study_name}. Please check the study name.")
         return None
-    # existing_omop_ids = {d['slabel'] for d in final_dict}
-    # print(f"existing OMOP IDs: {existing_omop_ids}")
+
     single_source = {"source":source_elements, "target":target_elements, "mapped": final_dict}
     bmi_row  =  extend_with_dervied_variables(single_source, standard_derived_variable=("loinc:39156-5", "Body mass index (bmi) [ratio]", 3038553), parameters_omop_ids=[3036277, 3025315], variable_name="bmi")
     egfr_row = extend_with_dervied_variables(single_source, standard_derived_variable=("snomed:1556501000000100", "Estimated creatinine clearance calculated using actual body weight Cockcroft-Gault formula", 37169169), parameters_omop_ids=[3016723,3022304,46235213], variable_name="egfr")
@@ -806,24 +273,7 @@ def map_source_target(source_study_name:str , target_study_name:str, vector_db, 
     unique_source_ids = {(s['omop_id'], s['category']) for s in source_elements}
     unique_target_ids = {(t['omop_id'], t['category'])  for t in target_elements}
 
-# The code is printing the length of unique elements in two lists, `unique_source_ids` and
-# `unique_target_ids`, using f-string formatting in Python.
-    # print(f"length of source elements: {len(unique_source_ids)} and target elements: {len(unique_target_ids)}")
-    # # Step 2: Fetch all relationships for unique OMOP IDs
 
-    # # Step 3: Map OMOP IDs to their respective source and target data elements
-    # source_map = {s['omop_id']: [] for s in source_elements}
-    # target_map = {t['omop_id']: [] for t in target_elements}
-    # # print(f"unique_source_ids: {unique_source_ids}")
-    # # print(f"unique_target_ids: {unique_target_ids}")
-    # for s in source_elements:
-    #     source_map[s['omop_id']].append(s)
-    # for t in target_elements:
-    #     target_map[t['omop_id']].append(t)
-    # match_by_codes = 0
-    
-    
-    
    
     source_map = {(s['omop_id'], s['category']): [] for s in source_elements}
     target_map = {(t['omop_id'], t['category']): [] for t in target_elements}
@@ -857,29 +307,10 @@ def map_source_target(source_study_name:str , target_study_name:str, vector_db, 
             reachable_by_graph = graph.bfs_bidirectional_reachable(source_id, target_ids_same_domain, max_depth=2)
         if omop_domain in ['measurement']:
             reachable_by_graph = graph.only_upward_or_downward(source_id, target_ids_same_domain, max_depth=1)
-        # elif omop_domain in ['measurement']: # only lab tests with same direct parent
-        #     reachable_by_graph = graph.find_sibling_targets(source_id, target_ids_same_domain, max_depth=1)
+       
         if reachable_by_graph:
             matched_targets = set(reachable_by_graph)
-           # print(f"[GRAPH] Found {len(matched_targets)} matches for {label_source_id}")
-        # elif omop_domain == 'measurement':
-            # matched_targets_by_sim = set()
-            # # if source_id ==3005456:  print(f"3005456 reachable by graph exist: {reachable_by_graph}")
-            # for t in target_ids_same_domain:
-            #     # if t in reachable_by_graph:
-            #         if t == 3023103 and source_id == 3005456: 
-            #             print(f"3023103 and 3005456  reachable by graph exist: {reachable_by_graph} for {label_source_id}")
-            #             print(f"3005456: {label_source_id} and 3023103: {target_map[(t, omop_domain)][0]['code_label']}")
-            #         if embedding_model.calculate_similarity(
-            #             label_source_id,
-            #            target_map[(t, omop_domain)][0]['code_label']
-            #         ) > 0.85:
-            #             print(f"source_label: {label_source_id} and target_label: {target_map[(t, omop_domain)][0]['code_label']} and omop_domain: {omop_domain}")
-            #             matched_targets_by_sim.add(t)
-            #                 # print(f"[GRAPH] Found {len(matched_targets)} matches for {label_source_id}")
-                
-            # matched_targets = matched_targets_by_sim
-            # print(f"reachable by graph for measurement {source_id} exist: {matched_targets} ")
+       
         else:
             # 🔁 Step 2: Fall back to vector similarity
             threshold = 0.7 if omop_domain in ['drug_exposure' or 'drug_era'] else 0.85
@@ -908,8 +339,8 @@ def map_source_target(source_study_name:str , target_study_name:str, vector_db, 
                 continue
             for s in source_map[(source_id, omop_domain)]:
                 for t in target_map[key]:
-                    svisit = check_visit_sring(s['visit'], visit_constraint)
-                    tvisit = check_visit_sring(t['visit'], visit_constraint)
+                    svisit = check_visit_string(s['visit'], visit_constraint)
+                    tvisit = check_visit_string(t['visit'], visit_constraint)
                     if (s['category'] != t['category']) or svisit != tvisit:
                         continue
                     # print(f"mapping {s['code_label']}:{s['omop_id']} to {t['code_label']}")
@@ -1030,8 +461,8 @@ def _cross_domain_matches(
         key = (t["omop_id"], t["visit"])
         for s in src_index.get(key, []):
             if s['category'] in ["measurement", "observation", "condition_occurrence", "condition_era"] and t['category'] in ["measurement", "observation", "condition_occurrence", "condition_era"]:
-                tvisit= check_visit_sring(t['visit'], visit_constraint)
-                svisit = check_visit_sring(s['visit'], visit_constraint)
+                tvisit= check_visit_string(t['visit'], visit_constraint)
+                svisit = check_visit_string(s['visit'], visit_constraint)
                 mapping_type = "cross domain exact match" if s['category'] != t['category'] else "cross domain approximate match"
                 if s['visit'] == tvisit:
                     final.append({
@@ -1093,8 +524,7 @@ def extend_with_dervied_variables(single_source: List[Dict],
         has_parameter_un_mapped   = all([len(find_omop_id_rows(data[side], omop_code=code,code_key="omop_id")) > 0 for code in parameters_codes])
 
         has_parameters_mapped = all([len(find_omop_id_rows(data['mapped'], omop_code =code, code_key=code_key)) > 0 for code in parameters_codes])
-        # print(f"has_parameter_un_mapped: {has_parameter_un_mapped}, has_parameters_mapped: {has_parameters_mapped}")
-        # print(f"has_bmi: {has_bmi}, has_height: {has_height}, has_weight: {has_weight}")
+
         return has_parameter_un_mapped or has_parameters_mapped
 
 
@@ -1240,100 +670,6 @@ def fetch_variables_statistics(var_names_list:list[str], study_name:str) -> pd.D
     # print(f"head of data dict: {data_dict.head()}")
     return data_dict
 
-
-
-
-# def extend_with_bmi(single_source: List[Dict]) -> List[Dict]:
-#     """
-#     Takes the output of map_source_target (a list of dicts).
-#     Checks if either study already has bmi (loinc:39156-5) or 
-#     can derive it from height (loinc:8302-2) + weight (loinc:29463-7).
-
-#     If both sides can produce bmi, appends a new row where:
-#       - 'source' is the existing bmi variable name if present, or "bmi (derived)"
-#       - 'target' is the existing bmi variable name if present, or "bmi (derived)"
-#       - 'scode' or 'tcode' are set to loinc:39156-5 
-#       - 'slabel' or 'tlabel' are set accordingly
-#       - 'mappping type' = "derived match"
-    
-#     Returns the updated list of dicts.
-#     """
-
-#     single_source = single_source.copy()  # so we don't mutate the original in-place
-
-
-#     def find_loinc_rows(data: List[Dict], loinc_code: str, code_key:str ="code") -> List[Dict]:
-#         """
-#         Returns a list of rows in 'data' where either 'scode' or 'tcode' (depending on 'side') 
-#         contains the specified loinc_code (assumes both are stored in lowercase strings).
-#         """
-#         # code_key = "code" if side == "source" else "code"
-#         found = []
-#         for row in data:
-#             code_value = row.get(code_key, "")
-#             # We do a basic substring check in lowercase:
-#             if code_value.lower() == loinc_code.lower():
-#                 found.append(row)
-#         return found
-
-#     def can_produce_bmi(data: List[Dict], side: str = "source") -> bool:
-#         """
-#         Checks if the given side (source or target) either already has a bmi variable
-#         (loinc:39156-5) OR can derive it from height (loinc:8302-2) + weight (loinc:29463-7).
-#         """
-#         code_key = "scode" if side == "source" else "tcode"
-#         has_bmi    = len(find_loinc_rows(data[side], "loinc:39156-5", code_key="code")) > 0
-#         has_height = len(find_loinc_rows(data["mapped"], "loinc:8302-2",code_key=code_key)) > 0
-#         has_weight = len(find_loinc_rows(data["mapped"], "loinc:29463-7", code_key =code_key)) > 0
-#         # print(f"has_bmi: {has_bmi}, has_height: {has_height}, has_weight: {has_weight}")
-#         return has_bmi or (has_height and has_weight)
-
-#     # 1) Check if source side can produce bmi
-#     source_can_bmi = can_produce_bmi(single_source, side="source")
-
-#     # 2) Check if target side can produce bmi
-#     target_can_bmi = can_produce_bmi(single_source, side="target")
-
-#     # If either side cannot produce bmi, do nothing
-#     if not (source_can_bmi and target_can_bmi):
-#         return []
-
-#     # 3) Identify if there is an actual bmi variable in each side
-#     source_bmi_rows = find_loinc_rows(single_source["source"], "loinc:39156-5", code_key="code")
-#     target_bmi_rows = find_loinc_rows(single_source["target"], "loinc:39156-5", code_key="code")
-
-#     # If the source already has bmi, reuse its variable name; otherwise "bmi (derived)"
-#     omop_id = 3038553
-#     if source_bmi_rows:
-#         # print(f"source already has bmi: {source_bmi_rows}")
-#         source_bmi_var_name = source_bmi_rows[0]["source"]
-#         omop_id = source_bmi_rows[0]["omop_id"]
-#     else:
-#         source_bmi_var_name = "bmi (derived)"
-
-
-#     # If the target already has bmi, reuse its variable name; otherwise "bmi (derived)"
-#     if target_bmi_rows:
-#         # print(f"target already has bmi: {target_bmi_rows}")
-#         target_bmi_var_name = target_bmi_rows[0]["target"]
-#         omop_id = source_bmi_rows[0]["omop_id"]
-#     else:
-#         target_bmi_var_name = "bmi (derived)"
-
-#     # 4) Construct a new row for the "derived match"
-#     new_row = {
-#         "source": source_bmi_var_name,
-#         "target": target_bmi_var_name,
-#         "somop_id": omop_id,
-#         "tomop_id": omop_id,
-#         "scode": "loinc:39156-5",
-#         "slabel": "body mass index (bmi) [ratio]",
-#         "tcode": "loinc:39156-5",
-#         "tlabel": "body mass index (bmi) [ratio]",
-#         "mappping type": "derived match"
-#     }
-
-#     return new_row
 
 
 
@@ -1497,3 +833,533 @@ def _print_tree(hierarchy: dict, label_map: dict):
     for root in root_nodes:
         dfs_print(root)
     print("--- End of Hierarchy ---")
+
+
+
+
+# def fetch_common_ids():
+#     sparql = SPARQLWrapper(settings.query_endpoint)
+#     query = f"""
+#         PREFIX vo: <http://purl.obolibrary.org/obo/VO_>
+#         PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+#         PREFIX dc: <http://purl.org/dc/elements/1.1/>
+#         PREFIX omop: <http://omop.org/>
+#         PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+#         PREFIX cmeo: <https://w3id.org/CMEO/>
+#         PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+#         SELECT ?omop_id_value  ?label_value
+#                (GROUP_CONCAT(DISTINCT STR(?var_name); SEPARATOR=", ") AS ?variable_name) 
+#                (GROUP_CONCAT(DISTINCT STR(?studyGraph); SEPARATOR=", ") AS ?studies) 
+#                (COUNT(DISTINCT ?studyGraph) AS ?studies_count)
+#         WHERE {{
+#           GRAPH ?studyGraph {{
+#             ?variable dc:identifier ?var_name .
+#             ?variable cmeo:has_standard_label ?label_uri.
+#             ?label_uri rdfs:label ?label_value.
+            
+#             ?variable cmeo:has_omop_id ?omop_id_uri .
+#             ?omop_id_uri cmeo:has_value ?omop_id_value .
+#           }}
+#           FILTER (?studyGraph != <https://w3id.org/CMEO/graph/studies_metadata>)
+#         }}
+#         GROUP BY ?omop_id_value ?label_value
+#         HAVING (COUNT(DISTINCT ?studyGraph) > 1)
+#     """
+
+#     sparql.setQuery(query)
+#     sparql.setReturnFormat(JSON)
+#     results = sparql.query().convert()
+
+#     # Initialize an empty list to store the processed data
+#     data = []
+
+#     # Iterate over the results
+#     for result in results["results"]["bindings"]:
+#         omop_id_value = result['omop_id_value']['value']
+#         label_value = result['label_value']['value']
+#         variable_name = result['variable_name']['value'].split(', ')
+#         studies = result['studies']['value'].split(', ')
+#         studies_count = int(result['studies_count']['value'])
+
+#         data.append({
+#             'omop_id': omop_id_value,
+#             'standard_label': label_value,
+#             'labels_list': variable_name,
+#             'graphs': studies,
+#             'graphCount': studies_count
+#         })
+
+#     # Create a DataFrame
+#     df = pd.DataFrame(data)
+
+#     # Explode the lists in 'variable_names' and 'studies' columns
+#     exploded_df = df.explode('labels_list').explode('graphs')
+
+#     # Group and aggregate using named aggregation
+#     grouped_df = exploded_df.groupby(['omop_id', 'standard_label', 'graphs']).agg(
+#         variable_names=('labels_list', lambda x: list(set(x))),
+#         variable_count=('labels_list', 'nunique')
+#     ).reset_index()
+
+#     return grouped_df
+
+# def fetch_common_per_id(omop_id):
+#     sparql = SPARQLWrapper(settings.query_endpoint)
+#     query = f"""    
+#         PREFIX vo: <http://purl.obolibrary.org/obo/VO_>
+#         PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+#         PREFIX dc: <http://purl.org/dc/elements/1.1/>
+#         PREFIX omop: <http://omop.org/>
+#         PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+#         PREFIX cmeo: <https://w3id.org/CMEO/>
+#         PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+#         SELECT ?omopId  ?label_value
+#             (GROUP_CONCAT(DISTINCT STR(?var_name); SEPARATOR=", ") AS ?variable_name) 
+#             (GROUP_CONCAT(DISTINCT STR(?studyGraph); SEPARATOR=", ") AS ?studies) 
+#             (COUNT(DISTINCT ?studyGraph) AS ?studies_count) (COUNT(DISTINCT ?var_name) AS ?variable_count)
+#         WHERE {{
+#         GRAPH ?studyGraph {{
+#             ?variable dc:identifier ?var_name .
+#             ?variable cmeo:has_standard_label ?label_uri.
+#             ?label_uri rdfs:label ?label_value.
+            
+#             ?variable cmeo:has_omop_id ?omop_id_uri .
+#             ?omop_id_uri cmeo:has_value ?omopId .
+#         }}
+#         FILTER (?studyGraph != <https://w3id.org/variable/graph/metadata>)
+#         FILTER(?omopId = {omop_id})
+#         }}
+#         GROUP BY ?omopId ?label_value
+#         HAVING (COUNT(DISTINCT ?studyGraph) > 1)
+
+#     """
+#     sparql.setQuery(query)
+#     sparql.setReturnFormat(JSON)
+#     results = sparql.query().convert()
+    
+
+#     # Initialize an empty list to store the processed data
+#     data = []
+#         # Iterate over the results
+#     for result in results["results"]["bindings"]:
+#         omopId = result['omopId']['value']
+#         standard_label = result['standard_label']['value']
+#         labels = result['variable_name']['value'].split(', ')  # variable names
+#         graphs = result['studies']['value'].split(', ')
+#         graphCount = int(result['studies_count']['value'])
+#         variableCount = int(result['variable_count']['value'])
+        
+#         data.append({
+#             'omopId': omopId,
+#             'standard_label': standard_label,
+#             'labels_list': labels,
+#             'graphs': graphs,
+#             'graphCount': graphCount,
+#             'variableCount': variableCount
+#         })
+
+#     # Create a DataFrame
+#     df = pd.DataFrame(data)
+#     print(df.head())
+#     print(f"columns: {df.columns}")
+#     # Explode the lists in 'labels' and 'graphs' columns
+#     exploded_df = df.explode('labels_list').explode('graphs')
+
+#     grouped_df = exploded_df.groupby(
+#         ['omop_id', 'standard_label', 'graphs']
+#     ).agg(
+#         variable_names=('labels_list', lambda x: list(set(x))),
+#         variable_count=('labels_list', 'nunique')
+#     ).reset_index()
+
+#     # print(grouped_df.head())
+#     return grouped_df
+
+
+
+# def check_variables_with_common_categories():
+#     sparql = SPARQLWrapper(settings.query_endpoint)
+#     query  = f"""
+#     PREFIX vo: <http://purl.obolibrary.org/obo/VO_>
+#     PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+#     PREFIX dc: <http://purl.org/dc/elements/1.1/>
+#     PREFIX omop: <http://omop.org/>
+#     PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+#     PREFIX cmeo: <https://w3id.org/CMEO/>
+#     PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+#     SELECT ?omop_id_value ?label_value 
+#         (GROUP_CONCAT(DISTINCT STR(?category_label); SEPARATOR=", ") AS ?categories)
+#         (COUNT(DISTINCT ?category_omop_id_value) AS ?category_count)
+#         ?classification
+#         (GROUP_CONCAT(DISTINCT STR(?studyGraph); SEPARATOR=", ") AS ?studies)
+#         (COUNT(DISTINCT ?studyGraph) AS ?studies_count)
+#     WHERE {{
+#     GRAPH ?studyGraph {{
+#         # Fetch variable and associated OMOP ID
+#         ?variable dc:identifier ?var_name .
+#         ?variable cmeo:has_standard_label ?label_uri .
+#         ?label_uri rdfs:label ?label_value .
+
+#         ?variable cmeo:has_omop_id ?omop_id_uri .
+#         ?omop_id_uri cmeo:has_value ?omop_id_value .
+        
+#         # Ensure variable is either Dichotomous or Polychotomous
+#         ?variable rdf:type ?classification .
+#         FILTER (?classification IN (cmeo:dichotomous, cmeo:polychotomous))
+
+#         # Fetch permissible values for the categorical variable
+#         ?variable cmeo:has_permissible_value ?category_uri .
+#         ?category_uri rdf:type cmeo:permissible_value .
+#     # Optional attributes for permissible values
+#         OPTIONAL {{ ?category_uri cmeo:has_categorical_label ?category_label. }}
+#         OPTIONAL {{ ?category_label cmeo:has_value ?category_omop_id_value.  }}
+#     }}
+
+#     # Exclude metadata graph
+#     FILTER (?studyGraph != <http://localhost:7200/repositories/icare4cvd/rdf-graphs/studies_metadata>)
+#     }}
+#     GROUP BY ?omop_id_value ?label_value ?classification
+#     HAVING (COUNT(DISTINCT ?studyGraph) > 1) # Common across studies
+#     ORDER BY ?omop_id_value ?label_value
+
+#     """
+
+#     sparql.setQuery(query)
+#     sparql.setReturnFormat(JSON)
+#     results = sparql.query().convert()
+    
+#     # Initialize an empty list to store the processed data
+#     data = []
+#     # Iterate over the results
+#     for result in results["results"]["bindings"]:
+#         omop_id_value = result['omop_id_value']['value']
+#         label_value = result['label_value']['value']
+#         categories = result['categories']['value'].split(', ')
+#         category_count = int(result['category_count']['value'])
+#         classification = result['classification']['value']
+#         studies = result['studies']['value'].split(', ')
+#         studies_count = int(result['studies_count']['value'])
+
+#         data.append({
+#             'omop_id': omop_id_value,
+#             'standard_label': label_value,
+#             'categories': categories,
+#             'category_count': category_count,
+#             'classification': classification,
+#             'graphs': studies,
+#             'graphCount': studies_count
+#         })
+
+#     # Create a DataFrame
+#     df = pd.DataFrame(data)
+#     return df
+    
+
+# def fetch_studies_with_disease(disease):
+#     sparql = SPARQLWrapper(settings.query_endpoint)
+#     query = f"""
+#     PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+#     PREFIX dc: <http://purl.org/dc/elements/1.1/>
+#     PREFIX obi: <http://purl.obolibrary.org/obo/obi.owl/>
+#     PREFIX cmeo: <https://w3id.org/CMEO/>
+#     PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+#     PREFIX bfo: <http://purl.obolibrary.org/obo/bfo.owl/>
+
+#     SELECT DISTINCT ?study_name ?purpose ?outcome 
+#     WHERE {{
+#         GRAPH <http://localhost:7200/repositories/icare4cvd/rdf-graphs/studies_metadata> {{
+#             ?study a obi:study_design_execution ;
+#                 obi:realizes ?plan .
+#             ?plan obi:concretizes ?study_design .
+#             ?study_design bfo:has_part ?protocol .
+#             ?study dc:identifier ?study_name.
+            
+#             # Primary purpose specification
+#             ?protocol bfo:has_part ?purposeInst .
+#             ?purposeInst a cmeo:study_primary_purpose_specification .
+#             ?purposeInst cmeo:has_value ?purpose .
+            
+#             # Outcome specification pattern (optional)
+#             OPTIONAL {{
+#                 ?protocol bfo:has_part ?outcomeInst .
+#                 ?outcomeInst a cmeo:inclusion_criteria .
+#                 ?outcomeInst cmeo:has_value ?outcome .
+#             }}
+            
+#             # Filter: Either the purpose or outcome must contain "diabetes"
+#             FILTER(
+#                 CONTAINS(lcase(str(?purpose)), "{disease}") ||
+#                 (BOUND(?outcome) && CONTAINS(lcase(str(?outcome)), "{disease}"))
+#             )
+#         }}
+#     }}
+#     """
+#     # print(query)
+#     sparql.setQuery(query)
+#     sparql.setReturnFormat(JSON)
+#     results = sparql.query().convert()
+    
+#     # Initialize an empty list to store the processed data
+#     data = []
+#     # Iterate over the results
+#     for result in results["results"]["bindings"]:
+#         study_name = result['study_name']['value']
+#         # purpose = result['purpose']['value']
+#         # outcome = result.get('outcome', {}).get('value', None)
+        
+#         data.append(study_name)
+#     return data
+#     # return list of study names only
+
+
+# def fetch_data_elements_from_studyX_with_permissible_value(study_name, permissible_value, graph_db_repo="http://localhost:7200/repositories/icare4cvd/rdf-graphs"):
+
+#     sparql = SPARQLWrapper(settings.query_endpoint)
+#     query = f"""
+#     PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+#     PREFIX dc: <http://purl.org/dc/elements/1.1/>
+#     PREFIX obi: <http://purl.obolibrary.org/obo/obi.owl/>
+#     PREFIX cmeo: <https://w3id.org/CMEO/>
+#     PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+#     PREFIX bfo: <http://purl.obolibrary.org/obo/bfo.owl/>
+#     PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+#     PREFIX iao: <http://purl.obolibrary.org/obo/iao.owl/>
+#     SELECT ?var_name ?s_var_val
+#         WHERE {{
+#             GRAPH <{graph_db_repo}/{study_name}> {{
+#                 ?data_element a cmeo:data_element ;
+#                             dc:identifier ?var_name;
+#                             rdfs:label ?var_label;
+#                             iao:is_denoted_by ?s_var;
+#                             obi:has_value_specification ?permissiblevalues_part.
+#                     ?s_var cmeo:has_value ?s_var_val.
+#                     # Retrieve permissible categorical values FIRST
+            
+#                     ?permissiblevalues_part a obi:categorical_value_specification;
+#                             obi:is_specified_input_of ?cat_data_standardization.
+#                     ?cat_data_standardization a <https://w3id.org/CMEO/data_standardization>.
+#                     ?cat_data_standardization obi:has_specified_output ?cat_standardized_code.
+#                     ?cat_standardized_code rdfs:label ?label_value.
+                
+                
+#                     FILTER (CONTAINS(?label_value, "{permissible_value}"))
+#                 }}
+#         }}
+#         """
+#     sparql.setQuery(query)
+#     sparql.setReturnFormat(JSON)
+#     results = sparql.query().convert()
+    
+#     # Initialize an empty list to store the processed data
+#     data = []
+#     # Iterate over the results
+#     for result in results["results"]["bindings"]:
+#         var_name = result['var_name']['value']
+#         data.append(var_name)
+#     return data
+#     # return list of variable names
+
+
+
+
+# def study_x_with_data_elements_y(inclusion_criteria:str , data_element_criteria:str):
+#     studies=fetch_studies_with_disease(inclusion_criteria)
+#     data_elements = {}
+#     for study in studies:
+#         data_elements[study] = fetch_data_elements_from_studyX_with_permissible_value(study, data_element_criteria)
+#     return data_elements
+
+
+# def find_common_codes( source_study_name:str , target_study_name:str,graph_db_repo="http://localhost:7200/repositories/icare4cvd/rdf-graphs"):
+#     query = f"""
+#         PREFIX rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+#             PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+#             PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
+#             PREFIX dc:   <http://purl.org/dc/elements/1.1/>
+#             PREFIX obi:  <http://purl.obolibrary.org/obo/obi.owl/>
+#             PREFIX cmeo: <https://w3id.org/CMEO/>
+#             PREFIX bfo:  <http://purl.obolibrary.org/obo/bfo.owl/>
+#             PREFIX iao: <http://purl.obolibrary.org/obo/iao.owl/>
+
+#             SELECT
+#             ?omop_id ?code_label ?code_value ?val
+#             (GROUP_CONCAT(DISTINCT ?varNameA; SEPARATOR=", ") AS ?source)
+#             (GROUP_CONCAT(DISTINCT ?varNameB; SEPARATOR=", ") AS ?target)
+#             (GROUP_CONCAT(DISTINCT STR(?visitsA); SEPARATOR=", ") AS ?source_visit)
+#             (GROUP_CONCAT(DISTINCT STR(?visitsB); SEPARATOR=", ") AS ?target_visit)
+            
+#             WHERE 
+#             {{
+#              {{
+#                         SELECT
+#                         ?omop_id ?code_label ?code_value ?val
+
+#                         (COUNT(DISTINCT ?primary_code_literal) AS ?codeCountA)
+#                         (GROUP_CONCAT(DISTINCT STR(?var_nameA); SEPARATOR=", ") AS ?varNameA)
+#                         (GROUP_CONCAT(CONCAT(STR(?var_nameA), "||", STR(?visitcodelabelA)); SEPARATOR=", ") AS ?visitsA)
+#                         ("{source_study_name}" AS ?source)
+#                         WHERE {{
+#                         GRAPH <{graph_db_repo}/{source_study_name}> 
+#                         {{
+#                                     ?dataElementA rdf:type cmeo:data_element ;
+#                                                     dc:identifier ?var_nameA ;
+#                                                     obi:is_specified_input_of ?catProcessA, ?stdProcessA .
+#                                      OPTIONAL {{
+#                                         ?visitdatum  rdf:type cmeo:visit_measurement_datum ;
+#                                                     iao:is_about ?dataElementA ;
+#                                                     obi:is_specified_input_of ?vs_stdProcessA .
+                                        
+                                        
+#                                         ?vs_stdProcessA obi:has_specified_output ?visit_code.
+#                                         ?visit_code rdfs:label ?visitcodelabelA.
+#                                     }}
+#                                     ?catProcessA rdf:type cmeo:categorization_process ;
+#                                                 obi:has_specified_output ?cat_outputA .
+#                                     ?cat_outputA cmeo:has_value ?val .
+#                                     #FILTER(?val IN ("measurement", "drug_exposure"))
+
+#                                     ?stdProcessA rdf:type cmeo:data_standardization ;
+#                                                 obi:has_specified_output ?codeA .
+#                                     ?codeA rdf:_1 ?primary_code_literal .
+#                                     ?primary_code_literal iao:denotes ?omop_id_uri ;
+#                                             cmeo:has_value ?code_value ;
+#                                             rdfs:label ?code_label .
+#                                     ?omop_id_uri rdf:type cmeo:omop_id ;
+#                                                 cmeo:has_value ?omop_id .
+#                             }}
+#                         }}
+#                         GROUP BY ?omop_id ?code_label ?code_value ?val
+#                 }}
+#             UNION
+#             {{
+#                     SELECT
+#                     ?omop_id ?code_label  ?code_value ?val
+#                     (COUNT(DISTINCT ?primary_code_literal) AS ?codeCountB)
+#                     (GROUP_CONCAT(DISTINCT STR(?var_nameB); SEPARATOR=", ") AS ?varNameB)
+#                      (GROUP_CONCAT(CONCAT(STR(?var_nameB), "||", STR(?visitcodelabelB)); SEPARATOR=", ") AS ?visitsB)
+#                     ("{target_study_name}" AS ?target)
+#                         WHERE 
+#                         {{
+#                                 GRAPH <{graph_db_repo}/{target_study_name}> 
+#                                 {{
+#                                     ?dataElementB rdf:type cmeo:data_element ;
+#                                     dc:identifier ?var_nameB ;
+#                                     obi:is_specified_input_of ?catProcessB, ?stdProcessB.
+                                    
+#                                     OPTIONAL {{
+#                                     ?visitdatum  rdf:type cmeo:visit_measurement_datum ;
+#                                                 iao:is_about ?dataElementB ;
+#                                                 obi:is_specified_input_of ?vs_stdProcessAB .
+                                    
+                                    
+#                                     ?vs_stdProcessAB obi:has_specified_output ?visit_code.
+#                                     ?visit_code rdfs:label ?visitcodelabelB.
+#                                     }}
+#                                     ?catProcessB rdf:type cmeo:categorization_process ;
+#                                     obi:has_specified_output ?cat_outputB .
+#                                     ?cat_outputB cmeo:has_value ?val .
+#                                     #FILTER(?val IN ("measurement", "drug_exposure"))
+
+#                                     ?stdProcessB rdf:type cmeo:data_standardization ;
+#                                             obi:has_specified_output ?codeB .
+#                                     ?codeB rdf:_1 ?primary_code_literal .
+#                                     ?primary_code_literal iao:denotes ?omop_id_uri ;
+#                                     cmeo:has_value ?code_value;
+#                                     rdfs:label ?code_label.
+#                                     ?omop_id_uri rdf:type cmeo:omop_id ;
+#                                     cmeo:has_value ?omop_id.
+#                                 }}
+#                         }}
+
+#                     GROUP BY ?omop_id  ?code_label ?code_value  ?val
+#                 }}
+#             }}
+#             GROUP BY ?omop_id ?code_label ?code_value ?val
+#             #HAVING (COUNT(DISTINCT ?source) < 3)
+#             ORDER BY ?omop_id
+    
+#     """
+#     sparql = SPARQLWrapper(settings.query_endpoint)
+#     sparql.setQuery(query)
+#     sparql.setReturnFormat(JSON)
+#     results = sparql.query().convert()
+#     data = []
+#     for result in results["results"]["bindings"]:
+#         omop_id = result['omop_id']['value']
+#         code_label = result['code_label']['value']
+#         vocab_code = result['code_value']['value']
+#         # study_count = int(result['study_count']['value'])
+#         # study_name = result['study_name']['value']
+#         source = result['source']['value']
+#         target = result['target']['value']
+#         # source_code_type = result['source_code_type']['value']
+#         # target_code_type = result['target_code_type']['value']
+#         source_data_elements = source.split(', ') if (source and source != '') else []
+#         target_data_elements = target.split(', ') if (target and target != '') else []
+#         for si in source_data_elements:
+#             for di in target_data_elements:
+#                 data.append({
+#                     'source': si,
+#                     'target': di,
+#                     'somop_id': omop_id,
+#                     'tomop_id': omop_id,
+#                     'scode': vocab_code,
+#                     'slabel': code_label,
+#                     'tcode': vocab_code,
+#                     'tlabel': code_label,
+#                     'path_depth': 'mapped'
+#                 })
+        
+#     df = pd.DataFrame(data)
+#     return df
+
+
+
+def map_category_to_omop(category: str) -> str:
+    """
+    Maps a given category to its corresponding OMOP domain.
+    :param category: The category to map.
+    :return: The corresponding OMOP domain.
+    """
+    category_mapping = {
+        "Etiology": "Observation",
+        "Measurement": "Measurement",
+        "Stages and scales": "Measurement",
+        "Functional and Behavioral Assessment Score": "Measurement",
+        "Blood measurement": "Measurement",
+        "Cardiac Measurement": "Measurement",
+        "Anthropometric Measurement": "Measurement",
+        "Consumption Measurement": "Measurement",
+        "Time to Event Measurement": "Measurement",
+        "Clinical Finding": "Condition-Occurrence",
+        "Disease or Disorder Finding": "Condition-Occurrence",
+        "Functional Finding": "Observation",
+        "Compliance Finding": "Observation",
+        "Death": "Death",
+        "Demographics": "Person",
+        "Risk Factors": "Observation",
+        "Sign or symptom": "Condition-Occurrence",
+        "General sign": "Condition-Occurrence",
+        "Cardiac Sign": "Condition-Occurrence",
+        "Respiratory Sign": "Condition-Occurrence",
+        "Neurological Sign": "Condition-Occurrence",
+        "Vital Sign": "Measurement",
+        "Symptom": "Condition-Occurrence",
+        "Device Exposure": "Device-Exposure",
+        "Medication Exposure": "Drug-Exposure",
+        "Procedure": "Procedure",
+        "Follow up Attrition": "Observation",
+        "Medical History": "Observation",
+        "Family History": "Observation",
+        "Disease or Disorder History": "Observation",
+        "Hospitalization History": "Observation",
+        "Medication History": "Observation",
+        "Procedure History": "Observation",
+        "Dietary Intake": "Measurement",
+        "Number of Occurrences": "Observation"
+    }
+    
+    return category_mapping.get(category, "Unknown Category")

@@ -15,7 +15,8 @@ from CohortVarLinker.src.utils import (
         OntologyNamespaces,
     
     )
-
+     
+from CohortVarLinker.src.omop_graph import OmopGraphNX
 
 
 
@@ -344,7 +345,7 @@ def generate_mapping_csv(
     
     # Use 'qdrant' as the host when running in Docker Compose
     vector_db, embedding_model = generate_studies_embeddings(cohort_file_path, "qdrant", "studies_metadata", recreate_db=True)
-
+    graph = OmopGraphNX(csv_file_path=settings.concepts_file_path)
     for tstudy, vc in target_studies:
         suffix = 'restricted' if vc else 'full'
         out_filename = f'{source_study}_{tstudy}_{suffix}.csv'
@@ -358,7 +359,8 @@ def generate_mapping_csv(
             embedding_model=embedding_model,
             vector_db=vector_db,
             collection_name="studies_metadata",
-            visit_constraint=vc
+            visit_constraint=vc,
+            omop_graph=graph,
         )
     
         if mapping_transformed is None or mapping_transformed.empty:
