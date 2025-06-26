@@ -35,13 +35,18 @@ def get_exact_matches(
                 omop_id: int,
                 domain: str,
             ) -> list[dict]:
-   
+    """
+    Cartesian‑product the source and target elements,
+    keep only those whose visits match (after normalization),
+    and return a list of exact‑match mapping records.
+    """
     matches = []
     for i, s in enumerate(src_elements):
         for j, t in enumerate(tgt_elements):
-            sv = src_visits[i]
-            tv =  tgt_visits[j]
-            if sv == tv:
+          
+            sv= src_visits[i] if "date" not in src_visits[i] else "baseline time"
+            tv= tgt_visits[j] if "date" not in tgt_visits[j] else "baseline time"
+            if sv == tv:   
                 matches.append({
                     'source':  s,
                     'target':  t,
@@ -53,11 +58,9 @@ def get_exact_matches(
                     'tlabel':  code_label,
                     'category': domain,
                     'mapping type': 'exact match',
-                    'source_visit': sv,
-                    'target_visit': tv,
+                    'source_visit': src_visits[i],
+                    'target_visit': tgt_visits[j],
                 })
-    return matches
-
 
 def map_source_target(source_study_name:str , target_study_name:str, vector_db, embedding_model,graph_db_repo="https://w3id.org/CMEO/graph", collection_name="studies_metadata", graph:Any = None):
  
@@ -334,8 +337,8 @@ def map_source_target(source_study_name:str , target_study_name:str, vector_db, 
             for s in source_map[(source_id, omop_domain)]:
                 for t in target_map[key]:
 
-                    svisit = s['visit']
-                    tvisit = t['visit']
+                    svisit = s['visit'] if "date" not in s['visit'] else "baseline time"
+                    tvisit = t['visit'] if "date" not in t['visit'] else "baseline time"
 
                     if (s['category'] != t['category']) or svisit != tvisit:
                         
@@ -372,8 +375,8 @@ def map_source_target(source_study_name:str , target_study_name:str, vector_db, 
                     final_dict.append({
                         'source': s['source'],
                         'target': t['target'],
-                        'source_visit': svisit,
-                        'target_visit': tvisit,
+                        'source_visit': s['visit'] if "date" not in s['visit'] else "baseline time",
+                        'target_visit': t['visit'] if "date" not in t['visit'] else "baseline time",
                         'somop_id': source_id,
                         'tomop_id': target_id,
                         'scode': s['code'],
@@ -490,10 +493,10 @@ def _cross_domain_matches(
         key = (t["omop_id"], t["visit"])
         for s in src_index.get(key, []):
             if s['category'] in ["measurement", "observation", "condition_occurrence", "condition_era"] and t['category'] in ["measurement", "observation", "condition_occurrence", "condition_era"]:
-                tvisit= t['visit']
-                svisit = s['visit']
+                tvisit = t['visit'] if "date" not in t['visit'] else "baseline time"
+                svisit = s['visit'] if "date" not in s['visit'] else "baseline time"
                 mapping_type = "cross domain exact match" if s['category'] != t['category'] else "cross domain approximate match"
-                if s['visit'] == tvisit:
+                if svisit == tvisit:
                     final.append({
                         "source": s["source"],
                         "target": t["target"],
@@ -505,8 +508,8 @@ def _cross_domain_matches(
                         "tlabel": t["code_label"],
                         "category": f"{s['category']}|{t['category']}",
                         "mapping type": mapping_type,
-                        "source_visit": svisit,
-                        "target_visit": tvisit,
+                        "source_visit": s['visit'],
+                        "target_visit":  t['visit'],
                     })
     return final
 
