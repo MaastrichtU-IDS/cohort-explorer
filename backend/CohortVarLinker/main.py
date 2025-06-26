@@ -368,7 +368,7 @@ def generate_mapping_csv(
                 columns = ['No mappings found']*3
             pd.DataFrame(columns=columns).to_csv(out_path, index=False)
         else:
-            mapping_transformed = mapping_transformed.drop_duplicates(keep='first')
+            
             mapping_transformed.to_csv(out_path, index=False)
 
     # res=search_in_db(

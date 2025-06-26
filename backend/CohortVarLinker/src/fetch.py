@@ -454,11 +454,11 @@ def map_source_target(source_study_name:str , target_study_name:str, vector_db, 
         axis=1
    )  
     
-    df_mapping.rename(columns={
-        "source": f"{source_study_name}_variable",
-        "target": f"{target_study_name}_variable",
-    })
-
+    # df_mapping.rename(columns={
+    #     "source": f"{source_study_name}_variable",
+    #     "target": f"{target_study_name}_variable",
+    # })
+    df_mapping = df_mapping.drop_duplicates(keep='first')
     return  df_mapping
 
 
