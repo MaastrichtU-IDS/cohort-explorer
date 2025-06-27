@@ -370,7 +370,8 @@ def generate_mapping_csv(
         else:
             
             mapping_transformed.to_csv(out_path, index=False)
-
+    
+    
     # res=search_in_db(
     #     vectordb=vector_db,
     #     embedding_model=embedding_model,
