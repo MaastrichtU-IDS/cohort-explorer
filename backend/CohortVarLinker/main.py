@@ -2,6 +2,7 @@ import pandas as pd
 # import cProfile
 # import pstats
 from SPARQLWrapper import SPARQLWrapper, JSON
+from collections import defaultdict
 import os
 import glob
 import time
@@ -342,7 +343,11 @@ def generate_mapping_csv(
     # Only run expensive computations if any mapping is missing
     create_study_metadata_graph(cohorts_metadata_file, recreate=True)
     create_cohort_specific_metadata_graph(cohort_file_path, recreate=True)
+        
+    # combined_df = None
+    omop_id_tracker = {}  # Track source_omop_id per variable
     
+    mapping_dict = {}  # {target_study: {source_var: (target_var, target_omop_id)}}
     # Use 'qdrant' as the host when running in Docker Compose
     vector_db, embedding_model = generate_studies_embeddings(cohort_file_path, "qdrant", "studies_metadata", recreate_db=True)
     graph = OmopGraphNX(csv_file_path=settings.concepts_file_path)
@@ -370,31 +375,44 @@ def generate_mapping_csv(
         else:
             
             mapping_transformed.to_csv(out_path, index=False)
+            if tstudy not in mapping_dict:
+                mapping_dict[tstudy] = {}
+            for _, row in mapping_transformed.iterrows():
+                    src = str(row["source"]).strip()
+                    tgt = str(row["target"]).strip()
+                    somop = str(row["somop_id"]).strip()
+                    tomop = str(row["tomop_id"]).strip()
+                    slabel = str(row.get("slabel", "")).strip()
+                    if src not in omop_id_tracker:
+                        omop_id_tracker[src] = (somop, slabel)
+                    mapping_dict[tstudy][src] = (tgt, tomop)
+
+
+    # 1. Group TIME-CHF source variables by OMOP ID
+    omop_to_source_vars = defaultdict(list)
+    for src_var, (somop_id, slabel) in omop_id_tracker.items():
+        omop_to_source_vars[somop_id].append(src_var)
+
+    matched_rows = []
+
+    # 2. For each OMOP ID, build a row: all TIME-CHF vars and all target study matches
+    for _, src_vars in omop_to_source_vars.items():
+        row = {}
+        row[source_study] = ' | '.join(sorted(set(src_vars)))
+        for tstudy in target_studies:
+            targets = []
+            tdict = mapping_dict.get(tstudy, {})
+            for src_var in src_vars:
+                tgt_pair = tdict.get(src_var)
+                if tgt_pair:
+                    targets.append(tgt_pair[0])
+            row[tstudy] = ' | '.join(sorted(set(targets))) if targets else ''
+        matched_rows.append(row)
+
+    # 3. Save the DataFrame
+    final_df = pd.DataFrame(matched_rows)
+    output_path = f'{data_dir}/output/{source_study}_omop_id_grouped_all_targets.csv'  #anas please update it accordingly
+    final_df.to_csv(output_path, index=False) # merged output file with all targets where studies names are columns and source variables are grouped by omop_id
+    print(f"✅ Matched variables (grouped by source OMOP ID) saved to: {output_path}")  
     
-    
-    # res=search_in_db(
-    #     vectordb=vector_db,
-    #     embedding_model=embedding_model,
-    #     query_text="potassium [moles/volume] in blood",
-    #     limit=100,
-    #     omop_domain=["measurement"],
-    #     collection_name="studies_metadata",
-    #     target_study="gissi-hf",
-    #     min_score=0.85
-    # )
-    # res =  set(res)
-    # print(f"Results: {res}")
-    
-    # res=search_in_db(
-    #     vectordb=vector_db,
-    #     embedding_model=embedding_model,
-    #     query_text="ace inhibitors, plain",
-    #     limit=100,
-    #     omop_domain=["drug_exposure"],
-    #     collection_name="studies_metadata",
-    #     min_score=0.85
-    # )
-    # res =  set(res)
-    # print(f"Results: {res}")
-  
     
