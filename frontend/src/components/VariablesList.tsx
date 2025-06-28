@@ -127,6 +127,7 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
     a.click();
     document.body.removeChild(a);
   }
+};
 
 
   const handleCloseGraphModal = () => {
