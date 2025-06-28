@@ -119,15 +119,14 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
 
   if (filtered.length > 0) {
     const mostRecent = filtered[0];
-    const downloadUrl = `${apiUrl}/cohort-spreadsheet/${encodeURIComponent(cohortId)}`;
-    // Create a temporary anchor element and trigger a download
+    const downloadUrl = `${apiUrl}/csvs/${encodeURIComponent(mostRecent)}`;
     const a = document.createElement('a');
     a.href = downloadUrl;
-    a.download = `${cohortId}-datadictionary.csv`; // Downloaded file name
+    a.download = mostRecent;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-  };
+  }
 
 
   const handleCloseGraphModal = () => {
