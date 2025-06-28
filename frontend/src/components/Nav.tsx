@@ -81,7 +81,8 @@ export function Nav() {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
       setPublishedDCR((
-        <p>✅ Data Clean Room definition file generated</p>
+        <p>✅ Data Clean Room configuration file has been downloaded. 
+          Please go to <a href="https://platform.decentriq.com/" target="_blank">platform.decentriq.com</a> to create a new DCR from the configuration file.</p> </p>
       ))
       setIsLoading(false);
       // Handle response
@@ -121,12 +122,12 @@ export function Nav() {
             </Link>
           </li>
 
-      <li> 
+      {/*<li> 
         <Link href="/docs_store">
           <HardDrive /> 
           Documents
         </Link>
-      </li>
+      </li>*/}
         </ul>
         {/* <div className="dropdown lg:hidden">
         <div tabindex="0" role="button" className="btn btn-ghost lg:hidden">
@@ -218,7 +219,7 @@ export function Nav() {
             {isLoading && (
               <div className="flex flex-col items-center opacity-70 text-slate-500 mt-5 mb-5">
                 <span className="loading loading-spinner loading-lg mb-4"></span>
-                <p>Creating Data Clean Room in Decentriq...</p>
+                <p>Creating the file specification for a DCR draft...</p>
               </div>
             )}
             {publishedDCR && (
