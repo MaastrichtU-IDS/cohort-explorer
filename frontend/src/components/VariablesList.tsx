@@ -109,24 +109,14 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
 
   // Function to handle downloading the cohort CSV
   const downloadMetadataCSV = async () => {
-    // Fetch the list of CSV files from the backend
-    const res = await fetch(`${apiUrl}/list-csvs/${encodeURIComponent(cohortId)}`, { credentials: 'include' });
-    const files = await res.json(); 
-    // Filter out "noHeader" and non-CSV files, then sort by name (or timestamp if available)
-    const filtered = files
-      .filter((name: string) => !name.includes('noHeader') && name.endsWith('.csv'))
-      .sort((a: string, b: string) => b.localeCompare(a)); // or sort by date if available
-
-  if (filtered.length > 0) {
-    const mostRecent = filtered[0];
-    const downloadUrl = `${apiUrl}/csvs/${encodeURIComponent(mostRecent)}`;
+    const downloadUrl = `${apiUrl}/cohort-spreadsheet/${encodeURIComponent(cohortId)}`;
+    // Create a temporary anchor element and trigger a download
     const a = document.createElement('a');
     a.href = downloadUrl;
-    a.download = mostRecent;
+    a.download = `${cohortId}-datadictionary.csv`; // Downloaded file name
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-  }
 };
 
 
