@@ -108,7 +108,7 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
   ]);
 
   // Function to handle downloading the cohort CSV
-  const downloadMetadataCSV = () => {
+  const downloadMetadataCSV = async () => {
     const downloadUrl = `${apiUrl}/cohort-spreadsheet/${encodeURIComponent(cohortId)}`;
     // Create a temporary anchor element and trigger a download
     const a = document.createElement('a');
@@ -117,7 +117,7 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-  };
+};
 
 
   const handleCloseGraphModal = () => {

@@ -24,11 +24,17 @@ async def download_cohort_spreasheet(cohort_id: str, user: Any = Depends(get_cur
     # cohort_id = urllib.parse.unquote(cohort_id)
     cohorts_folder = os.path.join(settings.data_folder, "cohorts", cohort_id)
 
-    # Search for a data dictionary file in the cohort's folder
-    for file_name in os.listdir(cohorts_folder):
-        if file_name.endswith("_datadictionary.csv") or file_name.endswith("_datadictionary.xlsx"):
-            file_path = os.path.join(cohorts_folder, file_name)
-            return FileResponse(path=file_path, filename=file_name, media_type="application/octet-stream")
+    # List all CSV files excluding those with 'noHeader' in the name
+    csv_files = [
+        f for f in os.listdir(cohorts_folder)
+        if f.endswith('.csv') and 'noHeader' not in f
+    ]
+    if not csv_files:
+        raise HTTPException(status_code=404, detail=f"No metadata csv file found for cohort ID '{cohort_id}'")
 
-    # If no file is found, return an error response
-    raise HTTPException(status_code=404, detail=f"No data dictionary found for cohort ID '{cohort_id}'")
+    # Find the latest CSV file by modification time
+    csv_files_full = [os.path.join(cohorts_folder, f) for f in csv_files]
+    latest_file = max(csv_files_full, key=os.path.getmtime)
+    latest_file_name = os.path.basename(latest_file)
+    return FileResponse(path=latest_file, filename=latest_file_name, media_type="application/octet-stream")
+

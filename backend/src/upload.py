@@ -268,10 +268,10 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
             # Ensure 'categories' column exists and is a list before checking its length or content
             current_categories = row.get("categories")
             if isinstance(current_categories, list):
-                if len(current_categories) == 1:
-                    errors.append(
-                        f"Row {i+2} (Variable: '{var_name_for_error}') has only one category defined: '{current_categories[0]['value']}'. Categorical variables should have at least two distinct categories or be left blank if not applicable."
-                    )
+                #if len(current_categories) == 1:
+                #    errors.append(
+                #        f"Row {i+2} (Variable: '{var_name_for_error}') has only one category defined: '{current_categories[0]['value']}'. Categorical variables should have at least two distinct categories or be left blank if not applicable."
+                #    )
                 
                 # Category Concept Code Validation (if 'Categorical Value Concept Code' column exists)
                 # This column is not in COLUMNS_LIST, so it's optional.
