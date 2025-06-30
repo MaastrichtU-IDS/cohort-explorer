@@ -161,15 +161,6 @@ def generate_studies_kg(filepath: str) -> Graph:
         g = add_timeline_specification(g, row, study_uri, protocol_uri, metadata_graph)
         g = add_outcome_specification(g, row, study_uri, protocol_uri, metadata_graph)
         
-        
-        # if pd.notna(row["Study duration"]): # will be revised later after normalizing cohort metadat file 
-        #     study_duration_uri = URIRef(study_design_execution_uri + "/study_duration")
-        #     g.add((study_design_execution_uri, OntologyNamespaces.CMEO.value.has_study_duration, study_duration_uri,metadata_graph))
-        #     g.add((study_duration_uri, RDF.type, OntologyNamespaces.CMEO.value.study_duration, metadata_graph))
-        #     g.add((study_duration_uri, OntologyNamespaces.CMEO.value.has_value, Literal(row["Study duration"], datatype=XSD.string),metadata_graph))
-        
-       
-        
     print(f"Graph size: {len(g)}")
     return g
 

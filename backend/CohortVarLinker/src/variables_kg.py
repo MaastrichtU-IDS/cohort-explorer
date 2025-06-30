@@ -729,6 +729,7 @@ def add_histogram_visualization(g: Graph, var_uri: URIRef, cohort_uri: URIRef, c
 
 
 def add_temporal_context(g: Graph, var_uri: URIRef, cohort_uri: URIRef, row: pd.Series) -> Graph:
+    if "visits" not in row: return g
     visit_not_null = pd.notna(row['visits']) and row['visits']
     if visit_not_null:
         visit_labels = normalize_text(row['visits'])
