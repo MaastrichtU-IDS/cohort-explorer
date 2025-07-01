@@ -167,7 +167,7 @@ export default function MappingPage() {
         <div className="mb-6 flex justify-center">
           <input
             type="text"
-            placeholder="[Optional]Enter a keyword to filter cohorts"
+            placeholder="[optional] Enter a keyword to filter cohorts"
             className="input input-bordered w-full max-w-md"
             value={searchQuery}
             onChange={handleSearchChange}
