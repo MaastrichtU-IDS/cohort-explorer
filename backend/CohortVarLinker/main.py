@@ -412,7 +412,7 @@ def generate_mapping_csv(
     # 3. Save the DataFrame
     final_df = pd.DataFrame(matched_rows)
     target_str = '_'.join(sorted(target_studies))
-    output_path = f'{data_dir}/output/{source_study}_omop_id_grouped_{target_str}.csv' 
+    output_path = f'/app/CohortVarLinker/mapping_output/{source_study}_omop_id_grouped_{target_str}.csv' 
     final_df.to_csv(output_path, index=False) # merged output file with all targets where studies names are columns and source variables are grouped by omop_id
     print(f"✅ Matched variables (grouped by source OMOP ID) saved to: {output_path}")  
     
