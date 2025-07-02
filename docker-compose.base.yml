@@ -9,6 +9,8 @@ services:
       DATA_FOLDER: /data
     volumes:
       - ./data:/data
+      - /data/deploy-services/cohort-explorer/cohortVarLinker/data/:/app/CohortVarLinker/data/
+      - /data/deploy-services/cohort-explorer/cohortVarLinker/data/:/app/CohortVarLinker/mapping-output
     env_file:
       - .env
 

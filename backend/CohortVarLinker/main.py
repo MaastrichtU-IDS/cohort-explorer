@@ -293,9 +293,6 @@ def generate_mapping_csv(
 
     if data_dir is None:
         data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
-        print("data_dir is: ", data_dir)
-    else:
-        print("else case. data-dir is: ", data_dir)
     from CohortVarLinker.src.config import settings
     if cohort_file_path is None:
         cohort_file_path = settings.cohort_folder
@@ -414,7 +411,8 @@ def generate_mapping_csv(
 
     # 3. Save the DataFrame
     final_df = pd.DataFrame(matched_rows)
-    output_path = f'{data_dir}/output/{source_study}_omop_id_grouped_all_targets.csv' 
+    target_str = '_'.join(sorted(target_studies))
+    output_path = f'{data_dir}/output/{source_study}_omop_id_grouped_{target_str}.csv' 
     final_df.to_csv(output_path, index=False) # merged output file with all targets where studies names are columns and source variables are grouped by omop_id
     print(f"✅ Matched variables (grouped by source OMOP ID) saved to: {output_path}")  
     
