@@ -33,23 +33,22 @@ async def generate_mapping(
     # The function writes CSVs to CohortVarLinker/mapping_output/{source}_{target}_full.csv
     # We'll return the first mapping file (for now, can be extended)
     generate_mapping_csv(source_study, target_studies)
-    output_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'CohortVarLinker', 'mapping_output')
-    # Find the generated file(s)
-
-    source_study = source_study.lower()
-    target_studies =  [(t[0].lower(), t[1]) for t in target_studies]
+    #output_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'CohortVarLinker', 'mapping_output')
+    output_dir = "/app/CohortVarLinker/mapping_output"
     
-    for tstudy, _ in target_studies:
-        filename = f"{source_study}_{tstudy}_full.csv"
-        filepath = os.path.join(output_dir, filename)
-        if os.path.exists(filepath):
-            def iterfile():
-                with open(filepath, mode="rb") as file_like:
-                    yield from file_like
-            return StreamingResponse(iterfile(), media_type="text/csv", headers={
-                "Content-Disposition": f"attachment; filename={filename}"
-            })
-    return JSONResponse(status_code=404, content={"error": "Mapping file not found."})
+     # Find the generated file(s)
+    source_study = source_study.lower()
+    target_str = "_".join(sorted([t[0].lower() for t in target_studies]))
+    
+    filename = f"{source_study}_omop_id_grouped_{target_str}.csv"
+    filepath = os.path.join(output_dir, filename)
+    if os.path.exists(filepath):
+        return StreamingResponse(
+            open(filepath, "rb"),
+            media_type="text/csv",
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
+        )
+    return JSONResponse(status_code=404, content={"error": "Cache error. Mapping file not found."})
 
 @router.get("/search-concepts")
 async def search_concepts(
