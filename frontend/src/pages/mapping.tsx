@@ -219,7 +219,6 @@ export default function MappingPage() {
                 );
               })}
             </div>
-            </div>
           </div>
         </div>
 
