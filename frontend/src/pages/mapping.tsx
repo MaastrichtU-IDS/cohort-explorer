@@ -57,9 +57,9 @@ import {apiUrl} from '@/utils';
 export default function MappingPage() {
   const { cohortsData, userEmail } = useCohorts();
   const [sourceCohort, setSourceCohort] = useState('');
-  // Instead of a single target cohort, allow multiple selections with time restriction
-  type TargetCohortOption = { cohortId: string; timeRestricted: boolean };
-  const [selectedTargets, setSelectedTargets] = useState<TargetCohortOption[]>([]);
+  // Allow multiple target cohorts, each listed only once
+  // Store selected target cohorts as strings
+  const [selectedTargets, setSelectedTargets] = useState<string[]>([]);
   const [mappingOutput, setMappingOutput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -87,7 +87,8 @@ export default function MappingPage() {
     setError(null);
     setMappingOutput('');
     try {
-      const target_studies = selectedTargets.map(opt => [opt.cohortId, opt.timeRestricted]);
+      // Send as [cohortId, false] for each selected target
+      const target_studies = selectedTargets.map((cohortId: string) => [cohortId, false]);
       const response = await fetch(`${apiUrl}/api/generate-mapping`, {
         method: 'POST',
         headers: {
@@ -198,56 +199,26 @@ export default function MappingPage() {
               <span className="label-text">Target Cohorts</span>
             </label>
             <div className="flex flex-col max-h-64 overflow-y-scroll border rounded p-2 bg-base-100 scrollbar scrollbar-thumb-base-300 scrollbar-track-base-200">
-              {filteredCohorts.map(([cohortId]) => (
-  <React.Fragment key={cohortId}>
-    {/* Unrestricted (default) - just the name */}
-    {(() => {
-      const option: TargetCohortOption = { cohortId, timeRestricted: false };
-      const checked = selectedTargets.some(
-        t => t.cohortId === cohortId && t.timeRestricted === false
-      );
-      return (
-        <label key={cohortId + '-unrestricted'} className="cursor-pointer flex items-center gap-2 py-1">
-          <input
-            type="checkbox"
-            checked={checked}
-            onChange={e => {
-              if (e.target.checked) {
-                setSelectedTargets(prev => [...prev, option]);
-              } else {
-                setSelectedTargets(prev => prev.filter(t => !(t.cohortId === cohortId && t.timeRestricted === false)));
-              }
-            }}
-          />
-          <span>{cohortId}</span>
-        </label>
-      );
-    })()}
-    {/* Restricted - label with (visit times constrained) */}
-    {(() => {
-      const option: TargetCohortOption = { cohortId, timeRestricted: true };
-      const checked = selectedTargets.some(
-        t => t.cohortId === cohortId && t.timeRestricted === true
-      );
-      return (
-        <label key={cohortId + '-restricted'} className="cursor-pointer flex items-center gap-2 py-1">
-          <input
-            type="checkbox"
-            checked={checked}
-            onChange={e => {
-              if (e.target.checked) {
-                setSelectedTargets(prev => [...prev, option]);
-              } else {
-                setSelectedTargets(prev => prev.filter(t => !(t.cohortId === cohortId && t.timeRestricted === true)));
-              }
-            }}
-          />
-          <span>{cohortId} <span className="text-xs text-slate-500">(visit times constrained)</span></span>
-        </label>
-      );
-    })()}
-  </React.Fragment>
-))}
+              {filteredCohorts.map(([cohortId]) => {
+                const checked = selectedTargets.includes(cohortId);
+                return (
+                  <label key={cohortId} className="cursor-pointer flex items-center gap-2 py-1">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={e => {
+                        if (e.target.checked) {
+                          setSelectedTargets(prev => [...prev, cohortId]);
+                        } else {
+                          setSelectedTargets(prev => prev.filter(t => t !== cohortId));
+                        }
+                      }}
+                    />
+                    <span>{cohortId}</span>
+                  </label>
+                );
+              })}
+            </div>
             </div>
           </div>
         </div>
