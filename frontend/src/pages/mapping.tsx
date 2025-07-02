@@ -117,9 +117,7 @@ export default function MappingPage() {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      const targetsString = selectedTargets
-        .map(t => `${t.cohortId}_${t.timeRestricted ? 'restricted' : 'unrestricted'}`)
-        .join('__');
+      const targetsString = [...selectedTargets].sort().join('__');
       a.download = `mapping_${sourceCohort}_to_${targetsString}.csv`;
       document.body.appendChild(a);
       a.click();
