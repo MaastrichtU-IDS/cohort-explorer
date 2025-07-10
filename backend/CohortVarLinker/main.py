@@ -325,9 +325,11 @@ def generate_mapping_csv(
     source_study = source_study.lower()
     target_studies = [t[0].lower() for t in target_studies]
 
-    # Check if all requested mappings already exist
+    # Check if all requested mappings already exist... 
+    # Komal's comment: i dont think we should have this logic (330-342 please comment it out) here because in case of multiple target studies, we should check in next computations if mapping exist add it in the list and check next. when all available then we group by omop_id
     all_exist = True
     missing_targets = []
+    
     for tstudy in target_studies:
         # suffix = 'restricted' if vc else 'full'
         out_filename = f'{source_study}_{tstudy}_cross_mapping.csv'
@@ -339,7 +341,7 @@ def generate_mapping_csv(
     if all_exist:
         print("All requested mappings already exist. Skipping all computation.")
         return
-
+    
     # Only run expensive computations if any mapping is missing
     create_study_metadata_graph(cohorts_metadata_file, recreate=True)
     create_cohort_specific_metadata_graph(cohort_file_path, recreate=True)
