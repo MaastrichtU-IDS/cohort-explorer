@@ -271,6 +271,57 @@ def cluster_variables_by_omop(endpoint_url):
 
 # from owlready2 import get_ontology
 
+# simple intersectio with just variable names display
+def combine_cross_mappings_v1(
+    source_study, 
+    target_studies, 
+    output_dir, 
+    combined_output_path
+):
+    """
+    Combines individual study cross-mapping files into a single grouped file by OMOP ID.
+    """
+    omop_id_tracker = {}
+    mapping_dict = {}
+
+    for tstudy in target_studies:
+        out_path = os.path.join(output_dir, f'{source_study}_{tstudy}_full.csv')
+        df = pd.read_csv(out_path)
+        if tstudy not in mapping_dict:
+            mapping_dict[tstudy] = {}
+        for _, row in df.iterrows():
+            src = str(row["source"]).strip()
+            tgt = str(row["target"]).strip()
+            somop = str(row["somop_id"]).strip()
+            tomop = str(row["tomop_id"]).strip()
+            slabel = str(row.get("slabel", "")).strip()
+            if src not in omop_id_tracker:
+                omop_id_tracker[src] = (somop, slabel)
+            mapping_dict[tstudy][src] = (tgt, tomop)
+
+    # Group source variables by OMOP ID
+    omop_to_source_vars = defaultdict(list)
+    for src_var, (somop_id, slabel) in omop_id_tracker.items():
+        omop_to_source_vars[somop_id].append(src_var)
+
+    matched_rows = []
+    for _, src_vars in omop_to_source_vars.items():
+        row = {}
+        row[source_study] = ' | '.join(sorted(set(src_vars)))
+        for tstudy in target_studies:
+            targets = []
+            tdict = mapping_dict.get(tstudy, {})
+            for src_var in src_vars:
+                tgt_pair = tdict.get(src_var)
+                if tgt_pair:
+                    targets.append(tgt_pair[0])
+            row[tstudy] = ' | '.join(sorted(set(targets))) if targets else ''
+        matched_rows.append(row)
+
+    final_df = pd.DataFrame(matched_rows)
+    final_df.to_csv(combined_output_path, index=False)
+    print(f"✅ Combined existing mappings saved to: {combined_output_path}")
+    
 def combine_cross_mappings(
     source_study,
     target_studies,
