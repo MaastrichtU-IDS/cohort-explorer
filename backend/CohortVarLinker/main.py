@@ -411,7 +411,73 @@ def combine_cross_mappings(
     final_df = pd.DataFrame(matched_rows)
     final_df.to_csv(combined_output_path, index=False)
     print(f"✅ Combined existing mappings with source and target details saved to: {combined_output_path}")
-    
+  
+  
+
+def combine_all_mappings_to_json(
+    source_study, target_studies, output_dir, json_path
+):
+    # Dict: {source_var: [mapping_dicts]}
+    mappings = {}
+    for target in target_studies:
+        csv_file = os.path.join(output_dir, f"{source_study}_{target}_full.csv")
+        if not os.path.exists(csv_file):
+            print(f"Skipping {csv_file}, does not exist.")
+            continue
+        df = pd.read_csv(csv_file)
+        for idx, row in df.iterrows():
+            # Source variable name
+            src_var = str(row["source"]).strip()
+            if not src_var:
+                continue
+            # Initialize dict for this variable if not present
+            if src_var not in mappings:
+                mappings[src_var] = []
+            # Build mapping dict for this target study
+            mapping = {"target_study": target}
+            # Source columns
+            for col in df.columns:
+                if col.startswith("source_") or col.startswith("s") or col in [
+                    "source", "somop_id", "scode", "slabel",
+                    "category", "source_visit", "source_type", "source_unit", "source_data_type"
+                ]:
+                    mapping[f"s_{col}"] = row[col]
+            # Target columns
+            for col in df.columns:
+                if col.startswith("target_") or col.startswith("t") or col in [
+                    "target", "tomop_id", "tcode", "tlabel", 
+                    "target_visit", "target_type", "target_unit", "target_data_type"
+                ]:
+                    mapping[f"{target}_{col}"] = row[col]
+            # Extra columns (mapping_type, transformation_rule, etc.)
+            for col in df.columns:
+                if col not in [
+                    "source", "target", "somop_id", "tomop_id",
+                    "scode", "slabel", "tcode", "tlabel",
+                    "category", "mapping type", "source_visit", "target_visit",
+                    "source_type", "target_type", "source_unit", "target_unit",
+                    "source_data_type", "target_data_type", "transformation_rule"
+                ]:
+                    mapping[f"{col}"] = row[col]
+            # Always include mapping type and transformation rule
+            if "mapping type" in df.columns:
+                mapping[f"{target}_mapping_type"] = row["mapping type"]
+            if "transformation_rule" in df.columns:
+                mapping[f"{target}_transformation_rule"] = row["transformation_rule"]
+            # Add to source variable
+            mappings[src_var].append(mapping)
+    # Compose final JSON dict
+    final_json = {}
+    for src_var, mapping_list in mappings.items():
+        final_json[src_var] = {
+            "from": source_study,
+            "mappings": mapping_list
+        }
+    # Save to JSON
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(final_json, f, indent=2, ensure_ascii=False)
+    print(f"✅ All mappings combined and saved to {json_path}")
+      
 def generate_mapping_csv(
     source_study,
     target_studies,
@@ -525,7 +591,7 @@ def generate_mapping_csv(
             
             mapping_transformed.to_csv(out_path, index=False)
     tstudy_str = "_".join(target_studies)
-    combine_cross_mappings(
+    combine_all_mappings_to_json(
         source_study=source_study,
         target_studies=target_studies,
         output_dir=os.path.join(data_dir, "output"),   # update this to your desired output directory
