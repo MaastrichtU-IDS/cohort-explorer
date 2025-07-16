@@ -271,6 +271,213 @@ def cluster_variables_by_omop(endpoint_url):
 
 # from owlready2 import get_ontology
 
+# simple intersectio with just variable names display
+def combine_cross_mappings_v1(
+    source_study, 
+    target_studies, 
+    output_dir, 
+    combined_output_path
+):
+    """
+    Combines individual study cross-mapping files into a single grouped file by OMOP ID.
+    """
+    omop_id_tracker = {}
+    mapping_dict = {}
+
+    for tstudy in target_studies:
+        out_path = os.path.join(output_dir, f'{source_study}_{tstudy}_full.csv')
+        df = pd.read_csv(out_path)
+        if tstudy not in mapping_dict:
+            mapping_dict[tstudy] = {}
+        for _, row in df.iterrows():
+            src = str(row["source"]).strip()
+            tgt = str(row["target"]).strip()
+            somop = str(row["somop_id"]).strip()
+            tomop = str(row["tomop_id"]).strip()
+            slabel = str(row.get("slabel", "")).strip()
+            if src not in omop_id_tracker:
+                omop_id_tracker[src] = (somop, slabel)
+            mapping_dict[tstudy][src] = (tgt, tomop)
+
+    # Group source variables by OMOP ID
+    omop_to_source_vars = defaultdict(list)
+    for src_var, (somop_id, slabel) in omop_id_tracker.items():
+        omop_to_source_vars[somop_id].append(src_var)
+
+    matched_rows = []
+    for _, src_vars in omop_to_source_vars.items():
+        row = {}
+        row[source_study] = ' | '.join(sorted(set(src_vars)))
+        for tstudy in target_studies:
+            targets = []
+            tdict = mapping_dict.get(tstudy, {})
+            for src_var in src_vars:
+                tgt_pair = tdict.get(src_var)
+                if tgt_pair:
+                    targets.append(tgt_pair[0])
+            row[tstudy] = ' | '.join(sorted(set(targets))) if targets else ''
+        matched_rows.append(row)
+
+    final_df = pd.DataFrame(matched_rows)
+    final_df.to_csv(combined_output_path, index=False)
+    print(f"✅ Combined existing mappings saved to: {combined_output_path}")
+    
+def combine_cross_mappings(
+    source_study,
+    target_studies,
+    output_dir,
+    combined_output_path,
+    extra_columns=None
+):
+    if extra_columns is None:
+        extra_columns = [
+            "category","mapping_type","source_visit","target_visit",
+            "source_type","source_unit","source_data_type",
+            "target_type","target_unit","target_data_type","transformation_rule"
+        ]
+
+    omop_id_tracker = {}
+    mapping_dict = {}
+    mapping_details = {}
+    source_details = {}
+
+    for tstudy in target_studies:
+        out_path = os.path.join(output_dir, f'{source_study}_{tstudy}_full.csv')
+        df = pd.read_csv(out_path)
+        if tstudy not in mapping_dict:
+            mapping_dict[tstudy] = {}
+            mapping_details[tstudy] = {}
+        for _, row in df.iterrows():
+            src = str(row["source"]).strip()
+            tgt = str(row["target"]).strip()
+            somop = str(row["somop_id"]).strip()
+            tomop = str(row["tomop_id"]).strip()
+            slabel = str(row.get("slabel", "")).strip()
+            if src not in omop_id_tracker:
+                omop_id_tracker[src] = (somop, slabel)
+            mapping_dict[tstudy][src] = (tgt, tomop)
+            # Target variable details
+            tdetail_pieces = []
+            for col in extra_columns:
+                if col == "transformation_rule":
+                    val = row.get(col, "")
+                    if pd.isna(val) or val == "":
+                        val = ""
+                    else:
+                        val = f"{src}→{tgt}:{val}"
+                    tdetail_pieces.append(f"{col}={val}")
+                else:
+                    val = row.get(col, "")
+                    if pd.isna(val):
+                        val = ""
+                    tdetail_pieces.append(f"{col}={val}")
+            mapping_details[tstudy][src] = (tgt, ", ".join(tdetail_pieces))
+            # Source variable details (collected once per unique source var)
+            if src not in source_details:
+                sdetail_pieces = []
+                for col in extra_columns:
+                    sval = row.get(f"source_{col}", row.get(col, ""))
+                    if pd.isna(sval):
+                        sval = ""
+                    sdetail_pieces.append(f"{col}={sval}")
+                source_details[src] = ", ".join(sdetail_pieces)
+
+    # Group source variables by OMOP ID
+    omop_to_source_vars = defaultdict(list)
+    for src_var, (somop_id, slabel) in omop_id_tracker.items():
+        omop_to_source_vars[somop_id].append(src_var)
+
+    matched_rows = []
+    for _, src_vars in omop_to_source_vars.items():
+        row = {}
+        # Source study: list source vars with details
+        row[source_study] = ' | '.join(
+            f"{src_var}: {source_details.get(src_var, '')}" for src_var in sorted(set(src_vars))
+        )
+        # Each target: list mapped target vars with details
+        for tstudy in target_studies:
+            tdict = mapping_dict.get(tstudy, {})
+            tdetail = mapping_details.get(tstudy, {})
+            targets = []
+            for src_var in src_vars:
+                tgt_pair = tdict.get(src_var)
+                if tgt_pair:
+                    tgt = tgt_pair[0]
+                    detail_str = tdetail.get(src_var, "")
+                    targets.append(f"{tgt}: {detail_str}")
+            row[tstudy] = ' | '.join(targets) if targets else ''
+        matched_rows.append(row)
+
+    final_df = pd.DataFrame(matched_rows)
+    final_df.to_csv(combined_output_path, index=False)
+    print(f"✅ Combined existing mappings with source and target details saved to: {combined_output_path}")
+  
+  
+
+def combine_all_mappings_to_json(
+    source_study, target_studies, output_dir, json_path
+):
+    # Dict: {source_var: [mapping_dicts]}
+    mappings = {}
+    for target in target_studies:
+        csv_file = os.path.join(output_dir, f"{source_study}_{target}_full.csv")
+        if not os.path.exists(csv_file):
+            print(f"Skipping {csv_file}, does not exist.")
+            continue
+        df = pd.read_csv(csv_file)
+        for idx, row in df.iterrows():
+            # Source variable name
+            src_var = str(row["source"]).strip()
+            if not src_var:
+                continue
+            # Initialize dict for this variable if not present
+            if src_var not in mappings:
+                mappings[src_var] = []
+            # Build mapping dict for this target study
+            mapping = {"target_study": target}
+            # Source columns
+            for col in df.columns:
+                if col.startswith("source_") or col.startswith("s") or col in [
+                    "source", "somop_id", "scode", "slabel",
+                    "category", "source_visit", "source_type", "source_unit", "source_data_type"
+                ]:
+                    mapping[f"s_{col}"] = row[col]
+            # Target columns
+            for col in df.columns:
+                if col.startswith("target_") or col.startswith("t") or col in [
+                    "target", "tomop_id", "tcode", "tlabel", 
+                    "target_visit", "target_type", "target_unit", "target_data_type"
+                ]:
+                    mapping[f"{target}_{col}"] = row[col]
+            # Extra columns (mapping_type, transformation_rule, etc.)
+            for col in df.columns:
+                if col not in [
+                    "source", "target", "somop_id", "tomop_id",
+                    "scode", "slabel", "tcode", "tlabel",
+                    "category", "mapping type", "source_visit", "target_visit",
+                    "source_type", "target_type", "source_unit", "target_unit",
+                    "source_data_type", "target_data_type", "transformation_rule"
+                ]:
+                    mapping[f"{col}"] = row[col]
+            # Always include mapping type and transformation rule
+            if "mapping type" in df.columns:
+                mapping[f"{target}_mapping_type"] = row["mapping type"]
+            if "transformation_rule" in df.columns:
+                mapping[f"{target}_transformation_rule"] = row["transformation_rule"]
+            # Add to source variable
+            mappings[src_var].append(mapping)
+    # Compose final JSON dict
+    final_json = {}
+    for src_var, mapping_list in mappings.items():
+        final_json[src_var] = {
+            "from": source_study,
+            "mappings": mapping_list
+        }
+    # Save to JSON
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(final_json, f, indent=2, ensure_ascii=False)
+    print(f"✅ All mappings combined and saved to {json_path}")
+      
 def generate_mapping_csv(
     source_study,
     target_studies,
@@ -325,9 +532,11 @@ def generate_mapping_csv(
     source_study = source_study.lower()
     target_studies = [t[0].lower() for t in target_studies]
 
-    # Check if all requested mappings already exist
+    # Check if all requested mappings already exist... 
+    # Komal's comment: i dont think we should have this logic (330-342 please comment it out) here because in case of multiple target studies, we should check in next computations if mapping exist add it in the list and check next. when all available then we group by omop_id
     all_exist = True
     missing_targets = []
+    
     for tstudy in target_studies:
         # suffix = 'restricted' if vc else 'full'
         out_filename = f'{source_study}_{tstudy}_cross_mapping.csv'
@@ -338,8 +547,14 @@ def generate_mapping_csv(
             missing_targets.append(tstudy)
     if all_exist:
         print("All requested mappings already exist. Skipping all computation.")
+        combine_cross_mappings(
+                source_study=source_study,
+                target_studies=target_studies,
+                output_dir=os.path.join(data_dir, "output"),   # update this to your desired output directory
+                combined_output_path=os.path.join(data_dir, "output", f"{source_study}_{tstudy_str}_grouped.csv")
+            )
         return
-
+    
     # Only run expensive computations if any mapping is missing
     create_study_metadata_graph(cohorts_metadata_file, recreate=True)
     create_cohort_specific_metadata_graph(cohort_file_path, recreate=True)
@@ -375,45 +590,52 @@ def generate_mapping_csv(
         else:
             
             mapping_transformed.to_csv(out_path, index=False)
-            if tstudy not in mapping_dict:
-                mapping_dict[tstudy] = {}
-            for _, row in mapping_transformed.iterrows():
-                    src = str(row["source"]).strip()
-                    tgt = str(row["target"]).strip()
-                    somop = str(row["somop_id"]).strip()
-                    tomop = str(row["tomop_id"]).strip()
-                    slabel = str(row.get("slabel", "")).strip()
-                    if src not in omop_id_tracker:
-                        omop_id_tracker[src] = (somop, slabel)
-                    mapping_dict[tstudy][src] = (tgt, tomop)
+            
+    tstudy_str = "_".join(target_studies)
+    combine_all_mappings_to_json(
+        source_study=source_study,
+        target_studies=target_studies,
+        output_dir= "/app/CohortVarLinker/mapping_output/"
+        combined_output_path= f"/app/CohortVarLinker/mapping_output/{source_study}_omop_id_grouped_{target_str}.csv")
+    )
+    #         if tstudy not in mapping_dict:
+    #             mapping_dict[tstudy] = {}
+    #         for _, row in mapping_transformed.iterrows():
+    #                 src = str(row["source"]).strip()
+    #                 tgt = str(row["target"]).strip()
+    #                 somop = str(row["somop_id"]).strip()
+    #                 tomop = str(row["tomop_id"]).strip()
+    #                 slabel = str(row.get("slabel", "")).strip()
+    #                 if src not in omop_id_tracker:
+    #                     omop_id_tracker[src] = (somop, slabel)
+    #                 mapping_dict[tstudy][src] = (tgt, tomop)
 
 
-    # 1. Group TIME-CHF source variables by OMOP ID
-    omop_to_source_vars = defaultdict(list)
-    for src_var, (somop_id, slabel) in omop_id_tracker.items():
-        omop_to_source_vars[somop_id].append(src_var)
+    # # 1. Group TIME-CHF source variables by OMOP ID
+    # omop_to_source_vars = defaultdict(list)
+    # for src_var, (somop_id, slabel) in omop_id_tracker.items():
+    #     omop_to_source_vars[somop_id].append(src_var)
 
-    matched_rows = []
+    # matched_rows = []
 
-    # 2. For each OMOP ID, build a row: all TIME-CHF vars and all target study matches
-    for _, src_vars in omop_to_source_vars.items():
-        row = {}
-        row[source_study] = ' | '.join(sorted(set(src_vars)))
-        for tstudy in target_studies:
-            targets = []
-            tdict = mapping_dict.get(tstudy, {})
-            for src_var in src_vars:
-                tgt_pair = tdict.get(src_var)
-                if tgt_pair:
-                    targets.append(tgt_pair[0])
-            row[tstudy] = ' | '.join(sorted(set(targets))) if targets else ''
-        matched_rows.append(row)
+    # # 2. For each OMOP ID, build a row: all TIME-CHF vars and all target study matches
+    # for _, src_vars in omop_to_source_vars.items():
+    #     row = {}
+    #     row[source_study] = ' | '.join(sorted(set(src_vars)))
+    #     for tstudy in target_studies:
+    #         targets = []
+    #         tdict = mapping_dict.get(tstudy, {})
+    #         for src_var in src_vars:
+    #             tgt_pair = tdict.get(src_var)
+    #             if tgt_pair:
+    #                 targets.append(tgt_pair[0])
+    #         row[tstudy] = ' | '.join(sorted(set(targets))) if targets else ''
+    #     matched_rows.append(row)
 
-    # 3. Save the DataFrame
-    final_df = pd.DataFrame(matched_rows)
-    target_str = '_'.join(sorted(target_studies))
-    output_path = f'/app/CohortVarLinker/mapping_output/{source_study}_omop_id_grouped_{target_str}.csv' 
-    final_df.to_csv(output_path, index=False) # merged output file with all targets where studies names are columns and source variables are grouped by omop_id
-    print(f"✅ Matched variables (grouped by source OMOP ID) saved to: {output_path}")  
+    # # 3. Save the DataFrame
+    # final_df = pd.DataFrame(matched_rows)
+    # output_path = f'{data_dir}/output/{source_study}_omop_id_grouped_all_targets.csv'  #anas please update it accordingly
+    # final_df.to_csv(output_path, index=False) # merged output file with all targets where studies names are columns and source variables are grouped by omop_id
+    # print(f"✅ Matched variables (grouped by source OMOP ID) saved to: {output_path}")  
     
     
