@@ -595,7 +595,7 @@ def generate_mapping_csv(
     combine_all_mappings_to_json(
         source_study=source_study,
         target_studies=target_studies,
-        output_dir= "/app/CohortVarLinker/mapping_output/"
+        output_dir= "/app/CohortVarLinker/mapping_output/",
         combined_output_path= f"/app/CohortVarLinker/mapping_output/{source_study}_omop_id_grouped_{target_str}.csv")
     #         if tstudy not in mapping_dict:
     #             mapping_dict[tstudy] = {}
