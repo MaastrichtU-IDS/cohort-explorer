@@ -61,6 +61,7 @@ def get_exact_matches(
                     'source_visit': src_visits[i],
                     'target_visit': tgt_visits[j],
                 })
+    return matches
 
 def map_source_target(source_study_name:str , target_study_name:str, vector_db, embedding_model,graph_db_repo="https://w3id.org/CMEO/graph", collection_name="studies_metadata", graph:Any = None):
  

@@ -590,12 +590,13 @@ def generate_mapping_csv(
         else:
             
             mapping_transformed.to_csv(out_path, index=False)
+            
     tstudy_str = "_".join(target_studies)
     combine_all_mappings_to_json(
         source_study=source_study,
         target_studies=target_studies,
-        output_dir=os.path.join(data_dir, "output"),   # update this to your desired output directory
-        combined_output_path=os.path.join(data_dir, "output", f"{source_study}_{tstudy_str}_grouped.csv")
+        output_dir= "/app/CohortVarLinker/mapping_output/"
+        combined_output_path= f"/app/CohortVarLinker/mapping_output/{source_study}_omop_id_grouped_{target_str}.csv")
     )
     #         if tstudy not in mapping_dict:
     #             mapping_dict[tstudy] = {}
