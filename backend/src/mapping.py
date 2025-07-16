@@ -32,13 +32,15 @@ async def generate_mapping(
     # Call the backend function
     # The function writes CSVs to CohortVarLinker/mapping_output/{source}_{target}_full.csv
     # We'll return the first mapping file (for now, can be extended)
+    
+    target_studies = sorted(target_studies, key=lambda x: x[0])
     generate_mapping_csv(source_study, target_studies)
     #output_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'CohortVarLinker', 'mapping_output')
     output_dir = "/app/CohortVarLinker/mapping_output"
     
      # Find the generated file(s)
     source_study = source_study.lower()
-    target_str = "_".join(sorted([t[0].lower() for t in target_studies]))
+    target_str = "_".join([t[0].lower() for t in target_studies])
     
     filename = f"{source_study}_omop_id_grouped_{target_str}.csv"
     filepath = os.path.join(output_dir, filename)

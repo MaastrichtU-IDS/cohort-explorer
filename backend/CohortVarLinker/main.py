@@ -421,7 +421,7 @@ def combine_all_mappings_to_json(
     # Dict: {source_var: [mapping_dicts]}
     mappings = {}
     for target in target_studies:
-        csv_file = os.path.join(output_dir, f"{source_study}_{target}_full.csv")
+        csv_file = os.path.join(output_dir, f"{source_study}_{target}_cross_mapping.csv")
         if not os.path.exists(csv_file):
             print(f"Skipping {csv_file}, does not exist.")
             continue
@@ -539,7 +539,6 @@ def generate_mapping_csv(
     missing_targets = []
     
     for tstudy in target_studies:
-        # suffix = 'restricted' if vc else 'full'
         out_filename = f'{source_study}_{tstudy}_cross_mapping.csv'
         out_path = os.path.join(output_dir, out_filename)
         print(f"Checking if {out_path} exists")
