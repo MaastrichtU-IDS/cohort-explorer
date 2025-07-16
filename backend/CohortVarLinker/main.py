@@ -552,7 +552,7 @@ def generate_mapping_csv(
                 source_study=source_study,
                 target_studies=target_studies,
                 output_dir= "/app/CohortVarLinker/mapping_output/",
-                combined_output_path= f"/app/CohortVarLinker/mapping_output/{source_study}_omop_id_grouped_{tstudy_str}.csv")
+                json_path= f"/app/CohortVarLinker/mapping_output/{source_study}_omop_id_grouped_{tstudy_str}.csv")
         
         return
             
@@ -597,7 +597,7 @@ def generate_mapping_csv(
         source_study=source_study,
         target_studies=target_studies,
         output_dir= "/app/CohortVarLinker/mapping_output/",
-        combined_output_path= f"/app/CohortVarLinker/mapping_output/{source_study}_omop_id_grouped_{tstudy_str}.csv")
+        json_path= f"/app/CohortVarLinker/mapping_output/{source_study}_omop_id_grouped_{tstudy_str}.csv")
     #         if tstudy not in mapping_dict:
     #             mapping_dict[tstudy] = {}
     #         for _, row in mapping_transformed.iterrows():
