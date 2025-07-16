@@ -6,6 +6,7 @@ from collections import defaultdict
 import os
 import glob
 import time
+import json
 from CohortVarLinker.src.variables_kg import process_variables_metadata_file, add_raw_data_graph
 from CohortVarLinker.src.study_kg import generate_studies_kg
 from CohortVarLinker.src.vector_db import generate_studies_embeddings, search_in_db
@@ -547,14 +548,15 @@ def generate_mapping_csv(
             missing_targets.append(tstudy)
     if all_exist:
         print("All requested mappings already exist. Skipping all computation.")
-        combine_cross_mappings(
+        tstudy_str = "_".join(target_studies)
+        combine_all_mappings_to_json(
                 source_study=source_study,
                 target_studies=target_studies,
-                output_dir=os.path.join(data_dir, "output"),   # update this to your desired output directory
-                combined_output_path=os.path.join(data_dir, "output", f"{source_study}_{tstudy_str}_grouped.csv")
-            )
+                output_dir= "/app/CohortVarLinker/mapping_output/",
+                json_path= f"/app/CohortVarLinker/mapping_output/{source_study}_omop_id_grouped_{tstudy_str}.csv")
+        
         return
-    
+            
     # Only run expensive computations if any mapping is missing
     create_study_metadata_graph(cohorts_metadata_file, recreate=True)
     create_cohort_specific_metadata_graph(cohort_file_path, recreate=True)
@@ -595,9 +597,8 @@ def generate_mapping_csv(
     combine_all_mappings_to_json(
         source_study=source_study,
         target_studies=target_studies,
-        output_dir= "/app/CohortVarLinker/mapping_output/"
-        combined_output_path= f"/app/CohortVarLinker/mapping_output/{source_study}_omop_id_grouped_{target_str}.csv")
-    )
+        output_dir= "/app/CohortVarLinker/mapping_output/",
+        json_path= f"/app/CohortVarLinker/mapping_output/{source_study}_omop_id_grouped_{tstudy_str}.csv")
     #         if tstudy not in mapping_dict:
     #             mapping_dict[tstudy] = {}
     #         for _, row in mapping_transformed.iterrows():
