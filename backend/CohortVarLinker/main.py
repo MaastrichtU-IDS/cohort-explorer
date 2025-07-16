@@ -547,14 +547,15 @@ def generate_mapping_csv(
             missing_targets.append(tstudy)
     if all_exist:
         print("All requested mappings already exist. Skipping all computation.")
-        combine_cross_mappings(
+        tstudy_str = "_".join(target_studies)
+        combine_all_mappings_to_json(
                 source_study=source_study,
                 target_studies=target_studies,
-                output_dir=os.path.join(data_dir, "output"),   # update this to your desired output directory
-                combined_output_path=os.path.join(data_dir, "output", f"{source_study}_{tstudy_str}_grouped.csv")
-            )
+                output_dir= "/app/CohortVarLinker/mapping_output/",
+                combined_output_path= f"/app/CohortVarLinker/mapping_output/{source_study}_omop_id_grouped_{target_str}.csv")
+        
         return
-    
+            
     # Only run expensive computations if any mapping is missing
     create_study_metadata_graph(cohorts_metadata_file, recreate=True)
     create_cohort_specific_metadata_graph(cohort_file_path, recreate=True)
