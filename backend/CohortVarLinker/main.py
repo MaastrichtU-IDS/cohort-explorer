@@ -286,7 +286,7 @@ def combine_cross_mappings_v1(
     mapping_dict = {}
 
     for tstudy in target_studies:
-        out_path = os.path.join(output_dir, f'{source_study}_{tstudy}_full.csv')
+        out_path = os.path.join(output_dir, f'{source_study}_{tstudy}_full.json')
         df = pd.read_csv(out_path)
         if tstudy not in mapping_dict:
             mapping_dict[tstudy] = {}
@@ -320,8 +320,10 @@ def combine_cross_mappings_v1(
         matched_rows.append(row)
 
     final_df = pd.DataFrame(matched_rows)
-    final_df.to_csv(combined_output_path, index=False)
-    print(f"✅ Combined existing mappings saved to: {combined_output_path}")
+    # Save as JSON instead of CSV
+    json_output_path = os.path.splitext(combined_output_path)[0] + '.json'
+    final_df.to_json(json_output_path, orient='records', indent=2)
+    print(f"✅ Combined existing mappings saved to: {json_output_path}")
     
 def combine_cross_mappings(
     source_study,
@@ -539,7 +541,7 @@ def generate_mapping_csv(
     missing_targets = []
     
     for tstudy in target_studies:
-        out_filename = f'{source_study}_{tstudy}_cross_mapping.csv'
+        out_filename = f'{source_study}_{tstudy}_cross_mapping.json'
         out_path = os.path.join(output_dir, out_filename)
         print(f"Checking if {out_path} exists")
         if not os.path.exists(out_path):
@@ -552,7 +554,7 @@ def generate_mapping_csv(
                 source_study=source_study,
                 target_studies=target_studies,
                 output_dir= "/app/CohortVarLinker/mapping_output/",
-                json_path= f"/app/CohortVarLinker/mapping_output/{source_study}_omop_id_grouped_{tstudy_str}.csv")
+                json_path= f"/app/CohortVarLinker/mapping_output/{source_study}_omop_id_grouped_{tstudy_str}.json")
         
         return
             
@@ -568,7 +570,7 @@ def generate_mapping_csv(
     vector_db, embedding_model = generate_studies_embeddings(cohort_file_path, "qdrant", "studies_metadata", recreate_db=True)
     graph = OmopGraphNX(csv_file_path=settings.concepts_file_path)
     for tstudy in target_studies:
-        out_filename = f'{source_study}_{tstudy}_cross_mapping.csv'
+        out_filename = f'{source_study}_{tstudy}_cross_mapping.json'
         out_path = os.path.join(output_dir, out_filename)
         if os.path.exists(out_path):
             print(f"Mapping already exists for {source_study} to {tstudy}, skipping computation.")
@@ -587,17 +589,17 @@ def generate_mapping_csv(
             columns = getattr(mapping_transformed, 'columns', None)
             if columns is None or len(columns) == 0:
                 columns = ['No mappings found']*3
-            pd.DataFrame(columns=columns).to_csv(out_path, index=False)
+            pd.DataFrame(columns=columns).to_json(out_path, index=False)
         else:
             
-            mapping_transformed.to_csv(out_path, index=False)
+            mapping_transformed.to_json(out_path, index=False)
             
     tstudy_str = "_".join(target_studies)
     combine_all_mappings_to_json(
         source_study=source_study,
         target_studies=target_studies,
         output_dir= "/app/CohortVarLinker/mapping_output/",
-        json_path= f"/app/CohortVarLinker/mapping_output/{source_study}_omop_id_grouped_{tstudy_str}.csv")
+        json_path= f"/app/CohortVarLinker/mapping_output/{source_study}_omop_id_grouped_{tstudy_str}.json")
     #         if tstudy not in mapping_dict:
     #             mapping_dict[tstudy] = {}
     #         for _, row in mapping_transformed.iterrows():
