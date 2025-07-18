@@ -12,7 +12,7 @@ function MappingPreviewJsonTable({ data, maxRows }: MappingPreviewJsonTableProps
   if (!data || !Array.isArray(data) || data.length === 0) return <div className="italic text-slate-400">No mapping data to preview.</div>;
   // Get all unique keys for columns
   const columns = Array.from(
-    data.reduce((cols, row) => {
+    data.reduce<Set<string>>((cols, row) => {
       Object.keys(row).forEach(k => cols.add(k));
       return cols;
     }, new Set<string>())
