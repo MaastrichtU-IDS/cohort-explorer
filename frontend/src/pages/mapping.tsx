@@ -2,54 +2,51 @@
 
 import React, { useState } from 'react';
 
+// Define the shape of our row data
+interface RowData {
+  [key: string]: string | number | boolean | null | undefined;
+}
+
 // Helper component for CSV preview
-interface MappingPreviewTableProps {
-  csvText: string;
+interface MappingPreviewJsonTableProps {
+  data: RowData[];
   maxRows: number;
 }
-function MappingPreviewTable({ csvText, maxRows }: MappingPreviewTableProps) {
-  // Basic CSV parsing (does not handle all edge cases, but fine for preview)
-  const rows: string[][] = csvText.trim().split(/\r?\n/).map((line: string) => {
-    const cells: string[] = [];
-    let current = '';
-    let inQuotes = false;
-    for (let i = 0; i < line.length; i++) {
-      const char = line[i];
-      if (char === '"') {
-        inQuotes = !inQuotes;
-      } else if (char === ',' && !inQuotes) {
-        cells.push(current);
-        current = '';
-      } else {
-        current += char;
-      }
-    }
-    cells.push(current);
-    return cells;
-  });
-  if (!rows.length) return null;
-  const header = rows[0];
-  const data = rows.slice(1, maxRows + 1);
+
+function MappingPreviewJsonTable({ data, maxRows }: MappingPreviewJsonTableProps) {
+  if (!data || !Array.isArray(data) || data.length === 0) return <div className="italic text-slate-400">No mapping data to preview.</div>;
+  // Get all unique keys for columns
+  const columns = Array.from(
+    data.reduce<Set<string>>((cols, row) => {
+      Object.keys(row).forEach(k => cols.add(k));
+      return cols;
+    }, new Set<string>())
+  );
   return (
     <table className="table table-zebra w-full text-xs">
       <thead>
         <tr>
-          {header.map((cell: string, i: number) => <th key={i} className="font-bold bg-base-300">{cell}</th>)}
+          {columns.map(col => (
+            <th key={col} className="font-bold bg-base-300">{col}</th>
+          ))}
         </tr>
       </thead>
       <tbody>
-        {data.map((row: string[], i: number) => (
+        {data.slice(0, maxRows).map((row, i) => (
           <tr key={i}>
-            {row.map((cell: string, j: number) => <td key={j}>{cell}</td>)}
+            {columns.map(col => (
+              <td key={col}>{(row[col] as string | number | boolean | null | undefined)?.toString() || ''}</td>
+            ))}
           </tr>
         ))}
-        {rows.length > maxRows + 1 && (
-          <tr><td colSpan={header.length} className="italic text-slate-400">... (truncated)</td></tr>
+        {data.length > maxRows && (
+          <tr><td colSpan={columns.length} className="italic text-slate-400">... (truncated)</td></tr>
         )}
       </tbody>
     </table>
   );
 }
+
 
 import { useCohorts } from '@/components/CohortsContext';
 import {apiUrl} from '@/utils';
@@ -60,7 +57,7 @@ export default function MappingPage() {
   // Allow multiple target cohorts, each listed only once
   // Store selected target cohorts as strings
   const [selectedTargets, setSelectedTargets] = useState<string[]>([]);
-  const [mappingOutput, setMappingOutput] = useState('');
+  const [mappingOutput, setMappingOutput] = useState<RowData[] | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
   // Filtered cohorts for both source and target menus based on search
@@ -85,7 +82,7 @@ export default function MappingPage() {
     }
     setLoading(true);
     setError(null);
-    setMappingOutput('');
+    setMappingOutput(null);
     try {
       // Send as [cohortId, false] for each selected target
       const target_studies = selectedTargets.map((cohortId: string) => [cohortId, false]);
@@ -102,7 +99,6 @@ export default function MappingPage() {
       if (!response.ok) {
         const result = await response.json();
         let errorMsg = result.detail || result.error || 'Failed to generate mapping';
-        // Custom error message for missing cohort metadata
         if (
           response.status === 404 &&
           typeof errorMsg === 'string' &&
@@ -117,14 +113,37 @@ export default function MappingPage() {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      const targetsString = [...selectedTargets].sort().join('__');
-      a.download = `mapping_${sourceCohort}_to_${targetsString}.csv`;
+      a.download = `mapping_${sourceCohort}_to_${selectedTargets.join('_')}.json`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      // Preview
+      // Preview and validate the JSON data
       const text = await blob.text();
-      setMappingOutput(text);
+      try {
+        const json = JSON.parse(text);
+        // Type guard to check if the data matches RowData[]
+        const isValidData = Array.isArray(json) && 
+          json.every(item => 
+            typeof item === 'object' && 
+            item !== null &&
+            Object.values(item).every(val => 
+              typeof val === 'string' || 
+              typeof val === 'number' || 
+              typeof val === 'boolean' || 
+              val === null || 
+              val === undefined
+            )
+          );
+        
+        if (isValidData) {
+          setMappingOutput(json as RowData[]);
+        } else {
+          console.warn('Received data does not match expected format');
+          setMappingOutput([]);
+        }
+      } catch {
+        setMappingOutput([]);
+      }
       window.URL.revokeObjectURL(url);
     } catch (err: any) {
       setError(
@@ -238,7 +257,7 @@ export default function MappingPage() {
           <div className="mt-8">
             <h2 className="text-xl font-semibold mb-4">Mapping Preview</h2>
             <div className="bg-base-100 p-4 rounded-lg shadow overflow-x-auto">
-              <MappingPreviewTable csvText={mappingOutput} maxRows={10} />
+              <MappingPreviewJsonTable data={mappingOutput} maxRows={40} />
             </div>
           </div>
         )}
