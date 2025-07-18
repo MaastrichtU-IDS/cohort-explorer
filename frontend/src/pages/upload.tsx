@@ -233,19 +233,7 @@ export default function UploadPage() {
   }
 
   return (
-    <>
-      {/* Banner for submitting clinical research questions */}
-      <div className="w-full bg-blue-100 text-blue-900 py-3 px-4 text-center font-semibold text-base shadow-sm" role="region" aria-label="Submit Clinical Research Question" style={{borderBottom: '1px solid #b6d4fe'}}>
-        <a
-          href="https://forms.office.com/Pages/ResponsePage.aspx?id=ZjsnCBAizUCLIFz2zdwnmivGAWehv9FJqQkwLj2vey9UOE5CRUc4MEc5NVRJVkVGVlM5VkdXVjRCNS4u"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="underline hover:text-blue-700"
-        >
-          Please tell us about the clinical research you are interested in
-        </a>
-      </div>
-      <main className="flex flex-col items-center p-4 sm:p-8">
+    <main className="flex flex-col items-center p-4 sm:p-8">
       <div className="w-full max-w-3xl">
         <WizardSteps currentStep={step} />
 
@@ -272,7 +260,7 @@ export default function UploadPage() {
               {validationStatusMessage && (
                 <div 
                   role="alert" 
-                  className={`p-4 mb-4 rounded-lg shadow ${
+                  className={`p-4 mb-4 rounded-lg shadow {
                     validationStatusMessage.includes("Critical") ? 'alert alert-error' : 
                     (isValidated ? 'alert alert-success' : 'alert alert-info')
                   }`}>
