@@ -57,7 +57,7 @@ export default function MappingPage() {
   // Allow multiple target cohorts, each listed only once
   // Store selected target cohorts as strings
   const [selectedTargets, setSelectedTargets] = useState<string[]>([]);
-  const [mappingOutput, setMappingOutput] = useState<object[] | null>(null);
+  const [mappingOutput, setMappingOutput] = useState<RowData[] | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
   // Filtered cohorts for both source and target menus based on search
@@ -117,11 +117,30 @@ export default function MappingPage() {
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      // Preview
+      // Preview and validate the JSON data
       const text = await blob.text();
       try {
         const json = JSON.parse(text);
-        setMappingOutput(json);
+        // Type guard to check if the data matches RowData[]
+        const isValidData = Array.isArray(json) && 
+          json.every(item => 
+            typeof item === 'object' && 
+            item !== null &&
+            Object.values(item).every(val => 
+              typeof val === 'string' || 
+              typeof val === 'number' || 
+              typeof val === 'boolean' || 
+              val === null || 
+              val === undefined
+            )
+          );
+        
+        if (isValidData) {
+          setMappingOutput(json as RowData[]);
+        } else {
+          console.warn('Received data does not match expected format');
+          setMappingOutput([]);
+        }
       } catch {
         setMappingOutput([]);
       }
