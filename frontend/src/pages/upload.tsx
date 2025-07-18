@@ -242,7 +242,7 @@ export default function UploadPage() {
           rel="noopener noreferrer"
           className="underline hover:text-blue-700"
         >
-          Submit Clinical Research Question
+          Please tell us about the clinical research you are interested in
         </a>
       </div>
       <main className="flex flex-col items-center p-4 sm:p-8">
@@ -272,7 +272,7 @@ export default function UploadPage() {
               {validationStatusMessage && (
                 <div 
                   role="alert" 
-                  className={`p-4 mb-4 rounded-lg shadow {
+                  className={`p-4 mb-4 rounded-lg shadow ${
                     validationStatusMessage.includes("Critical") ? 'alert alert-error' : 
                     (isValidated ? 'alert alert-success' : 'alert alert-info')
                   }`}>
