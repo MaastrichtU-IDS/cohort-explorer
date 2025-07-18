@@ -2,9 +2,14 @@
 
 import React, { useState } from 'react';
 
+// Define the shape of our row data
+interface RowData {
+  [key: string]: string | number | boolean | null | undefined;
+}
+
 // Helper component for CSV preview
 interface MappingPreviewJsonTableProps {
-  data: object[];
+  data: RowData[];
   maxRows: number;
 }
 
@@ -30,7 +35,7 @@ function MappingPreviewJsonTable({ data, maxRows }: MappingPreviewJsonTableProps
         {data.slice(0, maxRows).map((row, i) => (
           <tr key={i}>
             {columns.map(col => (
-              <td key={col}>{row[col] ?? ''}</td>
+              <td key={col}>{(row[col] as string | number | boolean | null | undefined)?.toString() || ''}</td>
             ))}
           </tr>
         ))}
