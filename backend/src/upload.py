@@ -176,7 +176,8 @@ def parse_categorical_string(s: str) -> list[dict[str, str]]:
 
 cols_normalized = {"VARIABLENAME": "VARIABLE NAME", 
                    "VARIABLELABEL": "VARIABLE LABEL",
-                   "VARTYPE": "VAR TYPE"}
+                   "VARTYPE": "VAR TYPE"
+                   }
 
 COLUMNS_LIST = [
     "VARIABLE NAME",
@@ -190,7 +191,7 @@ COLUMNS_LIST = [
 #    "MAX",
 #    "Definition",
 #    "Formula",
-#    "OMOP",
+    "DOMAIN",
 #    "Visits",
 ]
 
@@ -256,8 +257,8 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
             var_name_for_error = row.get("VARIABLE NAME", f"UNKNOWN_VAR_ROW_{i+2}")
 
             # Check if required values are present in rows (for critical columns)
-            if not row["VARIABLE NAME"] or not row["VARIABLE LABEL"] or not row["VAR TYPE"]:
-                errors.append(f"Row {i+2} (Variable: '{var_name_for_error}') is missing required data in 'VARIABLE NAME', 'VARIABLE LABEL', or 'VAR TYPE'.")
+            if not row["VARIABLE NAME"] or not row["VARIABLE LABEL"] or not row["VAR TYPE"] or not row["DOMAIN"]:
+                errors.append(f"Row {i+2} (Variable: '{var_name_for_error}') is missing required data in 'VARIABLE NAME', 'VARIABLE LABEL', 'VAR TYPE', or 'DOMAIN'.")
             
             if row["VAR TYPE"] not in ACCEPTED_DATATYPES:
                 errors.append(
