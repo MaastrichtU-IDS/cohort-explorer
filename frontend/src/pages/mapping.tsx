@@ -109,6 +109,10 @@ export default function MappingPage() {
         }
         throw new Error(errorMsg);
       }
+      // First, create a copy of the response to use for both download and preview
+      const responseClone = response.clone();
+      
+      // Handle download
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -117,33 +121,59 @@ export default function MappingPage() {
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      // Preview and validate the JSON data
-      const text = await blob.text();
+      
+      // Handle preview by parsing the response as JSON directly
       try {
-        const json = JSON.parse(text);
+        const jsonData = await responseClone.json();
+        
         // Type guard to check if the data matches RowData[]
-        const isValidData = Array.isArray(json) && 
-          json.every(item => 
+        const isValidData = Array.isArray(jsonData) && 
+          jsonData.every(item => 
             typeof item === 'object' && 
             item !== null &&
             Object.values(item).every(val => 
+              val === null || 
+              val === undefined ||
               typeof val === 'string' || 
               typeof val === 'number' || 
-              typeof val === 'boolean' || 
-              val === null || 
-              val === undefined
+              typeof val === 'boolean' ||
+              (Array.isArray(val) && val.every(v => 
+                v === null || 
+                v === undefined ||
+                typeof v === 'string' || 
+                typeof v === 'number' || 
+                typeof v === 'boolean'
+              ))
             )
           );
         
         if (isValidData) {
-          setMappingOutput(json as RowData[]);
+          // Flatten any nested arrays in the data for display
+          const flattenedData = jsonData.map(item => {
+            const flatItem: any = {};
+            Object.entries(item).forEach(([key, value]) => {
+              if (Array.isArray(value)) {
+                flatItem[key] = value.join(', ');
+              } else if (value !== null && typeof value === 'object') {
+                flatItem[key] = JSON.stringify(value);
+              } else {
+                flatItem[key] = value;
+              }
+            });
+            return flatItem;
+          });
+          
+          setMappingOutput(flattenedData);
         } else {
           console.warn('Received data does not match expected format');
           setMappingOutput([]);
         }
-      } catch {
+      } catch (error) {
+        console.error('Error parsing JSON response:', error);
         setMappingOutput([]);
       }
+      
+      // Clean up the object URL
       window.URL.revokeObjectURL(url);
     } catch (err: any) {
       setError(
