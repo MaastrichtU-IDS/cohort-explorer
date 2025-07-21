@@ -74,6 +74,8 @@ export default function MappingPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // ... inside MappingPage component, replace the existing handleMapConcepts function with this one ...
+
   // Backend integration
   const handleMapConcepts = async () => {
     if (!sourceCohort || selectedTargets.length === 0) {
@@ -125,52 +127,40 @@ export default function MappingPage() {
       // Handle preview by parsing the response as JSON directly
       try {
         const jsonData = await responseClone.json();
-        
-        // Type guard to check if the data matches RowData[]
-        const isValidData = Array.isArray(jsonData) && 
-          jsonData.every(item => 
-            typeof item === 'object' && 
-            item !== null &&
-            Object.values(item).every(val => 
-              val === null || 
-              val === undefined ||
-              typeof val === 'string' || 
-              typeof val === 'number' || 
-              typeof val === 'boolean' ||
-              (Array.isArray(val) && val.every(v => 
-                v === null || 
-                v === undefined ||
-                typeof v === 'string' || 
-                typeof v === 'number' || 
-                typeof v === 'boolean'
-              ))
-            )
-          );
-        
-        if (isValidData) {
-          // Flatten any nested arrays in the data for display
-          const flattenedData = jsonData.map(item => {
-            const flatItem: any = {};
-            Object.entries(item).forEach(([key, value]) => {
-              if (Array.isArray(value)) {
-                flatItem[key] = value.join(', ');
-              } else if (value !== null && typeof value === 'object') {
-                flatItem[key] = JSON.stringify(value);
-              } else {
-                flatItem[key] = value;
-              }
-            });
-            return flatItem;
+
+        // Ensure we have an array to work with for the preview table
+        const dataArray = Array.isArray(jsonData) ? jsonData : [jsonData];
+
+        // Flatten any nested data for display. This is more robust.
+        const flattenedData = dataArray.map(item => {
+          if (typeof item !== 'object' || item === null) {
+            return { value: String(item) };
+          }
+
+          const flatItem: any = {};
+          Object.entries(item).forEach(([key, value]) => {
+            if (Array.isArray(value)) {
+              flatItem[key] = value.join(', ');
+            } else if (value !== null && typeof value === 'object') {
+              // Stringify nested objects to make them viewable
+              flatItem[key] = JSON.stringify(value);
+            } else {
+              flatItem[key] = value;
+            }
           });
-          
-          setMappingOutput(flattenedData);
-        } else {
-          console.warn('Received data does not match expected format');
-          setMappingOutput([]);
-        }
+          return flatItem;
+        });
+
+        setMappingOutput(flattenedData);
+
       } catch (error) {
-        console.error('Error parsing JSON response:', error);
-        setMappingOutput([]);
+        console.error('Error parsing JSON response for preview:', error);
+        // If JSON parsing fails, we can try to show the raw text
+        const text = await responseClone.text();
+        setMappingOutput([{
+            error: 'Failed to parse JSON response',
+            raw_data: text.substring(0, 500) + (text.length > 500 ? '...' : '')
+        }]);
       }
       
       // Clean up the object URL
