@@ -7,21 +7,51 @@ interface RowData {
   [key: string]: string | number | boolean | null | undefined;
 }
 
-// Helper component for CSV preview
-interface MappingPreviewJsonTableProps {
-  data: RowData[];
-  maxRows: number;
+// Helper function to extract relevant fields from the mapping JSON
+function transformMappingDataForPreview(jsonData: any): RowData[] {
+  let allMappings: RowData[] = [];
+  if (typeof jsonData !== 'object' || jsonData === null) {
+    return [];
+  }
+
+  Object.values(jsonData).forEach((value: any) => {
+    if (value && Array.isArray(value.mappings)) {
+      const transformed = value.mappings.map((mapping: any) => {
+        const newRow: RowData = {
+          s_source: mapping.s_source,
+          s_label: mapping.s_slabel, // Corrected from s_label to s_slabel based on screenshot
+        };
+
+        // Find wildcard keys
+        Object.keys(mapping).forEach(key => {
+          if (key.endsWith('_target')) {
+            newRow['target'] = mapping[key];
+          } else if (key.endsWith('_tlabel')) {
+            newRow['target_label'] = mapping[key];
+          } else if (key.endsWith('_mapping_type')) {
+            newRow['mapping_type'] = mapping[key];
+          }
+        });
+        return newRow;
+      });
+      allMappings = allMappings.concat(transformed);
+    }
+  });
+
+  return allMappings;
 }
 
-function MappingPreviewJsonTable({ data, maxRows }: MappingPreviewJsonTableProps) {
+// Helper component for the mapping preview table
+interface MappingPreviewJsonTableProps {
+  data: RowData[];
+}
+
+function MappingPreviewJsonTable({ data }: MappingPreviewJsonTableProps) {
   if (!data || !Array.isArray(data) || data.length === 0) return <div className="italic text-slate-400">No mapping data to preview.</div>;
-  // Get all unique keys for columns
-  const columns = Array.from(
-    data.reduce<Set<string>>((cols, row) => {
-      Object.keys(row).forEach(k => cols.add(k));
-      return cols;
-    }, new Set<string>())
-  );
+  
+  // Define columns in a specific order for consistency
+  const columns = ['s_source', 's_label', 'target', 'target_label', 'mapping_type'];
+
   return (
     <table className="table table-zebra w-full text-xs">
       <thead>
@@ -32,16 +62,13 @@ function MappingPreviewJsonTable({ data, maxRows }: MappingPreviewJsonTableProps
         </tr>
       </thead>
       <tbody>
-        {data.slice(0, maxRows).map((row, i) => (
+        {data.map((row, i) => (
           <tr key={i}>
             {columns.map(col => (
               <td key={col}>{(row[col] as string | number | boolean | null | undefined)?.toString() || ''}</td>
             ))}
           </tr>
         ))}
-        {data.length > maxRows && (
-          <tr><td colSpan={columns.length} className="italic text-slate-400">... (truncated)</td></tr>
-        )}
       </tbody>
     </table>
   );
@@ -128,31 +155,8 @@ export default function MappingPage() {
       // Handle preview by parsing the response text
       try {
         const jsonData = JSON.parse(responseText);
-
-        // Ensure we have an array to work with for the preview table
-        const dataArray = Array.isArray(jsonData) ? jsonData : [jsonData];
-
-        // Flatten any nested data for display. This is more robust.
-        const flattenedData = dataArray.map(item => {
-          if (typeof item !== 'object' || item === null) {
-            return { value: String(item) };
-          }
-
-          const flatItem: any = {};
-          Object.entries(item).forEach(([key, value]) => {
-            if (Array.isArray(value)) {
-              flatItem[key] = value.join(', ');
-            } else if (value !== null && typeof value === 'object') {
-              // Stringify nested objects to make them viewable
-              flatItem[key] = JSON.stringify(value);
-            } else {
-              flatItem[key] = value;
-            }
-          });
-          return flatItem;
-        });
-
-        setMappingOutput(flattenedData);
+        const previewData = transformMappingDataForPreview(jsonData);
+        setMappingOutput(previewData);
 
       } catch (error) {
         console.error('Error parsing JSON response for preview:', error);
@@ -271,12 +275,12 @@ export default function MappingPage() {
         )}
 
         {mappingOutput && (
-          <div className="mt-8">
-            <h2 className="text-xl font-semibold mb-4">Mapping Preview</h2>
-            <div className="bg-base-100 p-4 rounded-lg shadow overflow-x-auto">
-              <MappingPreviewJsonTable data={mappingOutput} maxRows={40} />
-            </div>
+          <div className="mt-4 p-4 border rounded-lg bg-base-100 w-full max-w-4xl">
+          <h2 className="text-lg font-bold mb-2">Mapping Preview</h2>
+          <div className="overflow-x-auto">
+            <MappingPreviewJsonTable data={mappingOutput} />
           </div>
+        </div>
         )}
       </div>
     </main>
