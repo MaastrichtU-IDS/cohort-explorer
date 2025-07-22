@@ -111,7 +111,7 @@ export default function MappingPage() {
         }
         throw new Error(errorMsg);
       }
-      // First, create a copy of the response to use for both download and preview
+      // First, create a clone of the response for download
       const responseClone = response.clone();
       
       // Handle download
@@ -123,8 +123,9 @@ export default function MappingPage() {
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
       
-      // Handle preview by parsing the response as JSON directly
+      // Handle preview by parsing the cloned response
       try {
         const jsonData = await responseClone.json();
 
@@ -155,16 +156,14 @@ export default function MappingPage() {
 
       } catch (error) {
         console.error('Error parsing JSON response for preview:', error);
-        // If JSON parsing fails, we can try to show the raw text
-        const text = await responseClone.text();
+        // If JSON parsing fails, create a new clone to read as text
+        const textResponse = response.clone();
+        const text = await textResponse.text();
         setMappingOutput([{
             error: 'Failed to parse JSON response',
             raw_data: text.substring(0, 500) + (text.length > 500 ? '...' : '')
         }]);
       }
-      
-      // Clean up the object URL
-      window.URL.revokeObjectURL(url);
     } catch (err: any) {
       setError(
         typeof err.message === 'string' && err.message.endsWith("metadata has not been added yet!")
