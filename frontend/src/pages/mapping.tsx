@@ -111,11 +111,11 @@ export default function MappingPage() {
         }
         throw new Error(errorMsg);
       }
-      // First, create a clone of the response for download
-      const responseClone = response.clone();
-      
-      // Handle download
-      const blob = await response.blob();
+      // Read the response body as text once to avoid consuming the stream multiple times
+      const responseText = await response.text();
+
+      // Handle download by creating a blob from the response text
+      const blob = new Blob([responseText], { type: 'application/json' });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -124,10 +124,10 @@ export default function MappingPage() {
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
-      
-      // Handle preview by parsing the cloned response
+
+      // Handle preview by parsing the response text
       try {
-        const jsonData = await responseClone.json();
+        const jsonData = JSON.parse(responseText);
 
         // Ensure we have an array to work with for the preview table
         const dataArray = Array.isArray(jsonData) ? jsonData : [jsonData];
@@ -156,12 +156,10 @@ export default function MappingPage() {
 
       } catch (error) {
         console.error('Error parsing JSON response for preview:', error);
-        // If JSON parsing fails, create a new clone to read as text
-        const textResponse = response.clone();
-        const text = await textResponse.text();
+        // If JSON parsing fails, show the raw text in the preview
         setMappingOutput([{
-            error: 'Failed to parse JSON response',
-            raw_data: text.substring(0, 500) + (text.length > 500 ? '...' : '')
+          error: 'Failed to parse JSON response',
+          raw_data: responseText.substring(0, 500) + (responseText.length > 500 ? '...' : '')
         }]);
       }
     } catch (err: any) {
