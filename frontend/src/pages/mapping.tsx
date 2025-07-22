@@ -19,7 +19,8 @@ function transformMappingDataForPreview(jsonData: any): RowData[] {
       const transformed = value.mappings.map((mapping: any) => {
         const newRow: RowData = {
           s_source: mapping.s_source,
-          s_label: mapping.s_slabel, // Corrected from s_label to s_slabel based on screenshot
+          s_label: mapping.s_slabel,
+          target_study: mapping.target_study,
         };
 
         // Find wildcard keys
@@ -50,7 +51,7 @@ function MappingPreviewJsonTable({ data }: MappingPreviewJsonTableProps) {
   if (!data || !Array.isArray(data) || data.length === 0) return <div className="italic text-slate-400">No mapping data to preview.</div>;
   
   // Define columns in a specific order for consistency
-  const columns = ['s_source', 's_label', 'target', 'target_label', 'mapping_type'];
+  const columns = ['s_source', 's_label', 'target_study', 'target', 'target_label', 'mapping_type'];
 
   return (
     <table className="table table-zebra w-full text-xs">
