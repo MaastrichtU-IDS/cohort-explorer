@@ -4,6 +4,7 @@ from rdflib import Graph,Literal, RDF, RDFS, URIRef, DC
 # from SPARQLWrapper import SPARQLWrapper, JSON, POST,TURTLE
 from urllib.parse import quote
 import pandas as pd
+import re
 # import chardet
 from .config import settings
 import os
@@ -752,6 +753,28 @@ def add_temporal_context(g: Graph, var_uri: URIRef, cohort_uri: URIRef, row: pd.
     return g
 
 
+
+def parse_categorical_string(categorical_str: str) -> list:
+    """
+    Parses a categorical string like '1=No|2=Yes' or '1="mmol|l"|2="g|dl"' into a list of values.
+    Supports both quoted and unquoted values.
+    """
+    if not categorical_str or not isinstance(categorical_str, str):
+        return []
+
+    # Match key=value pairs, allowing for optional quotes around values
+    pattern = r'\d+\s*=\s*"[^"]*"|\d+\s*=\s*[^|]+'
+    matches = re.findall(pattern, categorical_str)
+
+    # Extract the values
+    values = []
+    for match in matches:
+        value = re.sub(r'^\d+\s*=\s*', '', match).strip().strip('"')
+        values.append(value)
+
+    return values
+
+
 def add_categories_to_graph(g: Graph, var_uri: URIRef, cohort_uri: URIRef, row: pd.Series) -> Graph:
     """Adds permissible information related to variable to the RDF graph for a specific variable URI."""
     # Check if there are categories to process
@@ -761,13 +784,17 @@ def add_categories_to_graph(g: Graph, var_uri: URIRef, cohort_uri: URIRef, row: 
         # if row['categorical'] == '' or row['categorical'] == 'nan' or row['categorical'] == None:
         #     print("No categorical information found")
         #     return g
-        categories =row['categorical'].split("|")
+        categories = parse_categorical_string(row['categorical'])
+        print(f"categories: {categories}")
         updated_categories = []
         
         # Parse categories as value=defined_value pairs
         for category in categories:
             try:
-                value, defined_value = map(str.strip, category.split('=', 1)) if '=' in category else (category.strip(), category.strip())
+                if "=" not in category:
+                    value, defined_value = category.strip(), category.strip()
+                else:
+                    value, defined_value = map(str.strip, category.split('='))
                 updated_categories.append((value, defined_value))
             except ValueError:
                 continue  # Skip if format is invalid
@@ -776,10 +803,11 @@ def add_categories_to_graph(g: Graph, var_uri: URIRef, cohort_uri: URIRef, row: 
         # Handle additional columns for labels, codes, and OMOP IDs, with empty fallback
         labels = row['categorical value concept name'].split("|") if pd.notna(row['categorical value concept name']) and row['categorical value concept name'] else [None] * len(categories)
         codes = row['categorical value concept code'].split("|") if pd.notna(row['categorical value concept code']) and row['categorical value concept code'] else [None] * len(categories)
-        omop_ids = row['categorical value omop id'].split("|") if pd.notna(row['categorical value omop id']) and row['categorical value omop id'] else [None] * len(categories)
+        omop_ids = str(row['categorical value omop id']).split("|") if pd.notna(row['categorical value omop id']) and str(row['categorical value omop id']) else [None] * len(categories)
         
         # Add each category to the graph
         for i, (value, defined_value) in enumerate(updated_categories):
+            data_type_value = "str" if isinstance(value, str) else "int" if isinstance(value, int) else "float" if isinstance(value, float) else "datetime" if isinstance(value, pd.Timestamp) else None
             # n_value = normalize_text(value)
             n_defined_value = normalize_text(defined_value)  
             # if value is None or value == 'nan' or value == '':
@@ -789,15 +817,15 @@ def add_categories_to_graph(g: Graph, var_uri: URIRef, cohort_uri: URIRef, row: 
             g.add((var_uri, OntologyNamespaces.OBI.value.has_value_specification, permissible_uri, cohort_uri))
             g.add((permissible_uri, OntologyNamespaces.OBI.value.is_value_specification_of, var_uri, cohort_uri))
             g.add((permissible_uri, RDFS.label, Literal(defined_value, datatype=XSD.string), cohort_uri))
-            if datatype == 'str':
+            if data_type_value == 'str':
                 g.add((permissible_uri, OntologyNamespaces.CMEO.value.has_value, Literal(value, datatype=XSD.string), cohort_uri))
-            elif datatype == 'int':
+            elif data_type_value == 'int':
                 if value is None:  print(f"value: {value} defined_value: {defined_value}") 
 
                 g.add((permissible_uri, OntologyNamespaces.CMEO.value.has_value, Literal(value, datatype=XSD.integer), cohort_uri))
-            elif datatype == 'float':
+            elif data_type_value == 'float':
                 g.add((permissible_uri, OntologyNamespaces.CMEO.value.has_value, Literal(value, datatype=XSD.decimal), cohort_uri))
-            elif datatype == 'datetime':
+            elif data_type_value == 'datetime':
                 g.add((permissible_uri, OntologyNamespaces.CMEO.value.has_value, Literal(value, datatype=XSD.dateTime), cohort_uri))
 
 
@@ -822,6 +850,77 @@ def add_categories_to_graph(g: Graph, var_uri: URIRef, cohort_uri: URIRef, row: 
     #     print("No categorical information found")
            
     return g
+
+# def add_categories_to_graph(g: Graph, var_uri: URIRef, cohort_uri: URIRef, row: pd.Series) -> Graph:
+#     """Adds permissible information related to variable to the RDF graph for a specific variable URI."""
+#     # Check if there are categories to process
+#     datatype = row['vartype'] if pd.notna(row['vartype']) else None
+
+#     if pd.notna(row['categorical']) and datatype:
+#         # if row['categorical'] == '' or row['categorical'] == 'nan' or row['categorical'] == None:
+#         #     print("No categorical information found")
+#         #     return g
+#         categories =row['categorical'].split("|")
+#         updated_categories = []
+        
+#         # Parse categories as value=defined_value pairs
+#         for category in categories:
+#             try:
+#                 value, defined_value = map(str.strip, category.split('=', 1)) if '=' in category else (category.strip(), category.strip())
+#                 updated_categories.append((value, defined_value))
+#             except ValueError:
+#                 continue  # Skip if format is invalid
+
+            
+#         # Handle additional columns for labels, codes, and OMOP IDs, with empty fallback
+#         labels = row['categorical value concept name'].split("|") if pd.notna(row['categorical value concept name']) and row['categorical value concept name'] else [None] * len(categories)
+#         codes = row['categorical value concept code'].split("|") if pd.notna(row['categorical value concept code']) and row['categorical value concept code'] else [None] * len(categories)
+#         omop_ids = row['categorical value omop id'].split("|") if pd.notna(row['categorical value omop id']) and row['categorical value omop id'] else [None] * len(categories)
+        
+#         # Add each category to the graph
+#         for i, (value, defined_value) in enumerate(updated_categories):
+#             # n_value = normalize_text(value)
+#             n_defined_value = normalize_text(defined_value)  
+#             # if value is None or value == 'nan' or value == '':
+#             #     print(f"value: {value} defined_value: {defined_value}")
+#             permissible_uri = URIRef(f"{var_uri}/categorical_value_specification/{n_defined_value}")
+#             g.add((permissible_uri, RDF.type, OntologyNamespaces.OBI.value.categorical_value_specification, cohort_uri))
+#             g.add((var_uri, OntologyNamespaces.OBI.value.has_value_specification, permissible_uri, cohort_uri))
+#             g.add((permissible_uri, OntologyNamespaces.OBI.value.is_value_specification_of, var_uri, cohort_uri))
+#             g.add((permissible_uri, RDFS.label, Literal(defined_value, datatype=XSD.string), cohort_uri))
+#             if datatype == 'str':
+#                 g.add((permissible_uri, OntologyNamespaces.CMEO.value.has_value, Literal(value, datatype=XSD.string), cohort_uri))
+#             elif datatype == 'int':
+#                 if value is None:  print(f"value: {value} defined_value: {defined_value}") 
+
+#                 g.add((permissible_uri, OntologyNamespaces.CMEO.value.has_value, Literal(value, datatype=XSD.integer), cohort_uri))
+#             elif datatype == 'float':
+#                 g.add((permissible_uri, OntologyNamespaces.CMEO.value.has_value, Literal(value, datatype=XSD.decimal), cohort_uri))
+#             elif datatype == 'datetime':
+#                 g.add((permissible_uri, OntologyNamespaces.CMEO.value.has_value, Literal(value, datatype=XSD.dateTime), cohort_uri))
+
+
+#             # Add optional labels, codes, and OMOP IDs if present
+#             if i < len(labels) and len(labels) == len(updated_categories):
+#                 # label = normalize_text(labels[i])
+
+#                 # code = normalize_text(codes[i].strip()) if codes[i] else None
+#                 # omop_id = safe_int(omop_ids[i]) if omop_ids[i] else None
+#                 # print(f"labels={labels[i]}")
+#                 print(f"codes={codes[i]}")
+#                 print(f"omop_ids={omop_ids[i]}")
+#                 print(f"label={labels[i]}")
+#                 concept =  Concept(
+#                     standard_label=labels[i] if pd.notna(labels[i]) else None,
+#                     code=codes[i] if pd.notna(codes[i]) else None,
+#                     omop_id=safe_int(omop_ids[i]) if pd.notna(omop_ids[i]) else None,
+#                 )
+#                 g=add_solo_concept_info(g, permissible_uri, concept, cohort_uri)
+#                 # g=add_concept_info(g, categorical_label_uri, label, code, omop_id, cohort_uri) if label and code and omop_id else g
+#     # else:
+#     #     print("No categorical information found")
+           
+#     return g
 
 
 
