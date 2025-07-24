@@ -373,68 +373,207 @@ def safe_int(value):
 
 
 
+
 def apply_rules(domain, src_info, tgt_info):
+    def parse_categories(cat_str):
+        return [c.strip().lower() for c in cat_str.split(";")] if cat_str else []
+
     src_var_name = src_info.get('var_name', '').lower()
     tgt_var_name = tgt_info.get('var_name', '').lower()
     src_type = src_info.get('stats_type', '').lower()
     tgt_type = tgt_info.get('stats_type', '').lower()
-    src_unit = src_info.get('unit', '').lower()
-    tgt_unit = tgt_info.get('unit', '').lower()
+    src_unit = src_info.get('unit', '').lower() if src_info.get('unit') else None
+    tgt_unit = tgt_info.get('unit', '').lower() if tgt_info.get('unit') else None
     src_data_type = src_info.get('data_type', '').lower()
     tgt_data_type = tgt_info.get('data_type', '').lower()
-    domains_list = ["observation", "drug_exposure", "device_exposure", "condition_era", "condition_occurrence","measurement", "procedure_occurrence", "observation_period", "demographic", "person"]
-  #  print(f"src_type: {src_type} tgt_type: {tgt_type} src_unit: {src_unit} tgt_unit: {tgt_unit}")
-    valid_types = {"continuous_variable", "binary_class_variable", "multi_class_variable","qualitative_variable"}
-    if src_type not in valid_types or tgt_type not in valid_types and ("derived" not in src_var_name or "derived" not in tgt_var_name):
-        return "Transformation Not applicable (invalid statistical type)"
+    src_categories = parse_categories(src_info.get('categories', ''))
+    tgt_categories = parse_categories(tgt_info.get('categories', ''))
 
-    
-    if '|' in domain:
-        domains = domain.split("|")[0].strip()
+    valid_types = {"continuous_variable", "binary_class_variable", "multi_class_variable", "qualitative_variable"}
+    if src_type not in valid_types or tgt_type not in valid_types:
+        if "derived" not in src_var_name and "derived" not in tgt_var_name:
+            return {
+                "rule": "Transformation not applicable (invalid or missing statistical type).",
+                "source_categories": "; ".join(src_categories),
+                "target_categories": "; ".join(tgt_categories)
+            }
+
+    # Handle domains
+    if "|" in domain:
+        domains = domain.split("|")
         for d in domains:
-            if d not in domains:
-                return "Transformation not applicable for given domain(s)"
-    # Case 1: Same type
+            if d.strip() not in domains:
+                return {
+                    "rule": "Transformation not applicable for given domain(s).",
+                    "source_categories": "; ".join(src_categories),
+                    "target_categories": "; ".join(tgt_categories)
+                }
+
     if src_type == tgt_type:
-        # Check if units differ for continuous variables
         if src_type == "continuous_variable":
             if src_unit and tgt_unit and src_unit != tgt_unit:
                 if (src_unit in ["mg", "milligram"] and tgt_unit in ["%", "percent"]) or \
-                    (src_unit in ["%", "percent"] and tgt_unit in ["mg", "milligram"]):
-                    return "Unit conversion required (e.g., mg to %)"
-                return "Unit conversion required (RQ dependent)"
-            return "For harmonization, no transformation required."
+                   (src_unit in ["%", "percent"] and tgt_unit in ["mg", "milligram"]):
+                    return {
+                        "rule": "Unit conversion required (e.g., mg to %).",
+                        "source_categories": "",
+                        "target_categories": ""
+                    }
+                return {
+                    "rule": "Unit conversion required. Evaluate based on research question.",
+                    "source_categories": "",
+                    "target_categories": ""
+                }
+            return {
+                "rule": "No transformation required. Continuous types and units match.",
+                "source_categories": "",
+                "target_categories": ""
+            }
+        elif set(src_categories) == set(tgt_categories):
+            return {
+                "rule": "No transformation required. Source and target categorical values match.",
+                "source_categories": "; ".join(src_categories),
+                "target_categories": "; ".join(tgt_categories)
+            }
         else:
-            return "For harmonization, no transformation required if categorical values are the same, otherwise transformation is needed on categorical values"
+            return {
+                "rule": (
+                    "Alignment of categorical values required. Source and target differ. "
+                    "Map categories semantically across datasets."
+                ),
+                "source_categories": "; ".join(src_categories),
+                "target_categories": "; ".join(tgt_categories)
+            }
 
-    # Case 2: Binary ↔ Multiclass
     if (
         (src_type == "binary_class_variable" and tgt_type == "multi_class_variable") or
         (src_type == "multi_class_variable" and tgt_type == "binary_class_variable")
     ):
-        if domain in [ "drug_exposure", "drug_era"]:
-            return "For harmonization convert multi-class variables to binary classes, but accept only the degree of information loss justified by the research question. For drug-related variables, scrutinize the surrounding categorical context—e.g., therapy adjustments or supplemental medication descriptors—before deciding on the optimal harmonization, because these details may not map cleanly onto a binary split."
-        else:
-            return "For harmonization, convert multi-class variables to binary classes, but accept only the degree of information loss justified by the research question"
+        msg = (
+            "Convert multi-class to binary class. Accept only justified information loss. "
+            "For drug-related variables, consider therapy details and surrounding context."
+            if domain in ["drug_exposure", "drug_era"]
+            else "Convert multi-class to binary class. Information loss must be justified."
+        )
+        return {
+            "rule": msg,
+            "source_categories": "; ".join(src_categories),
+            "target_categories": "; ".join(tgt_categories)
+        }
 
-    # Case 3: Continuous → Categorical
-    if (src_type == "continuous_variable" and tgt_type in {"binary_class_variable", "multi_class_variable"}) or src_type in {"binary_class_variable", "multi_class_variable"} and tgt_type == "continuous_variable":
+    if (
+        (src_type == "continuous_variable" and tgt_type in {"binary_class_variable", "multi_class_variable"}) or
+        (tgt_type == "continuous_variable" and src_type in {"binary_class_variable", "multi_class_variable"})
+    ):
         if src_data_type == "datetime" or tgt_data_type == "datetime":
-            return "When harmonizing a datetime variable with a binary or multi class variable, transform the datetime into a presence/absence indicator. Any non-missing datetime value indicates 'presence'; a missing or null datetime indicates 'absence'."
-        if domain in [ "drug_exposure", "drug_era"]:
-            return "For drug-related variables in harmonization, first examine any accompanying categorical context—such as therapy adjustments or descriptive qualifiers—because these details may not align neatly with the drug-dosage columns and harmonization may not be possible."
-        return "For harmonization, you may discretize continuous variables into categorical classes, but only when the resulting information loss is acceptable for the research question. Represent each clinical domain with two elements: 1Presence/absence flag:a binary indicator showing whether an event exists, 2) Event category: a categorical field specifying which event occurred (e.g., which condition, which procedure, which device etc)."
-    if src_type in {"binary_class_variable", "multi_class_variable"} and tgt_type == "qualitative_variable":
-        return "This variable pair involves categorical variable (binary or multi-class) and  a qualitative variable (string/text-based). Harmonization is conditionally possible if the qualitative variable contains a finite and consistently used set of values that can be reliably mapped to the categorical codes. Transformation requires: (1) value normalization (e.g., spelling, casing), and (2) manual or automated mapping to standardized categories. This process may incur minor information loss and should be justified based on the harmonization goal. Applicability is limited to cases where the qualitative variable represents discrete categories, not unstructured narrative text."
-    if src_type == "qualitative_variable" and tgt_type in {"binary_class_variable", "multi_class_variable"}:
-        return "This variable pair involves a qualitative variable (string/text-based) and a categorical variable (binary or multi-class). Harmonization is conditionally possible if the qualitative variable contains a finite and consistently used set of values that can be reliably mapped to the categorical codes. Transformation requires: (1) value normalization (e.g., spelling, casing), and (2) manual or automated mapping to standardized categories. This process may incur minor information loss and should be justified based on the harmonization goal. Applicability is limited to cases where the qualitative variable represents discrete categories, not unstructured narrative text."
-    # # Case 4: Categorical → Continuous (rare)
-    # if src_type in {"binary_class_variable", "multi_class_variable"} and tgt_type == "continuous_variable":
-    #     if src_data_type == "datetime" or src_data_type == "datetime":
-    #         return "transformation Not applicable"
-    #     return "Transform categorical to continuous (acceptable loss, RQ dependent)"
+            return {
+                "rule": "Convert datetime to binary indicator (presence/absence).",
+                "source_categories": "; ".join(src_categories),
+                "target_categories": "; ".join(tgt_categories)
+            }
+        msg = (
+            "Discretize continuous variable to categories. Acceptable only if information loss is minimal. "
+            "Represent as: (1) binary flag for event presence, (2) category of event type."
+            if domain not in ["drug_exposure", "drug_era"]
+            else "Harmonization may not be possible for drug-related continuous ↔ categorical mappings. Review therapy context."
+        )
+        return {
+            "rule": msg,
+            "source_categories": "; ".join(src_categories),
+            "target_categories": "; ".join(tgt_categories)
+        }
 
-    return "Transformation rule not defined"
+    if src_type in {"binary_class_variable", "multi_class_variable"} and tgt_type == "qualitative_variable":
+        return {
+            "rule": (
+                "Map structured categorical codes to consistent text labels. Requires normalization. "
+                "Only suitable for qualitative fields with finite, structured values."
+            ),
+            "source_categories": "; ".join(src_categories),
+            "target_categories": ""
+        }
+
+    if src_type == "qualitative_variable" and tgt_type in {"binary_class_variable", "multi_class_variable"}:
+        return {
+            "rule": (
+                "Map qualitative text to standard categories. Normalize and encode. "
+                "Applicable only if text values are consistently structured."
+            ),
+            "source_categories": "",
+            "target_categories": "; ".join(tgt_categories)
+        }
+
+    return {
+        "rule": "No specific transformation rule matched.",
+        "source_categories": "; ".join(src_categories),
+        "target_categories": "; ".join(tgt_categories)
+    }
+
+
+
+# def apply_rules_v0(domain, src_info, tgt_info):
+#     src_var_name = src_info.get('var_name', '').lower()
+#     tgt_var_name = tgt_info.get('var_name', '').lower()
+#     src_type = src_info.get('stats_type', '').lower()
+#     tgt_type = tgt_info.get('stats_type', '').lower()
+#     src_unit = src_info.get('unit', '').lower()
+#     tgt_unit = tgt_info.get('unit', '').lower()
+#     src_data_type = src_info.get('data_type', '').lower()
+#     tgt_data_type = tgt_info.get('data_type', '').lower()
+    
+#     domains_list = ["observation", "drug_exposure", "device_exposure", "condition_era", "condition_occurrence","measurement", "procedure_occurrence", "observation_period", "demographic", "person"]
+#   #  print(f"src_type: {src_type} tgt_type: {tgt_type} src_unit: {src_unit} tgt_unit: {tgt_unit}")
+#     valid_types = {"continuous_variable", "binary_class_variable", "multi_class_variable","qualitative_variable"}
+#     if src_type not in valid_types or tgt_type not in valid_types and ("derived" not in src_var_name or "derived" not in tgt_var_name):
+#         return "Transformation Not applicable (invalid statistical type)"
+
+    
+#     if '|' in domain:
+#         domains = domain.split("|")[0].strip()
+#         for d in domains:
+#             if d not in domains:
+#                 return "Transformation not applicable for given domain(s)"
+#     # Case 1: Same type
+#     if src_type == tgt_type:
+#         # Check if units differ for continuous variables
+#         if src_type == "continuous_variable":
+#             if src_unit and tgt_unit and src_unit != tgt_unit:
+#                 if (src_unit in ["mg", "milligram"] and tgt_unit in ["%", "percent"]) or \
+#                     (src_unit in ["%", "percent"] and tgt_unit in ["mg", "milligram"]):
+#                     return "Unit conversion required (e.g., mg to %)"
+#                 return "Unit conversion required (RQ dependent)"
+#             return "For harmonization, no transformation required."
+#         else:
+#             return "For harmonization, no transformation required if categorical values are the same, otherwise transformation is needed on categorical values"
+
+#     # Case 2: Binary ↔ Multiclass
+#     if (
+#         (src_type == "binary_class_variable" and tgt_type == "multi_class_variable") or
+#         (src_type == "multi_class_variable" and tgt_type == "binary_class_variable")
+#     ):
+#         if domain in [ "drug_exposure", "drug_era"]:
+#             return "For harmonization convert multi-class variables to binary classes, but accept only the degree of information loss justified by the research question. For drug-related variables, scrutinize the surrounding categorical context—e.g., therapy adjustments or supplemental medication descriptors—before deciding on the optimal harmonization, because these details may not map cleanly onto a binary split."
+#         else:
+#             return "For harmonization, convert multi-class variables to binary classes, but accept only the degree of information loss justified by the research question"
+
+#     # Case 3: Continuous → Categorical
+#     if (src_type == "continuous_variable" and tgt_type in {"binary_class_variable", "multi_class_variable"}) or src_type in {"binary_class_variable", "multi_class_variable"} and tgt_type == "continuous_variable":
+#         if src_data_type == "datetime" or tgt_data_type == "datetime":
+#             return "When harmonizing a datetime variable with a binary or multi class variable, transform the datetime into a presence/absence indicator. Any non-missing datetime value indicates 'presence'; a missing or null datetime indicates 'absence'."
+#         if domain in [ "drug_exposure", "drug_era"]:
+#             return "For drug-related variables in harmonization, first examine any accompanying categorical context—such as therapy adjustments or descriptive qualifiers—because these details may not align neatly with the drug-dosage columns and harmonization may not be possible."
+#         return "For harmonization, you may discretize continuous variables into categorical classes, but only when the resulting information loss is acceptable for the research question. Represent each clinical domain with two elements: 1Presence/absence flag:a binary indicator showing whether an event exists, 2) Event category: a categorical field specifying which event occurred (e.g., which condition, which procedure, which device etc)."
+#     if src_type in {"binary_class_variable", "multi_class_variable"} and tgt_type == "qualitative_variable":
+#         return "This variable pair involves categorical variable (binary or multi-class) and  a qualitative variable (string/text-based). Harmonization is conditionally possible if the qualitative variable contains a finite and consistently used set of values that can be reliably mapped to the categorical codes. Transformation requires: (1) value normalization (e.g., spelling, casing), and (2) manual or automated mapping to standardized categories. This process may incur minor information loss and should be justified based on the harmonization goal. Applicability is limited to cases where the qualitative variable represents discrete categories, not unstructured narrative text."
+#     if src_type == "qualitative_variable" and tgt_type in {"binary_class_variable", "multi_class_variable"}:
+#         return "This variable pair involves a qualitative variable (string/text-based) and a categorical variable (binary or multi-class). Harmonization is conditionally possible if the qualitative variable contains a finite and consistently used set of values that can be reliably mapped to the categorical codes. Transformation requires: (1) value normalization (e.g., spelling, casing), and (2) manual or automated mapping to standardized categories. This process may incur minor information loss and should be justified based on the harmonization goal. Applicability is limited to cases where the qualitative variable represents discrete categories, not unstructured narrative text."
+#     # # Case 4: Categorical → Continuous (rare)
+#     # if src_type in {"binary_class_variable", "multi_class_variable"} and tgt_type == "continuous_variable":
+#     #     if src_data_type == "datetime" or src_data_type == "datetime":
+#     #         return "transformation Not applicable"
+#     #     return "Transform categorical to continuous (acceptable loss, RQ dependent)"
+
+#     return "Transformation rule not defined"
 
 
 

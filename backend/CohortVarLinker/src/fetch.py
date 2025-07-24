@@ -2,7 +2,7 @@
 from SPARQLWrapper import SPARQLWrapper, JSON
 from .config import settings
 import pandas as pd
-
+import json
 import time
 from collections import defaultdict
 from typing import List, Dict, Any
@@ -409,7 +409,8 @@ def map_source_target(source_study_name:str , target_study_name:str, vector_db, 
                 "identifier": "source",
                 "stat_label": "source_type",
                 "unit_label": "source_unit",
-                "data_type": "source_data_type"
+                "data_type": "source_data_type",
+                "categories": "source_categories"
             }),
             on="source",
             how="left"
@@ -422,11 +423,13 @@ def map_source_target(source_study_name:str , target_study_name:str, vector_db, 
             "identifier": "target",
             "stat_label": "target_type",
             "unit_label": "target_unit",
-            "data_type": "target_data_type"
+            "data_type": "target_data_type",
+            "categories": "target_categories"
         }),
         on="target",
         how="left"
     )
+
 
     # 5. Remove NaN values and duplicates
   
@@ -447,22 +450,31 @@ def map_source_target(source_study_name:str , target_study_name:str, vector_db, 
                 "var_name": row.get("source", "") if "source" in row and pd.notna(row.get("source")) else "",
                 "stats_type": row.get("source_type", "") if "source_type" in row and pd.notna(row.get("source_type")) else "",
                 "unit": row.get("source_unit", "") if "source_unit" in row and pd.notna(row.get("source_unit")) else "",
-                "data_type": row.get("source_data_type", "") if "source_data_type" in row and pd.notna(row.get("source_data_type")) else "" },
+                "data_type": row.get("source_data_type", "") if "source_data_type" in row and pd.notna(row.get("source_data_type")) else "",
+                "categories": row.get("source_categories", "") if "source_categories" in row and pd.notna(row.get("source_categories")) else ""
+            },
             tgt_info= {
                 "var_name": row.get("target", "") if "target" in row and pd.notna(row.get("target")) else "",
                 "stats_type": row.get("target_type", "") if "target_type" in row and pd.notna(row.get("target_type")) else "",
                 "unit": row.get("target_unit", "") if "target_unit" in row and pd.notna(row.get("target_unit")) else "",
                 "data_type": row.get("target_data_type", "") if "target_data_type" in row and pd.notna(row.get("target_data_type")) else "",
+                "categories": row.get("target_categories", "") if "target_categories" in row and pd.notna(row.get("target_categories")) else ""
             },
         ),
         axis=1
    )  
     
+    for col in df_mapping.columns:
+        if df_mapping[col].apply(lambda x: isinstance(x, dict)).any():
+            df_mapping[col] = df_mapping[col].apply(json.dumps)
+        elif df_mapping[col].apply(lambda x: isinstance(x, list)).any():
+            df_mapping[col] = df_mapping[col].apply(str)
+    df_mapping = df_mapping.drop_duplicates(keep='first')
     # df_mapping.rename(columns={
     #     "source": f"{source_study_name}_variable",
     #     "target": f"{target_study_name}_variable",
     # })
-    df_mapping = df_mapping.drop_duplicates(keep='first')
+    # df_mapping = df_mapping.drop_duplicates(keep='first')
     return  df_mapping
 
 
@@ -697,7 +709,8 @@ def fetch_variables_statistics(var_names_list:list[str], study_name:str) -> pd.D
                     'identifier': identifier,
                     'stat_label': result['stat_label']['value'] if 'stat_label' in result else None,
                     'unit_label': result['unit_label']['value'] if 'unit_label' in result else None,
-                    'data_type': result['data_type_val']['value'] if 'data_type_val' in result else None
+                    'data_type': result['data_type_val']['value'] if 'data_type_val' in result else None,
+                    'categories': result['all_cat_values']['value'] if 'all_cat_values' in result else None
                 })
     data_dict = pd.DataFrame.from_dict(data_dict)
     # print(f"head of data dict: {data_dict.head()}")
