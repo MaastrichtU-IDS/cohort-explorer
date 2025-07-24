@@ -39,17 +39,7 @@ export default function CohortsList() {
 
   return (
     <>
-      {/* Banner for submitting clinical research questions */}
-      <div className="w-full bg-blue-100 text-blue-900 py-3 px-4 text-center font-semibold text-base shadow-sm" role="region" aria-label="Submit Clinical Research Question" style={{borderBottom: '1px solid #b6d4fe'}}>
-        <a
-          href="https://forms.office.com/Pages/ResponsePage.aspx?id=ZjsnCBAizUCLIFz2zdwnmivGAWehv9FJqQkwLj2vey9UOE5CRUc4MEc5NVRJVkVGVlM5VkdXVjRCNS4u"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="underline hover:text-blue-700"
-        >
-          Please tell us about the clinical research you are interested in
-        </a>
-      </div>
+
       <main className="flex w-full p-4 bg-base-200 h-full min-h-screen space-x-4">
       <aside className="flex-shrink-0 w-64 flex flex-col">
         <div className="text-center mb-2">
