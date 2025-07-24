@@ -275,7 +275,7 @@ export default function MappingPage() {
         )}
 
         {mappingOutput && (
-          <div className="mt-4 p-4 border rounded-lg bg-base-100 w-full max-w-4xl">
+          <div className="mt-4 p-4 border rounded-lg bg-base-100 w-full max-w-5xl mx-auto">
           <h2 className="text-lg font-bold mb-2">Mapping Preview</h2>
           <div className="overflow-x-auto">
             <MappingPreviewJsonTable data={mappingOutput} />
