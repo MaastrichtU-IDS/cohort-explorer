@@ -38,7 +38,9 @@ export default function CohortsList() {
   // NOTE: filtering variables is done in VariablesList component
 
   return (
-    <main className="flex w-full p-4 bg-base-200 h-full min-h-screen space-x-4">
+    <>
+
+      <main className="flex w-full p-4 bg-base-200 h-full min-h-screen space-x-4">
       <aside className="flex-shrink-0 w-64 flex flex-col">
         <div className="text-center mb-2">
           {filteredCohorts.length == Object.keys(cohortsData).length ? (
@@ -136,5 +138,6 @@ export default function CohortsList() {
         </div>
       </div>
     </main>
+    </>
   );
 }
