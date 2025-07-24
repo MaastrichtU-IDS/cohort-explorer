@@ -9,13 +9,22 @@ interface RowData {
 
 // Helper function to extract relevant fields from the mapping JSON
 function transformMappingDataForPreview(jsonData: any): RowData[] {
+  console.log('--- Debugging Mapping Preview ---');
+  console.log('1. Received raw JSON data:', jsonData);
+
   let allMappings: RowData[] = [];
   if (typeof jsonData !== 'object' || jsonData === null) {
+    console.error('Error: jsonData is not a valid object.');
     return [];
   }
 
-  Object.values(jsonData).forEach((value: any) => {
+  const topLevelValues = Object.values(jsonData);
+  console.log('2. Extracted values from top-level object:', topLevelValues);
+
+  topLevelValues.forEach((value: any, index: number) => {
+    console.log(`3. Processing value at index ${index}:`, value);
     if (value && Array.isArray(value.mappings)) {
+      console.log(`   - Found 'mappings' array with ${value.mappings.length} items.`);
       const transformed = value.mappings.map((mapping: any) => {
         const newRow: RowData = {
           s_source: mapping.s_source,
@@ -23,7 +32,6 @@ function transformMappingDataForPreview(jsonData: any): RowData[] {
           target_study: mapping.target_study,
         };
 
-        // Find wildcard keys
         Object.keys(mapping).forEach(key => {
           if (key.endsWith('_target')) {
             newRow['target'] = mapping[key];
@@ -36,9 +44,13 @@ function transformMappingDataForPreview(jsonData: any): RowData[] {
         return newRow;
       });
       allMappings = allMappings.concat(transformed);
+    } else {
+      console.log(`   - Did NOT find a 'mappings' array in this value.`);
     }
   });
 
+  console.log('4. Final transformed data for table:', allMappings);
+  console.log('---------------------------------');
   return allMappings;
 }
 
@@ -155,10 +167,16 @@ export default function MappingPage() {
 
       // Handle preview by parsing the response text
       try {
-        const jsonData = JSON.parse(responseText);
-        const previewData = transformMappingDataForPreview(jsonData);
-        setMappingOutput(previewData);
-
+        try {
+          console.log("Attempting to parse the following text as JSON:", responseText);
+          const jsonData = JSON.parse(responseText);
+          const previewData = transformMappingDataForPreview(jsonData);
+          setMappingOutput(previewData);
+        } catch (error) {
+          console.error("Error parsing JSON response for preview:", error);
+          console.error("The problematic text from the server was:", responseText);
+          setMappingOutput([]); // Clear the preview table on error
+        }
       } catch (error) {
         console.error('Error parsing JSON response for preview:', error);
         // If JSON parsing fails, show the raw text in the preview
