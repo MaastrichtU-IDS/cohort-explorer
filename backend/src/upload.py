@@ -257,8 +257,10 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
             var_name_for_error = row.get("VARIABLE NAME", f"UNKNOWN_VAR_ROW_{i+2}")
 
             # Check if required values are present in rows (for critical columns)
-            if not row["VARIABLE NAME"] or not row["VARIABLE LABEL"] or not row["VAR TYPE"] or not row["DOMAIN"]:
-                errors.append(f"Row {i+2} (Variable: '{var_name_for_error}') is missing required data in 'VARIABLE NAME', 'VARIABLE LABEL', 'VAR TYPE', or 'DOMAIN'.")
+            req_fields = ["VARIABLE NAME", "VARIABLE LABEL", "VAR TYPE", "DOMAIN"]
+            for rf in req_fields:
+                if not row[rf].strip():
+                    errors.append(f"Row {i+2} (Variable: '{var_name_for_error}') is missing value for the required field: '{rf}'.")
             
             if row["VAR TYPE"] not in ACCEPTED_DATATYPES:
                 errors.append(
