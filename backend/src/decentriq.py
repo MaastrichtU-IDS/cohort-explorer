@@ -290,6 +290,12 @@ async def get_compute_dcr_definition(
         )
         data_nodes.append(data_node_id)
 
+        # Add a node for the cohort's metadata dictionary
+        metadata_node_id = f"{cohort_id.replace(' ', '-')}_metadata_dictionary"
+        builder.add_node_definition(
+            TableDataNodeDefinition(name=metadata_node_id, columns=metadatadict_cols, is_required=True)
+        )
+
         # Add data owners to provision the data (in dev we dont add them to avoid unnecessary emails)
         if not settings.dev_mode:
             for owner in cohort.cohort_email:
