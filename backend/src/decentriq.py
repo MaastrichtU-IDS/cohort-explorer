@@ -293,7 +293,7 @@ async def get_compute_dcr_definition(
         # Add a node for the cohort's metadata dictionary
         metadata_node_id = f"{cohort_id.replace(' ', '-')}_metadata_dictionary"
         builder.add_node_definition(
-            TableDataNodeDefinition(name=metadata_node_id, columns=metadatadict_cols, is_required=True)
+            TableDataNodeDefinition(name=metadata_node_id, columns=metadatadict_cols, is_required=False)
         )
 
         # Add data owners to provision the data (in dev we dont add them to avoid unnecessary emails)
@@ -303,11 +303,12 @@ async def get_compute_dcr_definition(
                     participants[owner] = {"data_owner_of": set(), "analyst_of": set()}
                 participants[owner]["data_owner_of"].add(data_node_id)
                 participants[owner]["data_owner_of"].add(metadata_node_id)
+            participants[user["email"]]["analyst_of"].add(metadata_node_id)
         else:
             # In dev_mode the requester is added as data owner instead
             participants[user["email"]]["data_owner_of"].add(data_node_id)
             participants[user["email"]]["data_owner_of"].add(metadata_node_id)
-        participants[user["email"]]["analyst_of"].add(metadata_node_id)
+        
 
         # Add pandas preparation script
         pandas_script = "import pandas as pd\nimport decentriq_util\n\n"
