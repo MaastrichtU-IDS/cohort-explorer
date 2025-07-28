@@ -510,6 +510,34 @@ def apply_rules(domain, src_info, tgt_info):
     }
 
 
+def parse_joined_string(input_str: str) -> list:
+    """
+    Parses a string that may be either:
+    - a key-value categorical string like '1=No|2=Yes' or '1="mmol|l"|2="g|dl"'
+    - a plain joined string like '"mg|dl"|mmol'
+    
+    Returns a list of extracted values, handling quoted values and internal pipes correctly.
+    """
+    if not input_str or not isinstance(input_str, str):
+        return []
+
+    # Case 1: If the string has key=value pattern
+    if re.search(r'\d+\s*=', input_str):
+        # Match key=value pairs with quoted or unquoted values
+        pattern = r'\d+\s*=\s*"[^"]*"|\d+\s*=\s*[^|]+'
+        matches = re.findall(pattern, input_str)
+        values = [
+            re.sub(r'^\d+\s*=\s*', '', match).strip().strip('"')
+            for match in matches if match.strip()
+        ]
+    else:
+        # Case 2: Just split by top-level pipes, respecting quotes
+        pattern = r'"[^"]*"|[^|"]+'
+        matches = re.findall(pattern, input_str)
+        values = [match.strip().strip('"') for match in matches if match.strip()]
+
+    return values
+
 
 # def apply_rules_v0(domain, src_info, tgt_info):
 #     src_var_name = src_info.get('var_name', '').lower()

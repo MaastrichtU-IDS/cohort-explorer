@@ -21,7 +21,8 @@ from .utils import (
     variable_exists,
     get_study_uri,
     load_dictionary,
-    extract_tick_values
+    extract_tick_values,
+    parse_joined_string
 )
 from typing import Optional, Any
 
@@ -116,12 +117,13 @@ def process_variables_metadata_file(file_path:str, study_metadata_graph_file_pat
             pd.notna(row['additional context concept code']) and 
             pd.notna(row['additional context omop id'])):
                 try:
-                    count1 = len(str(row['additional context concept name']).split("|"))
+                    count1 = len(parse_joined_string(row['additional context concept name']))
                     count2 = len(str(row['additional context concept code']).split("|"))
                     count3 = len(str(row['additional context omop id']).split("|"))
+                    parsed_concept_names = parse_joined_string(row['additional context concept name'])
                     if count1 == count2 == count3:
                         base_concept.extend([Concept(
-                        standard_label=str(row['additional context concept name']).split("|")[i] if pd.notna(row['additional context concept name']) else None,
+                        standard_label=parsed_concept_names[i] if pd.notna(parsed_concept_names[i]) and parsed_concept_names[i] != "na" else None,
                         code=str(row['additional context concept code']).split("|")[i] if pd.notna(row['additional context concept code']) else None,
                         omop_id=safe_int(row['additional context omop id'].split("|")[i]) if pd.notna(row['additional context omop id']) else None,
                     ) for i in range(count1)])
@@ -754,25 +756,25 @@ def add_temporal_context(g: Graph, var_uri: URIRef, cohort_uri: URIRef, row: pd.
 
 
 
-def parse_categorical_string(categorical_str: str) -> list:
-    """
-    Parses a categorical string like '1=No|2=Yes' or '1="mmol|l"|2="g|dl"' into a list of values.
-    Supports both quoted and unquoted values.
-    """
-    if not categorical_str or not isinstance(categorical_str, str):
-        return []
+# def parse_categorical_string(categorical_str: str) -> list:
+#     """
+#     Parses a categorical string like '1=No|2=Yes' or '1="mmol|l"|2="g|dl"' into a list of values.
+#     Supports both quoted and unquoted values.
+#     """
+#     if not categorical_str or not isinstance(categorical_str, str):
+#         return []
 
-    # Match key=value pairs, allowing for optional quotes around values
-    pattern = r'\d+\s*=\s*"[^"]*"|\d+\s*=\s*[^|]+'
-    matches = re.findall(pattern, categorical_str)
+#     # Match key=value pairs, allowing for optional quotes around values
+#     pattern = r'\d+\s*=\s*"[^"]*"|\d+\s*=\s*[^|]+'
+#     matches = re.findall(pattern, categorical_str)
 
-    # Extract the values
-    values = []
-    for match in matches:
-        value = re.sub(r'^\d+\s*=\s*', '', match).strip().strip('"')
-        values.append(value)
+#     # Extract the values
+#     values = []
+#     for match in matches:
+#         value = re.sub(r'^\d+\s*=\s*', '', match).strip().strip('"')
+#         values.append(value)
 
-    return values
+#     return values
 
 
 def add_categories_to_graph(g: Graph, var_uri: URIRef, cohort_uri: URIRef, row: pd.Series) -> Graph:
@@ -784,7 +786,7 @@ def add_categories_to_graph(g: Graph, var_uri: URIRef, cohort_uri: URIRef, row: 
         # if row['categorical'] == '' or row['categorical'] == 'nan' or row['categorical'] == None:
         #     print("No categorical information found")
         #     return g
-        categories = parse_categorical_string(row['categorical'])
+        categories = parse_joined_string(row['categorical'])
         print(f"categories: {categories}")
         updated_categories = []
         
