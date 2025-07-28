@@ -373,14 +373,19 @@ def safe_int(value):
 
 
 
-
 def apply_rules(domain, src_info, tgt_info):
     def parse_categories(cat_str):
         if pd.notna(cat_str) and cat_str not in [None, '']:
             return [c.strip().lower() for c in str(cat_str).split(";")]
         return []
 
-    print(f"src_info: {src_info}  tgt_info: {tgt_info}")
+    def parse_code_label_pairs(code_str, label_str):
+        # Both strings must be split by ";", zipped, stripped
+        codes = [c.strip() for c in str(code_str).split(";")] if code_str else []
+        labels = [l.strip().lower() for l in str(label_str).split(";")] if label_str else []
+        return list(zip(codes, labels))
+    
+
     src_var_name = src_info.get('var_name', '').lower()
     tgt_var_name = tgt_info.get('var_name', '').lower()
     src_type = str(src_info.get('stats_type')).lower() if pd.notna(src_info.get('stats_type')) and src_info.get('stats_type') not in [None, ''] else None
@@ -392,59 +397,58 @@ def apply_rules(domain, src_info, tgt_info):
     tgt_data_type = str(tgt_info.get('data_type', '').lower() if pd.notna(tgt_info.get('data_type', '')) else None)
     src_categories = parse_categories(src_info.get('categories', ''))
     tgt_categories = parse_categories(tgt_info.get('categories', ''))
+    original_src_categories = parse_categories(src_info.get('original_categories', ''))
+    original_tgt_categories = parse_categories(tgt_info.get('original_categories', ''))
 
     valid_types = {"continuous_variable", "binary_class_variable", "multi_class_variable", "qualitative_variable"}
     if src_type not in valid_types or tgt_type not in valid_types:
         if "derived" not in src_var_name and "derived" not in tgt_var_name:
             return {
-                "description": "Transformation not applicable (invalid or missing statistical type).",
-                "source_categories": "; ".join(src_categories),
-                "target_categories": "; ".join(tgt_categories)
+                "description": "Transformation not applicable (invalid or missing statistical type)."
             }
-
-    # Handle domains
-    if "|" in domain:
-        domains = domain.split("|")
-        for d in domains:
-            if d.strip() not in domains:
-                return {
-                    "description": "Transformation not applicable for given domain(s).",
-                    "source_categories": "; ".join(src_categories),
-                    "target_categories": "; ".join(tgt_categories)
-                }
-
     if src_type == tgt_type:
         if src_type == "continuous_variable":
             if src_unit and tgt_unit and src_unit != tgt_unit:
-                if (src_unit in ["mg", "milligram"] and tgt_unit in ["%", "percent"]) or \
-                   (src_unit in ["%", "percent"] and tgt_unit in ["mg", "milligram"]):
-                    return {
-                        "description": "Unit conversion required (e.g., mg to %).",
-                        "source_categories": "",
-                        "target_categories": ""
-                    }
+                # if (src_unit in ["mg", "milligram"] and tgt_unit in ["%", "percent"]) or \
+                #    (src_unit in ["%", "percent"] and tgt_unit in ["mg", "milligram"]):
                 return {
-                    "description": "Unit conversion required. Evaluate based on research question.",
-                    "source_categories": "",
-                    "target_categories": ""
-                }
+                        "description": "Unit conversion in dataset required from {src_unit} to {tgt_unit} or vice versa.",
+                    }
+                # return {
+                #     "description": "Unit conversion required. Evaluate based on research question."
+                # }
             return {
-                "description": "No transformation required. Continuous types and units match.",
-                "source_categories": "",
-                "target_categories": ""
+                "description": "No transformation required. Continuous types and units match."
             }
         elif set(src_categories) == set(tgt_categories):
-            return {
-                "description": "No transformation required. Source and target categorical values match.",
-                "source_categories": "; ".join(src_categories),
-                "target_categories": "; ".join(tgt_categories)
-            }
-        else:
-            return {
-                "description":"Alignment of categorical values required. Source and target differ.Map categories semantically across datasets.",
-                "source_categories": "; ".join(src_categories),
-                "target_categories": "; ".join(tgt_categories)
-            }
+            src_pairs = parse_code_label_pairs(src_categories, original_src_categories)
+            tgt_pairs = parse_code_label_pairs(tgt_categories, original_tgt_categories)
+            # Build mapping: label → code for both source and target
+            src_label_to_code = {code:lbl for code, lbl in src_pairs}
+            tgt_label_to_code = {code: lbl for code, lbl in tgt_pairs}
+            # print(f"src_label_to_code: {src_label_to_code}")
+            # print(f"tgt_label_to_code: {tgt_label_to_code}")
+            # Try to match on label (case-insensitive)
+            common_labels = set(src_label_to_code.keys()) & set(tgt_label_to_code.keys())
+            if not common_labels:
+                return {
+                    "description": "No matching categorical labels between source and target. Harmonization not possible without manual mapping.",
+                    "source_categories": "; ".join(src_categories),
+                    "target_categories": "; ".join(tgt_categories)
+                }
+            else:
+                mapping_str = []
+                for lbl in sorted(common_labels):  # sort for consistent output
+                    s_code = src_label_to_code[lbl]
+                    t_code = tgt_label_to_code[lbl]
+                    mapping_str.append(f"{s_code} ({lbl}) ↔ {t_code} ({lbl})")
+                return {
+                    "description": f"Categorical codes harmonized by matching labels\n",
+                    "categorical_mapping": "; ".join(mapping_str),
+                    "standard_codes": "; ".join([f"{c} ({l})" for c, l in src_pairs]) +
+                                      " | " +
+                                      "; ".join([f"{c} ({l})" for c, l in tgt_pairs])
+                }
 
     if (
         (src_type == "binary_class_variable" and tgt_type == "multi_class_variable") or
@@ -458,8 +462,8 @@ def apply_rules(domain, src_info, tgt_info):
         )
         return {
             "description": msg,
-            "source_categories": "; ".join(src_categories),
-            "target_categories": "; ".join(tgt_categories)
+            "source_categories": "; ".join([f"{s} ↔ {t}" for s, t in zip(src_categories, original_src_categories)]),
+            "target_categories": "; ".join([f"{s} ↔ {t}" for s, t in zip(tgt_categories, original_tgt_categories)])
         }
 
     if (
@@ -468,7 +472,7 @@ def apply_rules(domain, src_info, tgt_info):
     ):
         if src_data_type == "datetime" or tgt_data_type == "datetime":
             return {
-                "description": "Convert datetime to binary indicator (presence/absence).",
+                "description": "Convert datetime to binary indicator (presence/absence) if needed.",
                 "source_categories": "; ".join(src_categories),
                 "target_categories": "; ".join(tgt_categories)
             }
@@ -487,7 +491,7 @@ def apply_rules(domain, src_info, tgt_info):
     if src_type in {"binary_class_variable", "multi_class_variable"} and tgt_type == "qualitative_variable":
         return {
             "description": (
-                "Map structured categorical codes to consistent text labels. Requires normalization. "
+                "Map structured categorical codes to consistent/unique text labels. Requires normalization. "
                 "Only suitable for qualitative fields with finite, structured values."
             ),
             "source_categories": "; ".join(src_categories),
@@ -505,12 +509,8 @@ def apply_rules(domain, src_info, tgt_info):
         }
 
     return {
-        "description": "No specific transformation rule matched. \n ",
-        "source_categories": "; ".join(src_categories),
-        "target_categories": "; ".join(tgt_categories)
+        "description": "No specific transformation rule matched. \n "
     }
-
-
 # def apply_rules_v0(domain, src_info, tgt_info):
 #     src_var_name = src_info.get('var_name', '').lower()
 #     tgt_var_name = tgt_info.get('var_name', '').lower()
