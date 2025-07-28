@@ -376,16 +376,20 @@ def safe_int(value):
 
 def apply_rules(domain, src_info, tgt_info):
     def parse_categories(cat_str):
-        return [c.strip().lower() for c in cat_str.split(";")] if cat_str else []
+        if pd.notna(cat_str) and cat_str not in [None, '']:
+            return [c.strip().lower() for c in str(cat_str).split(";")]
+        return []
 
+    print(f"src_info: {src_info}  tgt_info: {tgt_info}")
     src_var_name = src_info.get('var_name', '').lower()
     tgt_var_name = tgt_info.get('var_name', '').lower()
-    src_type = src_info.get('stats_type', '').lower()
-    tgt_type = tgt_info.get('stats_type', '').lower()
-    src_unit = src_info.get('unit', '').lower() if src_info.get('unit') else None
-    tgt_unit = tgt_info.get('unit', '').lower() if tgt_info.get('unit') else None
-    src_data_type = src_info.get('data_type', '').lower()
-    tgt_data_type = tgt_info.get('data_type', '').lower()
+    src_type = str(src_info.get('stats_type')).lower() if pd.notna(src_info.get('stats_type')) and src_info.get('stats_type') not in [None, ''] else None
+    tgt_type = str(tgt_info.get('stats_type')).lower() if pd.notna(tgt_info.get('stats_type')) and tgt_info.get('stats_type') not in [None, ''] else None
+
+    src_unit = str(src_info.get('unit', '').lower() if pd.notna(src_info.get('unit', '')) else None)
+    tgt_unit = str(tgt_info.get('unit', '').lower() if pd.notna(tgt_info.get('unit', '')) else None)
+    src_data_type = str(src_info.get('data_type', '').lower() if pd.notna(src_info.get('data_type', '')) else None)
+    tgt_data_type = str(tgt_info.get('data_type', '').lower() if pd.notna(tgt_info.get('data_type', '')) else None)
     src_categories = parse_categories(src_info.get('categories', ''))
     tgt_categories = parse_categories(tgt_info.get('categories', ''))
 
@@ -393,7 +397,7 @@ def apply_rules(domain, src_info, tgt_info):
     if src_type not in valid_types or tgt_type not in valid_types:
         if "derived" not in src_var_name and "derived" not in tgt_var_name:
             return {
-                "rule": "Transformation not applicable (invalid or missing statistical type).",
+                "description": "Transformation not applicable (invalid or missing statistical type).",
                 "source_categories": "; ".join(src_categories),
                 "target_categories": "; ".join(tgt_categories)
             }
@@ -404,7 +408,7 @@ def apply_rules(domain, src_info, tgt_info):
         for d in domains:
             if d.strip() not in domains:
                 return {
-                    "rule": "Transformation not applicable for given domain(s).",
+                    "description": "Transformation not applicable for given domain(s).",
                     "source_categories": "; ".join(src_categories),
                     "target_categories": "; ".join(tgt_categories)
                 }
@@ -415,32 +419,29 @@ def apply_rules(domain, src_info, tgt_info):
                 if (src_unit in ["mg", "milligram"] and tgt_unit in ["%", "percent"]) or \
                    (src_unit in ["%", "percent"] and tgt_unit in ["mg", "milligram"]):
                     return {
-                        "rule": "Unit conversion required (e.g., mg to %).",
+                        "description": "Unit conversion required (e.g., mg to %).",
                         "source_categories": "",
                         "target_categories": ""
                     }
                 return {
-                    "rule": "Unit conversion required. Evaluate based on research question.",
+                    "description": "Unit conversion required. Evaluate based on research question.",
                     "source_categories": "",
                     "target_categories": ""
                 }
             return {
-                "rule": "No transformation required. Continuous types and units match.",
+                "description": "No transformation required. Continuous types and units match.",
                 "source_categories": "",
                 "target_categories": ""
             }
         elif set(src_categories) == set(tgt_categories):
             return {
-                "rule": "No transformation required. Source and target categorical values match.",
+                "description": "No transformation required. Source and target categorical values match.",
                 "source_categories": "; ".join(src_categories),
                 "target_categories": "; ".join(tgt_categories)
             }
         else:
             return {
-                "rule": (
-                    "Alignment of categorical values required. Source and target differ. "
-                    "Map categories semantically across datasets."
-                ),
+                "description":"Alignment of categorical values required. Source and target differ.Map categories semantically across datasets.",
                 "source_categories": "; ".join(src_categories),
                 "target_categories": "; ".join(tgt_categories)
             }
@@ -456,7 +457,7 @@ def apply_rules(domain, src_info, tgt_info):
             else "Convert multi-class to binary class. Information loss must be justified."
         )
         return {
-            "rule": msg,
+            "description": msg,
             "source_categories": "; ".join(src_categories),
             "target_categories": "; ".join(tgt_categories)
         }
@@ -467,7 +468,7 @@ def apply_rules(domain, src_info, tgt_info):
     ):
         if src_data_type == "datetime" or tgt_data_type == "datetime":
             return {
-                "rule": "Convert datetime to binary indicator (presence/absence).",
+                "description": "Convert datetime to binary indicator (presence/absence).",
                 "source_categories": "; ".join(src_categories),
                 "target_categories": "; ".join(tgt_categories)
             }
@@ -478,14 +479,14 @@ def apply_rules(domain, src_info, tgt_info):
             else "Harmonization may not be possible for drug-related continuous ↔ categorical mappings. Review therapy context."
         )
         return {
-            "rule": msg,
+            "description": msg,
             "source_categories": "; ".join(src_categories),
             "target_categories": "; ".join(tgt_categories)
         }
 
     if src_type in {"binary_class_variable", "multi_class_variable"} and tgt_type == "qualitative_variable":
         return {
-            "rule": (
+            "description": (
                 "Map structured categorical codes to consistent text labels. Requires normalization. "
                 "Only suitable for qualitative fields with finite, structured values."
             ),
@@ -495,7 +496,7 @@ def apply_rules(domain, src_info, tgt_info):
 
     if src_type == "qualitative_variable" and tgt_type in {"binary_class_variable", "multi_class_variable"}:
         return {
-            "rule": (
+            "description": (
                 "Map qualitative text to standard categories. Normalize and encode. "
                 "Applicable only if text values are consistently structured."
             ),
@@ -504,39 +505,10 @@ def apply_rules(domain, src_info, tgt_info):
         }
 
     return {
-        "rule": "No specific transformation rule matched.",
+        "description": "No specific transformation rule matched. \n ",
         "source_categories": "; ".join(src_categories),
         "target_categories": "; ".join(tgt_categories)
     }
-
-
-def parse_joined_string(input_str: str) -> list:
-    """
-    Parses a string that may be either:
-    - a key-value categorical string like '1=No|2=Yes' or '1="mmol|l"|2="g|dl"'
-    - a plain joined string like '"mg|dl"|mmol'
-    
-    Returns a list of extracted values, handling quoted values and internal pipes correctly.
-    """
-    if not input_str or not isinstance(input_str, str):
-        return []
-
-    # Case 1: If the string has key=value pattern
-    if re.search(r'\d+\s*=', input_str):
-        # Match key=value pairs with quoted or unquoted values
-        pattern = r'\d+\s*=\s*"[^"]*"|\d+\s*=\s*[^|]+'
-        matches = re.findall(pattern, input_str)
-        values = [
-            re.sub(r'^\d+\s*=\s*', '', match).strip().strip('"')
-            for match in matches if match.strip()
-        ]
-    else:
-        # Case 2: Just split by top-level pipes, respecting quotes
-        pattern = r'"[^"]*"|[^|"]+'
-        matches = re.findall(pattern, input_str)
-        values = [match.strip().strip('"') for match in matches if match.strip()]
-
-    return values
 
 
 # def apply_rules_v0(domain, src_info, tgt_info):
