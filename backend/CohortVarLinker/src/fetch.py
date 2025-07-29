@@ -701,7 +701,7 @@ def map_source_target(
                 "stats_type": row.get("source_type", ""),
                 "unit": row.get("source_unit", ""),
                 "data_type": row.get("source_data_type", ""),
-                "categories": row.get("source_categories", ""),
+                "categories_codes": row.get("source_categories", ""),
                 "original_categories": row.get("source_original_categories", "")
             },
             tgt_info={
@@ -709,7 +709,7 @@ def map_source_target(
                 "stats_type": row.get("target_type", ""),
                 "unit": row.get("target_unit", ""),
                 "data_type": row.get("target_data_type", ""),
-                "categories": row.get("target_categories", ""),
+                "categories_codes": row.get("target_categories", ""),
                 "original_categories": row.get("target_original_categories", "")
             },
         ),

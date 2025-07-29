@@ -371,6 +371,8 @@ def safe_int(value):
 #     return  graph
 
 
+
+
 def apply_rules(domain, src_info, tgt_info):
     def parse_categories(cat_str):
         if pd.notna(cat_str) and cat_str not in [None, '']:
@@ -394,8 +396,8 @@ def apply_rules(domain, src_info, tgt_info):
     tgt_unit = str(tgt_info.get('unit', '').lower() if pd.notna(tgt_info.get('unit', '')) else None)
     src_data_type = str(src_info.get('data_type', '').lower() if pd.notna(src_info.get('data_type', '')) else None)
     tgt_data_type = str(tgt_info.get('data_type', '').lower() if pd.notna(tgt_info.get('data_type', '')) else None)
-    src_categories = parse_categories(src_info.get('categories', ''))
-    tgt_categories = parse_categories(tgt_info.get('categories', ''))
+    src_categories = parse_categories(src_info.get('categories_codes', ''))
+    tgt_categories = parse_categories(tgt_info.get('categories_codes', ''))
     original_src_categories = parse_categories(src_info.get('original_categories', ''))
     original_tgt_categories = parse_categories(tgt_info.get('original_categories', ''))
 
@@ -515,6 +517,8 @@ def apply_rules(domain, src_info, tgt_info):
     return {
         "description": "No specific transformation rule matched. \n "
     }
+
+
     
 def compare_with_fuzz(text1: str, text2: str):
     similarity = fuzz.ratio(text1, text2) / 100
