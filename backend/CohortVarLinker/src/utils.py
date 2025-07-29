@@ -371,20 +371,19 @@ def safe_int(value):
 #     return  graph
 
 
-
-
 def apply_rules(domain, src_info, tgt_info):
     def parse_categories(cat_str):
         if pd.notna(cat_str) and cat_str not in [None, '']:
             return [c.strip().lower() for c in str(cat_str).split(";")]
         return []
 
-    def parse_code_label_pairs(code_str, label_str):
-        # Both strings must be split by ";", zipped, stripped
-        codes = [c.strip() for c in str(code_str).split(";")] if code_str else []
-        labels = [l.strip().lower() for l in str(label_str).split(";")] if label_str else []
-        return list(zip(codes, labels))
+    def map_category_to_code(code_str:list, label_str:list):
+        codes = [c.strip() for c in code_str]
+        labels = [l.strip().lower() for l in label_str]
+        # Returns a dict: label → code
+        return {code: label for code, label in zip(codes, labels) if code and label}
     
+    print(f"src_info: {src_info}  tgt_info: {tgt_info}")
 
     src_var_name = src_info.get('var_name', '').lower()
     tgt_var_name = tgt_info.get('var_name', '').lower()
@@ -406,6 +405,16 @@ def apply_rules(domain, src_info, tgt_info):
             return {
                 "description": "Transformation not applicable (invalid or missing statistical type)."
             }
+
+    # Handle domains
+    # if "|" in domain:
+    #     domains = domain.split("|")
+    #     for d in domains:
+    #         if d.strip() not in domains_list:
+    #             return {
+    #                 "description": "No Transformation rule applicable for given domain(s)."
+    #             }
+
     if src_type == tgt_type:
         if src_type == "continuous_variable":
             if src_unit and tgt_unit and src_unit != tgt_unit:
@@ -421,34 +430,29 @@ def apply_rules(domain, src_info, tgt_info):
                 "description": "No transformation required. Continuous types and units match."
             }
         elif set(src_categories) == set(tgt_categories):
-            src_pairs = parse_code_label_pairs(src_categories, original_src_categories)
-            tgt_pairs = parse_code_label_pairs(tgt_categories, original_tgt_categories)
-            # Build mapping: label → code for both source and target
-            src_label_to_code = {code:lbl for code, lbl in src_pairs}
-            tgt_label_to_code = {code: lbl for code, lbl in tgt_pairs}
-            # print(f"src_label_to_code: {src_label_to_code}")
-            # print(f"tgt_label_to_code: {tgt_label_to_code}")
+            src_pairs = map_category_to_code(src_categories, original_src_categories)
+            tgt_pairs = map_category_to_code(tgt_categories, original_tgt_categories)
+
+            print(f"src_label_to_code: {src_pairs}")
+            print(f"tgt_label_to_code: {tgt_pairs}")
             # Try to match on label (case-insensitive)
-            common_labels = set(src_label_to_code.keys()) & set(tgt_label_to_code.keys())
-            if not common_labels:
+            common_codes = set(src_pairs) & set(tgt_pairs)
+
+            if common_codes:
+                 mapping_str = [f"{sl} -> {tl}" for sl, tl in zip(src_pairs.values(), tgt_pairs.values())]
+                 print(f"mapping_str: {mapping_str}")
+                 return {
+                    "description": f"Categorical codes harmonized by matching labels\n",
+                    "categorical_mapping": "; ".join(mapping_str),
+                    "standard_codes": "; ".join(common_codes) if common_codes else "No common codes found",
+                }
+            else:
                 return {
                     "description": "No matching categorical labels between source and target. Harmonization not possible without manual mapping.",
                     "source_categories": "; ".join(src_categories),
                     "target_categories": "; ".join(tgt_categories)
                 }
-            else:
-                mapping_str = []
-                for lbl in sorted(common_labels):  # sort for consistent output
-                    s_code = src_label_to_code[lbl]
-                    t_code = tgt_label_to_code[lbl]
-                    mapping_str.append(f"{s_code} ({lbl}) ↔ {t_code} ({lbl})")
-                return {
-                    "description": f"Categorical codes harmonized by matching labels\n",
-                    "categorical_mapping": "; ".join(mapping_str),
-                    "standard_codes": "; ".join([f"{c} ({l})" for c, l in src_pairs]) +
-                                      " | " +
-                                      "; ".join([f"{c} ({l})" for c, l in tgt_pairs])
-                }
+           
 
     if (
         (src_type == "binary_class_variable" and tgt_type == "multi_class_variable") or
@@ -511,74 +515,7 @@ def apply_rules(domain, src_info, tgt_info):
     return {
         "description": "No specific transformation rule matched. \n "
     }
-# def apply_rules_v0(domain, src_info, tgt_info):
-#     src_var_name = src_info.get('var_name', '').lower()
-#     tgt_var_name = tgt_info.get('var_name', '').lower()
-#     src_type = src_info.get('stats_type', '').lower()
-#     tgt_type = tgt_info.get('stats_type', '').lower()
-#     src_unit = src_info.get('unit', '').lower()
-#     tgt_unit = tgt_info.get('unit', '').lower()
-#     src_data_type = src_info.get('data_type', '').lower()
-#     tgt_data_type = tgt_info.get('data_type', '').lower()
     
-#     domains_list = ["observation", "drug_exposure", "device_exposure", "condition_era", "condition_occurrence","measurement", "procedure_occurrence", "observation_period", "demographic", "person"]
-#   #  print(f"src_type: {src_type} tgt_type: {tgt_type} src_unit: {src_unit} tgt_unit: {tgt_unit}")
-#     valid_types = {"continuous_variable", "binary_class_variable", "multi_class_variable","qualitative_variable"}
-#     if src_type not in valid_types or tgt_type not in valid_types and ("derived" not in src_var_name or "derived" not in tgt_var_name):
-#         return "Transformation Not applicable (invalid statistical type)"
-
-    
-#     if '|' in domain:
-#         domains = domain.split("|")[0].strip()
-#         for d in domains:
-#             if d not in domains:
-#                 return "Transformation not applicable for given domain(s)"
-#     # Case 1: Same type
-#     if src_type == tgt_type:
-#         # Check if units differ for continuous variables
-#         if src_type == "continuous_variable":
-#             if src_unit and tgt_unit and src_unit != tgt_unit:
-#                 if (src_unit in ["mg", "milligram"] and tgt_unit in ["%", "percent"]) or \
-#                     (src_unit in ["%", "percent"] and tgt_unit in ["mg", "milligram"]):
-#                     return "Unit conversion required (e.g., mg to %)"
-#                 return "Unit conversion required (RQ dependent)"
-#             return "For harmonization, no transformation required."
-#         else:
-#             return "For harmonization, no transformation required if categorical values are the same, otherwise transformation is needed on categorical values"
-
-#     # Case 2: Binary ↔ Multiclass
-#     if (
-#         (src_type == "binary_class_variable" and tgt_type == "multi_class_variable") or
-#         (src_type == "multi_class_variable" and tgt_type == "binary_class_variable")
-#     ):
-#         if domain in [ "drug_exposure", "drug_era"]:
-#             return "For harmonization convert multi-class variables to binary classes, but accept only the degree of information loss justified by the research question. For drug-related variables, scrutinize the surrounding categorical context—e.g., therapy adjustments or supplemental medication descriptors—before deciding on the optimal harmonization, because these details may not map cleanly onto a binary split."
-#         else:
-#             return "For harmonization, convert multi-class variables to binary classes, but accept only the degree of information loss justified by the research question"
-
-#     # Case 3: Continuous → Categorical
-#     if (src_type == "continuous_variable" and tgt_type in {"binary_class_variable", "multi_class_variable"}) or src_type in {"binary_class_variable", "multi_class_variable"} and tgt_type == "continuous_variable":
-#         if src_data_type == "datetime" or tgt_data_type == "datetime":
-#             return "When harmonizing a datetime variable with a binary or multi class variable, transform the datetime into a presence/absence indicator. Any non-missing datetime value indicates 'presence'; a missing or null datetime indicates 'absence'."
-#         if domain in [ "drug_exposure", "drug_era"]:
-#             return "For drug-related variables in harmonization, first examine any accompanying categorical context—such as therapy adjustments or descriptive qualifiers—because these details may not align neatly with the drug-dosage columns and harmonization may not be possible."
-#         return "For harmonization, you may discretize continuous variables into categorical classes, but only when the resulting information loss is acceptable for the research question. Represent each clinical domain with two elements: 1Presence/absence flag:a binary indicator showing whether an event exists, 2) Event category: a categorical field specifying which event occurred (e.g., which condition, which procedure, which device etc)."
-#     if src_type in {"binary_class_variable", "multi_class_variable"} and tgt_type == "qualitative_variable":
-#         return "This variable pair involves categorical variable (binary or multi-class) and  a qualitative variable (string/text-based). Harmonization is conditionally possible if the qualitative variable contains a finite and consistently used set of values that can be reliably mapped to the categorical codes. Transformation requires: (1) value normalization (e.g., spelling, casing), and (2) manual or automated mapping to standardized categories. This process may incur minor information loss and should be justified based on the harmonization goal. Applicability is limited to cases where the qualitative variable represents discrete categories, not unstructured narrative text."
-#     if src_type == "qualitative_variable" and tgt_type in {"binary_class_variable", "multi_class_variable"}:
-#         return "This variable pair involves a qualitative variable (string/text-based) and a categorical variable (binary or multi-class). Harmonization is conditionally possible if the qualitative variable contains a finite and consistently used set of values that can be reliably mapped to the categorical codes. Transformation requires: (1) value normalization (e.g., spelling, casing), and (2) manual or automated mapping to standardized categories. This process may incur minor information loss and should be justified based on the harmonization goal. Applicability is limited to cases where the qualitative variable represents discrete categories, not unstructured narrative text."
-#     # # Case 4: Categorical → Continuous (rare)
-#     # if src_type in {"binary_class_variable", "multi_class_variable"} and tgt_type == "continuous_variable":
-#     #     if src_data_type == "datetime" or src_data_type == "datetime":
-#     #         return "transformation Not applicable"
-#     #     return "Transform categorical to continuous (acceptable loss, RQ dependent)"
-
-#     return "Transformation rule not defined"
-
-
-
-
-
 def compare_with_fuzz(text1: str, text2: str):
     similarity = fuzz.ratio(text1, text2) / 100
 
