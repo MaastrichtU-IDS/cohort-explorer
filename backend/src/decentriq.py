@@ -303,7 +303,7 @@ async def get_compute_dcr_definition(
                     participants[owner] = {"data_owner_of": set(), "analyst_of": set()}
                 participants[owner]["data_owner_of"].add(data_node_id)
                 participants[owner]["data_owner_of"].add(metadata_node_id)
-            participants[user["email"]]["analyst_of"].add(metadata_node_id)
+            #participants[user["email"]]["analyst_of"].add(metadata_node_id)
         else:
             # In dev_mode the requester is added as data owner instead
             participants[user["email"]]["data_owner_of"].add(data_node_id)
