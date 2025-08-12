@@ -11,6 +11,19 @@ import urllib.parse
 from enum import Enum
 
 
+from datetime import datetime
+
+def day_month_year(date_str: str) -> tuple:
+    formats = [
+        "%d-%m-%Y", "%Y-%m-%d", "%m-%Y", "%Y/%m/%d", "%m/%Y","%Y/%m", "%d/%m/%Y", "%m/%d/%Y", "%B %Y", "%Y"
+    ]
+    for fmt in formats:
+        try:
+            dt = datetime.strptime(date_str.strip(), fmt)
+            return (str(dt.day).zfill(2), str(dt.month).zfill(2), str(dt.year))
+        except:
+            continue
+    return None
 class OntologyNamespaces(Enum):
     CMEO = Namespace("https://w3id.org/CMEO/")
     OMOP = Namespace("http://omop.org/OMOP/")
@@ -27,7 +40,8 @@ class OntologyNamespaces(Enum):
     LOINC = Namespace("http://purl.bioontology.org/ontology/LNC/") 
     RO = Namespace("http://purl.obolibrary.org/obo/ro.owl/")
     IAO = Namespace("http://purl.obolibrary.org/obo/iao.owl/")
-    SIO = Namespace("http://semanticscience.org/ontology/sio/v1.59/sio-release.owl")
+    TIME = Namespace("http://www.w3.org/2006/time#")
+    SIO = Namespace("http://semanticscience.org/ontology/sio/v1.59/sio-release.owl#")
     # UCUM = Namespace("http://purl.bioontology.org/ontology/UCUM/")
     # RXNORM = Namespace("http://purl.bioontology.org/ontology/RXNORM/")
 
@@ -50,45 +64,6 @@ def normalize_text(text: str) -> str:
     return urllib.parse.quote(text, safe='_-')
 
 
-# def publish_graph_in_chunks(g: Graph, graph_uri: str | None = None, chunk_size: int = 50000) -> bool:
-#     """
-#     Insert the graph into the triplestore endpoint in chunks.
-    
-#     :param g: RDF Graph (rdflib.Graph)
-#     :param graph_uri: The named graph URI (optional)
-#     :param chunk_size: Number of triples per chunk
-#     :return: True if all chunks are uploaded successfully, False otherwise
-#     """
-#     url = f"{settings.sparql_endpoint}/store"
-#     if graph_uri:
-#         url += f"?graph={graph_uri}"
-#         print(f"URL: {url}")
-
-#     headers = {"Content-Type": "application/trig"}
-#     total_triples = len(g)
-#     print(f"Total triples: {total_triples}")
-
-#     success = True
-#     chunk_graph = Graph()
-    
-#     for i, triple in enumerate(g):
-#         chunk_graph.add(triple)
-
-#         # Upload when chunk reaches chunk_size or at the last iteration
-#         if len(chunk_graph) >= chunk_size or i == total_triples - 1:
-#             with tempfile.NamedTemporaryFile(delete=False, suffix=".trig") as tmp_file:
-#                 chunk_graph.serialize(tmp_file.name, format="trig")
-#                 with open(tmp_file.name, "rb") as file:
-#                     response = requests.post(url, headers=headers, data=file, timeout=300)
-#                     print(f"Chunk {i//chunk_size + 1}: Response {response.status_code}")
-#                     if not response.ok:
-#                         print(f"Failed to upload chunk: {response.status_code}, {response.text}")
-#                         success = False
-            
-#             # Clear the chunk_graph for the next batch
-#             chunk_graph = Graph()
-
-#     return success
 
 def init_graph(default_graph_identifier: str | None = "https://w3id.org/CMEO/graph/studies_metadata") -> Dataset:
     """Initialize a new RDF graph for nquads with the voc namespace bindings."""
@@ -210,11 +185,8 @@ def extract_tick_values(texts: str) -> list[float]:
     Returns:
         [-2.5, 0.0, 2.5]
     """
-    if texts is None or texts == "":
-        return []
-
-    # Split the string at the separators used by the user (" - ")
     ticks = []
+    # Split the string at the separators used by the user (" - ")
     for token in texts.split(" - "):
         # Regex captures the *label* part (text between the final pair of quotes)
         m = re.search(r"Text\([^,]+,\s*[^,]+,\s*'([^']+)'\)", token)
@@ -226,19 +198,11 @@ def extract_tick_values(texts: str) -> list[float]:
                 # Skip if the captured label is not a number
                 pass
     return ticks
-
-
 def is_categorical_variable(df):
-    #normalizing all possible column name variations by converting to lowercase
-    df.columns = [c.lower() for c in df.columns]
     binary_categorical = []
     multi_class_categorical = []
-    #allowing some flexibility in the name of the variable column
-    varname_col = [x for x in ['variablename', 'variable name'] 
-                    if x in df.columns][0]
-
     # create dict using variable name and CATREGORICAL
-    column_dict = dict(zip(df[varname_col], df['categorical']))
+    column_dict = dict(zip(df['variablename'], df['categorical']))
     for key, value in column_dict.items():
         # if pd.notna(value) and value:
             if pd.notna(value) and value != "":
@@ -251,41 +215,6 @@ def is_categorical_variable(df):
     # print(f"categorical columns: ({len(multi_class_categorical)})")
     return binary_categorical, multi_class_categorical
 
-# def get_standard_label_uri(var_uri: URIRef, base_entity_label: str) -> URIRef:
-#     safe_base_entity_label = normalize_text(base_entity_label)
-#     return URIRef(f"{var_uri}/standard_label/{safe_base_entity_label}")
-
-
-# def get_code_uri(var_uri: URIRef, code: str) -> URIRef:
-#     # safe_base_entity_label = sanitize(base_entity_label)
-#     return URIRef(f"{var_uri}/code/{code}")
-
-# def get_omop_id_uri(var_uri: URIRef, omop_id: str) -> URIRef:
-#     # safe_base_entity_label = sanitize(base_entity_label)
-#     if omop_id == "" or omop_id is None:
-#         print("OMOP ID is empty")
-#     return URIRef(f"{var_uri}/omop_id/{omop_id}")
-
-# def get_category_uri(var_uri: URIRef, category_value: str) -> URIRef:
-#     """Generates a unique and URI-safe URI for each category based on the variable URI and category value."""
-#     # Encode the category value to make it URI-safe
-#     safe_category_value = normalize_text(category_value) # This will replace unsafe characters with % encoding
-#     return URIRef(f"{var_uri}/category/{safe_category_value}")
-
-
-# def get_context_uri(var_uri: str | URIRef, context_id: str) -> URIRef: 
-#     safe_context_id = normalize_text(context_id)
-#     return URIRef(f"{var_uri!s}/context/{safe_context_id}")
-
-# def get_temporal_context_uri(var_uri: str | URIRef, temporal_context_id: str) -> URIRef:
-#     safe_temporal_context_id = normalize_text(temporal_context_id)
-#     return URIRef(f"{var_uri!s}/visit/{safe_temporal_context_id}")
-
-# def get_measurement_unit_uri(var_uri: str | URIRef, unit_label: str) -> URIRef:
-#     if unit_label is None:
-#         print("Unit label is None")
-#     safe_unit_label = normalize_text(unit_label)
-#     return URIRef(f"{var_uri!s}/unit/{safe_unit_label}")
 def safe_int(value):
     """Safely convert a value to an integer, returning None if the value is invalid."""
     try:
@@ -293,82 +222,6 @@ def safe_int(value):
     except ValueError:
         print(f"Invalid integer value: {value}")
         return None
-
-
-
-# Read a small part of the file to detect encoding
-
-# def detect_code(file_path: str) -> str:
-#     with open(file_path, 'rb') as f:
-#         # Read the first 10,000 bytes of the file for detection
-#         rawdata = f.read(10000)
-#     result = chardet.detect(rawdata)
-#     print(result)
-#     if 'encoding' in result and result['encoding']:
-#         return result
-#     else:
-#         raise ValueError("Encoding detection failed, no valid encoding found.")
-    
-    
-
-
-# def add_optional_literal(
-#     graph: Graph, 
-#     uri: URIRef, 
-#     predicate: URIRef, 
-#     row: pd.Series, 
-#     column: str, 
-#     datatype=XSD.string, 
-#     graph_context: URIRef = None
-# ) -> None:
-#     """
-#     Adds a literal to the graph if the value exists in the row.
-
-#     :param graph: RDF Graph
-#     :param uri: URIRef to which the literal is attached
-#     :param predicate: RDF predicate
-#     :param row: Pandas Series representing the row
-#     :param column: Column name in the row
-#     :param datatype: XSD datatype for the literal
-#     :param graph_context: Specific graph/context to add the triple to
-#     """
-#     value = row.get(column)
-#     if pd.notna(value) and value != "":
-#         if datatype == XSD.boolean:
-#             if isinstance(value, str):
-#                 value = value.strip().lower()
-#                 if value in ['yes', 'true', '1']:
-#                     literal_value = True
-#                 elif value in ['no', 'false', '0']:
-#                     literal_value = False
-#                 else:
-#                     print(f"Warning: Unrecognized boolean value '{value}' in column '{column}'. Skipping.")
-#                     return
-#             else:
-#                 literal_value = bool(value)
-#         elif datatype == XSD.integer:
-#             try:
-#                 literal_value = safe_int(value)
-#             except ValueError:
-#                 print(f"Warning: Cannot convert value '{value}' to integer for column '{column}'. Skipping.")
-#                 return
-#         elif datatype == XSD.decimal:
-#             try:
-#                 literal_value = float(value)
-#             except ValueError:
-#                 print(f"Warning: Cannot convert value '{value}' to decimal for column '{column}'. Skipping.")
-#                 return
-#         else:
-#             literal_value = normalize_text(value)
-        
-#         if literal_value is not None:
-#             if graph_context:
-#                 graph.add((uri, predicate, Literal(literal_value, datatype=datatype), graph_context))
-#                 print(f"Added triple: {uri} {predicate} {literal_value} in graph {graph_context}")
-#             else:
-#                 graph.add((uri, predicate, Literal(literal_value, datatype=datatype)))
-#                 print(f"Added triple: {uri} {predicate} {literal_value}")
-#     return  graph
 
 
 
@@ -386,7 +239,6 @@ def apply_rules(domain, src_info, tgt_info):
         return {code: label for code, label in zip(codes, labels) if code and label}
     
     print(f"src_info: {src_info}  tgt_info: {tgt_info}")
-
     src_var_name = src_info.get('var_name', '').lower()
     tgt_var_name = tgt_info.get('var_name', '').lower()
     src_type = str(src_info.get('stats_type')).lower() if pd.notna(src_info.get('stats_type')) and src_info.get('stats_type') not in [None, ''] else None
@@ -406,16 +258,7 @@ def apply_rules(domain, src_info, tgt_info):
         if "derived" not in src_var_name and "derived" not in tgt_var_name:
             return {
                 "description": "Transformation not applicable (invalid or missing statistical type)."
-            }
-
-    # Handle domains
-    # if "|" in domain:
-    #     domains = domain.split("|")
-    #     for d in domains:
-    #         if d.strip() not in domains_list:
-    #             return {
-    #                 "description": "No Transformation rule applicable for given domain(s)."
-    #             }
+            }, "No Applicable"
 
     if src_type == tgt_type:
         if src_type == "continuous_variable":
@@ -424,13 +267,13 @@ def apply_rules(domain, src_info, tgt_info):
                 #    (src_unit in ["%", "percent"] and tgt_unit in ["mg", "milligram"]):
                 return {
                         "description": "Unit conversion in dataset required from {src_unit} to {tgt_unit} or vice versa.",
-                    }
+                    }, "Proximate Match"
                 # return {
                 #     "description": "Unit conversion required. Evaluate based on research question."
                 # }
             return {
                 "description": "No transformation required. Continuous types and units match."
-            }
+            }, "Complete Match"
         elif set(src_categories) == set(tgt_categories):
             src_pairs = map_category_to_code(src_categories, original_src_categories)
             tgt_pairs = map_category_to_code(tgt_categories, original_tgt_categories)
@@ -447,13 +290,14 @@ def apply_rules(domain, src_info, tgt_info):
                     "description": f"Categorical codes harmonized by matching labels\n",
                     "categorical_mapping": "; ".join(mapping_str),
                     "standard_codes": "; ".join(common_codes) if common_codes else "No common codes found",
-                }
+                }, "Complete Match"
             else:
+                
                 return {
                     "description": "No matching categorical labels between source and target. Harmonization not possible without manual mapping.",
                     "source_categories": "; ".join(src_categories),
                     "target_categories": "; ".join(tgt_categories)
-                }
+                }, "Partial Match"
            
 
     if (
@@ -470,7 +314,7 @@ def apply_rules(domain, src_info, tgt_info):
             "description": msg,
             "source_categories": "; ".join([f"{s} ↔ {t}" for s, t in zip(src_categories, original_src_categories)]),
             "target_categories": "; ".join([f"{s} ↔ {t}" for s, t in zip(tgt_categories, original_tgt_categories)])
-        }
+        }, "Partial Match"
 
     if (
         (src_type == "continuous_variable" and tgt_type in {"binary_class_variable", "multi_class_variable"}) or
@@ -481,7 +325,7 @@ def apply_rules(domain, src_info, tgt_info):
                 "description": "Convert datetime to binary indicator (presence/absence) if needed.",
                 "source_categories": "; ".join(src_categories),
                 "target_categories": "; ".join(tgt_categories)
-            }
+            }, "Partial Match"
         msg = (
             "Discretize continuous variable to categories. Acceptable only if information loss is minimal. "
             "Represent as: (1) binary flag for event presence, (2) category of event type."
@@ -492,7 +336,7 @@ def apply_rules(domain, src_info, tgt_info):
             "description": msg,
             "source_categories": "; ".join(src_categories),
             "target_categories": "; ".join(tgt_categories)
-        }
+        }, "Partial Match"
 
     if src_type in {"binary_class_variable", "multi_class_variable"} and tgt_type == "qualitative_variable":
         return {
@@ -502,7 +346,7 @@ def apply_rules(domain, src_info, tgt_info):
             ),
             "source_categories": "; ".join(src_categories),
             "target_categories": ""
-        }
+        }, "Partial Match"
 
     if src_type == "qualitative_variable" and tgt_type in {"binary_class_variable", "multi_class_variable"}:
         return {
@@ -512,14 +356,54 @@ def apply_rules(domain, src_info, tgt_info):
             ),
             "source_categories": "",
             "target_categories": "; ".join(tgt_categories)
-        }
-
+        }, "Partial Match"
+    if src_type == "qualitative_variable" and tgt_type == "continuous_variable":
+        return {
+            "description": (
+                "Map qualitative text to binary indicators. "
+                "Applicable only if text values are consistently structured."
+            ),
+            "source_categories": "",
+            "target_categories": "; ".join(tgt_categories)
+        }, "Partial Match"
     return {
         "description": "No specific transformation rule matched. \n "
-    }
+    }, "No Applicable"
 
 
+
+
+
+def parse_joined_string(input_str: str) -> list:
+    """
+    Parses a string that may be either:
+    - a key-value categorical string like '1=No|2=Yes' or '1="mmol|l"|2="g|dl"'
+    - a plain joined string like '"mg|dl"|mmol'
     
+    Returns a list of extracted values, handling quoted values and internal pipes correctly.
+    """
+    if not input_str or not isinstance(input_str, str):
+        return []
+
+    # Case 1: If the string has key=value pattern
+    if re.search(r'\d+\s*=', input_str):
+        # Match key=value pairs with quoted or unquoted values
+        pattern = r'\d+\s*=\s*"[^"]*"|\d+\s*=\s*[^|]+'
+        matches = re.findall(pattern, input_str)
+        values = [
+            re.sub(r'^\d+\s*=\s*', '', match).strip().strip('"')
+            for match in matches if match.strip()
+        ]
+    else:
+        # Case 2: Just split by top-level pipes, respecting quotes
+        pattern = r'"[^"]*"|[^|"]+'
+        matches = re.findall(pattern, input_str)
+        values = [match.strip().strip('"') for match in matches if match.strip()]
+
+    return values
+
+
+
 def compare_with_fuzz(text1: str, text2: str):
     similarity = fuzz.ratio(text1, text2) / 100
 
@@ -593,26 +477,6 @@ def save_graph_to_trig_file(graph_data, file_path):
         print(f"Error saving graph to TRiG file: {e}")
 
 
-
-# its for graphDB
-# def publish_graph_to_endpoint(g: Graph, graph_uri: str | None = None) -> bool:
-#     """Insert the graph into the triplestore endpoint."""
-#     # url = f"{settings.sparql_endpoint}/store?{graph_uri}"
-#     url = f"{settings.sparql_endpoint}/rdf-graphs/{graph_uri}"
-#     print(f"URL: {url}")
-#     headers = {"Content-Type": "application/trig"}
-#     g.serialize("/tmp/upload-data.trig", format="trig")
-#     with open("/tmp/upload-data.trig", "rb") as file:
-#         response = requests.post(url, headers=headers, data=file, timeout=300)
-#         print(f"Response: {response}")
-#     # NOTE: Fails when we pass RDF as string directly
-#     # response = requests.post(url, headers=headers, data=graph_data)
-#     # Check response status and print result
-#     if not response.ok:
-#         print(f"Failed to upload data: {response.status_code}, {response.text}")
-#     return response.ok
-
-# for oxigraph
 def publish_graph_to_endpoint(g: Graph, graph_uri: str | None = None) -> bool:
     """Insert the graph into the triplestore endpoint."""
     # url = f"{settings.sparql_endpoint}/store?{graph_uri}"
@@ -632,43 +496,12 @@ def publish_graph_to_endpoint(g: Graph, graph_uri: str | None = None) -> bool:
         print(f"Failed to upload data: {response.status_code}, {response.text}")
     return response.ok
 
-# def chunks(iterable, batch_size):
-#     batch = []
-#     for triple in iterable:
-#         batch.append(triple)
-#         if len(batch) == batch_size:
-#             yield batch
-#             batch = []
-#     if batch:
-#         yield batch
-
-# def publish_graph_in_batches(g: Graph, graph_uri: str, batch_size: int = 10000) -> bool:
-#     url = f"{settings.sparql_endpoint}/store?graph={graph_uri}"
-#     headers = {"Content-Type": "application/trig"}
-#     success = True
-
-#     for batch in chunks(g, batch_size):
-#         batch_graph = Graph()
-#         for triple in batch:
-#             print(f"Triple: {triple}")
-#             batch_graph.add(triple)
-#         batch_data = batch_graph.serialize(format="trig")
-#         response = requests.post(url, headers=headers, data=batch_data, timeout=300)
-#         if not response.ok:
-#             print(f"Failed to upload a batch: {response.status_code}, {response.text}")
-#             success = False
-#             # Optionally break or continue based on your error strategy
-#         else:
-#             print("Batch uploaded successfully")
-#     return success
 
 def variable_exists(cohort_uri, variable_name) -> bool:
     sparql = SPARQLWrapper(settings.sparql_endpoint)
     variable_name = normalize_text(variable_name)
     sparql.setReturnFormat(JSON)
-    # cohort_name = cohort_uri.split('/')[-1]
-    # study_variable_design_specification_uri = f"{cohort_uri}/study_design_variable_specification"
-    # print(f"cohort name: {cohort_name}")
+
     query = f"""
             PREFIX cmeo: <https://w3id.org/CMEO/>
             PREFIX bfo: <http://purl.obolibrary.org/obo/bfo.owl/>

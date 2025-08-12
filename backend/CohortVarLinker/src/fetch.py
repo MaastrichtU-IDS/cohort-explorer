@@ -261,7 +261,7 @@ def _exact_match_records(
                         "tcode": code_value.strip(),
                         "tlabel": code_label,
                         "category": category,
-                        "mapping type": "exact match",
+                        "mapping type": "code match",
                         "source_visit": sv,
                         "target_visit": tv,
                     }
@@ -321,7 +321,7 @@ def extend_with_derived_variables(single_source: dict,
     else:
         target_varname = f"{variable_name} (derived)"
 
-    mapping_type = "derived match" if ("derived" in source_varname.lower() or "derived" in target_varname.lower()) else "exact match"
+    mapping_type = "derived match" if ("derived" in source_varname.lower() or "derived" in target_varname.lower()) else "code match"
     return {
         "source": source_varname,
         "target": target_varname,
@@ -374,10 +374,9 @@ def _graph_vector_matches(
         reachable = None
         if category in {"drug_exposure", "drug_era"}:
             reachable = graph.bfs_bidirectional_reachable(sid, tgt_ids, max_depth=3)
-        elif category in {"condition_occurrence", "condition_era", "procedure_occurrence",
-                        "device_exposure", "drug_era"}:
+        elif category in {"condition_occurrence", "condition_era"}:
             reachable = graph.bfs_bidirectional_reachable(sid, tgt_ids, max_depth=2)
-        elif category == "measurement":
+        elif category in { "measurement", "procedure_occurrence", "observation", "device_exposure", "visit_occurrence"}:
             reachable = graph.only_upward_or_downward(sid, tgt_ids, max_depth=1)
 
         if reachable:
@@ -418,7 +417,7 @@ def _graph_vector_matches(
                             "tcode": te.get("code", ""),
                             "tlabel": te.get("code_label", ""),
                             "category": category,
-                            "mapping type": "semantic match" if reachable else "text match",
+                            "mapping type": "graph hierarchy match" if reachable else "semantic text match"
                         }
                     )
     return final
@@ -590,7 +589,7 @@ def _cross_category_matches(
                 tvisit = t['visit'] if "date" not in t['visit'] else "baseline time"
                 svisit = s['visit'] if "date" not in s['visit'] else "baseline time"
                 # print(f"source visit: {svisit} and target visit: {tvisit}")
-                mapping_type = "cross category exact match" if s['category'] != t['category'] else "cross category approximate match"
+                # mapping_type = "code match"
                 if svisit == tvisit:
                     yield {
                         "source": s["source"],
@@ -602,7 +601,7 @@ def _cross_category_matches(
                         "tcode": t["code"],
                         "tlabel": t["code_label"],
                         "category": f"{s['category']}|{t['category']}",
-                        "mapping type": mapping_type,
+                        "mapping type": "code match",
                         "source_visit": s['visit'],
                         "target_visit":  t['visit'],
                     }
@@ -692,8 +691,13 @@ def map_source_target(
         source_study_name,
         target_study_name,
     )
-   
-    df["transformation_rule"] = df.apply(
+    
+    # move "mapping type" to the end
+    if "mapping type" in df.columns:
+        mapping_type = df.pop("mapping type")
+        df["mapping type"] = mapping_type
+    
+    df[["transformation_rule", "harmonization_status"]]   = df.apply(
         lambda row: apply_rules(
             domain=row.get("category", "") if "category" in row and pd.notna(row.get("category")) else "",
             src_info={
@@ -714,7 +718,16 @@ def map_source_target(
             },
         ),
         axis=1,
+        result_type="expand",
     )
+    
+    # normalize json columns
+    df["transformation_rule"] = df["transformation_rule"].apply(
+    lambda v: json.dumps(v) if isinstance(v, dict) else v
+)
+ 
+
+    
     for col in df.columns:
         if df[col].apply(lambda x: isinstance(x, dict)).any():
             df[col] = df[col].apply(json.dumps)
