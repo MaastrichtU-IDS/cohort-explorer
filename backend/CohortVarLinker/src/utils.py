@@ -47,13 +47,6 @@ class OntologyNamespaces(Enum):
 
 
 
-STUDY_TYPES = {
-    "observational study": URIRef(f"{OntologyNamespaces.CMEO.value}observational_study_design"),
-    "randomized controlled trial": URIRef(f"{OntologyNamespaces.CMEO.value}randomized_controlled_trial_design"),
-    "RCT": URIRef(f"{OntologyNamespaces.CMEO.value}randomized_controlled_trial_design"),
-    "federated database": URIRef(f"{OntologyNamespaces.CMEO.value}federated_database"),
-    "single-arm cross-over randomized intervention": URIRef(f"{OntologyNamespaces.CMEO.value}single_arm_cross_over_design"),
-}
 
 
 
