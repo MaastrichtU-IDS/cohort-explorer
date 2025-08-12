@@ -1,7 +1,7 @@
 from SPARQLWrapper import SPARQLWrapper, JSON, POST,TURTLE
 from rdflib import Graph, RDF, URIRef, Literal, RDFS, DC
 import pandas as pd
-from .utils import init_graph, OntologyNamespaces, normalize_text, save_graph_to_trig_file, graph_exists, extract_age_range, day_month_year
+from .utils import init_graph, OntologyNamespaces, normalize_text, STUDY_TYPES, save_graph_to_trig_file, graph_exists, extract_age_range, day_month_year
 from .config import settings
 from rdflib.namespace import XSD
 import requests
@@ -56,26 +56,28 @@ def generate_studies_kg(filepath: str) -> Graph:
             dynamic_class_uri = URIRef(OntologyNamespaces.OBI.value + study_design_value)
             
             g.add((study_design_uri, RDF.type, dynamic_class_uri, metadata_graph))
-            protocol_uri = URIRef(study_uri + "/" + study_design_value + "_protocol")
+            protocol_uri = URIRef(study_uri + "/" + study_design_value + "/protocol")
+            g.add((protocol_uri, RDF.type, OntologyNamespaces.OBI.value.protocol, metadata_graph))
             g.add((study_design_uri,OntologyNamespaces.RO.value.has_part, protocol_uri, metadata_graph))
         else:
               study_design_uri = URIRef(study_uri + "/study_design")
               protocol_uri = URIRef(study_uri + "/protocol") 
-              
+              g.add((protocol_uri, RDF.type, OntologyNamespaces.OBI.value.protocol, metadata_graph))
               g.add((study_design_uri, RDF.type, OntologyNamespaces.OBI.value.study_design, metadata_graph))
               g.add((study_design_uri,OntologyNamespaces.RO.value.has_part, protocol_uri, metadata_graph))
               g.add((study_design_uri, DC.identifier, Literal(study_name, datatype=XSD.string), metadata_graph))
               g.add((study_design_uri , OntologyNamespaces.CMEO.value.has_value, Literal(study_design_value, datatype=XSD.string), metadata_graph))
 
-        g = part_of_study(g=g, row=row, study_uri=study_design_uri, study_design_value=study_design_value, metadata_graph=metadata_graph)
+       
         g.add((study_design_execution_uri, OntologyNamespaces.RO.value.concretizes, study_design_uri, metadata_graph))
         g.add((study_design_uri, OntologyNamespaces.RO.value.is_concretized_by, study_design_execution_uri, metadata_graph))
-        g.add((protocol_uri, RDF.type, OntologyNamespaces.OBI.value.protocol, metadata_graph))
+        
         study_design_variable_specification_uri = URIRef(study_uri + "/study_design_variable_specification")
         g.add((study_design_variable_specification_uri, RDFS.label, Literal("study design variable specification", datatype=XSD.string), metadata_graph))
         g.add((study_design_variable_specification_uri, RDF.type, OntologyNamespaces.CMEO.value.study_design_variable_specification,metadata_graph))
         g.add((protocol_uri, OntologyNamespaces.RO.value.has_part, study_design_variable_specification_uri,metadata_graph))
 
+        g = part_of_study(g=g, row=row, study_uri=study_design_uri, study_design_value=study_design_value, metadata_graph=metadata_graph)
         if row['language']:
             language = row['language'].lower().strip() if pd.notna(row['language']) else ""
           # its dct:language annotation
@@ -522,43 +524,4 @@ def reconstruct_metadata_graph(endpoint_url, graph_uri, metadata_graph_path) -> 
         save_graph_to_trig_file(g, metadata_graph_path)
     except Exception as e:
         print(f"Error querying the graph: {e}") 
-
-# def reconstruct_metadata_graph(graph_uri, metadata_graph_path):
-#     """
-#     Retrieves the entire contents of a named graph from GraphDB using the Graph Store Protocol.
-#     Saves the result as a TRiG file.
-
-#     :param repository_id: GraphDB repository ID
-#     :param graph_uri: URI of the named graph to query
-#     :param metadata_graph_path: Path to save the exported graph in TriG format
-#     """
-    
-#     print(f"Retrieving named graph from: {graph_uri}")
-
-#     headers = {"Accept": "application/trig"}  # Request TriG format
-
-#     try:
-#         # Send GET request to retrieve the graph
-#         response = requests.get(graph_uri, headers=headers, timeout=300)
-
-#         if response.status_code == 200:
-#             print(f"Successfully retrieved RDF data from {graph_uri}")
-
-#             # Parse the RDF data using rdflib
-#             g = rdflib.Graph()
-#             g.parse(data=response.text, format="trig")
-
-#             # Save the RDF graph as a .trig file
-#             with open(metadata_graph_path, "w", encoding="utf-8") as trig_file:
-#                 trig_file.write(response.text)
-
-#             print(f"Saved RDF data to {metadata_graph_path}")
-#             return True
-#         else:
-#             print(f"Failed to retrieve graph: {response.status_code}, {response.text}")
-#             return False
-
-#     except Exception as e:
-#         print(f"Error querying the graph: {e}")
-#         return False
 
