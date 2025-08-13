@@ -178,6 +178,9 @@ def extract_tick_values(texts: str) -> list[float]:
     Returns:
         [-2.5, 0.0, 2.5]
     """
+
+    if texts is None:
+        return []
     ticks = []
     # Split the string at the separators used by the user (" - ")
     for token in texts.split(" - "):
