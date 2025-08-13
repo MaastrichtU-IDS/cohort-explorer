@@ -21,7 +21,7 @@ import json
 #     code_label: str
 #     category: str
 
-
+TIME_HINTS = ["date", "visit", "compliance"]
 DERIVED_VARIABLES_LIST= [
     
      {
@@ -31,7 +31,8 @@ DERIVED_VARIABLES_LIST= [
                     "label": "Body mass index (BMI) [Ratio]",
                     "unit": "kg/m2",
                     "required_omops": [3016723, 3025315],
-                    "category": "measurement"
+                    "category": "measurement",
+                    "data_type": "continuous_variable"
                 },
                 {
                     "name": "eGFR_CG-derived",
@@ -40,9 +41,14 @@ DERIVED_VARIABLES_LIST= [
                     "label": "Estimated creatinine clearance calculated using actual body weight Cockcroft-Gault formula",
                     "unit": "ml/min",
                     "required_omops": [3016723, 3022304, 46235213],
-                    "category": "measurement"
+                    "category": "measurement",
+                    "data_type": "continuous_variable"
                 }
 ]
+
+def check_visit_string(visit_str: str) -> str:
+    return "baseline time" if any(h in visit_str.lower() for h in TIME_HINTS) else visit_str
+
 def _build_alignment_query(
     source: str, target: str, graph_repo: str
 ) -> str:
@@ -247,8 +253,8 @@ def _exact_match_records(
     res = []
     for s, sv in zip(src_vars, src_visits):
         for t, tv in zip(tgt_vars, tgt_visits):
-            sv= sv if "date" not in sv else "baseline time"
-            tv= tv if "date" not in tv else "baseline time"
+            sv = check_visit_string(sv)
+            tv = check_visit_string(tv)
             if sv == tv:
                 res.append(
                     {
@@ -340,9 +346,6 @@ def extend_with_derived_variables(single_source: dict,
         }
     }
 
-
-
-
 def _graph_vector_matches(
     src: List[dict[str, Any]],
     tgt: List[dict[str, Any]],
@@ -402,7 +405,9 @@ def _graph_vector_matches(
                 continue
             for se in s_elems:
                 for te in tgt_map[key]:
-                    if se["category"] != te["category"] or se["visit"] != te["visit"]:
+                    tv = check_visit_string(te['visit'])
+                    sv = check_visit_string(se['visit'])
+                    if se["category"] != te["category"] or sv != tv:
                         continue
                     final.append(
                         {
@@ -586,8 +591,8 @@ def _cross_category_matches(
             if s['category'] in ["measurement", "observation", "condition_occurrence", "condition_era"] and t['category'] in ["measurement", "observation", "condition_occurrence", "condition_era"]:
                 # tvisit= check_visit_string(t['visit'], visit_constraint)
                 # svisit = check_visit_string(s['visit'], visit_constraint)
-                tvisit = t['visit'] if "date" not in t['visit'] else "baseline time"
-                svisit = s['visit'] if "date" not in s['visit'] else "baseline time"
+                tvisit = check_visit_string(t['visit'])
+                svisit = check_visit_string(s['visit'])
                 # print(f"source visit: {svisit} and target visit: {tvisit}")
                 # mapping_type = "code match"
                 if svisit == tvisit:
@@ -621,11 +626,16 @@ def map_source_target(
     Align variables between two studies using OMOP graph relations
     first, then fall back to embedding similarity.
     """
+    # source_related_studies = find_related_studies(source_study_name)
+    # target_related_studies = find_related_studies(target_study_name)
+    default_columns = [
+            "source", "target", "somop_id", "tomop_id", "scode", "slabel", "tcode", "tlabel", "category", "source_visit", "target_visit", "source_type", "source_unit", "source_data_type", "source_categories_codes", "source_original_categories", "target_type", "target_unit", "target_data_type", "target_categories_codes", "target_original_categories", "mapping type", "transformation_rule", "harmonization_status"
+        ]
     query = _build_alignment_query(source_study_name, target_study_name, graph_db_repo)
     bindings = _execute_query(query)
 
     source_elems, target_elems, matches = _parse_bindings(bindings)
-
+    print(f"Source elements: {len(source_elems)}, Target elements: {len(target_elems)}, Matches: {len(matches)}")
     if not target_elems and not matches:
         print(f"No matches found for {source_study_name} and {target_study_name}.")
         columns = [
@@ -682,8 +692,12 @@ def map_source_target(
     ))
 
     print(f"Total matches found: {len(matches)}")
+    
     df = pd.DataFrame(matches).drop_duplicates(subset=["source", "target"])
-
+    if df.empty:
+        print(f"No matches found for {source_study_name} and {target_study_name}.")
+        df = pd.DataFrame(columns=default_columns)
+        return df
     df = _attach_statistics(
         df,
         df["source"].dropna().unique().tolist(),
@@ -691,6 +705,7 @@ def map_source_target(
         source_study_name,
         target_study_name,
     )
+
     
     # move "mapping type" to the end
     if "mapping type" in df.columns:
