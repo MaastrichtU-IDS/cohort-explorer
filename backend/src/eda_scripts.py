@@ -20,13 +20,16 @@ try:
     dataset_df = pd.read_csv("/input/{cohort_id}")
     #dataset_df = decentriq_util.read_tabular_data("/input/{cohort_id}")
 except Exception as e:
-    dataset_df = pd.read_spss("/input/{cohort_id}")
+    try:
+        dataset_df = pd.read_spss("/input/{cohort_id}")
+    except Exception as e2:
+        raise ValueError("The dataset file does appear to be a valid CSV or SPSS file.\nCSV error: " + str(e) + "\nSPSS error: " + str(e2))
     
     
 
 # Extract 'VARIABLE NAME' column from dictionary and dataset column names
-dictionary_variables = set(dictionary_df[varname_col].unique())
-dataset_columns = set(dataset_df.columns)
+dictionary_variables = set([x.strip() for x in dictionary_df[varname_col].unique()])
+dataset_columns = set([x.strip() for x in dataset_df.columns])
 
 # Compare the sets
 in_dictionary_not_in_dataset = dictionary_variables - dataset_columns
