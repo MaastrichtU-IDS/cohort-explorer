@@ -71,6 +71,9 @@ metadatadict_cols = [
     Column(name="Visit OMOP ID", format_type=FormatType.INTEGER, is_nullable=True),
     Column(name="Visit Concept Name", format_type=FormatType.STRING, is_nullable=True),
     Column(name="Visit Concept Code", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Device", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Sensor", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Wearer Location", format_type=FormatType.STRING, is_nullable=True)
 ]
 
 # https://docs.decentriq.com/sdk/python-getting-started

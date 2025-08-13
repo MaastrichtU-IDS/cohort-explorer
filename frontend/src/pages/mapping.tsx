@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 
 // Define the shape of our row data
 interface RowData {
@@ -87,12 +87,22 @@ export default function MappingPage() {
   const [selectedTargets, setSelectedTargets] = useState<string[]>([]);
   const [mappingOutput, setMappingOutput] = useState<RowData[] | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  
+  // Reference to the mapping output section
+  const mappingOutputRef = useRef<HTMLDivElement>(null);
 
   // Filtered cohorts for both source and target menus based on search
   const filteredCohorts = Object.entries(cohortsData).filter(([cohortId, cohort]) =>
     cohortId.toLowerCase().includes(searchQuery.toLowerCase()) ||
     JSON.stringify(cohort).toLowerCase().includes(searchQuery.toLowerCase())
   );
+  
+  // Scroll to the mapping output section when data becomes available
+  useEffect(() => {
+    if (mappingOutput && mappingOutputRef.current) {
+      mappingOutputRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [mappingOutput]);
 
   const handleSearchChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(event.target.value);
@@ -275,12 +285,15 @@ export default function MappingPage() {
         )}
 
         {mappingOutput && (
-          <div className="mt-4 p-4 border rounded-lg bg-base-100 w-full max-w-5xl mx-auto">
-          <h2 className="text-lg font-bold mb-2">Mapping Preview</h2>
-          <div className="overflow-x-auto">
-            <MappingPreviewJsonTable data={mappingOutput} />
+          <div 
+            ref={mappingOutputRef}
+            className="mt-4 p-4 border rounded-lg bg-base-100 w-full max-w-5xl mx-auto"
+          >
+            <h2 className="text-lg font-bold mb-2">Mapping Preview</h2>
+            <div className="overflow-x-auto">
+              <MappingPreviewJsonTable data={mappingOutput} />
+            </div>
           </div>
-        </div>
         )}
       </div>
     </main>
