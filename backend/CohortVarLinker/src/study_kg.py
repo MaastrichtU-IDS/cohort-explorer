@@ -1,7 +1,7 @@
 from SPARQLWrapper import SPARQLWrapper, JSON, POST,TURTLE
 from rdflib import Graph, RDF, URIRef, Literal, RDFS, DC
 import pandas as pd
-from .utils import init_graph, OntologyNamespaces, normalize_text, STUDY_TYPES, save_graph_to_trig_file, graph_exists, extract_age_range, day_month_year
+from .utils import init_graph, OntologyNamespaces, normalize_text, save_graph_to_trig_file, graph_exists, extract_age_range, day_month_year
 from .config import settings
 from rdflib.namespace import XSD
 import requests
