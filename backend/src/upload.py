@@ -269,7 +269,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
 
             if row['DOMAIN'] not in {"condition_occurrence", "visit_occurrence", "procedure_occurrence", "measurement", "drug_exposure", "device_exposure", "person", "observation", "observation_period", "death", "specimen"}:
                 errors.append(
-                    f"Row {i+2} (Variable: '{var_name_for_error}') has an invalid domain: '{row['DOMAIN']}'. Accepted domains:', '.join({"condition_occurrence", "visit_occurrence", "procedure_occurrence", "measurement", "drug_exposure", "device_exposure", "person", "observation", "observation_period", "death", "specimen"})."
+                    f"Row {i+2} (Variable: '{var_name_for_error}') has an invalid domain: '{row['DOMAIN']}'. Accepted domains:  {', '.join(["condition_occurrence", "visit_occurrence", "procedure_occurrence", "measurement", "drug_exposure", "device_exposure", "person", "observation", "observation_period", "death", "specimen"])}."  
                 )
 
             # Handle Category validation (from 'categories' column created by parse_categorical_string)
