@@ -803,9 +803,20 @@ def add_categories_to_graph(g: Graph, var_uri: URIRef, cohort_uri: URIRef, row: 
 
             
         # Handle additional columns for labels, codes, and OMOP IDs, with empty fallback
-        labels = row['categorical value concept name'].split("|") if pd.notna(row['categorical value concept name']) and row['categorical value concept name'] else [None] * len(categories)
-        codes = row['categorical value concept code'].split("|") if pd.notna(row['categorical value concept code']) and row['categorical value concept code'] else [None] * len(categories)
-        omop_ids = str(row['categorical value omop id']).split("|") if pd.notna(row['categorical value omop id']) and str(row['categorical value omop id']) else [None] * len(categories)
+        if 'categorical value concept name' in row and pd.notna(row['categorical value concept name']):
+            labels = row['categorical value concept name'].split("|") 
+        else:
+            labels = [None] * len(categories)
+
+        if 'categorical value concept code' in row and pd.notna(row['categorical value concept code']):
+            codes = row['categorical value concept code'].split("|") 
+        else:
+            codes = [None] * len(categories)
+
+        if 'categorical value omop id' in row and pd.notna(row['categorical value omop id']):
+            omop_ids = str(row['categorical value omop id']).split("|") 
+        else:
+            omop_ids = [None] * len(categories)
         
         # Add each category to the graph
         for i, (value, defined_value) in enumerate(updated_categories):
