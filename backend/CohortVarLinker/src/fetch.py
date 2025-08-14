@@ -379,7 +379,7 @@ def _graph_vector_matches(
             reachable = graph.bfs_bidirectional_reachable(sid, tgt_ids, max_depth=3)
         elif category in {"condition_occurrence", "condition_era"}:
             reachable = graph.bfs_bidirectional_reachable(sid, tgt_ids, max_depth=2)
-        elif category in { "measurement", "procedure_occurrence", "observation", "device_exposure", "visit_occurrence"}:
+        elif category in { "measurement", "procedure_occurrence", "observation", "device_exposure", "visit_occurrence", "specimen"}:
             reachable = graph.only_upward_or_downward(sid, tgt_ids, max_depth=1)
 
         if reachable:
