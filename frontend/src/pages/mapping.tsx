@@ -21,6 +21,7 @@ function transformMappingDataForPreview(jsonData: any): RowData[] {
           s_source: mapping.s_source,
           s_label: mapping.s_slabel,
           target_study: mapping.target_study,
+          harmonization_status: mapping.harmonization_status || 'pending',
         };
 
         // Find wildcard keys
@@ -31,6 +32,8 @@ function transformMappingDataForPreview(jsonData: any): RowData[] {
             newRow['target_label'] = mapping[key];
           } else if (key.endsWith('_mapping_type')) {
             newRow['mapping_type'] = mapping[key];
+          } else if (key === 'harmonization_status') {
+            newRow['harmonization_status'] = mapping[key];
           }
         });
         return newRow;
@@ -51,7 +54,7 @@ function MappingPreviewJsonTable({ data }: MappingPreviewJsonTableProps) {
   if (!data || !Array.isArray(data) || data.length === 0) return <div className="italic text-slate-400">No mapping data to preview.</div>;
   
   // Define columns in a specific order for consistency
-  const columns = ['s_source', 's_label', 'target_study', 'target', 'target_label', 'mapping_type'];
+  const columns = ['s_source', 's_label', 'target_study', 'target', 'target_label', 'mapping_type', 'harmonization_status'];
 
   return (
     <table className="table table-zebra w-full text-xs">
