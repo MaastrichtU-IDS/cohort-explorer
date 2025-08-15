@@ -193,6 +193,7 @@ COLUMNS_LIST = [
 #    "Formula",
     "DOMAIN",
 #    "Visits",
+
 ]
 
 ACCEPTED_DATATYPES = ["STR", "FLOAT", "INT", "DATETIME"]
@@ -273,8 +274,9 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
                     f'Row {i+2} (Variable: "{var_name_for_error}") has an invalid domain: "{row["DOMAIN"]}". Accepted domains: {", ".join(acc_domains)}.'
                 )
 
-            # Handle Category validation (from 'categories' column created by parse_categorical_string)
+            # Handle "codes" columns validation (from 'categories' column created by parse_categorical_string)
             # Ensure 'categories' column exists and is a list before checking its length or content
+            codes_columns = [""]
             current_categories = row.get("categories")
             if isinstance(current_categories, list):
                 #if len(current_categories) == 1:
@@ -326,6 +328,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
         g.add((cohort_uri, DC.identifier, Literal(cohort_id), cohort_uri))
 
         for i, row in df.iterrows():
+            print("now processing row: ", i, row, "\n\n")
             variable_uri = get_var_uri(cohort_id, row["VARIABLE NAME"])
             g.add((cohort_uri, ICARE.hasVariable, variable_uri, cohort_uri))
             g.add((variable_uri, RDF.type, ICARE.Variable, cohort_uri))
@@ -377,7 +380,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
     except pd.errors.EmptyDataError:
         logging.warning(f"Uploaded CSV for cohort {cohort_id} is empty or unreadable.")
         raise HTTPException(status_code=422, detail="The uploaded CSV file is empty or could not be read.")
-    except Exception as e:
+    '''except Exception as e:
         logging.error(f"Unexpected error during dictionary processing for {cohort_id}: {str(e)}", exc_info=True)
         # Combine any validation errors found before the crash with the unexpected error message
         final_error_detail = "\n\n".join(errors) if errors else "An unexpected error occurred."
@@ -390,7 +393,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
             status_code=500, # Use 500 for truly unexpected server-side issues
             detail=final_error_detail,
         )
-
+    '''
 
 @router.post(
     "/get-logs",
