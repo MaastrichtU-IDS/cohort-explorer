@@ -359,6 +359,11 @@ async def get_compute_dcr_definition(
         # Add the requester as analyst of prepare script
         participants[user["email"]]["analyst_of"].add(f"prepare-{cohort_id}")
 
+
+
+    builder.add_node_definition(
+        RawDataNodeDefinition(name="CrossStudyMappings", is_required=False)
+    )
     # Add users permissions for previews
     # for prev_node in preview_nodes:
     #     participants[user["email"]]["analyst_of"].add(prev_node)
