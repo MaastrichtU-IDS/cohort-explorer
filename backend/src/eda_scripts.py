@@ -23,7 +23,7 @@ except Exception as e:
     try:
         dataset_df = pd.read_spss("/input/{cohort_id}")
     except Exception as e2:
-        raise ValueError("The dataset file does appear to be a valid CSV or SPSS file.\nCSV error: " + str(e) + "\nSPSS error: " + str(e2))
+        raise ValueError("The dataset file does appear to be a valid CSV or SPSS file.CSV error: " + str(e) + "SPSS error: " + str(e2))
     
     
 
