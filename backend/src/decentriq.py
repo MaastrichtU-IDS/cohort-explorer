@@ -41,7 +41,7 @@ def get_cohort_schema(cohort_dict: Cohort) -> list[Column]:
         schema.append(Column(name=variable_id, format_type=prim_type, is_nullable=True))
     return schema
 
-metadatadict_cols = [
+metadatadict_cols_schema2 = [
     Column(name="VARIABLENAME", format_type=FormatType.STRING, is_nullable=True),
     Column(name="VARIABLELABEL", format_type=FormatType.STRING, is_nullable=True),
     Column(name="VARTYPE", format_type=FormatType.STRING, is_nullable=True),
@@ -71,7 +71,12 @@ metadatadict_cols = [
     Column(name="Visit OMOP ID", format_type=FormatType.INTEGER, is_nullable=True),
     Column(name="Visit Concept Name", format_type=FormatType.STRING, is_nullable=True),
     Column(name="Visit Concept Code", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Device", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Sensor", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Wearer Location", format_type=FormatType.STRING, is_nullable=True)
 ]
+
+metadatadict_cols_schema1 = metadatadict_cols_schema2[0:-3]
 
 # https://docs.decentriq.com/sdk/python-getting-started
 def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
@@ -96,6 +101,23 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
         #https://docs.decentriq.com/sdk/guides/advanced-analytics-dcr/create_dcr
         RawDataNodeDefinition(name=data_node_id, is_required=True)
     )
+
+    #looking at the uploaded file's header to decide which schema to use:
+    metadata_file_to_upload = cohort.metadata_filepath 
+    if not metadata_file_to_upload or not os.path.exists(metadata_file_to_upload):
+        raise FileNotFoundError(f"Physical metadata CSV file for cohort {cohort.cohort_id} not found at expected path: {metadata_file_to_upload or '[No path determined]'}")
+
+    with open(metadata_file_to_upload, "rb") as data:
+        header = data.readline()
+        header = header.decode('utf-8')
+        print("header removed from the file: ", header, "number of columns: ", len(header.split(",")))
+
+    # if the header has at least as many columns as the second schema, use the second schema
+    if len(header.split(",")) >= len(metadatadict_cols_schema2):
+        metadatadict_cols = metadatadict_cols_schema2
+    else:
+        metadatadict_cols = metadatadict_cols_schema1
+
 
     # Create data node for metadata dictionary file
     metadata_node_id = f"{data_node_id}-metadata"
@@ -290,15 +312,25 @@ async def get_compute_dcr_definition(
         )
         data_nodes.append(data_node_id)
 
+        # Add a node for the cohort's metadata dictionary
+        metadata_node_id = f"{cohort_id.replace(' ', '-')}_metadata_dictionary"
+        builder.add_node_definition(
+            TableDataNodeDefinition(name=metadata_node_id, columns=metadatadict_cols, is_required=False)
+        )
+
         # Add data owners to provision the data (in dev we dont add them to avoid unnecessary emails)
         if not settings.dev_mode:
             for owner in cohort.cohort_email:
                 if owner not in participants:
                     participants[owner] = {"data_owner_of": set(), "analyst_of": set()}
                 participants[owner]["data_owner_of"].add(data_node_id)
+                participants[owner]["data_owner_of"].add(metadata_node_id)
+            #participants[user["email"]]["analyst_of"].add(metadata_node_id)
         else:
             # In dev_mode the requester is added as data owner instead
             participants[user["email"]]["data_owner_of"].add(data_node_id)
+            participants[user["email"]]["data_owner_of"].add(metadata_node_id)
+        
 
         # Add pandas preparation script
         pandas_script = "import pandas as pd\nimport decentriq_util\n\n"
@@ -327,6 +359,11 @@ async def get_compute_dcr_definition(
         # Add the requester as analyst of prepare script
         participants[user["email"]]["analyst_of"].add(f"prepare-{cohort_id}")
 
+
+
+    builder.add_node_definition(
+        RawDataNodeDefinition(name="CrossStudyMappings", is_required=False)
+    )
     # Add users permissions for previews
     # for prev_node in preview_nodes:
     #     participants[user["email"]]["analyst_of"].add(prev_node)

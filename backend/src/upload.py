@@ -176,7 +176,8 @@ def parse_categorical_string(s: str) -> list[dict[str, str]]:
 
 cols_normalized = {"VARIABLENAME": "VARIABLE NAME", 
                    "VARIABLELABEL": "VARIABLE LABEL",
-                   "VARTYPE": "VAR TYPE"}
+                   "VARTYPE": "VAR TYPE"
+                   }
 
 COLUMNS_LIST = [
     "VARIABLE NAME",
@@ -190,8 +191,9 @@ COLUMNS_LIST = [
 #    "MAX",
 #    "Definition",
 #    "Formula",
-#    "OMOP",
+    "DOMAIN",
 #    "Visits",
+
 ]
 
 ACCEPTED_DATATYPES = ["STR", "FLOAT", "INT", "DATETIME"]
@@ -256,16 +258,25 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
             var_name_for_error = row.get("VARIABLE NAME", f"UNKNOWN_VAR_ROW_{i+2}")
 
             # Check if required values are present in rows (for critical columns)
-            if not row["VARIABLE NAME"] or not row["VARIABLE LABEL"] or not row["VAR TYPE"]:
-                errors.append(f"Row {i+2} (Variable: '{var_name_for_error}') is missing required data in 'VARIABLE NAME', 'VARIABLE LABEL', or 'VAR TYPE'.")
+            req_fields = ["VARIABLE NAME", "VARIABLE LABEL", "VAR TYPE", "DOMAIN"]
+            for rf in req_fields:
+                if not row[rf].strip():
+                    errors.append(f"Row {i+2} (Variable: '{var_name_for_error}') is missing value for the required field: '{rf}'.")
             
             if row["VAR TYPE"] not in ACCEPTED_DATATYPES:
                 errors.append(
                     f"Row {i+2} (Variable: '{var_name_for_error}') has an invalid data type: '{row['VAR TYPE']}'. Accepted types: {', '.join(ACCEPTED_DATATYPES)}."
                 )
 
-            # Handle Category validation (from 'categories' column created by parse_categorical_string)
+            acc_domains = ["condition_occurrence", "visit_occurrence", "procedure_occurrence", "measurement", "drug_exposure", "device_exposure", "person", "observation", "observation_period", "death", "specimen", "condition_era"]
+            if row['DOMAIN'].strip().lower() not in acc_domains:
+                errors.append(
+                    f'Row {i+2} (Variable: "{var_name_for_error}") has an invalid domain: "{row["DOMAIN"]}". Accepted domains: {", ".join(acc_domains)}.'
+                )
+
+            # Handle "codes" columns validation (from 'categories' column created by parse_categorical_string)
             # Ensure 'categories' column exists and is a list before checking its length or content
+            codes_columns = [""]
             current_categories = row.get("categories")
             if isinstance(current_categories, list):
                 #if len(current_categories) == 1:
@@ -381,7 +392,6 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
             status_code=500, # Use 500 for truly unexpected server-side issues
             detail=final_error_detail,
         )
-
 
 @router.post(
     "/get-logs",

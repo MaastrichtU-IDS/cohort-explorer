@@ -53,6 +53,11 @@ prefix_map = [
         "prefix": "omop",
         "uri_prefix": "https://athena.ohdsi.org/search-terms/terms/",
         "prefix_synonyms": ["OMOP"]
+    },
+    {
+        "prefix": "ucum",
+        "uri_prefix": "http://unitsofmeasure.org/ucum/",
+        "prefix_synonyms": ["UCUM"]
     }
 ]
 curie_converter = curies.load_extended_prefix_map(prefix_map)
