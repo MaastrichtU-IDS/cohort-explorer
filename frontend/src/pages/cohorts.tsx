@@ -1,7 +1,6 @@
 'use client';
 
-import * as React from 'react';
-import {useState, useMemo} from 'react';
+import React, {useState, useMemo} from 'react';
 import {useCohorts} from '@/components/CohortsContext';
 import FilterByMetadata from '@/components/FilterByMetadata';
 import {Cohort} from '@/types';
@@ -132,24 +131,32 @@ export default function CohortsList() {
                 </div>
               </div>
               <div className="collapse-content">
-                {/* Display outcome specifications if available */}
-                {(cohortData.primary_outcome_spec || cohortData.secondary_outcome_spec) && (
-                  <div className="mb-4 p-3 bg-base-200 rounded-lg">
-                    <h3 className="font-bold mb-2">Outcome Specifications:</h3>
-                    {cohortData.primary_outcome_spec && (
-                      <div className="mb-2">
-                        <h4 className="font-semibold">Primary:</h4>
-                        <p>{cohortData.primary_outcome_spec}</p>
-                      </div>
-                    )}
-                    {cohortData.secondary_outcome_spec && (
-                      <div className="mb-2">
-                        <h4 className="font-semibold">Secondary:</h4>
-                        <p>{cohortData.secondary_outcome_spec}</p>
-                      </div>
-                    )}
-                  </div>
-                )}
+                {/* Always display outcome specifications section */}
+                <div className="mb-4 p-3 bg-base-200 rounded-lg">
+                  <h3 className="font-bold mb-2">Outcome Specifications:</h3>
+                  {cohortData.primary_outcome_spec ? (
+                    <div className="mb-2">
+                      <h4 className="font-semibold">Primary:</h4>
+                      <p>{cohortData.primary_outcome_spec}</p>
+                    </div>
+                  ) : (
+                    <div className="mb-2 text-gray-500">
+                      <h4 className="font-semibold">Primary:</h4>
+                      <p><em>No primary outcome specification available</em></p>
+                    </div>
+                  )}
+                  {cohortData.secondary_outcome_spec ? (
+                    <div className="mb-2">
+                      <h4 className="font-semibold">Secondary:</h4>
+                      <p>{cohortData.secondary_outcome_spec}</p>
+                    </div>
+                  ) : (
+                    <div className="mb-2 text-gray-500">
+                      <h4 className="font-semibold">Secondary:</h4>
+                      <p><em>No secondary outcome specification available</em></p>
+                    </div>
+                  )}
+                </div>
                 <VariablesList cohortId={cohortData.cohort_id} searchFilters={{searchQuery: searchQuery}} />
               </div>
             </div>
