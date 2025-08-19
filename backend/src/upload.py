@@ -628,10 +628,30 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
             g.add((cohort_uri, ICARE.studyPopulation, Literal(row["Patient population"]), cohorts_graph))
         if row["Primary objective"]:
             g.add((cohort_uri, ICARE.studyObjective, Literal(row["Primary objective"]), cohorts_graph))
-        if row["primary outcome specification"] and row[primary_outcome_col]:
+            
+        # More robust handling of primary outcome specification column
+        primary_outcome_col = None
+        for col_name in ["Primary outcome specification", "primary outcome specification", 
+                        "Primary_outcome_specification", "primary_outcome_specification"]:
+            if col_name in row and row[col_name] and row[col_name].strip() != "":
+                primary_outcome_col = col_name
+                break
+                
+        if primary_outcome_col:
             g.add((cohort_uri, ICARE.primaryOutcomeSpec, Literal(row[primary_outcome_col]), cohorts_graph))
-        if row["secondary outcome specification"] and row[secondary_outcome_col]:
+            print(f"Added primary outcome spec: {row[primary_outcome_col]}")
+            
+        # More robust handling of secondary outcome specification column
+        secondary_outcome_col = None
+        for col_name in ["Secondary outcome specification", "secondary outcome specification", 
+                        "Secondary_outcome_specification", "secondary_outcome_specification"]:
+            if col_name in row and row[col_name] and row[col_name].strip() != "":
+                secondary_outcome_col = col_name
+                break
+                
+        if secondary_outcome_col:
             g.add((cohort_uri, ICARE.secondaryOutcomeSpec, Literal(row[secondary_outcome_col]), cohorts_graph))
+            print(f"Added secondary outcome spec: {row[secondary_outcome_col]}")
     return g
 
 

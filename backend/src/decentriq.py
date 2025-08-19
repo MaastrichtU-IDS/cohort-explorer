@@ -78,6 +78,40 @@ metadatadict_cols_schema2 = [
 
 metadatadict_cols_schema1 = metadatadict_cols_schema2[0:-3]
 
+def identify_cohort_meta_schema(cohort):
+    """
+    Helper function to identify the appropriate metadata schema for a cohort
+    by reading the first line of the metadata dictionary file and counting columns.
+    
+    Args:
+        cohort: Cohort object with metadata_filepath property
+        
+    Returns:
+        The appropriate metadata dictionary columns schema (schema1 or schema2)
+    """
+    try:
+        metadata_file_path = cohort.metadata_filepath
+        if not metadata_file_path or not os.path.exists(metadata_file_path):
+            print(f"Warning: Metadata file not found for cohort {cohort.cohort_id}. Using schema1 as default.")
+            return metadatadict_cols_schema1
+            
+        with open(metadata_file_path, "rb") as data:
+            header = data.readline().decode('utf-8')
+            column_count = len(header.split(","))
+            print(f"Metadata file for cohort {cohort.cohort_id} has {column_count} columns")
+            
+            # If the header has at least as many columns as the second schema, use the second schema
+            if column_count >= len(metadatadict_cols_schema2):
+                return metadatadict_cols_schema2
+            else:
+                return metadatadict_cols_schema1
+    except FileNotFoundError:
+        print(f"Warning: Could not find metadata file for cohort {cohort.cohort_id}. Using schema1 as default.")
+        return metadatadict_cols_schema1
+    except Exception as e:
+        print(f"Error identifying metadata schema for cohort {cohort.cohort_id}: {str(e)}. Using schema1 as default.")
+        return metadatadict_cols_schema1
+
 # https://docs.decentriq.com/sdk/python-getting-started
 def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
     """Initialize a Data Clean Room in Decentriq when a new cohort is uploaded"""
@@ -314,8 +348,12 @@ async def get_compute_dcr_definition(
 
         # Add a node for the cohort's metadata dictionary
         metadata_node_id = f"{cohort_id.replace(' ', '-')}_metadata_dictionary"
+        
+        # Use the helper function to identify the appropriate metadata schema for this cohort
+        metadata_cols = identify_cohort_meta_schema(cohort)
+        
         builder.add_node_definition(
-            TableDataNodeDefinition(name=metadata_node_id, columns=metadatadict_cols, is_required=False)
+            TableDataNodeDefinition(name=metadata_node_id, columns=metadata_cols, is_required=False)
         )
 
         # Add data owners to provision the data (in dev we dont add them to avoid unnecessary emails)
@@ -364,6 +402,7 @@ async def get_compute_dcr_definition(
     builder.add_node_definition(
         RawDataNodeDefinition(name="CrossStudyMappings", is_required=False)
     )
+    participants[user["email"]]["data_owner_of"].add("CrossStudyMappings")
     # Add users permissions for previews
     # for prev_node in preview_nodes:
     #     participants[user["email"]]["analyst_of"].add(prev_node)
