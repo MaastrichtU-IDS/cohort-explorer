@@ -54,6 +54,8 @@ class Cohort:
     study_ongoing: Optional[str] = None
     study_population: Optional[str] = None
     study_objective: Optional[str] = None
+    primary_outcome_spec: Optional[str] = None
+    secondary_outcome_spec: Optional[str] = None
     variables: dict[str, CohortVariable] = field(default_factory=dict)
     can_edit: bool = False
     physical_dictionary_exists: bool = False # New field

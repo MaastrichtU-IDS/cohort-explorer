@@ -1,6 +1,7 @@
 'use client';
 
-import React, {useState, useMemo} from 'react';
+import * as React from 'react';
+import {useState, useMemo} from 'react';
 import {useCohorts} from '@/components/CohortsContext';
 import FilterByMetadata from '@/components/FilterByMetadata';
 import {Cohort} from '@/types';
@@ -97,7 +98,7 @@ export default function CohortsList() {
           {userEmail === null && (
             <p className="text-red-500 text-center mt-[20%]">Authenticate to access the explorer</p>
           )}
-          {filteredCohorts.map(cohortData => (
+          {filteredCohorts.map((cohortData: Cohort) => (
             <div
               key={cohortData.cohort_id}
               className={`collapse card card-compact bg-base-100 shadow-xl ${!(Object.keys(cohortData.variables).length > 0) ? 'opacity-50' : ''}`}
@@ -131,6 +132,29 @@ export default function CohortsList() {
                 </div>
               </div>
               <div className="collapse-content">
+                {/* Display study objective and outcome specifications if available */}
+                {(cohortData.study_objective || cohortData.primary_outcome_spec || cohortData.secondary_outcome_spec) && (
+                  <div className="mb-4 p-3 bg-base-200 rounded-lg">
+                    {cohortData.study_objective && (
+                      <div className="mb-2">
+                        <h3 className="font-bold">Study Objective:</h3>
+                        <p>{cohortData.study_objective}</p>
+                      </div>
+                    )}
+                    {cohortData.primary_outcome_spec && (
+                      <div className="mb-2">
+                        <h3 className="font-bold">Primary Outcome Specification:</h3>
+                        <p>{cohortData.primary_outcome_spec}</p>
+                      </div>
+                    )}
+                    {cohortData.secondary_outcome_spec && (
+                      <div className="mb-2">
+                        <h3 className="font-bold">Secondary Outcome Specification:</h3>
+                        <p>{cohortData.secondary_outcome_spec}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
                 <VariablesList cohortId={cohortData.cohort_id} searchFilters={{searchQuery: searchQuery}} />
               </div>
             </div>

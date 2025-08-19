@@ -9,6 +9,8 @@ export interface Cohort {
   study_duration: string;
   study_ongoing: string;
   study_objective: string;
+  primary_outcome_spec: string;
+  secondary_outcome_spec: string;
   variables: {[key: string]: Variable};
 }
 

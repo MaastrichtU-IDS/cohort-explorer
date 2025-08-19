@@ -628,6 +628,24 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
             g.add((cohort_uri, ICARE.studyPopulation, Literal(row["Patient population"]), cohorts_graph))
         if row["Primary objective"]:
             g.add((cohort_uri, ICARE.studyObjective, Literal(row["Primary objective"]), cohorts_graph))
+        # Check for multiple possible formats of the column names (capitalized, lowercase, with underscores)
+        primary_outcome_col = next((col for col in [
+            "Primary outcome specification", 
+            "primary outcome specification",
+            "primary_outcome_specification",
+            "Primary_outcome_specification"
+        ] if col in row), None)
+        if primary_outcome_col and row[primary_outcome_col]:
+            g.add((cohort_uri, ICARE.primaryOutcomeSpec, Literal(row[primary_outcome_col]), cohorts_graph))
+            
+        secondary_outcome_col = next((col for col in [
+            "Secondary outcome specification", 
+            "secondary outcome specification",
+            "secondary_outcome_specification",
+            "Secondary_outcome_specification"
+        ] if col in row), None)
+        if secondary_outcome_col and row[secondary_outcome_col]:
+            g.add((cohort_uri, ICARE.secondaryOutcomeSpec, Literal(row[secondary_outcome_col]), cohorts_graph))
     return g
 
 

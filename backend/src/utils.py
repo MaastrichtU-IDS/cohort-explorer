@@ -88,7 +88,7 @@ PREFIX dc: <http://purl.org/dc/elements/1.1/>
 PREFIX dcterms: <http://purl.org/dc/terms/>
 
 SELECT DISTINCT ?cohortId ?cohortInstitution ?cohortType ?cohortEmail ?study_type ?study_participants
-    ?study_duration ?study_ongoing ?study_population ?study_objective
+    ?study_duration ?study_ongoing ?study_population ?study_objective ?primary_outcome_spec ?secondary_outcome_spec
     ?variable ?varName ?varLabel ?varType ?index ?count ?na ?max ?min ?units ?formula ?definition
     ?omopDomain ?conceptId ?mappedId ?mappedLabel ?visits ?categoryValue ?categoryLabel ?categoryConceptId ?categoryMappedId ?categoryMappedLabel
 WHERE {
@@ -104,6 +104,8 @@ WHERE {
         OPTIONAL { ?cohort icare:studyOngoing ?study_ongoing . }
         OPTIONAL { ?cohort icare:studyPopulation ?study_population . }
         OPTIONAL { ?cohort icare:studyObjective ?study_objective . }
+        OPTIONAL { ?cohort icare:primaryOutcomeSpec ?primary_outcome_spec . }
+        OPTIONAL { ?cohort icare:secondaryOutcomeSpec ?secondary_outcome_spec . }
     }
 
     OPTIONAL {
@@ -194,6 +196,8 @@ def retrieve_cohorts_metadata(user_email: str) -> dict[str, Cohort]:
                     study_ongoing=get_value("study_ongoing", row),
                     study_population=get_value("study_population", row),
                     study_objective=get_value("study_objective", row),
+                    primary_outcome_spec=get_value("primary_outcome_spec", row),
+                    secondary_outcome_spec=get_value("secondary_outcome_spec", row),
                     variables={},
                     # airlock=get_bool_value("airlock", row),
                     can_edit=user_email in [*settings.admins_list, get_value("cohortEmail", row)],
