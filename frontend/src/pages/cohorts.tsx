@@ -132,24 +132,19 @@ export default function CohortsList() {
                 </div>
               </div>
               <div className="collapse-content">
-                {/* Display study objective and outcome specifications if available */}
-                {(cohortData.study_objective || cohortData.primary_outcome_spec || cohortData.secondary_outcome_spec) && (
+                {/* Display outcome specifications if available */}
+                {(cohortData.primary_outcome_spec || cohortData.secondary_outcome_spec) && (
                   <div className="mb-4 p-3 bg-base-200 rounded-lg">
-                    {cohortData.study_objective && (
-                      <div className="mb-2">
-                        <h3 className="font-bold">Study Objective:</h3>
-                        <p>{cohortData.study_objective}</p>
-                      </div>
-                    )}
+                    <h3 className="font-bold mb-2">Outcome Specifications:</h3>
                     {cohortData.primary_outcome_spec && (
                       <div className="mb-2">
-                        <h3 className="font-bold">Primary Outcome Specification:</h3>
+                        <h4 className="font-semibold">Primary:</h4>
                         <p>{cohortData.primary_outcome_spec}</p>
                       </div>
                     )}
                     {cohortData.secondary_outcome_spec && (
                       <div className="mb-2">
-                        <h3 className="font-bold">Secondary Outcome Specification:</h3>
+                        <h4 className="font-semibold">Secondary:</h4>
                         <p>{cohortData.secondary_outcome_spec}</p>
                       </div>
                     )}
