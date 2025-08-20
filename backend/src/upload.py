@@ -628,8 +628,8 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
             g.add((cohort_uri, ICARE.studyParticipants, Literal(row["Number of Participants"]), cohorts_graph))
         if row["Ongoing"]:
             g.add((cohort_uri, ICARE.studyOngoing, Literal(row["Ongoing"]), cohorts_graph))
-        if row["Patient population"]:
-            g.add((cohort_uri, ICARE.studyPopulation, Literal(row["Patient population"]), cohorts_graph))
+        #if row["Patient population"]:
+        #    g.add((cohort_uri, ICARE.studyPopulation, Literal(row["Patient population"]), cohorts_graph))
         if row["Study Objective"]:
             g.add((cohort_uri, ICARE.studyObjective, Literal(row["Study Objective"]), cohorts_graph))
             
