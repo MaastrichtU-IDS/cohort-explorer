@@ -13,6 +13,8 @@ export interface Cohort {
   secondary_outcome_spec: string;
   male_percentage: number | null;
   female_percentage: number | null;
+  inclusion_criteria: {[key: string]: string};
+  exclusion_criteria: {[key: string]: string};
   study_start: string;
   study_end: string;
   variables: {[key: string]: Variable};

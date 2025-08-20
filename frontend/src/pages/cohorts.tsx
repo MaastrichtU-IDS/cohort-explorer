@@ -174,6 +174,41 @@ export default function CohortsList() {
                     </div>
                   )}
                 </div>
+                
+                {/* Display inclusion and exclusion criteria section */}
+                {(Object.keys(cohortData.inclusion_criteria).length > 0 || Object.keys(cohortData.exclusion_criteria).length > 0) && (
+                  <div className="mb-4 p-3 bg-base-200 rounded-lg">
+                    <h3 className="font-bold mb-2">Study Criteria:</h3>
+                    
+                    {/* Inclusion criteria */}
+                    {Object.keys(cohortData.inclusion_criteria).length > 0 && (
+                      <div className="mb-3">
+                        <h4 className="font-semibold text-success">Inclusion Criteria:</h4>
+                        <ul className="list-disc pl-5">
+                          {Object.entries(cohortData.inclusion_criteria).map(([criterionName, criterionValue]) => (
+                            <li key={`inclusion-${criterionName}`} className="mb-1">
+                              <span className="font-medium">{criterionName}:</span> {criterionValue}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    
+                    {/* Exclusion criteria */}
+                    {Object.keys(cohortData.exclusion_criteria).length > 0 && (
+                      <div>
+                        <h4 className="font-semibold text-error">Exclusion Criteria:</h4>
+                        <ul className="list-disc pl-5">
+                          {Object.entries(cohortData.exclusion_criteria).map(([criterionName, criterionValue]) => (
+                            <li key={`exclusion-${criterionName}`} className="mb-1">
+                              <span className="font-medium">{criterionName}:</span> {criterionValue}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
                 <VariablesList cohortId={cohortData.cohort_id} searchFilters={{searchQuery: searchQuery}} />
               </div>
             </div>

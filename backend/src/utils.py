@@ -90,6 +90,8 @@ PREFIX dcterms: <http://purl.org/dc/terms/>
 SELECT DISTINCT ?cohortId ?cohortInstitution ?cohortType ?cohortEmail ?study_type ?study_participants
     ?study_duration ?study_ongoing ?study_population ?study_objective ?primary_outcome_spec ?secondary_outcome_spec
     ?male_percentage ?female_percentage ?study_start ?study_end
+    ?inclusionCriterionPredicate ?inclusionCriterionLabel ?inclusionCriterionValue
+    ?exclusionCriterionPredicate ?exclusionCriterionLabel ?exclusionCriterionValue
     ?variable ?varName ?varLabel ?varType ?index ?count ?na ?max ?min ?units ?formula ?definition
     ?omopDomain ?conceptId ?mappedId ?mappedLabel ?visits ?categoryValue ?categoryLabel ?categoryConceptId ?categoryMappedId ?categoryMappedLabel
 WHERE {
@@ -111,6 +113,20 @@ WHERE {
         OPTIONAL { ?cohort icare:femalePercentage ?female_percentage . }
         OPTIONAL { ?cohort icare:studyStart ?study_start . }
         OPTIONAL { ?cohort icare:studyEnd ?study_end . }
+        
+        # Get inclusion criteria
+        OPTIONAL {
+            ?cohort ?inclusionCriterionPredicate ?inclusionCriterionValue .
+            ?inclusionCriterionPredicate rdf:type icare:InclusionCriterion .
+            ?inclusionCriterionPredicate rdfs:label ?inclusionCriterionLabel .
+        }
+        
+        # Get exclusion criteria
+        OPTIONAL {
+            ?cohort ?exclusionCriterionPredicate ?exclusionCriterionValue .
+            ?exclusionCriterionPredicate rdf:type icare:ExclusionCriterion .
+            ?exclusionCriterionPredicate rdfs:label ?exclusionCriterionLabel .
+        }
     }
 
     OPTIONAL {
@@ -205,6 +221,8 @@ def retrieve_cohorts_metadata(user_email: str) -> dict[str, Cohort]:
                     secondary_outcome_spec=get_value("secondary_outcome_spec", row),
                     male_percentage=float(get_value("male_percentage", row)) if get_value("male_percentage", row) else None,
                     female_percentage=float(get_value("female_percentage", row)) if get_value("female_percentage", row) else None,
+                    inclusion_criteria={},
+                    exclusion_criteria={},
                     study_start=get_value("study_start", row),
                     study_end=get_value("study_end", row),
                     variables={},
@@ -224,6 +242,20 @@ def retrieve_cohorts_metadata(user_email: str) -> dict[str, Cohort]:
                 target_dict[cohort_id].cohort_email.append(get_value("cohortEmail", row))
                 if user_email == get_value("cohortEmail", row):
                     target_dict[cohort_id].can_edit = True
+                    
+            # Process inclusion criteria
+            if "inclusionCriterionLabel" in row and "inclusionCriterionValue" in row and get_value("inclusionCriterionLabel", row) and get_value("inclusionCriterionValue", row):
+                criterion_label = get_value("inclusionCriterionLabel", row)
+                criterion_value = get_value("inclusionCriterionValue", row)
+                if criterion_label not in target_dict[cohort_id].inclusion_criteria:
+                    target_dict[cohort_id].inclusion_criteria[criterion_label] = criterion_value
+                    
+            # Process exclusion criteria
+            if "exclusionCriterionLabel" in row and "exclusionCriterionValue" in row and get_value("exclusionCriterionLabel", row) and get_value("exclusionCriterionValue", row):
+                criterion_label = get_value("exclusionCriterionLabel", row)
+                criterion_value = get_value("exclusionCriterionValue", row)
+                if criterion_label not in target_dict[cohort_id].exclusion_criteria:
+                    target_dict[cohort_id].exclusion_criteria[criterion_label] = criterion_value
 
             # Process variables
             if "varName" in row and var_id not in target_dict[cohort_id].variables:

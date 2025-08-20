@@ -668,6 +668,31 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
                 if female_match:
                     female_percentage = float(female_match.group(1))
                     g.add((cohort_uri, ICARE.femalePercentage, Literal(female_percentage), cohorts_graph))
+                    
+        # Extract inclusion and exclusion criteria
+        for column_name, value in row.items():
+            if value and isinstance(value, str) and value.strip():
+                # Process inclusion criteria fields
+                if 'inclusion' in column_name.lower():
+                    field_name = column_name.strip()
+                    field_value = value.strip()
+                    # Create a unique predicate for this inclusion criterion
+                    predicate_uri = ICARE[f"inclusionCriterion_{field_name.replace(' ', '_')}"] 
+                    g.add((cohort_uri, predicate_uri, Literal(field_value), cohorts_graph))
+                    # Also add a triple to indicate this is an inclusion criterion
+                    g.add((predicate_uri, RDF.type, ICARE.InclusionCriterion, cohorts_graph))
+                    g.add((predicate_uri, RDFS.label, Literal(field_name), cohorts_graph))
+                
+                # Process exclusion criteria fields
+                elif 'exclusion' in column_name.lower():
+                    field_name = column_name.strip()
+                    field_value = value.strip()
+                    # Create a unique predicate for this exclusion criterion
+                    predicate_uri = ICARE[f"exclusionCriterion_{field_name.replace(' ', '_')}"] 
+                    g.add((cohort_uri, predicate_uri, Literal(field_value), cohorts_graph))
+                    # Also add a triple to indicate this is an exclusion criterion
+                    g.add((predicate_uri, RDF.type, ICARE.ExclusionCriterion, cohorts_graph))
+                    g.add((predicate_uri, RDFS.label, Literal(field_name), cohorts_graph))
     return g
 
 
