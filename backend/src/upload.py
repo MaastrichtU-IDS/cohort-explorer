@@ -601,6 +601,7 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
     df = df.fillna("")
     g = init_graph()
     for _i, row in df.iterrows():
+        print("now processing cohorts' metadata row: ", _i, row)
         cohort_id = str(row["Study Name"]).strip()
         # print(cohort_id)
         cohort_uri = get_cohort_uri(cohort_id)
@@ -608,7 +609,7 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
 
         g.add((cohort_uri, RDF.type, ICARE.Cohort, cohorts_graph))
         g.add((cohort_uri, DC.identifier, Literal(cohort_id), cohorts_graph))
-        g.add((cohort_uri, ICARE.institution, Literal(row["Institution"]), cohorts_graph))
+        g.add((cohort_uri, ICARE.institution, Literal(row["Institute"]), cohorts_graph))
         if row["Study Contact Person"]:
             g.add((cohort_uri, DC.creator, Literal(row["Study Contact Person"]), cohorts_graph))
         if row["Study Contact Person Email Address"]:
@@ -632,27 +633,13 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
         if row["Study Objective"]:
             g.add((cohort_uri, ICARE.studyObjective, Literal(row["Study Objective"]), cohorts_graph))
             
-        # More robust handling of primary outcome specification column
-        primary_outcome_col = None
-        for col_name in ["Primary outcome specification", "primary outcome specification", 
-                        "Primary_outcome_specification", "primary_outcome_specification"]:
-            if col_name in row and row[col_name] and row[col_name].strip() != "":
-                primary_outcome_col = col_name
-                break
-                
-        if primary_outcome_col:
-            g.add((cohort_uri, ICARE.primaryOutcomeSpec, Literal(row[primary_outcome_col]), cohorts_graph))
+        # Handle primary outcome specification
+        if "primary outcome specification" in row and row["primary outcome specification"]:
+            g.add((cohort_uri, ICARE.primaryOutcomeSpec, Literal(row["primary outcome specification"]), cohorts_graph))
             
-        # More robust handling of secondary outcome specification column
-        secondary_outcome_col = None
-        for col_name in ["Secondary outcome specification", "secondary outcome specification", 
-                        "Secondary_outcome_specification", "secondary_outcome_specification"]:
-            if col_name in row and row[col_name] and row[col_name].strip() != "":
-                secondary_outcome_col = col_name
-                break
-                
-        if secondary_outcome_col:
-            g.add((cohort_uri, ICARE.secondaryOutcomeSpec, Literal(row[secondary_outcome_col]), cohorts_graph))
+        # Handle secondary outcome specification
+        if "secondary outcome specification" in row and row["secondary outcome specification"]:
+            g.add((cohort_uri, ICARE.secondaryOutcomeSpec, Literal(row["secondary outcome specification"]), cohorts_graph))
     return g
 
 
