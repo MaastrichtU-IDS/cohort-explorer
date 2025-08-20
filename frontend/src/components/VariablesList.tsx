@@ -240,9 +240,6 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
 
       {/* List of variables */}
       <div className="flex flex-col">
-        {cohortsData[cohortId].study_objective && (
-          <div className="card p-3 mb-3 bg-base-300">🎯 Study objective: {cohortsData[cohortId].study_objective}</div>
-        )}
         <div className="space-y-2">
           {filteredVars?.map((variable: any) => (
             <div key={variable.var_name} className="card card-compact card-bordered bg-base-100 shadow-xl">

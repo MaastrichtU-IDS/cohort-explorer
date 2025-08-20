@@ -123,6 +123,9 @@ export default function CohortsList() {
                   {cohortData.study_ongoing && cohortData.study_ongoing === 'no' && (
                     <span className="badge badge-default mx-1">Completed study</span>
                   )}
+                  {cohortData.study_start && cohortData.study_end && (
+                    <span className="badge badge-default mx-1">📅 {cohortData.study_start} - {cohortData.study_end}</span>
+                  )}
                   {cohortData.cohort_email.map(email => (
                     <span className="badge mx-2" key={cohortData.cohort_id + email}>
                       ✉️ {email}
@@ -131,7 +134,14 @@ export default function CohortsList() {
                 </div>
               </div>
               <div className="collapse-content">
-                {/* Always display outcome specifications section */}
+                {/* Display study objective section */}
+                {cohortData.study_objective && (
+                  <div className="mb-4 p-3 bg-base-200 rounded-lg">
+                    <h3 className="font-bold mb-2">Study Objective:</h3>
+                    <p>{cohortData.study_objective}</p>
+                  </div>
+                )}
+                {/* Display outcome specifications section */}
                 <div className="mb-4 p-3 bg-base-200 rounded-lg">
                   <h3 className="font-bold mb-2">Outcome Specifications:</h3>
                   {cohortData.primary_outcome_spec ? (

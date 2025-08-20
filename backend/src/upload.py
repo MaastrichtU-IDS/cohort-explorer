@@ -601,7 +601,7 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
     df = df.fillna("")
     g = init_graph()
     for _i, row in df.iterrows():
-        cohort_id = str(row["Name of Study"]).strip()
+        cohort_id = str(row["Study Name"]).strip()
         # print(cohort_id)
         cohort_uri = get_cohort_uri(cohort_id)
         cohorts_graph = ICARE["graph/metadata"]
@@ -609,25 +609,28 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
         g.add((cohort_uri, RDF.type, ICARE.Cohort, cohorts_graph))
         g.add((cohort_uri, DC.identifier, Literal(cohort_id), cohorts_graph))
         g.add((cohort_uri, ICARE.institution, Literal(row["Institution"]), cohorts_graph))
-        if row["Contact partner"]:
-            g.add((cohort_uri, DC.creator, Literal(row["Contact partner"]), cohorts_graph))
-        if row["Email"]:
-            for email in row["Email"].split(";"):
+        if row["Study Contact Person"]:
+            g.add((cohort_uri, DC.creator, Literal(row["Study Contact Person"]), cohorts_graph))
+        if row["Study Contact Person Email Address"]:
+            for email in row["Study Contact Person Email Address"].split(";"):
                 g.add((cohort_uri, ICARE.email, Literal(email.strip()), cohorts_graph))
-        if row["Type"]:
-            g.add((cohort_uri, ICARE.cohortType, Literal(row["Type"]), cohorts_graph))
+        if row["Study Type"]:
+            g.add((cohort_uri, ICARE.cohortType, Literal(row["Study Type"]), cohorts_graph))
         if row["Study Design"]:
             g.add((cohort_uri, ICARE.studyType, Literal(row["Study Design"]), cohorts_graph))
-        if row["N"]:
-            g.add((cohort_uri, ICARE.studyParticipants, Literal(row["N"]), cohorts_graph))
-        if row["Study duration"]:
-            g.add((cohort_uri, ICARE.studyDuration, Literal(row["Study duration"]), cohorts_graph))
+        #if row["Study duration"]:
+        #    g.add((cohort_uri, ICARE.studyDuration, Literal(row["Study duration"]), cohorts_graph))
+        if row["Start date"] and row["End date"]:
+            g.add((cohort_uri, ICARE.studyStart, Literal(row["Start date"]), cohorts_graph))
+            g.add((cohort_uri, ICARE.studyEnd, Literal(row["End date"]), cohorts_graph))
+        if row["Number of Participants"]:
+            g.add((cohort_uri, ICARE.studyParticipants, Literal(row["Number of Participants"]), cohorts_graph))
         if row["Ongoing"]:
             g.add((cohort_uri, ICARE.studyOngoing, Literal(row["Ongoing"]), cohorts_graph))
         if row["Patient population"]:
             g.add((cohort_uri, ICARE.studyPopulation, Literal(row["Patient population"]), cohorts_graph))
-        if row["Primary objective"]:
-            g.add((cohort_uri, ICARE.studyObjective, Literal(row["Primary objective"]), cohorts_graph))
+        if row["Study Objective"]:
+            g.add((cohort_uri, ICARE.studyObjective, Literal(row["Study Objective"]), cohorts_graph))
             
         # More robust handling of primary outcome specification column
         primary_outcome_col = None
@@ -639,7 +642,6 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
                 
         if primary_outcome_col:
             g.add((cohort_uri, ICARE.primaryOutcomeSpec, Literal(row[primary_outcome_col]), cohorts_graph))
-            print(f"Added primary outcome spec: {row[primary_outcome_col]}")
             
         # More robust handling of secondary outcome specification column
         secondary_outcome_col = None
@@ -651,7 +653,6 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
                 
         if secondary_outcome_col:
             g.add((cohort_uri, ICARE.secondaryOutcomeSpec, Literal(row[secondary_outcome_col]), cohorts_graph))
-            print(f"Added secondary outcome spec: {row[secondary_outcome_col]}")
     return g
 
 
