@@ -56,6 +56,8 @@ class Cohort:
     study_objective: Optional[str] = None
     primary_outcome_spec: Optional[str] = None
     secondary_outcome_spec: Optional[str] = None
+    male_percentage: Optional[float] = None
+    female_percentage: Optional[float] = None
     study_start: Optional[str] = None
     study_end: Optional[str] = None
     variables: dict[str, CohortVariable] = field(default_factory=dict)

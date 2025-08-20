@@ -1,6 +1,7 @@
 import glob
 import logging
 import os
+import re
 import shutil
 from datetime import datetime
 from re import sub
@@ -616,7 +617,10 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
             for email in row["Study Contact Person Email Address"].split(";"):
                 g.add((cohort_uri, ICARE.email, Literal(email.strip()), cohorts_graph))
         if row["Study Type"]:
-            g.add((cohort_uri, ICARE.cohortType, Literal(row["Study Type"]), cohorts_graph))
+            # Split study types on '/' and add each as a separate triple
+            study_types = [st.strip() for st in row["Study Type"].split("/")]
+            for study_type in study_types:
+                g.add((cohort_uri, ICARE.cohortType, Literal(study_type), cohorts_graph))
         if row["Study Design"]:
             g.add((cohort_uri, ICARE.studyType, Literal(row["Study Design"]), cohorts_graph))
         #if row["Study duration"]:
@@ -640,6 +644,30 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
         # Handle secondary outcome specification
         if "secondary outcome specification" in row and row["secondary outcome specification"]:
             g.add((cohort_uri, ICARE.secondaryOutcomeSpec, Literal(row["secondary outcome specification"]), cohorts_graph))
+            
+        # Parse and handle Mixed Sex field
+        if "Mixed Sex" in row and row["Mixed Sex"]:
+            mixed_sex_value = row["Mixed Sex"]
+            # Split on semicolon or 'and' to separate male and female parts
+            parts = re.split(r';|\s+and\s+', mixed_sex_value)
+            
+            male_percentage = None
+            female_percentage = None
+            
+            # Process each part to extract percentages
+            for part in parts:
+                part = part.strip().lower()
+                # Look for male percentage
+                male_match = re.search(r'male\s*=\s*(\d+\.?\d*)\s*%?', part)
+                if male_match:
+                    male_percentage = float(male_match.group(1))
+                    g.add((cohort_uri, ICARE.malePercentage, Literal(male_percentage), cohorts_graph))
+                
+                # Look for female percentage
+                female_match = re.search(r'female\s*=\s*(\d+\.?\d*)\s*%?', part)
+                if female_match:
+                    female_percentage = float(female_match.group(1))
+                    g.add((cohort_uri, ICARE.femalePercentage, Literal(female_percentage), cohorts_graph))
     return g
 
 

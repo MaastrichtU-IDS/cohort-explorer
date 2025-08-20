@@ -126,6 +126,13 @@ export default function CohortsList() {
                   {cohortData.study_start && cohortData.study_end && (
                     <span className="badge badge-default mx-1">📅 {cohortData.study_start} - {cohortData.study_end}</span>
                   )}
+                  {(cohortData.male_percentage !== null || cohortData.female_percentage !== null) && (
+                    <span className="badge badge-accent mx-1">
+                      {cohortData.male_percentage !== null && `♂ ${cohortData.male_percentage}%`}
+                      {cohortData.male_percentage !== null && cohortData.female_percentage !== null && ' / '}
+                      {cohortData.female_percentage !== null && `♀ ${cohortData.female_percentage}%`}
+                    </span>
+                  )}
                   {cohortData.cohort_email.map(email => (
                     <span className="badge mx-2" key={cohortData.cohort_id + email}>
                       ✉️ {email}
