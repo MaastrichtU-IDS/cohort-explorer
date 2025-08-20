@@ -1,7 +1,6 @@
 import glob
 import logging
 import os
-import re
 import shutil
 from datetime import datetime
 from re import sub
@@ -645,54 +644,33 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
         if "secondary outcome specification" in row and row["secondary outcome specification"]:
             g.add((cohort_uri, ICARE.secondaryOutcomeSpec, Literal(row["secondary outcome specification"]), cohorts_graph))
             
-        # Parse and handle Mixed Sex field
+        # Handle Mixed Sex field
         if "Mixed Sex" in row and row["Mixed Sex"]:
             mixed_sex_value = row["Mixed Sex"]
-            # Split on semicolon or 'and' to separate male and female parts
-            parts = re.split(r';|\s+and\s+', mixed_sex_value)
-            
             male_percentage = None
             female_percentage = None
             
-            # Process each part to extract percentages
+            # Try splitting by semicolon first
+            parts = mixed_sex_value.split(';')
+            if len(parts) == 1:  # If no semicolon found, try 'and'
+                parts = mixed_sex_value.split('and')
+                
             for part in parts:
                 part = part.strip().lower()
-                # Look for male percentage
-                male_match = re.search(r'male\s*=\s*(\d+\.?\d*)\s*%?', part)
-                if male_match:
-                    male_percentage = float(male_match.group(1))
-                    g.add((cohort_uri, ICARE.malePercentage, Literal(male_percentage), cohorts_graph))
                 
-                # Look for female percentage
-                female_match = re.search(r'female\s*=\s*(\d+\.?\d*)\s*%?', part)
-                if female_match:
-                    female_percentage = float(female_match.group(1))
-                    g.add((cohort_uri, ICARE.femalePercentage, Literal(female_percentage), cohorts_graph))
-                    
-        # Extract inclusion and exclusion criteria
-        for column_name, value in row.items():
-            if value and isinstance(value, str) and value.strip():
-                # Process inclusion criteria fields
-                if 'inclusion' in column_name.lower():
-                    field_name = column_name.strip()
-                    field_value = value.strip()
-                    # Create a unique predicate for this inclusion criterion
-                    predicate_uri = ICARE[f"inclusionCriterion_{field_name.replace(' ', '_')}"] 
-                    g.add((cohort_uri, predicate_uri, Literal(field_value), cohorts_graph))
-                    # Also add a triple to indicate this is an inclusion criterion
-                    g.add((predicate_uri, RDF.type, ICARE.InclusionCriterion, cohorts_graph))
-                    g.add((predicate_uri, RDFS.label, Literal(field_name), cohorts_graph))
+                # Extract male percentage
+                if 'male=' in part or 'male =' in part:
+                    male_match = re.search(r'male\s*=\s*([\d\.]+)\s*%?', part)
+                    if male_match:
+                        male_percentage = float(male_match.group(1))
+                        g.add((cohort_uri, ICARE.malePercentage, Literal(male_percentage), cohorts_graph))
                 
-                # Process exclusion criteria fields
-                elif 'exclusion' in column_name.lower():
-                    field_name = column_name.strip()
-                    field_value = value.strip()
-                    # Create a unique predicate for this exclusion criterion
-                    predicate_uri = ICARE[f"exclusionCriterion_{field_name.replace(' ', '_')}"] 
-                    g.add((cohort_uri, predicate_uri, Literal(field_value), cohorts_graph))
-                    # Also add a triple to indicate this is an exclusion criterion
-                    g.add((predicate_uri, RDF.type, ICARE.ExclusionCriterion, cohorts_graph))
-                    g.add((predicate_uri, RDFS.label, Literal(field_name), cohorts_graph))
+                # Extract female percentage
+                if 'female=' in part or 'female =' in part:
+                    female_match = re.search(r'female\s*=\s*([\d\.]+)\s*%?', part)
+                    if female_match:
+                        female_percentage = float(female_match.group(1))
+                        g.add((cohort_uri, ICARE.femalePercentage, Literal(female_percentage), cohorts_graph))
     return g
 
 

@@ -56,12 +56,10 @@ class Cohort:
     study_objective: Optional[str] = None
     primary_outcome_spec: Optional[str] = None
     secondary_outcome_spec: Optional[str] = None
-    male_percentage: Optional[float] = None
-    female_percentage: Optional[float] = None
-    inclusion_criteria: dict[str, str] = field(default_factory=dict)
-    exclusion_criteria: dict[str, str] = field(default_factory=dict)
     study_start: Optional[str] = None
     study_end: Optional[str] = None
+    male_percentage: Optional[float] = None
+    female_percentage: Optional[float] = None
     variables: dict[str, CohortVariable] = field(default_factory=dict)
     can_edit: bool = False
     physical_dictionary_exists: bool = False # New field
