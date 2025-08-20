@@ -114,6 +114,9 @@ export default function CohortsList() {
                       👥 {cohortData.study_participants} {cohortData.study_population}
                     </span>
                   )}
+                  {(cohortData.male_percentage !== null && cohortData.female_percentage !== null) && (
+                    <span className="badge badge-ghost mx-1">male: {cohortData.male_percentage}%, female: {cohortData.female_percentage}%</span>
+                  )}
                   {cohortData.study_duration && (
                     <span className="badge badge-default mx-1">⏱️ {cohortData.study_duration}</span>
                   )}
@@ -125,9 +128,6 @@ export default function CohortsList() {
                   )}
                   {cohortData.study_start && cohortData.study_end && (
                     <span className="badge badge-default mx-1">📅 {cohortData.study_start} - {cohortData.study_end}</span>
-                  )}
-                  {(cohortData.male_percentage !== null && cohortData.female_percentage !== null) && (
-                    <span className="badge badge-info mx-1">👫 male: {cohortData.male_percentage}%, female: {cohortData.female_percentage}%</span>
                   )}
                   {cohortData.cohort_email.map(email => (
                     <span className="badge mx-2" key={cohortData.cohort_id + email}>
