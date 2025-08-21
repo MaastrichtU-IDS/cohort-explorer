@@ -650,27 +650,21 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
             male_percentage = None
             female_percentage = None
             
-            # Try splitting by semicolon first
-            parts = mixed_sex_value.split(';')
-            if len(parts) == 1:  # If no semicolon found, try 'and'
-                parts = mixed_sex_value.split('and')
+            # Process the entire string at once with regex patterns for Male/male and Female/female
+            # Extract male percentage
+            male_match = re.search(r'(?:^|[;,\s])\s*(?:Male|male)\s*=\s*([\d\.]+)\s*%?', mixed_sex_value)
+            if male_match:
+                male_percentage = float(male_match.group(1))
+                g.add((cohort_uri, ICARE.malePercentage, Literal(male_percentage), cohorts_graph))
+            
+            # Extract female percentage
+            female_match = re.search(r'(?:^|[;,\s])\s*(?:Female|female)\s*=\s*([\d\.]+)\s*%?', mixed_sex_value)
+            if female_match:
+                female_percentage = float(female_match.group(1))
+                g.add((cohort_uri, ICARE.femalePercentage, Literal(female_percentage), cohorts_graph))
                 
-            for part in parts:
-                part = part.strip().lower()
-                
-                # Extract male percentage
-                if 'male=' in part or 'male =' in part:
-                    male_match = re.search(r'male\s*=\s*([\d\.]+)\s*%?', part)
-                    if male_match:
-                        male_percentage = float(male_match.group(1))
-                        g.add((cohort_uri, ICARE.malePercentage, Literal(male_percentage), cohorts_graph))
-                
-                # Extract female percentage
-                if 'female=' in part or 'female =' in part:
-                    female_match = re.search(r'female\s*=\s*([\d\.]+)\s*%?', part)
-                    if female_match:
-                        female_percentage = float(female_match.group(1))
-                        g.add((cohort_uri, ICARE.femalePercentage, Literal(female_percentage), cohorts_graph))
+            # Debug output to help diagnose parsing issues
+            print(f"Mixed Sex parsing for {cohort_id}: '{mixed_sex_value}' → Male: {male_percentage}, Female: {female_percentage}")
     return g
 
 
