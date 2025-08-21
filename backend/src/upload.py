@@ -693,18 +693,37 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
             male_percentage = None
             female_percentage = None
             
-            # Process the entire string at once with regex patterns for Male/male and Female/female
-            # Extract male percentage
-            male_match = re.search(r'(?:^|[;,\s])\s*(?:Male|male)\s*=\s*([\d\.]+)\s*%?', mixed_sex_value)
-            if male_match:
-                male_percentage = float(male_match.group(1))
-                g.add((cohort_uri, ICARE.malePercentage, Literal(male_percentage), cohorts_graph))
+            # Split the string by common separators
+            parts = []
+            if ";" in mixed_sex_value:
+                parts = mixed_sex_value.split(";")
+            elif " and " in mixed_sex_value:
+                parts = mixed_sex_value.split(" and ")
+            else:
+                parts = [mixed_sex_value]
             
-            # Extract female percentage
-            female_match = re.search(r'(?:^|[;,\s])\s*(?:Female|female)\s*=\s*([\d\.]+)\s*%?', mixed_sex_value)
-            if female_match:
-                female_percentage = float(female_match.group(1))
-                g.add((cohort_uri, ICARE.femalePercentage, Literal(female_percentage), cohorts_graph))
+            # Process each part to find male and female percentages
+            for part in parts:
+                part = part.strip().lower()
+                if "male" in part and "female" not in part:  # Ensure we're not catching 'female' in 'male'
+                    # Extract only digits and period for the percentage
+                    digits_only = ''.join(c for c in part if c.isdigit() or c == '.')
+                    if digits_only:
+                        try:
+                            male_percentage = float(digits_only)
+                            g.add((cohort_uri, ICARE.malePercentage, Literal(male_percentage), cohorts_graph))
+                        except ValueError:
+                            print(f"Could not convert '{digits_only}' to float for male percentage")
+                
+                if "female" in part:
+                    # Extract only digits and period for the percentage
+                    digits_only = ''.join(c for c in part if c.isdigit() or c == '.')
+                    if digits_only:
+                        try:
+                            female_percentage = float(digits_only)
+                            g.add((cohort_uri, ICARE.femalePercentage, Literal(female_percentage), cohorts_graph))
+                        except ValueError:
+                            print(f"Could not convert '{digits_only}' to float for female percentage")
                 
             # Debug output to help diagnose parsing issues
             print(f"Mixed Sex parsing for {cohort_id}: '{mixed_sex_value}' → Male: {male_percentage}, Female: {female_percentage}")
