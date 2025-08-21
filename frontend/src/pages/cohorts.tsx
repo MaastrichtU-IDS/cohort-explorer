@@ -134,86 +134,6 @@ export default function CohortsList() {
                       ✉️ {email}
                     </span>
                   ))}
-                  {/* Display inclusion criteria section */}
-                  <div className="mb-4 p-3 bg-base-200 rounded-lg">
-                    <h3 className="font-bold mb-2">Inclusion Criteria:</h3>
-                    
-                    {cohortData.sex_inclusion && (
-                      <div className="mb-2">
-                        <h4 className="font-semibold">Sex:</h4>
-                        <p>{cohortData.sex_inclusion}</p>
-                      </div>
-                    )}
-                    
-                    {cohortData.health_status_inclusion && (
-                      <div className="mb-2">
-                        <h4 className="font-semibold">Health Status:</h4>
-                        <p>{cohortData.health_status_inclusion}</p>
-                      </div>
-                    )}
-                    
-                    {cohortData.clinically_relevant_exposure_inclusion && (
-                      <div className="mb-2">
-                        <h4 className="font-semibold">Clinically Relevant Exposure:</h4>
-                        <p>{cohortData.clinically_relevant_exposure_inclusion}</p>
-                      </div>
-                    )}
-                    
-                    {cohortData.age_group_inclusion && (
-                      <div className="mb-2">
-                        <h4 className="font-semibold">Age Group:</h4>
-                        <p>{cohortData.age_group_inclusion}</p>
-                      </div>
-                    )}
-                    
-                    {cohortData.bmi_range_inclusion && (
-                      <div className="mb-2">
-                        <h4 className="font-semibold">BMI Range:</h4>
-                        <p>{cohortData.bmi_range_inclusion}</p>
-                      </div>
-                    )}
-                    
-                    {cohortData.ethnicity_inclusion && (
-                      <div className="mb-2">
-                        <h4 className="font-semibold">Ethnicity:</h4>
-                        <p>{cohortData.ethnicity_inclusion}</p>
-                      </div>
-                    )}
-                    
-                    {cohortData.family_status_inclusion && (
-                      <div className="mb-2">
-                        <h4 className="font-semibold">Family Status:</h4>
-                        <p>{cohortData.family_status_inclusion}</p>
-                      </div>
-                    )}
-                    
-                    {cohortData.hospital_patient_inclusion && (
-                      <div className="mb-2">
-                        <h4 className="font-semibold">Hospital Patient:</h4>
-                        <p>{cohortData.hospital_patient_inclusion}</p>
-                      </div>
-                    )}
-                    
-                    {cohortData.use_of_medication_inclusion && (
-                      <div className="mb-2">
-                        <h4 className="font-semibold">Use of Medication:</h4>
-                        <p>{cohortData.use_of_medication_inclusion}</p>
-                      </div>
-                    )}
-                    
-                    {!cohortData.sex_inclusion && 
-                     !cohortData.health_status_inclusion && 
-                     !cohortData.clinically_relevant_exposure_inclusion && 
-                     !cohortData.age_group_inclusion && 
-                     !cohortData.bmi_range_inclusion && 
-                     !cohortData.ethnicity_inclusion && 
-                     !cohortData.family_status_inclusion && 
-                     !cohortData.hospital_patient_inclusion && 
-                     !cohortData.use_of_medication_inclusion && (
-                      <div className="text-gray-500">
-                        <p><em>No inclusion criteria available</em></p>
-                      </div>
-                    )}
                   </div>
                 </div>
               </div>
@@ -225,40 +145,6 @@ export default function CohortsList() {
                     <p>{cohortData.study_objective}</p>
                   </div>
                 )}
-                
-                {/* Display morbidity section */}
-                {cohortData.morbidity && (
-                  <div className="mb-4 p-3 bg-base-200 rounded-lg">
-                    <h3 className="font-bold mb-2">Morbidity:</h3>
-                    <p>{cohortData.morbidity}</p>
-                  </div>
-                )}
-                {/* Display outcome specifications section */}
-                <div className="mb-4 p-3 bg-base-200 rounded-lg">
-                  <h3 className="font-bold mb-2">Outcome Specifications:</h3>
-                  {cohortData.primary_outcome_spec ? (
-                    <div className="mb-2">
-                      <h4 className="font-semibold">Primary:</h4>
-                      <p>{cohortData.primary_outcome_spec}</p>
-                    </div>
-                  ) : (
-                    <div className="mb-2 text-gray-500">
-                      <h4 className="font-semibold">Primary:</h4>
-                      <p><em>No primary outcome specification available</em></p>
-                    </div>
-                  )}
-                  {cohortData.secondary_outcome_spec ? (
-                    <div className="mb-2">
-                      <h4 className="font-semibold">Secondary:</h4>
-                      <p>{cohortData.secondary_outcome_spec}</p>
-                    </div>
-                  ) : (
-                    <div className="mb-2 text-gray-500">
-                      <h4 className="font-semibold">Secondary:</h4>
-                      <p><em>No secondary outcome specification available</em></p>
-                    </div>
-                  )}
-                </div>
                 
                 {/* Display inclusion criteria section */}
                 {(cohortData.sex_inclusion ||
@@ -391,6 +277,42 @@ export default function CohortsList() {
                     )}
                   </div>
                 )}
+                
+                {/* Display morbidity section */}
+                {cohortData.morbidity && (
+                  <div className="mb-4 p-3 bg-base-200 rounded-lg">
+                    <h3 className="font-bold mb-2">Morbidity:</h3>
+                    <p>{cohortData.morbidity}</p>
+                  </div>
+                )}
+                {/* Display outcome specifications section */}
+                <div className="mb-4 p-3 bg-base-200 rounded-lg">
+                  <h3 className="font-bold mb-2">Outcome Specifications:</h3>
+                  {cohortData.primary_outcome_spec ? (
+                    <div className="mb-2">
+                      <h4 className="font-semibold">Primary:</h4>
+                      <p>{cohortData.primary_outcome_spec}</p>
+                    </div>
+                  ) : (
+                    <div className="mb-2 text-gray-500">
+                      <h4 className="font-semibold">Primary:</h4>
+                      <p><em>No primary outcome specification available</em></p>
+                    </div>
+                  )}
+                  {cohortData.secondary_outcome_spec ? (
+                    <div className="mb-2">
+                      <h4 className="font-semibold">Secondary:</h4>
+                      <p>{cohortData.secondary_outcome_spec}</p>
+                    </div>
+                  ) : (
+                    <div className="mb-2 text-gray-500">
+                      <h4 className="font-semibold">Secondary:</h4>
+                      <p><em>No secondary outcome specification available</em></p>
+                    </div>
+                  )}
+                </div>
+                
+
                 <VariablesList cohortId={cohortData.cohort_id} searchFilters={{searchQuery: searchQuery}} />
               </div>
             </div>
