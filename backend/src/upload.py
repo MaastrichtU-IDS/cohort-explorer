@@ -648,44 +648,67 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
         if "Morbidity" in row and row["Morbidity"]:
             g.add((cohort_uri, ICARE.morbidity, Literal(row["Morbidity"]), cohorts_graph))
             
-        # Handle inclusion criteria fields
-        inclusion_fields = {
-            "Sex": "sexInclusion",
-            "Health Status": "healthStatusInclusion",
-            "Clinically Relevant Exposure": "clinicallyRelevantExposureInclusion",
-            "Age Group": "ageGroupInclusion",
-            "BMI Range": "bmiRangeInclusion",
-            "Ethnicity": "ethnicityInclusion",
-            "Family Status": "familyStatusInclusion",
-            "Hospital Patient": "hospitalPatientInclusion",
-            "Use of Medication": "useOfMedicationInclusion"
-        }
-
-        for field_name, predicate_suffix in inclusion_fields.items():
-            # Try different possible formats of the column name
-            variants = [field_name, field_name.lower(), field_name.replace(" ", "_"), field_name.lower().replace(" ", "_")]
-            for variant in variants:
-                if variant + " Inclusion" in row and row[variant + " Inclusion"]:
-                    g.add((cohort_uri, ICARE[predicate_suffix], Literal(row[variant + " Inclusion"]), cohorts_graph))
-                    break
+        # Handle inclusion criteria fields using exact field names
+        # Sex inclusion
+        if "Sex inclusion criterion" in row and row["Sex inclusion criterion"]:
+            g.add((cohort_uri, ICARE["sexInclusion"], Literal(row["Sex inclusion criterion"]), cohorts_graph))
         
-        # Handle exclusion criteria fields
-        exclusion_fields = {
-            "Health Status": "healthStatusExclusion",
-            "BMI Range": "bmiRangeExclusion",
-            "Limited Life Expectancy": "limitedLifeExpectancyExclusion",
-            "Need for Surgery": "needForSurgeryExclusion",
-            "Surgical Procedure History": "surgicalProcedureHistoryExclusion",
-            "Clinically Relevant Exposure": "clinicallyRelevantExposureExclusion"
-        }
-
-        for field_name, predicate_suffix in exclusion_fields.items():
-            # Try different possible formats of the column name
-            variants = [field_name, field_name.lower(), field_name.replace(" ", "_"), field_name.lower().replace(" ", "_")]
-            for variant in variants:
-                if variant + " Exclusion" in row and row[variant + " Exclusion"]:
-                    g.add((cohort_uri, ICARE[predicate_suffix], Literal(row[variant + " Exclusion"]), cohorts_graph))
-                    break
+        # Health status inclusion
+        if "Health status inclusion criterion" in row and row["Health status inclusion criterion"]:
+            g.add((cohort_uri, ICARE["healthStatusInclusion"], Literal(row["Health status inclusion criterion"]), cohorts_graph))
+        
+        # Clinically relevant exposure inclusion
+        if "clinically relevant exposure inclusion criterion" in row and row["clinically relevant exposure inclusion criterion"]:
+            g.add((cohort_uri, ICARE["clinicallyRelevantExposureInclusion"], Literal(row["clinically relevant exposure inclusion criterion"]), cohorts_graph))
+        
+        # Age group inclusion
+        if "age group inclusion criterion" in row and row["age group inclusion criterion"]:
+            g.add((cohort_uri, ICARE["ageGroupInclusion"], Literal(row["age group inclusion criterion"]), cohorts_graph))
+        
+        # BMI range inclusion
+        if "BMI range inclusion criterion" in row and row["BMI range inclusion criterion"]:
+            g.add((cohort_uri, ICARE["bmiRangeInclusion"], Literal(row["BMI range inclusion criterion"]), cohorts_graph))
+        
+        # Ethnicity inclusion
+        if "ethnicity inclusion criterion" in row and row["ethnicity inclusion criterion"]:
+            g.add((cohort_uri, ICARE["ethnicityInclusion"], Literal(row["ethnicity inclusion criterion"]), cohorts_graph))
+        
+        # Family status inclusion
+        if "family status inclusion criterion" in row and row["family status inclusion criterion"]:
+            g.add((cohort_uri, ICARE["familyStatusInclusion"], Literal(row["family status inclusion criterion"]), cohorts_graph))
+        
+        # Hospital patient inclusion
+        if "hospital patient inclusion criterion" in row and row["hospital patient inclusion criterion"]:
+            g.add((cohort_uri, ICARE["hospitalPatientInclusion"], Literal(row["hospital patient inclusion criterion"]), cohorts_graph))
+        
+        # Use of medication inclusion
+        if "use of medication inclusion criterion" in row and row["use of medication inclusion criterion"]:
+            g.add((cohort_uri, ICARE["useOfMedicationInclusion"], Literal(row["use of medication inclusion criterion"]), cohorts_graph))
+        
+        # Handle exclusion criteria fields using exact field names
+        # Health status exclusion
+        if "health status exclusion criterion" in row and row["health status exclusion criterion"]:
+            g.add((cohort_uri, ICARE["healthStatusExclusion"], Literal(row["health status exclusion criterion"]), cohorts_graph))
+        
+        # BMI range exclusion
+        if "bmi range exclusion criterion" in row and row["bmi range exclusion criterion"]:
+            g.add((cohort_uri, ICARE["bmiRangeExclusion"], Literal(row["bmi range exclusion criterion"]), cohorts_graph))
+        
+        # Limited life expectancy exclusion
+        if "limited life expectancy exclusion criterion" in row and row["limited life expectancy exclusion criterion"]:
+            g.add((cohort_uri, ICARE["limitedLifeExpectancyExclusion"], Literal(row["limited life expectancy exclusion criterion"]), cohorts_graph))
+        
+        # Need for surgery exclusion
+        if "need for surgery exclusion criterion" in row and row["need for surgery exclusion criterion"]:
+            g.add((cohort_uri, ICARE["needForSurgeryExclusion"], Literal(row["need for surgery exclusion criterion"]), cohorts_graph))
+        
+        # Surgical procedure history exclusion
+        if "surgical procedure history exclusion criterion" in row and row["surgical procedure history exclusion criterion"]:
+            g.add((cohort_uri, ICARE["surgicalProcedureHistoryExclusion"], Literal(row["surgical procedure history exclusion criterion"]), cohorts_graph))
+        
+        # Clinically relevant exposure exclusion
+        if "clinically relevant exposure exclusion criterion" in row and row["clinically relevant exposure exclusion criterion"]:
+            g.add((cohort_uri, ICARE["clinicallyRelevantExposureExclusion"], Literal(row["clinically relevant exposure exclusion criterion"]), cohorts_graph))
 
         # Handle Mixed Sex field
         if "Mixed Sex" in row and row["Mixed Sex"]:
@@ -697,14 +720,14 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
             parts = []
             if ";" in mixed_sex_value:
                 parts = mixed_sex_value.split(";")
-            elif " and " in mixed_sex_value:
-                parts = mixed_sex_value.split(" and ")
+            elif "and" in mixed_sex_value:
+                parts = mixed_sex_value.split("and")
             else:
                 parts = [mixed_sex_value]
             
             # Process each part to find male and female percentages
             for part in parts:
-                part = part.strip().lower()
+                part = part.strip().lower().replace(",", ".")
                 if "male" in part and "female" not in part:  # Ensure we're not catching 'female' in 'male'
                     # Extract only digits and period for the percentage
                     digits_only = ''.join(c for c in part if c.isdigit() or c == '.')
