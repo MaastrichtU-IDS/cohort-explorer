@@ -56,6 +56,7 @@ class Cohort:
     study_objective: Optional[str] = None
     primary_outcome_spec: Optional[str] = None
     secondary_outcome_spec: Optional[str] = None
+    morbidity: Optional[str] = None
     study_start: Optional[str] = None
     study_end: Optional[str] = None
     male_percentage: Optional[float] = None

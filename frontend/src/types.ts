@@ -11,6 +11,7 @@ export interface Cohort {
   study_objective: string;
   primary_outcome_spec: string;
   secondary_outcome_spec: string;
+  morbidity: string;
   study_start: string;
   study_end: string;
   male_percentage: number | null;

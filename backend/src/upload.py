@@ -644,6 +644,10 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
         if "secondary outcome specification" in row and row["secondary outcome specification"]:
             g.add((cohort_uri, ICARE.secondaryOutcomeSpec, Literal(row["secondary outcome specification"]), cohorts_graph))
             
+        # Handle morbidity
+        if "Morbidity" in row and row["Morbidity"]:
+            g.add((cohort_uri, ICARE.morbidity, Literal(row["Morbidity"]), cohorts_graph))
+            
         # Handle Mixed Sex field
         if "Mixed Sex" in row and row["Mixed Sex"]:
             mixed_sex_value = row["Mixed Sex"]

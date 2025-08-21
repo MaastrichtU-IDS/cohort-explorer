@@ -89,7 +89,7 @@ PREFIX dcterms: <http://purl.org/dc/terms/>
 
 SELECT DISTINCT ?cohortId ?cohortInstitution ?cohortType ?cohortEmail ?study_type ?study_participants
     ?study_duration ?study_ongoing ?study_population ?study_objective ?primary_outcome_spec ?secondary_outcome_spec
-    ?study_start ?study_end ?male_percentage ?female_percentage
+    ?morbidity ?study_start ?study_end ?male_percentage ?female_percentage
     ?variable ?varName ?varLabel ?varType ?index ?count ?na ?max ?min ?units ?formula ?definition
     ?omopDomain ?conceptId ?mappedId ?mappedLabel ?visits ?categoryValue ?categoryLabel ?categoryConceptId ?categoryMappedId ?categoryMappedLabel
 WHERE {
@@ -107,6 +107,7 @@ WHERE {
         OPTIONAL { ?cohort icare:studyObjective ?study_objective . }
         OPTIONAL { ?cohort icare:primaryOutcomeSpec ?primary_outcome_spec . }
         OPTIONAL { ?cohort icare:secondaryOutcomeSpec ?secondary_outcome_spec . }
+        OPTIONAL { ?cohort icare:morbidity ?morbidity . }
         OPTIONAL { ?cohort icare:studyStart ?study_start . }
         OPTIONAL { ?cohort icare:studyEnd ?study_end . }
         OPTIONAL { ?cohort icare:malePercentage ?male_percentage . }
@@ -203,6 +204,7 @@ def retrieve_cohorts_metadata(user_email: str) -> dict[str, Cohort]:
                     study_objective=get_value("study_objective", row),
                     primary_outcome_spec=get_value("primary_outcome_spec", row),
                     secondary_outcome_spec=get_value("secondary_outcome_spec", row),
+                    morbidity=get_value("morbidity", row),
                     study_start=get_value("study_start", row),
                     study_end=get_value("study_end", row),
                     male_percentage=float(get_value("male_percentage", row)) if get_value("male_percentage", row) else None,

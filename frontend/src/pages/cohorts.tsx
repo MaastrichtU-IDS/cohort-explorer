@@ -144,6 +144,14 @@ export default function CohortsList() {
                     <p>{cohortData.study_objective}</p>
                   </div>
                 )}
+                
+                {/* Display morbidity section */}
+                {cohortData.morbidity && (
+                  <div className="mb-4 p-3 bg-base-200 rounded-lg">
+                    <h3 className="font-bold mb-2">Morbidity:</h3>
+                    <p>{cohortData.morbidity}</p>
+                  </div>
+                )}
                 {/* Display outcome specifications section */}
                 <div className="mb-4 p-3 bg-base-200 rounded-lg">
                   <h3 className="font-bold mb-2">Outcome Specifications:</h3>
