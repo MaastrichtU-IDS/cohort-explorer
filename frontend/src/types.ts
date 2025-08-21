@@ -16,6 +16,24 @@ export interface Cohort {
   study_end: string;
   male_percentage: number | null;
   female_percentage: number | null;
+  // Inclusion criteria fields
+  sex_inclusion?: string;
+  health_status_inclusion?: string;
+  clinically_relevant_exposure_inclusion?: string;
+  age_group_inclusion?: string;
+  bmi_range_inclusion?: string;
+  ethnicity_inclusion?: string;
+  family_status_inclusion?: string;
+  hospital_patient_inclusion?: string;
+  use_of_medication_inclusion?: string;
+  
+  // Exclusion criteria fields
+  health_status_exclusion?: string;
+  bmi_range_exclusion?: string;
+  limited_life_expectancy_exclusion?: string;
+  need_for_surgery_exclusion?: string;
+  surgical_procedure_history_exclusion?: string;
+  clinically_relevant_exposure_exclusion?: string;
   variables: {[key: string]: Variable};
 }
 

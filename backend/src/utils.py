@@ -87,9 +87,7 @@ PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 PREFIX dc: <http://purl.org/dc/elements/1.1/>
 PREFIX dcterms: <http://purl.org/dc/terms/>
 
-SELECT DISTINCT ?cohortId ?cohortInstitution ?cohortType ?cohortEmail ?study_type ?study_participants
-    ?study_duration ?study_ongoing ?study_population ?study_objective ?primary_outcome_spec ?secondary_outcome_spec
-    ?morbidity ?study_start ?study_end ?male_percentage ?female_percentage
+SELECT DISTINCT ?cohortId ?cohortInstitution ?cohortEmail ?study_type ?study_participants ?study_duration ?study_ongoing ?study_population ?study_objective ?primary_outcome_spec ?secondary_outcome_spec ?morbidity ?study_start ?study_end ?male_percentage ?female_percentage ?sex_inclusion ?health_status_inclusion ?clinically_relevant_exposure_inclusion ?age_group_inclusion ?bmi_range_inclusion ?ethnicity_inclusion ?family_status_inclusion ?hospital_patient_inclusion ?use_of_medication_inclusion ?health_status_exclusion ?bmi_range_exclusion ?limited_life_expectancy_exclusion ?need_for_surgery_exclusion ?surgical_procedure_history_exclusion ?clinically_relevant_exposure_exclusion
     ?variable ?varName ?varLabel ?varType ?index ?count ?na ?max ?min ?units ?formula ?definition
     ?omopDomain ?conceptId ?mappedId ?mappedLabel ?visits ?categoryValue ?categoryLabel ?categoryConceptId ?categoryMappedId ?categoryMappedLabel
 WHERE {
@@ -112,6 +110,25 @@ WHERE {
         OPTIONAL { ?cohort icare:studyEnd ?study_end . }
         OPTIONAL { ?cohort icare:malePercentage ?male_percentage . }
         OPTIONAL { ?cohort icare:femalePercentage ?female_percentage . }
+        
+        # Inclusion criteria fields
+        OPTIONAL { ?cohort icare:sexInclusion ?sex_inclusion . }
+        OPTIONAL { ?cohort icare:healthStatusInclusion ?health_status_inclusion . }
+        OPTIONAL { ?cohort icare:clinicallyRelevantExposureInclusion ?clinically_relevant_exposure_inclusion . }
+        OPTIONAL { ?cohort icare:ageGroupInclusion ?age_group_inclusion . }
+        OPTIONAL { ?cohort icare:bmiRangeInclusion ?bmi_range_inclusion . }
+        OPTIONAL { ?cohort icare:ethnicityInclusion ?ethnicity_inclusion . }
+        OPTIONAL { ?cohort icare:familyStatusInclusion ?family_status_inclusion . }
+        OPTIONAL { ?cohort icare:hospitalPatientInclusion ?hospital_patient_inclusion . }
+        OPTIONAL { ?cohort icare:useOfMedicationInclusion ?use_of_medication_inclusion . }
+        
+        # Exclusion criteria fields
+        OPTIONAL { ?cohort icare:healthStatusExclusion ?health_status_exclusion . }
+        OPTIONAL { ?cohort icare:bmiRangeExclusion ?bmi_range_exclusion . }
+        OPTIONAL { ?cohort icare:limitedLifeExpectancyExclusion ?limited_life_expectancy_exclusion . }
+        OPTIONAL { ?cohort icare:needForSurgeryExclusion ?need_for_surgery_exclusion . }
+        OPTIONAL { ?cohort icare:surgicalProcedureHistoryExclusion ?surgical_procedure_history_exclusion . }
+        OPTIONAL { ?cohort icare:clinicallyRelevantExposureExclusion ?clinically_relevant_exposure_exclusion . }
     }
 
     OPTIONAL {
@@ -190,11 +207,8 @@ def retrieve_cohorts_metadata(user_email: str) -> dict[str, Cohort]:
 
             # Initialize cohort data structure if not exists
             if cohort_id and cohort_id not in target_dict:
-                target_dict[cohort_id] = Cohort(
-                    cohort_id=row["cohortId"]["value"],
-                    cohort_type=get_value("cohortType", row),
-                    cohort_email=[get_value("cohortEmail", row)] if get_value("cohortEmail", row) else [],
-                    # owner=get_value("owner", row),
+                cohort = Cohort(
+                    cohort_id=get_value("cohortId", row),
                     institution=get_value("cohortInstitution", row),
                     study_type=get_value("study_type", row),
                     study_participants=get_value("study_participants", row),
@@ -209,11 +223,28 @@ def retrieve_cohorts_metadata(user_email: str) -> dict[str, Cohort]:
                     study_end=get_value("study_end", row),
                     male_percentage=float(get_value("male_percentage", row)) if get_value("male_percentage", row) else None,
                     female_percentage=float(get_value("female_percentage", row)) if get_value("female_percentage", row) else None,
+                    # Inclusion criteria fields
+                    sex_inclusion=get_value("sex_inclusion", row),
+                    health_status_inclusion=get_value("health_status_inclusion", row),
+                    clinically_relevant_exposure_inclusion=get_value("clinically_relevant_exposure_inclusion", row),
+                    age_group_inclusion=get_value("age_group_inclusion", row),
+                    bmi_range_inclusion=get_value("bmi_range_inclusion", row),
+                    ethnicity_inclusion=get_value("ethnicity_inclusion", row),
+                    family_status_inclusion=get_value("family_status_inclusion", row),
+                    hospital_patient_inclusion=get_value("hospital_patient_inclusion", row),
+                    use_of_medication_inclusion=get_value("use_of_medication_inclusion", row),
+                    # Exclusion criteria fields
+                    health_status_exclusion=get_value("health_status_exclusion", row),
+                    bmi_range_exclusion=get_value("bmi_range_exclusion", row),
+                    limited_life_expectancy_exclusion=get_value("limited_life_expectancy_exclusion", row),
+                    need_for_surgery_exclusion=get_value("need_for_surgery_exclusion", row),
+                    surgical_procedure_history_exclusion=get_value("surgical_procedure_history_exclusion", row),
+                    clinically_relevant_exposure_exclusion=get_value("clinically_relevant_exposure_exclusion", row),
                     variables={},
-                    # airlock=get_bool_value("airlock", row),
                     can_edit=user_email in [*settings.admins_list, get_value("cohortEmail", row)],
-                    physical_dictionary_exists=False # Initialize here, will attempt to set below
+                    physical_dictionary_exists=False
                 )
+                target_dict[cohort_id] = cohort
                 # Attempt to determine if a physical dictionary file exists
                 try:
                     if target_dict[cohort_id].metadata_filepath: # Accessing the property

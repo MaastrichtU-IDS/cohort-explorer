@@ -61,6 +61,24 @@ class Cohort:
     study_end: Optional[str] = None
     male_percentage: Optional[float] = None
     female_percentage: Optional[float] = None
+    # Inclusion criteria fields
+    sex_inclusion: Optional[str] = None
+    health_status_inclusion: Optional[str] = None
+    clinically_relevant_exposure_inclusion: Optional[str] = None
+    age_group_inclusion: Optional[str] = None
+    bmi_range_inclusion: Optional[str] = None
+    ethnicity_inclusion: Optional[str] = None
+    family_status_inclusion: Optional[str] = None
+    hospital_patient_inclusion: Optional[str] = None
+    use_of_medication_inclusion: Optional[str] = None
+    
+    # Exclusion criteria fields
+    health_status_exclusion: Optional[str] = None
+    bmi_range_exclusion: Optional[str] = None
+    limited_life_expectancy_exclusion: Optional[str] = None
+    need_for_surgery_exclusion: Optional[str] = None
+    surgical_procedure_history_exclusion: Optional[str] = None
+    clinically_relevant_exposure_exclusion: Optional[str] = None
     variables: dict[str, CohortVariable] = field(default_factory=dict)
     can_edit: bool = False
     physical_dictionary_exists: bool = False # New field

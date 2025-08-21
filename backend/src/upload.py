@@ -648,6 +648,45 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
         if "Morbidity" in row and row["Morbidity"]:
             g.add((cohort_uri, ICARE.morbidity, Literal(row["Morbidity"]), cohorts_graph))
             
+        # Handle inclusion criteria fields
+        inclusion_fields = {
+            "Sex": "sexInclusion",
+            "Health Status": "healthStatusInclusion",
+            "Clinically Relevant Exposure": "clinicallyRelevantExposureInclusion",
+            "Age Group": "ageGroupInclusion",
+            "BMI Range": "bmiRangeInclusion",
+            "Ethnicity": "ethnicityInclusion",
+            "Family Status": "familyStatusInclusion",
+            "Hospital Patient": "hospitalPatientInclusion",
+            "Use of Medication": "useOfMedicationInclusion"
+        }
+
+        for field_name, predicate_suffix in inclusion_fields.items():
+            # Try different possible formats of the column name
+            variants = [field_name, field_name.lower(), field_name.replace(" ", "_"), field_name.lower().replace(" ", "_")]
+            for variant in variants:
+                if variant + " Inclusion" in row and row[variant + " Inclusion"]:
+                    g.add((cohort_uri, ICARE[predicate_suffix], Literal(row[variant + " Inclusion"]), cohorts_graph))
+                    break
+        
+        # Handle exclusion criteria fields
+        exclusion_fields = {
+            "Health Status": "healthStatusExclusion",
+            "BMI Range": "bmiRangeExclusion",
+            "Limited Life Expectancy": "limitedLifeExpectancyExclusion",
+            "Need for Surgery": "needForSurgeryExclusion",
+            "Surgical Procedure History": "surgicalProcedureHistoryExclusion",
+            "Clinically Relevant Exposure": "clinicallyRelevantExposureExclusion"
+        }
+
+        for field_name, predicate_suffix in exclusion_fields.items():
+            # Try different possible formats of the column name
+            variants = [field_name, field_name.lower(), field_name.replace(" ", "_"), field_name.lower().replace(" ", "_")]
+            for variant in variants:
+                if variant + " Exclusion" in row and row[variant + " Exclusion"]:
+                    g.add((cohort_uri, ICARE[predicate_suffix], Literal(row[variant + " Exclusion"]), cohorts_graph))
+                    break
+
         # Handle Mixed Sex field
         if "Mixed Sex" in row and row["Mixed Sex"]:
             mixed_sex_value = row["Mixed Sex"]
