@@ -596,6 +596,16 @@ async def upload_cohorts_metadata(
         publish_graph_to_endpoint(g)
 
 
+def is_valid_value(value: str) -> bool:
+    """
+    Check if a value is valid (not empty and not 'Not Applicable')
+    """
+    if not value:
+        return False
+    if value.strip().lower() == "not applicable":
+        return False
+    return True
+
 def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
     df = pd.read_excel(filepath, sheet_name="Descriptions")
     df = df.fillna("")
@@ -610,108 +620,114 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
         g.add((cohort_uri, RDF.type, ICARE.Cohort, cohorts_graph))
         g.add((cohort_uri, DC.identifier, Literal(cohort_id), cohorts_graph))
         g.add((cohort_uri, ICARE.institution, Literal(row["Institute"]), cohorts_graph))
-        if row["Study Contact Person"]:
+        # Administrator information
+        if is_valid_value(row.get("Administrator", "")):
+            g.add((cohort_uri, ICARE.administrator, Literal(row["Administrator"]), cohorts_graph))
+        if is_valid_value(row.get("Administrator Email Address", "")):
+            g.add((cohort_uri, ICARE.administratorEmail, Literal(row["Administrator Email Address"]), cohorts_graph))
+        # Study contact person information
+        if is_valid_value(row["Study Contact Person"]):
             g.add((cohort_uri, DC.creator, Literal(row["Study Contact Person"]), cohorts_graph))
-        if row["Study Contact Person Email Address"]:
+        if is_valid_value(row["Study Contact Person Email Address"]):
             for email in row["Study Contact Person Email Address"].split(";"):
                 g.add((cohort_uri, ICARE.email, Literal(email.strip()), cohorts_graph))
-        if row["Study Type"]:
+        if is_valid_value(row["Study Type"]):
             # Split study types on '/' and add each as a separate triple
             study_types = [st.strip() for st in row["Study Type"].split("/")]
             for study_type in study_types:
                 g.add((cohort_uri, ICARE.cohortType, Literal(study_type), cohorts_graph))
-        if row["Study Design"]:
+        if is_valid_value(row["Study Design"]):
             g.add((cohort_uri, ICARE.studyType, Literal(row["Study Design"]), cohorts_graph))
-        #if row["Study duration"]:
+        #if is_valid_value(row["Study duration"]):
         #    g.add((cohort_uri, ICARE.studyDuration, Literal(row["Study duration"]), cohorts_graph))
-        if row["Start date"] and row["End date"]:
+        if is_valid_value(row["Start date"]) and is_valid_value(row["End date"]):
             g.add((cohort_uri, ICARE.studyStart, Literal(row["Start date"]), cohorts_graph))
             g.add((cohort_uri, ICARE.studyEnd, Literal(row["End date"]), cohorts_graph))
-        if row["Number of Participants"]:
+        if is_valid_value(row["Number of Participants"]):
             g.add((cohort_uri, ICARE.studyParticipants, Literal(row["Number of Participants"]), cohorts_graph))
-        if row["Ongoing"]:
+        if is_valid_value(row["Ongoing"]):
             g.add((cohort_uri, ICARE.studyOngoing, Literal(row["Ongoing"]), cohorts_graph))
-        #if row["Patient population"]:
+        #if is_valid_value(row["Patient population"]):
         #    g.add((cohort_uri, ICARE.studyPopulation, Literal(row["Patient population"]), cohorts_graph))
-        if row["Study Objective"]:
+        if is_valid_value(row["Study Objective"]):
             g.add((cohort_uri, ICARE.studyObjective, Literal(row["Study Objective"]), cohorts_graph))
             
         # Handle primary outcome specification
-        if "primary outcome specification" in row and row["primary outcome specification"]:
+        if "primary outcome specification" in row and is_valid_value(row["primary outcome specification"]):
             g.add((cohort_uri, ICARE.primaryOutcomeSpec, Literal(row["primary outcome specification"]), cohorts_graph))
             
         # Handle secondary outcome specification
-        if "secondary outcome specification" in row and row["secondary outcome specification"]:
+        if "secondary outcome specification" in row and is_valid_value(row["secondary outcome specification"]):
             g.add((cohort_uri, ICARE.secondaryOutcomeSpec, Literal(row["secondary outcome specification"]), cohorts_graph))
             
         # Handle morbidity
-        if "Morbidity" in row and row["Morbidity"]:
+        if "Morbidity" in row and is_valid_value(row["Morbidity"]):
             g.add((cohort_uri, ICARE.morbidity, Literal(row["Morbidity"]), cohorts_graph))
             
         # Handle inclusion criteria fields using exact field names
         # Sex inclusion
-        if "Sex inclusion criterion" in row and row["Sex inclusion criterion"]:
+        if "Sex inclusion criterion" in row and is_valid_value(row["Sex inclusion criterion"]):
             g.add((cohort_uri, ICARE["sexInclusion"], Literal(row["Sex inclusion criterion"]), cohorts_graph))
         
         # Health status inclusion
-        if "Health status inclusion criterion" in row and row["Health status inclusion criterion"]:
+        if "Health status inclusion criterion" in row and is_valid_value(row["Health status inclusion criterion"]):
             g.add((cohort_uri, ICARE["healthStatusInclusion"], Literal(row["Health status inclusion criterion"]), cohorts_graph))
         
         # Clinically relevant exposure inclusion
-        if "clinically relevant exposure inclusion criterion" in row and row["clinically relevant exposure inclusion criterion"]:
+        if "clinically relevant exposure inclusion criterion" in row and is_valid_value(row["clinically relevant exposure inclusion criterion"]):
             g.add((cohort_uri, ICARE["clinicallyRelevantExposureInclusion"], Literal(row["clinically relevant exposure inclusion criterion"]), cohorts_graph))
         
         # Age group inclusion
-        if "age group inclusion criterion" in row and row["age group inclusion criterion"]:
+        if "age group inclusion criterion" in row and is_valid_value(row["age group inclusion criterion"]):
             g.add((cohort_uri, ICARE["ageGroupInclusion"], Literal(row["age group inclusion criterion"]), cohorts_graph))
         
         # BMI range inclusion
-        if "BMI range inclusion criterion" in row and row["BMI range inclusion criterion"]:
+        if "BMI range inclusion criterion" in row and is_valid_value(row["BMI range inclusion criterion"]):
             g.add((cohort_uri, ICARE["bmiRangeInclusion"], Literal(row["BMI range inclusion criterion"]), cohorts_graph))
         
         # Ethnicity inclusion
-        if "ethnicity inclusion criterion" in row and row["ethnicity inclusion criterion"]:
+        if "ethnicity inclusion criterion" in row and is_valid_value(row["ethnicity inclusion criterion"]):
             g.add((cohort_uri, ICARE["ethnicityInclusion"], Literal(row["ethnicity inclusion criterion"]), cohorts_graph))
         
         # Family status inclusion
-        if "family status inclusion criterion" in row and row["family status inclusion criterion"]:
+        if "family status inclusion criterion" in row and is_valid_value(row["family status inclusion criterion"]):
             g.add((cohort_uri, ICARE["familyStatusInclusion"], Literal(row["family status inclusion criterion"]), cohorts_graph))
         
         # Hospital patient inclusion
-        if "hospital patient inclusion criterion" in row and row["hospital patient inclusion criterion"]:
+        if "hospital patient inclusion criterion" in row and is_valid_value(row["hospital patient inclusion criterion"]):
             g.add((cohort_uri, ICARE["hospitalPatientInclusion"], Literal(row["hospital patient inclusion criterion"]), cohorts_graph))
         
         # Use of medication inclusion
-        if "use of medication inclusion criterion" in row and row["use of medication inclusion criterion"]:
+        if "use of medication inclusion criterion" in row and is_valid_value(row["use of medication inclusion criterion"]):
             g.add((cohort_uri, ICARE["useOfMedicationInclusion"], Literal(row["use of medication inclusion criterion"]), cohorts_graph))
         
         # Handle exclusion criteria fields using exact field names
         # Health status exclusion
-        if "health status exclusion criterion" in row and row["health status exclusion criterion"]:
+        if "health status exclusion criterion" in row and is_valid_value(row["health status exclusion criterion"]):
             g.add((cohort_uri, ICARE["healthStatusExclusion"], Literal(row["health status exclusion criterion"]), cohorts_graph))
         
         # BMI range exclusion
-        if "bmi range exclusion criterion" in row and row["bmi range exclusion criterion"]:
+        if "bmi range exclusion criterion" in row and is_valid_value(row["bmi range exclusion criterion"]):
             g.add((cohort_uri, ICARE["bmiRangeExclusion"], Literal(row["bmi range exclusion criterion"]), cohorts_graph))
         
         # Limited life expectancy exclusion
-        if "limited life expectancy exclusion criterion" in row and row["limited life expectancy exclusion criterion"]:
+        if "limited life expectancy exclusion criterion" in row and is_valid_value(row["limited life expectancy exclusion criterion"]):
             g.add((cohort_uri, ICARE["limitedLifeExpectancyExclusion"], Literal(row["limited life expectancy exclusion criterion"]), cohorts_graph))
         
         # Need for surgery exclusion
-        if "need for surgery exclusion criterion" in row and row["need for surgery exclusion criterion"]:
+        if "need for surgery exclusion criterion" in row and is_valid_value(row["need for surgery exclusion criterion"]):
             g.add((cohort_uri, ICARE["needForSurgeryExclusion"], Literal(row["need for surgery exclusion criterion"]), cohorts_graph))
         
         # Surgical procedure history exclusion
-        if "surgical procedure history exclusion criterion" in row and row["surgical procedure history exclusion criterion"]:
+        if "surgical procedure history exclusion criterion" in row and is_valid_value(row["surgical procedure history exclusion criterion"]):
             g.add((cohort_uri, ICARE["surgicalProcedureHistoryExclusion"], Literal(row["surgical procedure history exclusion criterion"]), cohorts_graph))
         
         # Clinically relevant exposure exclusion
-        if "clinically relevant exposure exclusion criterion" in row and row["clinically relevant exposure exclusion criterion"]:
+        if "clinically relevant exposure exclusion criterion" in row and is_valid_value(row["clinically relevant exposure exclusion criterion"]):
             g.add((cohort_uri, ICARE["clinicallyRelevantExposureExclusion"], Literal(row["clinically relevant exposure exclusion criterion"]), cohorts_graph))
 
         # Handle Mixed Sex field
-        if "Mixed Sex" in row and row["Mixed Sex"]:
+        if "Mixed Sex" in row and is_valid_value(row["Mixed Sex"]):
             mixed_sex_value = row["Mixed Sex"]
             male_percentage = None
             female_percentage = None

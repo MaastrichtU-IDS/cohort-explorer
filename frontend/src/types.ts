@@ -16,6 +16,11 @@ export interface Cohort {
   study_end: string;
   male_percentage: number | null;
   female_percentage: number | null;
+  // Contact information fields
+  administrator?: string;
+  administrator_email?: string;
+  study_contact_person?: string;
+  study_contact_person_email?: string;
   // Inclusion criteria fields
   sex_inclusion?: string;
   health_status_inclusion?: string;

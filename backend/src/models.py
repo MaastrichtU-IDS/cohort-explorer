@@ -61,6 +61,11 @@ class Cohort:
     study_end: Optional[str] = None
     male_percentage: Optional[float] = None
     female_percentage: Optional[float] = None
+    # Contact information fields
+    administrator: Optional[str] = None
+    administrator_email: Optional[str] = None
+    study_contact_person: Optional[str] = None
+    study_contact_person_email: Optional[str] = None
     # Inclusion criteria fields
     sex_inclusion: Optional[str] = None
     health_status_inclusion: Optional[str] = None

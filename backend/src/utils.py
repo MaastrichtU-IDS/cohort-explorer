@@ -87,7 +87,7 @@ PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 PREFIX dc: <http://purl.org/dc/elements/1.1/>
 PREFIX dcterms: <http://purl.org/dc/terms/>
 
-SELECT DISTINCT ?cohortId ?cohortInstitution ?cohortEmail ?study_type ?study_participants ?study_duration ?study_ongoing ?study_population ?study_objective ?primary_outcome_spec ?secondary_outcome_spec ?morbidity ?study_start ?study_end ?male_percentage ?female_percentage ?sex_inclusion ?health_status_inclusion ?clinically_relevant_exposure_inclusion ?age_group_inclusion ?bmi_range_inclusion ?ethnicity_inclusion ?family_status_inclusion ?hospital_patient_inclusion ?use_of_medication_inclusion ?health_status_exclusion ?bmi_range_exclusion ?limited_life_expectancy_exclusion ?need_for_surgery_exclusion ?surgical_procedure_history_exclusion ?clinically_relevant_exposure_exclusion
+SELECT DISTINCT ?cohortId ?cohortInstitution ?cohortEmail ?study_type ?study_participants ?study_duration ?study_ongoing ?study_population ?study_objective ?primary_outcome_spec ?secondary_outcome_spec ?morbidity ?study_start ?study_end ?male_percentage ?female_percentage ?administrator ?administrator_email ?study_contact_person ?study_contact_person_email ?sex_inclusion ?health_status_inclusion ?clinically_relevant_exposure_inclusion ?age_group_inclusion ?bmi_range_inclusion ?ethnicity_inclusion ?family_status_inclusion ?hospital_patient_inclusion ?use_of_medication_inclusion ?health_status_exclusion ?bmi_range_exclusion ?limited_life_expectancy_exclusion ?need_for_surgery_exclusion ?surgical_procedure_history_exclusion ?clinically_relevant_exposure_exclusion
     ?variable ?varName ?varLabel ?varType ?index ?count ?na ?max ?min ?units ?formula ?definition
     ?omopDomain ?conceptId ?mappedId ?mappedLabel ?visits ?categoryValue ?categoryLabel ?categoryConceptId ?categoryMappedId ?categoryMappedLabel
 WHERE {
@@ -110,6 +110,12 @@ WHERE {
         OPTIONAL { ?cohort icare:studyEnd ?study_end . }
         OPTIONAL { ?cohort icare:malePercentage ?male_percentage . }
         OPTIONAL { ?cohort icare:femalePercentage ?female_percentage . }
+        
+        # Contact information fields
+        OPTIONAL { ?cohort icare:administrator ?administrator . }
+        OPTIONAL { ?cohort icare:administratorEmail ?administrator_email . }
+        OPTIONAL { ?cohort dc:creator ?study_contact_person . }
+        OPTIONAL { ?cohort icare:email ?study_contact_person_email . }
         
         # Inclusion criteria fields
         OPTIONAL { ?cohort icare:sexInclusion ?sex_inclusion . }
@@ -223,6 +229,11 @@ def retrieve_cohorts_metadata(user_email: str) -> dict[str, Cohort]:
                     study_end=get_value("study_end", row),
                     male_percentage=float(get_value("male_percentage", row)) if get_value("male_percentage", row) else None,
                     female_percentage=float(get_value("female_percentage", row)) if get_value("female_percentage", row) else None,
+                    # Contact information fields
+                    administrator=get_value("administrator", row),
+                    administrator_email=get_value("administrator_email", row),
+                    study_contact_person=get_value("study_contact_person", row),
+                    study_contact_person_email=get_value("study_contact_person_email", row),
                     # Inclusion criteria fields
                     sex_inclusion=get_value("sex_inclusion", row),
                     health_status_inclusion=get_value("health_status_inclusion", row),
