@@ -178,6 +178,134 @@ export default function CohortsList() {
                     </div>
                   )}
                 </div>
+                
+                {/* Display inclusion and exclusion criteria section */}
+                <div className="mb-4 p-3 bg-base-200 rounded-lg">
+                  <h3 className="font-bold mb-2">Inclusion & Exclusion Criteria:</h3>
+                  
+                  {/* Inclusion criteria */}
+                  <div className="mb-4">
+                    <h4 className="font-semibold mb-2">Inclusion Criteria:</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      {cohortData.sex_inclusion && (
+                        <div className="mb-1">
+                          <span className="font-medium">Sex: </span>
+                          <span>{cohortData.sex_inclusion}</span>
+                        </div>
+                      )}
+                      {cohortData.health_status_inclusion && (
+                        <div className="mb-1">
+                          <span className="font-medium">Health Status: </span>
+                          <span>{cohortData.health_status_inclusion}</span>
+                        </div>
+                      )}
+                      {cohortData.clinically_relevant_exposure_inclusion && (
+                        <div className="mb-1">
+                          <span className="font-medium">Clinically Relevant Exposure: </span>
+                          <span>{cohortData.clinically_relevant_exposure_inclusion}</span>
+                        </div>
+                      )}
+                      {cohortData.age_group_inclusion && (
+                        <div className="mb-1">
+                          <span className="font-medium">Age Group: </span>
+                          <span>{cohortData.age_group_inclusion}</span>
+                        </div>
+                      )}
+                      {cohortData.bmi_range_inclusion && (
+                        <div className="mb-1">
+                          <span className="font-medium">BMI Range: </span>
+                          <span>{cohortData.bmi_range_inclusion}</span>
+                        </div>
+                      )}
+                      {cohortData.ethnicity_inclusion && (
+                        <div className="mb-1">
+                          <span className="font-medium">Ethnicity: </span>
+                          <span>{cohortData.ethnicity_inclusion}</span>
+                        </div>
+                      )}
+                      {cohortData.family_status_inclusion && (
+                        <div className="mb-1">
+                          <span className="font-medium">Family Status: </span>
+                          <span>{cohortData.family_status_inclusion}</span>
+                        </div>
+                      )}
+                      {cohortData.hospital_patient_inclusion && (
+                        <div className="mb-1">
+                          <span className="font-medium">Hospital Patient: </span>
+                          <span>{cohortData.hospital_patient_inclusion}</span>
+                        </div>
+                      )}
+                      {cohortData.use_of_medication_inclusion && (
+                        <div className="mb-1">
+                          <span className="font-medium">Use of Medication: </span>
+                          <span>{cohortData.use_of_medication_inclusion}</span>
+                        </div>
+                      )}
+                    </div>
+                    {!cohortData.sex_inclusion && 
+                     !cohortData.health_status_inclusion && 
+                     !cohortData.clinically_relevant_exposure_inclusion && 
+                     !cohortData.age_group_inclusion && 
+                     !cohortData.bmi_range_inclusion && 
+                     !cohortData.ethnicity_inclusion && 
+                     !cohortData.family_status_inclusion && 
+                     !cohortData.hospital_patient_inclusion && 
+                     !cohortData.use_of_medication_inclusion && (
+                      <p className="text-gray-500"><em>No inclusion criteria specified</em></p>
+                    )}
+                  </div>
+                  
+                  {/* Exclusion criteria */}
+                  <div>
+                    <h4 className="font-semibold mb-2">Exclusion Criteria:</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      {cohortData.health_status_exclusion && (
+                        <div className="mb-1">
+                          <span className="font-medium">Health Status: </span>
+                          <span>{cohortData.health_status_exclusion}</span>
+                        </div>
+                      )}
+                      {cohortData.bmi_range_exclusion && (
+                        <div className="mb-1">
+                          <span className="font-medium">BMI Range: </span>
+                          <span>{cohortData.bmi_range_exclusion}</span>
+                        </div>
+                      )}
+                      {cohortData.limited_life_expectancy_exclusion && (
+                        <div className="mb-1">
+                          <span className="font-medium">Limited Life Expectancy: </span>
+                          <span>{cohortData.limited_life_expectancy_exclusion}</span>
+                        </div>
+                      )}
+                      {cohortData.need_for_surgery_exclusion && (
+                        <div className="mb-1">
+                          <span className="font-medium">Need for Surgery: </span>
+                          <span>{cohortData.need_for_surgery_exclusion}</span>
+                        </div>
+                      )}
+                      {cohortData.surgical_procedure_history_exclusion && (
+                        <div className="mb-1">
+                          <span className="font-medium">Surgical Procedure History: </span>
+                          <span>{cohortData.surgical_procedure_history_exclusion}</span>
+                        </div>
+                      )}
+                      {cohortData.clinically_relevant_exposure_exclusion && (
+                        <div className="mb-1">
+                          <span className="font-medium">Clinically Relevant Exposure: </span>
+                          <span>{cohortData.clinically_relevant_exposure_exclusion}</span>
+                        </div>
+                      )}
+                    </div>
+                    {!cohortData.health_status_exclusion && 
+                     !cohortData.bmi_range_exclusion && 
+                     !cohortData.limited_life_expectancy_exclusion && 
+                     !cohortData.need_for_surgery_exclusion && 
+                     !cohortData.surgical_procedure_history_exclusion && 
+                     !cohortData.clinically_relevant_exposure_exclusion && (
+                      <p className="text-gray-500"><em>No exclusion criteria specified</em></p>
+                    )}
+                  </div>
+                </div>
                 <VariablesList cohortId={cohortData.cohort_id} searchFilters={{searchQuery: searchQuery}} />
               </div>
             </div>
