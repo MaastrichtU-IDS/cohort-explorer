@@ -134,7 +134,6 @@ export default function CohortsList() {
                       ✉️ {email}
                     </span>
                   ))}
-                  </div>
                 </div>
               </div>
               <div className="collapse-content">
@@ -145,66 +144,6 @@ export default function CohortsList() {
                     <p>{cohortData.study_objective}</p>
                   </div>
                 )}
-                
-
-                
-                {/* Display exclusion criteria section */}
-                <div className="mb-4 p-3 bg-base-200 rounded-lg">
-                  <h3 className="font-bold mb-2">Exclusion Criteria:</h3>
-                  
-                  {cohortData.health_status_exclusion ? (
-                    <div className="mb-2">
-                      <h4 className="font-semibold">Health Status:</h4>
-                      <p>{cohortData.health_status_exclusion}</p>
-                    </div>
-                  ) : null}
-                  
-                  {cohortData.bmi_range_exclusion ? (
-                    <div className="mb-2">
-                      <h4 className="font-semibold">BMI Range:</h4>
-                      <p>{cohortData.bmi_range_exclusion}</p>
-                    </div>
-                  ) : null}
-                  
-                  {cohortData.limited_life_expectancy_exclusion ? (
-                    <div className="mb-2">
-                      <h4 className="font-semibold">Limited Life Expectancy:</h4>
-                      <p>{cohortData.limited_life_expectancy_exclusion}</p>
-                    </div>
-                  ) : null}
-                  
-                  {cohortData.need_for_surgery_exclusion ? (
-                    <div className="mb-2">
-                      <h4 className="font-semibold">Need for Surgery:</h4>
-                      <p>{cohortData.need_for_surgery_exclusion}</p>
-                    </div>
-                  ) : null}
-                  
-                  {cohortData.surgical_procedure_history_exclusion ? (
-                    <div className="mb-2">
-                      <h4 className="font-semibold">Surgical Procedure History:</h4>
-                      <p>{cohortData.surgical_procedure_history_exclusion}</p>
-                    </div>
-                  ) : null}
-                  
-                  {cohortData.clinically_relevant_exposure_exclusion ? (
-                    <div className="mb-2">
-                      <h4 className="font-semibold">Clinically Relevant Exposure:</h4>
-                      <p>{cohortData.clinically_relevant_exposure_exclusion}</p>
-                    </div>
-                  ) : null}
-                  
-                  {!cohortData.health_status_exclusion && 
-                   !cohortData.bmi_range_exclusion && 
-                   !cohortData.limited_life_expectancy_exclusion && 
-                   !cohortData.need_for_surgery_exclusion && 
-                   !cohortData.surgical_procedure_history_exclusion && 
-                   !cohortData.clinically_relevant_exposure_exclusion && (
-                    <div className="text-gray-500">
-                      <p><em>No exclusion criteria available</em></p>
-                    </div>
-                  )}
-                </div>
                 
                 {/* Display morbidity section */}
                 {cohortData.morbidity && (
@@ -239,8 +178,6 @@ export default function CohortsList() {
                     </div>
                   )}
                 </div>
-                
-
                 <VariablesList cohortId={cohortData.cohort_id} searchFilters={{searchQuery: searchQuery}} />
               </div>
             </div>
