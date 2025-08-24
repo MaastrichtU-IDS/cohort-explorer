@@ -227,25 +227,25 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
             # If this parsing fails, we might still be able to report other errors, so don't raise immediately
             # unless it's the only error. The final check `if len(errors) > 0` will handle it.
 
-        df["VAR TYPE"] = df.apply(lambda row: str(row["VAR TYPE"]).upper(), axis=1)
+        df["VARTYPE"] = df.apply(lambda row: str(row["VARTYPE"]).upper(), axis=1)
 
         # --- Content Validation: DataFrame-level and Row-level ---
-        duplicate_variables = df[df.duplicated(subset=["VARIABLE NAME"], keep=False)]
+        duplicate_variables = df[df.duplicated(subset=["VARIABLENAME"], keep=False)]
         if not duplicate_variables.empty:
-            errors.append(f"Duplicate VARIABLE NAME found: {', '.join(duplicate_variables['VARIABLE NAME'].unique())}")
+            errors.append(f"Duplicate VARIABLENAME found: {', '.join(duplicate_variables['VARIABLENAME'].unique())}")
 
         for i, row in df.iterrows():
-            var_name_for_error = row.get("VARIABLE NAME", f"UNKNOWN_VAR_ROW_{i+2}")
+            var_name_for_error = row.get("VARIABLENAME", f"UNKNOWN_VAR_ROW_{i+2}")
 
             # Check if required values are present in rows (for critical columns)
-            req_fields = ["VARIABLE NAME", "VARIABLE LABEL", "VAR TYPE", "DOMAIN"]
+            req_fields = ["VARIABLENAME", "VARIABLELABEL", "VARTYPE", "DOMAIN"]
             for rf in req_fields:
                 if not row[rf].strip():
                     errors.append(f"Row {i+2} (Variable: '{var_name_for_error}') is missing value for the required field: '{rf}'.")
             
-            if row["VAR TYPE"] not in ACCEPTED_DATATYPES:
+            if row["VARTYPE"] not in ACCEPTED_DATATYPES:
                 errors.append(
-                    f"Row {i+2} (Variable: '{var_name_for_error}') has an invalid data type: '{row['VAR TYPE']}'. Accepted types: {', '.join(ACCEPTED_DATATYPES)}."
+                    f"Row {i+2} (Variable: '{var_name_for_error}') has an invalid data type: '{row['VARTYPE']}'. Accepted types: {', '.join(ACCEPTED_DATATYPES)}."
                 )
 
             acc_domains = ["condition_occurrence", "visit_occurrence", "procedure_occurrence", "measurement", "drug_exposure", "device_exposure", "person", "observation", "observation_period", "death", "specimen", "condition_era"]
@@ -308,11 +308,11 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
         g.add((cohort_uri, DC.identifier, Literal(cohort_id), cohort_uri))
 
         for i, row in df.iterrows():
-            variable_uri = get_var_uri(cohort_id, row["VARIABLE NAME"])
+            variable_uri = get_var_uri(cohort_id, row["VARIABLENAME"])
             g.add((cohort_uri, ICARE.hasVariable, variable_uri, cohort_uri))
             g.add((variable_uri, RDF.type, ICARE.Variable, cohort_uri))
-            g.add((variable_uri, DC.identifier, Literal(row["VARIABLE NAME"]), cohort_uri))
-            g.add((variable_uri, RDFS.label, Literal(row["VARIABLE LABEL"]), cohort_uri))
+            g.add((variable_uri, DC.identifier, Literal(row["VARIABLENAME"]), cohort_uri))
+            g.add((variable_uri, RDFS.label, Literal(row["VARIABLELABEL"]), cohort_uri))
             g.add((variable_uri, ICARE["index"], Literal(i, datatype=XSD.integer), cohort_uri))
 
             # Get categories code if provided (re-fetch for graph generation phase)

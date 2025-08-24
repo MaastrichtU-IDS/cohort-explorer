@@ -44,7 +44,7 @@ def get_cohort_schema(cohort_dict: Cohort) -> list[Column]:
 metadatadict_cols_schema2 = [
     Column(name="VARIABLENAME", format_type=FormatType.STRING, is_nullable=True),
     Column(name="VARIABLELABEL", format_type=FormatType.STRING, is_nullable=True),
-    Column(name="VARTYPE", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="VARTYPE" , format_type=FormatType.STRING, is_nullable=True),
     Column(name="UNITS", format_type=FormatType.STRING, is_nullable=True),
     Column(name="CATEGORICAL", format_type=FormatType.STRING, is_nullable=True),
     Column(name="MISSING", format_type=FormatType.STRING, is_nullable=True),

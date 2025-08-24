@@ -421,12 +421,12 @@ def combine_all_mappings_to_json(
     # Dict: {source_var: [mapping_dicts]}
     mappings = {}
     for target in target_studies:
-        crossmap_json = os.path.join(output_dir, f"{source_study}_{target}_cross_mapping.json")
-        if not os.path.exists(crossmap_json):
-            print(f"Skipping {crossmap_json}, does not exist.")
+        crossmap_csv = os.path.join(output_dir, f"{source_study}_{target}_cross_mapping.csv")
+        if not os.path.exists(crossmap_csv):
+            print(f"Skipping {crossmap_csv}, does not exist.")
             continue
-        print(f"Inside combine_all_mappings_to_json - Processing {crossmap_json}")
-        df = pd.read_json(crossmap_json)
+        print(f"Inside combine_all_mappings_to_json - Processing {crossmap_csv}")
+        df = pd.read_csv(crossmap_csv)
         for idx, row in df.iterrows():
             # Source variable name
             src_var = str(row["source"]).strip()
@@ -540,7 +540,7 @@ def generate_mapping_csv(
     missing_targets = []
     
     for tstudy in target_studies:
-        out_filename = f'{source_study}_{tstudy}_cross_mapping.json'
+        out_filename = f'{source_study}_{tstudy}_cross_mapping.csv'
         out_path = os.path.join(output_dir, out_filename)
         print(f"Checking if {out_path} exists")
         if not os.path.exists(out_path):
@@ -569,7 +569,7 @@ def generate_mapping_csv(
     vector_db, embedding_model = generate_studies_embeddings(cohort_file_path, "qdrant", "studies_metadata", recreate_db=True)
     graph = OmopGraphNX(csv_file_path=settings.concepts_file_path)
     for tstudy in target_studies:
-        out_filename = f'{source_study}_{tstudy}_cross_mapping.json'
+        out_filename = f'{source_study}_{tstudy}_cross_mapping.csv'
         out_path = os.path.join(output_dir, out_filename)
         if os.path.exists(out_path):
             print(f"Mapping already exists for {source_study} to {tstudy}, skipping computation.")
