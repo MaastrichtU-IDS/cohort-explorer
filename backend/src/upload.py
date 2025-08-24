@@ -301,11 +301,13 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
                                     if code_to_check and code_to_check.lower() != "na":
                                         try:
                                             expanded_uri = curie_converter.expand(code_to_check)
+                                            print("Expanded URI: ", expanded_uri, "input ", code_to_check)
                                             if not expanded_uri:
                                                 errors.append(
                                                     f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_data['value']}'): The category concept code '{code_to_check}' is not valid or its prefix is not recognized. Valid prefixes: {', '.join([record['prefix'] + ':' for record in prefix_map if record.get('prefix')])}."
                                                 )
                                         except Exception as curie_exc:
+                                            print("CURIE ERROR!, input: ", code_to_check, "error: ", curie_exc)
                                             errors.append(
                                                 f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_data['value']}'): Error expanding CURIE '{code_to_check}': {curie_exc}."
                                             )

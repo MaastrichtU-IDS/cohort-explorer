@@ -203,21 +203,22 @@ def retrieve_cohorts_metadata(user_email: str) -> dict[str, Cohort]:
     results = run_query(get_variables_query)["results"]["bindings"]
     cohorts_with_variables = {}
     cohorts_without_variables = {}
-    logging.info(f"Get cohorts metadata query results: {len(results)}")
     for row in results:
-        try:
-            cohort_id = str(row["cohortId"]["value"])
-            var_id = str(row["varName"]["value"]) if "varName" in row else None
-            # Determine which dictionary to use
-            target_dict = cohorts_with_variables if var_id else cohorts_without_variables
+        cohort_id = str(row["cohortId"]["value"])
+        target_dict = cohorts_with_variables if "variable" in row else cohorts_without_variables
+        var_id = str(row["varName"]["value"]) if "varName" in row else None
 
-            # Initialize cohort data structure if not exists
-            if cohort_id and cohort_id not in target_dict:
-                cohort = Cohort(
-                    cohort_id=get_value("cohortId", row),
-                    institution=get_value("cohortInstitution", row),
-                    study_type=get_value("study_type", row),
-                    study_participants=get_value("study_participants", row),
+        def get_value(key: str, row_data: dict) -> str:
+            if key in row_data:
+                return str(row_data[key]["value"])
+            return ""
+            
+        def get_criteria_value(key: str, row_data: dict) -> str:
+            """Get value for inclusion/exclusion criteria, filtering out 'Not Applicable'"""
+            value = get_value(key, row_data)
+            if value and value.strip().lower() == "not applicable":
+                return ""
+            return value
                     study_duration=get_value("study_duration", row),
                     study_ongoing=get_value("study_ongoing", row),
                     study_population=get_value("study_population", row),
@@ -235,22 +236,6 @@ def retrieve_cohorts_metadata(user_email: str) -> dict[str, Cohort]:
                     study_contact_person=get_value("study_contact_person", row),
                     study_contact_person_email=get_value("study_contact_person_email", row),
                     # Inclusion criteria fields
-                    sex_inclusion=get_value("sex_inclusion", row),
-                    health_status_inclusion=get_value("health_status_inclusion", row),
-                    clinically_relevant_exposure_inclusion=get_value("clinically_relevant_exposure_inclusion", row),
-                    age_group_inclusion=get_value("age_group_inclusion", row),
-                    bmi_range_inclusion=get_value("bmi_range_inclusion", row),
-                    ethnicity_inclusion=get_value("ethnicity_inclusion", row),
-                    family_status_inclusion=get_value("family_status_inclusion", row),
-                    hospital_patient_inclusion=get_value("hospital_patient_inclusion", row),
-                    use_of_medication_inclusion=get_value("use_of_medication_inclusion", row),
-                    # Exclusion criteria fields
-                    health_status_exclusion=get_value("health_status_exclusion", row),
-                    bmi_range_exclusion=get_value("bmi_range_exclusion", row),
-                    limited_life_expectancy_exclusion=get_value("limited_life_expectancy_exclusion", row),
-                    need_for_surgery_exclusion=get_value("need_for_surgery_exclusion", row),
-                    surgical_procedure_history_exclusion=get_value("surgical_procedure_history_exclusion", row),
-                    clinically_relevant_exposure_exclusion=get_value("clinically_relevant_exposure_exclusion", row),
                     variables={},
                     can_edit=user_email in [*settings.admins_list, get_value("cohortEmail", row)],
                     physical_dictionary_exists=False
