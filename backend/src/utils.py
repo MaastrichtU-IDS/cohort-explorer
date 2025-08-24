@@ -257,10 +257,18 @@ def get_curie_value(key: str, row: dict[str, Any]) -> str | None:
 
 def retrieve_cohorts_metadata(user_email: str) -> dict[str, Cohort]:
     """Get all cohorts metadata from the SPARQL endpoint (infos, variables)"""
+    import time
+    start_time = time.time()
+    
+    # Execute SPARQL query and measure its execution time
+    query_start_time = time.time()
     results = run_query(get_variables_query)["results"]["bindings"]
+    query_end_time = time.time()
+    query_duration = query_end_time - query_start_time
+    
     cohorts_with_variables = {}
     cohorts_without_variables = {}
-    logging.info(f"Get cohorts metadata query results: {len(results)}")
+    logging.info(f"Get cohorts metadata query execution time: {query_duration:.2f} seconds, results: {len(results)})")
     for row in results:
         try:
             cohort_id = str(row["cohortId"]["value"])
@@ -362,5 +370,13 @@ def retrieve_cohorts_metadata(user_email: str) -> dict[str, Cohort]:
                     target_dict[cohort_id].variables[var_id].categories.append(new_category)
         except Exception as e:
             logging.warning(f"Error processing row {row}: {e}")
-    # Merge dictionaries, cohorts with variables first
-    return {**cohorts_with_variables, **cohorts_without_variables}
+    # Merge cohorts with and without variables
+    cohorts = {**cohorts_without_variables, **cohorts_with_variables}
+    
+    # Log total function execution time
+    end_time = time.time()
+    total_duration = end_time - start_time
+    processing_duration = total_duration - query_duration
+    logging.info(f"Total cohorts metadata retrieval time: {total_duration:.2f} seconds (Query: {query_duration:.2f}s, Processing: {processing_duration:.2f}s)")
+    
+    return cohorts
