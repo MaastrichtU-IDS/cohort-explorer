@@ -15,7 +15,7 @@ from SPARQLWrapper import SPARQLWrapper
 
 from src.auth import get_current_user
 from src.config import settings
-from src.decentriq import create_provision_dcr
+from src.decentriq import create_provision_dcr, metadatadict_cols_schema1
 from src.mapping_generation.retriever import map_csv_to_standard_codes
 from src.utils import ICARE, curie_converter, init_graph, prefix_map, retrieve_cohorts_metadata, run_query
 
@@ -179,23 +179,6 @@ cols_normalized = {"VARIABLENAME": "VARIABLE NAME",
                    "VARTYPE": "VAR TYPE"
                    }
 
-COLUMNS_LIST = [
-    "VARIABLE NAME",
-    "VARIABLE LABEL",
-    "VAR TYPE",
-    "UNITS",
-    "CATEGORICAL",
-    "COUNT",
-    "NA",
-    "MIN",
-    "MAX",
-    "Definition",
-    "Formula",
-    "DOMAIN",
-    "Visits",
-
-]
-
 ACCEPTED_DATATYPES = ["STR", "FLOAT", "INT", "DATETIME"]
 
 def to_camelcase(s: str) -> str:
@@ -225,13 +208,12 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
         # --- Structural Validation: Check for required columns ---
         missing_critical_columns = False
         # Define columns absolutely essential for the row-processing logic to run without KeyErrors
-        critical_column_names_for_processing = COLUMNS_LIST
+        critical_column_names_for_processing = [c.name.upper().strip() for c in metadatadict_cols_schema1]
     
-        for required_col_name in COLUMNS_LIST:
-            if required_col_name.upper().strip() not in df.columns:
+        for required_col_name in critical_column_names_for_processing:
+            if required_col_name not in df.columns:
                 errors.append(f"Missing required column: '{required_col_name}'")
-                if required_col_name in critical_column_names_for_processing:
-                    missing_critical_columns = True
+                missing_critical_columns = True
         
         # If critical columns are missing, further processing is unreliable or will cause crashes.
         # Report all errors found so far (which will include all missing column messages) and stop.
