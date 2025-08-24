@@ -206,19 +206,17 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
         df.columns = [cols_normalized.get(c.upper().strip(), c.upper().strip()) for c in df.columns]
 
         # --- Structural Validation: Check for required columns ---
-        missing_critical_columns = False
         # Define columns absolutely essential for the row-processing logic to run without KeyErrors
         critical_column_names_for_processing = [c.name.upper().strip() for c in metadatadict_cols_schema1]
-    
+        missing_columns = []
         for required_col_name in critical_column_names_for_processing:
             if required_col_name not in df.columns:
-                errors.append(f"Missing required column: '{required_col_name}'")
-                missing_critical_columns = True
+                missing_columns.append(required_col_name)
         
         # If critical columns are missing, further processing is unreliable or will cause crashes.
         # Report all errors found so far (which will include all missing column messages) and stop.
-        if missing_critical_columns:
-            errors.append("Critical columns are missing. Further detailed validation of rows cannot proceed.")
+        if len(missing_columns) > 0:
+            errors.append(f"Missing required columns: {', '.join(missing_columns)}")
             raise HTTPException(status_code=422, detail="\n\n".join(errors))
 
         # --- Content Pre-processing (assuming critical columns are present) ---

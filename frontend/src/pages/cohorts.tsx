@@ -180,7 +180,7 @@ export default function CohortsList() {
                 </div>
                 
                 {/* Display inclusion and exclusion criteria section */}
-                <div className="p-4 bg-white rounded-lg shadow-sm mb-4">
+                <div className="p-4 bg-base-200 rounded-lg mb-4">
                   <div className="flex flex-row">
                     {/* Inclusion criteria - Left side */}
                     <div className="flex-1 pr-4 border-r border-gray-300">

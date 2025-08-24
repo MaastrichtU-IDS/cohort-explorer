@@ -55,7 +55,7 @@ metadatadict_cols_schema2 = [
     #Column(name="Definition", format_type=FormatType.STRING, is_nullable=True),
     Column(name="Formula", format_type=FormatType.STRING, is_nullable=True),
     Column(name="Categorical Value Concept Code", format_type=FormatType.STRING, is_nullable=True),
-    Column(name="Categorical Value Name", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Categorical Value Concept Name", format_type=FormatType.STRING, is_nullable=True),
     Column(name="Categorical Value OMOP ID", format_type=FormatType.STRING, is_nullable=True),
     Column(name="Variable Concept Code", format_type=FormatType.STRING, is_nullable=True),
     Column(name="Variable Concept Name", format_type=FormatType.STRING, is_nullable=True),
