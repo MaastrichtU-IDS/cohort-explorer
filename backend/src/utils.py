@@ -182,20 +182,77 @@ WHERE {
 
 
 # TODO: Utility to get value or None if key is missing or value is empty string
-def get_value(key: str, row: dict[str, Any]) -> str | None:
-    return str(row[key]["value"]) if key in row and row[key]["value"] else None
+def get_value(key: str, row: dict[str, Any]) -> str:
+    """Safely get a value from a SPARQL result row.
+    
+    Args:
+        key: The key to look for in the row
+        row: The SPARQL result row dictionary
+        
+    Returns:
+        The string value if found, empty string otherwise
+    """
+    try:
+        if key in row and row[key]["value"]:
+            return str(row[key]["value"])
+        return ""
+    except (KeyError, TypeError):
+        return ""
 
 
 def get_int_value(key: str, row: dict[str, Any]) -> int | None:
-    return int(row[key]["value"]) if key in row and row[key]["value"] else None
+    """Safely get an integer value from a SPARQL result row.
+    
+    Args:
+        key: The key to look for in the row
+        row: The SPARQL result row dictionary
+        
+    Returns:
+        The integer value if found and valid, None otherwise
+    """
+    try:
+        if key in row and row[key]["value"]:
+            return int(row[key]["value"])
+        return None
+    except (KeyError, TypeError, ValueError):
+        return None
 
 
 def get_bool_value(key: str, row: dict[str, Any]) -> bool:
-    return str(row[key]["value"]).lower() == "true" if key in row and row[key]["value"] else False
+    """Safely get a boolean value from a SPARQL result row.
+    
+    Args:
+        key: The key to look for in the row
+        row: The SPARQL result row dictionary
+        
+    Returns:
+        True if the value is 'true' (case insensitive), False otherwise
+    """
+    try:
+        if key in row and row[key]["value"]:
+            return str(row[key]["value"]).lower() == "true"
+        return False
+    except (KeyError, TypeError):
+        return False
 
 
-def get_curie_value(key: str, row: dict[str, Any]) -> int | None:
-    return curie_converter.compress(get_value(key, row)) if get_value(key, row) else None
+def get_curie_value(key: str, row: dict[str, Any]) -> str | None:
+    """Safely get a CURIE value from a SPARQL result row.
+    
+    Args:
+        key: The key to look for in the row
+        row: The SPARQL result row dictionary
+        
+    Returns:
+        The compressed CURIE value if found and valid, None otherwise
+    """
+    try:
+        value = get_value(key, row)
+        if value:
+            return curie_converter.compress(value)
+        return None
+    except Exception:
+        return None
 
 
 def retrieve_cohorts_metadata(user_email: str) -> dict[str, Cohort]:
