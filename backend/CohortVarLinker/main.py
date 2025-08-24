@@ -568,7 +568,7 @@ def generate_mapping_csv(
     vector_db, embedding_model = generate_studies_embeddings(cohort_file_path, "qdrant", "studies_metadata", recreate_db=True)
     graph = OmopGraphNX(csv_file_path=settings.concepts_file_path)
     for tstudy in target_studies:
-        out_filename = f'{source_study}_{tstudy}_cross_mapping.csv'
+        out_filename = f'{source_study}_{tstudy}_cross_mapping.json'
         out_path = os.path.join(output_dir, out_filename)
         if os.path.exists(out_path):
             print(f"Mapping already exists for {source_study} to {tstudy}, skipping computation.")
