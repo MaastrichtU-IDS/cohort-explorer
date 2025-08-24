@@ -421,11 +421,12 @@ def combine_all_mappings_to_json(
     # Dict: {source_var: [mapping_dicts]}
     mappings = {}
     for target in target_studies:
-        csv_file = os.path.join(output_dir, f"{source_study}_{target}_cross_mapping.json")
-        if not os.path.exists(csv_file):
-            print(f"Skipping {csv_file}, does not exist.")
+        crossmap_json = os.path.join(output_dir, f"{source_study}_{target}_cross_mapping.json")
+        if not os.path.exists(crossmap_json):
+            print(f"Skipping {crossmap_json}, does not exist.")
             continue
-        df = pd.read_json(csv_file)
+        print(f"Inside combine_all_mappings_to_json - Processing {crossmap_json}")
+        df = pd.read_json(crossmap_json)
         for idx, row in df.iterrows():
             # Source variable name
             src_var = str(row["source"]).strip()
