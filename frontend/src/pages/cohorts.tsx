@@ -6,13 +6,28 @@ import FilterByMetadata from '@/components/FilterByMetadata';
 import {Cohort} from '@/types';
 import VariablesList from '@/components/VariablesList';
 
+// Helper function to format participants value for display in tags
+const formatParticipantsForTag = (value: string | number | null | undefined): string => {
+  if (!value) return '';
+  
+  // Convert to string if it's a number
+  const strValue = String(value);
+  
+  // If it contains spaces, return only the first token
+  if (strValue.includes(' ')) {
+    return strValue.split(' ')[0];
+  }
+  
+  return strValue;
+};
+
 export default function CohortsList() {
   const {cohortsData, userEmail} = useCohorts();
   const [searchQuery, setSearchQuery] = useState('');
   // selectedDataTypes state removed
   const [selectedStudyTypes, setSelectedStudyTypes] = useState(new Set());
   const [selectedInstitutes, setSelectedInstitutes] = useState(new Set());
-  const [selectedMorbidities, setSelectedMorbidities] = useState(new Set());
+  // selectedMorbidities state removed
 
   // TODO: debounce search to improve performance
   const handleSearchChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -32,11 +47,11 @@ export default function CohortsList() {
         // Cohort type filter removed
         const matchesStudyType = selectedStudyTypes.size === 0 || selectedStudyTypes.has(value.study_type);
         const matchesInstitute = selectedInstitutes.size === 0 || selectedInstitutes.has(value.institution);
-        const matchesMorbidity = selectedMorbidities.size === 0 || (value.morbidity && selectedMorbidities.has(value.morbidity));
-        return matchesSearchQuery && matchesStudyType && matchesInstitute && matchesMorbidity;
+        // Morbidity filter removed
+        return matchesSearchQuery && matchesStudyType && matchesInstitute;
       })
       .map(([, cohortData]) => cohortData);
-  }, [searchQuery, selectedStudyTypes, selectedInstitutes, selectedMorbidities, cohortsData]);
+  }, [searchQuery, selectedStudyTypes, selectedInstitutes, cohortsData]);
   // NOTE: filtering variables is done in VariablesList component
 
   return (
@@ -61,15 +76,7 @@ export default function CohortsList() {
           searchResults={filteredCohorts}
           onFiltersChange={(optionsSelected: any) => setSelectedStudyTypes(optionsSelected)}
         />
-        <FilterByMetadata
-          label="Filter by morbidity"
-          metadata_id="morbidity"
-          options={Array.from(new Set(Object.values(cohortsData)
-            .map((cohort: any) => cohort.morbidity)
-            .filter((morbidity: string | null) => morbidity !== null && morbidity !== undefined)))}
-          searchResults={filteredCohorts}
-          onFiltersChange={(optionsSelected: any) => setSelectedMorbidities(optionsSelected)}
-        />
+        {/* Filter by morbidity removed */}
         <FilterByMetadata
           label="Filter by providers"
           metadata_id="institution"
@@ -125,7 +132,7 @@ export default function CohortsList() {
                   )}
                   {(cohortData.study_participants || cohortData.study_population) && (
                     <span className="badge badge-ghost mx-1">
-                      👥 {cohortData.study_participants} {cohortData.study_population}
+                      👥 {formatParticipantsForTag(cohortData.study_participants)} {cohortData.study_population}
                     </span>
                   )}
                   {/* Removed start date - end date tag as it's shown in the More Details section */}
@@ -149,31 +156,23 @@ export default function CohortsList() {
                   </div>
                 )}
                 {/* Display outcome specifications section */}
-                <div className="mb-4 p-3 bg-base-200 rounded-lg">
-                  <h3 className="font-bold mb-2">Outcome Specifications:</h3>
-                  {cohortData.primary_outcome_spec ? (
-                    <div className="mb-2">
-                      <h4 className="font-semibold">Primary:</h4>
-                      <p>{cohortData.primary_outcome_spec}</p>
-                    </div>
-                  ) : (
-                    <div className="mb-2 text-gray-500">
-                      <h4 className="font-semibold">Primary:</h4>
-                      <p><em>No primary outcome specification available</em></p>
-                    </div>
-                  )}
-                  {cohortData.secondary_outcome_spec ? (
-                    <div className="mb-2">
-                      <h4 className="font-semibold">Secondary:</h4>
-                      <p>{cohortData.secondary_outcome_spec}</p>
-                    </div>
-                  ) : (
-                    <div className="mb-2 text-gray-500">
-                      <h4 className="font-semibold">Secondary:</h4>
-                      <p><em>No secondary outcome specification available</em></p>
-                    </div>
-                  )}
-                </div>
+                {(cohortData.primary_outcome_spec || cohortData.secondary_outcome_spec) && (
+                  <div className="mb-4 p-3 bg-base-200 rounded-lg">
+                    <h3 className="font-bold mb-2">Outcome Specifications:</h3>
+                    {cohortData.primary_outcome_spec && (
+                      <div className="mb-2">
+                        <h4 className="font-semibold">Primary:</h4>
+                        <p>{cohortData.primary_outcome_spec}</p>
+                      </div>
+                    )}
+                    {cohortData.secondary_outcome_spec && (
+                      <div className="mb-2">
+                        <h4 className="font-semibold">Secondary:</h4>
+                        <p>{cohortData.secondary_outcome_spec}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
                 
                 {/* Display inclusion and exclusion criteria section */}
                 <div className="p-4 bg-base-200 rounded-lg mb-4">
@@ -306,109 +305,103 @@ export default function CohortsList() {
                 {/* Cohort Metadata Box */}
                 <div className="bg-white shadow-md rounded-lg p-4 mb-4">
                   <h3 className="text-lg font-semibold mb-3 border-b pb-2">More Details</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      {cohortData.institution && (
-                        <div className="mb-2">
-                          <span className="font-medium">Institute: </span>
-                          <span>{cohortData.institution}</span>
+                  {/* Create an array of detail fields to render dynamically */}
+                  {(() => {
+                    // Define all possible detail fields with their labels and values
+                    const detailFields = [
+                      { label: 'Institute', value: cohortData.institution },
+                      { label: 'Administrator', value: cohortData.administrator },
+                      { label: 'Administrator Email', value: cohortData.administrator_email },
+                      { label: 'Study Contact Person', value: cohortData.study_contact_person },
+                      { label: 'Study Contact Person Email', value: cohortData.study_contact_person_email },
+                      { label: 'Start Date', value: cohortData.study_start },
+                      { label: 'End Date', value: cohortData.study_end },
+                      { label: 'Population Location', value: cohortData.population_location },
+                      { label: 'Language', value: cohortData.language },
+                      { label: 'Number of Participants', value: cohortData.study_participants },
+                      { label: 'Frequency of Data Collection', value: cohortData.data_collection_frequency },
+                      { 
+                        label: 'Sex Distribution', 
+                        value: (cohortData.male_percentage !== null && cohortData.female_percentage !== null) ? 
+                          `Male: ${cohortData.male_percentage}%, Female: ${cohortData.female_percentage}%` : null 
+                      },
+                      { label: 'Interventions', value: cohortData.interventions },
+                      { 
+                        label: 'References', 
+                        value: cohortData.references && cohortData.references.length > 0 ? cohortData.references : null,
+                        isReference: true 
+                      },
+                    ];
+                    
+                    // Filter out fields with no values
+                    const availableFields = detailFields.filter(field => field.value !== null && field.value !== undefined);
+                    
+                    // Calculate the midpoint to split the array into two roughly equal parts
+                    const midpoint = Math.ceil(availableFields.length / 2);
+                    
+                    // Split the array into two columns
+                    const leftColumnFields = availableFields.slice(0, midpoint);
+                    const rightColumnFields = availableFields.slice(midpoint);
+                    
+                    // Render the two columns
+                    return (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* Left Column */}
+                        <div>
+                          {leftColumnFields.map((field, index) => (
+                            <div key={index} className="mb-2">
+                              <span className="font-medium">{field.label}: </span>
+                              {field.isReference ? (
+                                <div>
+                                  {(field.value as string[]).map((reference, refIndex) => (
+                                    <div key={refIndex} className="mb-1">
+                                      <a 
+                                        href={reference.startsWith('http') ? reference : `https://${reference}`} 
+                                        target="_blank" 
+                                        rel="noopener noreferrer"
+                                        className="text-blue-600 hover:underline"
+                                      >
+                                        {reference}
+                                      </a>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span>{field.value as string}</span>
+                              )}
+                            </div>
+                          ))}
                         </div>
-                      )}
-                      {cohortData.administrator && (
-                        <div className="mb-2">
-                          <span className="font-medium">Administrator: </span>
-                          <span>{cohortData.administrator}</span>
+                        
+                        {/* Right Column */}
+                        <div>
+                          {rightColumnFields.map((field, index) => (
+                            <div key={index} className="mb-2">
+                              <span className="font-medium">{field.label}: </span>
+                              {field.isReference ? (
+                                <div>
+                                  {(field.value as string[]).map((reference, refIndex) => (
+                                    <div key={refIndex} className="mb-1">
+                                      <a 
+                                        href={reference.startsWith('http') ? reference : `https://${reference}`} 
+                                        target="_blank" 
+                                        rel="noopener noreferrer"
+                                        className="text-blue-600 hover:underline"
+                                      >
+                                        {reference}
+                                      </a>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span>{field.value as string}</span>
+                              )}
+                            </div>
+                          ))}
                         </div>
-                      )}
-                      {cohortData.administrator_email && (
-                        <div className="mb-2">
-                          <span className="font-medium">Administrator Email: </span>
-                          <span>{cohortData.administrator_email}</span>
-                        </div>
-                      )}
-                      {cohortData.study_contact_person && (
-                        <div className="mb-2">
-                          <span className="font-medium">Study Contact Person: </span>
-                          <span>{cohortData.study_contact_person}</span>
-                        </div>
-                      )}
-                    </div>
-                    <div>
-                      {cohortData.study_contact_person_email && (
-                        <div className="mb-2">
-                          <span className="font-medium">Study Contact Person Email: </span>
-                          <span>{cohortData.study_contact_person_email}</span>
-                        </div>
-                      )}
-                      {cohortData.study_start && (
-                        <div className="mb-2">
-                          <span className="font-medium">Start Date: </span>
-                          <span>{cohortData.study_start}</span>
-                        </div>
-                      )}
-                      {cohortData.study_end && (
-                        <div className="mb-2">
-                          <span className="font-medium">End Date: </span>
-                          <span>{cohortData.study_end}</span>
-                        </div>
-                      )}
-                      {cohortData.references && cohortData.references.length > 0 && (
-                        <div className="mb-2">
-                          <span className="font-medium">References: </span>
-                          <div>
-                            {cohortData.references.map((reference, index) => (
-                              <div key={index} className="mb-1">
-                                <a 
-                                  href={reference.startsWith('http') ? reference : `https://${reference}`} 
-                                  target="_blank" 
-                                  rel="noopener noreferrer"
-                                  className="text-blue-600 hover:underline"
-                                >
-                                  {reference}
-                                </a>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {cohortData.population_location && (
-                        <div className="mb-2">
-                          <span className="font-medium">Population Location: </span>
-                          <span>{cohortData.population_location}</span>
-                        </div>
-                      )}
-                      {cohortData.language && (
-                        <div className="mb-2">
-                          <span className="font-medium">Language: </span>
-                          <span>{cohortData.language}</span>
-                        </div>
-                      )}
-                      {cohortData.data_collection_frequency && (
-                        <div className="mb-2">
-                          <span className="font-medium">Frequency of Data Collection: </span>
-                          <span>{cohortData.data_collection_frequency}</span>
-                        </div>
-                      )}
-                      {(cohortData.male_percentage !== null && cohortData.female_percentage !== null) && (
-                        <div className="mb-2">
-                          <span className="font-medium">Sex Distribution: </span>
-                          <span>Male: {cohortData.male_percentage}%, Female: {cohortData.female_percentage}%</span>
-                        </div>
-                      )}
-                      {cohortData.study_participants && (
-                        <div className="mb-2">
-                          <span className="font-medium">Number of Participants: </span>
-                          <span>{cohortData.study_participants}</span>
-                        </div>
-                      )}
-                      {cohortData.interventions && (
-                        <div className="mb-2">
-                          <span className="font-medium">Interventions: </span>
-                          <span>{cohortData.interventions}</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                      </div>
+                    );
+                  })()}
                   {!cohortData.institution && 
                    !cohortData.administrator && 
                    !cohortData.administrator_email && 

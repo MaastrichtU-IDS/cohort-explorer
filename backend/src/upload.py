@@ -7,7 +7,7 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-
+from re import sub
 import pandas as pd
 import requests
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
@@ -593,7 +593,6 @@ def is_valid_value(value: Any) -> bool:
         if isinstance(value, (int, float)):
             # Zero is considered valid
             return True
-        
         # Convert to string for text comparison
         str_value = str(value).strip().lower()
         if str_value == "" or str_value == "not applicable" or str_value == "nan":
