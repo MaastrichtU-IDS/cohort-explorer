@@ -42,7 +42,7 @@ async def generate_mapping(
     source_study = source_study.lower()
     target_str = "_".join([t[0].lower() for t in target_studies])
     
-    filename = f"{source_study}_omop_id_grouped_{target_str}.csv"
+    filename = f"{source_study}_omop_id_grouped_{target_str}.json"
     filepath = os.path.join(output_dir, filename)
     if os.path.exists(filepath):
         return StreamingResponse(

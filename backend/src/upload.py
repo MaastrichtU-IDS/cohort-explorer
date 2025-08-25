@@ -611,6 +611,10 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
         if is_valid_value(row["Study Contact Person Email Address"]):
             for email in row["Study Contact Person Email Address"].split(";"):
                 g.add((cohort_uri, ICARE.email, Literal(email.strip()), cohorts_graph))
+        # References
+        if is_valid_value(row.get("References", "")):
+            for reference in row["References"].split(";"):
+                g.add((cohort_uri, ICARE.references, Literal(reference.strip()), cohorts_graph))
         if is_valid_value(row["Study Type"]):
             # Split study types on '/' and add each as a separate triple
             study_types = [st.strip() for st in row["Study Type"].split("/")]

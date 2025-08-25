@@ -309,7 +309,7 @@ export default function CohortsList() {
                 
                 {/* Cohort Metadata Box */}
                 <div className="bg-white shadow-md rounded-lg p-4 mb-4">
-                  <h3 className="text-lg font-semibold mb-3 border-b pb-2">Cohort Metadata</h3>
+                  <h3 className="text-lg font-semibold mb-3 border-b pb-2">More Details</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       {cohortData.institution && (
@@ -356,6 +356,25 @@ export default function CohortsList() {
                           <span>{cohortData.study_end}</span>
                         </div>
                       )}
+                      {cohortData.references && cohortData.references.length > 0 && (
+                        <div className="mb-2">
+                          <span className="font-medium">References: </span>
+                          <div>
+                            {cohortData.references.map((reference, index) => (
+                              <div key={index} className="mb-1">
+                                <a 
+                                  href={reference.startsWith('http') ? reference : `https://${reference}`} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer"
+                                  className="text-blue-600 hover:underline"
+                                >
+                                  {reference}
+                                </a>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                   {!cohortData.institution && 
@@ -364,7 +383,8 @@ export default function CohortsList() {
                    !cohortData.study_contact_person && 
                    !cohortData.study_contact_person_email && 
                    !cohortData.study_start && 
-                   !cohortData.study_end && (
+                   !cohortData.study_end && 
+                   (!cohortData.references || cohortData.references.length === 0) && (
                     <p className="text-gray-500"><em>No metadata available</em></p>
                   )}
                 </div>

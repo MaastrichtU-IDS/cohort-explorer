@@ -66,6 +66,7 @@ class Cohort:
     administrator_email: Optional[str] = None
     study_contact_person: Optional[str] = None
     study_contact_person_email: Optional[str] = None
+    references: list[str] = field(default_factory=list)
     # Inclusion criteria fields
     sex_inclusion: Optional[str] = None
     health_status_inclusion: Optional[str] = None

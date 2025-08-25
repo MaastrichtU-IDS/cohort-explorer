@@ -21,6 +21,7 @@ export interface Cohort {
   administrator_email?: string;
   study_contact_person?: string;
   study_contact_person_email?: string;
+  references?: string[];
   // Inclusion criteria fields
   sex_inclusion?: string;
   health_status_inclusion?: string;
