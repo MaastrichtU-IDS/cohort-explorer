@@ -114,9 +114,7 @@ export default function CohortsList() {
                       👥 {cohortData.study_participants} {cohortData.study_population}
                     </span>
                   )}
-                  {(cohortData.male_percentage !== null && cohortData.female_percentage !== null) && (
-                    <span className="badge badge-ghost mx-1">male: {cohortData.male_percentage}%, female: {cohortData.female_percentage}%</span>
-                  )}
+                  {/* Sex distribution moved to More Details section */}
                   {cohortData.study_duration && (
                     <span className="badge badge-default mx-1">⏱️ {cohortData.study_duration}</span>
                   )}
@@ -387,6 +385,24 @@ export default function CohortsList() {
                           <span>{cohortData.data_collection_frequency}</span>
                         </div>
                       )}
+                      {(cohortData.male_percentage !== null && cohortData.female_percentage !== null) && (
+                        <div className="mb-2">
+                          <span className="font-medium">Sex Distribution: </span>
+                          <span>Male: {cohortData.male_percentage}%, Female: {cohortData.female_percentage}%</span>
+                        </div>
+                      )}
+                      {cohortData.study_participants && (
+                        <div className="mb-2">
+                          <span className="font-medium">Number of Participants: </span>
+                          <span>{cohortData.study_participants}</span>
+                        </div>
+                      )}
+                      {cohortData.interventions && (
+                        <div className="mb-2">
+                          <span className="font-medium">Interventions: </span>
+                          <span>{cohortData.interventions}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                   {!cohortData.institution && 
@@ -396,7 +412,13 @@ export default function CohortsList() {
                    !cohortData.study_contact_person_email && 
                    !cohortData.study_start && 
                    !cohortData.study_end && 
-                   (!cohortData.references || cohortData.references.length === 0) && (
+                   (!cohortData.references || cohortData.references.length === 0) && 
+                   !cohortData.population_location && 
+                   !cohortData.language && 
+                   !cohortData.data_collection_frequency && 
+                   !(cohortData.male_percentage !== null && cohortData.female_percentage !== null) && 
+                   !cohortData.study_participants && 
+                   !cohortData.interventions && (
                     <p className="text-gray-500"><em>No metadata available</em></p>
                   )}
                 </div>

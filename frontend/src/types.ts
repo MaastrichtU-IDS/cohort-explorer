@@ -27,6 +27,7 @@ export interface Cohort {
   population_location?: string;
   language?: string;
   data_collection_frequency?: string;
+  interventions?: string;
   // Inclusion criteria fields
   sex_inclusion?: string;
   health_status_inclusion?: string;
