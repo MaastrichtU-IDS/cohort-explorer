@@ -67,6 +67,10 @@ class Cohort:
     study_contact_person: Optional[str] = None
     study_contact_person_email: Optional[str] = None
     references: list[str] = field(default_factory=list)
+    # Additional metadata fields
+    population_location: Optional[str] = None
+    language: Optional[str] = None
+    data_collection_frequency: Optional[str] = None
     # Inclusion criteria fields
     sex_inclusion: Optional[str] = None
     health_status_inclusion: Optional[str] = None

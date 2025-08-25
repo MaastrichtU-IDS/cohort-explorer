@@ -22,6 +22,11 @@ export interface Cohort {
   study_contact_person?: string;
   study_contact_person_email?: string;
   references?: string[];
+  
+  // Additional metadata fields
+  population_location?: string;
+  language?: string;
+  data_collection_frequency?: string;
   // Inclusion criteria fields
   sex_inclusion?: string;
   health_status_inclusion?: string;

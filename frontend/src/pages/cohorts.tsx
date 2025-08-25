@@ -369,6 +369,24 @@ export default function CohortsList() {
                           </div>
                         </div>
                       )}
+                      {cohortData.population_location && (
+                        <div className="mb-2">
+                          <span className="font-medium">Population Location: </span>
+                          <span>{cohortData.population_location}</span>
+                        </div>
+                      )}
+                      {cohortData.language && (
+                        <div className="mb-2">
+                          <span className="font-medium">Language: </span>
+                          <span>{cohortData.language}</span>
+                        </div>
+                      )}
+                      {cohortData.data_collection_frequency && (
+                        <div className="mb-2">
+                          <span className="font-medium">Frequency of Data Collection: </span>
+                          <span>{cohortData.data_collection_frequency}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                   {!cohortData.institution && 

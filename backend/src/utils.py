@@ -87,7 +87,7 @@ PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 PREFIX dc: <http://purl.org/dc/elements/1.1/>
 PREFIX dcterms: <http://purl.org/dc/terms/>
 
-SELECT DISTINCT ?cohortId ?cohortInstitution ?cohortEmail ?study_type ?study_participants ?study_duration ?study_ongoing ?study_population ?study_objective ?primary_outcome_spec ?secondary_outcome_spec ?morbidity ?study_start ?study_end ?male_percentage ?female_percentage ?administrator ?administrator_email ?study_contact_person ?study_contact_person_email ?references ?sex_inclusion ?health_status_inclusion ?clinically_relevant_exposure_inclusion ?age_group_inclusion ?bmi_range_inclusion ?ethnicity_inclusion ?family_status_inclusion ?hospital_patient_inclusion ?use_of_medication_inclusion ?health_status_exclusion ?bmi_range_exclusion ?limited_life_expectancy_exclusion ?need_for_surgery_exclusion ?surgical_procedure_history_exclusion ?clinically_relevant_exposure_exclusion
+SELECT DISTINCT ?cohortId ?cohortInstitution ?cohortEmail ?study_type ?study_participants ?study_duration ?study_ongoing ?study_population ?study_objective ?primary_outcome_spec ?secondary_outcome_spec ?morbidity ?study_start ?study_end ?male_percentage ?female_percentage ?administrator ?administrator_email ?study_contact_person ?study_contact_person_email ?references ?population_location ?language ?data_collection_frequency ?sex_inclusion ?health_status_inclusion ?clinically_relevant_exposure_inclusion ?age_group_inclusion ?bmi_range_inclusion ?ethnicity_inclusion ?family_status_inclusion ?hospital_patient_inclusion ?use_of_medication_inclusion ?health_status_exclusion ?bmi_range_exclusion ?limited_life_expectancy_exclusion ?need_for_surgery_exclusion ?surgical_procedure_history_exclusion ?clinically_relevant_exposure_exclusion
     ?variable ?varName ?varLabel ?varType ?index ?count ?na ?max ?min ?units ?formula ?definition
     ?omopDomain ?conceptId ?mappedId ?mappedLabel ?visits ?categoryValue ?categoryLabel ?categoryConceptId ?categoryMappedId ?categoryMappedLabel
 WHERE {
@@ -117,6 +117,11 @@ WHERE {
         OPTIONAL { ?cohort dc:creator ?study_contact_person . }
         OPTIONAL { ?cohort icare:email ?study_contact_person_email . }
         OPTIONAL { ?cohort icare:references ?references . }
+        
+        # Additional metadata fields
+        OPTIONAL { ?cohort icare:populationLocation ?population_location . }
+        OPTIONAL { ?cohort icare:language ?language . }
+        OPTIONAL { ?cohort icare:dataCollectionFrequency ?data_collection_frequency . }
         
         # Inclusion criteria fields
         OPTIONAL { ?cohort icare:sexInclusion ?sex_inclusion . }
@@ -301,6 +306,10 @@ def retrieve_cohorts_metadata(user_email: str) -> dict[str, Cohort]:
                     study_contact_person=get_value("study_contact_person", row),
                     study_contact_person_email=get_value("study_contact_person_email", row),
                     references=[],
+                    # Additional metadata fields
+                    population_location=get_value("population_location", row),
+                    language=get_value("language", row),
+                    data_collection_frequency=get_value("data_collection_frequency", row),
                     # Inclusion criteria fields
                     sex_inclusion=get_value("sex_inclusion", row),
                     health_status_inclusion=get_value("health_status_inclusion", row),
@@ -336,8 +345,8 @@ def retrieve_cohorts_metadata(user_email: str) -> dict[str, Cohort]:
                 if user_email == get_value("cohortEmail", row):
                     target_dict[cohort_id].can_edit = True
             
-            # Handle references
-            elif get_value("references", row) and get_value("references", row) not in target_dict[cohort_id].references:
+            # Handle references - process independently of other conditions
+            if get_value("references", row) and get_value("references", row) not in target_dict[cohort_id].references:
                 # Add reference to the list
                 target_dict[cohort_id].references.append(get_value("references", row))
 
