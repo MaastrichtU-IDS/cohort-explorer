@@ -333,8 +333,16 @@ export default function CohortsList() {
                       },
                     ];
                     
-                    // Filter out fields with no values
-                    const availableFields = detailFields.filter(field => field.value !== null && field.value !== undefined);
+                    // Helper function to check if a value is empty or empty-like
+                    const isEmptyValue = (value: any): boolean => {
+                      if (value === null || value === undefined) return true;
+                      if (typeof value === 'string' && value.trim() === '') return true;
+                      if (Array.isArray(value) && value.length === 0) return true;
+                      return false;
+                    };
+                    
+                    // Filter out fields with no values or empty values
+                    const availableFields = detailFields.filter(field => !isEmptyValue(field.value));
                     
                     // Calculate the midpoint to split the array into two roughly equal parts
                     const midpoint = Math.ceil(availableFields.length / 2);
