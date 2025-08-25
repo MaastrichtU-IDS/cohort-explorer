@@ -126,14 +126,8 @@ export default function CohortsList() {
                   {cohortData.study_ongoing && cohortData.study_ongoing === 'no' && (
                     <span className="badge badge-default mx-1">Completed study</span>
                   )}
-                  {cohortData.study_start && cohortData.study_end && (
-                    <span className="badge badge-default mx-1">📅 {cohortData.study_start} - {cohortData.study_end}</span>
-                  )}
-                  {cohortData.cohort_email.map(email => (
-                    <span className="badge mx-2" key={cohortData.cohort_id + email}>
-                      ✉️ {email}
-                    </span>
-                  ))}
+                  {/* Removed start date - end date tag as it's shown in the More Details section */}
+                  {/* Removed contact email tags as they're shown in the More Details section */}
                 </div>
               </div>
               <div className="collapse-content">

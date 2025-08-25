@@ -378,7 +378,8 @@ def retrieve_cohorts_metadata(user_email: str) -> dict[str, Cohort]:
         except Exception as e:
             logging.warning(f"Error processing row {row}: {e}")
     # Merge cohorts with and without variables
-    cohorts = {**cohorts_without_variables, **cohorts_with_variables}
+    # Put cohorts with variables first so they appear at the top of the list
+    cohorts = {**cohorts_with_variables, **cohorts_without_variables}
     
     # Log total function execution time
     end_time = time.time()
