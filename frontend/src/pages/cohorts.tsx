@@ -9,9 +9,10 @@ import VariablesList from '@/components/VariablesList';
 export default function CohortsList() {
   const {cohortsData, userEmail} = useCohorts();
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedDataTypes, setSelectedDataTypes] = useState(new Set());
+  // selectedDataTypes state removed
   const [selectedStudyTypes, setSelectedStudyTypes] = useState(new Set());
   const [selectedInstitutes, setSelectedInstitutes] = useState(new Set());
+  const [selectedMorbidities, setSelectedMorbidities] = useState(new Set());
 
   // TODO: debounce search to improve performance
   const handleSearchChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -28,13 +29,14 @@ export default function CohortsList() {
           key.toLowerCase().includes(searchQuery.toLowerCase()) ||
           JSON.stringify(value).toLowerCase().includes(searchQuery.toLowerCase());
 
-        const matchesDataType = selectedDataTypes.size === 0 || selectedDataTypes.has(value.cohort_type);
+        // Cohort type filter removed
         const matchesStudyType = selectedStudyTypes.size === 0 || selectedStudyTypes.has(value.study_type);
         const matchesInstitute = selectedInstitutes.size === 0 || selectedInstitutes.has(value.institution);
-        return matchesSearchQuery && matchesDataType && matchesStudyType && matchesInstitute;
+        const matchesMorbidity = selectedMorbidities.size === 0 || (value.morbidity && selectedMorbidities.has(value.morbidity));
+        return matchesSearchQuery && matchesStudyType && matchesInstitute && matchesMorbidity;
       })
       .map(([, cohortData]) => cohortData);
-  }, [searchQuery, selectedDataTypes, selectedStudyTypes, selectedInstitutes, cohortsData]);
+  }, [searchQuery, selectedStudyTypes, selectedInstitutes, selectedMorbidities, cohortsData]);
   // NOTE: filtering variables is done in VariablesList component
 
   return (
@@ -51,20 +53,22 @@ export default function CohortsList() {
             </span>
           )}
         </div>
-        <FilterByMetadata
-          label="Filter by cohorts type"
-          metadata_id="cohort_type"
-          // Collect unique cohort types from variables for filtering options
-          options={Array.from(new Set(Object.values(cohortsData).map((cohort: any) => cohort.cohort_type)))}
-          searchResults={filteredCohorts}
-          onFiltersChange={(optionsSelected: any) => setSelectedDataTypes(optionsSelected)}
-        />
+        {/* Filter by cohorts type removed */}
         <FilterByMetadata
           label="Filter by study design"
           metadata_id="study_type"
           options={Array.from(new Set(Object.values(cohortsData).map((cohort: any) => cohort.study_type)))}
           searchResults={filteredCohorts}
           onFiltersChange={(optionsSelected: any) => setSelectedStudyTypes(optionsSelected)}
+        />
+        <FilterByMetadata
+          label="Filter by morbidity"
+          metadata_id="morbidity"
+          options={Array.from(new Set(Object.values(cohortsData)
+            .map((cohort: any) => cohort.morbidity)
+            .filter((morbidity: string | null) => morbidity !== null && morbidity !== undefined)))}
+          searchResults={filteredCohorts}
+          onFiltersChange={(optionsSelected: any) => setSelectedMorbidities(optionsSelected)}
         />
         <FilterByMetadata
           label="Filter by providers"
@@ -109,11 +113,6 @@ export default function CohortsList() {
                   <span className="badge badge-outline mx-2">{cohortData.institution}</span>
                   {cohortData.study_type && <span className="badge badge-ghost mx-1">{cohortData.study_type}</span>}
                   {cohortData.cohort_type && <span className="badge badge-ghost mx-1">{cohortData.cohort_type}</span>}
-                  {(cohortData.study_participants || cohortData.study_population) && (
-                    <span className="badge badge-ghost mx-1">
-                      👥 {cohortData.study_participants} {cohortData.study_population}
-                    </span>
-                  )}
                   {/* Sex distribution moved to More Details section */}
                   {cohortData.study_duration && (
                     <span className="badge badge-default mx-1">⏱️ {cohortData.study_duration}</span>
@@ -123,6 +122,11 @@ export default function CohortsList() {
                   )}
                   {cohortData.study_ongoing && cohortData.study_ongoing === 'no' && (
                     <span className="badge badge-default mx-1">Completed study</span>
+                  )}
+                  {(cohortData.study_participants || cohortData.study_population) && (
+                    <span className="badge badge-ghost mx-1">
+                      👥 {cohortData.study_participants} {cohortData.study_population}
+                    </span>
                   )}
                   {/* Removed start date - end date tag as it's shown in the More Details section */}
                   {/* Removed contact email tags as they're shown in the More Details section */}

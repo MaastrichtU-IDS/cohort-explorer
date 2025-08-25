@@ -1,9 +1,11 @@
 import glob
 import logging
+import math
 import os
+import re
 import shutil
 from datetime import datetime
-from re import sub
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -576,15 +578,30 @@ async def upload_cohorts_metadata(
         publish_graph_to_endpoint(g)
 
 
-def is_valid_value(value: str) -> bool:
+def is_valid_value(value: Any) -> bool:
     """
     Check if a value is valid (not empty and not 'Not Applicable')
+    Handles various data types, not just strings.
     """
-    if not value:
+    # Handle None, empty values, NaN
+    if value is None or value == "" or (isinstance(value, float) and math.isnan(value)):
         return False
-    if value.strip().lower() == "not applicable":
+    
+    # Convert to string for text-based checks
+    try:
+        # Handle numeric values that should be considered valid
+        if isinstance(value, (int, float)):
+            # Zero is considered valid
+            return True
+        
+        # Convert to string for text comparison
+        str_value = str(value).strip().lower()
+        if str_value == "" or str_value == "not applicable" or str_value == "nan":
+            return False
+        return True
+    except:
+        # If any error occurs during conversion, consider it invalid
         return False
-    return True
 
 def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
     df = pd.read_excel(filepath, sheet_name="Descriptions")
