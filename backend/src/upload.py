@@ -1,11 +1,13 @@
 import glob
 import logging
+import math
 import os
+import re
 import shutil
 from datetime import datetime
-from re import sub
+from pathlib import Path
 from typing import Any
-
+from re import sub
 import pandas as pd
 import requests
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
@@ -15,7 +17,7 @@ from SPARQLWrapper import SPARQLWrapper
 
 from src.auth import get_current_user
 from src.config import settings
-from src.decentriq import create_provision_dcr
+from src.decentriq import create_provision_dcr, metadatadict_cols_schema1
 from src.mapping_generation.retriever import map_csv_to_standard_codes
 from src.utils import ICARE, curie_converter, init_graph, prefix_map, retrieve_cohorts_metadata, run_query
 
@@ -174,25 +176,10 @@ def parse_categorical_string(s: str) -> list[dict[str, str]]:
         )
     return result
 
-cols_normalized = {"VARIABLENAME": "VARIABLE NAME", 
-                   "VARIABLELABEL": "VARIABLE LABEL",
-                   "VARTYPE": "VAR TYPE"}
-
-COLUMNS_LIST = [
-    "VARIABLE NAME",
-    "VARIABLE LABEL",
-    "VAR TYPE",
-    "UNITS",
-    "CATEGORICAL",
-    "COUNT",
-#    "NA",
-#    "MIN",
-#    "MAX",
-#    "Definition",
-#    "Formula",
-#    "OMOP",
-#    "Visits",
-]
+cols_normalized = {"VARIABLE NAME": "VARIABLENAME", 
+                   "VARIABLE LABEL": "VARIABLELABEL",
+                   "VAR TYPE": "VARTYPE"
+                   }
 
 ACCEPTED_DATATYPES = ["STR", "FLOAT", "INT", "DATETIME"]
 
@@ -221,20 +208,17 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
         df.columns = [cols_normalized.get(c.upper().strip(), c.upper().strip()) for c in df.columns]
 
         # --- Structural Validation: Check for required columns ---
-        missing_critical_columns = False
         # Define columns absolutely essential for the row-processing logic to run without KeyErrors
-        critical_column_names_for_processing = {"VARIABLE NAME", "VARIABLE LABEL", "VAR TYPE", "CATEGORICAL"} 
-        
-        for required_col_name in COLUMNS_LIST:
+        critical_column_names_for_processing = [c.name.upper().strip() for c in metadatadict_cols_schema1]
+        missing_columns = []
+        for required_col_name in critical_column_names_for_processing:
             if required_col_name not in df.columns:
-                errors.append(f"Missing required column: '{required_col_name}'")
-                if required_col_name in critical_column_names_for_processing:
-                    missing_critical_columns = True
+                missing_columns.append(required_col_name)
         
         # If critical columns are missing, further processing is unreliable or will cause crashes.
         # Report all errors found so far (which will include all missing column messages) and stop.
-        if missing_critical_columns:
-            errors.append("Critical columns are missing. Further detailed validation of rows cannot proceed.")
+        if len(missing_columns) > 0:
+            errors.append(f"Missing required columns: {', '.join(missing_columns)}")
             raise HTTPException(status_code=422, detail="\n\n".join(errors))
 
         # --- Content Pre-processing (assuming critical columns are present) ---
@@ -245,27 +229,36 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
             # If this parsing fails, we might still be able to report other errors, so don't raise immediately
             # unless it's the only error. The final check `if len(errors) > 0` will handle it.
 
-        df["VAR TYPE"] = df.apply(lambda row: str(row["VAR TYPE"]).upper(), axis=1)
+        df["VARTYPE"] = df.apply(lambda row: str(row["VARTYPE"]).upper(), axis=1)
 
         # --- Content Validation: DataFrame-level and Row-level ---
-        duplicate_variables = df[df.duplicated(subset=["VARIABLE NAME"], keep=False)]
+        duplicate_variables = df[df.duplicated(subset=["VARIABLENAME"], keep=False)]
         if not duplicate_variables.empty:
-            errors.append(f"Duplicate VARIABLE NAME found: {', '.join(duplicate_variables['VARIABLE NAME'].unique())}")
+            errors.append(f"Duplicate VARIABLENAME found: {', '.join(duplicate_variables['VARIABLENAME'].unique())}")
 
         for i, row in df.iterrows():
-            var_name_for_error = row.get("VARIABLE NAME", f"UNKNOWN_VAR_ROW_{i+2}")
+            var_name_for_error = row.get("VARIABLENAME", f"UNKNOWN_VAR_ROW_{i+2}")
 
             # Check if required values are present in rows (for critical columns)
-            if not row["VARIABLE NAME"] or not row["VARIABLE LABEL"] or not row["VAR TYPE"]:
-                errors.append(f"Row {i+2} (Variable: '{var_name_for_error}') is missing required data in 'VARIABLE NAME', 'VARIABLE LABEL', or 'VAR TYPE'.")
+            req_fields = ["VARIABLENAME", "VARIABLELABEL", "VARTYPE", "DOMAIN"]
+            for rf in req_fields:
+                if not row[rf].strip():
+                    errors.append(f"Row {i+2} (Variable: '{var_name_for_error}') is missing value for the required field: '{rf}'.")
             
-            if row["VAR TYPE"] not in ACCEPTED_DATATYPES:
+            if row["VARTYPE"] not in ACCEPTED_DATATYPES:
                 errors.append(
-                    f"Row {i+2} (Variable: '{var_name_for_error}') has an invalid data type: '{row['VAR TYPE']}'. Accepted types: {', '.join(ACCEPTED_DATATYPES)}."
+                    f"Row {i+2} (Variable: '{var_name_for_error}') has an invalid data type: '{row['VARTYPE']}'. Accepted types: {', '.join(ACCEPTED_DATATYPES)}."
                 )
 
-            # Handle Category validation (from 'categories' column created by parse_categorical_string)
+            acc_domains = ["condition_occurrence", "visit_occurrence", "procedure_occurrence", "measurement", "drug_exposure", "device_exposure", "person", "observation", "observation_period", "death", "specimen", "condition_era"]
+            if row['DOMAIN'].strip().lower() not in acc_domains:
+                errors.append(
+                    f'Row {i+2} (Variable: "{var_name_for_error}") has an invalid domain: "{row["DOMAIN"]}". Accepted domains: {", ".join(acc_domains)}.'
+                )
+
+            # Handle "codes" columns validation (from 'categories' column created by parse_categorical_string)
             # Ensure 'categories' column exists and is a list before checking its length or content
+            codes_columns = [""]
             current_categories = row.get("categories")
             if isinstance(current_categories, list):
                 #if len(current_categories) == 1:
@@ -317,11 +310,11 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
         g.add((cohort_uri, DC.identifier, Literal(cohort_id), cohort_uri))
 
         for i, row in df.iterrows():
-            variable_uri = get_var_uri(cohort_id, row["VARIABLE NAME"])
+            variable_uri = get_var_uri(cohort_id, row["VARIABLENAME"])
             g.add((cohort_uri, ICARE.hasVariable, variable_uri, cohort_uri))
             g.add((variable_uri, RDF.type, ICARE.Variable, cohort_uri))
-            g.add((variable_uri, DC.identifier, Literal(row["VARIABLE NAME"]), cohort_uri))
-            g.add((variable_uri, RDFS.label, Literal(row["VARIABLE LABEL"]), cohort_uri))
+            g.add((variable_uri, DC.identifier, Literal(row["VARIABLENAME"]), cohort_uri))
+            g.add((variable_uri, RDFS.label, Literal(row["VARIABLELABEL"]), cohort_uri))
             g.add((variable_uri, ICARE["index"], Literal(i, datatype=XSD.integer), cohort_uri))
 
             # Get categories code if provided (re-fetch for graph generation phase)
@@ -381,7 +374,6 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
             status_code=500, # Use 500 for truly unexpected server-side issues
             detail=final_error_detail,
         )
-
 
 @router.post(
     "/get-logs",
@@ -586,38 +578,204 @@ async def upload_cohorts_metadata(
         publish_graph_to_endpoint(g)
 
 
+def is_valid_value(value: Any) -> bool:
+    """
+    Check if a value is valid (not empty and not 'Not Applicable')
+    Handles various data types, not just strings.
+    """
+    # Handle None, empty values, NaN
+    if value is None or value == "" or (isinstance(value, float) and math.isnan(value)):
+        return False
+    
+    # Convert to string for text-based checks
+    try:
+        # Handle numeric values that should be considered valid
+        if isinstance(value, (int, float)):
+            # Zero is considered valid
+            return True
+        # Convert to string for text comparison
+        str_value = str(value).strip().lower()
+        if str_value == "" or str_value == "not applicable" or str_value == "nan":
+            return False
+        return True
+    except:
+        # If any error occurs during conversion, consider it invalid
+        return False
+
 def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
     df = pd.read_excel(filepath, sheet_name="Descriptions")
     df = df.fillna("")
     g = init_graph()
     for _i, row in df.iterrows():
-        cohort_id = str(row["Name of Study"]).strip()
+        print("now processing cohorts' metadata row: ", _i, row)
+        cohort_id = str(row["Study Name"]).strip()
         # print(cohort_id)
         cohort_uri = get_cohort_uri(cohort_id)
         cohorts_graph = ICARE["graph/metadata"]
 
         g.add((cohort_uri, RDF.type, ICARE.Cohort, cohorts_graph))
         g.add((cohort_uri, DC.identifier, Literal(cohort_id), cohorts_graph))
-        g.add((cohort_uri, ICARE.institution, Literal(row["Institution"]), cohorts_graph))
-        if row["Contact partner"]:
-            g.add((cohort_uri, DC.creator, Literal(row["Contact partner"]), cohorts_graph))
-        if row["Email"]:
-            for email in row["Email"].split(";"):
+        g.add((cohort_uri, ICARE.institution, Literal(row["Institute"]), cohorts_graph))
+        # Administrator information
+        if is_valid_value(row.get("Administrator", "")):
+            g.add((cohort_uri, ICARE.administrator, Literal(row["Administrator"]), cohorts_graph))
+        if is_valid_value(row.get("Administrator Email Address", "")):
+            g.add((cohort_uri, ICARE.administratorEmail, Literal(row["Administrator Email Address"]), cohorts_graph))
+        # Study contact person information
+        if is_valid_value(row["Study Contact Person"]):
+            g.add((cohort_uri, DC.creator, Literal(row["Study Contact Person"]), cohorts_graph))
+        if is_valid_value(row["Study Contact Person Email Address"]):
+            for email in row["Study Contact Person Email Address"].split(";"):
                 g.add((cohort_uri, ICARE.email, Literal(email.strip()), cohorts_graph))
-        if row["Type"]:
-            g.add((cohort_uri, ICARE.cohortType, Literal(row["Type"]), cohorts_graph))
-        if row["Study Design"]:
+        # References
+        if is_valid_value(row.get("References", "")):
+            for reference in row["References"].split(";"):
+                g.add((cohort_uri, ICARE.references, Literal(reference.strip()), cohorts_graph))
+                
+        # Additional metadata fields
+        if is_valid_value(row.get("Population Location", "")):
+            g.add((cohort_uri, ICARE.populationLocation, Literal(row["Population Location"]), cohorts_graph))
+        if is_valid_value(row.get("Language", "")):
+            g.add((cohort_uri, ICARE.language, Literal(row["Language"]), cohorts_graph))
+        if is_valid_value(row.get("Frequency of data collection", "")):
+            g.add((cohort_uri, ICARE.dataCollectionFrequency, Literal(row["Frequency of data collection"]), cohorts_graph))
+        if is_valid_value(row.get("Interventions", "")):
+            g.add((cohort_uri, ICARE.interventions, Literal(row["Interventions"]), cohorts_graph))
+        if is_valid_value(row["Study Type"]):
+            # Split study types on '/' and add each as a separate triple
+            study_types = [st.strip() for st in row["Study Type"].split("/")]
+            for study_type in study_types:
+                g.add((cohort_uri, ICARE.cohortType, Literal(study_type), cohorts_graph))
+        if is_valid_value(row["Study Design"]):
             g.add((cohort_uri, ICARE.studyType, Literal(row["Study Design"]), cohorts_graph))
-        if row["N"]:
-            g.add((cohort_uri, ICARE.studyParticipants, Literal(row["N"]), cohorts_graph))
-        if row["Study duration"]:
-            g.add((cohort_uri, ICARE.studyDuration, Literal(row["Study duration"]), cohorts_graph))
-        if row["Ongoing"]:
+        #if is_valid_value(row["Study duration"]):
+        #    g.add((cohort_uri, ICARE.studyDuration, Literal(row["Study duration"]), cohorts_graph))
+        if is_valid_value(row["Start date"]) and is_valid_value(row["End date"]):
+            g.add((cohort_uri, ICARE.studyStart, Literal(row["Start date"]), cohorts_graph))
+            g.add((cohort_uri, ICARE.studyEnd, Literal(row["End date"]), cohorts_graph))
+        if is_valid_value(row["Number of Participants"]):
+            g.add((cohort_uri, ICARE.studyParticipants, Literal(row["Number of Participants"]), cohorts_graph))
+        if is_valid_value(row["Ongoing"]):
             g.add((cohort_uri, ICARE.studyOngoing, Literal(row["Ongoing"]), cohorts_graph))
-        if row["Patient population"]:
-            g.add((cohort_uri, ICARE.studyPopulation, Literal(row["Patient population"]), cohorts_graph))
-        if row["Primary objective"]:
-            g.add((cohort_uri, ICARE.studyObjective, Literal(row["Primary objective"]), cohorts_graph))
+        #if is_valid_value(row["Patient population"]):
+        #    g.add((cohort_uri, ICARE.studyPopulation, Literal(row["Patient population"]), cohorts_graph))
+        if is_valid_value(row["Study Objective"]):
+            g.add((cohort_uri, ICARE.studyObjective, Literal(row["Study Objective"]), cohorts_graph))
+            
+        # Handle primary outcome specification
+        if "primary outcome specification" in row and is_valid_value(row["primary outcome specification"]):
+            g.add((cohort_uri, ICARE.primaryOutcomeSpec, Literal(row["primary outcome specification"]), cohorts_graph))
+            
+        # Handle secondary outcome specification
+        if "secondary outcome specification" in row and is_valid_value(row["secondary outcome specification"]):
+            g.add((cohort_uri, ICARE.secondaryOutcomeSpec, Literal(row["secondary outcome specification"]), cohorts_graph))
+            
+        # Handle morbidity
+        if "Morbidity" in row and is_valid_value(row["Morbidity"]):
+            g.add((cohort_uri, ICARE.morbidity, Literal(row["Morbidity"]), cohorts_graph))
+            
+        # Handle inclusion criteria fields using exact field names
+        # Sex inclusion
+        if "Sex inclusion criterion" in row and is_valid_value(row["Sex inclusion criterion"]):
+            g.add((cohort_uri, ICARE["sexInclusion"], Literal(row["Sex inclusion criterion"]), cohorts_graph))
+        
+        # Health status inclusion
+        if "Health status inclusion criterion" in row and is_valid_value(row["Health status inclusion criterion"]):
+            g.add((cohort_uri, ICARE["healthStatusInclusion"], Literal(row["Health status inclusion criterion"]), cohorts_graph))
+        
+        # Clinically relevant exposure inclusion
+        if "clinically relevant exposure inclusion criterion" in row and is_valid_value(row["clinically relevant exposure inclusion criterion"]):
+            g.add((cohort_uri, ICARE["clinicallyRelevantExposureInclusion"], Literal(row["clinically relevant exposure inclusion criterion"]), cohorts_graph))
+        
+        # Age group inclusion
+        if "age group inclusion criterion" in row and is_valid_value(row["age group inclusion criterion"]):
+            g.add((cohort_uri, ICARE["ageGroupInclusion"], Literal(row["age group inclusion criterion"]), cohorts_graph))
+        
+        # BMI range inclusion
+        if "BMI range inclusion criterion" in row and is_valid_value(row["BMI range inclusion criterion"]):
+            g.add((cohort_uri, ICARE["bmiRangeInclusion"], Literal(row["BMI range inclusion criterion"]), cohorts_graph))
+        
+        # Ethnicity inclusion
+        if "ethnicity inclusion criterion" in row and is_valid_value(row["ethnicity inclusion criterion"]):
+            g.add((cohort_uri, ICARE["ethnicityInclusion"], Literal(row["ethnicity inclusion criterion"]), cohorts_graph))
+        
+        # Family status inclusion
+        if "family status inclusion criterion" in row and is_valid_value(row["family status inclusion criterion"]):
+            g.add((cohort_uri, ICARE["familyStatusInclusion"], Literal(row["family status inclusion criterion"]), cohorts_graph))
+        
+        # Hospital patient inclusion
+        if "hospital patient inclusion criterion" in row and is_valid_value(row["hospital patient inclusion criterion"]):
+            g.add((cohort_uri, ICARE["hospitalPatientInclusion"], Literal(row["hospital patient inclusion criterion"]), cohorts_graph))
+        
+        # Use of medication inclusion
+        if "use of medication inclusion criterion" in row and is_valid_value(row["use of medication inclusion criterion"]):
+            g.add((cohort_uri, ICARE["useOfMedicationInclusion"], Literal(row["use of medication inclusion criterion"]), cohorts_graph))
+        
+        # Handle exclusion criteria fields using exact field names
+        # Health status exclusion
+        if "health status exclusion criterion" in row and is_valid_value(row["health status exclusion criterion"]):
+            g.add((cohort_uri, ICARE["healthStatusExclusion"], Literal(row["health status exclusion criterion"]), cohorts_graph))
+        
+        # BMI range exclusion
+        if "bmi range exclusion criterion" in row and is_valid_value(row["bmi range exclusion criterion"]):
+            g.add((cohort_uri, ICARE["bmiRangeExclusion"], Literal(row["bmi range exclusion criterion"]), cohorts_graph))
+        
+        # Limited life expectancy exclusion
+        if "limited life expectancy exclusion criterion" in row and is_valid_value(row["limited life expectancy exclusion criterion"]):
+            g.add((cohort_uri, ICARE["limitedLifeExpectancyExclusion"], Literal(row["limited life expectancy exclusion criterion"]), cohorts_graph))
+        
+        # Need for surgery exclusion
+        if "need for surgery exclusion criterion" in row and is_valid_value(row["need for surgery exclusion criterion"]):
+            g.add((cohort_uri, ICARE["needForSurgeryExclusion"], Literal(row["need for surgery exclusion criterion"]), cohorts_graph))
+        
+        # Surgical procedure history exclusion
+        if "surgical procedure history exclusion criterion" in row and is_valid_value(row["surgical procedure history exclusion criterion"]):
+            g.add((cohort_uri, ICARE["surgicalProcedureHistoryExclusion"], Literal(row["surgical procedure history exclusion criterion"]), cohorts_graph))
+        
+        # Clinically relevant exposure exclusion
+        if "clinically relevant exposure exclusion criterion" in row and is_valid_value(row["clinically relevant exposure exclusion criterion"]):
+            g.add((cohort_uri, ICARE["clinicallyRelevantExposureExclusion"], Literal(row["clinically relevant exposure exclusion criterion"]), cohorts_graph))
+
+        # Handle Mixed Sex field
+        if "Mixed Sex" in row and is_valid_value(row["Mixed Sex"]):
+            mixed_sex_value = row["Mixed Sex"]
+            male_percentage = None
+            female_percentage = None
+            
+            # Split the string by common separators
+            parts = []
+            if ";" in mixed_sex_value:
+                parts = mixed_sex_value.split(";")
+            elif "and" in mixed_sex_value:
+                parts = mixed_sex_value.split("and")
+            else:
+                parts = [mixed_sex_value]
+            
+            # Process each part to find male and female percentages
+            for part in parts:
+                part = part.strip().lower().replace(",", ".")
+                if "male" in part and "female" not in part:  # Ensure we're not catching 'female' in 'male'
+                    # Extract only digits and period for the percentage
+                    digits_only = ''.join(c for c in part if c.isdigit() or c == '.')
+                    if digits_only:
+                        try:
+                            male_percentage = float(digits_only)
+                            g.add((cohort_uri, ICARE.malePercentage, Literal(male_percentage), cohorts_graph))
+                        except ValueError:
+                            print(f"Could not convert '{digits_only}' to float for male percentage")
+                
+                if "female" in part:
+                    # Extract only digits and period for the percentage
+                    digits_only = ''.join(c for c in part if c.isdigit() or c == '.')
+                    if digits_only:
+                        try:
+                            female_percentage = float(digits_only)
+                            g.add((cohort_uri, ICARE.femalePercentage, Literal(female_percentage), cohorts_graph))
+                        except ValueError:
+                            print(f"Could not convert '{digits_only}' to float for female percentage")
+                
+            # Debug output to help diagnose parsing issues
+            print(f"Mixed Sex parsing for {cohort_id}: '{mixed_sex_value}' → Male: {male_percentage}, Female: {female_percentage}")
     return g
 
 

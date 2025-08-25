@@ -240,9 +240,6 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
 
       {/* List of variables */}
       <div className="flex flex-col">
-        {cohortsData[cohortId].study_objective && (
-          <div className="card p-3 mb-3 bg-base-300">🎯 Study objective: {cohortsData[cohortId].study_objective}</div>
-        )}
         <div className="space-y-2">
           {filteredVars?.map((variable: any) => (
             <div key={variable.var_name} className="card card-compact card-bordered bg-base-100 shadow-xl">
@@ -258,6 +255,9 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
                     )}
                     {variable.omop_domain && <span className="badge badge-default">{variable.omop_domain}</span>}
                     {variable.formula && <span className="badge badge-outline">🧪 {variable.formula}</span>}
+                    {variable.concept_code && <span className="badge badge-info">Code: {variable.concept_code}</span>}
+                    {variable.concept_name && <span className="badge badge-info">Name: {variable.concept_name}</span>}
+                    {variable.omop_id && <span className="badge badge-info">OMOP ID: {variable.omop_id}</span>}
                     {/* {(variable.concept_id || variable.mapped_id) && ( */}
                     <AutocompleteConcept
                       query={variable.var_label}

@@ -6,12 +6,28 @@ import FilterByMetadata from '@/components/FilterByMetadata';
 import {Cohort} from '@/types';
 import VariablesList from '@/components/VariablesList';
 
+// Helper function to format participants value for display in tags
+const formatParticipantsForTag = (value: string | number | null | undefined): string => {
+  if (!value) return '';
+  
+  // Convert to string if it's a number
+  const strValue = String(value);
+  
+  // If it contains spaces, return only the first token
+  if (strValue.includes(' ')) {
+    return strValue.split(' ')[0];
+  }
+  
+  return strValue;
+};
+
 export default function CohortsList() {
   const {cohortsData, userEmail} = useCohorts();
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedDataTypes, setSelectedDataTypes] = useState(new Set());
+  // selectedDataTypes state removed
   const [selectedStudyTypes, setSelectedStudyTypes] = useState(new Set());
   const [selectedInstitutes, setSelectedInstitutes] = useState(new Set());
+  // selectedMorbidities state removed
 
   // TODO: debounce search to improve performance
   const handleSearchChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -28,17 +44,20 @@ export default function CohortsList() {
           key.toLowerCase().includes(searchQuery.toLowerCase()) ||
           JSON.stringify(value).toLowerCase().includes(searchQuery.toLowerCase());
 
-        const matchesDataType = selectedDataTypes.size === 0 || selectedDataTypes.has(value.cohort_type);
+        // Cohort type filter removed
         const matchesStudyType = selectedStudyTypes.size === 0 || selectedStudyTypes.has(value.study_type);
         const matchesInstitute = selectedInstitutes.size === 0 || selectedInstitutes.has(value.institution);
-        return matchesSearchQuery && matchesDataType && matchesStudyType && matchesInstitute;
+        // Morbidity filter removed
+        return matchesSearchQuery && matchesStudyType && matchesInstitute;
       })
       .map(([, cohortData]) => cohortData);
-  }, [searchQuery, selectedDataTypes, selectedStudyTypes, selectedInstitutes, cohortsData]);
+  }, [searchQuery, selectedStudyTypes, selectedInstitutes, cohortsData]);
   // NOTE: filtering variables is done in VariablesList component
 
   return (
-    <main className="flex w-full p-4 bg-base-200 h-full min-h-screen space-x-4">
+    <>
+
+      <main className="flex w-full p-4 bg-base-200 h-full min-h-screen space-x-4">
       <aside className="flex-shrink-0 w-64 flex flex-col">
         <div className="text-center mb-2">
           {filteredCohorts.length == Object.keys(cohortsData).length ? (
@@ -49,14 +68,7 @@ export default function CohortsList() {
             </span>
           )}
         </div>
-        <FilterByMetadata
-          label="Filter by cohorts type"
-          metadata_id="cohort_type"
-          // Collect unique cohort types from variables for filtering options
-          options={Array.from(new Set(Object.values(cohortsData).map((cohort: any) => cohort.cohort_type)))}
-          searchResults={filteredCohorts}
-          onFiltersChange={(optionsSelected: any) => setSelectedDataTypes(optionsSelected)}
-        />
+        {/* Filter by cohorts type removed */}
         <FilterByMetadata
           label="Filter by study design"
           metadata_id="study_type"
@@ -64,6 +76,7 @@ export default function CohortsList() {
           searchResults={filteredCohorts}
           onFiltersChange={(optionsSelected: any) => setSelectedStudyTypes(optionsSelected)}
         />
+        {/* Filter by morbidity removed */}
         <FilterByMetadata
           label="Filter by providers"
           metadata_id="institution"
@@ -95,7 +108,7 @@ export default function CohortsList() {
           {userEmail === null && (
             <p className="text-red-500 text-center mt-[20%]">Authenticate to access the explorer</p>
           )}
-          {filteredCohorts.map(cohortData => (
+          {filteredCohorts.map((cohortData: Cohort) => (
             <div
               key={cohortData.cohort_id}
               className={`collapse card card-compact bg-base-100 shadow-xl ${!(Object.keys(cohortData.variables).length > 0) ? 'opacity-50' : ''}`}
@@ -107,11 +120,7 @@ export default function CohortsList() {
                   <span className="badge badge-outline mx-2">{cohortData.institution}</span>
                   {cohortData.study_type && <span className="badge badge-ghost mx-1">{cohortData.study_type}</span>}
                   {cohortData.cohort_type && <span className="badge badge-ghost mx-1">{cohortData.cohort_type}</span>}
-                  {(cohortData.study_participants || cohortData.study_population) && (
-                    <span className="badge badge-ghost mx-1">
-                      👥 {cohortData.study_participants} {cohortData.study_population}
-                    </span>
-                  )}
+                  {/* Sex distribution moved to More Details section */}
                   {cohortData.study_duration && (
                     <span className="badge badge-default mx-1">⏱️ {cohortData.study_duration}</span>
                   )}
@@ -121,14 +130,304 @@ export default function CohortsList() {
                   {cohortData.study_ongoing && cohortData.study_ongoing === 'no' && (
                     <span className="badge badge-default mx-1">Completed study</span>
                   )}
-                  {cohortData.cohort_email.map(email => (
-                    <span className="badge mx-2" key={cohortData.cohort_id + email}>
-                      ✉️ {email}
+                  {(cohortData.study_participants || cohortData.study_population) && (
+                    <span className="badge badge-ghost mx-1">
+                      👥 {formatParticipantsForTag(cohortData.study_participants)} {cohortData.study_population}
                     </span>
-                  ))}
+                  )}
+                  {/* Removed start date - end date tag as it's shown in the More Details section */}
+                  {/* Removed contact email tags as they're shown in the More Details section */}
                 </div>
               </div>
               <div className="collapse-content">
+                {/* Display study objective section */}
+                {cohortData.study_objective && (
+                  <div className="mb-4 p-3 bg-base-200 rounded-lg">
+                    <h3 className="font-bold mb-2">Study Objective:</h3>
+                    <p>{cohortData.study_objective}</p>
+                  </div>
+                )}
+                
+                {/* Display morbidity section */}
+                {cohortData.morbidity && (
+                  <div className="mb-4 p-3 bg-base-200 rounded-lg">
+                    <h3 className="font-bold mb-2">Morbidity:</h3>
+                    <p>{cohortData.morbidity}</p>
+                  </div>
+                )}
+                {/* Display outcome specifications section */}
+                {(cohortData.primary_outcome_spec || cohortData.secondary_outcome_spec) && (
+                  <div className="mb-4 p-3 bg-base-200 rounded-lg">
+                    <h3 className="font-bold mb-2">Outcome Specifications:</h3>
+                    {cohortData.primary_outcome_spec && (
+                      <div className="mb-2">
+                        <h4 className="font-semibold">Primary:</h4>
+                        <p>{cohortData.primary_outcome_spec}</p>
+                      </div>
+                    )}
+                    {cohortData.secondary_outcome_spec && (
+                      <div className="mb-2">
+                        <h4 className="font-semibold">Secondary:</h4>
+                        <p>{cohortData.secondary_outcome_spec}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+                
+                {/* Display inclusion and exclusion criteria section */}
+                <div className="p-4 bg-base-200 rounded-lg mb-4">
+                  <div className="flex flex-row">
+                    {/* Inclusion criteria - Left side */}
+                    <div className="flex-1 pr-4 border-r border-gray-300">
+                      <h4 className="font-semibold mb-2">Inclusion Criteria:</h4>
+                      <div className="grid grid-cols-1 gap-2">
+                        {cohortData.sex_inclusion && (
+                          <div className="mb-1">
+                            <span className="font-medium">Sex: </span>
+                            <span>{cohortData.sex_inclusion}</span>
+                          </div>
+                        )}
+                        {cohortData.health_status_inclusion && (
+                          <div className="mb-1">
+                            <span className="font-medium">Health Status: </span>
+                            <span>{cohortData.health_status_inclusion}</span>
+                          </div>
+                        )}
+                        {cohortData.clinically_relevant_exposure_inclusion && (
+                          <div className="mb-1">
+                            <span className="font-medium">Clinically Relevant Exposure: </span>
+                            <span>{cohortData.clinically_relevant_exposure_inclusion}</span>
+                          </div>
+                        )}
+                        {cohortData.age_group_inclusion && (
+                          <div className="mb-1">
+                            <span className="font-medium">Age Group: </span>
+                            <span>{cohortData.age_group_inclusion}</span>
+                          </div>
+                        )}
+                        {cohortData.bmi_range_inclusion && (
+                          <div className="mb-1">
+                            <span className="font-medium">BMI Range: </span>
+                            <span>{cohortData.bmi_range_inclusion}</span>
+                          </div>
+                        )}
+                        {cohortData.ethnicity_inclusion && (
+                          <div className="mb-1">
+                            <span className="font-medium">Ethnicity: </span>
+                            <span>{cohortData.ethnicity_inclusion}</span>
+                          </div>
+                        )}
+                        {cohortData.family_status_inclusion && (
+                          <div className="mb-1">
+                            <span className="font-medium">Family Status: </span>
+                            <span>{cohortData.family_status_inclusion}</span>
+                          </div>
+                        )}
+                        {cohortData.hospital_patient_inclusion && (
+                          <div className="mb-1">
+                            <span className="font-medium">Hospital Patient: </span>
+                            <span>{cohortData.hospital_patient_inclusion}</span>
+                          </div>
+                        )}
+                        {cohortData.use_of_medication_inclusion && (
+                          <div className="mb-1">
+                            <span className="font-medium">Use of Medication: </span>
+                            <span>{cohortData.use_of_medication_inclusion}</span>
+                          </div>
+                        )}
+                        {!cohortData.sex_inclusion && 
+                         !cohortData.health_status_inclusion && 
+                         !cohortData.clinically_relevant_exposure_inclusion && 
+                         !cohortData.age_group_inclusion && 
+                         !cohortData.bmi_range_inclusion && 
+                         !cohortData.ethnicity_inclusion && 
+                         !cohortData.family_status_inclusion && 
+                         !cohortData.hospital_patient_inclusion && 
+                         !cohortData.use_of_medication_inclusion && (
+                          <p className="text-gray-500"><em>No inclusion criteria specified</em></p>
+                        )}
+                      </div>
+                    </div>
+                    
+                    {/* Exclusion criteria - Right side */}
+                    <div className="flex-1 pl-4">
+                      <h4 className="font-semibold mb-2">Exclusion Criteria:</h4>
+                      <div className="grid grid-cols-1 gap-2">
+                        {cohortData.health_status_exclusion && (
+                          <div className="mb-1">
+                            <span className="font-medium">Health Status: </span>
+                            <span>{cohortData.health_status_exclusion}</span>
+                          </div>
+                        )}
+                        {cohortData.bmi_range_exclusion && (
+                          <div className="mb-1">
+                            <span className="font-medium">BMI Range: </span>
+                            <span>{cohortData.bmi_range_exclusion}</span>
+                          </div>
+                        )}
+                        {cohortData.limited_life_expectancy_exclusion && (
+                          <div className="mb-1">
+                            <span className="font-medium">Limited Life Expectancy: </span>
+                            <span>{cohortData.limited_life_expectancy_exclusion}</span>
+                          </div>
+                        )}
+                        {cohortData.need_for_surgery_exclusion && (
+                          <div className="mb-1">
+                            <span className="font-medium">Need for Surgery: </span>
+                            <span>{cohortData.need_for_surgery_exclusion}</span>
+                          </div>
+                        )}
+                        {cohortData.surgical_procedure_history_exclusion && (
+                          <div className="mb-1">
+                            <span className="font-medium">Surgical Procedure History: </span>
+                            <span>{cohortData.surgical_procedure_history_exclusion}</span>
+                          </div>
+                        )}
+                        {cohortData.clinically_relevant_exposure_exclusion && (
+                          <div className="mb-1">
+                            <span className="font-medium">Clinically Relevant Exposure: </span>
+                            <span>{cohortData.clinically_relevant_exposure_exclusion}</span>
+                          </div>
+                        )}
+                        {!cohortData.health_status_exclusion && 
+                         !cohortData.bmi_range_exclusion && 
+                         !cohortData.limited_life_expectancy_exclusion && 
+                         !cohortData.need_for_surgery_exclusion && 
+                         !cohortData.surgical_procedure_history_exclusion && 
+                         !cohortData.clinically_relevant_exposure_exclusion && (
+                          <p className="text-gray-500"><em>No exclusion criteria specified</em></p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Cohort Metadata Box */}
+                <div className="bg-white shadow-md rounded-lg p-4 mb-4">
+                  <h3 className="text-lg font-semibold mb-3 border-b pb-2">More Details</h3>
+                  {/* Create an array of detail fields to render dynamically */}
+                  {(() => {
+                    // Define all possible detail fields with their labels and values
+                    const detailFields = [
+                      { label: 'Institute', value: cohortData.institution },
+                      { label: 'Administrator', value: cohortData.administrator },
+                      { label: 'Administrator Email', value: cohortData.administrator_email },
+                      { label: 'Study Contact Person', value: cohortData.study_contact_person },
+                      { label: 'Study Contact Person Email', value: cohortData.study_contact_person_email },
+                      { label: 'Start Date', value: cohortData.study_start },
+                      { label: 'End Date', value: cohortData.study_end },
+                      { label: 'Population Location', value: cohortData.population_location },
+                      { label: 'Language', value: cohortData.language },
+                      { label: 'Number of Participants', value: cohortData.study_participants },
+                      { label: 'Frequency of Data Collection', value: cohortData.data_collection_frequency },
+                      { 
+                        label: 'Sex Distribution', 
+                        value: (cohortData.male_percentage !== null && cohortData.female_percentage !== null) ? 
+                          `Male: ${cohortData.male_percentage}%, Female: ${cohortData.female_percentage}%` : null 
+                      },
+                      { label: 'Interventions', value: cohortData.interventions },
+                      { 
+                        label: 'References', 
+                        value: cohortData.references && cohortData.references.length > 0 ? cohortData.references : null,
+                        isReference: true 
+                      },
+                    ];
+                    
+                    // Helper function to check if a value is empty or empty-like
+                    const isEmptyValue = (value: any): boolean => {
+                      if (value === null || value === undefined) return true;
+                      if (typeof value === 'string' && value.trim() === '') return true;
+                      if (Array.isArray(value) && value.length === 0) return true;
+                      return false;
+                    };
+                    
+                    // Filter out fields with no values or empty values
+                    const availableFields = detailFields.filter(field => !isEmptyValue(field.value));
+                    
+                    // Calculate the midpoint to split the array into two roughly equal parts
+                    const midpoint = Math.ceil(availableFields.length / 2);
+                    
+                    // Split the array into two columns
+                    const leftColumnFields = availableFields.slice(0, midpoint);
+                    const rightColumnFields = availableFields.slice(midpoint);
+                    
+                    // Render the two columns
+                    return (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* Left Column */}
+                        <div>
+                          {leftColumnFields.map((field, index) => (
+                            <div key={index} className="mb-2">
+                              <span className="font-medium">{field.label}: </span>
+                              {field.isReference ? (
+                                <div>
+                                  {(field.value as string[]).map((reference, refIndex) => (
+                                    <div key={refIndex} className="mb-1">
+                                      <a 
+                                        href={reference.startsWith('http') ? reference : `https://${reference}`} 
+                                        target="_blank" 
+                                        rel="noopener noreferrer"
+                                        className="text-blue-600 hover:underline"
+                                      >
+                                        {reference}
+                                      </a>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span>{field.value as string}</span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                        
+                        {/* Right Column */}
+                        <div>
+                          {rightColumnFields.map((field, index) => (
+                            <div key={index} className="mb-2">
+                              <span className="font-medium">{field.label}: </span>
+                              {field.isReference ? (
+                                <div>
+                                  {(field.value as string[]).map((reference, refIndex) => (
+                                    <div key={refIndex} className="mb-1">
+                                      <a 
+                                        href={reference.startsWith('http') ? reference : `https://${reference}`} 
+                                        target="_blank" 
+                                        rel="noopener noreferrer"
+                                        className="text-blue-600 hover:underline"
+                                      >
+                                        {reference}
+                                      </a>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span>{field.value as string}</span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                  {!cohortData.institution && 
+                   !cohortData.administrator && 
+                   !cohortData.administrator_email && 
+                   !cohortData.study_contact_person && 
+                   !cohortData.study_contact_person_email && 
+                   !cohortData.study_start && 
+                   !cohortData.study_end && 
+                   (!cohortData.references || cohortData.references.length === 0) && 
+                   !cohortData.population_location && 
+                   !cohortData.language && 
+                   !cohortData.data_collection_frequency && 
+                   !(cohortData.male_percentage !== null && cohortData.female_percentage !== null) && 
+                   !cohortData.study_participants && 
+                   !cohortData.interventions && (
+                    <p className="text-gray-500"><em>No metadata available</em></p>
+                  )}
+                </div>
+                
                 <VariablesList cohortId={cohortData.cohort_id} searchFilters={{searchQuery: searchQuery}} />
               </div>
             </div>
@@ -136,5 +435,6 @@ export default function CohortsList() {
         </div>
       </div>
     </main>
+    </>
   );
 }

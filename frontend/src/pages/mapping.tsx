@@ -1,55 +1,83 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 
-// Helper component for CSV preview
-interface MappingPreviewTableProps {
-  csvText: string;
-  maxRows: number;
+// Define the shape of our row data
+interface RowData {
+  [key: string]: string | number | boolean | null | undefined;
 }
-function MappingPreviewTable({ csvText, maxRows }: MappingPreviewTableProps) {
-  // Basic CSV parsing (does not handle all edge cases, but fine for preview)
-  const rows: string[][] = csvText.trim().split(/\r?\n/).map((line: string) => {
-    const cells: string[] = [];
-    let current = '';
-    let inQuotes = false;
-    for (let i = 0; i < line.length; i++) {
-      const char = line[i];
-      if (char === '"') {
-        inQuotes = !inQuotes;
-      } else if (char === ',' && !inQuotes) {
-        cells.push(current);
-        current = '';
-      } else {
-        current += char;
-      }
+
+// Helper function to extract relevant fields from the mapping JSON
+function transformMappingDataForPreview(jsonData: any): RowData[] {
+  let allMappings: RowData[] = [];
+  if (typeof jsonData !== 'object' || jsonData === null) {
+    return [];
+  }
+
+  Object.values(jsonData).forEach((value: any) => {
+    if (value && Array.isArray(value.mappings)) {
+      const transformed = value.mappings.map((mapping: any) => {
+        const newRow: RowData = {
+          s_source: mapping.s_source,
+          s_label: mapping.s_slabel,
+          target_study: mapping.target_study,
+          harmonization_status: mapping.harmonization_status || 'pending',
+        };
+
+        // Find wildcard keys
+        Object.keys(mapping).forEach(key => {
+          if (key.endsWith('_target')) {
+            newRow['target'] = mapping[key];
+          } else if (key.endsWith('_tlabel')) {
+            newRow['target_label'] = mapping[key];
+          } else if (key.endsWith('_mapping_type')) {
+            newRow['mapping_type'] = mapping[key];
+          } else if (key === 'harmonization_status') {
+            newRow['harmonization_status'] = mapping[key];
+          }
+        });
+        return newRow;
+      });
+      allMappings = allMappings.concat(transformed);
     }
-    cells.push(current);
-    return cells;
   });
-  if (!rows.length) return null;
-  const header = rows[0];
-  const data = rows.slice(1, maxRows + 1);
+
+  return allMappings;
+}
+
+// Helper component for the mapping preview table
+interface MappingPreviewJsonTableProps {
+  data: RowData[];
+}
+
+function MappingPreviewJsonTable({ data }: MappingPreviewJsonTableProps) {
+  if (!data || !Array.isArray(data) || data.length === 0) return <div className="italic text-slate-400">No mapping data to preview.</div>;
+  
+  // Define columns in a specific order for consistency
+  const columns = ['s_source', 's_label', 'target_study', 'target', 'target_label', 'mapping_type', 'harmonization_status'];
+
   return (
     <table className="table table-zebra w-full text-xs">
       <thead>
         <tr>
-          {header.map((cell: string, i: number) => <th key={i} className="font-bold bg-base-300">{cell}</th>)}
+          {columns.map(col => (
+            <th key={col} className="font-bold bg-base-300">{col}</th>
+          ))}
         </tr>
       </thead>
       <tbody>
-        {data.map((row: string[], i: number) => (
+        {data.map((row, i) => (
           <tr key={i}>
-            {row.map((cell: string, j: number) => <td key={j}>{cell}</td>)}
+            {columns.map(col => (
+              <td key={col}>{(row[col] as string | number | boolean | null | undefined)?.toString() || ''}</td>
+            ))}
           </tr>
         ))}
-        {rows.length > maxRows + 1 && (
-          <tr><td colSpan={header.length} className="italic text-slate-400">... (truncated)</td></tr>
-        )}
       </tbody>
     </table>
   );
 }
+
 
 import { useCohorts } from '@/components/CohortsContext';
 import {apiUrl} from '@/utils';
@@ -60,14 +88,24 @@ export default function MappingPage() {
   // Allow multiple target cohorts, each listed only once
   // Store selected target cohorts as strings
   const [selectedTargets, setSelectedTargets] = useState<string[]>([]);
-  const [mappingOutput, setMappingOutput] = useState('');
+  const [mappingOutput, setMappingOutput] = useState<RowData[] | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  
+  // Reference to the mapping output section
+  const mappingOutputRef = useRef<HTMLDivElement>(null);
 
   // Filtered cohorts for both source and target menus based on search
   const filteredCohorts = Object.entries(cohortsData).filter(([cohortId, cohort]) =>
     cohortId.toLowerCase().includes(searchQuery.toLowerCase()) ||
     JSON.stringify(cohort).toLowerCase().includes(searchQuery.toLowerCase())
   );
+  
+  // Scroll to the mapping output section when data becomes available
+  useEffect(() => {
+    if (mappingOutput && mappingOutputRef.current) {
+      mappingOutputRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [mappingOutput]);
 
   const handleSearchChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(event.target.value);
@@ -77,6 +115,8 @@ export default function MappingPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // ... inside MappingPage component, replace the existing handleMapConcepts function with this one ...
+
   // Backend integration
   const handleMapConcepts = async () => {
     if (!sourceCohort || selectedTargets.length === 0) {
@@ -85,7 +125,7 @@ export default function MappingPage() {
     }
     setLoading(true);
     setError(null);
-    setMappingOutput('');
+    setMappingOutput(null);
     try {
       // Send as [cohortId, false] for each selected target
       const target_studies = selectedTargets.map((cohortId: string) => [cohortId, false]);
@@ -102,7 +142,6 @@ export default function MappingPage() {
       if (!response.ok) {
         const result = await response.json();
         let errorMsg = result.detail || result.error || 'Failed to generate mapping';
-        // Custom error message for missing cohort metadata
         if (
           response.status === 404 &&
           typeof errorMsg === 'string' &&
@@ -113,19 +152,33 @@ export default function MappingPage() {
         }
         throw new Error(errorMsg);
       }
-      const blob = await response.blob();
+      // Read the response body as text once to avoid consuming the stream multiple times
+      const responseText = await response.text();
+
+      // The backend may incorrectly return NaN, which is not valid JSON.
+      // Replace all instances of NaN with null before parsing.
+      const cleanedResponseText = responseText.replace(/NaN/g, 'null');
+
+      // Handle download by creating a blob from the cleaned response text
+      const blob = new Blob([cleanedResponseText], { type: 'application/json' });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      const targetsString = [...selectedTargets].sort().join('__');
-      a.download = `mapping_${sourceCohort}_to_${targetsString}.csv`;
+      a.download = `mapping_${sourceCohort}_to_${selectedTargets.join('_')}.json`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      // Preview
-      const text = await blob.text();
-      setMappingOutput(text);
       window.URL.revokeObjectURL(url);
+
+      // Handle preview by parsing the cleaned response text
+      try {
+        const jsonData = JSON.parse(cleanedResponseText);
+        const previewData = transformMappingDataForPreview(jsonData);
+        setMappingOutput(previewData);
+      } catch (error) {
+        console.error('Error parsing JSON response for preview:', error);
+        setMappingOutput([]); // Clear the preview on error
+      }
     } catch (err: any) {
       setError(
         typeof err.message === 'string' && err.message.endsWith("metadata has not been added yet!")
@@ -235,10 +288,13 @@ export default function MappingPage() {
         )}
 
         {mappingOutput && (
-          <div className="mt-8">
-            <h2 className="text-xl font-semibold mb-4">Mapping Preview</h2>
-            <div className="bg-base-100 p-4 rounded-lg shadow overflow-x-auto">
-              <MappingPreviewTable csvText={mappingOutput} maxRows={10} />
+          <div 
+            ref={mappingOutputRef}
+            className="mt-4 p-4 border rounded-lg bg-base-100 w-full max-w-5xl mx-auto"
+          >
+            <h2 className="text-lg font-bold mb-2">Mapping Preview</h2>
+            <div className="overflow-x-auto">
+              <MappingPreviewJsonTable data={mappingOutput} />
             </div>
           </div>
         )}

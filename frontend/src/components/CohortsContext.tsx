@@ -33,10 +33,10 @@ export const CohortsProvider = ({children}: any) => {
       }
     };
 
-    // Fetch cohort data every minute with the worker
+    // Fetch cohort data every 5 minutes with the worker
     const intervalId = setInterval(() => {
       fetchCohortsData();
-    }, 60000);
+    }, 300000);
     // Initial fetch
     fetchCohortsData();
     return () => {
