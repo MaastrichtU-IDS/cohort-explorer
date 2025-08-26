@@ -23,14 +23,17 @@ export default function Home() {
       // Calculate statistics
       const totalCohorts = Object.keys(cohortsData).length;
       
+      // Convert cohortsData to a typed array for safer operations
+      const cohortsList: Cohort[] = Object.values(cohortsData);
+      
       // Cohorts with metadata (has variables)
-      const cohortsWithMetadata = Object.values(cohortsData as Record<string, Cohort>).filter(
+      const cohortsWithMetadata = cohortsList.filter(
         (cohort: Cohort) => Object.keys(cohort.variables || {}).length > 0
       );
       const cohortsWithMetadataCount = cohortsWithMetadata.length;
       
       // Cohorts with aggregate analysis
-      const cohortsWithAggregateAnalysis = Object.values(cohortsData as Record<string, Cohort>).filter(
+      const cohortsWithAggregateAnalysis = cohortsList.filter(
         (cohort: Cohort) => cohort.has_aggregate_analysis === true
       ).length;
       
@@ -49,7 +52,7 @@ export default function Home() {
       };
       
       // Total patients across all cohorts
-      const totalPatients = Object.values(cohortsData as Record<string, Cohort>).reduce(
+      const totalPatients = cohortsList.reduce(
         (sum: number, cohort: Cohort) => sum + parseParticipants(cohort.study_participants), 
         0
       );
@@ -62,7 +65,7 @@ export default function Home() {
       
       // Total unique variables across all cohorts
       let totalVariables = 0;
-      Object.values(cohortsData as Record<string, Cohort>).forEach((cohort: Cohort) => {
+      cohortsList.forEach((cohort: Cohort) => {
         if (cohort.variables) {
           totalVariables += Object.keys(cohort.variables).length;
         }
