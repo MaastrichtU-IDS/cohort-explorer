@@ -205,8 +205,10 @@ def parse_categorical_string(s: str) -> list[dict[str, str]]:
 
 cols_normalized = {"VARIABLE NAME": "VARIABLENAME", 
                    "VARIABLE LABEL": "VARIABLELABEL",
-                   "VAR TYPE": "VARTYPE"
-                   }
+                   "VAR TYPE": "VARTYPE",
+                   "Categorical Values Concept Name": "Categorical Value Concept Name",
+                   "Categorical Values Concept Code": "Categorical Value Concept Code",
+                   "Categorical Values Concept OMOP ID": "Categorical Value Concept OMOP ID"                    }
 
 ACCEPTED_DATATYPES = ["STR", "FLOAT", "INT", "DATETIME"]
 
@@ -248,7 +250,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
 
         # --- Structural Validation: Check for required columns ---
         # Define columns absolutely essential for the row-processing logic to run without KeyErrors
-        critical_column_names_for_processing = [c.name.upper().strip() for c in metadatadict_cols_schema1]
+        critical_column_names_for_processing = [c.name.upper().strip() for c in metadatadict_cols_schema1 if c.name.upper().strip() in df.columns != "VISITS"]
         missing_columns = []
         for required_col_name in critical_column_names_for_processing:
             if required_col_name not in df.columns:
