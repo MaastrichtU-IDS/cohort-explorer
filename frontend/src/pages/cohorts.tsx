@@ -149,9 +149,18 @@ export default function CohortsList() {
           {filteredCohorts.map((cohortData: Cohort) => (
             <div
               key={cohortData.cohort_id}
-              className={`collapse ${expandedCohorts[cohortData.cohort_id] ? 'collapse-open' : 'collapse-close'} card card-compact bg-base-100 shadow-xl ${!(Object.keys(cohortData.variables).length > 0) ? 'opacity-50' : ''}`}
+              className={`collapse card card-compact bg-base-100 shadow-xl ${!(Object.keys(cohortData.variables).length > 0) ? 'opacity-50' : ''}`}
             >
-              <div className="collapse-title">
+              <input 
+                type="checkbox" 
+                checked={expandedCohorts[cohortData.cohort_id] || false}
+                onChange={() => toggleCohortExpanded(cohortData.cohort_id)}
+                className="collapse-checkbox"
+              />
+              <div 
+                className="collapse-title"
+                onClick={() => toggleCohortExpanded(cohortData.cohort_id)}
+              >
                 <div className="flex flex-wrap items-center gap-2">
                   {cohortData.cohort_id}
                   <span className="badge badge-outline mx-2">{cohortData.institution}</span>
