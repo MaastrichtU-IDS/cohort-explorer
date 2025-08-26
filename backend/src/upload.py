@@ -205,10 +205,7 @@ def parse_categorical_string(s: str) -> list[dict[str, str]]:
 
 cols_normalized = {"VARIABLE NAME": "VARIABLENAME", 
                    "VARIABLE LABEL": "VARIABLELABEL",
-                   "VAR TYPE": "VARTYPE",
-                   "Categorical Values Concept Name": "Categorical Value Concept Name",
-                   "Categorical Values Concept Code": "Categorical Value Concept Code",
-                   "Categorical Values Concept OMOP ID": "Categorical Value Concept OMOP ID"                    }
+                   "VAR TYPE": "VARTYPE"}
 
 ACCEPTED_DATATYPES = ["STR", "FLOAT", "INT", "DATETIME"]
 
@@ -246,7 +243,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
         df = df.fillna("") # Fill remaining NA with empty string
         
         # Normalize column names (uppercase, specific substitutions)
-        df.columns = [cols_normalized.get(c.upper().strip(), c.upper().strip()) for c in df.columns]
+        df.columns = [cols_normalized.get(c.upper().strip(), c.upper().strip().replace("VALUES", "VALUE")) for c in df.columns]
 
         # --- Structural Validation: Check for required columns ---
         # Define columns absolutely essential for the row-processing logic to run without KeyErrors
