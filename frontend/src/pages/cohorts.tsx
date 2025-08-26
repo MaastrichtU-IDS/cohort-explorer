@@ -1,6 +1,6 @@
 'use client';
 
-import React, {useState, useMemo} from 'react';
+import React, {useState, useMemo, useEffect} from 'react';
 import {useCohorts} from '@/components/CohortsContext';
 import FilterByMetadata from '@/components/FilterByMetadata';
 import {Cohort} from '@/types';
@@ -27,12 +27,50 @@ export default function CohortsList() {
   // selectedDataTypes state removed
   const [selectedStudyTypes, setSelectedStudyTypes] = useState(new Set());
   const [selectedInstitutes, setSelectedInstitutes] = useState(new Set());
+  // State to track which cohorts have aggregate data analysis available
+  const [analysisAvailability, setAnalysisAvailability] = useState<Record<string, boolean>>({});
+  // State to track which cohorts are expanded
+  const [expandedCohorts, setExpandedCohorts] = useState<Record<string, boolean>>({});
   // selectedMorbidities state removed
 
   // TODO: debounce search to improve performance
   const handleSearchChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(event.target.value);
   };
+
+  // Function to toggle the expanded state for a cohort
+  const toggleCohortExpanded = (cohortId: string) => {
+    setExpandedCohorts((prev: Record<string, boolean>) => ({
+      ...prev,
+      [cohortId]: !prev[cohortId]
+    }));
+  };
+
+  // Check for analysis folder availability when cohorts data changes
+  useEffect(() => {
+    const checkAnalysisAvailability = async () => {
+      const availability: Record<string, boolean> = {};
+      
+      // Only proceed if we have cohorts data
+      if (!cohortsData || Object.keys(cohortsData).length === 0) return;
+      
+      // Check each cohort for analysis folder availability
+      for (const cohortId of Object.keys(cohortsData)) {
+        try {
+          const response = await fetch(`/api/check-analysis-folder/${cohortId}`);
+          const data = await response.json();
+          availability[cohortId] = data.exists;
+        } catch (error) {
+          console.error(`Error checking analysis for cohort ${cohortId}:`, error);
+          availability[cohortId] = false;
+        }
+      }
+      
+      setAnalysisAvailability(availability);
+    };
+    
+    checkAnalysisAvailability();
+  }, [cohortsData]);
 
   // Filter cohorts based on search query and selected filters
   // TODO: we might want to perform the search and filtering directly with SPARQL queries to the oxigraph endpoint
@@ -111,9 +149,8 @@ export default function CohortsList() {
           {filteredCohorts.map((cohortData: Cohort) => (
             <div
               key={cohortData.cohort_id}
-              className={`collapse card card-compact bg-base-100 shadow-xl ${!(Object.keys(cohortData.variables).length > 0) ? 'opacity-50' : ''}`}
+              className={`collapse ${expandedCohorts[cohortData.cohort_id] ? 'collapse-open' : 'collapse-close'} card card-compact bg-base-100 shadow-xl ${!(Object.keys(cohortData.variables).length > 0) ? 'opacity-50' : ''}`}
             >
-              <input type="checkbox" />
               <div className="collapse-title">
                 <div className="flex flex-wrap items-center gap-2">
                   {cohortData.cohort_id}
@@ -135,8 +172,27 @@ export default function CohortsList() {
                       👥 {formatParticipantsForTag(cohortData.study_participants)} {cohortData.study_population}
                     </span>
                   )}
+                  {/* Display aggregate data analysis tag if available */}
+                  {analysisAvailability[cohortData.cohort_id] && (
+                    <span className="badge badge-success text-white mx-1">
+                      aggregate data analysis available
+                    </span>
+                  )}
                   {/* Removed start date - end date tag as it's shown in the More Details section */}
                   {/* Removed contact email tags as they're shown in the More Details section */}
+                </div>
+                
+                {/* Add expand/close button at the bottom of the heading */}
+                <div className="flex justify-center mt-2">
+                  <button 
+                    onClick={(e: React.MouseEvent) => {
+                      e.stopPropagation(); // Prevent event bubbling
+                      toggleCohortExpanded(cohortData.cohort_id);
+                    }} 
+                    className="btn btn-sm btn-outline btn-neutral rounded-full px-4"
+                  >
+                    {expandedCohorts[cohortData.cohort_id] ? 'Close' : 'Expand'}
+                  </button>
                 </div>
               </div>
               <div className="collapse-content">

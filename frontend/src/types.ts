@@ -22,6 +22,8 @@ export interface Cohort {
   study_contact_person?: string;
   study_contact_person_email?: string;
   references?: string[];
+  // Analysis data availability
+  has_aggregate_analysis?: boolean;
   
   // Additional metadata fields
   population_location?: string;
