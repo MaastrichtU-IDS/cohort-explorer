@@ -2,99 +2,24 @@ import Image from 'next/image';
 import Link from 'next/link';
 import {Inter} from 'next/font/google';
 import { useCohorts } from '@/components/CohortsContext';
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Cohort } from '@/types';
 
 const inter = Inter({subsets: ['latin']});
 
 export default function Home() {
-  const { cohortsData } = useCohorts();
-  const [stats, setStats] = useState({
+  // Get statistics directly from the context
+  const { cohortStatistics } = useCohorts();
+  
+  // Use the statistics from context directly in the component
+  const stats = cohortStatistics || {
     totalCohorts: 0,
     cohortsWithMetadata: 0,
     cohortsWithAggregateAnalysis: 0,
     totalPatients: 0,
     patientsInCohortsWithMetadata: 0,
     totalVariables: 0
-  });
-
-  useEffect(() => {
-    if (Object.keys(cohortsData).length > 0) {
-      // Calculate statistics
-      const totalCohorts = Object.keys(cohortsData).length;
-      
-      // Convert cohortsData to a typed array for safer operations
-      const cohortsList: Cohort[] = Object.values(cohortsData);
-      
-      // Cohorts with metadata (has variables)
-      const cohortsWithMetadata = cohortsList.filter(
-        (cohort: Cohort) => Object.keys(cohort.variables || {}).length > 0
-      );
-      const cohortsWithMetadataCount = cohortsWithMetadata.length;
-      
-      // Cohorts with aggregate analysis
-      const cohortsWithAggregateAnalysis = cohortsList.filter(
-        (cohort: Cohort) => cohort.has_aggregate_analysis === true
-      ).length;
-      
-      // Helper function to parse participant count
-      const parseParticipants = (participants: string | number | undefined | null): number => {
-        if (participants === undefined || participants === null) return 0;
-        
-        // If it's already a number, return it directly
-        if (typeof participants === 'number') return participants;
-        
-        // Otherwise, parse the string
-        // Split on spaces and take the first part
-        const parts = participants.toString().split(' ');
-        // Get the first part which should be the number
-        const numericPart = parts[0];
-        // Remove any non-numeric characters except for commas
-        const cleanNumeric = numericPart.replace(/[^0-9,]/g, '');
-        // Remove commas and parse as integer
-        const parsedValue = parseInt(cleanNumeric.replace(/,/g, ''), 10);
-        return isNaN(parsedValue) ? 0 : parsedValue;
-      };
-      
-      // Total patients across all cohorts
-      const totalPatients = cohortsList.reduce(
-        (sum: number, cohort: Cohort) => sum + parseParticipants(cohort.study_participants), 
-        0
-      );
-      
-      // Patients in cohorts with metadata
-      const patientsInCohortsWithMetadata = cohortsWithMetadata.reduce(
-        (sum: number, cohort: Cohort) => sum + parseParticipants(cohort.study_participants),
-        0
-      );
-      
-      // Total unique variables across all cohorts
-      let totalVariables = 0;
-      cohortsList.forEach((cohort: Cohort) => {
-        if (cohort.variables) {
-          totalVariables += Object.keys(cohort.variables).length;
-        }
-      });
-      
-      console.log('Statistics calculated:', {
-        totalCohorts,
-        cohortsWithMetadataCount,
-        cohortsWithAggregateAnalysis,
-        totalPatients,
-        patientsInCohortsWithMetadata,
-        totalVariables
-      });
-      
-      setStats({
-        totalCohorts,
-        cohortsWithMetadata: cohortsWithMetadataCount,
-        cohortsWithAggregateAnalysis,
-        totalPatients,
-        patientsInCohortsWithMetadata,
-        totalVariables
-      });
-    }
-  }, [cohortsData]);
+  };
 
   return (
     <main className={`flex flex-col items-center justify-between p-24 ${inter.className}`}>
@@ -130,7 +55,7 @@ export default function Home() {
             </svg>
           </div>
           <div className="stat-value text-secondary text-3xl">{stats.cohortsWithMetadata}</div>
-          <div className="stat-title text-sm">Cohorts with Metadata</div>
+          <div className="stat-title text-sm">Cohorts with Uploaded Metadata</div>
         </div>
         
         {/* Cohorts with Aggregate Analysis */}
@@ -141,7 +66,7 @@ export default function Home() {
             </svg>
           </div>
           <div className="stat-value text-success text-3xl">{stats.cohortsWithAggregateAnalysis}</div>
-          <div className="stat-title text-sm">Cohorts with Aggregate Analysis</div>
+          <div className="stat-title text-sm">Cohorts with Aggregate Data Added</div>
         </div>
 
         {/* Total Patients */}
@@ -152,7 +77,7 @@ export default function Home() {
             </svg>
           </div>
           <div className="stat-value text-accent text-3xl">{stats.totalPatients.toLocaleString()}</div>
-          <div className="stat-title text-sm">Total Patients</div>
+          <div className="stat-title text-sm">Total Patients Across All Cohorts</div>
         </div>
         
         {/* Patients in Cohorts with Metadata */}
@@ -163,7 +88,7 @@ export default function Home() {
             </svg>
           </div>
           <div className="stat-value text-warning text-3xl">{stats.patientsInCohortsWithMetadata.toLocaleString()}</div>
-          <div className="stat-title text-sm">Patients in Cohorts with Metadata</div>
+          <div className="stat-title text-sm">Patients in Cohorts with Uploaded Metadata</div>
         </div>
 
         {/* Total Variables */}
@@ -174,7 +99,7 @@ export default function Home() {
             </svg>
           </div>
           <div className="stat-value text-info text-3xl">{stats.totalVariables.toLocaleString()}</div>
-          <div className="stat-title text-sm">Variables in Cohorts with Metadata</div>
+          <div className="stat-title text-sm">Variables in Cohorts with Uploaded Metadata</div>
         </div>
       </div>
 
