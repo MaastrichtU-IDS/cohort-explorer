@@ -175,25 +175,27 @@ export default function CohortsList() {
                   {/* Display aggregate data analysis tag if available */}
                   {analysisAvailability[cohortData.cohort_id] && (
                     <span className="badge badge-success text-white mx-1">
-                      aggregate data analysis available
+                      aggregate analysis added
                     </span>
                   )}
                   {/* Removed start date - end date tag as it's shown in the More Details section */}
                   {/* Removed contact email tags as they're shown in the More Details section */}
                 </div>
                 
-                {/* Add expand/close button at the bottom of the heading */}
-                <div className="flex justify-center mt-2">
-                  <button 
-                    onClick={(e: React.MouseEvent) => {
-                      e.stopPropagation(); // Prevent event bubbling
-                      toggleCohortExpanded(cohortData.cohort_id);
-                    }} 
-                    className="btn btn-sm btn-outline btn-neutral rounded-full px-4"
-                  >
-                    {expandedCohorts[cohortData.cohort_id] ? 'Close' : 'Expand'}
-                  </button>
-                </div>
+                {/* Only show Close button when cohort is expanded */}
+                {expandedCohorts[cohortData.cohort_id] && (
+                  <div className="flex justify-center mt-2">
+                    <button 
+                      onClick={(e: React.MouseEvent) => {
+                        e.stopPropagation(); // Prevent event bubbling
+                        toggleCohortExpanded(cohortData.cohort_id);
+                      }} 
+                      className="btn btn-sm btn-outline btn-neutral rounded-full px-4"
+                    >
+                      Close
+                    </button>
+                  </div>
+                )}
               </div>
               <div className="collapse-content">
                 {/* Display study objective section */}
