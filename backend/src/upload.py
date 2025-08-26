@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 from datetime import datetime
+from enum import Enum
 from pathlib import Path
 from typing import Any
 from re import sub
@@ -409,7 +410,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
     except pd.errors.EmptyDataError:
         logging.warning(f"Uploaded CSV for cohort {cohort_id} is empty or unreadable.")
         raise HTTPException(status_code=422, detail="The uploaded CSV file is empty or could not be read.")
-    except Exception as e:
+    '''except Exception as e:
         logging.error(f"Unexpected error during dictionary processing for {cohort_id}: {str(e)}", exc_info=True)
         # Combine any validation errors found before the crash with the unexpected error message
         final_error_detail = "\n\n".join(errors) if errors else "An unexpected error occurred."
@@ -421,7 +422,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
         raise HTTPException(
             status_code=500, # Use 500 for truly unexpected server-side issues
             detail=final_error_detail,
-        )
+        )'''
    
 @router.post(
     "/get-logs",
@@ -829,10 +830,17 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
 
 def init_triplestore() -> None:
     """Initialize triplestore with the OMOP CDM ontology and the iCARE4CVD cohorts metadata."""
-    # If triples exist, skip initialization
-    if run_query("ASK WHERE { GRAPH ?g {?s ?p ?o .} }")["boolean"]:
-        print("⏩ Triplestore already contains data. Skipping initialization.")
-        return
+    # Add a small delay to reduce chance of concurrent initialization
+    import random
+    import time
+    time.sleep(random.uniform(0.5, 2.0))
+    
+    # Check multiple times if triples exist to ensure we don't have race conditions
+    for _ in range(3):
+        if run_query("ASK WHERE { GRAPH ?g {?s ?p ?o .} }")["boolean"]:
+            print("⏩ Triplestore already contains data. Skipping initialization.")
+            return
+        time.sleep(0.5)  # Small delay between checks
     # Load OMOP CDM ontology
     onto_graph_uri = URIRef("https://w3id.org/icare4cvd/omop-cdm-v6")
     g = init_graph(onto_graph_uri)
