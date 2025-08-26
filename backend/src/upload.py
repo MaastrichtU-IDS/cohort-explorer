@@ -320,6 +320,9 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
                                     code_to_check = categories_codes[idx].strip()
                                     if code_to_check and code_to_check.lower() != "na":
                                         try:
+                                            # Another temp fix just for TIM-HF!!
+                                            if code_to_check.index(":") == -1:
+                                                code_to_check = code_to_check.replace("OMOP", "OMOP:")
                                             expanded_uri = curie_converter.expand(code_to_check)
                                             if not expanded_uri:
                                                 errors.append(
