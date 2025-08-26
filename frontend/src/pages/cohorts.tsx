@@ -183,7 +183,7 @@ export default function CohortsList() {
                   )}
                   {/* Display aggregate data analysis tag if available */}
                   {analysisAvailability[cohortData.cohort_id] && (
-                    <span className="badge badge-success text-white mx-1">
+                    <span className="badge mx-1" style={{ backgroundColor: '#dbeafe', color: '#1e3a8a', border: '1px solid #bfdbfe' }}>
                       aggregate analysis added
                     </span>
                   )}

@@ -321,6 +321,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
         g.add((cohort_uri, RDF.type, ICARE.Cohort, cohort_uri))
         g.add((cohort_uri, DC.identifier, Literal(cohort_id), cohort_uri))
 
+        i = 0
         for i, row in df.iterrows():
             variable_uri = get_var_uri(cohort_id, row["VARIABLENAME"])
             g.add((cohort_uri, ICARE.hasVariable, variable_uri, cohort_uri))
@@ -377,8 +378,8 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
     except pd.errors.EmptyDataError:
         logging.warning(f"Uploaded CSV for cohort {cohort_id} is empty or unreadable.")
         raise HTTPException(status_code=422, detail="The uploaded CSV file is empty or could not be read.")
-    '''except Exception as e:
-        logging.error(f"Unexpected error during dictionary processing for {cohort_id}: {str(e)}", exc_info=True)
+    except Exception as e:
+        logging.error(f"Unexpected error during dictionary processing for {cohort_id}, row: {i}: {str(e)}", exc_info=True)
         # Combine any validation errors found before the crash with the unexpected error message
         final_error_detail = "\n\n".join(errors) if errors else "An unexpected error occurred."
         if errors: # if validation errors were already collected, add the unexpected error to them
@@ -389,7 +390,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
         raise HTTPException(
             status_code=500, # Use 500 for truly unexpected server-side issues
             detail=final_error_detail,
-        )'''
+        )
    
 @router.post(
     "/get-logs",
