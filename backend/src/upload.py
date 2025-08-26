@@ -102,6 +102,33 @@ def get_category_uri(var_uri: str | URIRef, category_id: str) -> URIRef:
     return URIRef(f"{var_uri!s}/category/{category_id}")
 
 
+def get_latest_datadictionary(cohort_folder_path: str) -> str | None:
+    """
+    Get the latest datadictionary file from a cohort folder.
+    
+    Args:
+        cohort_folder_path: Path to the cohort folder
+        
+    Returns:
+        Path to the latest datadictionary file or None if no datadictionary file is found
+    """
+    if not os.path.isdir(cohort_folder_path):
+        return None
+        
+    # Select most recent CSV file with 'datadictionary' in the name
+    csv_candidates = [
+        f for f in glob.glob(os.path.join(cohort_folder_path, "*.csv"))
+        if ("datadictionary" in os.path.basename(f).lower()
+        and "noheader" not in os.path.basename(f).lower())
+    ]
+    
+    if not csv_candidates:
+        return None
+        
+    # Pick the most recently modified file
+    return max(csv_candidates, key=os.path.getmtime)
+
+
 # TODO
 @router.post(
     "/insert-triples",
@@ -823,13 +850,18 @@ def init_triplestore() -> None:
     for folder in os.listdir(os.path.join(settings.data_folder, "cohorts")):
         folder_path = os.path.join(settings.data_folder, "cohorts", folder)
         if os.path.isdir(folder_path):
-            for file in glob.glob(os.path.join(folder_path, "*_datadictionary.*")):
+            #Note (August 2025): we now find the latest version of a data dictionary instead of processing all
+            #for file in glob.glob(os.path.join(folder_path, "*_datadictionary.*")):
                 # NOTE: default airlock preview to false if we ever need to reset cohorts,
                 # admins can easily ddl and reupload the cohorts with the correct airlock value
-                g = load_cohort_dict_file(file, folder)
+                latest_dict_file = get_latest_datadictionary(folder_path)
+                print(f"Using latest datadictionary file for {folder}: {os.path.basename(latest_dict_file)}, date: {os.path.getmtime(latest_dict_file)}")
+                g = load_cohort_dict_file(latest_dict_file, folder)
                 # g.serialize(f"{settings.data_folder}/cohort_explorer_triplestore.trig", format="trig")
                 if publish_graph_to_endpoint(g):
-                    print(f"💾 Triplestore initialization: added {len(g)} triples for cohorts {file}.")
+                    print(f"💾 Triplestore initialization: added {len(g)} triples for cohort {folder}.")
+        else:
+            print(f"No datadictionary file found for cohort {folder}.")
 
     # Load cohorts metadata
     g = cohorts_metadata_file_to_graph(COHORTS_METADATA_FILEPATH)
