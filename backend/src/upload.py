@@ -335,6 +335,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
                  categories_codes = str(row["CATEGORICAL VALUE CONCEPT CODE"]).split("|")
 
             for column_name_from_df, col_value in row.items():
+                print("in load_cohort_dict_file -- column_name_from_df value:", column_name_from_df)
                 # Use the already normalized column_name_from_df
                 if column_name_from_df not in ["categories"] and col_value: # Exclude our temporary 'categories' column
                     property_uri = ICARE[to_camelcase(column_name_from_df)] # to_camelcase expects original-like names
@@ -364,6 +365,8 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
         
         if len(warnings) > 0: # Log warnings even if processing succeeds
             logging.warning(f"Warnings uploading {cohort_id}: \n" + "\n".join(warnings))
+
+        print(f"Finished processing cohort dictionary: {cohort_id}")
         return g
 
     except HTTPException as http_exc: # Re-raise specific HTTPExceptions (ours or from parse_categorical_string)
@@ -386,8 +389,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
             status_code=500, # Use 500 for truly unexpected server-side issues
             detail=final_error_detail,
         )
-    print(f"Finished processing cohort dictionary: {cohort_id}")
-
+   
 @router.post(
     "/get-logs",
     name="Get logs",
