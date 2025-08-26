@@ -365,7 +365,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
                  categories_codes = str(row["CATEGORICAL VALUE CONCEPT CODE"]).split("|")
 
             for column_name_from_df, col_value in row.items():
-                print("in load_cohort_dict_file -- column_name_from_df value:", column_name_from_df)
+                #print("in load_cohort_dict_file -- column_name_from_df value:", column_name_from_df)
                 # Use the already normalized column_name_from_df
                 if column_name_from_df not in ["categories"] and col_value: # Exclude our temporary 'categories' column
                     property_uri = ICARE[to_camelcase(column_name_from_df)] # to_camelcase expects original-like names
@@ -391,7 +391,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
                             if code_to_check and code_to_check.lower() != "na":
                                 cat_code_uri = curie_converter.expand(code_to_check)
                                 if cat_code_uri: # Only add if valid and expanded
-                                    print(f"Adding category code {cat_code_uri} for category {category['value']} in cohort {cohort_id}, line {i}")
+                                    #print(f"Adding category code {cat_code_uri} for category {category['value']} in cohort {cohort_id}, line {i}")
                                     g.add((cat_uri, ICARE.conceptId, URIRef(cat_code_uri), cohort_uri))
         
         if len(warnings) > 0: # Log warnings even if processing succeeds
