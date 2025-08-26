@@ -184,6 +184,18 @@ cols_normalized = {"VARIABLE NAME": "VARIABLENAME",
 ACCEPTED_DATATYPES = ["STR", "FLOAT", "INT", "DATETIME"]
 
 def to_camelcase(s: str) -> str:
+    # Special case mappings for variable concept fields
+    special_mappings = {
+        "VARIABLE CONCEPT CODE": "conceptCode",
+        "VARIABLE CONCEPT NAME": "conceptName",
+        "VARIABLE OMOP ID": "omopId"
+    }
+    
+    # Check if the uppercase string is in our special mappings
+    if s.upper() in special_mappings:
+        return special_mappings[s.upper()]
+    
+    # Otherwise, use the standard camelCase conversion
     s = sub(r"(_|-)+", " ", s).title().replace(" ", "")
     return "".join([s[0].lower(), s[1:]])
 
@@ -374,6 +386,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
             status_code=500, # Use 500 for truly unexpected server-side issues
             detail=final_error_detail,
         )
+    print(f"Finished processing cohort dictionary: {cohort_id}")
 
 @router.post(
     "/get-logs",

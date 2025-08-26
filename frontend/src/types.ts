@@ -64,6 +64,9 @@ export interface Variable {
   omop_domain: string;
   index: number;
   concept_id: string;
+  concept_code?: string;
+  concept_name?: string;
+  omop_id?: string;
   mapped_id: string | null;
   mapped_label: string | null;
   categories: Category[];

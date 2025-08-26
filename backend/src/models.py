@@ -32,6 +32,9 @@ class CohortVariable:
     formula: Optional[str] = None
     definition: Optional[str] = None
     concept_id: Optional[str] = None
+    concept_code: Optional[str] = None
+    concept_name: Optional[str] = None
+    omop_id: Optional[str] = None
     mapped_id: Optional[str] = None
     mapped_label: Optional[str] = None
     omop_domain: Optional[str] = None

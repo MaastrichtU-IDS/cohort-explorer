@@ -89,7 +89,7 @@ PREFIX dcterms: <http://purl.org/dc/terms/>
 
 SELECT DISTINCT ?cohortId ?cohortInstitution ?cohortEmail ?study_type ?study_participants ?study_duration ?study_ongoing ?study_population ?study_objective ?primary_outcome_spec ?secondary_outcome_spec ?morbidity ?study_start ?study_end ?male_percentage ?female_percentage ?administrator ?administrator_email ?study_contact_person ?study_contact_person_email ?references ?population_location ?language ?data_collection_frequency ?interventions ?sex_inclusion ?health_status_inclusion ?clinically_relevant_exposure_inclusion ?age_group_inclusion ?bmi_range_inclusion ?ethnicity_inclusion ?family_status_inclusion ?hospital_patient_inclusion ?use_of_medication_inclusion ?health_status_exclusion ?bmi_range_exclusion ?limited_life_expectancy_exclusion ?need_for_surgery_exclusion ?surgical_procedure_history_exclusion ?clinically_relevant_exposure_exclusion
     ?variable ?varName ?varLabel ?varType ?index ?count ?na ?max ?min ?units ?formula ?definition
-    ?omopDomain ?conceptId ?mappedId ?mappedLabel ?visits ?categoryValue ?categoryLabel ?categoryConceptId ?categoryMappedId ?categoryMappedLabel
+    ?omopDomain ?conceptId ?conceptCode ?conceptName ?omopId ?mappedId ?mappedLabel ?visits ?categoryValue ?categoryLabel ?categoryConceptId ?categoryMappedId ?categoryMappedLabel
 WHERE {
     GRAPH ?cohortMetadataGraph {
         ?cohort a icare:Cohort ;
@@ -160,6 +160,9 @@ WHERE {
             OPTIONAL { ?variable icare:formula ?formula }
             OPTIONAL { ?variable icare:definition ?definition }
             OPTIONAL { ?variable icare:conceptId ?conceptId }
+            OPTIONAL { ?variable icare:conceptCode ?conceptCode }
+            OPTIONAL { ?variable icare:conceptName ?conceptName }
+            OPTIONAL { ?variable icare:omopId ?omopId }
             OPTIONAL { ?variable icare:omop ?omopDomain }
             OPTIONAL { ?variable icare:visits ?visits }
             OPTIONAL {
@@ -366,6 +369,9 @@ def retrieve_cohorts_metadata(user_email: str) -> dict[str, Cohort]:
                     formula=get_value("formula", row),
                     definition=get_value("definition", row),
                     concept_id=get_curie_value("conceptId", row),
+                    concept_code=get_value("conceptCode", row),
+                    concept_name=get_value("conceptName", row),
+                    omop_id=get_value("omopId", row),
                     mapped_id=get_curie_value("mappedId", row),
                     mapped_label=get_value("mappedLabel", row),
                     omop_domain=get_value("omopDomain", row),
