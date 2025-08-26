@@ -250,7 +250,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
 
         # --- Structural Validation: Check for required columns ---
         # Define columns absolutely essential for the row-processing logic to run without KeyErrors
-        critical_column_names_for_processing = [c.name.upper().strip() for c in metadatadict_cols_schema1 if c.name.upper().strip() in df.columns != "VISITS"]
+        critical_column_names_for_processing = [c.name.upper().strip() for c in metadatadict_cols_schema1 if c.name.upper().strip() != "VISITS"]
         missing_columns = []
         for required_col_name in critical_column_names_for_processing:
             if required_col_name not in df.columns:
@@ -408,7 +408,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
         logging.warning(f"Uploaded CSV for cohort {cohort_id} is empty or unreadable.")
         raise HTTPException(status_code=422, detail="The uploaded CSV file is empty or could not be read.")
     except Exception as e:
-        logging.error(f"Unexpected error during dictionary processing for {cohort_id}, row: {i}: {str(e)}", exc_info=True)
+        logging.error(f"Unexpected error during dictionary processing for {cohort_id}: {str(e)}", exc_info=True)
         # Combine any validation errors found before the crash with the unexpected error message
         final_error_detail = "\n\n".join(errors) if errors else "An unexpected error occurred."
         if errors: # if validation errors were already collected, add the unexpected error to them
