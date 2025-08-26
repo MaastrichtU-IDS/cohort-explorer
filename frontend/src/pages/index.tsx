@@ -38,17 +38,22 @@ export default function Home() {
       ).length;
       
       // Helper function to parse participant count
-      const parseParticipants = (participantsStr: string | undefined | null): number => {
-        if (!participantsStr) return 0;
+      const parseParticipants = (participants: string | number | undefined | null): number => {
+        if (participants === undefined || participants === null) return 0;
+        
+        // If it's already a number, return it directly
+        if (typeof participants === 'number') return participants;
+        
+        // Otherwise, parse the string
         // Split on spaces and take the first part
-        const parts = participantsStr.toString().split(' ');
+        const parts = participants.toString().split(' ');
         // Get the first part which should be the number
         const numericPart = parts[0];
         // Remove any non-numeric characters except for commas
         const cleanNumeric = numericPart.replace(/[^0-9,]/g, '');
         // Remove commas and parse as integer
-        const participants = parseInt(cleanNumeric.replace(/,/g, ''), 10);
-        return isNaN(participants) ? 0 : participants;
+        const parsedValue = parseInt(cleanNumeric.replace(/,/g, ''), 10);
+        return isNaN(parsedValue) ? 0 : parsedValue;
       };
       
       // Total patients across all cohorts
