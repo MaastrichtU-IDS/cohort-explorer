@@ -1,4 +1,5 @@
 import os
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -8,14 +9,34 @@ from src.auth import get_current_user
 from src.config import settings
 from src.models import Cohort
 from src.utils import retrieve_cohorts_metadata
+from src.cohort_cache import get_cohorts_from_cache, is_cache_initialized
 
 router = APIRouter()
 
 
 @router.get("/cohorts-metadata")
 def get_cohorts_metadata(user: Any = Depends(get_current_user)) -> dict[str, Cohort]:
-    """Returns data dictionaries of all cohorts"""
-    return retrieve_cohorts_metadata(user["email"])
+    """Returns data dictionaries of all cohorts
+    
+    First tries to retrieve cohorts from the cache for fast access.
+    Falls back to SPARQL queries if the cache is not initialized or is empty.
+    """
+    user_email = user["email"]
+    
+    # Try to get cohorts from the cache first
+    if is_cache_initialized():
+        logging.info("Retrieving cohorts from cache")
+        cohorts = get_cohorts_from_cache(user_email)
+        if cohorts:
+            return cohorts
+        logging.warning("Cache is initialized but empty, falling back to SPARQL queries")
+    else:
+        logging.info("Cache not initialized, falling back to SPARQL queries")
+    
+    # Fall back to SPARQL queries if cache is not available or empty
+    cohorts = retrieve_cohorts_metadata(user_email)
+    
+    return cohorts
 
 
 @router.get("/cohort-spreadsheet/{cohort_id}")

@@ -17,7 +17,8 @@ from rdflib.namespace import DC, RDF, RDFS
 from SPARQLWrapper import SPARQLWrapper
 
 from src.auth import get_current_user
-from src.config import settings
+from src.utils import run_query, retrieve_cohorts_metadata
+from src.cohort_cache import add_cohort_to_cache, clear_cache, create_cohort_from_dict_file, create_cohort_from_metadata_graph
 from src.decentriq import create_provision_dcr, metadatadict_cols_schema1
 from src.mapping_generation.retriever import map_csv_to_standard_codes
 from src.utils import ICARE, curie_converter, init_graph, prefix_map, retrieve_cohorts_metadata, run_query
@@ -232,7 +233,10 @@ def to_camelcase(s: str) -> str:
 
 
 def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
-    """Parse the cohort dictionary uploaded as excel or CSV spreadsheet, and load it to the triplestore"""
+    """Parse the cohort dictionary uploaded as excel or CSV spreadsheet, and load it to the triplestore
+    
+    Also updates the cohort cache with the new data.
+    """
     print(f"NOW PROCESSING DICTIONARY FILE FOR COHORT: {cohort_id} \nFile path: {dict_path}")
     if not dict_path.endswith(".csv"):
         raise HTTPException(
@@ -412,6 +416,14 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
             logging.warning(f"Warnings uploading {cohort_id}: \n" + "\n".join(warnings))
 
         print(f"Finished processing cohort dictionary: {cohort_id}")
+        
+        # Update the cohort cache directly from the graph data
+        # This is more efficient than retrieving it from the triplestore later
+        from src.cohort_cache import create_cohort_from_dict_file
+        cohort_uri = get_cohort_uri(cohort_id)
+        create_cohort_from_dict_file(cohort_id, cohort_uri, g)
+        logging.info(f"Added cohort {cohort_id} to cache directly from dictionary file")
+        
         return g
 
     except HTTPException as http_exc: # Re-raise specific HTTPExceptions (ours or from parse_categorical_string)
@@ -476,11 +488,15 @@ async def delete_cohort(
     cohort_folder_path = os.path.join(settings.data_folder, "cohorts", cohort_id)
     if os.path.exists(cohort_folder_path) and os.path.isdir(cohort_folder_path):
         shutil.rmtree(cohort_folder_path)
+    
+    # Remove the cohort from the cache
+    from src.cohort_cache import remove_cohort_from_cache
+    remove_cohort_from_cache(cohort_id)
+    logging.info(f"Removed cohort {cohort_id} from cache after deletion")
+    
     return {
         "message": f"Cohort {cohort_id} has been successfully deleted.",
     }
-
-
 
 @router.post(
     "/upload-cohort",
@@ -559,7 +575,12 @@ async def upload_cohort(
             #     get_cohort_mapping_uri(cohort_id), f"<{get_cohort_uri(cohort_id)!s}>", "icare:previewEnabled"
             # )
             delete_existing_triples(get_cohort_uri(cohort_id))
-            publish_graph_to_endpoint(g)
+            if publish_graph_to_endpoint(g):
+                # Update the cache with the new cohort data
+                cohorts = retrieve_cohorts_metadata(user_email)
+                if cohort_id in cohorts:
+                    add_cohort_to_cache(cohorts[cohort_id])
+                    logging.info(f"Added cohort {cohort_id} to cache after upload")
     except Exception as e:
         os.remove(cohort_info.metadata_filepath)
         raise e
@@ -583,7 +604,13 @@ def generate_mappings(cohort_id: str, metadata_path: str, g: Graph) -> None:
     #     get_cohort_mapping_uri(cohort_id), f"<{get_cohort_uri(cohort_id)!s}>", "icare:previewEnabled"
     # )
     delete_existing_triples(get_cohort_uri(cohort_id))
-    publish_graph_to_endpoint(g)
+    if publish_graph_to_endpoint(g):
+        # Update the cache with the new cohort data
+        # Use admin email to ensure we can access all cohorts
+        cohorts = retrieve_cohorts_metadata("admin@example.com")
+        if cohort_id in cohorts:
+            add_cohort_to_cache(cohorts[cohort_id])
+            logging.info(f"Added cohort {cohort_id} to cache after generating mappings")
 
 @router.post(
     "/create-provision-dcr",
@@ -839,36 +866,33 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
     return g
 
 
-def init_triplestore() -> None:
+def init_triplestore():
     """Initialize triplestore with the OMOP CDM ontology and the iCARE4CVD cohorts metadata."""
     # Add a small delay to reduce chance of concurrent initialization
     import random
     import time
     time.sleep(random.uniform(0.5, 2.0))
     
+    # Always clear the cohort cache before initialization
+    print("Clearing cohort cache before initialization...")
+    clear_cache()
+    
     # Check multiple times if triples exist to ensure we don't have race conditions
+    triplestore_initialized = False
     for _ in range(3):
         if run_query("ASK WHERE { GRAPH ?g {?s ?p ?o .} }")["boolean"]:
-            print("⏩ Triplestore already contains data. Skipping initialization.")
-            return
+            print("⏩ Triplestore already contains data. Skipping triplestore initialization.")
+            triplestore_initialized = True
+            break
         time.sleep(0.5)  # Small delay between checks
-    # Load OMOP CDM ontology
-    onto_graph_uri = URIRef("https://w3id.org/icare4cvd/omop-cdm-v6")
-    g = init_graph(onto_graph_uri)
-    ntriple_g = init_graph()
-    # ntriple_g.parse("https://raw.githubusercontent.com/vemonet/omop-cdm-owl/main/omop_cdm_v6.ttl", format="turtle")
-    ntriple_g.parse(
-        "https://raw.githubusercontent.com/MaastrichtU-IDS/cohort-explorer/main/cohort-explorer-ontology.ttl",
-        format="turtle",
-    )
-    # Trick to convert ntriples to nquads with a given graph
-    for s, p, o in ntriple_g.triples((None, None, None)):
-        g.add((s, p, o, onto_graph_uri))
-    # print(g.serialize(format="trig"))
-    if publish_graph_to_endpoint(g):
-        print(f"🦉 Triplestore initialization: added {len(g)} triples for the iCARE4CVD Cohort Explorer OWL ontology.")
-
-    os.makedirs(os.path.join(settings.data_folder, "cohorts"), exist_ok=True)
+    
+    # If triplestore is already initialized, initialize the cache from the triplestore
+    if triplestore_initialized:
+        from src.cohort_cache import initialize_cache_from_triplestore
+        print("Initializing cache from existing triplestore data...")
+        initialize_cache_from_triplestore()
+        print("✅ Cohort cache initialization complete.")
+        return
     
     # First, load cohorts metadata to establish basic cohort entities
     print("Loading cohorts metadata file first to establish cohort entities...")
@@ -880,6 +904,29 @@ def init_triplestore() -> None:
 
     if publish_graph_to_endpoint(g):
         print(f"🪪 Triplestore initialization: added {len(g)} triples for the cohorts metadata.")
+        
+        # Add cohort metadata to the cache
+        print("Adding cohort metadata to the cache...")
+        # Extract cohort IDs and URIs from the graph
+        cohort_uris = set()
+        for s, p, o, _ in g.quads((None, RDF.type, ICARE.Cohort, None)):
+            cohort_uris.add(s)
+        
+        # Create cohort objects from metadata and add them to the cache
+        for cohort_uri in cohort_uris:
+            # Extract cohort ID from URI
+            cohort_id = None
+            for _, _, o, _ in g.quads((cohort_uri, DC.identifier, None, None)):
+                cohort_id = str(o)
+                break
+            
+            if cohort_id:
+                create_cohort_from_metadata_graph(cohort_id, cohort_uri, g)
+        
+        print("✅ Cohort metadata added to cache.")
+    else:
+        print("❌ Failed to publish cohort metadata to triplestore.")
+        return
     
     # Then, load cohorts data dictionaries to add variables to the established cohorts
     print("Now loading cohort data dictionaries to add variables to the established cohorts...")
@@ -888,72 +935,20 @@ def init_triplestore() -> None:
         if os.path.isdir(folder_path):
             #Note (August 2025): we now find the latest version of a data dictionary instead of processing all
             #for file in glob.glob(os.path.join(folder_path, "*_datadictionary.*")):
-                # NOTE: default airlock preview to false if we ever need to reset cohorts,
-                # admins can easily ddl and reupload the cohorts with the correct airlock value
-                latest_dict_file = get_latest_datadictionary(folder_path)
-                if latest_dict_file:
-                    print(f"Using latest datadictionary file for {folder}: {os.path.basename(latest_dict_file)}, date: {os.path.getmtime(latest_dict_file)}")
-                    g = load_cohort_dict_file(latest_dict_file, folder)
-                    # Delete existing triples for this cohort before publishing new ones
-                    # This ensures we don't have duplicate or conflicting triples
-                    delete_existing_triples(get_cohort_uri(folder))
-                    # g.serialize(f"{settings.data_folder}/cohort_explorer_triplestore.trig", format="trig")
-                    if publish_graph_to_endpoint(g):
-                        print(f"💾 Triplestore initialization: added {len(g)} triples for cohort {folder}.")
-                else:
-                    print(f"No datadictionary file found for cohort {folder}.")
+            latest_dict_file = get_latest_datadictionary(folder_path)
+            if latest_dict_file:
+                print(f"Using latest datadictionary file for {folder}: {os.path.basename(latest_dict_file)}, date: {os.path.getmtime(latest_dict_file)}")
+                g = load_cohort_dict_file(latest_dict_file, folder)
+                # Delete existing triples for this cohort before publishing new ones
+                # This ensures we don't have duplicate or conflicting triples
+                delete_existing_triples(get_cohort_uri(folder))
+                # g.serialize(f"{settings.data_folder}/cohort_explorer_triplestore.trig", format="trig")
+                if publish_graph_to_endpoint(g):
+                    print(f"💾 Triplestore initialization: added {len(g)} triples for cohort {folder}.")
+                    # Note: The cache is already updated in load_cohort_dict_file
+            else:
+                print(f"No datadictionary file found for cohort {folder}.")
         else:
             print(f"No datadictionary file found for cohort {folder}.")
-
-
-@router.get("/test-sparql")
-def test_sparql(query: str = None, user: Any = Depends(get_current_user)) -> dict:
-    """Run test SPARQL queries"""
-    if user["email"] not in settings.admins_list:
-        raise HTTPException(status_code=403, detail="Admin access required")
     
-    # If no query is provided, run the test queries
-    if not query:
-        results = {}
-        
-        # Query 1: Count triples in metadata graph
-        query1 = """
-        SELECT (COUNT(*) as ?count)
-        WHERE {
-          GRAPH <https://w3id.org/icare4cvd/graph/metadata> { ?s ?p ?o }
-        }
-        """
-        results["metadata_triples_count"] = run_query(query1)
-        
-        # Query 2: Check what cohorts exist
-        query2 = """
-        SELECT ?cohort ?cohortId
-        WHERE {
-          GRAPH <https://w3id.org/icare4cvd/graph/metadata> {
-            ?cohort a <https://w3id.org/icare4cvd/Cohort> ;
-                    <http://purl.org/dc/elements/1.1/identifier> ?cohortId .
-          }
-        }
-        """
-        results["cohorts_in_metadata"] = run_query(query2)
-        
-        # Query 3: Compare with cohorts that have variables
-        query3 = """
-        SELECT DISTINCT ?cohort
-        WHERE {
-          GRAPH ?varGraph {
-            ?cohort <https://w3id.org/icare4cvd/hasVariable> ?var .
-          }
-          FILTER NOT EXISTS {
-            GRAPH <https://w3id.org/icare4cvd/graph/metadata> {
-              ?cohort a <https://w3id.org/icare4cvd/Cohort> .
-            }
-          }
-        }
-        """
-        results["orphaned_cohorts"] = run_query(query3)
-        
-        return results
-    
-    # If a query is provided, run it
-    return run_query(query)
+    print("✅ Cohort cache initialization complete.")
