@@ -163,7 +163,7 @@ WHERE {
             OPTIONAL { ?variable icare:conceptCode ?conceptCode }
             OPTIONAL { ?variable icare:conceptName ?conceptName }
             OPTIONAL { ?variable icare:omopId ?omopId }
-            OPTIONAL { ?variable icare:omop ?omopDomain }
+            OPTIONAL { ?variable icare:domain ?omopDomain }
             OPTIONAL { ?variable icare:visits ?visits }
             OPTIONAL {
                 ?variable icare:categories ?category.
