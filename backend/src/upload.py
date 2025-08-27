@@ -328,7 +328,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
                                             # Another temp fix just for TIM-HF!!
                                             if code_to_check.find(":") == -1:
                                                 code_to_check = code_to_check.replace("OMOP", "OMOP:")
-                                            expanded_uri = curie_converter.expand(code_to_check)
+                                            expanded_uri = curie_converter.expand(code_to_check.lower())
                                             if not expanded_uri:
                                                 errors.append(
                                                     f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_data['value']}'): The category concept code '{code_to_check}' is not valid or its prefix is not recognized. Valid prefixes: {', '.join([record['prefix'] + ':' for record in prefix_map if record.get('prefix')])}."
