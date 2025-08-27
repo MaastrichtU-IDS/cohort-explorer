@@ -17,4 +17,4 @@ COPY . /app/
 ENV PYTHONUNBUFFERED='1'
 ENV PYTHONPATH="/app"
 
-ENTRYPOINT ["uv", "run", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "80", "--workers", "1" ]
+ENTRYPOINT ["uv", "run", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "80", "--workers", "6" ]
