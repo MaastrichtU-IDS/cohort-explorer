@@ -207,7 +207,7 @@ def parse_categorical_string(s: str) -> list[dict[str, str]]:
 cols_normalized = {"VARIABLE NAME": "VARIABLENAME", 
                    "VARIABLE LABEL": "VARIABLELABEL",
                    "VAR TYPE": "VARTYPE",
-                   "CategoricalValueConceptCode": "CATEGORICAL VALUE CONCEPT CODE"}
+                   "CATEGORICALVALUECONCEPTCODE": "CATEGORICAL VALUE CONCEPT CODE"}
 
 ACCEPTED_DATATYPES = ["STR", "FLOAT", "INT", "DATETIME"]
 
@@ -246,7 +246,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
         
         # Normalize column names (uppercase, specific substitutions)
         df.columns = [cols_normalized.get(c.upper().strip(), c.upper().strip().replace("VALUES", "VALUE")) for c in df.columns]
-
+        print(f"POST NORMALIZATION -- COHORT {cohort_id} -- Columns: {df.columns}")
         # --- Structural Validation: Check for required columns ---
         # Define columns absolutely essential for the row-processing logic to run without KeyErrors
         critical_column_names_for_processing = [c.name.upper().strip() for c in metadatadict_cols_schema1 if c.name.upper().strip() != "VISITS"]
