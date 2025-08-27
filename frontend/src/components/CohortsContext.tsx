@@ -137,14 +137,9 @@ export const CohortsProvider = ({children}: any) => {
       }
     };
 
-    // Fetch cohort data every 5 minutes with the worker
-    const intervalId = setInterval(() => {
-      fetchCohortsData();
-    }, 300000);
-    // Initial fetch
+    // Initial fetch only - auto-refresh disabled
     fetchCohortsData();
     return () => {
-      clearInterval(intervalId);
       worker.current?.terminate();
     };
   }, []);
