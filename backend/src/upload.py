@@ -394,8 +394,8 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
                                 if cat_code_uri: # Only add if valid and expanded
                                     #print(f"Adding category code {cat_code_uri} for category {category['value']} in cohort {cohort_id}, line {i}")
                                     # Another temp fix just for TIM-HF!!
-                                    cat_code_uri = cat_code_uri.lower().replace("ucum:%", "ucum:percent")
-                                    print(f"Adding category code {cat_code_uri} for category {category['value']} in cohort {cohort_id}, line {i}, cat_uri: {cat_uri}, conceptId: {ICARE.conceptId}")
+                                    cat_code_uri = cat_code_uri.lower().replace("ucum/%", "ucum/percent")
+                                    #print(f"Adding category code {cat_code_uri} for category {category['value']} in cohort {cohort_id}, line {i}, cat_uri: {cat_uri}, conceptId: {ICARE.conceptId}")
                                     g.add((cat_uri, ICARE.conceptId, URIRef(cat_code_uri), cohort_uri))
         
         if len(warnings) > 0: # Log warnings even if processing succeeds
@@ -411,7 +411,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
     except pd.errors.EmptyDataError:
         logging.warning(f"Uploaded CSV for cohort {cohort_id} is empty or unreadable.")
         raise HTTPException(status_code=422, detail="The uploaded CSV file is empty or could not be read.")
-    '''except Exception as e:
+    except Exception as e:
         logging.error(f"Unexpected error during dictionary processing for {cohort_id}: {str(e)}", exc_info=True)
         # Combine any validation errors found before the crash with the unexpected error message
         final_error_detail = "\n\n".join(errors) if errors else "An unexpected error occurred."
@@ -423,7 +423,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
         raise HTTPException(
             status_code=500, # Use 500 for truly unexpected server-side issues
             detail=final_error_detail,
-        )'''
+        )
    
 @router.post(
     "/get-logs",
