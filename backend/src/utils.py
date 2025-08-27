@@ -145,6 +145,8 @@ WHERE {
     }
 
     OPTIONAL {
+        # Bind the cohortVarGraph to be the same as the cohort URI
+        BIND(?cohort AS ?cohortVarGraph)
         GRAPH ?cohortVarGraph {
             ?cohort icare:hasVariable ?variable .
             ?variable a icare:Variable ;
