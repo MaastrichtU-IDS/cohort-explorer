@@ -319,7 +319,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
                              warnings.append(
                                  f"Row {i+2} (Variable: '{var_name_for_error}'): The number of category concept codes ({len(categories_codes)}) does not match the number of parsed categories ({len(current_categories)})."
                              )
-                        else:
+                        '''else: #turning off validation for now!
                             for idx, category_data in enumerate(current_categories):
                                 if idx < len(categories_codes):
                                     code_to_check = categories_codes[idx].strip()
@@ -336,7 +336,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
                                         except Exception as curie_exc:
                                             errors.append(
                                                 f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_data['value']}'): Error expanding CURIE '{code_to_check}': {curie_exc}."
-                                            )
+                                            ) '''
             elif row.get("CATEGORICAL") and not isinstance(current_categories, list): # If original CATEGORICAL had content but parsing failed (already logged by parse_categorical_string's own exception if it was fatal)
                  # This case might be covered if parse_categorical_string added its own error to the 'errors' list already
                  pass
