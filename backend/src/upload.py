@@ -216,7 +216,10 @@ def to_camelcase(s: str) -> str:
     special_mappings = {
         "VARIABLE CONCEPT CODE": "conceptCode",
         "VARIABLE CONCEPT NAME": "conceptName",
-        "VARIABLE OMOP ID": "omopId"
+        "VARIABLE OMOP ID": "omopId",
+        "VARIABLENAME": "variableName",
+        "VARIABLELABEL": "variableLabel",
+        "VARTYPE": "varType",
     }
     
     # Check if the uppercase string is in our special mappings
