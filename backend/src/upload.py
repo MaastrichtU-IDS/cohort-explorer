@@ -394,7 +394,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
                                 if cat_code_uri: # Only add if valid and expanded
                                     #print(f"Adding category code {cat_code_uri} for category {category['value']} in cohort {cohort_id}, line {i}")
                                     # Another temp fix just for TIM-HF!!
-                                    cat_code_uri = cat_code_uri.lower().replace("ucum/%", "ucum/percent")
+                                    cat_code_uri = cat_code_uri.lower().replace("ucum/%", "ucum/percent").replace("[", "").replace("]", "")
                                     #print(f"Adding category code {cat_code_uri} for category {category['value']} in cohort {cohort_id}, line {i}, cat_uri: {cat_uri}, conceptId: {ICARE.conceptId}")
                                     g.add((cat_uri, ICARE.conceptId, URIRef(cat_code_uri), cohort_uri))
         
