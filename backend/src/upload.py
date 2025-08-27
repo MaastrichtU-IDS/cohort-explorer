@@ -206,7 +206,8 @@ def parse_categorical_string(s: str) -> list[dict[str, str]]:
 
 cols_normalized = {"VARIABLE NAME": "VARIABLENAME", 
                    "VARIABLE LABEL": "VARIABLELABEL",
-                   "VAR TYPE": "VARTYPE"}
+                   "VAR TYPE": "VARTYPE",
+                   "CategoricalValueConceptCode": "CATEGORICAL VALUE CONCEPT CODE"}
 
 ACCEPTED_DATATYPES = ["STR", "FLOAT", "INT", "DATETIME"]
 
