@@ -893,12 +893,10 @@ def init_triplestore() -> None:
                 latest_dict_file = get_latest_datadictionary(folder_path)
                 if latest_dict_file:
                     print(f"Using latest datadictionary file for {folder}: {os.path.basename(latest_dict_file)}, date: {os.path.getmtime(latest_dict_file)}")
-                    # Delete existing triples for this cohort before loading new ones
+                    g = load_cohort_dict_file(latest_dict_file, folder)
+                    # Delete existing triples for this cohort before publishing new ones
                     # This ensures we don't have duplicate or conflicting triples
                     delete_existing_triples(get_cohort_uri(folder))
-                    
-                    # Now load and publish the data dictionary
-                    g = load_cohort_dict_file(latest_dict_file, folder)
                     # g.serialize(f"{settings.data_folder}/cohort_explorer_triplestore.trig", format="trig")
                     if publish_graph_to_endpoint(g):
                         print(f"💾 Triplestore initialization: added {len(g)} triples for cohort {folder}.")
