@@ -246,7 +246,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
         
         # Normalize column names (uppercase, specific substitutions)
         df.columns = [cols_normalized.get(c.upper().strip(), c.upper().strip().replace("VALUES", "VALUE")) for c in df.columns]
-        print(f"POST NORMALIZATION -- COHORT {cohort_id} -- Columns: {df.columns}")
+        # print(f"POST NORMALIZATION -- COHORT {cohort_id} -- Columns: {df.columns}")
         # --- Structural Validation: Check for required columns ---
         # Define columns absolutely essential for the row-processing logic to run without KeyErrors
         critical_column_names_for_processing = [c.name.upper().strip() for c in metadatadict_cols_schema1 if c.name.upper().strip() != "VISITS"]
@@ -860,7 +860,20 @@ def init_triplestore() -> None:
         print(f"🦉 Triplestore initialization: added {len(g)} triples for the iCARE4CVD Cohort Explorer OWL ontology.")
 
     os.makedirs(os.path.join(settings.data_folder, "cohorts"), exist_ok=True)
-    # Load cohorts data dictionaries already present in data/cohorts/
+    
+    # First, load cohorts metadata to establish basic cohort entities
+    print("Loading cohorts metadata file first to establish cohort entities...")
+    g = cohorts_metadata_file_to_graph(COHORTS_METADATA_FILEPATH)
+    
+    # Delete existing triples for cohorts metadata before publishing new ones
+    cohorts_graph = URIRef("https://w3id.org/icare4cvd/cohorts")
+    delete_existing_triples(cohorts_graph)
+
+    if publish_graph_to_endpoint(g):
+        print(f"🪪 Triplestore initialization: added {len(g)} triples for the cohorts metadata.")
+    
+    # Then, load cohorts data dictionaries to add variables to the established cohorts
+    print("Now loading cohort data dictionaries to add variables to the established cohorts...")
     for folder in os.listdir(os.path.join(settings.data_folder, "cohorts")):
         folder_path = os.path.join(settings.data_folder, "cohorts", folder)
         if os.path.isdir(folder_path):
@@ -872,6 +885,9 @@ def init_triplestore() -> None:
                 if latest_dict_file:
                     print(f"Using latest datadictionary file for {folder}: {os.path.basename(latest_dict_file)}, date: {os.path.getmtime(latest_dict_file)}")
                     g = load_cohort_dict_file(latest_dict_file, folder)
+                    # Delete existing triples for this cohort before publishing new ones
+                    # This ensures we don't have duplicate or conflicting triples
+                    delete_existing_triples(get_cohort_uri(folder))
                     # g.serialize(f"{settings.data_folder}/cohort_explorer_triplestore.trig", format="trig")
                     if publish_graph_to_endpoint(g):
                         print(f"💾 Triplestore initialization: added {len(g)} triples for cohort {folder}.")
@@ -879,13 +895,6 @@ def init_triplestore() -> None:
                     print(f"No datadictionary file found for cohort {folder}.")
         else:
             print(f"No datadictionary file found for cohort {folder}.")
-
-    # Load cohorts metadata
-    g = cohorts_metadata_file_to_graph(COHORTS_METADATA_FILEPATH)
-
-    # g.serialize(f"{settings.data_folder}/cohort_explorer_triplestore.ttl", format="turtle")
-    if publish_graph_to_endpoint(g):
-        print(f"🪪 Triplestore initialization: added {len(g)} triples for the cohorts metadata.")
 
 
 @router.get("/test-sparql")
