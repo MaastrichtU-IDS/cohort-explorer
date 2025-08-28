@@ -16,6 +16,7 @@ from rdflib import XSD, Dataset, Graph, Literal, URIRef
 from rdflib.namespace import DC, RDF, RDFS
 from SPARQLWrapper import SPARQLWrapper
 
+from src.config import settings
 from src.auth import get_current_user
 from src.utils import run_query, retrieve_cohorts_metadata
 from src.cohort_cache import add_cohort_to_cache, clear_cache, create_cohort_from_dict_file, create_cohort_from_metadata_graph
