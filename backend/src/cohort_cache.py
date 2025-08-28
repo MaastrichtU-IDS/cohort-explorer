@@ -366,6 +366,11 @@ def create_cohort_from_dict_file(cohort_id: str, cohort_uri: URIRef, g: Dataset)
         categories_uri = URIRef("https://w3id.org/icare4cvd/categories")
         rdf_value_uri = URIRef("http://www.w3.org/1999/02/22-rdf-syntax-ns#value")
         
+        # Additional URIs for variable metadata
+        concept_code_uri = URIRef("https://w3id.org/icare4cvd/conceptCode")
+        concept_name_uri = URIRef("https://w3id.org/icare4cvd/conceptName")
+        omop_id_uri = URIRef("https://w3id.org/icare4cvd/omopId")
+        
         # Get all variable URIs first
         variable_uris = [o for _, _, o, _ in g.quads((cohort_uri, has_variable_uri, None, None))]
         logging.info(f"Found {len(variable_uris)} variables for cohort {cohort_id}")
@@ -380,6 +385,9 @@ def create_cohort_from_dict_file(cohort_id: str, cohort_uri: URIRef, g: Dataset)
             var_name = None
             var_label = None
             var_type = None
+            concept_code = None
+            concept_name = None
+            omop_id = None
             
             # Get variable name
             for _, _, vo, _ in g.quads((var_uri, dc_identifier_uri, None, None)):
@@ -395,6 +403,21 @@ def create_cohort_from_dict_file(cohort_id: str, cohort_uri: URIRef, g: Dataset)
             for _, _, vo, _ in g.quads((var_uri, var_type_uri, None, None)):
                 var_type = str(vo)
                 break
+                
+            # Get concept code
+            for _, _, vo, _ in g.quads((var_uri, concept_code_uri, None, None)):
+                concept_code = str(vo)
+                break
+                
+            # Get concept name
+            for _, _, vo, _ in g.quads((var_uri, concept_name_uri, None, None)):
+                concept_name = str(vo)
+                break
+                
+            # Get OMOP ID
+            for _, _, vo, _ in g.quads((var_uri, omop_id_uri, None, None)):
+                omop_id = str(vo)
+                break
             
             if not var_name or not var_label or not var_type:
                 logging.warning(f"Skipping variable with incomplete data: name={var_name}, label={var_label}, type={var_type}")
@@ -405,7 +428,10 @@ def create_cohort_from_dict_file(cohort_id: str, cohort_uri: URIRef, g: Dataset)
                 var_name=var_name,
                 var_label=var_label,
                 var_type=var_type,
-                count=0  # Default count, will be updated if available
+                count=0,  # Default count, will be updated if available
+                concept_code=concept_code,
+                concept_name=concept_name,
+                omop_id=omop_id
             )
             
             # Add variable to the cohort
