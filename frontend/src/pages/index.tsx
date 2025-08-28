@@ -8,18 +8,39 @@ import { Cohort } from '@/types';
 const inter = Inter({subsets: ['latin']});
 
 export default function Home() {
-  // Get statistics directly from the context
+  // Get statistics from context as fallback
   const { cohortStatistics } = useCohorts();
   
-  // Use the statistics from context directly in the component
-  const stats = cohortStatistics || {
+  // State to store statistics from API
+  const [stats, setStats] = React.useState({
     totalCohorts: 0,
     cohortsWithMetadata: 0,
     cohortsWithAggregateAnalysis: 0,
     totalPatients: 0,
     patientsInCohortsWithMetadata: 0,
     totalVariables: 0
-  };
+  });
+  
+  // Fetch statistics from API on component mount
+  React.useEffect(() => {
+    const fetchStatistics = async () => {
+      try {
+        const response = await fetch('/api/get-statistics');
+        if (response.ok) {
+          const data = await response.json();
+          setStats(data);
+        }
+      } catch (error) {
+        console.error('Error fetching statistics:', error);
+        // Fallback to context statistics if API fails
+        if (cohortStatistics) {
+          setStats(cohortStatistics);
+        }
+      }
+    };
+    
+    fetchStatistics();
+  }, []);
 
   return (
     <main className={`flex flex-col items-center justify-between p-24 ${inter.className}`}>

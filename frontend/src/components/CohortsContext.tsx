@@ -105,14 +105,28 @@ export const CohortsProvider = ({children}: any) => {
         }
       }
       
-      // Update statistics state
-      setCohortStatistics({
+      // Create the statistics object
+      const statistics = {
         totalCohorts,
         cohortsWithMetadata: cohortsWithMetadataCount,
         cohortsWithAggregateAnalysis: aggregateAnalysisCount,
         totalPatients,
         patientsInCohortsWithMetadata,
         totalVariables
+      };
+      
+      // Update statistics state
+      setCohortStatistics(statistics);
+      
+      // Save statistics to JSON file via API
+      fetch('/api/save-statistics', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(statistics)
+      }).catch(error => {
+        console.error('Error saving statistics:', error);
       });
     };
     
