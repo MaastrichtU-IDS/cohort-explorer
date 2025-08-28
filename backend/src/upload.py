@@ -577,8 +577,11 @@ async def upload_cohort(
             # )
             delete_existing_triples(get_cohort_uri(cohort_id))
             if publish_graph_to_endpoint(g):
-                # Cache is already updated in load_cohort_dict_file
-                logging.info(f"Cohort {cohort_id} published to endpoint successfully")
+                # Update the cache with the new cohort data
+                cohorts = retrieve_cohorts_metadata(user_email)
+                if cohort_id in cohorts:
+                    add_cohort_to_cache(cohorts[cohort_id])
+                    logging.info(f"Added cohort {cohort_id} to cache after upload")
     except Exception as e:
         os.remove(cohort_info.metadata_filepath)
         raise e
@@ -884,21 +887,14 @@ def init_triplestore():
             break
         time.sleep(0.5)  # Small delay between checks
     
-    # Initialize the cache from the metadata file directly (more efficient)
+    # Initialize the cache from triplestore
     # This works whether the triplestore is initialized or not
-    if os.path.exists(COHORTS_METADATA_FILEPATH):
-        from src.cohort_cache import initialize_cache_from_metadata_file
-        print(f"Initializing cache directly from metadata file: {COHORTS_METADATA_FILEPATH}")
-        initialize_cache_from_metadata_file(COHORTS_METADATA_FILEPATH)
-        print("✅ Cohort cache initialization from metadata file complete.")
-    else:
-        print(f"⚠️ Metadata file not found at {COHORTS_METADATA_FILEPATH}")
-        if triplestore_initialized:
-            # Fall back to initializing from triplestore if metadata file is missing
-            from src.cohort_cache import initialize_cache_from_triplestore
-            print("Falling back to initializing cache from existing triplestore data...")
-            initialize_cache_from_triplestore()
-            print("✅ Cohort cache initialization from triplestore complete.")
+    from src.cohort_cache import initialize_cache_from_triplestore
+    print("Initializing cache from triplestore...")
+    # Use the first admin email to ensure we get all cohorts
+    admin_email = settings.admins_list[0] if settings.admins_list else "admin@example.com"
+    initialize_cache_from_triplestore(admin_email)
+    print("✅ Cohort cache initialization complete.")
     
     # If triplestore is already initialized, we're done
     if triplestore_initialized:
