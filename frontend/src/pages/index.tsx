@@ -60,7 +60,7 @@ export default function Home() {
         {/* Total Cohorts */}
         <div className="stat bg-base-100 shadow rounded-lg p-4">
           <div className="stat-value text-primary text-3xl">{stats.totalCohorts}</div>
-          <div className="stat-title text-sm">Total Cohorts</div>
+          <div className="stat-title text-sm">Registered Cohorts</div>
         </div>
 
         {/* Cohorts with Metadata */}
@@ -84,13 +84,13 @@ export default function Home() {
         {/* Patients in Cohorts with Metadata */}
         <div className="stat bg-base-100 shadow rounded-lg p-4">
           <div className="stat-value text-warning text-3xl">{stats.patientsInCohortsWithMetadata.toLocaleString()}</div>
-          <div className="stat-title text-sm">Patients in Cohorts with Metadata</div>
+          <div className="stat-title text-sm">Patients in Cohorts with Uploaded Metadata</div>
         </div>
         
         {/* Total Variables */}
         <div className="stat bg-base-100 shadow rounded-lg p-4">
           <div className="stat-value text-info text-3xl">{stats.totalVariables.toLocaleString()}</div>
-          <div className="stat-title text-sm">Total Variables</div>
+          <div className="stat-title text-sm">Variables in Cohorts with Uploaded Metadata</div>
         </div>
       </div>
 
