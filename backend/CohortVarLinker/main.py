@@ -421,11 +421,12 @@ def combine_all_mappings_to_json(
     # Dict: {source_var: [mapping_dicts]}
     mappings = {}
     for target in target_studies:
-        csv_file = os.path.join(output_dir, f"{source_study}_{target}_full.csv")
-        if not os.path.exists(csv_file):
-            print(f"Skipping {csv_file}, does not exist.")
+        crossmap_csv = os.path.join(output_dir, f"{source_study}_{target}_cross_mapping.csv")
+        if not os.path.exists(crossmap_csv):
+            print(f"Skipping {crossmap_csv}, does not exist.")
             continue
-        df = pd.read_csv(csv_file)
+        print(f"Inside combine_all_mappings_to_json - Processing {crossmap_csv}")
+        df = pd.read_csv(crossmap_csv)
         for idx, row in df.iterrows():
             # Source variable name
             src_var = str(row["source"]).strip()
@@ -539,7 +540,6 @@ def generate_mapping_csv(
     missing_targets = []
     
     for tstudy in target_studies:
-        # suffix = 'restricted' if vc else 'full'
         out_filename = f'{source_study}_{tstudy}_cross_mapping.csv'
         out_path = os.path.join(output_dir, out_filename)
         print(f"Checking if {out_path} exists")
@@ -553,7 +553,7 @@ def generate_mapping_csv(
                 source_study=source_study,
                 target_studies=target_studies,
                 output_dir= "/app/CohortVarLinker/mapping_output/",
-                json_path= f"/app/CohortVarLinker/mapping_output/{source_study}_omop_id_grouped_{tstudy_str}.csv")
+                json_path= f"/app/CohortVarLinker/mapping_output/{source_study}_omop_id_grouped_{tstudy_str}.json")
         
         return
             
@@ -598,7 +598,7 @@ def generate_mapping_csv(
         source_study=source_study,
         target_studies=target_studies,
         output_dir= "/app/CohortVarLinker/mapping_output/",
-        json_path= f"/app/CohortVarLinker/mapping_output/{source_study}_omop_id_grouped_{tstudy_str}.csv")
+        json_path= f"/app/CohortVarLinker/mapping_output/{source_study}_omop_id_grouped_{tstudy_str}.json")
     #         if tstudy not in mapping_dict:
     #             mapping_dict[tstudy] = {}
     #         for _, row in mapping_transformed.iterrows():
