@@ -341,6 +341,8 @@ def create_cohort_from_dict_file(cohort_id: str, cohort_uri: URIRef, g: Dataset)
         A Cohort object if successful, None otherwise
     """
     try:
+        logging.info(f"Creating cohort {cohort_id} from dictionary file")
+        
         # Create a basic Cohort object with the ID
         cohort = Cohort(cohort_id=cohort_id)
         
@@ -352,64 +354,97 @@ def create_cohort_from_dict_file(cohort_id: str, cohort_uri: URIRef, g: Dataset)
             f.endswith("_datadictionary.csv") for f in os.listdir(cohort_folder_path)
         ) if os.path.exists(cohort_folder_path) else False
         
-        # Extract variables from the graph
+        # Extract variables from the graph - use a more efficient approach
         variables = {}
+        var_count = 0
         
-        # Find all variables for this cohort
-        for s, p, o, _ in g.quads((cohort_uri, URIRef("https://w3id.org/icare4cvd/hasVariable"), None, None)):
-            var_uri = o
+        # Define URIs once to avoid repeated creation
+        has_variable_uri = URIRef("https://w3id.org/icare4cvd/hasVariable")
+        dc_identifier_uri = URIRef("http://purl.org/dc/elements/1.1/identifier")
+        rdfs_label_uri = URIRef("http://www.w3.org/2000/01/rdf-schema#label")
+        var_type_uri = URIRef("https://w3id.org/icare4cvd/varType")
+        categories_uri = URIRef("https://w3id.org/icare4cvd/categories")
+        rdf_value_uri = URIRef("http://www.w3.org/1999/02/22-rdf-syntax-ns#value")
+        
+        # Get all variable URIs first
+        variable_uris = [o for _, _, o, _ in g.quads((cohort_uri, has_variable_uri, None, None))]
+        logging.info(f"Found {len(variable_uris)} variables for cohort {cohort_id}")
+        
+        # Process each variable
+        for var_uri in variable_uris:
+            var_count += 1
+            if var_count % 50 == 0:
+                logging.info(f"Processing variable {var_count}/{len(variable_uris)} for cohort {cohort_id}")
+                
+            # Get variable properties using specific queries instead of iterating all properties
             var_name = None
             var_label = None
             var_type = None
             
-            # Get variable properties
-            for vs, vp, vo, _ in g.quads((var_uri, None, None, None)):
-                if vp == URIRef("http://purl.org/dc/elements/1.1/identifier"):
-                    var_name = str(vo)
-                elif vp == URIRef("http://www.w3.org/2000/01/rdf-schema#label"):
-                    var_label = str(vo)
-                elif vp == URIRef("https://w3id.org/icare4cvd/varType"):
-                    var_type = str(vo)
+            # Get variable name
+            for _, _, vo, _ in g.quads((var_uri, dc_identifier_uri, None, None)):
+                var_name = str(vo)
+                break
+                
+            # Get variable label
+            for _, _, vo, _ in g.quads((var_uri, rdfs_label_uri, None, None)):
+                var_label = str(vo)
+                break
+                
+            # Get variable type
+            for _, _, vo, _ in g.quads((var_uri, var_type_uri, None, None)):
+                var_type = str(vo)
+                break
             
-            if var_name and var_label and var_type:
-                # Create a variable with required fields
-                variable = CohortVariable(
-                    var_name=var_name,
-                    var_label=var_label,
-                    var_type=var_type,
-                    count=0  # Default count, will be updated if available
-                )
+            if not var_name or not var_label or not var_type:
+                logging.warning(f"Skipping variable with incomplete data: name={var_name}, label={var_label}, type={var_type}")
+                continue
                 
-                # Add variable to the cohort
-                variables[var_name] = variable
+            # Create a variable with required fields
+            variable = CohortVariable(
+                var_name=var_name,
+                var_label=var_label,
+                var_type=var_type,
+                count=0  # Default count, will be updated if available
+            )
+            
+            # Add variable to the cohort
+            variables[var_name] = variable
+            
+            # Get category URIs for this variable
+            category_uris = [co for _, _, co, _ in g.quads((var_uri, categories_uri, None, None))]
+            
+            # Process each category
+            for cat_uri in category_uris:
+                cat_value = None
+                cat_label = None
                 
-                # Get categories for this variable
-                for cs, cp, co, _ in g.quads((var_uri, URIRef("https://w3id.org/icare4cvd/categories"), None, None)):
-                    cat_uri = co
-                    cat_value = None
-                    cat_label = None
+                # Get category value
+                for _, _, cato, _ in g.quads((cat_uri, rdf_value_uri, None, None)):
+                    cat_value = str(cato)
+                    break
                     
-                    # Get category properties
-                    for cats, catp, cato, _ in g.quads((cat_uri, None, None, None)):
-                        if catp == URIRef("http://www.w3.org/1999/02/22-rdf-syntax-ns#value"):
-                            cat_value = str(cato)
-                        elif catp == URIRef("http://www.w3.org/2000/01/rdf-schema#label"):
-                            cat_label = str(cato)
-                    
-                    if cat_value and cat_label:
-                        # Create a category
-                        category = VariableCategory(value=cat_value, label=cat_label)
-                        variable.categories.append(category)
+                # Get category label
+                for _, _, cato, _ in g.quads((cat_uri, rdfs_label_uri, None, None)):
+                    cat_label = str(cato)
+                    break
+                
+                if cat_value and cat_label:
+                    # Create a category
+                    category = VariableCategory(value=cat_value, label=cat_label)
+                    variable.categories.append(category)
         
         # Add variables to the cohort
         cohort.variables = variables
+        logging.info(f"Successfully processed {var_count} variables for cohort {cohort_id}")
         
         # Add the cohort to the cache
         add_cohort_to_cache(cohort)
+        logging.info(f"Added cohort {cohort_id} to cache with {len(variables)} variables")
         
         return cohort
     except Exception as e:
-        logging.error(f"Error creating cohort from dictionary file: {e}")
+        logging.error(f"Error creating cohort from dictionary file: {e}", exc_info=True)
         return None
 
 def initialize_cache_from_triplestore(admin_email: str = "admin@example.com") -> None:
