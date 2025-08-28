@@ -577,8 +577,11 @@ async def upload_cohort(
             # )
             delete_existing_triples(get_cohort_uri(cohort_id))
             if publish_graph_to_endpoint(g):
-                # Cache is already updated in load_cohort_dict_file
-                logging.info(f"Cohort {cohort_id} published to endpoint successfully")
+                # Update the cache with the new cohort data
+                cohorts = retrieve_cohorts_metadata(user_email)
+                if cohort_id in cohorts:
+                    add_cohort_to_cache(cohorts[cohort_id])
+                    logging.info(f"Added cohort {cohort_id} to cache after upload")
     except Exception as e:
         os.remove(cohort_info.metadata_filepath)
         raise e

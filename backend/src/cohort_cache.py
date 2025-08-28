@@ -366,8 +366,8 @@ def create_cohort_from_dict_file(cohort_id: str, cohort_uri: URIRef, g: Dataset)
         categories_uri = URIRef("https://w3id.org/icare4cvd/categories")
         rdf_value_uri = URIRef("http://www.w3.org/1999/02/22-rdf-syntax-ns#value")
         
-        # Get all variable URIs first - use cohort_uri as graph context
-        variable_uris = [o for _, _, o, g_ctx in g.quads((cohort_uri, has_variable_uri, None, cohort_uri))]
+        # Get all variable URIs first
+        variable_uris = [o for _, _, o, _ in g.quads((cohort_uri, has_variable_uri, None, None))]
         logging.info(f"Found {len(variable_uris)} variables for cohort {cohort_id}")
         
         # Process each variable
@@ -381,18 +381,18 @@ def create_cohort_from_dict_file(cohort_id: str, cohort_uri: URIRef, g: Dataset)
             var_label = None
             var_type = None
             
-            # Get variable name - use cohort_uri as graph context
-            for _, _, vo, _ in g.quads((var_uri, dc_identifier_uri, None, cohort_uri)):
+            # Get variable name
+            for _, _, vo, _ in g.quads((var_uri, dc_identifier_uri, None, None)):
                 var_name = str(vo)
                 break
                 
-            # Get variable label - use cohort_uri as graph context
-            for _, _, vo, _ in g.quads((var_uri, rdfs_label_uri, None, cohort_uri)):
+            # Get variable label
+            for _, _, vo, _ in g.quads((var_uri, rdfs_label_uri, None, None)):
                 var_label = str(vo)
                 break
                 
-            # Get variable type - use cohort_uri as graph context
-            for _, _, vo, _ in g.quads((var_uri, var_type_uri, None, cohort_uri)):
+            # Get variable type
+            for _, _, vo, _ in g.quads((var_uri, var_type_uri, None, None)):
                 var_type = str(vo)
                 break
             
@@ -411,21 +411,21 @@ def create_cohort_from_dict_file(cohort_id: str, cohort_uri: URIRef, g: Dataset)
             # Add variable to the cohort
             variables[var_name] = variable
             
-            # Get category URIs for this variable - use cohort_uri as graph context
-            category_uris = [co for _, _, co, _ in g.quads((var_uri, categories_uri, None, cohort_uri))]
+            # Get category URIs for this variable
+            category_uris = [co for _, _, co, _ in g.quads((var_uri, categories_uri, None, None))]
             
             # Process each category
             for cat_uri in category_uris:
                 cat_value = None
                 cat_label = None
                 
-                # Get category value - use cohort_uri as graph context
-                for _, _, cato, _ in g.quads((cat_uri, rdf_value_uri, None, cohort_uri)):
+                # Get category value
+                for _, _, cato, _ in g.quads((cat_uri, rdf_value_uri, None, None)):
                     cat_value = str(cato)
                     break
                     
-                # Get category label - use cohort_uri as graph context
-                for _, _, cato, _ in g.quads((cat_uri, rdfs_label_uri, None, cohort_uri)):
+                # Get category label
+                for _, _, cato, _ in g.quads((cat_uri, rdfs_label_uri, None, None)):
                     cat_label = str(cato)
                     break
                 
