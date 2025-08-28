@@ -447,39 +447,199 @@ def create_cohort_from_dict_file(cohort_id: str, cohort_uri: URIRef, g: Dataset)
         logging.error(f"Error creating cohort from dictionary file: {e}", exc_info=True)
         return None
 
-def initialize_cache_from_triplestore(admin_email: str = "admin@example.com") -> None:
-    """Initialize the cache from the triplestore.
-    
-    This function can be called independently of the triplestore initialization
-    to ensure the cache is built even when the triplestore is not empty.
-    
-    Args:
-        admin_email: Email to use for retrieving cohorts from the triplestore
+def initialize_cache_from_triplestore() -> None:
     """
-    global _cohorts_cache, _cache_initialized
-    
-    # Clear the cache before initialization
-    clear_cache()
-    
-    # Import here to avoid circular imports
+    Initialize the cohort cache from the triplestore.
+    This is called during application startup if the triplestore is already initialized.
+    """
     from src.utils import retrieve_cohorts_metadata
     
+    global _cache_initialized
+    
+    if _cache_initialized:
+        logging.info("Cache already initialized, skipping initialization")
+        return
+    
+    logging.info("Initializing cohort cache from triplestore...")
+    
+    # Get all cohorts from the triplestore - use settings.admins_list[0] to ensure we get all cohorts
+    admin_email = settings.admins_list[0] if settings.admins_list else "admin@example.com"
+    cohorts = retrieve_cohorts_metadata(admin_email)
+    
+    # Add each cohort to the cache
+    for cohort_id, cohort in cohorts.items():
+        print(f"\nAdding cohort {cohort_id} to cache at {time.time()}")
+        add_cohort_to_cache(cohort)
+        print(f"Finished adding cohort {cohort_id} to cache at {time.time()}")
+    
+    _cache_initialized = True
+    logging.info(f"Cache initialized with {len(cohorts)} cohorts from triplestore")
+
+
+def initialize_cache_from_metadata_file(filepath: str) -> None:
+    """
+    Initialize the cohort cache directly from the Excel metadata file.
+    This bypasses the SPARQL query and is more efficient for initial cache population.
+    
+    Args:
+        filepath: Path to the Excel metadata file
+    """
+    import pandas as pd
+    import time
+    from src.models import Cohort
+    
+    global _cache_initialized
+    
+    if _cache_initialized:
+        logging.info("Cache already initialized, skipping initialization from metadata file")
+        return
+    
+    logging.info(f"Initializing cohort cache from metadata file: {filepath}")
+    
     try:
-        # Retrieve cohorts from the triplestore
-        cohorts = retrieve_cohorts_metadata(admin_email)
+        # Read the Excel file
+        df = pd.read_excel(filepath, sheet_name="Descriptions")
+        df = df.fillna("")
         
-        # Add each cohort to the cache
-        for cohort_id, cohort in cohorts.items():
+        # Process each row (cohort)
+        cohort_count = 0
+        for _i, row in df.iterrows():
+            start_time = time.time()
+            cohort_id = str(row["Study Name"]).strip()
+            if not cohort_id:  # Skip empty rows
+                continue
+                
+            logging.info(f"Processing cohort metadata for: {cohort_id}")
+            
+            # Create a basic Cohort object
+            cohort = Cohort(cohort_id=cohort_id)
+            
+            # Set the folder path
+            cohort_folder_path = os.path.join(settings.data_folder, "cohorts", cohort_id)
+            
+            # Check if the physical dictionary exists
+            cohort.physical_dictionary_exists = os.path.exists(cohort_folder_path) and any(
+                f.endswith("_datadictionary.csv") for f in os.listdir(cohort_folder_path)
+            ) if os.path.exists(cohort_folder_path) else False
+            
+            # Add metadata fields from the Excel file
+            if row.get("Institute", ""):
+                cohort.institution = str(row["Institute"])
+                
+            if row.get("Administrator", ""):
+                cohort.administrator = str(row["Administrator"])
+                
+            if row.get("Administrator Email Address", ""):
+                cohort.administrator_email = str(row["Administrator Email Address"])
+                
+            if row.get("Study Contact Person", ""):
+                cohort.creator = str(row["Study Contact Person"])
+                
+            if row.get("Study Contact Person Email Address", ""):
+                cohort.emails = [email.strip() for email in str(row["Study Contact Person Email Address"]).split(";")]
+                
+            if row.get("References", ""):
+                cohort.references = [ref.strip() for ref in str(row["References"]).split(";")]
+                
+            if row.get("Population Location", ""):
+                cohort.population_location = str(row["Population Location"])
+                
+            if row.get("Language", ""):
+                cohort.language = str(row["Language"])
+                
+            if row.get("Frequency of data collection", ""):
+                cohort.data_collection_frequency = str(row["Frequency of data collection"])
+                
+            if row.get("Interventions", ""):
+                cohort.interventions = str(row["Interventions"])
+                
+            if row.get("Study Type", ""):
+                cohort.cohort_types = [st.strip() for st in str(row["Study Type"]).split("/")]
+                
+            if row.get("Study Design", ""):
+                cohort.study_type = str(row["Study Design"])
+                
+            if row.get("Start date", "") and row.get("End date", ""):
+                cohort.study_start = str(row["Start date"])
+                cohort.study_end = str(row["End date"])
+                
+            if row.get("Number of Participants", ""):
+                cohort.study_participants = str(row["Number of Participants"])
+                
+            if row.get("Ongoing", ""):
+                cohort.study_ongoing = str(row["Ongoing"])
+                
+            if row.get("Study Objective", ""):
+                cohort.study_objective = str(row["Study Objective"])
+                
+            # Handle primary and secondary outcome specifications
+            primary_outcome_keys = ["primary outcome specification", "Primary outcome specification", "primary_outcome_specification"]
+            for key in primary_outcome_keys:
+                if key in row and row[key]:
+                    cohort.primary_outcome_spec = str(row[key])
+                    break
+                    
+            secondary_outcome_keys = ["secondary outcome specification", "Secondary outcome specification", "secondary_outcome_specification"]
+            for key in secondary_outcome_keys:
+                if key in row and row[key]:
+                    cohort.secondary_outcome_spec = str(row[key])
+                    break
+                    
+            # Handle Mixed Sex field for male/female percentages
+            mixed_sex_keys = ["Mixed Sex", "mixed sex", "mixed_sex"]
+            for key in mixed_sex_keys:
+                if key in row and row[key]:
+                    mixed_sex_value = str(row[key])
+                    
+                    # Split the string by common separators
+                    parts = []
+                    if ";" in mixed_sex_value:
+                        parts = mixed_sex_value.split(";")
+                    elif "and" in mixed_sex_value:
+                        parts = mixed_sex_value.split("and")
+                    else:
+                        parts = [mixed_sex_value]
+                    
+                    # Process each part to find male and female percentages
+                    for part in parts:
+                        part = part.strip().lower().replace(",", ".")
+                        if "male" in part and "female" not in part:  # Ensure we're not catching 'female' in 'male'
+                            # Extract only digits and period for the percentage
+                            digits_only = ''.join(c for c in part if c.isdigit() or c == '.')
+                            if digits_only:
+                                try:
+                                    cohort.male_percentage = float(digits_only)
+                                except ValueError:
+                                    logging.warning(f"Could not convert '{digits_only}' to float for male percentage")
+                        
+                        if "female" in part:
+                            # Extract only digits and period for the percentage
+                            digits_only = ''.join(c for c in part if c.isdigit() or c == '.')
+                            if digits_only:
+                                try:
+                                    cohort.female_percentage = float(digits_only)
+                                except ValueError:
+                                    logging.warning(f"Could not convert '{digits_only}' to float for female percentage")
+                    break
+            
+            # Add the cohort to the cache
             add_cohort_to_cache(cohort)
+            cohort_count += 1
+            
+            end_time = time.time()
+            logging.info(f"Added cohort {cohort_id} to cache in {end_time - start_time:.2f} seconds")
         
         _cache_initialized = True
-        logging.info(f"Cache initialized with {len(cohorts)} cohorts from triplestore")
+        logging.info(f"Cache initialized with {cohort_count} cohorts from metadata file")
+        
     except Exception as e:
-        logging.error(f"Error initializing cache from triplestore: {e}")
+        logging.error(f"Error initializing cache from metadata file: {e}", exc_info=True)
+        # Don't set _cache_initialized to True if there was an error
 
 
 def get_cohorts_from_cache(user_email: str) -> Dict[str, Cohort]:
-    """Get all cohorts from the cache, updating the can_edit field based on user email."""
+    """
+    Get all cohorts from the cache, updating the can_edit field based on user email."""
     global _cohorts_cache, _cache_initialized
     
     if not _cache_initialized:

@@ -255,9 +255,9 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
                     )}
                     {variable.omop_domain && <span className="badge badge-default">{variable.omop_domain}</span>}
                     {variable.formula && <span className="badge badge-outline">🧪 {variable.formula}</span>}
-                    {variable.concept_code && <span className="badge badge-info">Code: {variable.concept_code}</span>}
-                    {variable.concept_name && <span className="badge badge-info">Name: {variable.concept_name}</span>}
-                    {variable.omop_id && <span className="badge badge-info">OMOP ID: {variable.omop_id}</span>}
+                    {variable.concept_code && <span className="badge" style={{ backgroundColor: '#dbeafe', color: '#1e3a8a', border: '1px solid #bfdbfe' }}>Code: {variable.concept_code}</span>}
+                    {variable.concept_name && <span className="badge" style={{ backgroundColor: '#dbeafe', color: '#1e3a8a', border: '1px solid #bfdbfe' }}>Name: {variable.concept_name}</span>}
+                    {variable.omop_id && <span className="badge" style={{ backgroundColor: '#dbeafe', color: '#1e3a8a', border: '1px solid #bfdbfe' }}>OMOP ID: {variable.omop_id}</span>}
                     {/* {(variable.concept_id || variable.mapped_id) && ( */}
                     <AutocompleteConcept
                       query={variable.var_label}

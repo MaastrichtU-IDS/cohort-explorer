@@ -887,16 +887,29 @@ def init_triplestore():
             break
         time.sleep(0.5)  # Small delay between checks
     
-    # If triplestore is already initialized, initialize the cache from the triplestore
+    # Initialize the cache from the metadata file directly (more efficient)
+    # This works whether the triplestore is initialized or not
+    if os.path.exists(COHORTS_METADATA_FILEPATH):
+        from src.cohort_cache import initialize_cache_from_metadata_file
+        print(f"Initializing cache directly from metadata file: {COHORTS_METADATA_FILEPATH}")
+        initialize_cache_from_metadata_file(COHORTS_METADATA_FILEPATH)
+        print("✅ Cohort cache initialization from metadata file complete.")
+    else:
+        print(f"⚠️ Metadata file not found at {COHORTS_METADATA_FILEPATH}")
+        if triplestore_initialized:
+            # Fall back to initializing from triplestore if metadata file is missing
+            from src.cohort_cache import initialize_cache_from_triplestore
+            print("Falling back to initializing cache from existing triplestore data...")
+            initialize_cache_from_triplestore()
+            print("✅ Cohort cache initialization from triplestore complete.")
+    
+    # If triplestore is already initialized, we're done
     if triplestore_initialized:
-        from src.cohort_cache import initialize_cache_from_triplestore
-        print("Initializing cache from existing triplestore data...")
-        initialize_cache_from_triplestore()
-        print("✅ Cohort cache initialization complete.")
         return
     
+    # Otherwise, continue with triplestore initialization
     # First, load cohorts metadata to establish basic cohort entities
-    print("Loading cohorts metadata file first to establish cohort entities...")
+    print("Loading cohorts metadata file to triplestore...")
     g = cohorts_metadata_file_to_graph(COHORTS_METADATA_FILEPATH)
     
     # Delete existing triples for cohorts metadata before publishing new ones
