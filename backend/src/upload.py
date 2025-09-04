@@ -1023,6 +1023,17 @@ def _perform_triplestore_initialization():
                     create_cohort_from_dict_file(folder, cohort_uri, g)
             else:
                 print(f"No datadictionary file found for cohort {folder}.")
+                # Ensure cohorts without dictionaries are still properly cached
+                # Check if this cohort exists in the metadata and add it to cache if missing
+                cohort_uri = get_cohort_uri(folder)
+                from src.cohort_cache import get_cohorts_from_cache, create_cohort_from_metadata_graph
+                admin_email = settings.admins_list[0] if settings.admins_list else "admin@example.com"
+                current_cache = get_cohorts_from_cache(admin_email)
+                if folder not in current_cache:
+                    print(f"Adding cohort {folder} to cache (metadata only, no dictionary)")
+                    # Get the metadata graph to extract cohort info
+                    metadata_graph = cohorts_metadata_file_to_graph(COHORTS_METADATA_FILEPATH)
+                    create_cohort_from_metadata_graph(folder, cohort_uri, metadata_graph)
         else:
             print(f"No datadictionary file found for cohort {folder}.")
     
