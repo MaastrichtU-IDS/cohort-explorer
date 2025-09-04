@@ -415,13 +415,8 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "") -> D
                                     errors.append(
                                         f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_data['value']}'): Error expanding CURIE '{code_to_check}': {curie_exc}."
                                     )
-        
-        if len(warnings) > 0: # Log warnings even if processing succeeds
-            logging.warning(f"Warnings uploading {cohort_id}: \n" + "\n".join(warnings))
 
         print(f"Finished processing cohort dictionary: {cohort_id}")
-        
-        
         
 
     except HTTPException as http_exc: # Re-raise specific HTTPExceptions (ours or from parse_categorical_string)
@@ -443,7 +438,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "") -> D
             )
     if source != "upload_dict" and len(errors) > 0:
         errors_file = os.path.join(settings.data_folder, f"metadata_files_issues.txt")
-        with open(errors_file, "w+") as f:
+        with open(errors_file, "a") as f:
             f.write(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
             f.write(f"Errors for cohort {cohort_id}:\n")
             f.write("\n".join(errors))
