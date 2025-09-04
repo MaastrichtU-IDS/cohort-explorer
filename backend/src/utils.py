@@ -14,6 +14,8 @@ ICARE = Namespace("https://w3id.org/icare4cvd/")
 
 query_endpoint = SPARQLWrapper(settings.query_endpoint)
 query_endpoint.setReturnFormat(JSON)
+# Set timeout to 300 seconds (5 minutes) for large queries
+query_endpoint.setTimeout(300)
 
 # CURIES converter docs: https://curies.readthedocs.io/en/latest/
 # Using URIs from from https://bioregistry.io/

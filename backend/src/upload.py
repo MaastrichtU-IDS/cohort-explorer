@@ -51,6 +51,7 @@ def delete_existing_triples(graph_uri: str | URIRef, subject="?s", predicate="?p
     query_endpoint = SPARQLWrapper(settings.update_endpoint)
     query_endpoint.setMethod("POST")
     query_endpoint.setRequestMethod("urlencoded")
+    query_endpoint.setTimeout(300)  # 5 minutes timeout
     
     try:
         # Count triples before deletion (for logging)
@@ -62,6 +63,7 @@ def delete_existing_triples(graph_uri: str | URIRef, subject="?s", predicate="?p
         """
         count_endpoint = SPARQLWrapper(settings.query_endpoint)
         count_endpoint.setReturnFormat("json")
+        count_endpoint.setTimeout(300)  # 5 minutes timeout
         count_endpoint.setQuery(count_query)
         count_results = count_endpoint.query().convert()
         triples_before = count_results["results"]["bindings"][0]["count"]["value"]
@@ -182,6 +184,7 @@ def insert_triples(
     query_endpoint = SPARQLWrapper(f"{settings.sparql_endpoint}/update")
     query_endpoint.setMethod("POST")
     query_endpoint.setRequestMethod("urlencoded")
+    query_endpoint.setTimeout(300)  # 5 minutes timeout
     query_endpoint.setQuery(query)
     query_endpoint.query()
 
@@ -231,6 +234,7 @@ def to_camelcase(s: str) -> str:
     # Otherwise, use the standard camelCase conversion
     s = sub(r"(_|-)+", " ", s).title().replace(" ", "")
     return "".join([s[0].lower(), s[1:]])
+
 
 
 def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "") -> Dataset:
@@ -436,7 +440,8 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "") -> D
                 status_code=500, # Use 500 for truly unexpected server-side issues
                 detail="\n\n".join(errors),
             )
-    if source != "upload_dict" and len(errors) > 0:
+    
+    if len(errors) > 0:
         errors_file = os.path.join(settings.data_folder, f"metadata_files_issues.txt")
         with open(errors_file, "a") as f:
             f.write(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
