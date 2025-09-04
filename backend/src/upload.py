@@ -886,21 +886,56 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
 
 def init_triplestore():
     """Initialize triplestore with the OMOP CDM ontology and the iCARE4CVD cohorts metadata."""
-    # Add a small delay to reduce chance of concurrent initialization
-    import random
+    import fcntl
     import time
-    time.sleep(random.uniform(0.5, 2.0))
     
-    # Always clear the cohort cache before initialization
-    print("Clearing cohort cache before initialization...")
-    clear_cache()
+    # Use file-based locking to ensure only one worker initializes the triplestore
+    lock_file_path = os.path.join(settings.data_folder, "triplestore_init.lock")
+    os.makedirs(os.path.dirname(lock_file_path), exist_ok=True)
     
-    # Create/clear the metadata issues file at the start of initialization
-    errors_file = os.path.join(settings.data_folder, "metadata_files_issues.txt")
-    os.makedirs(os.path.dirname(errors_file), exist_ok=True)
-    with open(errors_file, "w") as f:
-        f.write(f"Metadata Issues Log - Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write("=" * 50 + "\n\n")
+    try:
+        with open(lock_file_path, "w") as lock_file:
+            # Try to acquire exclusive lock (non-blocking)
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                print(f"🔒 Worker {os.getpid()} acquired initialization lock")
+            except BlockingIOError:
+                print(f"⏳ Worker {os.getpid()} waiting for initialization to complete by another worker...")
+                # Another worker is initializing, wait for it to complete
+                time.sleep(5)
+                # Initialize cache from triplestore after other worker completes
+                from src.cohort_cache import initialize_cache_from_triplestore
+                admin_email = settings.admins_list[0] if settings.admins_list else "admin@example.com"
+                initialize_cache_from_triplestore(admin_email)
+                print(f"✅ Worker {os.getpid()} cache initialized from triplestore")
+                return
+            
+            # If we reach here, we have the lock and should proceed with initialization
+            print("Clearing cohort cache before initialization...")
+            clear_cache()
+            
+            # Create/clear the metadata issues file at the start of initialization
+            errors_file = os.path.join(settings.data_folder, "metadata_files_issues.txt")
+            os.makedirs(os.path.dirname(errors_file), exist_ok=True)
+            with open(errors_file, "w") as f:
+                f.write(f"Metadata Issues Log - Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write("=" * 50 + "\n\n")
+            
+            # Continue with the rest of the initialization logic...
+            _perform_triplestore_initialization()
+            
+    except Exception as e:
+        print(f"❌ Error during triplestore initialization: {e}")
+        raise
+    finally:
+        # Clean up lock file
+        if os.path.exists(lock_file_path):
+            os.remove(lock_file_path)
+
+
+def _perform_triplestore_initialization():
+    """Perform the actual triplestore initialization logic."""
+    import time
     
     # Check multiple times if triples exist to ensure we don't have race conditions
     triplestore_initialized = False
@@ -952,6 +987,7 @@ def init_triplestore():
                 break
             
             if cohort_id:
+                from src.cohort_cache import create_cohort_from_metadata_graph
                 create_cohort_from_metadata_graph(cohort_id, cohort_uri, g)
         
         print("✅ Cohort metadata added to cache.")
@@ -976,10 +1012,15 @@ def init_triplestore():
                 # g.serialize(f"{settings.data_folder}/cohort_explorer_triplestore.trig", format="trig")
                 if publish_graph_to_endpoint(g):
                     print(f"💾 Triplestore initialization: added {len(g)} triples for cohort {folder}.")
-                    # Note: The cache is already updated in load_cohort_dict_file
+                    # Note: Variables are added to cache via create_cohort_from_dict_file in init_triplestore
+                    from src.cohort_cache import create_cohort_from_dict_file
+                    cohort_uri = get_cohort_uri(folder)
+                    create_cohort_from_dict_file(folder, cohort_uri, g)
             else:
                 print(f"No datadictionary file found for cohort {folder}.")
         else:
             print(f"No datadictionary file found for cohort {folder}.")
+    
+    print("🎉 Triplestore initialization complete!")
     
     print("✅ Cohort cache initialization complete.")
