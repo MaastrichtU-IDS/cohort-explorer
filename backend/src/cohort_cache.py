@@ -329,8 +329,8 @@ def create_cohort_from_metadata_graph(cohort_id: str, cohort_uri: URIRef, g: Dat
 
 def create_cohort_from_dict_file(cohort_id: str, cohort_uri: URIRef, g: Dataset) -> Optional[Cohort]:
     """
-    Create a Cohort object directly from the data dictionary and graph data.
-    This allows us to update the cache without querying the triplestore.
+    Create or update a Cohort object with variables from the data dictionary and graph data.
+    This preserves existing cohort metadata if the cohort is already in the cache.
     
     Args:
         cohort_id: The ID of the cohort
@@ -341,8 +341,17 @@ def create_cohort_from_dict_file(cohort_id: str, cohort_uri: URIRef, g: Dataset)
         A Cohort object if successful, None otherwise
     """
     try:
-        # Create a basic Cohort object with the ID
-        cohort = Cohort(cohort_id=cohort_id)
+        global _cohorts_cache
+        
+        # Check if cohort already exists in cache (with metadata)
+        if cohort_id in _cohorts_cache:
+            # Use existing cohort to preserve metadata
+            cohort = _cohorts_cache[cohort_id]
+            logging.info(f"Updating existing cohort {cohort_id} in cache with variables from dictionary")
+        else:
+            # Create a new basic Cohort object with the ID
+            cohort = Cohort(cohort_id=cohort_id)
+            logging.info(f"Creating new cohort {cohort_id} in cache from dictionary file")
         
         # Set the folder path
         cohort_folder_path = os.path.join(settings.data_folder, "cohorts", cohort_id)
@@ -401,7 +410,7 @@ def create_cohort_from_dict_file(cohort_id: str, cohort_uri: URIRef, g: Dataset)
                         category = VariableCategory(value=cat_value, label=cat_label)
                         variable.categories.append(category)
         
-        # Add variables to the cohort
+        # Update the cohort's variables (preserve existing metadata)
         cohort.variables = variables
         
         # Add the cohort to the cache

@@ -447,10 +447,14 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "") -> D
 
     # Update the cohort cache directly from the graph data
     # This is more efficient than retrieving it from the triplestore later
-    from src.cohort_cache import create_cohort_from_dict_file
-    cohort_uri = get_cohort_uri(cohort_id)
-    create_cohort_from_dict_file(cohort_id, cohort_uri, g)
-    logging.info(f"Added cohort {cohort_id} to cache directly from dictionary file")
+    # Only update cache if this is called from upload API, not from init_triplestore
+    if source == "upload_dict":
+        from src.cohort_cache import create_cohort_from_dict_file
+        cohort_uri = get_cohort_uri(cohort_id)
+        create_cohort_from_dict_file(cohort_id, cohort_uri, g)
+        logging.info(f"Added cohort {cohort_id} to cache directly from dictionary file")
+    else:
+        logging.info(f"Skipping cache update for cohort {cohort_id} - cache managed by {source}")
 
     return g
 
@@ -890,6 +894,13 @@ def init_triplestore():
     # Always clear the cohort cache before initialization
     print("Clearing cohort cache before initialization...")
     clear_cache()
+    
+    # Create/clear the metadata issues file at the start of initialization
+    errors_file = os.path.join(settings.data_folder, "metadata_files_issues.txt")
+    os.makedirs(os.path.dirname(errors_file), exist_ok=True)
+    with open(errors_file, "w") as f:
+        f.write(f"Metadata Issues Log - Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write("=" * 50 + "\n\n")
     
     # Check multiple times if triples exist to ensure we don't have race conditions
     triplestore_initialized = False
