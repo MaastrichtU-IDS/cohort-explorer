@@ -233,19 +233,18 @@ def to_camelcase(s: str) -> str:
     return "".join([s[0].lower(), s[1:]])
 
 
-def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
+def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "") -> Dataset:
     """Parse the cohort dictionary uploaded as excel or CSV spreadsheet, and load it to the triplestore
     
     Also updates the cohort cache with the new data.
     """
-    print(f"NOW PROCESSING DICTIONARY FILE FOR COHORT: {cohort_id} \nFile path: {dict_path}")
+    print(f"NOW PROCESSING DICTIONARY FILE FOR COHORT: {cohort_id} \nFile path: {dict_path} - source: {source}")
     if not dict_path.endswith(".csv"):
         raise HTTPException(
             status_code=422,
             detail="Only CSV files are supported. Please convert your file to CSV and try again.",
         )
     errors: list[str] = []
-    warnings: list[str] = []
     
     try:
         df = pd.read_csv(dict_path, na_values=[""], keep_default_na=False)
@@ -253,11 +252,13 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
         df = df.fillna("") # Fill remaining NA with empty string
         
         # Normalize column names (uppercase, specific substitutions)
-        df.columns = [cols_normalized.get(c.upper().strip(), c.upper().strip().replace("VALUES", "VALUE")) for c in df.columns]
+        #df.columns = [cols_normalized.get(c.upper().strip(), c.upper().strip().replace("VALUES", "VALUE")) for c in df.columns]
+        df.columns = [cols_normalized.get(c.upper().strip(), c.upper().strip()) for c in df.columns]
         # print(f"POST NORMALIZATION -- COHORT {cohort_id} -- Columns: {df.columns}")
         # --- Structural Validation: Check for required columns ---
         # Define columns absolutely essential for the row-processing logic to run without KeyErrors
-        critical_column_names_for_processing = [c.name.upper().strip() for c in metadatadict_cols_schema1 if c.name.upper().strip() != "VISITS"]
+        #critical_column_names_for_processing = [c.name.upper().strip() for c in metadatadict_cols_schema1 if c.name.upper().strip() != "VISITS"]
+        critical_column_names_for_processing = [c.name.upper().strip() for c in metadatadict_cols_schema1]
         missing_columns = []
         for required_col_name in critical_column_names_for_processing:
             if required_col_name not in df.columns:
@@ -267,7 +268,8 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
         # Report all errors found so far (which will include all missing column messages) and stop.
         if len(missing_columns) > 0:
             errors.append(f"Missing required columns: {', '.join(missing_columns)}")
-            raise HTTPException(status_code=422, detail="\n\n".join(errors))
+            if source == "upload_dict":
+                raise HTTPException(status_code=422, detail="\n\n".join(errors))
 
         # --- Content Pre-processing (assuming critical columns are present) ---
         try:
@@ -306,7 +308,6 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
 
             # Handle "codes" columns validation (from 'categories' column created by parse_categorical_string)
             # Ensure 'categories' column exists and is a list before checking its length or content
-            codes_columns = [""]
             current_categories = row.get("categories")
             if isinstance(current_categories, list):
                 #if len(current_categories) == 1:
@@ -321,19 +322,19 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
                     if categories_codes_str: # Only process if there's content
                         categories_codes = categories_codes_str.split("|")
                         if len(categories_codes) != len(current_categories) and current_categories: # check if categories were successfully parsed
-                             warnings.append(
+                             errors.append(
                                  f"Row {i+2} (Variable: '{var_name_for_error}'): The number of category concept codes ({len(categories_codes)}) does not match the number of parsed categories ({len(current_categories)})."
                              )
-                        '''else: #turning off validation for now!
+                        else: 
                             for idx, category_data in enumerate(current_categories):
                                 if idx < len(categories_codes):
                                     code_to_check = categories_codes[idx].strip()
                                     if code_to_check and code_to_check.lower() != "na":
                                         try:
                                             # Another temp fix just for TIM-HF!!
-                                            if code_to_check.find(":") == -1:
-                                                code_to_check = code_to_check.replace("OMOP", "OMOP:")
-                                            expanded_uri = curie_converter.expand(code_to_check.lower())
+                                            #if code_to_check.find(":") == -1:
+                                            #    code_to_check = code_to_check.replace("OMOP", "OMOP:")
+                                            expanded_uri = curie_converter.expand(code_to_check)
                                             if not expanded_uri:
                                                 errors.append(
                                                     f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_data['value']}'): The category concept code '{code_to_check}' is not valid or its prefix is not recognized. Valid prefixes: {', '.join([record['prefix'] + ':' for record in prefix_map if record.get('prefix')])}."
@@ -341,14 +342,16 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
                                         except Exception as curie_exc:
                                             errors.append(
                                                 f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_data['value']}'): Error expanding CURIE '{code_to_check}': {curie_exc}."
-                                            ) '''
+                                            )
             elif row.get("CATEGORICAL") and not isinstance(current_categories, list): # If original CATEGORICAL had content but parsing failed (already logged by parse_categorical_string's own exception if it was fatal)
                  # This case might be covered if parse_categorical_string added its own error to the 'errors' list already
-                 pass
+                 errors.append(
+                     f"Row {i+2} (Variable: '{var_name_for_error}') has an invalid category: '{row['CATEGORICAL']}'."
+                 )
 
 
         # --- Final Error Check & Graph Generation ---
-        if len(errors) > 0:
+        if len(errors) > 0 and source == "upload_dict":
             raise HTTPException(
                 status_code=422,
                 detail="\n\n".join(errors),
@@ -399,7 +402,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
                         if index < len(categories_codes):
                             code_to_check = categories_codes[index].strip()
                             if code_to_check and code_to_check.lower() != "na":
-                                code_to_check = code_to_check.lower().replace("ucum:%", "ucum:percent").replace("[", "").replace("]", "")
+                                #code_to_check = code_to_check.lower().replace("ucum:%", "ucum:percent").replace("[", "").replace("]", "")
                                 try:
                                     cat_code_uri = curie_converter.expand(code_to_check)
                                     if cat_code_uri: # Only add if valid and expanded
@@ -418,36 +421,48 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
 
         print(f"Finished processing cohort dictionary: {cohort_id}")
         
-        # Update the cohort cache directly from the graph data
-        # This is more efficient than retrieving it from the triplestore later
-        from src.cohort_cache import create_cohort_from_dict_file
-        cohort_uri = get_cohort_uri(cohort_id)
-        create_cohort_from_dict_file(cohort_id, cohort_uri, g)
-        logging.info(f"Added cohort {cohort_id} to cache directly from dictionary file")
         
-        return g
+        
 
     except HTTPException as http_exc: # Re-raise specific HTTPExceptions (ours or from parse_categorical_string)
         # Log the collected errors that led to this for server-side records
         logging.warning(f"Validation errors for cohort {cohort_id}:\n{http_exc.detail}")
-        raise http_exc 
+        if source == "upload_dict":
+            raise http_exc 
     except pd.errors.EmptyDataError:
         logging.warning(f"Uploaded CSV for cohort {cohort_id} is empty or unreadable.")
-        raise HTTPException(status_code=422, detail="The uploaded CSV file is empty or could not be read.")
+        if source == "upload_dict":
+            raise HTTPException(status_code=422, detail="The uploaded CSV file is empty or could not be read.")
     except Exception as e:
         logging.error(f"Unexpected error during dictionary processing for {cohort_id}: {str(e)}", exc_info=True)
-        # Combine any validation errors found before the crash with the unexpected error message
-        final_error_detail = "\n\n".join(errors) if errors else "An unexpected error occurred."
-        if errors: # if validation errors were already collected, add the unexpected error to them
-            final_error_detail += f"\n\nAdditionally, an unexpected processing error occurred: {str(e)}"
-        else: # if no prior validation errors, just report the unexpected one
-            final_error_detail = f"An unexpected error occurred during file processing: {str(e)}"
-        
-        raise HTTPException(
-            status_code=500, # Use 500 for truly unexpected server-side issues
-            detail=final_error_detail,
-        )
-   
+        errors.append(f"An unexpected error occurred during file processing: {str(e)}")
+        if source == "upload_dict":
+            raise HTTPException(
+                status_code=500, # Use 500 for truly unexpected server-side issues
+                detail="\n\n".join(errors),
+            )
+    if source != "upload_dict" and len(errors) > 0:
+        errors_file = os.path.join(settings.data_folder, f"metadata_files_issues.txt")
+        with open(errors_file, "w+") as f:
+            f.write(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            f.write(f"Errors for cohort {cohort_id}:\n")
+            f.write("\n".join(errors))
+            f.write("\n\n\n")
+
+
+    # Update the cohort cache directly from the graph data
+    # This is more efficient than retrieving it from the triplestore later
+    from src.cohort_cache import create_cohort_from_dict_file
+    cohort_uri = get_cohort_uri(cohort_id)
+    create_cohort_from_dict_file(cohort_id, cohort_uri, g)
+    logging.info(f"Added cohort {cohort_id} to cache directly from dictionary file")
+
+    return g
+
+
+
+
+
 @router.post(
     "/get-logs",
     name="Get logs",
@@ -498,6 +513,8 @@ async def delete_cohort(
     return {
         "message": f"Cohort {cohort_id} has been successfully deleted.",
     }
+
+
 
 @router.post(
     "/upload-cohort",
@@ -554,7 +571,7 @@ async def upload_cohort(
         shutil.copyfileobj(cohort_dictionary.file, buffer)
 
     try:
-        g = load_cohort_dict_file(metadata_path, cohort_id)
+        g = load_cohort_dict_file(metadata_path, cohort_id, source="upload_dict")
         # Airlock preview setting goes to mapping graph because it is defined in the explorer UI
         # g.add(
         #     (
@@ -596,8 +613,9 @@ async def upload_cohort(
         "identifier": cohort_id,
     }
 
-def generate_mappings(cohort_id: str, metadata_path: str, g: Graph) -> None:
 
+
+def generate_mappings(cohort_id: str, metadata_path: str, g: Graph) -> None:
     """Function to generate mappings for a cohort and publish them to the triplestore running as background task"""
     print(f"Generating mappings for cohort {cohort_id}")
     map_csv_to_standard_codes(metadata_path)
@@ -945,7 +963,7 @@ def init_triplestore():
             latest_dict_file = get_latest_datadictionary(folder_path)
             if latest_dict_file:
                 print(f"Using latest datadictionary file for {folder}: {os.path.basename(latest_dict_file)}, date: {os.path.getmtime(latest_dict_file)}")
-                g = load_cohort_dict_file(latest_dict_file, folder)
+                g = load_cohort_dict_file(latest_dict_file, folder, source="init_triplestore")
                 # Delete existing triples for this cohort before publishing new ones
                 # This ensures we don't have duplicate or conflicting triples
                 delete_existing_triples(get_cohort_uri(folder))
