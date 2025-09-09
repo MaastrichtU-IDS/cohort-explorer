@@ -15,6 +15,7 @@ from fastapi.responses import StreamingResponse, JSONResponse
 import io
 import os
 import sys
+import json
 
 # Import the CohortVarLinker function
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../CohortVarLinker')))
@@ -34,7 +35,7 @@ async def generate_mapping(
     # We'll return the first mapping file (for now, can be extended)
     
     target_studies = sorted(target_studies, key=lambda x: x[0])
-    generate_mapping_csv(source_study, target_studies)
+    cache_info = generate_mapping_csv(source_study, target_studies)
     #output_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'CohortVarLinker', 'mapping_output')
     output_dir = "/app/CohortVarLinker/mapping_output"
     
@@ -45,10 +46,14 @@ async def generate_mapping(
     filename = f"{source_study}_omop_id_grouped_{target_str}.json"
     filepath = os.path.join(output_dir, filename)
     if os.path.exists(filepath):
+        response_headers = {"Content-Disposition": f"attachment; filename={filename}"}
+        # Add cache info to headers if available
+        if cache_info:
+            response_headers["X-Cache-Info"] = json.dumps(cache_info)
         return StreamingResponse(
             open(filepath, "rb"),
             media_type="text/csv",
-            headers={"Content-Disposition": f"attachment; filename={filename}"},
+            headers=response_headers,
         )
     return JSONResponse(status_code=404, content={"error": "Cache error. Mapping file not found."})
 

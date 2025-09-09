@@ -4,6 +4,8 @@ import math
 import os
 import re
 import shutil
+import csv
+import json
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -25,6 +27,41 @@ from src.mapping_generation.retriever import map_csv_to_standard_codes
 from src.utils import ICARE, curie_converter, init_graph, prefix_map, retrieve_cohorts_metadata, run_query
 
 router = APIRouter()
+
+
+def update_upload_log(upload_data: dict):
+    """Update the upload log with structured data similar to provision_dcr logging"""
+    try:
+        upload_log_file = os.path.join(settings.data_folder, "upload_dictionary_log.jsonl")
+        with open(upload_log_file, "r") as f:
+            log = json.load(f)
+            log.append(upload_data)
+    except (FileNotFoundError, json.JSONDecodeError):
+        log = [upload_data]
+    
+    with open(upload_log_file, "w") as f:
+        json.dump(log, f, indent=2, default=str)
+
+
+def log_upload_event_csv(upload_data: dict):
+    """Log upload events to CSV file for easy analysis"""
+    upload_events_log = os.path.join(settings.data_folder, "upload_dictionary_events.csv")
+    
+    # Define the fieldnames for the CSV
+    fieldnames = [
+        "timestamp", "cohort_id", "user_email", "filename", "file_size_bytes", 
+        "total_rows", "total_variables", "errors_count", "success", "processing_time_seconds",
+        "source", "graph_triples_count"
+    ]
+    
+    # Check if file exists to determine if we need to write headers
+    file_exists = os.path.exists(upload_events_log)
+    
+    with open(upload_events_log, 'a', newline='') as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        if not file_exists:
+            writer.writeheader()
+        writer.writerow(upload_data)
 
 
 def publish_graph_to_endpoint(g: Graph, graph_uri: str | None = None) -> bool:
@@ -237,23 +274,60 @@ def to_camelcase(s: str) -> str:
 
 
 
-def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "") -> Dataset:
+def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user_email: str = None, filename: str = None) -> Dataset:
     """Parse the cohort dictionary uploaded as excel or CSV spreadsheet, and load it to the triplestore
     
     Also updates the cohort cache with the new data.
     """
+    # Initialize logging variables
+    start_time = datetime.now()
+    file_size_bytes = 0
+    total_rows = 0
+    total_variables = 0
+    errors = []
+    success = False
+    graph_triples_count = 0
+    
+    # Get file information for logging
+    if os.path.exists(dict_path):
+        file_size_bytes = os.path.getsize(dict_path)
+    
     print(f"NOW PROCESSING DICTIONARY FILE FOR COHORT: {cohort_id} \nFile path: {dict_path} - source: {source}")
+    
+    # Log the start of processing for upload dictionary calls
+    if source == "upload_dict":
+        logging.info(f"Starting dictionary upload processing for cohort {cohort_id} by user {user_email}. File: {filename}, Size: {file_size_bytes} bytes")
+    
     if not dict_path.endswith(".csv"):
-        raise HTTPException(
-            status_code=422,
-            detail="Only CSV files are supported. Please convert your file to CSV and try again.",
-        )
-    errors: list[str] = []
+        error_msg = "Only CSV files are supported. Please convert your file to CSV and try again."
+        if source == "upload_dict":
+            # Log the failure
+            log_data = {
+                "timestamp": start_time,
+                "cohort_id": cohort_id,
+                "user_email": user_email or "system",
+                "filename": filename or os.path.basename(dict_path),
+                "file_size_bytes": file_size_bytes,
+                "total_rows": 0,
+                "total_variables": 0,
+                "errors_count": 1,
+                "success": False,
+                "processing_time_seconds": (datetime.now() - start_time).total_seconds(),
+                "source": source,
+                "graph_triples_count": 0
+            }
+            log_upload_event_csv(log_data)
+            update_upload_log({**log_data, "errors": [error_msg]})
+        raise HTTPException(status_code=422, detail=error_msg)
     
     try:
         df = pd.read_csv(dict_path, na_values=[""], keep_default_na=False)
         df = df.dropna(how="all") # Drop rows where all cells are NA
         df = df.fillna("") # Fill remaining NA with empty string
+        
+        # Capture data metrics for logging
+        total_rows = len(df)
+        total_variables = len(df['VARIABLENAME'].unique()) if 'VARIABLENAME' in df.columns else 0
         
         # Normalize column names (uppercase, specific substitutions)
         #df.columns = [cols_normalized.get(c.upper().strip(), c.upper().strip().replace("VALUES", "VALUE")) for c in df.columns]
@@ -441,6 +515,12 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "") -> D
                 detail="\n\n".join(errors),
             )
     
+    # Calculate final metrics
+    processing_time = (datetime.now() - start_time).total_seconds()
+    success = len(errors) == 0
+    graph_triples_count = len(g) if 'g' in locals() else 0
+    
+    # Log to existing text file (maintain backward compatibility)
     if len(errors) > 0:
         errors_file = os.path.join(settings.data_folder, f"metadata_files_issues.txt")
         with open(errors_file, "a") as f:
@@ -448,6 +528,36 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "") -> D
             f.write(f"Errors for cohort {cohort_id}:\n")
             f.write("\n".join(errors))
             f.write("\n\n\n")
+    
+    # Enhanced structured logging for upload dictionary calls
+    if source == "upload_dict":
+        log_data = {
+            "timestamp": start_time,
+            "cohort_id": cohort_id,
+            "user_email": user_email or "system",
+            "filename": filename or os.path.basename(dict_path),
+            "file_size_bytes": file_size_bytes,
+            "total_rows": total_rows,
+            "total_variables": total_variables,
+            "errors_count": len(errors),
+            "success": success,
+            "processing_time_seconds": processing_time,
+            "source": source,
+            "graph_triples_count": graph_triples_count
+        }
+        
+        # Log to CSV for easy analysis
+        log_upload_event_csv(log_data)
+        
+        # Log to JSON with detailed error information
+        detailed_log_data = {**log_data, "errors": errors}
+        update_upload_log(detailed_log_data)
+        
+        # Log completion status
+        if success:
+            logging.info(f"Successfully processed dictionary upload for cohort {cohort_id}. Processed {total_variables} variables from {total_rows} rows in {processing_time:.2f}s. Generated {graph_triples_count} triples.")
+        else:
+            logging.warning(f"Dictionary upload for cohort {cohort_id} completed with {len(errors)} errors. Processing time: {processing_time:.2f}s")
 
 
     # Update the cohort cache directly from the graph data
@@ -575,7 +685,7 @@ async def upload_cohort(
         shutil.copyfileobj(cohort_dictionary.file, buffer)
 
     try:
-        g = load_cohort_dict_file(metadata_path, cohort_id, source="upload_dict")
+        g = load_cohort_dict_file(metadata_path, cohort_id, source="upload_dict", user_email=user_email, filename=metadata_filename)
         # Airlock preview setting goes to mapping graph because it is defined in the explorer UI
         # g.add(
         #     (
@@ -1037,6 +1147,6 @@ def _perform_triplestore_initialization():
         else:
             print(f"No datadictionary file found for cohort {folder}.")
     
-    print("🎉 Triplestore initialization complete!")
+    print("✅ Triplestore initialization complete!")
     
     print("✅ Cohort cache initialization complete.")

@@ -498,6 +498,9 @@ def generate_mapping_csv(
         cohort_file_path (str, optional): Path to the cohorts directory. Defaults to settings.cohort_folder.
         cohorts_metadata_file (str, optional): Path to the cohort metadata file. Defaults to f"{data_dir}/cohort_metadata_sheet_v2.csv".
         output_dir (str, optional): Directory to store output mapping CSVs. Defaults to 'mapping_output' inside CohortVarLinker.
+    
+    Returns:
+        dict: Cache information with 'cached_pairs' and 'uncached_pairs' lists containing pair info and timestamps.
     """
 
     if data_dir is None:
@@ -534,18 +537,36 @@ def generate_mapping_csv(
     source_study = source_study.lower()
     target_studies = [t[0].lower() for t in target_studies]
 
-    # Check if all requested mappings already exist... 
-    # Komal's comment: i dont think we should have this logic (330-342 please comment it out) here because in case of multiple target studies, we should check in next computations if mapping exist add it in the list and check next. when all available then we group by omop_id
+    # Check cache status for each mapping pair and collect info
+    cached_pairs = []
+    uncached_pairs = []
     all_exist = True
-    missing_targets = []
     
     for tstudy in target_studies:
         out_filename = f'{source_study}_{tstudy}_cross_mapping.csv'
         out_path = os.path.join(output_dir, out_filename)
         print(f"Checking if {out_path} exists")
-        if not os.path.exists(out_path):
+        
+        if os.path.exists(out_path):
+            # Get file modification time
+            mtime = os.path.getmtime(out_path)
+            cached_pairs.append({
+                'source': source_study,
+                'target': tstudy,
+                'timestamp': mtime
+            })
+        else:
             all_exist = False
-            missing_targets.append(tstudy)
+            uncached_pairs.append({
+                'source': source_study,
+                'target': tstudy
+            })
+    
+    cache_info = {
+        'cached_pairs': cached_pairs,
+        'uncached_pairs': uncached_pairs
+    }
+    
     if all_exist:
         print("All requested mappings already exist. Skipping all computation.")
         tstudy_str = "_".join(target_studies)
@@ -555,7 +576,7 @@ def generate_mapping_csv(
                 output_dir= "/app/CohortVarLinker/mapping_output/",
                 json_path= f"/app/CohortVarLinker/mapping_output/{source_study}_omop_id_grouped_{tstudy_str}.json")
         
-        return
+        return cache_info
             
     # Only run expensive computations if any mapping is missing
     create_study_metadata_graph(cohorts_metadata_file, recreate=True)
@@ -599,6 +620,8 @@ def generate_mapping_csv(
         target_studies=target_studies,
         output_dir= "/app/CohortVarLinker/mapping_output/",
         json_path= f"/app/CohortVarLinker/mapping_output/{source_study}_omop_id_grouped_{tstudy_str}.json")
+    
+    return cache_info
     #         if tstudy not in mapping_dict:
     #             mapping_dict[tstudy] = {}
     #         for _, row in mapping_transformed.iterrows():

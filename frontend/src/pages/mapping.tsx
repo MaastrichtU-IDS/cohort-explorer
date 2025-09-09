@@ -90,6 +90,7 @@ export default function MappingPage() {
   const [selectedTargets, setSelectedTargets] = useState<string[]>([]);
   const [mappingOutput, setMappingOutput] = useState<RowData[] | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [cacheInfo, setCacheInfo] = useState<{cached_pairs: any[], uncached_pairs: any[]} | null>(null);
   
   // Reference to the mapping output section
   const mappingOutputRef = useRef<HTMLDivElement>(null);
@@ -126,6 +127,7 @@ export default function MappingPage() {
     setLoading(true);
     setError(null);
     setMappingOutput(null);
+    setCacheInfo(null);
     try {
       // Send as [cohortId, false] for each selected target
       const target_studies = selectedTargets.map((cohortId: string) => [cohortId, false]);
@@ -152,6 +154,17 @@ export default function MappingPage() {
         }
         throw new Error(errorMsg);
       }
+      // Extract cache info from headers if available
+      const cacheInfoHeader = response.headers.get('X-Cache-Info');
+      if (cacheInfoHeader) {
+        try {
+          const parsedCacheInfo = JSON.parse(cacheInfoHeader);
+          setCacheInfo(parsedCacheInfo);
+        } catch (error) {
+          console.error('Error parsing cache info:', error);
+        }
+      }
+
       // Read the response body as text once to avoid consuming the stream multiple times
       const responseText = await response.text();
 
@@ -282,6 +295,37 @@ export default function MappingPage() {
             {loading ? 'Mapping... (may take several minutes)' : 'Map Concepts & Download File'}
           </button>
         </div>
+
+        {/* Cache Information Display */}
+        {cacheInfo && (
+          <div className="mt-4 text-sm text-center max-w-4xl mx-auto">
+            {cacheInfo.cached_pairs.length > 0 && (
+              <div className="mb-2">
+                <span className="font-medium text-green-600">Cached pairs:</span>{' '}
+                {cacheInfo.cached_pairs.map((pair, index) => (
+                  <span key={index}>
+                    {pair.source} → {pair.target} 
+                    <span className="text-gray-500 ml-1">
+                      (generated {new Date(pair.timestamp * 1000).toLocaleString()})
+                    </span>
+                    {index < cacheInfo.cached_pairs.length - 1 && ', '}
+                  </span>
+                ))}
+              </div>
+            )}
+            {cacheInfo.uncached_pairs.length > 0 && (
+              <div>
+                <span className="font-medium text-blue-600">New mappings computed:</span>{' '}
+                {cacheInfo.uncached_pairs.map((pair, index) => (
+                  <span key={index}>
+                    {pair.source} → {pair.target}
+                    {index < cacheInfo.uncached_pairs.length - 1 && ', '}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {error && (
           <div className="mt-4 text-red-500 text-center">{error}</div>
