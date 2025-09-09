@@ -46,15 +46,16 @@ async def generate_mapping(
     filename = f"{source_study}_omop_id_grouped_{target_str}.json"
     filepath = os.path.join(output_dir, filename)
     if os.path.exists(filepath):
-        response_headers = {"Content-Disposition": f"attachment; filename={filename}"}
-        # Add cache info to headers if available
-        if cache_info:
-            response_headers["X-Cache-Info"] = json.dumps(cache_info)
-        return StreamingResponse(
-            open(filepath, "rb"),
-            media_type="text/csv",
-            headers=response_headers,
-        )
+        # Read file content
+        with open(filepath, 'r') as f:
+            file_content = f.read()
+        
+        # Return JSON response with both cache info and file content
+        return JSONResponse(content={
+            "cache_info": cache_info,
+            "file_content": file_content,
+            "filename": filename
+        })
     return JSONResponse(status_code=404, content={"error": "Cache error. Mapping file not found."})
 
 @router.get("/search-concepts")

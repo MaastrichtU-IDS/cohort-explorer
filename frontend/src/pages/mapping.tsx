@@ -154,38 +154,36 @@ export default function MappingPage() {
         }
         throw new Error(errorMsg);
       }
-      // Extract cache info from headers if available
-      const cacheInfoHeader = response.headers.get('X-Cache-Info');
-      if (cacheInfoHeader) {
-        try {
-          const parsedCacheInfo = JSON.parse(cacheInfoHeader);
-          setCacheInfo(parsedCacheInfo);
-        } catch (error) {
-          console.error('Error parsing cache info:', error);
-        }
+      // Parse the JSON response
+      const responseData = await response.json();
+      
+      // Extract cache info from response data
+      if (responseData.cache_info) {
+        setCacheInfo(responseData.cache_info);
       }
 
-      // Read the response body as text once to avoid consuming the stream multiple times
-      const responseText = await response.text();
+      // Get file content and filename
+      const fileContent = responseData.file_content;
+      const filename = responseData.filename || `mapping_${sourceCohort}_to_${selectedTargets.join('_')}.json`;
 
       // The backend may incorrectly return NaN, which is not valid JSON.
       // Replace all instances of NaN with null before parsing.
-      const cleanedResponseText = responseText.replace(/NaN/g, 'null');
+      const cleanedFileContent = fileContent.replace(/NaN/g, 'null');
 
-      // Handle download by creating a blob from the cleaned response text
-      const blob = new Blob([cleanedResponseText], { type: 'application/json' });
+      // Handle download by creating a blob from the cleaned file content
+      const blob = new Blob([cleanedFileContent], { type: 'application/json' });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `mapping_${sourceCohort}_to_${selectedTargets.join('_')}.json`;
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
 
-      // Handle preview by parsing the cleaned response text
+      // Handle preview by parsing the cleaned file content
       try {
-        const jsonData = JSON.parse(cleanedResponseText);
+        const jsonData = JSON.parse(cleanedFileContent);
         const previewData = transformMappingDataForPreview(jsonData);
         setMappingOutput(previewData);
       } catch (error) {
