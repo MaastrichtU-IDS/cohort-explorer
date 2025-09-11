@@ -90,10 +90,17 @@ export default function MappingPage() {
   const [selectedTargets, setSelectedTargets] = useState<string[]>([]);
   const [mappingOutput, setMappingOutput] = useState<RowData[] | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [cacheInfo, setCacheInfo] = useState<{cached_pairs: any[], uncached_pairs: any[]} | null>(null);
+  const [cacheInfo, setCacheInfo] = useState<{
+    cached_pairs: Array<{source: string, target: string, timestamp: number}>,
+    uncached_pairs: Array<{source: string, target: string}>,
+    outdated_pairs: Array<{source: string, target: string, timestamp: number, outdated_cohort: string}>,
+    dictionary_timestamps: Record<string, number>
+  } | null>(null);
   
   // Reference to the mapping output section
   const mappingOutputRef = useRef<HTMLDivElement>(null);
+  // Reference to the map button section
+  const mapButtonRef = useRef<HTMLDivElement>(null);
 
   // Filtered cohorts for both source and target menus based on search
   const filteredCohorts = Object.entries(cohortsData).filter(([cohortId, cohort]) =>
@@ -101,10 +108,12 @@ export default function MappingPage() {
     JSON.stringify(cohort).toLowerCase().includes(searchQuery.toLowerCase())
   );
   
-  // Scroll to the mapping output section when data becomes available
+  // Scroll to the map button section when data becomes available
   useEffect(() => {
-    if (mappingOutput && mappingOutputRef.current) {
-      mappingOutputRef.current.scrollIntoView({ behavior: 'smooth' });
+    if (mappingOutput && mapButtonRef.current) {
+      // Scroll to a few pixels above the map button
+      const buttonTop = mapButtonRef.current.offsetTop - 20;
+      window.scrollTo({ top: buttonTop, behavior: 'smooth' });
     }
   }, [mappingOutput]);
 
@@ -128,9 +137,29 @@ export default function MappingPage() {
     setError(null);
     setMappingOutput(null);
     setCacheInfo(null);
+    
     try {
       // Send as [cohortId, false] for each selected target
       const target_studies = selectedTargets.map((cohortId: string) => [cohortId, false]);
+      
+      // First, check cache status immediately
+      const cacheResponse = await fetch(`${apiUrl}/api/check-mapping-cache`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          source_study: sourceCohort,
+          target_studies,
+        }),
+      });
+      
+      if (cacheResponse.ok) {
+        const cacheData = await cacheResponse.json();
+        setCacheInfo(cacheData);
+      }
+      
+      // Then proceed with mapping generation
       const response = await fetch(`${apiUrl}/api/generate-mapping`, {
         method: 'POST',
         headers: {
@@ -157,10 +186,8 @@ export default function MappingPage() {
       // Parse the JSON response
       const responseData = await response.json();
       
-      // Extract cache info from response data
-      if (responseData.cache_info) {
-        setCacheInfo(responseData.cache_info);
-      }
+      // Cache info is already set from the initial cache check
+      // No need to update it again from the response
 
       // Get file content and filename
       const fileContent = responseData.file_content;
@@ -284,8 +311,8 @@ export default function MappingPage() {
           </div>
         </div>
 
-        <div className="flex justify-center mt-6">
-          <button 
+        <div className="text-center" ref={mapButtonRef}>
+          <button
             className="btn btn-primary"
             onClick={handleMapConcepts}
             disabled={!sourceCohort || selectedTargets.length === 0 || loading}
@@ -296,30 +323,80 @@ export default function MappingPage() {
 
         {/* Cache Information Display */}
         {cacheInfo && (
-          <div className="mt-4 text-sm text-center max-w-4xl mx-auto">
-            {cacheInfo.cached_pairs.length > 0 && (
-              <div className="mb-2">
-                <span className="font-medium text-green-600">Cached pairs:</span>{' '}
-                {cacheInfo.cached_pairs.map((pair, index) => (
-                  <span key={index}>
-                    {pair.source} → {pair.target} 
-                    <span className="text-gray-500 ml-1">
-                      (generated {new Date(pair.timestamp * 1000).toLocaleString()})
-                    </span>
-                    {index < cacheInfo.cached_pairs.length - 1 && ', '}
-                  </span>
-                ))}
+          <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+            <h4 className="font-semibold mb-2">Cache Status:</h4>
+            
+            {/* Dictionary timestamps */}
+            {Object.keys(cacheInfo.dictionary_timestamps).length > 0 && (
+              <div className="mb-3">
+                <span className="text-gray-700 font-medium">Dictionary dates:</span>
+                <ul className="ml-4 mt-1">
+                  {Object.entries(cacheInfo.dictionary_timestamps).map(([cohort, timestamp]) => (
+                    <li key={cohort} className="text-sm">
+                      {cohort}: {new Date(timestamp * 1000).toLocaleDateString()}
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
+            
+            {/* Up-to-date cached pairs */}
+            {cacheInfo.cached_pairs.length > 0 && (
+              <div className="mb-2">
+                <span className="text-green-600 font-medium">Cached pairs (up to date):</span>
+                <ul className="ml-4 mt-1">
+                  {cacheInfo.cached_pairs.map((pair, index) => (
+                    <li key={index} className="text-sm">
+                      {pair.source} → {pair.target} 
+                      <span className="text-gray-500 ml-2">
+                        (cached {new Date(pair.timestamp * 1000).toLocaleDateString()})
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            
+            {/* Outdated cached pairs */}
+            {cacheInfo.outdated_pairs && cacheInfo.outdated_pairs.length > 0 && (
+              <div className="mb-2">
+                <span className="text-orange-600 font-medium">Outdated cached pairs:</span>
+                <ul className="ml-4 mt-1">
+                  {cacheInfo.outdated_pairs.map((pair, index) => (
+                    <li key={index} className="text-sm">
+                      {pair.source} → {pair.target} 
+                      <span className="text-gray-500 ml-2">
+                        (cached {new Date(pair.timestamp * 1000).toLocaleDateString()})
+                      </span>
+                      <br />
+                      <span className="text-orange-600 text-xs ml-2">
+                        ⚠️ Cached mapping is out of date. There is an updated dictionary for cohort {pair.outdated_cohort}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            
+            {/* New mappings */}
             {cacheInfo.uncached_pairs.length > 0 && (
-              <div>
-                <span className="font-medium text-blue-600">New mappings computed:</span>{' '}
-                {cacheInfo.uncached_pairs.map((pair, index) => (
-                  <span key={index}>
-                    {pair.source} → {pair.target}
-                    {index < cacheInfo.uncached_pairs.length - 1 && ', '}
-                  </span>
-                ))}
+              <div className="mb-2">
+                <span className="text-blue-600 font-medium">New mappings (will be computed):</span>
+                <ul className="ml-4 mt-1">
+                  {cacheInfo.uncached_pairs.map((pair, index) => (
+                    <li key={index} className="text-sm">
+                      {pair.source} → {pair.target}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            
+            {/* Summary message */}
+            {cacheInfo.cached_pairs.length > 0 && 
+             (!cacheInfo.outdated_pairs || cacheInfo.outdated_pairs.length === 0) && (
+              <div className="mt-3 p-2 bg-green-100 rounded text-sm text-green-800">
+                ✅ All cached mappings are up to date with the latest dictionaries
               </div>
             )}
           </div>

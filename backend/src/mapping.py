@@ -16,10 +16,106 @@ import io
 import os
 import sys
 import json
+import glob
+from src.config import settings
 
 # Import the CohortVarLinker function
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../CohortVarLinker')))
 from CohortVarLinker.main import generate_mapping_csv
+
+def get_latest_dictionary_timestamp(cohort_id: str) -> float | None:
+    """Get the timestamp of the latest data dictionary file for a cohort"""
+    try:
+        cohort_folder = os.path.join(settings.cohort_folder, cohort_id)
+        if not os.path.exists(cohort_folder):
+            return None
+            
+        # Select most recent CSV file with 'datadictionary' in the name
+        csv_candidates = [
+            f for f in glob.glob(os.path.join(cohort_folder, "*.csv"))
+            if ("datadictionary" in os.path.basename(f).lower()
+            and "noheader" not in os.path.basename(f).lower())
+        ]
+        
+        if csv_candidates:
+            latest_file = max(csv_candidates, key=os.path.getmtime)
+            return os.path.getmtime(latest_file)
+        return None
+    except Exception:
+        return None
+
+@router.post("/check-mapping-cache")
+async def check_mapping_cache(
+    source_study: str = Body(...),
+    target_studies: list = Body(...)
+):
+    """
+    Check cache status for mapping pairs without generating mappings.
+    Returns cache information immediately with dictionary timestamps.
+    """
+    output_dir = "/app/CohortVarLinker/mapping_output"
+    
+    source_study = source_study.lower()
+    target_studies_names = [t[0].lower() for t in target_studies]
+    
+    # Get dictionary timestamps for all involved cohorts
+    all_cohorts = set([source_study] + target_studies_names)
+    dictionary_timestamps = {}
+    for cohort in all_cohorts:
+        dict_timestamp = get_latest_dictionary_timestamp(cohort)
+        if dict_timestamp:
+            dictionary_timestamps[cohort] = dict_timestamp
+    
+    # Check cache status for each mapping pair
+    cached_pairs = []
+    uncached_pairs = []
+    outdated_pairs = []
+    
+    for tstudy in target_studies_names:
+        out_filename = f'{source_study}_{tstudy}_cross_mapping.csv'
+        out_path = os.path.join(output_dir, out_filename)
+        
+        if os.path.exists(out_path):
+            # Get file modification time
+            cache_timestamp = os.path.getmtime(out_path)
+            
+            # Check if cache is outdated compared to dictionaries
+            source_dict_time = dictionary_timestamps.get(source_study)
+            target_dict_time = dictionary_timestamps.get(tstudy)
+            
+            is_outdated = False
+            outdated_cohort = None
+            
+            if source_dict_time and source_dict_time > cache_timestamp:
+                is_outdated = True
+                outdated_cohort = source_study
+            elif target_dict_time and target_dict_time > cache_timestamp:
+                is_outdated = True
+                outdated_cohort = tstudy
+            
+            pair_info = {
+                'source': source_study,
+                'target': tstudy,
+                'timestamp': cache_timestamp
+            }
+            
+            if is_outdated:
+                pair_info['outdated_cohort'] = outdated_cohort
+                outdated_pairs.append(pair_info)
+            else:
+                cached_pairs.append(pair_info)
+        else:
+            uncached_pairs.append({
+                'source': source_study,
+                'target': tstudy
+            })
+    
+    return JSONResponse(content={
+        'cached_pairs': cached_pairs,
+        'uncached_pairs': uncached_pairs,
+        'outdated_pairs': outdated_pairs,
+        'dictionary_timestamps': dictionary_timestamps
+    })
 
 @router.post("/generate-mapping")
 async def generate_mapping(
