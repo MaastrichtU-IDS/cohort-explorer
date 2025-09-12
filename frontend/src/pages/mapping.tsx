@@ -317,7 +317,12 @@ export default function MappingPage() {
             onClick={handleMapConcepts}
             disabled={!sourceCohort || selectedTargets.length === 0 || loading}
           >
-            {loading ? 'Mapping... (may take several minutes)' : 'Map Concepts & Download File'}
+{loading 
+              ? (cacheInfo && cacheInfo.uncached_pairs.length > 0 
+                  ? 'Mapping... (will take several minutes)' 
+                  : 'Mapping...')
+              : 'Map Concepts & Download File'
+            }
           </button>
         </div>
 
@@ -326,19 +331,6 @@ export default function MappingPage() {
           <div className="mt-4 p-4 bg-gray-50 rounded-lg">
             <h4 className="font-semibold mb-2">Cache Status:</h4>
             
-            {/* Dictionary timestamps */}
-            {Object.keys(cacheInfo.dictionary_timestamps).length > 0 && (
-              <div className="mb-3">
-                <span className="text-gray-700 font-medium">Dictionary dates:</span>
-                <ul className="ml-4 mt-1">
-                  {Object.entries(cacheInfo.dictionary_timestamps).map(([cohort, timestamp]) => (
-                    <li key={cohort} className="text-sm">
-                      {cohort}: {new Date(timestamp * 1000).toLocaleDateString()}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
             
             {/* Up-to-date cached pairs */}
             {cacheInfo.cached_pairs.length > 0 && (
@@ -349,7 +341,7 @@ export default function MappingPage() {
                     <li key={index} className="text-sm">
                       {pair.source} → {pair.target} 
                       <span className="text-gray-500 ml-2">
-                        (cached {new Date(pair.timestamp * 1000).toLocaleDateString()})
+                        (cached {new Date(pair.timestamp * 1000).toLocaleDateString('de-DE')})
                       </span>
                     </li>
                   ))}
@@ -366,7 +358,7 @@ export default function MappingPage() {
                     <li key={index} className="text-sm">
                       {pair.source} → {pair.target} 
                       <span className="text-gray-500 ml-2">
-                        (cached {new Date(pair.timestamp * 1000).toLocaleDateString()})
+                        (cached {new Date(pair.timestamp * 1000).toLocaleDateString('de-DE')})
                       </span>
                       <br />
                       <span className="text-orange-600 text-xs ml-2">
@@ -381,7 +373,7 @@ export default function MappingPage() {
             {/* New mappings */}
             {cacheInfo.uncached_pairs.length > 0 && (
               <div className="mb-2">
-                <span className="text-blue-600 font-medium">New mappings (will be computed):</span>
+                <span className="text-blue-600 font-medium">New mappings:</span>
                 <ul className="ml-4 mt-1">
                   {cacheInfo.uncached_pairs.map((pair, index) => (
                     <li key={index} className="text-sm">
@@ -393,10 +385,27 @@ export default function MappingPage() {
             )}
             
             {/* Summary message */}
-            {cacheInfo.cached_pairs.length > 0 && 
-             (!cacheInfo.outdated_pairs || cacheInfo.outdated_pairs.length === 0) && (
+            {(cacheInfo.uncached_pairs.length > 0 || (cacheInfo.outdated_pairs && cacheInfo.outdated_pairs.length > 0)) ? (
+              <div className="mt-3 p-2 bg-blue-100 rounded text-sm text-blue-800">
+                ⏳ Uncached and outdated mappings will be computed. This may take up to 15 minutes. If this page crashes, please revisit in 15-20 minutes when computed mappings are likely to be ready
+              </div>
+            ) : cacheInfo.cached_pairs.length > 0 && (
               <div className="mt-3 p-2 bg-green-100 rounded text-sm text-green-800">
                 ✅ All cached mappings are up to date with the latest dictionaries
+              </div>
+            )}
+            
+            {/* Dictionary timestamps at the bottom */}
+            {Object.keys(cacheInfo.dictionary_timestamps).length > 0 && (
+              <div className="mt-3 pt-3 border-t border-gray-200">
+                <span className="text-gray-700 font-medium">Dictionary dates:</span>
+                <ul className="ml-4 mt-1">
+                  {Object.entries(cacheInfo.dictionary_timestamps).map(([cohort, timestamp]) => (
+                    <li key={cohort} className="text-sm">
+                      {cohort}: {new Date(timestamp * 1000).toLocaleDateString('de-DE')}
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
           </div>
