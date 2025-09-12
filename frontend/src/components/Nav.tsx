@@ -82,7 +82,7 @@ export function Nav() {
       URL.revokeObjectURL(url);
       setPublishedDCR((
         <p>✅ Data Clean Room configuration file has been downloaded. <br />
-        Please go to <a href="https://platform.decentriq.com/" target="_blank">platform.decentriq.com</a> to create a new DCR from the configuration file. </p>
+        Please go to <a href="https://platform.decentriq.com/" target="_blank" className="underline text-blue-600 hover:text-blue-800">https://platform.decentriq.com</a> to create a new DCR from the configuration file. </p>
       ))
       setIsLoading(false);
       // Handle response
