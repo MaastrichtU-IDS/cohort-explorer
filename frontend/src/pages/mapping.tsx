@@ -389,10 +389,12 @@ export default function MappingPage() {
               <div className="mt-3 p-2 bg-blue-100 rounded text-sm text-blue-800">
                 ⏳ Uncached and outdated mappings will be computed. This may take up to 15 minutes. If this page crashes, please revisit in 15-20 minutes when computed mappings are likely to be ready
               </div>
-            ) : cacheInfo.cached_pairs.length > 0 && (
-              <div className="mt-3 p-2 bg-green-100 rounded text-sm text-green-800">
-                ✅ All cached mappings are up to date with the latest dictionaries
-              </div>
+            ) : (
+              cacheInfo.cached_pairs.length > 0 && (
+                <div className="mt-3 p-2 bg-green-100 rounded text-sm text-green-800">
+                  ✅ All cached mappings are up to date with the latest dictionaries
+                </div>
+              )
             )}
             
             {/* Dictionary timestamps at the bottom */}
