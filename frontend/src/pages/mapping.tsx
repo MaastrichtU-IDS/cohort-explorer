@@ -54,23 +54,52 @@ function MappingPreviewJsonTable({ data }: MappingPreviewJsonTableProps) {
   if (!data || !Array.isArray(data) || data.length === 0) return <div className="italic text-slate-400">No mapping data to preview.</div>;
   
   // Define columns in a specific order for consistency
-  const columns = ['s_source', 's_label', 'target_study', 'target', 'target_label', 'mapping_type', 'harmonization_status'];
+  const columns = ['s_source', 's_label', 'target_study', 'target', 'target_label', 'mapping_type', 'source_categories_codes', 'target_categories_codes', 'harmonization_status'];
+  
+  // Define display names for columns
+  const columnDisplayNames: Record<string, string> = {
+    's_source': 'source variable',
+    'target': 'target variable',
+    's_label': 's_label',
+    'target_study': 'target_study',
+    'target_label': 'target_label',
+    'mapping_type': 'mapping_type',
+    'source_categories_codes': 'source categories codes',
+    'target_categories_codes': 'target categories codes',
+    'harmonization_status': 'harmonization_status'
+  };
 
   return (
     <table className="table table-zebra w-full text-xs">
       <thead>
         <tr>
           {columns.map(col => (
-            <th key={col} className="font-bold bg-base-300">{col}</th>
+            <th key={col} className="font-bold bg-base-300">{columnDisplayNames[col] || col}</th>
           ))}
         </tr>
       </thead>
       <tbody>
         {data.map((row, i) => (
           <tr key={i}>
-            {columns.map(col => (
-              <td key={col}>{(row[col] as string | number | boolean | null | undefined)?.toString() || ''}</td>
-            ))}
+            {columns.map(col => {
+              const value = row[col] as string | number | boolean | null | undefined;
+              const displayValue = value === null || value === undefined || value === 'null' ? '--' : value.toString();
+              const isLongText = displayValue.length > 30;
+              
+              return (
+                <td 
+                  key={col} 
+                  className={`${
+                    col === 's_source' || col === 'target' ? 'bg-blue-100' : ''
+                  } ${
+                    (col === 'source_categories_codes' || col === 'target_categories_codes') && isLongText 
+                      ? 'max-w-xs break-words' : ''
+                  }`}
+                >
+                  {displayValue}
+                </td>
+              );
+            })}
           </tr>
         ))}
       </tbody>
@@ -420,9 +449,10 @@ export default function MappingPage() {
         {mappingOutput && (
           <div 
             ref={mappingOutputRef}
-            className="mt-4 p-4 border rounded-lg bg-base-100 w-full max-w-5xl mx-auto"
+            className="mt-4 p-4 border rounded-lg bg-base-100 w-full max-w-6xl mx-auto"
           >
-            <h2 className="text-lg font-bold mb-2">Mapping Preview</h2>
+            <h2 className="text-lg font-bold mb-1">Mapping Preview</h2>
+            <p className="text-xs text-gray-500 mb-3">{mappingOutput.length} rows</p>
             <div className="overflow-x-auto">
               <MappingPreviewJsonTable data={mappingOutput} />
             </div>
