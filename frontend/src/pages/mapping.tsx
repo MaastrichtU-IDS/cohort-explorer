@@ -22,6 +22,8 @@ function transformMappingDataForPreview(jsonData: any): RowData[] {
           s_label: mapping.s_slabel,
           target_study: mapping.target_study,
           harmonization_status: mapping.harmonization_status || 'pending',
+          source_categories_codes: mapping.source_categories_codes,
+          target_categories_codes: mapping.target_categories_codes,
         };
 
         // Find wildcard keys
