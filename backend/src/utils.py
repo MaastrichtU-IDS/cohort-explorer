@@ -269,8 +269,13 @@ def get_curie_value(key: str, row: dict[str, Any]) -> str | None:
         return None
 
 
-def retrieve_cohorts_metadata(user_email: str) -> dict[str, Cohort]:
-    """Get all cohorts metadata from the SPARQL endpoint (infos, variables)"""
+def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = False) -> dict[str, Cohort] | dict:
+    """Get all cohorts metadata from the SPARQL endpoint (infos, variables)
+    
+    Args:
+        user_email: Email of the user requesting the data
+        include_sparql_metadata: If True, returns dict with cohorts and metadata
+    """
     import time
     start_time = time.time()
     
@@ -407,5 +412,17 @@ def retrieve_cohorts_metadata(user_email: str) -> dict[str, Cohort]:
     total_duration = end_time - start_time
     processing_duration = total_duration - query_duration
     logging.info(f"Total cohorts metadata retrieval time: {total_duration:.2f} seconds (Query: {query_duration:.2f}s, Processing: {processing_duration:.2f}s)")
+    
+    # Return with metadata if requested
+    if include_sparql_metadata:
+        return {
+            "cohorts": cohorts,
+            "sparql_metadata": {
+                "row_count": len(results),
+                "query_duration_ms": round(query_duration * 1000),
+                "processing_duration_ms": round(processing_duration * 1000),
+                "total_duration_ms": round(total_duration * 1000)
+            }
+        }
     
     return cohorts

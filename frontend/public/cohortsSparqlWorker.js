@@ -5,7 +5,18 @@ self.onmessage = async e => {
       credentials: 'include'
     });
     const data = await response.json();
-    self.postMessage(data);
+    
+    // Handle the new response format with metadata
+    if (data.cohorts && data.sparql_metadata) {
+      // Extract cohorts and add SPARQL metadata
+      const cohorts = data.cohorts;
+      cohorts.sparqlRows = data.sparql_metadata.row_count;
+      cohorts.sparqlMetadata = data.sparql_metadata;
+      self.postMessage(cohorts);
+    } else {
+      // Fallback for old format
+      self.postMessage(data);
+    }
   } catch (error) {
     self.postMessage({error: error.message});
   }

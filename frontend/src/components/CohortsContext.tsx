@@ -14,6 +14,16 @@ interface CohortStatistics {
   totalVariables: number;
 }
 
+// Define loading metrics interface
+interface LoadingMetrics {
+  loadTime: number | null; // in milliseconds
+  dataSource: 'cache' | 'sparql';
+  cohortCount: number;
+  variableCount: number;
+  categoryCount: number;
+  sparqlRows?: number; // only for SPARQL mode
+}
+
 const CohortsContext = createContext(null);
 
 export const useCohorts = (): any => useContext(CohortsContext) || {};
@@ -34,6 +44,38 @@ export const CohortsProvider = ({children, useSparql = false}: {children: any, u
     patientsInCohortsWithMetadata: 0,
     totalVariables: 0
   });
+
+  // Add state for loading metrics
+  const [loadingMetrics, setLoadingMetrics] = useState<LoadingMetrics>({
+    loadTime: null,
+    dataSource: useSparql ? 'sparql' : 'cache',
+    cohortCount: 0,
+    variableCount: 0,
+    categoryCount: 0
+  });
+
+  // Add loading state
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Function to calculate data metrics
+  const calculateDataMetrics = (data: {[cohortId: string]: Cohort}): {cohortCount: number, variableCount: number, categoryCount: number} => {
+    const cohortCount = Object.keys(data).length;
+    let variableCount = 0;
+    let categoryCount = 0;
+
+    Object.values(data).forEach((cohort: Cohort) => {
+      if (cohort.variables) {
+        variableCount += Object.keys(cohort.variables).length;
+        Object.values(cohort.variables).forEach(variable => {
+          if (variable.categories) {
+            categoryCount += variable.categories.length;
+          }
+        });
+      }
+    });
+
+    return { cohortCount, variableCount, categoryCount };
+  };
 
   // Helper function to parse participant count
   const parseParticipants = (participants: string | number | undefined | null): number => {
@@ -136,20 +178,53 @@ export const CohortsProvider = ({children, useSparql = false}: {children: any, u
   useEffect(() => {
     setDataCleanRoom(JSON.parse(sessionStorage.getItem('dataCleanRoom') || '{"cohorts": {}}'));
 
+    // Reset loading metrics when switching data sources
+    setLoadingMetrics({
+      loadTime: null,
+      dataSource: useSparql ? 'sparql' : 'cache',
+      cohortCount: 0,
+      variableCount: 0,
+      categoryCount: 0
+    });
+
     // Update cohorts data with a web worker in the background for smoothness
     // Use different worker based on useSparql flag
     const workerFile = useSparql ? '/cohortsSparqlWorker.js' : '/cohortsWorker.js';
     worker.current = new Worker(workerFile);
+    
+    // Track start time
+    const startTime = performance.now();
+    setIsLoading(true);
+    
     worker.current.onmessage = event => {
+      const endTime = performance.now();
+      const loadTime = endTime - startTime;
+      
       const data = event.data;
-      if (!data.detail) {
+      if (!data.detail && !data.error) {
         setCohortsData(data);
-        // TODO: store actual user email?
         setUserEmail('loggedIn');
-        console.log(`Updated context with data from ${useSparql ? 'SPARQL' : 'cache'}`, Object.keys(data).length, 'cohorts');
+        setIsLoading(false);
+        
+        // Calculate metrics
+        const metrics = calculateDataMetrics(data);
+        
+        // Update loading metrics
+        setLoadingMetrics({
+          loadTime: Math.round(loadTime),
+          dataSource: useSparql ? 'sparql' : 'cache',
+          cohortCount: metrics.cohortCount,
+          variableCount: metrics.variableCount,
+          categoryCount: metrics.categoryCount,
+          sparqlRows: data.sparqlRows // This will be undefined for cache mode
+        });
+        
+        console.log(`Updated context with data from ${useSparql ? 'SPARQL' : 'cache'}:`, 
+          `${metrics.cohortCount} cohorts, ${metrics.variableCount} variables, ${metrics.categoryCount} categories in ${Math.round(loadTime)}ms`);
       } else {
         setUserEmail(null);
-        console.error(`Error fetching data in ${useSparql ? 'SPARQL' : 'cache'} worker:`, data.detail);
+        setIsLoading(false);
+        console.error(`Error fetching data in ${useSparql ? 'SPARQL' : 'cache'} worker:`, data.detail || data.error);
       }
     };
 
@@ -188,7 +263,10 @@ export const CohortsProvider = ({children, useSparql = false}: {children: any, u
         userEmail,
         setUserEmail,
         // Expose the statistics
-        cohortStatistics
+        cohortStatistics,
+        // Expose loading metrics and state
+        loadingMetrics,
+        isLoading
       }}
     >
       {children}

@@ -24,7 +24,7 @@ const formatParticipantsForTag = (value: string | number | null | undefined): st
 
 export default function CohortsList() {
   const router = useRouter();
-  const {cohortsData, userEmail} = useCohorts();
+  const {cohortsData, userEmail, loadingMetrics, isLoading} = useCohorts();
   const [searchQuery, setSearchQuery] = useState('');
   
   // Check if we should use SPARQL mode based on query parameter
@@ -130,9 +130,31 @@ export default function CohortsList() {
                 {useSparqlMode ? 'SPARQL (Real-time)' : 'Cache (Fast)'}
               </span>
             </div>
+            
+            {/* Loading metrics display */}
+            {isLoading ? (
+              <div className="text-sm text-gray-600 flex items-center gap-2">
+                <span className="loading loading-spinner loading-xs"></span>
+                Loading data...
+              </div>
+            ) : loadingMetrics.loadTime !== null ? (
+              <div className="text-xs text-gray-600 text-center">
+                <div>Loaded in {loadingMetrics.loadTime}ms</div>
+                <div>
+                  {loadingMetrics.cohortCount} cohorts • {loadingMetrics.variableCount} variables • {loadingMetrics.categoryCount} categories
+                </div>
+                {loadingMetrics.sparqlRows && (
+                  <div className="text-orange-600">
+                    {loadingMetrics.sparqlRows} SPARQL result rows processed
+                  </div>
+                )}
+              </div>
+            ) : null}
+            
             <button 
               onClick={toggleDataSource}
               className="btn btn-sm btn-outline btn-neutral"
+              disabled={isLoading}
             >
               Switch to {useSparqlMode ? 'Cache' : 'SPARQL'}
             </button>
