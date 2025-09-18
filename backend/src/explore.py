@@ -39,6 +39,21 @@ def get_cohorts_metadata(user: Any = Depends(get_current_user)) -> dict[str, Coh
     return cohorts
 
 
+@router.get("/cohorts-metadata-sparql")
+def get_cohorts_metadata_sparql(user: Any = Depends(get_current_user)) -> dict[str, Cohort]:
+    """Returns data dictionaries of all cohorts using SPARQL queries only
+    
+    Always executes SPARQL queries directly against the triplestore,
+    bypassing the cache completely. This provides real-time data but is slower.
+    """
+    user_email = user["email"]
+    
+    logging.info("Retrieving cohorts using SPARQL queries (bypassing cache)")
+    cohorts = retrieve_cohorts_metadata(user_email)
+    
+    return cohorts
+
+
 @router.get("/cohort-spreadsheet/{cohort_id}")
 async def download_cohort_spreasheet(cohort_id: str, user: Any = Depends(get_current_user)) -> FileResponse:
     """Download the data dictionary of a specified cohort as a spreadsheet."""

@@ -1,6 +1,7 @@
 'use client';
 
 import React, {useState, useMemo, useEffect} from 'react';
+import {useRouter} from 'next/router';
 import {useCohorts} from '@/components/CohortsContext';
 import FilterByMetadata from '@/components/FilterByMetadata';
 import {Cohort} from '@/types';
@@ -22,8 +23,12 @@ const formatParticipantsForTag = (value: string | number | null | undefined): st
 };
 
 export default function CohortsList() {
+  const router = useRouter();
   const {cohortsData, userEmail} = useCohorts();
   const [searchQuery, setSearchQuery] = useState('');
+  
+  // Check if we should use SPARQL mode based on query parameter
+  const useSparqlMode = router.query.mode === 'sparql';
   // selectedDataTypes state removed
   const [selectedStudyTypes, setSelectedStudyTypes] = useState(new Set());
   const [selectedInstitutes, setSelectedInstitutes] = useState(new Set());
@@ -92,6 +97,15 @@ export default function CohortsList() {
   }, [searchQuery, selectedStudyTypes, selectedInstitutes, cohortsData]);
   // NOTE: filtering variables is done in VariablesList component
 
+  // Function to toggle between cache and SPARQL modes
+  const toggleDataSource = () => {
+    const newMode = useSparqlMode ? undefined : 'sparql';
+    router.push({
+      pathname: router.pathname,
+      query: newMode ? { mode: newMode } : {}
+    });
+  };
+
   return (
     <>
 
@@ -105,6 +119,24 @@ export default function CohortsList() {
               {filteredCohorts.length}/{Object.keys(cohortsData).length} cohorts
             </span>
           )}
+        </div>
+        
+        {/* Data source indicator and toggle */}
+        <div className="text-center mb-4">
+          <div className="flex flex-col items-center gap-2">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium">Data Source:</span>
+              <span className={`badge ${useSparqlMode ? 'badge-warning' : 'badge-success'}`}>
+                {useSparqlMode ? 'SPARQL (Real-time)' : 'Cache (Fast)'}
+              </span>
+            </div>
+            <button 
+              onClick={toggleDataSource}
+              className="btn btn-sm btn-outline btn-neutral"
+            >
+              Switch to {useSparqlMode ? 'Cache' : 'SPARQL'}
+            </button>
+          </div>
         </div>
         {/* Filter by cohorts type removed */}
         <FilterByMetadata

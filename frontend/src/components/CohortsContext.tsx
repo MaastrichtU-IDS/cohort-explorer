@@ -18,7 +18,7 @@ const CohortsContext = createContext(null);
 
 export const useCohorts = (): any => useContext(CohortsContext) || {};
 
-export const CohortsProvider = ({children}: any) => {
+export const CohortsProvider = ({children, useSparql = false}: {children: any, useSparql?: boolean}) => {
   const [cohortsData, setCohortsData]: [{[cohortId: string]: Cohort}, any] = useState({});
   const [dataCleanRoom, setDataCleanRoom] = useState({cohorts: {}});
   // Dict with cohort ID and list of variables ID?
@@ -137,17 +137,19 @@ export const CohortsProvider = ({children}: any) => {
     setDataCleanRoom(JSON.parse(sessionStorage.getItem('dataCleanRoom') || '{"cohorts": {}}'));
 
     // Update cohorts data with a web worker in the background for smoothness
-    worker.current = new Worker('/cohortsWorker.js');
+    // Use different worker based on useSparql flag
+    const workerFile = useSparql ? '/cohortsSparqlWorker.js' : '/cohortsWorker.js';
+    worker.current = new Worker(workerFile);
     worker.current.onmessage = event => {
       const data = event.data;
       if (!data.detail) {
         setCohortsData(data);
         // TODO: store actual user email?
         setUserEmail('loggedIn');
-        // console.log('Updated context with data', data);
+        console.log(`Updated context with data from ${useSparql ? 'SPARQL' : 'cache'}`, Object.keys(data).length, 'cohorts');
       } else {
         setUserEmail(null);
-        console.error('Error fetching data in worker:', data.detail);
+        console.error(`Error fetching data in ${useSparql ? 'SPARQL' : 'cache'} worker:`, data.detail);
       }
     };
 
@@ -156,7 +158,7 @@ export const CohortsProvider = ({children}: any) => {
     return () => {
       worker.current?.terminate();
     };
-  }, []);
+  }, [useSparql]);
 
   // Fetch cohorts data from the API using the web worker
   const fetchCohortsData = () => {
