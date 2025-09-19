@@ -290,6 +290,53 @@ def pandas_script_merge_cohorts(merged_cohorts: dict[str, list[str]], all_cohort
     return merge_script
 
 
+def find_variable_by_omop_id(cohort_id: str, omop_id: str) -> str | None:
+    """Find a variable in a cohort by its OMOP ID using a targeted SPARQL query.
+    
+    Args:
+        cohort_id: The ID of the cohort to search in
+        omop_id: The OMOP ID to search for (e.g., "4086934", the patient ID variable)
+        
+    Returns:
+        The variable name if found, None otherwise
+    """
+    from src.utils import run_query
+    
+    # Construct targeted SPARQL query
+    sparql_query = f"""
+    PREFIX icare: <https://w3id.org/icare4cvd/>
+    PREFIX dc: <http://purl.org/dc/elements/1.1/>
+    
+    SELECT ?varName
+    WHERE {{
+        ?cohort a icare:Cohort ;
+                dc:identifier "{cohort_id}" .
+        
+        GRAPH ?cohort {{
+            ?cohort icare:hasVariable ?variable .
+            ?variable a icare:Variable ;
+                      dc:identifier ?varName ;
+                      icare:omopId "{omop_id}" .
+        }}
+    }}
+    LIMIT 1
+    """
+    
+    try:
+        # Execute the targeted SPARQL query
+        results = run_query(sparql_query)["results"]["bindings"]
+        
+        # Return the first match if found
+        if results and len(results) > 0:
+            return results[0]["varName"]["value"]
+        
+        return None
+        
+    except Exception as e:
+        logging.error(f"Error finding variable with OMOP ID {omop_id} in cohort {cohort_id}: {e}")
+        return None
+
+
 async def get_compute_dcr_definition(
     cohorts_request: dict[str, Any],
     user: Any,
@@ -375,6 +422,19 @@ async def get_compute_dcr_definition(
         df_var = f"df_{cohort_id.replace('-', '_')}"
         requested_vars = cohorts_request["cohorts"][cohort_id]
 
+        cohort_id_var = find_variable_by_omop_id(cohort_id, "4086934")
+        if cohort_id_var is None:
+            pandas_script += f"No cohort ID variable (i.e. no variable with OMOP ID 4086934) found for cohort {cohort_id}\n"
+            pandas_script += f"No modifications will be done on the variables list\n"
+        
+        elif cohort_id_var not in requested_vars:
+            pandas_script += f"Cohort ID variable {cohort_id_var} not in requested variables list for cohort {cohort_id}\n"
+            pandas_script += f"No modifications will be done on the variables list\n"
+        else:
+            pandas_script += f"Cohort ID variable {cohort_id_var} in among requested variables list for cohort {cohort_id}\n"
+            pandas_script += f"The Cohort ID variable dropped from the list\n"
+            requested_vars.remove(cohort_id_var)
+        
         # Direct cohort variables list
         if isinstance(requested_vars, list):
             pandas_script += f'{df_var} = decentriq_util.read_tabular_data("/input/{cohort_id}")\n'
@@ -388,6 +448,7 @@ async def get_compute_dcr_definition(
             # TODO: add merged cohorts schema to selected_cohorts
         else:
             raise HTTPException(status_code=400, detail=f"Invalid structure for cohort {cohort_id}")
+        pandas_script += f'#The following line commented out - Sept 2025\n\n'
         pandas_script += f'{df_var}.to_csv("/output/{cohort_id}.csv", index=False, header=True)\n\n'
 
         # Add python data preparation script
