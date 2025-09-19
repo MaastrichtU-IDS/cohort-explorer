@@ -8,11 +8,13 @@ self.onmessage = async e => {
     
     // Handle the new response format with metadata
     if (data.cohorts && data.sparql_metadata) {
-      // Extract cohorts and add SPARQL metadata
-      const cohorts = data.cohorts;
-      cohorts.sparqlRows = data.sparql_metadata.row_count;
-      cohorts.sparqlMetadata = data.sparql_metadata;
-      self.postMessage(cohorts);
+      // Extract cohorts and send with metadata as separate properties
+      const response = {
+        ...data.cohorts,
+        sparqlRows: data.sparql_metadata.row_count,
+        sparqlMetadata: data.sparql_metadata
+      };
+      self.postMessage(response);
     } else {
       // Fallback for old format
       self.postMessage(data);
