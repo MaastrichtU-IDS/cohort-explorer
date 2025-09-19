@@ -291,7 +291,7 @@ def pandas_script_merge_cohorts(merged_cohorts: dict[str, list[str]], all_cohort
 
 
 def find_variable_by_omop_id(cohort_id: str, omop_id: str) -> str | None:
-    """Find a variable in a cohort by its OMOP ID using a targeted SPARQL query.
+    """Find a variable in a cohort by its OMOP ID using the cache.
     
     Args:
         cohort_id: The ID of the cohort to search in
@@ -300,41 +300,42 @@ def find_variable_by_omop_id(cohort_id: str, omop_id: str) -> str | None:
     Returns:
         The variable name if found, None otherwise
     """
-    from src.utils import run_query
-    
-    # Construct targeted SPARQL query - OMOP ID is stored as string literal
-    sparql_query = f"""
-    PREFIX icare: <https://w3id.org/icare4cvd/>
-    PREFIX dc: <http://purl.org/dc/elements/1.1/>
-    
-    SELECT ?varName ?omopIdValue
-    WHERE {{
-        ?cohort a icare:Cohort ;
-                dc:identifier "{cohort_id}" .
-        
-        GRAPH ?cohort {{
-            ?cohort icare:hasVariable ?variable .
-            ?variable a icare:Variable ;
-                      dc:identifier ?varName ;
-                      icare:omopId "{omop_id}" .
-            OPTIONAL {{ ?variable icare:omopId ?omopIdValue }}
-        }}
-    }}
-    LIMIT 10
-    """
+    import time
+    start_time = time.time()
     
     try:
-        # Execute the targeted SPARQL query
-        results = run_query(sparql_query)["results"]["bindings"]
+        # Use cache-based approach which is more reliable
+        from src.cohort_cache import get_cohorts_from_cache
         
-        # Return the first match if found
-        if results and len(results) > 0:
-            return results[0]["varName"]["value"]
+        # Get cohorts from cache
+        cached_cohorts = get_cohorts_from_cache()
+        cache_time = time.time()
         
+        # Check if the cohort exists in cache
+        if cohort_id not in cached_cohorts:
+            elapsed = time.time() - start_time
+            logging.warning(f"Cohort {cohort_id} not found in cache (took {elapsed:.3f}s)")
+            return None
+            
+        cohort = cached_cohorts[cohort_id]
+        
+        # Search through all variables in the cohort
+        if hasattr(cohort, 'variables') and cohort.variables:
+            for var_name, variable in cohort.variables.items():
+                if hasattr(variable, 'omop_id') and variable.omop_id == omop_id:
+                    elapsed = time.time() - start_time
+                    cache_elapsed = cache_time - start_time
+                    search_elapsed = elapsed - cache_elapsed
+                    logging.info(f"Found variable '{var_name}' with OMOP ID {omop_id} in cohort {cohort_id} (total: {elapsed:.3f}s, cache: {cache_elapsed:.3f}s, search: {search_elapsed:.3f}s)")
+                    return var_name
+        
+        elapsed = time.time() - start_time
+        logging.info(f"No variable with OMOP ID {omop_id} found in cohort {cohort_id} (took {elapsed:.3f}s)")
         return None
         
     except Exception as e:
-        logging.error(f"Error finding variable with OMOP ID {omop_id} in cohort {cohort_id}: {e}")
+        elapsed = time.time() - start_time
+        logging.error(f"Error finding variable with OMOP ID {omop_id} in cohort {cohort_id} (took {elapsed:.3f}s): {e}")
         return None
 
 
