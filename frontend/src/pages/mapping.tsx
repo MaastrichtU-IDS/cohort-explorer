@@ -127,6 +127,8 @@ export default function MappingPage() {
   const [selectedTargets, setSelectedTargets] = useState<string[]>([]);
   const [mappingOutput, setMappingOutput] = useState<RowData[] | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedMappingTypes, setSelectedMappingTypes] = useState<string[]>([]);
+  const [selectedHarmonizationStatuses, setSelectedHarmonizationStatuses] = useState<string[]>([]);
   const [cacheInfo, setCacheInfo] = useState<{
     cached_pairs: Array<{source: string, target: string, timestamp: number}>,
     uncached_pairs: Array<{source: string, target: string}>,
@@ -460,28 +462,152 @@ export default function MappingPage() {
             className="mt-4 p-4 border rounded-lg bg-base-100 w-full max-w-7xl mx-auto"
           >
             <h2 className="text-lg font-bold mb-1">Mapping Preview</h2>
-            <div className="text-xs text-gray-500 mb-3">
-              <p>{mappingOutput.length} rows</p>
-              {(() => {
-                // Calculate mappings per target cohort
-                const targetCounts: Record<string, number> = {};
-                mappingOutput.forEach(row => {
-                  const targetStudy = row.target_study as string;
-                  if (targetStudy) {
-                    targetCounts[targetStudy] = (targetCounts[targetStudy] || 0) + 1;
-                  }
-                });
-                return (
-                  <p>
-                    Mappings per target: {Object.entries(targetCounts)
-                      .map(([target, count]) => `${target} (${count})`)
-                      .join(', ')}
-                  </p>
-                );
-              })()}
+            {(() => {
+              // Filter the data based on selected filters
+              const filteredData = mappingOutput.filter(row => {
+                const mappingType = (row.mapping_type?.toString() || '--');
+                const harmonizationStatus = (row.harmonization_status?.toString() || '--');
+                
+                const mappingTypeMatch = selectedMappingTypes.length === 0 || selectedMappingTypes.includes(mappingType);
+                const harmonizationStatusMatch = selectedHarmonizationStatuses.length === 0 || selectedHarmonizationStatuses.includes(harmonizationStatus);
+                
+                return mappingTypeMatch && harmonizationStatusMatch;
+              });
+
+              return (
+                <>
+                  <div className="text-xs text-gray-500 mb-3">
+                    <p>{filteredData.length} rows {filteredData.length !== mappingOutput.length && `(filtered from ${mappingOutput.length})`}</p>
+                    {(() => {
+                      // Calculate mappings per target cohort for filtered data
+                      const targetCounts: Record<string, number> = {};
+                      filteredData.forEach(row => {
+                        const targetStudy = row.target_study as string;
+                        if (targetStudy) {
+                          targetCounts[targetStudy] = (targetCounts[targetStudy] || 0) + 1;
+                        }
+                      });
+                      return (
+                        <p>
+                          Mappings per target: {Object.entries(targetCounts)
+                            .map(([target, count]) => `${target} (${count})`)
+                            .join(', ')}
+                        </p>
+                      );
+                    })()}
+                  </div>
+                </>
+              );
+            })()}
+            
+            {/* Filter Controls */}
+            <div className="flex justify-end mb-4">
+              <div className="bg-gray-50 border rounded-lg p-4 max-w-md">
+                <h4 className="font-semibold text-sm mb-3">Filters</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  {/* Mapping Type Filter */}
+                  <div>
+                    <h5 className="font-medium text-xs mb-2">mapping_type</h5>
+                    <div className="space-y-1 max-h-32 overflow-y-auto text-xs">
+                      {(() => {
+                        const mappingTypeCounts = mappingOutput.reduce((acc, row) => {
+                          const value = (row.mapping_type?.toString() || '--');
+                          const currentCount = acc[value] as number || 0;
+                          acc[value] = currentCount + 1;
+                          return acc;
+                        }, {} as Record<string, number>);
+                        
+                        return Object.entries(mappingTypeCounts).map(([value, count]) => (
+                          <div key={value} className="flex items-center gap-2">
+                            <input 
+                              type="checkbox" 
+                              className="checkbox checkbox-xs" 
+                              id={`mapping-${value}`}
+                              checked={selectedMappingTypes.includes(value)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedMappingTypes(prev => [...prev, value]);
+                                } else {
+                                  setSelectedMappingTypes(prev => prev.filter(v => v !== value));
+                                }
+                              }}
+                            />
+                            <label htmlFor={`mapping-${value}`} className="cursor-pointer truncate">
+                              {value} ({count})
+                            </label>
+                          </div>
+                        ));
+                      })()}
+                    </div>
+                  </div>
+
+                  {/* Harmonization Status Filter */}
+                  <div>
+                    <h5 className="font-medium text-xs mb-2">harmonization_status</h5>
+                    <div className="space-y-1 max-h-32 overflow-y-auto text-xs">
+                      {(() => {
+                        const statusCounts = mappingOutput.reduce((acc, row) => {
+                          const value = (row.harmonization_status?.toString() || '--');
+                          const currentCount = acc[value] as number || 0;
+                          acc[value] = currentCount + 1;
+                          return acc;
+                        }, {} as Record<string, number>);
+                        
+                        return Object.entries(statusCounts).map(([value, count]) => (
+                          <div key={value} className="flex items-center gap-2">
+                            <input 
+                              type="checkbox" 
+                              className="checkbox checkbox-xs" 
+                              id={`status-${value}`}
+                              checked={selectedHarmonizationStatuses.includes(value)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedHarmonizationStatuses(prev => [...prev, value]);
+                                } else {
+                                  setSelectedHarmonizationStatuses(prev => prev.filter(v => v !== value));
+                                }
+                              }}
+                            />
+                            <label htmlFor={`status-${value}`} className="cursor-pointer truncate">
+                              {value} ({count})
+                            </label>
+                          </div>
+                        ));
+                      })()}
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Clear Filters Button */}
+                {(selectedMappingTypes.length > 0 || selectedHarmonizationStatuses.length > 0) && (
+                  <button
+                    className="btn btn-xs btn-outline mt-3 w-full"
+                    onClick={() => {
+                      setSelectedMappingTypes([]);
+                      setSelectedHarmonizationStatuses([]);
+                    }}
+                  >
+                    Clear Filters
+                  </button>
+                )}
+              </div>
             </div>
+
             <div className="overflow-x-auto">
-              <MappingPreviewJsonTable data={mappingOutput} />
+              {(() => {
+                // Calculate filtered data for the table
+                const filteredData = mappingOutput.filter(row => {
+                  const mappingType = (row.mapping_type?.toString() || '--');
+                  const harmonizationStatus = (row.harmonization_status?.toString() || '--');
+                  
+                  const mappingTypeMatch = selectedMappingTypes.length === 0 || selectedMappingTypes.includes(mappingType);
+                  const harmonizationStatusMatch = selectedHarmonizationStatuses.length === 0 || selectedHarmonizationStatuses.includes(harmonizationStatus);
+                  
+                  return mappingTypeMatch && harmonizationStatusMatch;
+                });
+                
+                return <MappingPreviewJsonTable data={filteredData} />;
+              })()}
             </div>
           </div>
         )}
