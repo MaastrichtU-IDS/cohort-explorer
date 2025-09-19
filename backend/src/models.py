@@ -32,6 +32,9 @@ class CohortVariable:
     formula: Optional[str] = None
     definition: Optional[str] = None
     concept_id: Optional[str] = None
+    concept_code: Optional[str] = None
+    concept_name: Optional[str] = None
+    omop_id: Optional[str] = None
     mapped_id: Optional[str] = None
     mapped_label: Optional[str] = None
     omop_domain: Optional[str] = None
@@ -54,6 +57,42 @@ class Cohort:
     study_ongoing: Optional[str] = None
     study_population: Optional[str] = None
     study_objective: Optional[str] = None
+    primary_outcome_spec: Optional[str] = None
+    secondary_outcome_spec: Optional[str] = None
+    morbidity: Optional[str] = None
+    study_start: Optional[str] = None
+    study_end: Optional[str] = None
+    male_percentage: Optional[float] = None
+    female_percentage: Optional[float] = None
+    # Contact information fields
+    administrator: Optional[str] = None
+    administrator_email: Optional[str] = None
+    study_contact_person: Optional[str] = None
+    study_contact_person_email: Optional[str] = None
+    references: list[str] = field(default_factory=list)
+    # Additional metadata fields
+    population_location: Optional[str] = None
+    language: Optional[str] = None
+    data_collection_frequency: Optional[str] = None
+    interventions: Optional[str] = None
+    # Inclusion criteria fields
+    sex_inclusion: Optional[str] = None
+    health_status_inclusion: Optional[str] = None
+    clinically_relevant_exposure_inclusion: Optional[str] = None
+    age_group_inclusion: Optional[str] = None
+    bmi_range_inclusion: Optional[str] = None
+    ethnicity_inclusion: Optional[str] = None
+    family_status_inclusion: Optional[str] = None
+    hospital_patient_inclusion: Optional[str] = None
+    use_of_medication_inclusion: Optional[str] = None
+    
+    # Exclusion criteria fields
+    health_status_exclusion: Optional[str] = None
+    bmi_range_exclusion: Optional[str] = None
+    limited_life_expectancy_exclusion: Optional[str] = None
+    need_for_surgery_exclusion: Optional[str] = None
+    surgical_procedure_history_exclusion: Optional[str] = None
+    clinically_relevant_exposure_exclusion: Optional[str] = None
     variables: dict[str, CohortVariable] = field(default_factory=dict)
     can_edit: bool = False
     physical_dictionary_exists: bool = False # New field
