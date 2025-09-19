@@ -246,7 +246,7 @@ def apply_rules(domain, src_info, tgt_info):
     tgt_categories = parse_categories(tgt_info.get('categories_codes', ''))
     original_src_categories = parse_categories(src_info.get('original_categories', ''))
     original_tgt_categories = parse_categories(tgt_info.get('original_categories', ''))
-
+ 
     valid_types = {"continuous_variable", "binary_class_variable", "multi_class_variable", "qualitative_variable"}
     if src_type not in valid_types or tgt_type not in valid_types:
         if "derived" not in src_var_name and "derived" not in tgt_var_name:
@@ -254,14 +254,14 @@ def apply_rules(domain, src_info, tgt_info):
                 "description": "Transformation not applicable (invalid or missing statistical type)."
             }, "Not Applicable"
 
-    if src_type == tgt_type:
+    elif src_type == tgt_type:
         if src_type == "continuous_variable":
             if src_unit and tgt_unit and src_unit != tgt_unit:
                 # if (src_unit in ["mg", "milligram"] and tgt_unit in ["%", "percent"]) or \
                 #    (src_unit in ["%", "percent"] and tgt_unit in ["mg", "milligram"]):
                 return {
                         "description": "Unit conversion in dataset required from {src_unit} to {tgt_unit} or vice versa.",
-                    }, "Partial Match (Proximate)"
+                    }, "Complete Match (Compatible)"
                 # return {
                 #     "description": "Unit conversion required. Evaluate based on research question."
                 # }
@@ -278,12 +278,11 @@ def apply_rules(domain, src_info, tgt_info):
             common_codes = set(src_pairs) & set(tgt_pairs)
 
             if common_codes:
-                
                 if set(original_src_categories) == set(original_tgt_categories):
                     mapping_str = [f"{sl} ↔ {tl}" for sl, tl in zip(original_src_categories, original_tgt_categories)]
                     print(f"mapping_str: {mapping_str}")
                     return {
-                        "description": "Categorical values are identical and codes harmonized by matching labels\n",
+                        "description": "Categorical values are identical and aligned by standard codes.",
                         "categorical_mapping": "; ".join(mapping_str),
                         "standard_codes": "; ".join(common_codes) if common_codes else "No common codes found",
                     }, "Complete Match (Identical)"
@@ -291,36 +290,55 @@ def apply_rules(domain, src_info, tgt_info):
                     mapping_str = [f"{sl} -> {tl}" for sl, tl in zip(src_pairs.values(), tgt_pairs.values())]
                     print(f"mapping_str: {mapping_str}")
                     return {
-                        "description": f"Categorical values are not similar however harmonized by standard labels\n",
+                        "description": f"The original categorical values are not similar however aligned by standard codes.",
                         "categorical_mapping": "; ".join(mapping_str),
                         "standard_codes": "; ".join(common_codes) if common_codes else "No common codes found",
                     }, "Complete Match (Compatible)"
             else:
                 
                 return {
-                    "description": "Found no matching standard labels for categories between source and target. Harmonization not possible without manual mapping/review.",
+                    "description": "Found no matching standard labels for categories values. Mapping/review is required for harmonization.",
                     "source_categories": "; ".join(src_categories),
                     "target_categories": "; ".join(tgt_categories)
                 }, "Partial Match (Tentative)"
            
-
-    if (
+    elif (
         (src_type == "binary_class_variable" and tgt_type == "multi_class_variable") or
         (src_type == "multi_class_variable" and tgt_type == "binary_class_variable")
     ):
+        print(f"src_categories: {src_categories} and tgt_categories: {tgt_categories} for vars {src_var_name} and {tgt_var_name}")
         msg = (
-            "Convert multi-class to binary class. Accept only justified information loss. "
-            "For drug-related variables, consider therapy details and surrounding context."
+            "multi-class to binary class requires justification of information loss for specific research question. For drug-related variables, consider therapy details and surrounding context."
             if domain in ["drug_exposure", "drug_era"]
-            else "Convert multi-class to binary class. Information loss must be justified."
+            else "Both variables don't share similar categories. The conversion of multi-class to binary class (e.g. yes/no) requires justification of information loss for specific research question."
         )
-        return {
-            "description": msg,
-            "source_categories": "; ".join([f"{s} ↔ {t}" for s, t in zip(src_categories, original_src_categories)]),
-            "target_categories": "; ".join([f"{s} ↔ {t}" for s, t in zip(tgt_categories, original_tgt_categories)])
-        }, "Partial Match (Tentative)"
+        
+        # src_codes = map_category_to_code(src_categories, original_src_categories)
+        # tgt_codes = map_category_to_code(tgt_categories, original_tgt_categories)
+        
+        # check if src code exists in tgt codes
+        
+         # Check if all source categories exist in target categories or vice versa
+        if (src_type == "multi_class_variable" and tgt_type == "binary_class_variable"):
+            proximate_ok = set(tgt_categories).issubset(set(src_categories))
+        elif (src_type == "binary_class_variable" and tgt_type == "multi_class_variable"):
+            proximate_ok = set(src_categories).issubset(set(tgt_categories))
+        else:
+            proximate_ok = False
+        if proximate_ok:
+            return {
+                "description": f"Both variables share some categories. Expand binary categories in one variable by extending with additional categories from other variables",
+                "source_categories": "; ".join([f"{s} <-> {t}" for s, t in zip(src_categories, original_src_categories)]),
+                "target_categories": "; ".join([f"{s} <-> {t}" for s, t in zip(tgt_categories, original_tgt_categories)])
+            }, "Partial Match (Proximate)"
+        else:   
+            return {
+                "description": msg,
+                "source_categories": "; ".join([f"{s} <-> {t}" for s, t in zip(src_categories, original_src_categories)]),
+                "target_categories": "; ".join([f"{s} <-> {t}" for s, t in zip(tgt_categories, original_tgt_categories)])
+            }, "Partial Match (Tentative)"
 
-    if (
+    elif (
         (src_type == "continuous_variable" and tgt_type in {"binary_class_variable", "multi_class_variable"}) or
         (tgt_type == "continuous_variable" and src_type in {"binary_class_variable", "multi_class_variable"})
     ):
@@ -331,10 +349,9 @@ def apply_rules(domain, src_info, tgt_info):
                 "target_categories": "; ".join(tgt_categories)
             }, "Partial Match (Tentative)"
         msg = (
-            "Discretize continuous variable to categories. Acceptable only if information loss is minimal. "
-            "Represent as: (1) binary flag for event presence, (2) category of event type."
+            "Discretize continuous variable to categories. Acceptable only if information loss is minimal. Represent as: (1) binary flag for event presence, (2) category of event type."
             if domain not in ["drug_exposure", "drug_era"]
-            else "Harmonization may not be possible for drug-related continuous ↔ categorical mappings. Review therapy context."
+            else "Harmonization may not be possible for drug-related continuous to categorical mappings. Review medication normalization depending on research question."
         )
         return {
             "description": msg,
@@ -342,38 +359,37 @@ def apply_rules(domain, src_info, tgt_info):
             "target_categories": "; ".join(tgt_categories)
         }, "Partial Match (Tentative)"
 
-    if src_type in {"binary_class_variable", "multi_class_variable"} and tgt_type == "qualitative_variable":
+    elif src_type in {"binary_class_variable", "multi_class_variable"} and tgt_type == "qualitative_variable":
         return {
             "description": (
-                "Map structured categorical codes to consistent/unique text labels. Requires normalization. "
+                "Map structured categorical codes to consistent/unique text labels. Requires normalization."
                 "Only suitable for qualitative fields with finite, structured values."
             ),
             "source_categories": "; ".join(src_categories),
             "target_categories": ""
         }, "Partial Match (Tentative)"
 
-    if src_type == "qualitative_variable" and tgt_type in {"binary_class_variable", "multi_class_variable"}:
+    elif src_type == "qualitative_variable" and tgt_type in {"binary_class_variable", "multi_class_variable"}:
         return {
             "description": (
-                "Map qualitative text to standard categories. Normalize and encode. "
+                "Map qualitative text to standard categories. Normalize and encode."
                 "Applicable only if text values are consistently structured."
             ),
             "source_categories": "",
             "target_categories": "; ".join(tgt_categories)
         }, "Partial Match (Tentative)"
-    if src_type == "qualitative_variable" and tgt_type == "continuous_variable":
+    elif src_type == "qualitative_variable" and tgt_type == "continuous_variable" or src_type == "continuous_variable" and tgt_type == "qualitative_variable":
         return {
             "description": (
-                "Map qualitative text to binary indicators. "
+                "Map qualitative text to binary indicators."
                 "Applicable only if text values are consistently structured."
             ),
             "source_categories": "",
             "target_categories": "; ".join(tgt_categories)
         }, "Partial Match (Tentative)"
     return {
-        "description": "No specific transformation rule matched. \n "
+        "description": "No specific transformation rule available."
     }, "Not Applicable"
-
 
 
 
