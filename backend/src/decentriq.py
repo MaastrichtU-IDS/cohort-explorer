@@ -302,12 +302,12 @@ def find_variable_by_omop_id(cohort_id: str, omop_id: str) -> str | None:
     """
     from src.utils import run_query
     
-    # Construct targeted SPARQL query
+    # Construct targeted SPARQL query - OMOP ID is stored as string literal
     sparql_query = f"""
     PREFIX icare: <https://w3id.org/icare4cvd/>
     PREFIX dc: <http://purl.org/dc/elements/1.1/>
     
-    SELECT ?varName
+    SELECT ?varName ?omopIdValue
     WHERE {{
         ?cohort a icare:Cohort ;
                 dc:identifier "{cohort_id}" .
@@ -317,9 +317,10 @@ def find_variable_by_omop_id(cohort_id: str, omop_id: str) -> str | None:
             ?variable a icare:Variable ;
                       dc:identifier ?varName ;
                       icare:omopId "{omop_id}" .
+            OPTIONAL {{ ?variable icare:omopId ?omopIdValue }}
         }}
     }}
-    LIMIT 1
+    LIMIT 10
     """
     
     try:
@@ -423,16 +424,17 @@ async def get_compute_dcr_definition(
         requested_vars = cohorts_request["cohorts"][cohort_id]
 
         cohort_id_var = find_variable_by_omop_id(cohort_id, "4086934")
+
         if cohort_id_var is None:
-            pandas_script += f"No cohort ID variable (i.e. no variable with OMOP ID 4086934) found for cohort {cohort_id}\n"
-            pandas_script += f"No modifications will be done on the variables list\n"
+            pandas_script += f"#No cohort ID variable (i.e. no variable with OMOP ID 4086934) found for cohort {cohort_id}\n"
+            pandas_script += f"#No modifications will be done on the variables list\n"
         
         elif cohort_id_var not in requested_vars:
-            pandas_script += f"Cohort ID variable {cohort_id_var} not in requested variables list for cohort {cohort_id}\n"
-            pandas_script += f"No modifications will be done on the variables list\n"
+            pandas_script += f"#Cohort ID variable {cohort_id_var} not in requested variables list for cohort {cohort_id}\n"
+            pandas_script += f"#No modifications will be done on the variables list\n"
         else:
-            pandas_script += f"Cohort ID variable {cohort_id_var} in among requested variables list for cohort {cohort_id}\n"
-            pandas_script += f"The Cohort ID variable dropped from the list\n"
+            pandas_script += f"#Cohort ID variable {cohort_id_var} in among requested variables list for cohort {cohort_id}\n"
+            pandas_script += f"#The Cohort ID variable dropped from the list\n"
             requested_vars.remove(cohort_id_var)
         
         # Direct cohort variables list
@@ -448,8 +450,8 @@ async def get_compute_dcr_definition(
             # TODO: add merged cohorts schema to selected_cohorts
         else:
             raise HTTPException(status_code=400, detail=f"Invalid structure for cohort {cohort_id}")
-        pandas_script += f'#The following line commented out - Sept 2025\n\n'
-        pandas_script += f'{df_var}.to_csv("/output/{cohort_id}.csv", index=False, header=True)\n\n'
+        pandas_script += f'#The following line commented out - Sept 2025\n'
+        pandas_script += f'#{df_var}.to_csv("/output/{cohort_id}.csv", index=False, header=True)\n\n'
 
         # Add python data preparation script
         builder.add_node_definition(
