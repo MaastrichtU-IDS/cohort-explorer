@@ -96,6 +96,12 @@ function MappingPreviewJsonTable({ data }: MappingPreviewJsonTableProps) {
                   } ${
                     (col === 'source_categories_codes' || col === 'target_categories_codes') && isLongText 
                       ? 'max-w-xs break-words' : ''
+                  } ${
+                    col === 's_label' || col === 'target_label' ? 'max-w-32 break-words' : ''
+                  } ${
+                    col === 'target_study' ? 'max-w-24 break-words' : ''
+                  } ${
+                    col === 'mapping_type' || col === 'harmonization_status' ? 'max-w-20 break-words text-xs' : ''
                   }`}
                 >
                   {displayValue}
@@ -451,10 +457,29 @@ export default function MappingPage() {
         {mappingOutput && (
           <div 
             ref={mappingOutputRef}
-            className="mt-4 p-4 border rounded-lg bg-base-100 w-full max-w-6xl mx-auto"
+            className="mt-4 p-4 border rounded-lg bg-base-100 w-full max-w-7xl mx-auto"
           >
             <h2 className="text-lg font-bold mb-1">Mapping Preview</h2>
-            <p className="text-xs text-gray-500 mb-3">{mappingOutput.length} rows</p>
+            <div className="text-xs text-gray-500 mb-3">
+              <p>{mappingOutput.length} rows</p>
+              {(() => {
+                // Calculate mappings per target cohort
+                const targetCounts: Record<string, number> = {};
+                mappingOutput.forEach(row => {
+                  const targetStudy = row.target_study as string;
+                  if (targetStudy) {
+                    targetCounts[targetStudy] = (targetCounts[targetStudy] || 0) + 1;
+                  }
+                });
+                return (
+                  <p>
+                    Mappings per target: {Object.entries(targetCounts)
+                      .map(([target, count]) => `${target} (${count})`)
+                      .join(', ')}
+                  </p>
+                );
+              })()}
+            </div>
             <div className="overflow-x-auto">
               <MappingPreviewJsonTable data={mappingOutput} />
             </div>
