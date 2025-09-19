@@ -440,23 +440,16 @@ async def get_compute_dcr_definition(
 
         cohort_id_var = find_variable_by_omop_id(cohort_id, "4086934")
 
-        logging.info(f"Cohort ID variable {cohort_id_var} identified as ID var for cohort {cohort_id}")
-        logging.info(f"Type of cohort_id_var: {type(cohort_id_var)}, Value: '{cohort_id_var}', Is None: {cohort_id_var is None}")
-        logging.info(f"Requested vars for {cohort_id}: {requested_vars}")
-        
         if cohort_id_var is None:
-            logging.info(f"BRANCH: cohort_id_var is None for {cohort_id}")
             pandas_script += f"#No cohort ID variable (i.e. no variable with OMOP ID 4086934) found for cohort {cohort_id}\n"
-            pandas_script += f"#No modifications will be done on the variables list\n"
+            pandas_script += f"#No modifications will be done on the dataframe\n"
         
         elif cohort_id_var not in requested_vars:
-            logging.info(f"BRANCH: cohort_id_var '{cohort_id_var}' not in requested_vars for {cohort_id}")
-            pandas_script += f"#Cohort ID variable {cohort_id_var} not in requested variables list for cohort {cohort_id}\n"
-            pandas_script += f"#No modifications will be done on the variables list\n"
+            pandas_script += f"#Cohort ID variable ({cohort_id_var}) not in requested variables list for cohort {cohort_id}\n"
+            pandas_script += f"#No modifications will be done on the dataframe\n"
         else:
-            logging.info(f"BRANCH: cohort_id_var '{cohort_id_var}' found in requested_vars for {cohort_id}, removing it")
-            pandas_script += f"#Cohort ID variable {cohort_id_var} in among requested variables list for cohort {cohort_id}\n"
-            pandas_script += f"#The Cohort ID variable dropped from the list\n"
+            pandas_script += f"#Cohort ID variable ({cohort_id_var}) in among requested variables list for cohort {cohort_id}\n"
+            pandas_script += f"#The Cohort ID variable will be dropped from the dataframe\n"
             requested_vars.remove(cohort_id_var)
         
         # Direct cohort variables list
@@ -472,7 +465,7 @@ async def get_compute_dcr_definition(
             # TODO: add merged cohorts schema to selected_cohorts
         else:
             raise HTTPException(status_code=400, detail=f"Invalid structure for cohort {cohort_id}")
-        pandas_script += f'#The following line commented out - Sept 2025\n'
+        pandas_script += f'\n#The following line commented out - Sept 2025\n'
         pandas_script += f'#{df_var}.to_csv("/output/{cohort_id}.csv", index=False, header=True)\n\n'
 
         # Add python data preparation script
