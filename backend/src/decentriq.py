@@ -309,7 +309,7 @@ def find_variable_by_omop_id(cohort_id: str, omop_id: str) -> str | None:
         
         # Get cohorts from cache (use admin email for full access)
         from src.config import settings
-        admin_email = settings.admins_list[0] if settings.admins_list else "admin@example.com"
+        admin_email = settings.admins_list[0] if settings.admins_list else None
         cached_cohorts = get_cohorts_from_cache(admin_email)
         cache_time = time.time()
         
@@ -346,11 +346,21 @@ async def get_compute_dcr_definition(
     user: Any,
     client: Any,
 ) -> Any:
+    start_time = datetime.now()
+    logging.info(f"Starting DCR definition creation for user {user['email']} at {start_time}")
+    
     # users = [user["email"]]
     # TODO: cohorts_request could also be a dict of union of cohorts to merge
     # {"cohorts": {"cohort_id": ["var1", "var2"], "merged_cohort3": {"cohort1": ["weight", "sex"], "cohort2": ["gender", "patient weight"]}}}
     # We automatically merge the cohorts, figuring out which variables are the same thanks to mappings
-    all_cohorts = retrieve_cohorts_metadata(user["email"])
+    metadata_start = datetime.now()
+    # Use cache for consistency and performance (same as find_variable_by_omop_id)
+    from src.cohort_cache import get_cohorts_from_cache
+    from src.config import settings
+    admin_email = settings.admins_list[0] if settings.admins_list else None
+    all_cohorts = get_cohorts_from_cache(admin_email)
+    metadata_time = datetime.now() - metadata_start
+    logging.info(f"Retrieved cohorts metadata from cache in {metadata_time.total_seconds():.3f}s")
 
     # Get metadata for selected cohorts and variables
     selected_cohorts = {}
@@ -374,6 +384,7 @@ async def get_compute_dcr_definition(
 
 
     # Creation of a Data Clean Room (DCR)
+    dcr_start = datetime.now()
     data_nodes = []
     dcr_count = len(client.get_data_room_descriptions())
     dcr_title = f"iCARE4CVD DCR compute {dcr_count}"
@@ -384,6 +395,7 @@ async def get_compute_dcr_definition(
         .with_owner(user["email"])
         .with_description("A data clean room to run analyses on cohorts for the iCARE4CVD project")
     )
+    logging.info(f"DCR builder initialized for {len(cohorts_request['cohorts'])} cohorts")
 
     participants = {}
     participants[user["email"]] = {"data_owner_of": set(), "analyst_of": set()}
@@ -428,6 +440,7 @@ async def get_compute_dcr_definition(
 
         cohort_id_var = find_variable_by_omop_id(cohort_id, "4086934")
 
+        logging.info(f"Cohort ID variable {cohort_id_var} identified as ID var for cohort {cohort_id}")
         if cohort_id_var is None:
             pandas_script += f"#No cohort ID variable (i.e. no variable with OMOP ID 4086934) found for cohort {cohort_id}\n"
             pandas_script += f"#No modifications will be done on the variables list\n"
@@ -481,7 +494,15 @@ async def get_compute_dcr_definition(
         )
 
     # Build and publish DCR
-    return builder.build(), dcr_title
+    build_start = datetime.now()
+    dcr_definition = builder.build()
+    build_time = datetime.now() - build_start
+    
+    total_time = datetime.now() - start_time
+    logging.info(f"DCR build completed in {build_time.total_seconds():.3f}s")
+    logging.info(f"Total DCR definition creation completed in {total_time.total_seconds():.3f}s for {len(cohorts_request['cohorts'])} cohorts")
+    
+    return dcr_definition, dcr_title
 
 
 
