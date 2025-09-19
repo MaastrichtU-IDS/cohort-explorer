@@ -461,48 +461,11 @@ export default function MappingPage() {
             ref={mappingOutputRef}
             className="mt-4 p-4 border rounded-lg bg-base-100 w-full max-w-7xl mx-auto"
           >
-            <h2 className="text-lg font-bold mb-1">Mapping Preview</h2>
-            {(() => {
-              // Filter the data based on selected filters
-              const filteredData = mappingOutput.filter(row => {
-                const mappingType = (row.mapping_type?.toString() || '--');
-                const harmonizationStatus = (row.harmonization_status?.toString() || '--');
-                
-                const mappingTypeMatch = selectedMappingTypes.length === 0 || selectedMappingTypes.includes(mappingType);
-                const harmonizationStatusMatch = selectedHarmonizationStatuses.length === 0 || selectedHarmonizationStatuses.includes(harmonizationStatus);
-                
-                return mappingTypeMatch && harmonizationStatusMatch;
-              });
-
-              return (
-                <>
-                  <div className="text-xs text-gray-500 mb-3">
-                    <p>{filteredData.length} rows {filteredData.length !== mappingOutput.length && `(filtered from ${mappingOutput.length})`}</p>
-                    {(() => {
-                      // Calculate mappings per target cohort for filtered data
-                      const targetCounts: Record<string, number> = {};
-                      filteredData.forEach(row => {
-                        const targetStudy = row.target_study as string;
-                        if (targetStudy) {
-                          targetCounts[targetStudy] = (targetCounts[targetStudy] || 0) + 1;
-                        }
-                      });
-                      return (
-                        <p>
-                          Mappings per target: {Object.entries(targetCounts)
-                            .map(([target, count]) => `${target} (${count})`)
-                            .join(', ')}
-                        </p>
-                      );
-                    })()}
-                  </div>
-                </>
-              );
-            })()}
+            <h2 className="text-lg font-bold mb-3">Mapping Preview</h2>
             
-            {/* Filter Controls */}
+            {/* Filter Controls - Moved to top */}
             <div className="flex justify-end mb-4">
-              <div className="bg-gray-50 border rounded-lg p-4 max-w-md">
+              <div className="bg-gray-50 border rounded-lg p-4 w-full max-w-2xl">
                 <h4 className="font-semibold text-sm mb-3">Filters</h4>
                 <div className="grid grid-cols-2 gap-4">
                   {/* Mapping Type Filter */}
@@ -592,6 +555,43 @@ export default function MappingPage() {
                 )}
               </div>
             </div>
+
+            {/* Row count and target info */}
+            {(() => {
+              // Filter the data based on selected filters
+              const filteredData = mappingOutput.filter(row => {
+                const mappingType = (row.mapping_type?.toString() || '--');
+                const harmonizationStatus = (row.harmonization_status?.toString() || '--');
+                
+                const mappingTypeMatch = selectedMappingTypes.length === 0 || selectedMappingTypes.includes(mappingType);
+                const harmonizationStatusMatch = selectedHarmonizationStatuses.length === 0 || selectedHarmonizationStatuses.includes(harmonizationStatus);
+                
+                return mappingTypeMatch && harmonizationStatusMatch;
+              });
+
+              return (
+                <div className="text-xs text-gray-500 mb-3">
+                  <p>{filteredData.length} rows {filteredData.length !== mappingOutput.length && `(filtered from ${mappingOutput.length})`}</p>
+                  {(() => {
+                    // Calculate mappings per target cohort for filtered data
+                    const targetCounts: Record<string, number> = {};
+                    filteredData.forEach(row => {
+                      const targetStudy = row.target_study as string;
+                      if (targetStudy) {
+                        targetCounts[targetStudy] = (targetCounts[targetStudy] || 0) + 1;
+                      }
+                    });
+                    return (
+                      <p>
+                        Mappings per target: {Object.entries(targetCounts)
+                          .map(([target, count]) => `${target} (${count})`)
+                          .join(', ')}
+                      </p>
+                    );
+                  })()}
+                </div>
+              );
+            })()}
 
             <div className="overflow-x-auto">
               {(() => {
