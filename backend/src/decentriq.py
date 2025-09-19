@@ -307,8 +307,10 @@ def find_variable_by_omop_id(cohort_id: str, omop_id: str) -> str | None:
         # Use cache-based approach which is more reliable
         from src.cohort_cache import get_cohorts_from_cache
         
-        # Get cohorts from cache
-        cached_cohorts = get_cohorts_from_cache()
+        # Get cohorts from cache (use admin email for full access)
+        from src.config import settings
+        admin_email = settings.admins_list[0] if settings.admins_list else "admin@example.com"
+        cached_cohorts = get_cohorts_from_cache(admin_email)
         cache_time = time.time()
         
         # Check if the cohort exists in cache
