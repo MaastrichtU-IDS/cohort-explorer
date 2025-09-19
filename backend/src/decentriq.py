@@ -436,19 +436,25 @@ async def get_compute_dcr_definition(
         # Add pandas preparation script
         pandas_script = "import pandas as pd\nimport decentriq_util\n\n"
         df_var = f"df_{cohort_id.replace('-', '_')}"
-        requested_vars = cohorts_request["cohorts"][cohort_id]
+        requested_vars = cohorts_request["cohorts"][cohort_id].copy() if isinstance(cohorts_request["cohorts"][cohort_id], list) else cohorts_request["cohorts"][cohort_id]
 
         cohort_id_var = find_variable_by_omop_id(cohort_id, "4086934")
 
         logging.info(f"Cohort ID variable {cohort_id_var} identified as ID var for cohort {cohort_id}")
+        logging.info(f"Type of cohort_id_var: {type(cohort_id_var)}, Value: '{cohort_id_var}', Is None: {cohort_id_var is None}")
+        logging.info(f"Requested vars for {cohort_id}: {requested_vars}")
+        
         if cohort_id_var is None:
+            logging.info(f"BRANCH: cohort_id_var is None for {cohort_id}")
             pandas_script += f"#No cohort ID variable (i.e. no variable with OMOP ID 4086934) found for cohort {cohort_id}\n"
             pandas_script += f"#No modifications will be done on the variables list\n"
         
         elif cohort_id_var not in requested_vars:
+            logging.info(f"BRANCH: cohort_id_var '{cohort_id_var}' not in requested_vars for {cohort_id}")
             pandas_script += f"#Cohort ID variable {cohort_id_var} not in requested variables list for cohort {cohort_id}\n"
             pandas_script += f"#No modifications will be done on the variables list\n"
         else:
+            logging.info(f"BRANCH: cohort_id_var '{cohort_id_var}' found in requested_vars for {cohort_id}, removing it")
             pandas_script += f"#Cohort ID variable {cohort_id_var} in among requested variables list for cohort {cohort_id}\n"
             pandas_script += f"#The Cohort ID variable dropped from the list\n"
             requested_vars.remove(cohort_id_var)
