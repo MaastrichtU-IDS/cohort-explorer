@@ -25,7 +25,9 @@ export default function Home() {
   React.useEffect(() => {
     const fetchStatistics = async () => {
       try {
-        const response = await fetch('/api/get-statistics');
+        // Add cache-busting parameter to prevent browser caching
+        const cacheBuster = Date.now();
+        const response = await fetch(`/api/get-statistics?_=${cacheBuster}`);
         if (response.ok) {
           const data = await response.json();
           setStats(data);
