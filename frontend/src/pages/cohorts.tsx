@@ -121,8 +121,8 @@ export default function CohortsList() {
           )}
         </div>
         
-        {/* Data source indicator and toggle */}
-        <div className="text-center mb-4">
+        {/* Data source indicator and toggle - HIDDEN */}
+        <div className="text-center mb-4 hidden">
           <div className="flex flex-col items-center gap-2">
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium">Data Source:</span>
