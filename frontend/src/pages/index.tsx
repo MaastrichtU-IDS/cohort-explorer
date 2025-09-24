@@ -13,12 +13,12 @@ export default function Home() {
   
   // State to store statistics from API
   const [stats, setStats] = React.useState({
-    totalCohorts: 0,
-    cohortsWithMetadata: 0,
-    cohortsWithAggregateAnalysis: 0,
-    totalPatients: 0,
-    patientsInCohortsWithMetadata: 0,
-    totalVariables: 0
+    totalCohorts: "waiting to refresh...",
+    cohortsWithMetadata: "waiting to refresh...",
+    cohortsWithAggregateAnalysis: "waiting to refresh...",
+    totalPatients: "waiting to refresh...",
+    patientsInCohortsWithMetadata: "waiting to refresh...",
+    totalVariables: "waiting to refresh..."
   });
   
   // Fetch statistics from API on component mount
