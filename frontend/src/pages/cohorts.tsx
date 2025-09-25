@@ -6,6 +6,66 @@ import {useCohorts} from '@/components/CohortsContext';
 import FilterByMetadata from '@/components/FilterByMetadata';
 import {Cohort} from '@/types';
 import VariablesList from '@/components/VariablesList';
+import {parseSearchQuery, searchInObject, highlightSearchTerms} from '@/utils/search';
+
+// Helper component to render highlighted text
+const HighlightedText = ({text, searchTerms, exactPhrase}: {text: string, searchTerms: string[], exactPhrase?: boolean}) => {
+  const highlightedHtml = highlightSearchTerms(text, searchTerms, exactPhrase);
+  
+  if (highlightedHtml === text) {
+    return <span>{text}</span>;
+  }
+  
+  return <span dangerouslySetInnerHTML={{__html: highlightedHtml}} />;
+};
+
+// Component to count and display variable search results
+const SearchResultsCounter = ({cohortsData, searchTerms, exactPhrase}: {
+  cohortsData: Record<string, Cohort>, 
+  searchTerms: string[], 
+  exactPhrase: boolean
+}) => {
+  const results = useMemo(() => {
+    let totalVariables = 0;
+    let cohortsWithMatches = 0;
+    
+    Object.entries(cohortsData).forEach(([cohortId, cohortData]) => {
+      let cohortHasMatches = false;
+      
+      Object.entries(cohortData.variables || {}).forEach(([varName, varData]: any) => {
+        const searchableFields = [
+          'var_name', 'var_label', 'var_type', 'omop_domain', 'concept_code', 
+          'concept_name', 'mapped_label', 'unit', 'stats_type'
+        ];
+        
+        const variableWithName = { ...varData, var_name: varName };
+        
+        const matchesSearch = searchInObject(variableWithName, searchTerms, searchableFields, exactPhrase).matches ||
+          // Also search in categories
+          varData.categories?.some((category: any) => 
+            searchInObject(category, searchTerms, ['value', 'label', 'mapped_label'], exactPhrase).matches
+          );
+        
+        if (matchesSearch) {
+          totalVariables++;
+          cohortHasMatches = true;
+        }
+      });
+      
+      if (cohortHasMatches) {
+        cohortsWithMatches++;
+      }
+    });
+    
+    return { totalVariables, cohortsWithMatches };
+  }, [cohortsData, searchTerms, exactPhrase]);
+  
+  return (
+    <span>
+      The search found <strong className="text-primary">{results.totalVariables}</strong> variable{results.totalVariables !== 1 ? 's' : ''} in <strong className="text-primary">{results.cohortsWithMatches}</strong> cohort{results.cohortsWithMatches !== 1 ? 's' : ''}
+    </span>
+  );
+};
 
 // Helper function to format participants value for display in tags
 const formatParticipantsForTag = (value: string | number | null | undefined): string => {
@@ -29,13 +89,15 @@ export default function CohortsList() {
   
   // Check if we should use SPARQL mode based on query parameter
   const useSparqlMode = router.query.mode === 'sparql';
-  // selectedDataTypes state removed
   const [selectedStudyTypes, setSelectedStudyTypes] = useState(new Set());
   const [selectedInstitutes, setSelectedInstitutes] = useState(new Set());
   // State to track which cohorts have aggregate data analysis available
-  const [analysisAvailability, setAnalysisAvailability] = useState<Record<string, boolean>>({});
+  const [analysisAvailability, setAnalysisAvailability] = useState<{[key: string]: boolean}>({});
   // State to track which cohorts are expanded
-  const [expandedCohorts, setExpandedCohorts] = useState<Record<string, boolean>>({});
+  const [expandedCohorts, setExpandedCohorts] = useState<{[key: string]: boolean}>({});
+  // Search configuration states
+  const [searchScope, setSearchScope] = useState<'cohorts' | 'variables'>('cohorts');
+  const [searchMode, setSearchMode] = useState<'or' | 'exact'>('or');
   // selectedMorbidities state removed
 
   // TODO: debounce search to improve performance
@@ -77,24 +139,56 @@ export default function CohortsList() {
     checkAnalysisAvailability();
   }, [cohortsData]);
 
+  // Parse search query into terms for OR search with word boundaries
+  const searchTerms = useMemo(() => parseSearchQuery(searchQuery), [searchQuery]);
+  const exactPhrase = searchMode === 'exact';
+
   // Filter cohorts based on search query and selected filters
   // TODO: we might want to perform the search and filtering directly with SPARQL queries to the oxigraph endpoint
   // if the data gets too big to be handled in the client.
   const filteredCohorts = useMemo(() => {
     return Object.entries(cohortsData as Record<string, Cohort>)
       .filter(([key, value]) => {
-        const matchesSearchQuery =
-          key.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          JSON.stringify(value).toLowerCase().includes(searchQuery.toLowerCase());
+        let matchesSearchQuery = true;
+        
+        if (searchScope === 'cohorts') {
+          // Search in cohort metadata only
+          const searchableFields = [
+            'cohort_id', 'institution', 'study_type', 'study_objective', 'morbidity',
+            'study_participants', 'study_population', 'administrator', 'population_location',
+            'primary_outcome_spec', 'secondary_outcome_spec'
+          ];
+          
+          const cohortWithId = { ...value, cohort_id: key };
+          matchesSearchQuery = searchInObject(cohortWithId, searchTerms, searchableFields, exactPhrase).matches;
+        } else {
+          // Search in variables only
+          if (searchQuery.trim()) {
+            matchesSearchQuery = Object.entries(value.variables || {}).some(([varName, varData]: any) => {
+              const searchableFields = [
+                'var_name', 'var_label', 'var_type', 'omop_domain', 'concept_code', 
+                'concept_name', 'mapped_label', 'unit', 'stats_type'
+              ];
+              
+              const variableWithName = { ...varData, var_name: varName };
+              
+              return searchInObject(variableWithName, searchTerms, searchableFields, exactPhrase).matches ||
+                // Also search in categories
+                varData.categories?.some((category: any) => 
+                  searchInObject(category, searchTerms, ['value', 'label', 'mapped_label'], exactPhrase).matches
+                );
+            });
+          }
+        }
 
-        // Cohort type filter removed
+        // Apply other filters
         const matchesStudyType = selectedStudyTypes.size === 0 || selectedStudyTypes.has(value.study_type);
         const matchesInstitute = selectedInstitutes.size === 0 || selectedInstitutes.has(value.institution);
-        // Morbidity filter removed
+        
         return matchesSearchQuery && matchesStudyType && matchesInstitute;
       })
       .map(([, cohortData]) => cohortData);
-  }, [searchQuery, selectedStudyTypes, selectedInstitutes, cohortsData]);
+  }, [searchTerms, exactPhrase, searchScope, selectedStudyTypes, selectedInstitutes, cohortsData, searchQuery]);
   // NOTE: filtering variables is done in VariablesList component
 
   // Function to toggle between cache and SPARQL modes
@@ -183,11 +277,77 @@ export default function CohortsList() {
         <div className="mb-4">
           <input
             type="text"
-            placeholder="Search for cohorts and variables"
+            placeholder={searchScope === 'cohorts' ? "Search cohorts..." : "Search variables..."}
             className="input input-bordered w-full"
             value={searchQuery}
             onChange={handleSearchChange}
           />
+          
+          {/* Search Configuration Toggles */}
+          <div className="flex flex-wrap gap-4 mt-3">
+            {/* Search Scope Toggle */}
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium">Search in:</span>
+              <div className="join">
+                <button
+                  className={`btn btn-sm join-item ${searchScope === 'cohorts' ? 'btn-active' : 'btn-outline'}`}
+                  onClick={() => setSearchScope('cohorts')}
+                >
+                  Cohorts
+                </button>
+                <button
+                  className={`btn btn-sm join-item ${searchScope === 'variables' ? 'btn-active' : 'btn-outline'}`}
+                  onClick={() => setSearchScope('variables')}
+                >
+                  Variables
+                </button>
+              </div>
+            </div>
+            
+            {/* Search Mode Toggle */}
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium">Mode:</span>
+              <div className="join">
+                <button
+                  className={`btn btn-sm join-item ${searchMode === 'or' ? 'btn-active' : 'btn-outline'}`}
+                  onClick={() => setSearchMode('or')}
+                  title="Search for any of the words (relaxed search)"
+                >
+                  OR Search
+                </button>
+                <button
+                  className={`btn btn-sm join-item ${searchMode === 'exact' ? 'btn-active' : 'btn-outline'}`}
+                  onClick={() => setSearchMode('exact')}
+                  title="Search for the exact phrase"
+                >
+                  Exact Phrase
+                </button>
+              </div>
+            </div>
+          </div>
+          
+          {/* Search Results Counter */}
+          {searchQuery.trim() && (
+            <div className="mt-2 p-2 bg-base-200 rounded-lg text-sm">
+              <div className="flex items-center gap-2">
+                <span className="text-gray-600 dark:text-gray-400">🔍</span>
+                {searchScope === 'cohorts' ? (
+                  <span>
+                    Found <strong className="text-primary">{filteredCohorts.length}</strong> cohort{filteredCohorts.length !== 1 ? 's' : ''}
+                    {filteredCohorts.length !== Object.keys(cohortsData).length && (
+                      <span className="text-gray-500"> out of {Object.keys(cohortsData).length} total</span>
+                    )}
+                  </span>
+                ) : (
+                  <SearchResultsCounter 
+                    cohortsData={cohortsData}
+                    searchTerms={searchTerms}
+                    exactPhrase={exactPhrase}
+                  />
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="space-y-2">
@@ -216,7 +376,7 @@ export default function CohortsList() {
                 onClick={() => toggleCohortExpanded(cohortData.cohort_id)}
               >
                 <div className="flex flex-wrap items-center gap-2">
-                  {cohortData.cohort_id}
+                  <HighlightedText text={cohortData.cohort_id} searchTerms={searchTerms} exactPhrase={exactPhrase} />
                   <span className="badge badge-outline mx-2">{cohortData.institution}</span>
                   {cohortData.study_type && <span className="badge badge-ghost mx-1">{cohortData.study_type}</span>}
                   {cohortData.cohort_type && <span className="badge badge-ghost mx-1">{cohortData.cohort_type}</span>}
@@ -265,7 +425,9 @@ export default function CohortsList() {
                 {cohortData.study_objective && (
                   <div className="mb-4 p-3 bg-base-200 rounded-lg">
                     <h3 className="font-bold mb-2">Study Objective:</h3>
-                    <p>{cohortData.study_objective}</p>
+                    <p>
+                      <HighlightedText text={cohortData.study_objective} searchTerms={searchTerms} exactPhrase={exactPhrase} />
+                    </p>
                   </div>
                 )}
                 
@@ -273,7 +435,9 @@ export default function CohortsList() {
                 {cohortData.morbidity && (
                   <div className="mb-4 p-3 bg-base-200 rounded-lg">
                     <h3 className="font-bold mb-2">Morbidity:</h3>
-                    <p>{cohortData.morbidity}</p>
+                    <p>
+                      <HighlightedText text={cohortData.morbidity} searchTerms={searchTerms} exactPhrase={exactPhrase} />
+                    </p>
                   </div>
                 )}
                 {/* Display outcome specifications section */}
@@ -283,13 +447,17 @@ export default function CohortsList() {
                     {cohortData.primary_outcome_spec && (
                       <div className="mb-2">
                         <h4 className="font-semibold">Primary:</h4>
-                        <p>{cohortData.primary_outcome_spec}</p>
+                        <p>
+                          <HighlightedText text={cohortData.primary_outcome_spec} searchTerms={searchTerms} exactPhrase={exactPhrase} />
+                        </p>
                       </div>
                     )}
                     {cohortData.secondary_outcome_spec && (
                       <div className="mb-2">
                         <h4 className="font-semibold">Secondary:</h4>
-                        <p>{cohortData.secondary_outcome_spec}</p>
+                        <p>
+                          <HighlightedText text={cohortData.secondary_outcome_spec} searchTerms={searchTerms} exactPhrase={exactPhrase} />
+                        </p>
                       </div>
                     )}
                   </div>
@@ -549,7 +717,14 @@ export default function CohortsList() {
                   )}
                 </div>
                 
-                <VariablesList cohortId={cohortData.cohort_id} searchFilters={{searchQuery: searchQuery}} />
+                <VariablesList 
+                  cohortId={cohortData.cohort_id} 
+                  searchFilters={{
+                    searchQuery: searchScope === 'variables' ? searchQuery : '', 
+                    exactPhrase,
+                    searchTerms
+                  }} 
+                />
               </div>
             </div>
           ))}
