@@ -22,14 +22,14 @@ const createWordBoundaryRegex = (term: string): RegExp => {
 /**
  * Check if text matches search terms with word boundaries
  * @param text - Text to search in
- * @param searchTerms - Array of search terms (OR logic)
- * @param exactPhrase - If true, search for exact phrase instead of OR logic
- * @returns true if any term matches with word boundaries (OR) or exact phrase matches
+ * @param searchTerms - Array of search terms
+ * @param searchMode - 'or' | 'and' | 'exact' - determines matching logic
+ * @returns true if terms match according to the specified mode
  */
-export const matchesSearchTerms = (text: string, searchTerms: string[], exactPhrase: boolean = false): boolean => {
+export const matchesSearchTerms = (text: string, searchTerms: string[], searchMode: 'or' | 'and' | 'exact' = 'or'): boolean => {
   if (!text || searchTerms.length === 0) return true;
   
-  if (exactPhrase) {
+  if (searchMode === 'exact') {
     // For exact phrase, join terms back and search as single phrase
     const fullPhrase = searchTerms.join(' ');
     if (!fullPhrase.trim()) return true;
@@ -37,7 +37,16 @@ export const matchesSearchTerms = (text: string, searchTerms: string[], exactPhr
     return regex.test(text);
   }
   
-  // OR logic - any term matches
+  if (searchMode === 'and') {
+    // AND logic - all terms must match
+    return searchTerms.every(term => {
+      if (!term.trim()) return true;
+      const regex = createWordBoundaryRegex(term.trim());
+      return regex.test(text);
+    });
+  }
+  
+  // OR logic - any term matches (default)
   return searchTerms.some(term => {
     if (!term.trim()) return true;
     const regex = createWordBoundaryRegex(term.trim());
@@ -49,15 +58,15 @@ export const matchesSearchTerms = (text: string, searchTerms: string[], exactPhr
  * Highlight search terms in text
  * @param text - Text to highlight
  * @param searchTerms - Array of search terms to highlight
- * @param exactPhrase - If true, highlight the exact phrase instead of individual terms
+ * @param searchMode - 'or' | 'and' | 'exact' - determines highlighting logic
  * @returns Text with highlighted terms wrapped in <mark> tags
  */
-export const highlightSearchTerms = (text: string, searchTerms: string[], exactPhrase: boolean = false): string => {
+export const highlightSearchTerms = (text: string, searchTerms: string[], searchMode: 'or' | 'and' | 'exact' = 'or'): string => {
   if (!text || searchTerms.length === 0) return text;
   
   let highlightedText = text;
   
-  if (exactPhrase) {
+  if (searchMode === 'exact') {
     // Highlight the full phrase
     const fullPhrase = searchTerms.join(' ');
     if (fullPhrase.trim()) {
@@ -65,7 +74,7 @@ export const highlightSearchTerms = (text: string, searchTerms: string[], exactP
       highlightedText = highlightedText.replace(regex, '<mark class="bg-yellow-200 dark:bg-yellow-600 px-1 py-0.5 rounded font-medium">$&</mark>');
     }
   } else {
-    // Highlight individual terms (OR logic)
+    // Highlight individual terms (both OR and AND logic highlight individual terms)
     searchTerms.forEach(term => {
       if (!term.trim()) return;
       const regex = createWordBoundaryRegex(term.trim());
@@ -81,14 +90,14 @@ export const highlightSearchTerms = (text: string, searchTerms: string[], exactP
  * @param obj - Object to search in
  * @param searchTerms - Array of search terms
  * @param searchableFields - Specific fields to search in (optional)
- * @param exactPhrase - If true, search for exact phrase instead of OR logic
+ * @param searchMode - 'or' | 'and' | 'exact' - determines matching logic
  * @returns SearchResult with match status and highlighted content
  */
 export const searchInObject = (
   obj: any, 
   searchTerms: string[], 
   searchableFields?: string[],
-  exactPhrase: boolean = false
+  searchMode: 'or' | 'and' | 'exact' = 'or'
 ): SearchResult => {
   if (searchTerms.length === 0 || searchTerms.every(term => !term.trim())) {
     return { matches: true };
@@ -99,7 +108,7 @@ export const searchInObject = (
     const matches = searchableFields.some(field => {
       const value = obj[field];
       if (value != null) {
-        return matchesSearchTerms(String(value), searchTerms, exactPhrase);
+        return matchesSearchTerms(String(value), searchTerms, searchMode);
       }
       return false;
     });
@@ -112,7 +121,7 @@ export const searchInObject = (
     .map(value => String(value))
     .join(' ');
     
-  const matches = matchesSearchTerms(searchableText, searchTerms, exactPhrase);
+  const matches = matchesSearchTerms(searchableText, searchTerms, searchMode);
   return { matches };
 };
 

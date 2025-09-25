@@ -9,8 +9,8 @@ import VariablesList from '@/components/VariablesList';
 import {parseSearchQuery, searchInObject, highlightSearchTerms} from '@/utils/search';
 
 // Helper component to render highlighted text
-const HighlightedText = ({text, searchTerms, exactPhrase}: {text: string, searchTerms: string[], exactPhrase?: boolean}) => {
-  const highlightedHtml = highlightSearchTerms(text, searchTerms, exactPhrase);
+const HighlightedText = ({text, searchTerms, searchMode}: {text: string, searchTerms: string[], searchMode?: 'or' | 'and' | 'exact'}) => {
+  const highlightedHtml = highlightSearchTerms(text, searchTerms, searchMode);
   
   if (highlightedHtml === text) {
     return <span>{text}</span>;
@@ -20,17 +20,17 @@ const HighlightedText = ({text, searchTerms, exactPhrase}: {text: string, search
 };
 
 // Component to count and display variable search results
-const SearchResultsCounter = ({cohortsData, searchTerms, exactPhrase}: {
+const SearchResultsCounter = ({cohortsData, searchTerms, searchMode}: {
   cohortsData: Record<string, Cohort>, 
   searchTerms: string[], 
-  exactPhrase: boolean
+  searchMode: 'or' | 'and' | 'exact'
 }) => {
   const results = useMemo(() => {
     let totalVariables = 0;
     let cohortsWithMatches = 0;
     
     Object.entries(cohortsData).forEach(([cohortId, cohortData]) => {
-      let cohortHasMatches = false;
+      let cohortMatchingVariables = 0;
       
       Object.entries(cohortData.variables || {}).forEach(([varName, varData]: any) => {
         const searchableFields = [
@@ -40,25 +40,26 @@ const SearchResultsCounter = ({cohortsData, searchTerms, exactPhrase}: {
         
         const variableWithName = { ...varData, var_name: varName };
         
-        const matchesSearch = searchInObject(variableWithName, searchTerms, searchableFields, exactPhrase).matches ||
+        const matchesSearch = searchInObject(variableWithName, searchTerms, searchableFields, searchMode).matches ||
           // Also search in categories
           varData.categories?.some((category: any) => 
-            searchInObject(category, searchTerms, ['value', 'label', 'mapped_label'], exactPhrase).matches
+            searchInObject(category, searchTerms, ['value', 'label', 'mapped_label'], searchMode).matches
           );
         
         if (matchesSearch) {
           totalVariables++;
-          cohortHasMatches = true;
+          cohortMatchingVariables++;
         }
       });
       
-      if (cohortHasMatches) {
+      // Only count cohort if it has at least one matching variable
+      if (cohortMatchingVariables > 0) {
         cohortsWithMatches++;
       }
     });
     
     return { totalVariables, cohortsWithMatches };
-  }, [cohortsData, searchTerms, exactPhrase]);
+  }, [cohortsData, searchTerms, searchMode]);
   
   return (
     <span>
@@ -97,7 +98,7 @@ export default function CohortsList() {
   const [expandedCohorts, setExpandedCohorts] = useState<{[key: string]: boolean}>({});
   // Search configuration states
   const [searchScope, setSearchScope] = useState<'cohorts' | 'variables'>('cohorts');
-  const [searchMode, setSearchMode] = useState<'or' | 'exact'>('or');
+  const [searchMode, setSearchMode] = useState<'or' | 'and' | 'exact'>('or');
   // selectedMorbidities state removed
 
   // TODO: debounce search to improve performance
@@ -139,9 +140,8 @@ export default function CohortsList() {
     checkAnalysisAvailability();
   }, [cohortsData]);
 
-  // Parse search query into terms for OR search with word boundaries
+  // Parse search query into terms for search with word boundaries
   const searchTerms = useMemo(() => parseSearchQuery(searchQuery), [searchQuery]);
-  const exactPhrase = searchMode === 'exact';
 
   // Filter cohorts based on search query and selected filters
   // TODO: we might want to perform the search and filtering directly with SPARQL queries to the oxigraph endpoint
@@ -160,7 +160,7 @@ export default function CohortsList() {
           ];
           
           const cohortWithId = { ...value, cohort_id: key };
-          matchesSearchQuery = searchInObject(cohortWithId, searchTerms, searchableFields, exactPhrase).matches;
+          matchesSearchQuery = searchInObject(cohortWithId, searchTerms, searchableFields, searchMode).matches;
         } else {
           // Search in variables only
           if (searchQuery.trim()) {
@@ -172,10 +172,10 @@ export default function CohortsList() {
               
               const variableWithName = { ...varData, var_name: varName };
               
-              return searchInObject(variableWithName, searchTerms, searchableFields, exactPhrase).matches ||
+              return searchInObject(variableWithName, searchTerms, searchableFields, searchMode).matches ||
                 // Also search in categories
                 varData.categories?.some((category: any) => 
-                  searchInObject(category, searchTerms, ['value', 'label', 'mapped_label'], exactPhrase).matches
+                  searchInObject(category, searchTerms, ['value', 'label', 'mapped_label'], searchMode).matches
                 );
             });
           }
@@ -188,7 +188,7 @@ export default function CohortsList() {
         return matchesSearchQuery && matchesStudyType && matchesInstitute;
       })
       .map(([, cohortData]) => cohortData);
-  }, [searchTerms, exactPhrase, searchScope, selectedStudyTypes, selectedInstitutes, cohortsData, searchQuery]);
+  }, [searchTerms, searchMode, searchScope, selectedStudyTypes, selectedInstitutes, cohortsData, searchQuery]);
   // NOTE: filtering variables is done in VariablesList component
 
   // Function to toggle between cache and SPARQL modes
@@ -290,16 +290,18 @@ export default function CohortsList() {
               <span className="text-sm font-medium">Search in:</span>
               <div className="join">
                 <button
-                  className={`btn btn-sm join-item ${searchScope === 'cohorts' ? 'btn-active' : 'btn-outline'}`}
+                  className={`btn btn-sm join-item ${searchScope === 'cohorts' ? '' : 'btn-ghost'}`}
+                  style={searchScope === 'cohorts' ? { backgroundColor: '#dbeafe', color: '#1e3a8a', border: '1px solid #bfdbfe' } : {}}
                   onClick={() => setSearchScope('cohorts')}
                 >
-                  Cohorts
+                  {searchScope === 'cohorts' && '●'} Cohorts
                 </button>
                 <button
-                  className={`btn btn-sm join-item ${searchScope === 'variables' ? 'btn-active' : 'btn-outline'}`}
+                  className={`btn btn-sm join-item ${searchScope === 'variables' ? '' : 'btn-ghost'}`}
+                  style={searchScope === 'variables' ? { backgroundColor: '#dbeafe', color: '#1e3a8a', border: '1px solid #bfdbfe' } : {}}
                   onClick={() => setSearchScope('variables')}
                 >
-                  Variables
+                  {searchScope === 'variables' && '●'} Variables
                 </button>
               </div>
             </div>
@@ -309,18 +311,28 @@ export default function CohortsList() {
               <span className="text-sm font-medium">Mode:</span>
               <div className="join">
                 <button
-                  className={`btn btn-sm join-item ${searchMode === 'or' ? 'btn-active' : 'btn-outline'}`}
+                  className={`btn btn-sm join-item ${searchMode === 'or' ? '' : 'btn-ghost'}`}
+                  style={searchMode === 'or' ? { backgroundColor: '#dbeafe', color: '#1e3a8a', border: '1px solid #bfdbfe' } : {}}
                   onClick={() => setSearchMode('or')}
                   title="Search for any of the words (relaxed search)"
                 >
-                  OR Search
+                  {searchMode === 'or' && '●'} OR Search
                 </button>
                 <button
-                  className={`btn btn-sm join-item ${searchMode === 'exact' ? 'btn-active' : 'btn-outline'}`}
+                  className={`btn btn-sm join-item ${searchMode === 'and' ? '' : 'btn-ghost'}`}
+                  style={searchMode === 'and' ? { backgroundColor: '#dbeafe', color: '#1e3a8a', border: '1px solid #bfdbfe' } : {}}
+                  onClick={() => setSearchMode('and')}
+                  title="Search for all of the words (must contain all terms)"
+                >
+                  {searchMode === 'and' && '●'} AND Search
+                </button>
+                <button
+                  className={`btn btn-sm join-item ${searchMode === 'exact' ? '' : 'btn-ghost'}`}
+                  style={searchMode === 'exact' ? { backgroundColor: '#dbeafe', color: '#1e3a8a', border: '1px solid #bfdbfe' } : {}}
                   onClick={() => setSearchMode('exact')}
                   title="Search for the exact phrase"
                 >
-                  Exact Phrase
+                  {searchMode === 'exact' && '●'} Exact Phrase
                 </button>
               </div>
             </div>
@@ -329,22 +341,31 @@ export default function CohortsList() {
           {/* Search Results Counter */}
           {searchQuery.trim() && (
             <div className="mt-2 p-2 bg-base-200 rounded-lg text-sm">
-              <div className="flex items-center gap-2">
-                <span className="text-gray-600 dark:text-gray-400">🔍</span>
-                {searchScope === 'cohorts' ? (
-                  <span>
-                    Found <strong className="text-primary">{filteredCohorts.length}</strong> cohort{filteredCohorts.length !== 1 ? 's' : ''}
-                    {filteredCohorts.length !== Object.keys(cohortsData).length && (
-                      <span className="text-gray-500"> out of {Object.keys(cohortsData).length} total</span>
-                    )}
-                  </span>
-                ) : (
-                  <SearchResultsCounter 
-                    cohortsData={cohortsData}
-                    searchTerms={searchTerms}
-                    exactPhrase={exactPhrase}
-                  />
-                )}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-600 dark:text-gray-400">🔍</span>
+                  {searchScope === 'cohorts' ? (
+                    <span>
+                      Found <strong className="text-primary">{filteredCohorts.length}</strong> cohort{filteredCohorts.length !== 1 ? 's' : ''}
+                      {filteredCohorts.length !== Object.keys(cohortsData).length && (
+                        <span className="text-gray-500"> out of {Object.keys(cohortsData).length} total</span>
+                      )}
+                    </span>
+                  ) : (
+                    <SearchResultsCounter 
+                      cohortsData={cohortsData}
+                      searchTerms={searchTerms}
+                      searchMode={searchMode}
+                    />
+                  )}
+                </div>
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="btn btn-sm btn-outline btn-error hover:btn-error"
+                  title="Clear search and show all results"
+                >
+                  ✕ Clear
+                </button>
               </div>
             </div>
           )}
@@ -376,7 +397,7 @@ export default function CohortsList() {
                 onClick={() => toggleCohortExpanded(cohortData.cohort_id)}
               >
                 <div className="flex flex-wrap items-center gap-2">
-                  <HighlightedText text={cohortData.cohort_id} searchTerms={searchTerms} exactPhrase={exactPhrase} />
+                  <HighlightedText text={cohortData.cohort_id} searchTerms={searchTerms} searchMode={searchMode} />
                   <span className="badge badge-outline mx-2">{cohortData.institution}</span>
                   {cohortData.study_type && <span className="badge badge-ghost mx-1">{cohortData.study_type}</span>}
                   {cohortData.cohort_type && <span className="badge badge-ghost mx-1">{cohortData.cohort_type}</span>}
@@ -426,7 +447,7 @@ export default function CohortsList() {
                   <div className="mb-4 p-3 bg-base-200 rounded-lg">
                     <h3 className="font-bold mb-2">Study Objective:</h3>
                     <p>
-                      <HighlightedText text={cohortData.study_objective} searchTerms={searchTerms} exactPhrase={exactPhrase} />
+                      <HighlightedText text={cohortData.study_objective} searchTerms={searchTerms} searchMode={searchMode} />
                     </p>
                   </div>
                 )}
@@ -436,7 +457,7 @@ export default function CohortsList() {
                   <div className="mb-4 p-3 bg-base-200 rounded-lg">
                     <h3 className="font-bold mb-2">Morbidity:</h3>
                     <p>
-                      <HighlightedText text={cohortData.morbidity} searchTerms={searchTerms} exactPhrase={exactPhrase} />
+                      <HighlightedText text={cohortData.morbidity} searchTerms={searchTerms} searchMode={searchMode} />
                     </p>
                   </div>
                 )}
@@ -448,7 +469,7 @@ export default function CohortsList() {
                       <div className="mb-2">
                         <h4 className="font-semibold">Primary:</h4>
                         <p>
-                          <HighlightedText text={cohortData.primary_outcome_spec} searchTerms={searchTerms} exactPhrase={exactPhrase} />
+                          <HighlightedText text={cohortData.primary_outcome_spec} searchTerms={searchTerms} searchMode={searchMode} />
                         </p>
                       </div>
                     )}
@@ -456,7 +477,7 @@ export default function CohortsList() {
                       <div className="mb-2">
                         <h4 className="font-semibold">Secondary:</h4>
                         <p>
-                          <HighlightedText text={cohortData.secondary_outcome_spec} searchTerms={searchTerms} exactPhrase={exactPhrase} />
+                          <HighlightedText text={cohortData.secondary_outcome_spec} searchTerms={searchTerms} searchMode={searchMode} />
                         </p>
                       </div>
                     )}
@@ -721,7 +742,7 @@ export default function CohortsList() {
                   cohortId={cohortData.cohort_id} 
                   searchFilters={{
                     searchQuery: searchScope === 'variables' ? searchQuery : '', 
-                    exactPhrase,
+                    searchMode,
                     searchTerms
                   }} 
                 />
