@@ -101,9 +101,9 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
       return Object.entries(cohortsData[cohortId]['variables'])
         .filter(([variableName, variableData]: any) => {
           // Enhanced search with word boundaries and configurable logic
+          // Only search in fields that contain actual variable content, not metadata
           const searchableFields = [
-            'var_name', 'var_label', 'var_type', 'omop_domain', 'concept_code', 
-            'concept_name', 'mapped_label', 'unit', 'stats_type'
+            'var_name', 'var_label', 'concept_name', 'mapped_label', 'omop_domain', 'concept_code'
           ];
           
           // Add variable name to the data for searching

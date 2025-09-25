@@ -20,8 +20,8 @@ const HighlightedText = ({text, searchTerms, searchMode}: {text: string, searchT
 };
 
 // Component to count and display variable search results
-const SearchResultsCounter = ({cohortsData, searchTerms, searchMode}: {
-  cohortsData: Record<string, Cohort>, 
+const SearchResultsCounter = ({filteredCohorts, searchTerms, searchMode}: {
+  filteredCohorts: Cohort[], 
   searchTerms: string[], 
   searchMode: 'or' | 'and' | 'exact'
 }) => {
@@ -29,13 +29,13 @@ const SearchResultsCounter = ({cohortsData, searchTerms, searchMode}: {
     let totalVariables = 0;
     let cohortsWithMatches = 0;
     
-    Object.entries(cohortsData).forEach(([cohortId, cohortData]) => {
+    filteredCohorts.forEach((cohortData) => {
       let cohortMatchingVariables = 0;
       
       Object.entries(cohortData.variables || {}).forEach(([varName, varData]: any) => {
+        // Only search in fields that contain actual variable content, not metadata
         const searchableFields = [
-          'var_name', 'var_label', 'var_type', 'omop_domain', 'concept_code', 
-          'concept_name', 'mapped_label', 'unit', 'stats_type'
+          'var_name', 'var_label', 'concept_name', 'mapped_label', 'omop_domain', 'concept_code'
         ];
         
         const variableWithName = { ...varData, var_name: varName };
@@ -59,7 +59,7 @@ const SearchResultsCounter = ({cohortsData, searchTerms, searchMode}: {
     });
     
     return { totalVariables, cohortsWithMatches };
-  }, [cohortsData, searchTerms, searchMode]);
+  }, [filteredCohorts, searchTerms, searchMode]);
   
   return (
     <span>
@@ -165,9 +165,9 @@ export default function CohortsList() {
           // Search in variables only
           if (searchQuery.trim()) {
             matchesSearchQuery = Object.entries(value.variables || {}).some(([varName, varData]: any) => {
+              // Only search in fields that contain actual variable content, not metadata
               const searchableFields = [
-                'var_name', 'var_label', 'var_type', 'omop_domain', 'concept_code', 
-                'concept_name', 'mapped_label', 'unit', 'stats_type'
+                'var_name', 'var_label', 'concept_name', 'mapped_label', 'omop_domain', 'concept_code'
               ];
               
               const variableWithName = { ...varData, var_name: varName };
@@ -353,7 +353,7 @@ export default function CohortsList() {
                     </span>
                   ) : (
                     <SearchResultsCounter 
-                      cohortsData={cohortsData}
+                      filteredCohorts={filteredCohorts}
                       searchTerms={searchTerms}
                       searchMode={searchMode}
                     />
