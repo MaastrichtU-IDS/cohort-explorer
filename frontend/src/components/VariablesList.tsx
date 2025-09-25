@@ -88,11 +88,21 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
     dataTypes.add(variable.var_type);
   });
 
-  // Get search configuration from props or parse from query
-  const searchTerms = useMemo(() => 
-    searchFilters.searchTerms || parseSearchQuery(searchFilters.searchQuery), 
-    [searchFilters.searchTerms, searchFilters.searchQuery]
-  );
+  // Get search configuration from props - simple space-separated terms
+  const searchTerms = useMemo(() => {
+    if (searchFilters.searchTerms) {
+      return searchFilters.searchTerms;
+    }
+    if (searchFilters.searchQuery) {
+      // Simple split on spaces, trim, and filter out empty strings
+      return searchFilters.searchQuery
+        .split(' ')
+        .map((term: string) => term.trim())
+        .filter((term: string) => term.length > 0);
+    }
+    return [];
+  }, [searchFilters.searchTerms, searchFilters.searchQuery]);
+  
   const searchMode = searchFilters.searchMode || 'or';
 
   // Filter variables based on search query and selected filters
@@ -109,45 +119,74 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
           // Add variable name to the data for searching
           const variableWithName = { ...variableData, var_name: variableName };
           
-          // Debug logging
-          if (variableName === 'ACE' && searchTerms.includes('diabetes')) {
-            console.log('Debug ACE variable:', {
-              variableName,
-              searchTerms,
-              searchQuery: searchFilters.searchQuery,
-              variableData: {
-                var_label: variableData.var_label,
-                concept_name: variableData.concept_name,
-                mapped_label: variableData.mapped_label,
-                omop_domain: variableData.omop_domain,
-                concept_code: variableData.concept_code
+          // Only filter by search if there are actual search terms
+          if (searchTerms.length === 0 || searchTerms.every((term: string) => !term.trim())) {
+            return true; // No search terms, show all variables
+          }
+          
+          // Simple direct search implementation for better control
+          let variableMatches = false;
+          
+          // Check each searchable field directly
+          for (const field of searchableFields) {
+            const fieldValue = variableWithName[field];
+            if (fieldValue != null) {
+              const fieldText = String(fieldValue).toLowerCase();
+              
+              if (searchMode === 'exact') {
+                const fullPhrase = searchTerms.join(' ').toLowerCase();
+                if (fieldText.includes(fullPhrase)) {
+                  variableMatches = true;
+                  break;
+                }
+              } else if (searchMode === 'and') {
+                if (searchTerms.every((term: string) => fieldText.includes(term.toLowerCase()))) {
+                  variableMatches = true;
+                  break;
+                }
+              } else { // 'or' mode
+                if (searchTerms.some((term: string) => fieldText.includes(term.toLowerCase()))) {
+                  variableMatches = true;
+                  break;
+                }
               }
-            });
+            }
           }
           
-          // Search in variable fields and categories
-          const variableMatches = searchInObject(variableWithName, searchTerms, searchableFields, searchMode).matches;
-          const categoryMatches = variableData.categories?.some((category: any) => 
-            searchInObject(category, searchTerms, ['value', 'label', 'mapped_label'], searchMode).matches
-          );
+          // Check categories
+          let categoryMatches = false;
+          if (variableData.categories) {
+            for (const category of variableData.categories) {
+              const categoryFields = ['value', 'label', 'mapped_label'];
+              for (const field of categoryFields) {
+                const fieldValue = category[field];
+                if (fieldValue != null) {
+                  const fieldText = String(fieldValue).toLowerCase();
+                  
+                  if (searchMode === 'exact') {
+                    const fullPhrase = searchTerms.join(' ').toLowerCase();
+                    if (fieldText.includes(fullPhrase)) {
+                      categoryMatches = true;
+                      break;
+                    }
+                  } else if (searchMode === 'and') {
+                    if (searchTerms.every((term: string) => fieldText.includes(term.toLowerCase()))) {
+                      categoryMatches = true;
+                      break;
+                    }
+                  } else { // 'or' mode
+                    if (searchTerms.some((term: string) => fieldText.includes(term.toLowerCase()))) {
+                      categoryMatches = true;
+                      break;
+                    }
+                  }
+                }
+              }
+              if (categoryMatches) break;
+            }
+          }
+          
           const matchesSearch = variableMatches || categoryMatches;
-          
-          // Enhanced debug logging to see which field is matching
-          if (variableName === 'ACE' && searchTerms.includes('diabetes')) {
-            console.log('Detailed ACE search analysis:', {
-              variableMatches,
-              categoryMatches,
-              fieldValues: searchableFields.map(field => ({
-                field,
-                value: variableWithName[field],
-                matches: variableWithName[field] && String(variableWithName[field]).toLowerCase().includes('diabetes')
-              }))
-            });
-          }
-          
-          if (variableName === 'ACE' && searchTerms.includes('diabetes')) {
-            console.log('ACE matchesSearch result:', matchesSearch);
-          }
           
           return matchesSearch;
         })

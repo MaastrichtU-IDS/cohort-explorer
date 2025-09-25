@@ -140,8 +140,15 @@ export default function CohortsList() {
     checkAnalysisAvailability();
   }, [cohortsData]);
 
-  // Parse search query into terms for search with word boundaries
-  const searchTerms = useMemo(() => parseSearchQuery(searchQuery), [searchQuery]);
+  // Parse search query into terms - simple space-separated approach
+  const searchTerms = useMemo(() => {
+    if (!searchQuery) return [];
+    // Simple split on spaces, trim, and filter out empty strings
+    return searchQuery
+      .split(' ')
+      .map(term => term.trim())
+      .filter(term => term.length > 0);
+  }, [searchQuery]);
 
   // Filter cohorts based on search query and selected filters
   // TODO: we might want to perform the search and filtering directly with SPARQL queries to the oxigraph endpoint
@@ -152,18 +159,51 @@ export default function CohortsList() {
         let matchesSearchQuery = true;
         
         if (searchScope === 'cohorts') {
-          // Search in cohort metadata only
-          const searchableFields = [
-            'cohort_id', 'institution', 'study_type', 'study_objective', 'morbidity',
-            'study_participants', 'study_population', 'administrator', 'population_location',
-            'primary_outcome_spec', 'secondary_outcome_spec'
-          ];
-          
-          const cohortWithId = { ...value, cohort_id: key };
-          matchesSearchQuery = searchInObject(cohortWithId, searchTerms, searchableFields, searchMode).matches;
+          // Search in cohort metadata only - simple string matching
+          if (searchTerms.length === 0) {
+            matchesSearchQuery = true;
+          } else {
+            const searchableFields = [
+              'cohort_id', 'institution', 'study_type', 'study_objective', 'morbidity',
+              'study_participants', 'study_population', 'administrator', 'population_location',
+              'primary_outcome_spec', 'secondary_outcome_spec'
+            ];
+            
+            const cohortWithId = { ...value, cohort_id: key };
+            let cohortMatches = false;
+            
+            // Check each searchable field directly
+            for (const field of searchableFields) {
+              const fieldValue = (cohortWithId as any)[field];
+              if (fieldValue != null) {
+                const fieldText = String(fieldValue).toLowerCase();
+                
+                if (searchMode === 'exact') {
+                  const fullPhrase = searchTerms.join(' ').toLowerCase();
+                  if (fieldText.includes(fullPhrase)) {
+                    cohortMatches = true;
+                    break;
+                  }
+                } else if (searchMode === 'and') {
+                  if (searchTerms.every(term => fieldText.includes(term.toLowerCase()))) {
+                    cohortMatches = true;
+                    break;
+                  }
+                } else { // 'or' mode
+                  if (searchTerms.some(term => fieldText.includes(term.toLowerCase()))) {
+                    cohortMatches = true;
+                    break;
+                  }
+                }
+              }
+            }
+            matchesSearchQuery = cohortMatches;
+          }
         } else {
-          // Search in variables only
-          if (searchQuery.trim()) {
+          // Search in variables only - simple string matching
+          if (searchTerms.length === 0) {
+            matchesSearchQuery = true;
+          } else {
             matchesSearchQuery = Object.entries(value.variables || {}).some(([varName, varData]: any) => {
               // Only search in fields that contain actual variable content, not metadata
               const searchableFields = [
@@ -172,11 +212,66 @@ export default function CohortsList() {
               
               const variableWithName = { ...varData, var_name: varName };
               
-              return searchInObject(variableWithName, searchTerms, searchableFields, searchMode).matches ||
-                // Also search in categories
-                varData.categories?.some((category: any) => 
-                  searchInObject(category, searchTerms, ['value', 'label', 'mapped_label'], searchMode).matches
-                );
+              // Check variable fields
+              let variableMatches = false;
+              for (const field of searchableFields) {
+                const fieldValue = variableWithName[field];
+                if (fieldValue != null) {
+                  const fieldText = String(fieldValue).toLowerCase();
+                  
+                  if (searchMode === 'exact') {
+                    const fullPhrase = searchTerms.join(' ').toLowerCase();
+                    if (fieldText.includes(fullPhrase)) {
+                      variableMatches = true;
+                      break;
+                    }
+                  } else if (searchMode === 'and') {
+                    if (searchTerms.every(term => fieldText.includes(term.toLowerCase()))) {
+                      variableMatches = true;
+                      break;
+                    }
+                  } else { // 'or' mode
+                    if (searchTerms.some(term => fieldText.includes(term.toLowerCase()))) {
+                      variableMatches = true;
+                      break;
+                    }
+                  }
+                }
+              }
+              
+              // Check categories if variable fields don't match
+              if (!variableMatches && varData.categories) {
+                for (const category of varData.categories) {
+                  const categoryFields = ['value', 'label', 'mapped_label'];
+                  for (const field of categoryFields) {
+                    const fieldValue = category[field];
+                    if (fieldValue != null) {
+                      const fieldText = String(fieldValue).toLowerCase();
+                      
+                      if (searchMode === 'exact') {
+                        const fullPhrase = searchTerms.join(' ').toLowerCase();
+                        if (fieldText.includes(fullPhrase)) {
+                          variableMatches = true;
+                          break;
+                        }
+                      } else if (searchMode === 'and') {
+                        if (searchTerms.every(term => fieldText.includes(term.toLowerCase()))) {
+                          variableMatches = true;
+                          break;
+                        }
+                      } else { // 'or' mode
+                        if (searchTerms.some(term => fieldText.includes(term.toLowerCase()))) {
+                          variableMatches = true;
+                          break;
+                        }
+                      }
+                    }
+                  }
+                  if (variableMatches) break;
+                }
+              }
+              
+              return variableMatches;
             });
           }
         }
