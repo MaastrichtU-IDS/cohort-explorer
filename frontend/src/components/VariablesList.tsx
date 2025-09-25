@@ -126,11 +126,24 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
           }
           
           // Search in variable fields and categories
-          const matchesSearch = searchInObject(variableWithName, searchTerms, searchableFields, searchMode).matches ||
-            // Also search in categories
-            variableData.categories?.some((category: any) => 
-              searchInObject(category, searchTerms, ['value', 'label', 'mapped_label'], searchMode).matches
-            );
+          const variableMatches = searchInObject(variableWithName, searchTerms, searchableFields, searchMode).matches;
+          const categoryMatches = variableData.categories?.some((category: any) => 
+            searchInObject(category, searchTerms, ['value', 'label', 'mapped_label'], searchMode).matches
+          );
+          const matchesSearch = variableMatches || categoryMatches;
+          
+          // Enhanced debug logging to see which field is matching
+          if (variableName === 'ACE' && searchTerms.includes('diabetes')) {
+            console.log('Detailed ACE search analysis:', {
+              variableMatches,
+              categoryMatches,
+              fieldValues: searchableFields.map(field => ({
+                field,
+                value: variableWithName[field],
+                matches: variableWithName[field] && String(variableWithName[field]).toLowerCase().includes('diabetes')
+              }))
+            });
+          }
           
           if (variableName === 'ACE' && searchTerms.includes('diabetes')) {
             console.log('ACE matchesSearch result:', matchesSearch);
