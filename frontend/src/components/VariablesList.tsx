@@ -109,12 +109,32 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
           // Add variable name to the data for searching
           const variableWithName = { ...variableData, var_name: variableName };
           
+          // Debug logging
+          if (variableName === 'ACE' && searchTerms.includes('diabetes')) {
+            console.log('Debug ACE variable:', {
+              variableName,
+              searchTerms,
+              searchQuery: searchFilters.searchQuery,
+              variableData: {
+                var_label: variableData.var_label,
+                concept_name: variableData.concept_name,
+                mapped_label: variableData.mapped_label,
+                omop_domain: variableData.omop_domain,
+                concept_code: variableData.concept_code
+              }
+            });
+          }
+          
           // Search in variable fields and categories
           const matchesSearch = searchInObject(variableWithName, searchTerms, searchableFields, searchMode).matches ||
             // Also search in categories
             variableData.categories?.some((category: any) => 
               searchInObject(category, searchTerms, ['value', 'label', 'mapped_label'], searchMode).matches
             );
+          
+          if (variableName === 'ACE' && searchTerms.includes('diabetes')) {
+            console.log('ACE matchesSearch result:', matchesSearch);
+          }
           
           return matchesSearch;
         })
