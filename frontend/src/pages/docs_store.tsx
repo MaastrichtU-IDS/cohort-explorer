@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { apiUrl } from '@/utils';
 import Link from 'next/link';
-import { HardDrive, AlertTriangle, Check, Info } from 'react-feather'; // Added more icons
+import { HardDrive, AlertTriangle, Check, Info, FileText } from 'react-feather'; // Added more icons
 
 export default function DocsStorePage() {
   const [documents, setDocuments] = useState<string[]>([]);
@@ -64,21 +64,34 @@ export default function DocsStorePage() {
 
         {!isLoading && !error && documents.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 mt-6">
-            {documents.map((docName) => (
-              <Link 
-                key={docName} 
-                href={`${apiUrl}/docs-api/documents/${encodeURIComponent(docName)}`}
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="card bg-base-100 shadow-xl hover:shadow-2xl transition-shadow duration-300 ease-in-out transform hover:-translate-y-1 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50"
-              >
-                <div className="card-body items-center text-center p-4">
-                  <HardDrive size={28} className="mb-2 opacity-70"/>
-                  <h2 className="card-title truncate w-full text-base leading-tight" title={docName}>{docName}</h2>
-                  <p className="text-xs text-base-content/70 mt-1">Click to download</p>
-                </div>
-              </Link>
-            ))}\
+            {documents.map((docName) => {
+              const isPdf = docName.toLowerCase().endsWith('.pdf');
+              return (
+                <Link 
+                  key={docName} 
+                  href={`${apiUrl}/docs-api/documents/${encodeURIComponent(docName)}`}
+                  target={isPdf ? "_blank" : "_blank"}
+                  rel="noopener noreferrer"
+                  className="card bg-base-100 shadow-xl hover:shadow-2xl transition-shadow duration-300 ease-in-out transform hover:-translate-y-1 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50"
+                >
+                  <div className="card-body items-center text-center p-6 min-h-[180px] flex flex-col justify-between">
+                    <div className="flex flex-col items-center flex-grow justify-center">
+                      {isPdf ? (
+                        <FileText size={36} className="mb-4 opacity-70 text-red-500"/>
+                      ) : (
+                        <HardDrive size={36} className="mb-4 opacity-70"/>
+                      )}
+                      <h2 className="card-title text-sm leading-tight text-center break-words hyphens-auto w-full" title={docName}>
+                        {docName}
+                      </h2>
+                    </div>
+                    <p className="text-xs text-base-content/70 mt-3">
+                      {isPdf ? "Click to view" : "Click to download"}
+                    </p>
+                  </div>
+                </Link>
+              );
+            })}
           </div>
         )}
       </div>
