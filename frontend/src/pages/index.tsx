@@ -16,9 +16,9 @@ export default function Home() {
     totalCohorts: "waiting to refresh...",
     cohortsWithMetadata: "waiting to refresh...",
     cohortsWithAggregateAnalysis: "waiting to refresh...",
-    totalPatients: "waiting to refresh...",
-    patientsInCohortsWithMetadata: "waiting to refresh...",
-    totalVariables: "waiting to refresh..."
+    totalPatients: 0,
+    patientsInCohortsWithMetadata: 0,
+    totalVariables: 0
   });
   
   // Fetch statistics from API on component mount
@@ -79,19 +79,19 @@ export default function Home() {
 
         {/* Total Patients */}
         <div className="stat bg-base-100 shadow rounded-lg p-4">
-          <div className="stat-value text-accent text-3xl">{stats.totalPatients.toLocaleString()}</div>
+          <div className="stat-value text-accent text-3xl">{typeof stats.totalPatients === 'number' ? stats.totalPatients.toLocaleString() : stats.totalPatients}</div>
           <div className="stat-title text-sm">Total Patients Across All Cohorts</div>
         </div>
         
         {/* Patients in Cohorts with Metadata */}
         <div className="stat bg-base-100 shadow rounded-lg p-4">
-          <div className="stat-value text-warning text-3xl">{stats.patientsInCohortsWithMetadata.toLocaleString()}</div>
+          <div className="stat-value text-warning text-3xl">{typeof stats.patientsInCohortsWithMetadata === 'number' ? stats.patientsInCohortsWithMetadata.toLocaleString() : stats.patientsInCohortsWithMetadata}</div>
           <div className="stat-title text-sm">Patients in Cohorts with Uploaded Metadata</div>
         </div>
         
         {/* Total Variables */}
         <div className="stat bg-base-100 shadow rounded-lg p-4">
-          <div className="stat-value text-info text-3xl">{stats.totalVariables.toLocaleString()}</div>
+          <div className="stat-value text-info text-3xl">{typeof stats.totalVariables === 'number' ? stats.totalVariables.toLocaleString() : stats.totalVariables}</div>
           <div className="stat-title text-sm">Variables in Cohorts with Uploaded Metadata</div>
         </div>
       </div>
