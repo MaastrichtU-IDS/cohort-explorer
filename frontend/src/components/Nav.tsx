@@ -102,7 +102,7 @@ export function Nav() {
   return (
     <div className="navbar bg-base-300 min-h-0 p-0">
       <div className="navbar-start">
-        <ul className="menu menu-horizontal gap-2 my-0 py-0 pl-6 hidden lg:flex">
+        <ul className="menu menu-horizontal gap-2 my-0 py-0 pl-6 lg:flex">
           <li>
             <Link href="/upload">
               <Upload />
@@ -121,23 +121,24 @@ export function Nav() {
               Mapping
             </Link>
           </li>
-
-      {/*<li> 
-        <Link href="/docs_store">
-          <HardDrive /> 
-          Documents
-        </Link>
-      </li>*/}
+          <li> 
+            <Link href="/docs_store">
+              <HardDrive /> 
+              Documents
+            </Link>
+          </li>
         </ul>
-        {/* <div className="dropdown lg:hidden">
-        <div tabindex="0" role="button" className="btn btn-ghost lg:hidden">
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h8m-8 6h16" /></svg>
+        <div className="dropdown lg:hidden">
+          <div tabIndex="0" role="button" className="btn btn-ghost lg:hidden">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h8m-8 6h16" /></svg>
+          </div>
+          <ul tabIndex="0" className="menu menu-sm dropdown-content mt-3 z-[1] p-2 shadow bg-base-100 rounded-box w-52">
+            <li><Link href="/upload">Upload</Link></li>
+            <li><Link href="/cohorts">Explore</Link></li>
+            <li><Link href="/mapping">Mapping</Link></li>
+            <li><Link href="/docs_store">Documents</Link></li>
+          </ul>
         </div>
-        <ul tabindex="0" className="menu menu-sm dropdown-content mt-3 z-[1] p-2 shadow bg-base-100 rounded-box w-52">
-          <li><a href="/">Home</a></li>
-          <li><a href="/admin">Admin</a></li>
-        </ul>
-      </div> */}
       </div>
 
       <div className="navbar-center">
