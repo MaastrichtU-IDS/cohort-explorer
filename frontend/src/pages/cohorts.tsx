@@ -370,45 +370,6 @@ export default function CohortsList() {
           )}
         </div>
         
-        {/* Data source indicator and toggle - HIDDEN */}
-        <div className="text-center mb-4 hidden">
-          <div className="flex flex-col items-center gap-2">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-medium">Data Source:</span>
-              <span className={`badge ${useSparqlMode ? 'badge-warning' : 'badge-success'}`}>
-                {useSparqlMode ? 'SPARQL (Real-time)' : 'Cache (Fast)'}
-              </span>
-            </div>
-            
-            {/* Loading metrics display */}
-            {isLoading ? (
-              <div className="text-sm text-gray-600 flex items-center gap-2">
-                <span className="loading loading-spinner loading-xs"></span>
-                Loading data...
-              </div>
-            ) : loadingMetrics.loadTime !== null ? (
-              <div className="text-xs text-gray-600 text-center">
-                <div>Loaded in {loadingMetrics.loadTime}ms</div>
-                <div>
-                  {loadingMetrics.cohortCount} cohorts • {loadingMetrics.variableCount} variables • {loadingMetrics.categoryCount} categories
-                </div>
-                {loadingMetrics.sparqlRows && (
-                  <div className="text-orange-600">
-                    {loadingMetrics.sparqlRows} SPARQL result rows processed
-                  </div>
-                )}
-              </div>
-            ) : null}
-            
-            <button 
-              onClick={toggleDataSource}
-              className="btn btn-sm btn-outline btn-neutral"
-              disabled={isLoading}
-            >
-              Switch to {useSparqlMode ? 'Cache' : 'SPARQL'}
-            </button>
-          </div>
-        </div>
         {/* Filter by cohorts type removed */}
         <FilterByMetadata
           label="Filter by study design"
@@ -426,6 +387,36 @@ export default function CohortsList() {
           onFiltersChange={(optionsSelected: any) => setSelectedInstitutes(optionsSelected)}
         />
         {/* TODO: add by ongoing? */}
+        
+        {/* Data source indicator and toggle - moved to bottom, less prominent */}
+        <div className="mt-6 pt-4 border-t border-base-300">
+          <div className="text-xs text-gray-500 mb-2 text-center">Data Source</div>
+          <div className="flex flex-col items-center gap-2">
+            <span className={`badge badge-xs ${useSparqlMode ? 'badge-warning' : 'badge-success'}`}>
+              {useSparqlMode ? 'SPARQL' : 'Cache'}
+            </span>
+            
+            {/* Loading metrics display - compact */}
+            {isLoading ? (
+              <div className="text-xs text-gray-500 flex items-center gap-1">
+                <span className="loading loading-spinner loading-xs"></span>
+                Loading...
+              </div>
+            ) : loadingMetrics.loadTime !== null ? (
+              <div className="text-xs text-gray-500 text-center">
+                <div>{loadingMetrics.loadTime}ms</div>
+              </div>
+            ) : null}
+            
+            <button 
+              onClick={toggleDataSource}
+              className="btn btn-xs btn-ghost text-gray-500 hover:text-gray-700"
+              disabled={isLoading}
+            >
+              Switch to {useSparqlMode ? 'Cache' : 'SPARQL'}
+            </button>
+          </div>
+        </div>
       </aside>
 
       <div className="w-full">
