@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from typing import List
 import logging
+import mimetypes
 
 router = APIRouter()
 
@@ -41,20 +42,23 @@ async def get_document(filename: str):
     # Determine media type and disposition based on file extension
     file_extension = filename.lower().split('.')[-1] if '.' in filename else ''
     
+    # Get proper MIME type
+    mime_type, _ = mimetypes.guess_type(filename)
+    if not mime_type:
+        mime_type = 'application/octet-stream'
+    
+    # Create response
+    response = FileResponse(
+        path=file_path, 
+        filename=filename, 
+        media_type=mime_type
+    )
+    
     if file_extension == 'pdf':
         # For PDFs, use inline disposition to view in browser
-        from fastapi.responses import FileResponse
-        response = FileResponse(
-            path=file_path, 
-            filename=filename, 
-            media_type='application/pdf'
-        )
-        response.headers["Content-Disposition"] = f"inline; filename={filename}"
-        return response
+        response.headers["Content-Disposition"] = f"inline; filename=\"{filename}\""
     else:
         # For other files, use attachment disposition to download
-        return FileResponse(
-            path=file_path, 
-            filename=filename, 
-            media_type='application/octet-stream'
-        )
+        response.headers["Content-Disposition"] = f"attachment; filename=\"{filename}\""
+    
+    return response
