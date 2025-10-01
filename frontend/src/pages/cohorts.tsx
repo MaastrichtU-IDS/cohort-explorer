@@ -388,29 +388,45 @@ export default function CohortsList() {
         />
         {/* TODO: add by ongoing? */}
         
-        {/* Data source indicator and toggle - moved to bottom, less prominent */}
+        {/* Data source indicator and toggle */}
         <div className="mt-6 pt-4 border-t border-base-300">
-          <div className="text-xs text-gray-500 mb-2 text-center">Data Source</div>
-          <div className="flex flex-col items-center gap-2">
-            <span className={`badge badge-xs ${useSparqlMode ? 'badge-warning' : 'badge-success'}`}>
-              {useSparqlMode ? 'SPARQL' : 'Cache'}
+          <div className="text-sm font-medium mb-3 text-center">Data Source</div>
+          <div className="flex flex-col items-center gap-3">
+            <span className={`badge badge-sm ${useSparqlMode ? 'badge-warning' : 'badge-success'}`}>
+              {useSparqlMode ? 'SPARQL (Real-time)' : 'Cache (Fast)'}
             </span>
             
-            {/* Loading metrics display - compact */}
+            {/* Loading metrics display */}
             {isLoading ? (
-              <div className="text-xs text-gray-500 flex items-center gap-1">
-                <span className="loading loading-spinner loading-xs"></span>
+              <div className="text-sm text-gray-600 flex items-center gap-2">
+                <span className="loading loading-spinner loading-sm"></span>
                 Loading...
               </div>
             ) : loadingMetrics.loadTime !== null ? (
-              <div className="text-xs text-gray-500 text-center">
-                <div>{loadingMetrics.loadTime}ms</div>
+              <div className="text-xs text-gray-600 text-center space-y-1">
+                <div className="font-medium">
+                  Loaded in {Math.ceil(loadingMetrics.loadTime / 1000)}s
+                </div>
+                <div>
+                  {loadingMetrics.cohortCount} cohorts • {loadingMetrics.variableCount} variables
+                </div>
+                {useSparqlMode ? (
+                  loadingMetrics.sparqlRows && (
+                    <div className="text-orange-600">
+                      {loadingMetrics.sparqlRows.toLocaleString()} SPARQL rows
+                    </div>
+                  )
+                ) : (
+                  <div className="text-blue-600">
+                    {(loadingMetrics.cohortCount + loadingMetrics.variableCount + loadingMetrics.categoryCount).toLocaleString()} cache objects
+                  </div>
+                )}
               </div>
             ) : null}
             
             <button 
               onClick={toggleDataSource}
-              className="btn btn-xs btn-ghost text-gray-500 hover:text-gray-700"
+              className="btn btn-sm btn-outline btn-neutral"
               disabled={isLoading}
             >
               Switch to {useSparqlMode ? 'Cache' : 'SPARQL'}
