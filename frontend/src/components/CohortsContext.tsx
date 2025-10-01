@@ -202,12 +202,15 @@ export const CohortsProvider = ({children, useSparql = false}: {children: any, u
       
       const data = event.data;
       if (!data.detail && !data.error) {
-        setCohortsData(data);
+        // Extract cohorts data (filter out metadata properties)
+        const { sparqlRows, sparqlMetadata, ...cohortsData } = data;
+        
+        setCohortsData(cohortsData);
         setUserEmail('loggedIn');
         setIsLoading(false);
         
-        // Calculate metrics
-        const metrics = calculateDataMetrics(data);
+        // Calculate metrics using only cohorts data
+        const metrics = calculateDataMetrics(cohortsData);
         
         // Update loading metrics
         setLoadingMetrics({
