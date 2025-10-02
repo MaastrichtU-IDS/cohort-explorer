@@ -68,6 +68,10 @@ curie_converter = curies.load_extended_prefix_map(prefix_map)
 # curie_converter = curies.get_bioregistry_converter()
 # curie_converter.add_prefix("icare", str(ICARE))
 
+
+
+
+# old init_graph function (pre Oct 2)
 def init_graph(default_graph: str | None = None) -> Dataset:
     """Initialize a new RDF graph for nquads with the iCARE4CVD namespace bindings."""
     g = Dataset(store="Oxigraph", default_graph_base=default_graph)
@@ -75,6 +79,57 @@ def init_graph(default_graph: str | None = None) -> Dataset:
     g.bind("rdf", RDF)
     g.bind("rdfs", RDFS)
     return g
+
+
+#From cohortVarLinker
+class OntologyNamespaces(Enum):
+    CMEO = Namespace("https://w3id.org/CMEO/")
+    OMOP = Namespace("http://omop.org/OMOP/")
+    ATC = Namespace("http://purl.bioontology.org/ontology/ATC/")
+    RXNORM = Namespace("http://purl.bioontology.org/ontology/RXNORM/")
+    UCUM = Namespace("http://unitsofmeasure.org/")
+    OMOP_EXT = Namespace("http://omop.org/omopextension/")
+    OWL = Namespace("http://www.w3.org/2002/07/owl#")
+    OBI = Namespace("http://purl.obolibrary.org/obo/obi.owl/")
+    BFO = Namespace("http://purl.obolibrary.org/obo/bfo.owl/")
+    STATO = Namespace("http://purl.obolibrary.org/obo/stato.owl/")
+    DEFAULT_VALUE = 'Unmapped'
+    SNOMEDCT = Namespace("http://purl.bioontology.org/ontology/SNOMEDCT/")
+    LOINC = Namespace("http://purl.bioontology.org/ontology/LNC/") 
+    RO = Namespace("http://purl.obolibrary.org/obo/ro.owl/")
+    IAO = Namespace("http://purl.obolibrary.org/obo/iao.owl/")
+    TIME = Namespace("http://www.w3.org/2006/time#")
+    SIO = Namespace("http://semanticscience.org/ontology/sio/v1.59/sio-release.owl#")
+    # UCUM = Namespace("http://purl.bioontology.org/ontology/UCUM/")
+    # RXNORM = Namespace("http://purl.bioontology.org/ontology/RXNORM/")
+
+
+
+#From cohortVarLinker
+def normalize_text(text: str) -> str:
+    if text is None or text == "nan" or text == "":
+        return None
+    text =str(text).lower().strip().replace(" ", "_").replace("/", "_").replace(":", "_").replace('[','').replace(']','')
+    return urllib.parse.quote(text, safe='_-')
+
+
+
+'''
+def init_graph(default_graph_identifier: str | None = "https://w3id.org/CMEO/graph/studies_metadata") -> Dataset:
+    """Initialize a new RDF graph for nquads with the voc namespace bindings."""
+    #copied from cohortVarLinker code
+    g = Dataset(store="Oxigraph")
+    g.bind("cmeo", OntologyNamespaces.CMEO.value)
+    g.bind("bfo", OntologyNamespaces.BFO.value)
+    g.bind("obi", OntologyNamespaces.OBI.value)
+    g.bind("stato", OntologyNamespaces.STATO.value)
+    g.bind("rdf", RDF)
+    g.bind("rdfs", RDFS)
+    g.bind("dc", DC)
+    g.graph(identifier=URIRef(default_graph_identifier))
+    return g
+'''
+
 
 
 def run_query(query: str) -> dict[str, Any]:
