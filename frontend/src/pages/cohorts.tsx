@@ -393,7 +393,7 @@ export default function CohortsList() {
           <div className="text-sm font-medium mb-3 text-center">Data Source</div>
           <div className="flex flex-col items-center gap-3">
             <span className={`badge badge-sm ${useSparqlMode ? 'badge-warning' : 'badge-success'}`}>
-              {useSparqlMode ? 'SPARQL (Real-time)' : 'Cache (Fast)'}
+              {useSparqlMode ? 'SPARQL (Up-to-date)' : 'Cache'}
             </span>
             
             {/* Loading metrics display */}
@@ -412,12 +412,12 @@ export default function CohortsList() {
                 </div>
                 {useSparqlMode ? (
                   loadingMetrics.sparqlRows && (
-                    <div className="text-orange-600">
+                    <div>
                       {loadingMetrics.sparqlRows.toLocaleString()} SPARQL rows
                     </div>
                   )
                 ) : (
-                  <div className="text-blue-600">
+                  <div>
                     {(loadingMetrics.cohortCount + loadingMetrics.variableCount + loadingMetrics.categoryCount).toLocaleString()} cache objects
                   </div>
                 )}
