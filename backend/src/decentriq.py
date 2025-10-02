@@ -41,10 +41,10 @@ def get_cohort_schema(cohort_dict: Cohort) -> list[Column]:
         schema.append(Column(name=variable_id, format_type=prim_type, is_nullable=True))
     return schema
 
-metadatadict_cols = [
+metadatadict_cols_schema2 = [
     Column(name="VARIABLENAME", format_type=FormatType.STRING, is_nullable=True),
     Column(name="VARIABLELABEL", format_type=FormatType.STRING, is_nullable=True),
-    Column(name="VARTYPE", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="VARTYPE" , format_type=FormatType.STRING, is_nullable=True),
     Column(name="UNITS", format_type=FormatType.STRING, is_nullable=True),
     Column(name="CATEGORICAL", format_type=FormatType.STRING, is_nullable=True),
     Column(name="MISSING", format_type=FormatType.STRING, is_nullable=True),
@@ -55,7 +55,7 @@ metadatadict_cols = [
     #Column(name="Definition", format_type=FormatType.STRING, is_nullable=True),
     Column(name="Formula", format_type=FormatType.STRING, is_nullable=True),
     Column(name="Categorical Value Concept Code", format_type=FormatType.STRING, is_nullable=True),
-    Column(name="Categorical Value Name", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Categorical Value Concept Name", format_type=FormatType.STRING, is_nullable=True),
     Column(name="Categorical Value OMOP ID", format_type=FormatType.STRING, is_nullable=True),
     Column(name="Variable Concept Code", format_type=FormatType.STRING, is_nullable=True),
     Column(name="Variable Concept Name", format_type=FormatType.STRING, is_nullable=True),
@@ -71,7 +71,46 @@ metadatadict_cols = [
     Column(name="Visit OMOP ID", format_type=FormatType.INTEGER, is_nullable=True),
     Column(name="Visit Concept Name", format_type=FormatType.STRING, is_nullable=True),
     Column(name="Visit Concept Code", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Device", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Sensor", format_type=FormatType.STRING, is_nullable=True),
+    Column(name="Wearer Location", format_type=FormatType.STRING, is_nullable=True)
 ]
+
+metadatadict_cols_schema1 = metadatadict_cols_schema2[0:-3]
+
+def identify_cohort_meta_schema(cohort):
+    """
+    Helper function to identify the appropriate metadata schema for a cohort
+    by reading the first line of the metadata dictionary file and counting columns.
+    
+    Args:
+        cohort: Cohort object with metadata_filepath property
+        
+    Returns:
+        The appropriate metadata dictionary columns schema (schema1 or schema2)
+    """
+    try:
+        metadata_file_path = cohort.metadata_filepath
+        if not metadata_file_path or not os.path.exists(metadata_file_path):
+            print(f"Warning: Metadata file not found for cohort {cohort.cohort_id}. Using schema1 as default.")
+            return metadatadict_cols_schema1
+            
+        with open(metadata_file_path, "rb") as data:
+            header = data.readline().decode('utf-8')
+            column_count = len(header.split(","))
+            print(f"Metadata file for cohort {cohort.cohort_id} has {column_count} columns")
+            
+            # If the header has at least as many columns as the second schema, use the second schema
+            if column_count >= len(metadatadict_cols_schema2):
+                return metadatadict_cols_schema2
+            else:
+                return metadatadict_cols_schema1
+    except FileNotFoundError:
+        print(f"Warning: Could not find metadata file for cohort {cohort.cohort_id}. Using schema1 as default.")
+        return metadatadict_cols_schema1
+    except Exception as e:
+        print(f"Error identifying metadata schema for cohort {cohort.cohort_id}: {str(e)}. Using schema1 as default.")
+        return metadatadict_cols_schema1
 
 # https://docs.decentriq.com/sdk/python-getting-started
 def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
@@ -96,6 +135,23 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
         #https://docs.decentriq.com/sdk/guides/advanced-analytics-dcr/create_dcr
         RawDataNodeDefinition(name=data_node_id, is_required=True)
     )
+
+    #looking at the uploaded file's header to decide which schema to use:
+    metadata_file_to_upload = cohort.metadata_filepath 
+    if not metadata_file_to_upload or not os.path.exists(metadata_file_to_upload):
+        raise FileNotFoundError(f"Physical metadata CSV file for cohort {cohort.cohort_id} not found at expected path: {metadata_file_to_upload or '[No path determined]'}")
+
+    with open(metadata_file_to_upload, "rb") as data:
+        header = data.readline()
+        header = header.decode('utf-8')
+        print("header removed from the file: ", header, "number of columns: ", len(header.split(",")))
+
+    # if the header has at least as many columns as the second schema, use the second schema
+    if len(header.split(",")) >= len(metadatadict_cols_schema2):
+        metadatadict_cols = metadatadict_cols_schema2
+    else:
+        metadatadict_cols = metadatadict_cols_schema1
+
 
     # Create data node for metadata dictionary file
     metadata_node_id = f"{data_node_id}-metadata"
@@ -234,16 +290,77 @@ def pandas_script_merge_cohorts(merged_cohorts: dict[str, list[str]], all_cohort
     return merge_script
 
 
+def find_variable_by_omop_id(cohort_id: str, omop_id: str) -> str | None:
+    """Find a variable in a cohort by its OMOP ID using the cache.
+    
+    Args:
+        cohort_id: The ID of the cohort to search in
+        omop_id: The OMOP ID to search for (e.g., "4086934", the patient ID variable)
+        
+    Returns:
+        The variable name if found, None otherwise
+    """
+    import time
+    start_time = time.time()
+    
+    try:
+        # Use cache-based approach which is more reliable
+        from src.cohort_cache import get_cohorts_from_cache
+        
+        # Get cohorts from cache (use admin email for full access)
+        from src.config import settings
+        admin_email = settings.admins_list[0] if settings.admins_list else None
+        cached_cohorts = get_cohorts_from_cache(admin_email)
+        cache_time = time.time()
+        
+        # Check if the cohort exists in cache
+        if cohort_id not in cached_cohorts:
+            elapsed = time.time() - start_time
+            logging.warning(f"Cohort {cohort_id} not found in cache (took {elapsed:.3f}s)")
+            return None
+            
+        cohort = cached_cohorts[cohort_id]
+        
+        # Search through all variables in the cohort
+        if hasattr(cohort, 'variables') and cohort.variables:
+            for var_name, variable in cohort.variables.items():
+                if hasattr(variable, 'omop_id') and variable.omop_id == omop_id:
+                    elapsed = time.time() - start_time
+                    cache_elapsed = cache_time - start_time
+                    search_elapsed = elapsed - cache_elapsed
+                    logging.info(f"Found variable '{var_name}' with OMOP ID {omop_id} in cohort {cohort_id} (total: {elapsed:.3f}s, cache: {cache_elapsed:.3f}s, search: {search_elapsed:.3f}s)")
+                    return var_name
+        
+        elapsed = time.time() - start_time
+        logging.info(f"No variable with OMOP ID {omop_id} found in cohort {cohort_id} (took {elapsed:.3f}s)")
+        return None
+        
+    except Exception as e:
+        elapsed = time.time() - start_time
+        logging.error(f"Error finding variable with OMOP ID {omop_id} in cohort {cohort_id} (took {elapsed:.3f}s): {e}")
+        return None
+
+
 async def get_compute_dcr_definition(
     cohorts_request: dict[str, Any],
     user: Any,
     client: Any,
 ) -> Any:
+    start_time = datetime.now()
+    logging.info(f"Starting DCR definition creation for user {user['email']} at {start_time}")
+    
     # users = [user["email"]]
     # TODO: cohorts_request could also be a dict of union of cohorts to merge
     # {"cohorts": {"cohort_id": ["var1", "var2"], "merged_cohort3": {"cohort1": ["weight", "sex"], "cohort2": ["gender", "patient weight"]}}}
     # We automatically merge the cohorts, figuring out which variables are the same thanks to mappings
-    all_cohorts = retrieve_cohorts_metadata(user["email"])
+    metadata_start = datetime.now()
+    # Use cache for consistency and performance (same as find_variable_by_omop_id)
+    from src.cohort_cache import get_cohorts_from_cache
+    from src.config import settings
+    admin_email = settings.admins_list[0] if settings.admins_list else None
+    all_cohorts = get_cohorts_from_cache(admin_email)
+    metadata_time = datetime.now() - metadata_start
+    logging.info(f"Retrieved cohorts metadata from cache in {metadata_time.total_seconds():.3f}s")
 
     # Get metadata for selected cohorts and variables
     selected_cohorts = {}
@@ -267,6 +384,7 @@ async def get_compute_dcr_definition(
 
 
     # Creation of a Data Clean Room (DCR)
+    dcr_start = datetime.now()
     data_nodes = []
     dcr_count = len(client.get_data_room_descriptions())
     dcr_title = f"iCARE4CVD DCR compute {dcr_count}"
@@ -277,6 +395,7 @@ async def get_compute_dcr_definition(
         .with_owner(user["email"])
         .with_description("A data clean room to run analyses on cohorts for the iCARE4CVD project")
     )
+    logging.info(f"DCR builder initialized for {len(cohorts_request['cohorts'])} cohorts")
 
     participants = {}
     participants[user["email"]] = {"data_owner_of": set(), "analyst_of": set()}
@@ -290,21 +409,49 @@ async def get_compute_dcr_definition(
         )
         data_nodes.append(data_node_id)
 
+        # Add a node for the cohort's metadata dictionary
+        metadata_node_id = f"{cohort_id.replace(' ', '-')}_metadata_dictionary"
+        
+        # Use the helper function to identify the appropriate metadata schema for this cohort
+        metadata_cols = identify_cohort_meta_schema(cohort)
+        
+        builder.add_node_definition(
+            TableDataNodeDefinition(name=metadata_node_id, columns=metadata_cols, is_required=False)
+        )
+
         # Add data owners to provision the data (in dev we dont add them to avoid unnecessary emails)
         if not settings.dev_mode:
             for owner in cohort.cohort_email:
                 if owner not in participants:
                     participants[owner] = {"data_owner_of": set(), "analyst_of": set()}
                 participants[owner]["data_owner_of"].add(data_node_id)
+                participants[owner]["data_owner_of"].add(metadata_node_id)
+            #participants[user["email"]]["analyst_of"].add(metadata_node_id)
         else:
             # In dev_mode the requester is added as data owner instead
             participants[user["email"]]["data_owner_of"].add(data_node_id)
+            participants[user["email"]]["data_owner_of"].add(metadata_node_id)
+        
 
         # Add pandas preparation script
         pandas_script = "import pandas as pd\nimport decentriq_util\n\n"
         df_var = f"df_{cohort_id.replace('-', '_')}"
-        requested_vars = cohorts_request["cohorts"][cohort_id]
+        requested_vars = cohorts_request["cohorts"][cohort_id].copy() if isinstance(cohorts_request["cohorts"][cohort_id], list) else cohorts_request["cohorts"][cohort_id]
 
+        cohort_id_var = find_variable_by_omop_id(cohort_id, "4086934")
+
+        if cohort_id_var is None:
+            pandas_script += f"#No cohort ID variable (i.e. no variable with OMOP ID 4086934) found for cohort {cohort_id}\n"
+            pandas_script += f"#No modifications will be done on the dataframe\n"
+        
+        elif cohort_id_var not in requested_vars:
+            pandas_script += f"#Cohort ID variable ({cohort_id_var}) not in requested variables list for cohort {cohort_id}\n"
+            pandas_script += f"#No modifications will be done on the dataframe\n"
+        else:
+            pandas_script += f"#Cohort ID variable ({cohort_id_var}) in among requested variables list for cohort {cohort_id}\n"
+            pandas_script += f"#The Cohort ID variable will be dropped from the dataframe\n"
+            requested_vars.remove(cohort_id_var)
+        
         # Direct cohort variables list
         if isinstance(requested_vars, list):
             pandas_script += f'{df_var} = decentriq_util.read_tabular_data("/input/{cohort_id}")\n'
@@ -318,7 +465,8 @@ async def get_compute_dcr_definition(
             # TODO: add merged cohorts schema to selected_cohorts
         else:
             raise HTTPException(status_code=400, detail=f"Invalid structure for cohort {cohort_id}")
-        pandas_script += f'{df_var}.to_csv("/output/{cohort_id}.csv", index=False, header=True)\n\n'
+        pandas_script += f'\n#The following line commented out - Sept 2025\n'
+        pandas_script += f'#{df_var}.to_csv("/output/{cohort_id}.csv", index=False, header=True)\n\n'
 
         # Add python data preparation script
         builder.add_node_definition(
@@ -327,6 +475,12 @@ async def get_compute_dcr_definition(
         # Add the requester as analyst of prepare script
         participants[user["email"]]["analyst_of"].add(f"prepare-{cohort_id}")
 
+
+
+    builder.add_node_definition(
+        RawDataNodeDefinition(name="CrossStudyMappings", is_required=False)
+    )
+    participants[user["email"]]["data_owner_of"].add("CrossStudyMappings")
     # Add users permissions for previews
     # for prev_node in preview_nodes:
     #     participants[user["email"]]["analyst_of"].add(prev_node)
@@ -339,7 +493,15 @@ async def get_compute_dcr_definition(
         )
 
     # Build and publish DCR
-    return builder.build(), dcr_title
+    build_start = datetime.now()
+    dcr_definition = builder.build()
+    build_time = datetime.now() - build_start
+    
+    total_time = datetime.now() - start_time
+    logging.info(f"DCR build completed in {build_time.total_seconds():.3f}s")
+    logging.info(f"Total DCR definition creation completed in {total_time.total_seconds():.3f}s for {len(cohorts_request['cohorts'])} cohorts")
+    
+    return dcr_definition, dcr_title
 
 
 
