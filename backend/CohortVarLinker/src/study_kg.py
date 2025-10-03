@@ -1,7 +1,19 @@
 from SPARQLWrapper import SPARQLWrapper, JSON, POST,TURTLE
 from rdflib import Graph, RDF, URIRef, Literal, RDFS, DC
 import pandas as pd
-from .utils import init_graph, OntologyNamespaces, normalize_text, STUDY_TYPES, save_graph_to_trig_file, graph_exists, extract_age_range, day_month_year
+from .utils import (
+    init_graph, 
+    OntologyNamespaces, 
+    normalize_text, 
+    STUDY_TYPES, 
+    graph_exists,
+    save_graph_to_trig_file, 
+    check_triple_exists, 
+    extract_age_range, 
+    day_month_year,
+    create_code_uri,
+    insert_graph_into_named_graph
+)
 from .config import settings
 from rdflib.namespace import XSD
 import requests
@@ -38,7 +50,7 @@ def generate_studies_kg(filepath: str) -> Graph:
         study_design_execution_uri = URIRef(study_uri + "/study_design_execution")
         g.add((study_design_execution_uri, RDF.type, OntologyNamespaces.OBI.value.study_design_execution, metadata_graph))
         
-        g.add((study_design_execution_uri, DC.identifier, Literal(row["study name"], datatype=XSD.string), metadata_graph))
+        g.add((study_design_execution_uri, DC.identifier, Literal(row["study name"].strip().lower(), datatype=XSD.string), metadata_graph))
         
         # plan_uri = URIRef(study_uri + "/plan")
         # g.add((plan_uri, RDF.type, OntologyNamespaces.OBI.value.plan, metadata_graph))
@@ -53,7 +65,7 @@ def generate_studies_kg(filepath: str) -> Graph:
             g.add((study_design_uri , OntologyNamespaces.CMEO.value.has_value, Literal(study_design_value, datatype=XSD.string), metadata_graph))
 
             g.add((study_design_uri, DC.identifier, Literal(study_name, datatype=XSD.string), metadata_graph))
-            dynamic_class_uri = URIRef(OntologyNamespaces.OBI.value + study_design_value)
+            dynamic_class_uri = URIRef(OntologyNamespaces.CMEO.value + study_design_value)
             
             g.add((study_design_uri, RDF.type, dynamic_class_uri, metadata_graph))
             protocol_uri = URIRef(study_uri + "/" + study_design_value + "/protocol")
@@ -96,9 +108,9 @@ def generate_studies_kg(filepath: str) -> Graph:
             # g.add((study_design_execution_uri, OntologyNamespaces.CMEO.value.has_value, Literal(process_type, datatype=XSD.string), metadata_graph)) 
             # g.add((study_design_uri , RDFS.label, Literal(study_descriptor, datatype=XSD.string), metadata_graph))
             descriptor_uri = URIRef(study_uri + "/descriptor")
-            g.add((descriptor_uri, RDF.type, OntologyNamespaces.SIO.value.study_descriptor, metadata_graph))
+            g.add((descriptor_uri, RDF.type, OntologyNamespaces.SIO.value.descriptor, metadata_graph))
             g.add((descriptor_uri, RDFS.label, Literal(study_descriptor, datatype=XSD.string), metadata_graph))
-            g.add((study_design_uri, OntologyNamespaces.SIO.value.is_described_by, descriptor_uri, metadata_graph))
+            g.add((study_design_uri, OntologyNamespaces.IAO.value.is_about, descriptor_uri, metadata_graph))
              
         # study design has various "has direct part" which includes primary objective, endpoints, selection criteria, etc.
         if row["study objective"] and pd.notna(row["study objective"]):
@@ -425,7 +437,7 @@ def add_outcome_specification(g: Graph, row: pd.Series, study_uri: URIRef, proto
     g.add((protocol_uri, OntologyNamespaces.RO.value.has_part, outcome_specification_uri,metadata_graph))
     g.add((outcome_specification_uri, RDFS.label, Literal("outcome specification", datatype=XSD.string), metadata_graph))
     
-        
+    
     if row["primary outcome specification"]:
             pendpoint_values= row["primary outcome specification"].lower().split(';') if pd.notna(row["primary outcome specification"]) else ""
             for pendpoint_value in pendpoint_values:
@@ -481,12 +493,12 @@ def update_metadata_graph(endpoint_url, cohort_uri, variable_uris, metadata_grap
     # Handle response
     if response.status_code in (200, 201, 204):
         print(f"✅ Successfully updated metadata graph: {graph_uri}")
-        reconstruct_metadata_graph(endpoint_url=endpoint_url, graph_uri=graph_uri, metadata_graph_path=metadata_graph_path)
+        reconstruct_metadata_graph(graph_uri=graph_uri, metadata_graph_path=metadata_graph_path)
     else:
         print(f"❌ Failed to update metadata graph: {response.status_code}, {response.text}")
         return None
 
-def reconstruct_metadata_graph(endpoint_url, graph_uri, metadata_graph_path) -> None:
+def reconstruct_metadata_graph(graph_uri, metadata_graph_path) -> None:
     """
     Query the entire contents of a named graph from a SPARQL endpoint using a CONSTRUCT query.
     
@@ -525,3 +537,108 @@ def reconstruct_metadata_graph(endpoint_url, graph_uri, metadata_graph_path) -> 
     except Exception as e:
         print(f"Error querying the graph: {e}") 
 
+# def reconstruct_metadata_graph(graph_uri, metadata_graph_path):
+#     """
+#     Retrieves the entire contents of a named graph from GraphDB using the Graph Store Protocol.
+#     Saves the result as a TRiG file.
+
+#     :param repository_id: GraphDB repository ID
+#     :param graph_uri: URI of the named graph to query
+#     :param metadata_graph_path: Path to save the exported graph in TriG format
+#     """
+    
+#     print(f"Retrieving named graph from: {graph_uri}")
+
+#     headers = {"Accept": "application/trig"}  # Request TriG format
+
+#     try:
+#         # Send GET request to retrieve the graph
+#         response = requests.get(graph_uri, headers=headers, timeout=300)
+
+#         if response.status_code == 200:
+#             print(f"Successfully retrieved RDF data from {graph_uri}")
+
+#             # Parse the RDF data using rdflib
+#             g = rdflib.Graph()
+#             g.parse(data=response.text, format="trig")
+
+#             # Save the RDF graph as a .trig file
+#             with open(metadata_graph_path, "w", encoding="utf-8") as trig_file:
+#                 trig_file.write(response.text)
+
+#             print(f"Saved RDF data to {metadata_graph_path}")
+#             return True
+#         else:
+#             print(f"Failed to retrieve graph: {response.status_code}, {response.text}")
+#             return False
+
+#     except Exception as e:
+#         print(f"Error querying the graph: {e}")
+#         return False
+
+
+
+def add_data_access_spec(study_name:str,  data_policy:list[str], data_modifier:list[str], disease_concept_code:str=None, disease_concept_label:str=None, disease_concept_omop_id:str =None, study_metadata_graph_file_path=None) -> None:
+    # Add DUO policy annotation to the study
+    # first we need to use study design execution uri for that specific study to check if it exists in the metadata graph
+    study_uri = URIRef(OntologyNamespaces.CMEO.value + normalize_text(study_name))
+    study_design_execution_uri = URIRef(study_uri + "/study_design_execution")
+    cohort_uri = URIRef(OntologyNamespaces.CMEO.value + normalize_text(study_name))
+    metadata_graph = f"https://w3id.org/CMEO/graph/studies_metadata"
+    if not check_triple_exists(metadata_graph, study_design_execution_uri, RDF.type, OntologyNamespaces.OBI.value.study_design_execution):
+        print(f"study doesn't exist in the metadata graph, cannot add DUO policy")
+        return None
+    # in another elif we first check if policy assignment already exists for that study design execution
+    
+    else:
+        print(f"study exists in the metadata graph, adding DUO policy")
+        create_policy_assignment(cohort_uri, study_design_execution_uri,metadata_graph, data_policy, data_modifier, disease_concept_code, disease_concept_label, disease_concept_omop_id,study_metadata_graph_file_path) 
+
+
+
+def create_policy_assignment(cohort_uri:URIRef,study_design_execution_uri: URIRef, metadata_graph: URIRef, data_policy:list[str], data_modifier:list[str], disease_concept_code:str=None, disease_concept_label:str=None, disease_concept_omop_id:str =None, study_metadata_graph_file_path=None) -> None:
+        # we need to create create_policy_assignment process which is cmeo class
+        # all information should be included in existing metadata graph
+        
+               
+       
+   
+        
+        g = init_graph()
+        
+        policy_assignment_uri = URIRef(str(cohort_uri) + "/data_use_permission_assignment")
+        # check if policy assignment already exists
+        if check_triple_exists(metadata_graph, policy_assignment_uri, RDF.type, OntologyNamespaces.CMEO.value.data_use_permission_assignment):
+            print(f"Policy assignment already exists for {study_design_execution_uri}, skipping creation.")
+            return None
+        g.add((policy_assignment_uri, RDF.type, OntologyNamespaces.CMEO.value.data_use_permission_assignment, cohort_uri))
+        for policy in data_policy:
+            policy = policy.strip().lower()
+            policy_uri = URIRef(OntologyNamespaces.DUO.value + normalize_text(policy))
+            g.add((policy_uri, RDF.type, OntologyNamespaces.DUO.value.data_use_permission, cohort_uri))
+            g.add((policy_uri, RDFS.label, Literal(policy, datatype=XSD.string), cohort_uri))
+            g.add((policy_assignment_uri, OntologyNamespaces.OBI.value.has_specified_output, policy_uri, cohort_uri))
+            g.add((policy_uri, OntologyNamespaces.OBI.value.is_specified_output_of, policy_assignment_uri, cohort_uri))
+            g.add((policy_assignment_uri,  OntologyNamespaces.IAO.value.is_about, study_design_execution_uri, cohort_uri))
+            
+            if policy == "disease specific research" and disease_concept_code and disease_concept_label:
+                disease_concept_uri = create_code_uri(disease_concept_code, cohort_uri)
+                print(disease_concept_uri)
+                g.add((policy_uri, OntologyNamespaces.IAO.value.is_about, disease_concept_uri, cohort_uri))
+                g.add((disease_concept_uri, RDFS.label, Literal(disease_concept_label, datatype=XSD.string), cohort_uri))
+                g.add((disease_concept_uri, OntologyNamespaces.CMEO.value.has_value, Literal(disease_concept_code, datatype=XSD.string), cohort_uri))
+                if disease_concept_omop_id:
+                    g.add((disease_concept_uri, OntologyNamespaces.IAO.value.denotes, Literal(disease_concept_omop_id, datatype=XSD.string), cohort_uri))
+                g.add((policy_uri, OntologyNamespaces.RO.value.has_specified_output, disease_concept_uri, cohort_uri))
+        for modifier in data_modifier:
+            modifier_uri = URIRef(OntologyNamespaces.DUO.value + normalize_text(modifier))
+            print(modifier_uri)
+            g.add((modifier_uri, RDF.type, OntologyNamespaces.DUO.value.data_use_modifier, cohort_uri))
+            g.add((modifier_uri, RDFS.label, Literal(modifier, datatype=XSD.string), cohort_uri))
+            g.add((policy_assignment_uri, OntologyNamespaces.OBI.value.has_specified_output, modifier_uri, cohort_uri))
+            g.add((modifier_uri, OntologyNamespaces.OBI.value.is_specified_output_of, policy_assignment_uri, cohort_uri))
+        print(f"Graph size after adding DUO policies: {len(g)}")
+        insert_graph_into_named_graph(g, metadata_graph, chunk_size=500)
+        # get all graph from triple store and save it as trig file
+        reconstruct_metadata_graph(graph_uri=metadata_graph, metadata_graph_path=study_metadata_graph_file_path)
+        
