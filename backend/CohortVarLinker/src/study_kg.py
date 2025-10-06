@@ -423,7 +423,10 @@ def add_exclusion_criterion(g: Graph, row: pd.Series, study_uri: URIRef, eligibi
         dynamic_exclusion_criterion_type = URIRef(OntologyNamespaces.CMEO.value + "/" + exclusion_criterion_name)
         ec_all_values = row[col].lower().split(";") if pd.notna(row[col]) else ""
         for exclusion_criteria_value in ec_all_values:
-            exclusion_criteria_value = exclusion_criteria_value.strip()
+            exclusion_criteria_value = exclusion_criteria_value.lower().strip()
+            if exclusion_criteria_value == "not applicable" or exclusion_criteria_value == "" or exclusion_criteria_value == None:
+                continue
+           
             col_exclusion_criteria_uri = URIRef(study_uri + "/" + exclusion_criterion_name)
             g.add((col_exclusion_criteria_uri, RDF.type, dynamic_exclusion_criterion_type, metadata_graph))
             g.add((col_exclusion_criteria_uri, OntologyNamespaces.RO.value.part_of, exclusion_criterion_uri, metadata_graph))
