@@ -131,12 +131,11 @@ def generate_studies_kg(filepath: str) -> Graph:
             g.add((organization_uri, OntologyNamespaces.CMEO.value.has_value, Literal(row["institute"], datatype=XSD.string),metadata_graph))
         
             if pd.notna(row["study contact person"]):
-                contact_uri = URIRef(study_uri + "/study_contact_person")
+                contact_uri = URIRef(study_uri + "/" + normalize_text(row["study contact person"]))
                 study_contact_person_role_uri = URIRef(study_uri + "/study_contact_person_role")
                 
-                g.add((# The code `contact_uri` is defining a variable in Python. It is creating a
-                # variable named `contact_uri` without assigning it a value.
-                contact_uri, RDF.type, OntologyNamespaces.NCBI.value.homo_sapiens,metadata_graph))
+
+                g.add((contact_uri, RDF.type, OntologyNamespaces.NCBI.value.homo_sapiens,metadata_graph))
                 g.add((organization_uri, OntologyNamespaces.OBI.value.has_member, contact_uri,metadata_graph))
                 g.add((contact_uri, OntologyNamespaces.CMEO.value.has_value, Literal(row["study contact person"], datatype=XSD.string),metadata_graph))
                 
@@ -151,7 +150,7 @@ def generate_studies_kg(filepath: str) -> Graph:
                     g.add((email_uri, OntologyNamespaces.CMEO.value.has_value, Literal(row["study contact person email address"], datatype=XSD.string),metadata_graph))
             
             if pd.notna(row["administrator"]):
-                administrator_person_uri = URIRef(study_uri + "/administrator")
+                administrator_person_uri = URIRef(study_uri + "/" + normalize_text(row["administrator"]))
                 g.add((administrator_person_uri, RDF.type, OntologyNamespaces.NCBI.value.homo_sapiens,metadata_graph))
                 g.add((organization_uri, OntologyNamespaces.OBI.value.has_member, contact_uri,metadata_graph))
             

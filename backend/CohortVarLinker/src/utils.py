@@ -124,6 +124,7 @@ def init_graph(default_graph_identifier: str | None = "https://w3id.org/CMEO/gra
     g.bind("time", OntologyNamespaces.TIME.value)
     g.bind("sio", OntologyNamespaces.SIO.value)
     g.bind("duo", OntologyNamespaces.DUO.value)
+    g.bind("ncbi", OntologyNamespaces.NCBI.value)  
     g.bind("rdfs", RDFS)
     # g.bind("omop", OMOP)
     g.bind("dc", DC)
