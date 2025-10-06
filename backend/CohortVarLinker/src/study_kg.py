@@ -353,7 +353,7 @@ def add_inclusion_criterion(g: Graph, row: pd.Series, study_uri: URIRef, eligibi
         if "age" in inclusion_criterion_name:
             add_age_group_inclusion_criterion(g, study_uri, inclusion_criterion_uri, metadata_graph, row[col])
         else:
-            dynamic_inclusion_criterion_type = URIRef(OntologyNamespaces.OBI.value + inclusion_criterion_name)
+            dynamic_inclusion_criterion_type = URIRef(OntologyNamespaces.CMEO.value + inclusion_criterion_name)
             inclusion_criteria_value = row[col].lower().strip() if pd.notna(row[col]) else ""
             inc_all_values = inclusion_criteria_value.split(";") if pd.notna(row[col]) else ""
             for inclusion_criteria_value in inc_all_values:
@@ -376,7 +376,7 @@ def add_age_group_inclusion_criterion(g: Graph, study_uri: URIRef, inclusion_cri
     
     age_group_inclusion_criterion_uri =  URIRef(study_uri + "/age_group_inclusion_criterion")
     # print(f"Age group inclusion criterion URI: {age_group_inclusion_criterion_uri}")    
-    g.add((age_group_inclusion_criterion_uri, RDF.type, OntologyNamespaces.OBI.value.age_group_inclusion_criterion, metadata_graph))
+    g.add((age_group_inclusion_criterion_uri, RDF.type, OntologyNamespaces.CMEO.value.age_group_inclusion_criterion, metadata_graph))
     g.add((inclusion_criterion_uri, OntologyNamespaces.RO.value.has_part, age_group_inclusion_criterion_uri, metadata_graph))
     g.add((age_group_inclusion_criterion_uri, OntologyNamespaces.RO.value.part_of, inclusion_criterion_uri, metadata_graph))
     g.add((age_group_inclusion_criterion_uri, RDFS.label, Literal("age group inclusion criterion", datatype=XSD.string), metadata_graph))
