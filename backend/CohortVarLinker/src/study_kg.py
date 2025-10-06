@@ -150,7 +150,7 @@ def generate_studies_kg(filepath: str) -> Graph:
             
             if pd.notna(row["administrator"]):
                 administrator_person_uri = URIRef(study_uri + "/administrator")
-                g.add((administrator_person_uri, RDF.type, OntologyNamespaces.CMEO.value.homo_sapiens,metadata_graph))
+                g.add((administrator_person_uri, RDF.type, OntologyNamespaces.NCBI.value.homo_sapiens,metadata_graph))
                 g.add((organization_uri, OntologyNamespaces.OBI.value.has_member, contact_uri,metadata_graph))
             
                 g.add((contact_uri, OntologyNamespaces.CMEO.value.has_value, Literal(row["administrator"], datatype=XSD.string),metadata_graph))
