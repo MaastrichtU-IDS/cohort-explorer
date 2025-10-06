@@ -333,7 +333,9 @@ def add_timeline_specification(g: Graph, row: pd.Series, study_uri: URIRef, prot
 
     g.add((timeline_specification_uri, RDF.type, OntologyNamespaces.CMEO.value.timeline_specification, metadata_graph))
     g.add((protocol_uri, OntologyNamespaces.RO.value.has_part, timeline_specification_uri, metadata_graph))
-    g.add((timeline_specification_uri, RDFS.label, Literal(row['frequency of data collection'], datatype=XSD.string), metadata_graph))    return g
+    g.add((timeline_specification_uri, RDFS.label, Literal(row['frequency of data collection'], datatype=XSD.string), metadata_graph))    
+    return g
+    
     
 def add_inclusion_criterion(g: Graph, row: pd.Series, study_uri: URIRef, eligibility_criterion_uri: URIRef, metadata_graph: URIRef) -> None:
     
@@ -348,7 +350,7 @@ def add_inclusion_criterion(g: Graph, row: pd.Series, study_uri: URIRef, eligibi
     for col in inclusion_criteria_columns:
         inclusion_criterion_name = normalize_text(col)
         row_value = row[col].lower().strip() if pd.notna(row[col]) else ""
-        if row_value == "not applicable":
+        if not row_value or row_value == "not applicable" or row_value == "":
             continue
         if "age" in inclusion_criterion_name:
             add_age_group_inclusion_criterion(g, study_uri, inclusion_criterion_uri, metadata_graph, row[col])
@@ -418,7 +420,7 @@ def add_exclusion_criterion(g: Graph, row: pd.Series, study_uri: URIRef, eligibi
     exclusion_criteria_columns = [col for col in row.index if "exclusion criterion" in col.lower()]
     for col in exclusion_criteria_columns:
         exclusion_criterion_name = normalize_text(col)
-        dynamic_exclusion_criterion_type = URIRef(OntologyNamespaces.OBI.value + "/" + exclusion_criterion_name)
+        dynamic_exclusion_criterion_type = URIRef(OntologyNamespaces.CMEO.value + "/" + exclusion_criterion_name)
         ec_all_values = row[col].lower().split(";") if pd.notna(row[col]) else ""
         for exclusion_criteria_value in ec_all_values:
             exclusion_criteria_value = exclusion_criteria_value.strip()
