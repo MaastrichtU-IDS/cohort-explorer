@@ -226,13 +226,13 @@ def add_study_timing(g: Graph, row: pd.Series, study_design_execution_uri: URIRe
             #     g.add((study_completion_date_uri, OntologyNamespaces.TIME.value.year, Literal(year, datatype=XSD.gYear), metadata_graph)) 
             # else:
             g.add((study_completion_date_uri, OntologyNamespaces.CMEO.value.has_value, Literal(row["end date"], datatype=XSD.dateTime), metadata_graph))   
-        if pd.notna(row["ongoing"]):
-            ongoing_status = True if row["ongoing"].lower().strip() == "yes" else False
-            ongoing_uri = URIRef(study_uri + "/ongoing")
-            g.add((ongoing_uri, RDF.type, OntologyNamespaces.CMEO.value.ongoing,metadata_graph))
-            g.add((study_design_execution_uri, OntologyNamespaces.RO.value.has_characteristic, ongoing_uri,metadata_graph))
-            g.add((ongoing_uri, OntologyNamespaces.CMEO.value.has_value, Literal(ongoing_status, datatype=XSD.boolean),metadata_graph))
-            
+            if pd.notna(row["ongoing"]):
+                ongoing_status = True if row["ongoing"].lower().strip() == "yes" else False
+                ongoing_uri = URIRef(study_uri + "/ongoing")
+                g.add((ongoing_uri, RDF.type, OntologyNamespaces.SIO.value.ongoing,metadata_graph))
+                g.add((ongoing_uri, OntologyNamespaces.IAO.value.is_about,study_design_execution_uri,metadata_graph))
+                g.add((ongoing_uri, OntologyNamespaces.CMEO.value.has_value, Literal(ongoing_status, datatype=XSD.boolean),metadata_graph))
+                
 
         return g
 
