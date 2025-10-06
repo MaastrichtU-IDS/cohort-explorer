@@ -47,6 +47,7 @@ class OntologyNamespaces(Enum):
     ICD10 = Namespace("http://purl.bioontology.org/ontology/ICD10/")
     ICD9 = Namespace("http://purl.bioontology.org/ontology/ICD9CM/")
     DUO = Namespace("http://purl.obolibrary.org/obo/duo.owl/")
+    NCBI = Namespace("http://purl.bioontology.org/ontology/NCBITAXON/")
     # UCUM = Namespace("http://purl.bioontology.org/ontology/UCUM/")
     # RXNORM = Namespace("http://purl.bioontology.org/ontology/RXNORM/")
 
