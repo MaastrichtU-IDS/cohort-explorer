@@ -298,6 +298,7 @@ def add_eligibility_criterion(g: Graph, row: pd.Series, study_uri: URIRef, proto
         if morbidity:
             dynamic_morbidity_uri = URIRef(OntologyNamespaces.OBI.value + normalize_text(morbidity))
             g.add((output_population_uri, OntologyNamespaces.RO.value.has_characteristic, dynamic_morbidity_uri, metadata_graph))
+            g.add((dynamic_morbidity_uri, OntologyNamespaces.RO.value.is_characteristic_of, output_population_uri, metadata_graph))
             g.add((dynamic_morbidity_uri, RDF.type, OntologyNamespaces.OBI.value.morbidity, metadata_graph))
             g.add((dynamic_morbidity_uri, RDFS.label, Literal(morbidity, datatype=XSD.string), metadata_graph)) 
             g.add((dynamic_morbidity_uri, OntologyNamespaces.CMEO.value.has_value, Literal(morbidity, datatype=XSD.string), metadata_graph))    
