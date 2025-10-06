@@ -333,8 +333,7 @@ def add_timeline_specification(g: Graph, row: pd.Series, study_uri: URIRef, prot
 
     g.add((timeline_specification_uri, RDF.type, OntologyNamespaces.CMEO.value.timeline_specification, metadata_graph))
     g.add((protocol_uri, OntologyNamespaces.RO.value.has_part, timeline_specification_uri, metadata_graph))
-    g.add((timeline_specification_uri, RDFS.label, Literal("frequency of data collection", datatype=XSD.string), metadata_graph))
-    return g
+    g.add((timeline_specification_uri, RDFS.label, Literal(row['frequency of data collection'], datatype=XSD.string), metadata_graph))    return g
     
 def add_inclusion_criterion(g: Graph, row: pd.Series, study_uri: URIRef, eligibility_criterion_uri: URIRef, metadata_graph: URIRef) -> None:
     
