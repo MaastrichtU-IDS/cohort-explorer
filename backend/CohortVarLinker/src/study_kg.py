@@ -138,7 +138,7 @@ def generate_studies_kg(filepath: str) -> Graph:
                 g.add((organization_uri, OntologyNamespaces.OBI.value.has_member, contact_uri,metadata_graph))
                 g.add((contact_uri, OntologyNamespaces.CMEO.value.has_value, Literal(row["study contact person"], datatype=XSD.string),metadata_graph))
                 
-                g.add((study_contact_person_role_uri, RDF.type, OntologyNamespaces.OBI.value.study_contact_person_role,metadata_graph))
+                g.add((study_contact_person_role_uri, RDF.type, OntologyNamespaces.CMEO.value.study_contact_person_role,metadata_graph))
                 g.add((contact_uri, OntologyNamespaces.RO.value.has_role, study_contact_person_role_uri,metadata_graph))
                 g.add((study_contact_person_role_uri, OntologyNamespaces.CMEO.value.has_value, Literal(row["study contact person"], datatype=XSD.string),metadata_graph))
 
@@ -155,7 +155,7 @@ def generate_studies_kg(filepath: str) -> Graph:
             
                 g.add((contact_uri, OntologyNamespaces.CMEO.value.has_value, Literal(row["administrator"], datatype=XSD.string),metadata_graph))
                 administrator_role_uri =  URIRef(study_uri + "/administrator_role")
-                g.add((administrator_role_uri, RDF.type, OntologyNamespaces.OBI.value.administrator_role,metadata_graph))
+                g.add((administrator_role_uri, RDF.type, OntologyNamespaces.CMEO.value.administrator_role,metadata_graph))
                 g.add((administrator_person_uri, OntologyNamespaces.RO.value.has_role, administrator_role_uri,metadata_graph))
                 g.add((administrator_role_uri, OntologyNamespaces.CMEO.value.has_value,  Literal(row["administrator"], datatype=XSD.string),metadata_graph))
             
