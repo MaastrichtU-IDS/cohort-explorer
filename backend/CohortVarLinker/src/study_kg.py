@@ -134,7 +134,9 @@ def generate_studies_kg(filepath: str) -> Graph:
                 contact_uri = URIRef(study_uri + "/study_contact_person")
                 study_contact_person_role_uri = URIRef(study_uri + "/study_contact_person_role")
                 
-                g.add((contact_uri, RDF.type, OntologyNamespaces.NCBI.value.homo_sapiens,metadata_graph))
+                g.add((# The code `contact_uri` is defining a variable in Python. It is creating a
+                # variable named `contact_uri` without assigning it a value.
+                contact_uri, RDF.type, OntologyNamespaces.NCBI.value.homo_sapiens,metadata_graph))
                 g.add((organization_uri, OntologyNamespaces.OBI.value.has_member, contact_uri,metadata_graph))
                 g.add((contact_uri, OntologyNamespaces.CMEO.value.has_value, Literal(row["study contact person"], datatype=XSD.string),metadata_graph))
                 
@@ -153,7 +155,7 @@ def generate_studies_kg(filepath: str) -> Graph:
                 g.add((administrator_person_uri, RDF.type, OntologyNamespaces.NCBI.value.homo_sapiens,metadata_graph))
                 g.add((organization_uri, OntologyNamespaces.OBI.value.has_member, contact_uri,metadata_graph))
             
-                g.add((contact_uri, OntologyNamespaces.CMEO.value.has_value, Literal(row["administrator"], datatype=XSD.string),metadata_graph))
+                g.add((administrator_person_uri, OntologyNamespaces.CMEO.value.has_value, Literal(row["administrator"], datatype=XSD.string),metadata_graph))
                 administrator_role_uri =  URIRef(study_uri + "/administrator_role")
                 g.add((administrator_role_uri, RDF.type, OntologyNamespaces.CMEO.value.administrator_role,metadata_graph))
                 g.add((administrator_person_uri, OntologyNamespaces.RO.value.has_role, administrator_role_uri,metadata_graph))
