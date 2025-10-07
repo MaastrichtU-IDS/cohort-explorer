@@ -745,6 +745,143 @@ def generate_mappings(cohort_id: str, metadata_path: str, g: Graph) -> None:
             add_cohort_to_cache(cohorts[cohort_id])
             logging.info(f"Added cohort {cohort_id} to cache after generating mappings")
 
+@router.get(
+    "/check-cohort-status/{cohort_id}",
+    name="Check cohort metadata and consent status",
+    response_description="Cohort status information",
+)
+async def get_cohort_status(
+    cohort_id: str,
+    user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Check if metadata dictionary and consent declaration exist for a cohort."""
+    try:
+        # Check metadata dictionary status
+        metadata_exists = False
+        metadata_timestamp = None
+        metadata_file_count = 0
+        latest_metadata_file = None
+        
+        # Get cohort info from cache/metadata
+        cohorts = retrieve_cohorts_metadata(user["email"])
+        if cohort_id in cohorts and hasattr(cohorts[cohort_id], 'physical_dictionary_exists') and cohorts[cohort_id].physical_dictionary_exists:
+            metadata_exists = True
+            
+        # Check file system for CSV files
+        cohort_folder = os.path.join(settings.data_folder, cohort_id)
+        if os.path.exists(cohort_folder):
+            csv_files = glob.glob(os.path.join(cohort_folder, "*.csv"))
+            if csv_files:
+                metadata_file_count = len(csv_files)
+                # Get the most recent CSV file
+                latest_file = max(csv_files, key=os.path.getmtime)
+                latest_metadata_file = os.path.basename(latest_file)
+                metadata_timestamp = datetime.fromtimestamp(os.path.getmtime(latest_file)).isoformat()
+                metadata_exists = True  # Update based on actual file existence
+        
+        # Check consent declaration status
+        consent_exists = False
+        consent_timestamp = None
+        consent_file_count = 0
+        
+        consent_declarations_folder = os.path.join(settings.data_folder, "consent_declarations")
+        
+        # Check for cohort-specific consent file (latest/current)
+        cohort_consent_file = os.path.join(consent_declarations_folder, f"{cohort_id}-consent-declaration.txt")
+        
+        if os.path.exists(cohort_consent_file):
+            consent_exists = True
+            consent_timestamp = datetime.fromtimestamp(os.path.getmtime(cohort_consent_file)).isoformat()
+            consent_file_count = 1  # Current approach stores only the latest
+        
+        # Count historical consent submissions from general log
+        general_consent_log = os.path.join(settings.data_folder, "consent_declarations.txt")
+        historical_consent_count = 0
+        if os.path.exists(general_consent_log):
+            try:
+                with open(general_consent_log, "r", encoding="utf-8") as f:
+                    content = f.read()
+                    # Count occurrences of this cohort_id in the log
+                    historical_consent_count = content.count(f'"cohort_id": "{cohort_id}"')
+            except Exception as e:
+                logging.warning(f"Could not count historical consent submissions: {e}")
+        
+        return {
+            "metadataExists": metadata_exists,
+            "metadataTimestamp": metadata_timestamp,
+            "metadataFileCount": metadata_file_count,
+            "latestMetadataFile": latest_metadata_file,
+            "consentExists": consent_exists,
+            "consentTimestamp": consent_timestamp,
+            "consentFileCount": consent_file_count,
+            "historicalConsentCount": historical_consent_count
+        }
+        
+    except Exception as e:
+        logging.error(f"Error checking cohort status: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to check cohort status: {str(e)}"
+        )
+
+
+@router.post(
+    "/log-consent-declaration",
+    name="Log consent declaration for data access rules",
+    response_description="Logging result",
+)
+async def post_log_consent_declaration(
+    consent_data: dict[str, Any],
+    user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Log consent declaration to both general and cohort-specific files."""
+    try:
+        cohort_id = consent_data.get("cohortId")
+        if not cohort_id:
+            raise HTTPException(status_code=400, detail="Cohort ID is required")
+        
+        # Prepare log entry
+        log_entry = {
+            "timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            "user_email": user["email"],
+            "cohort_id": cohort_id,
+            "selected_options": consent_data.get("consentData", {}).get("selectedOptions", []),
+            "additional_restrictions": consent_data.get("consentData", {}).get("additionalRestrictions", ""),
+            "disease_name": consent_data.get("consentData", {}).get("diseaseName", ""),
+            "user_agent": consent_data.get("consentData", {}).get("userAgent", ""),
+            "submission_timestamp": consent_data.get("timestamp")
+        }
+        
+        # 1. Write to general consent log file
+        general_consent_log_file = os.path.join(settings.data_folder, "consent_declarations.txt")
+        os.makedirs(os.path.dirname(general_consent_log_file), exist_ok=True)
+        
+        with open(general_consent_log_file, "a", encoding="utf-8") as f:
+            f.write(f"{json.dumps(log_entry, indent=2)}\n")
+            f.write("-" * 80 + "\n")
+        
+        # 2. Write to cohort-specific consent file
+        consent_declarations_folder = os.path.join(settings.data_folder, "consent_declarations")
+        os.makedirs(consent_declarations_folder, exist_ok=True)
+        
+        cohort_consent_file = os.path.join(consent_declarations_folder, f"{cohort_id}-consent-declaration.txt")
+        
+        with open(cohort_consent_file, "w", encoding="utf-8") as f:  # Overwrite mode for cohort-specific file
+            f.write(f"{json.dumps(log_entry, indent=2)}\n")
+        
+        return {
+            "message": "Consent declaration logged successfully",
+            "timestamp": log_entry["timestamp"]
+        }
+        
+    except Exception as e:
+        logging.error(f"Error logging consent declaration: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to log consent declaration: {str(e)}"
+        )
+
+
 @router.post(
     "/create-provision-dcr",
     name="Create Data Clean Room to provision the dataset",

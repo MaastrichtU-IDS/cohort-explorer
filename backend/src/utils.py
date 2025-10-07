@@ -8,6 +8,7 @@ from SPARQLWrapper import JSON, SPARQLWrapper
 
 from src.config import settings
 from src.models import Cohort, CohortVariable, VariableCategory
+from enum import Enum
 
 # Define the namespaces
 ICARE = Namespace("https://w3id.org/icare4cvd/")
