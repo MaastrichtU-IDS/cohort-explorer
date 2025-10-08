@@ -3,7 +3,7 @@ from typing import Any
 
 import curies
 from rdflib import Dataset, Namespace
-from rdflib.namespace import RDF, RDFS
+from rdflib.namespace import RDF, RDFS, DC
 from SPARQLWrapper import JSON, SPARQLWrapper
 
 from src.config import settings
