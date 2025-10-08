@@ -100,8 +100,7 @@ def generate_studies_kg(filepath: str) -> Graph:
             g.add((data_format_uri, RDF.type, OntologyNamespaces.OBI.value.data_format_specification, metadata_graph))
             g.add((data_format_uri, RDFS.label, Literal("data format specification", datatype=XSD.string), metadata_graph))
             g.add((data_format_uri, OntologyNamespaces.CMEO.value.has_value, Literal(data_format, datatype=XSD.string), metadata_graph))
-            g.add((study_design_variable_specification_uri, OntologyNamespaces.RO.value.has_part, data_format_uri, metadata_graph))
-                        
+            g.add((study_design_variable_specification_uri, DC.format, data_format_uri, metadata_graph))                        
         if pd.notna(row["study type"]):
             study_descriptor=row["study type"].lower().strip() if pd.notna(row["study type"]) else ""
             print(f"Study descriptor: {study_descriptor}")
@@ -334,7 +333,7 @@ def add_timeline_specification(g: Graph, row: pd.Series, study_uri: URIRef, prot
 
     g.add((timeline_specification_uri, RDF.type, OntologyNamespaces.CMEO.value.timeline_specification, metadata_graph))
     g.add((protocol_uri, OntologyNamespaces.RO.value.has_part, timeline_specification_uri, metadata_graph))
-    g.add((timeline_specification_uri, RDFS.label, Literal(row['frequency of data collection'], datatype=XSD.string), metadata_graph))    
+    g.add((timeline_specification_uri, OntologyNamespaces.CMEO.value.has_value, Literal(row['frequency of data collection'], datatype=XSD.string), metadata_graph))
     return g
     
     

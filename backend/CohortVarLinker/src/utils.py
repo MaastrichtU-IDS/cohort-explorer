@@ -570,12 +570,15 @@ def apply_rules(domain, src_info, tgt_info):
     original_tgt_categories = parse_categories(tgt_info.get('original_categories', ''))
  
     valid_types = {"continuous_variable", "binary_class_variable", "multi_class_variable", "qualitative_variable"}
-    if src_type not in valid_types or tgt_type not in valid_types:
+    if (src_type not in valid_types or tgt_type not in valid_types) or (src_type is None or tgt_type is None):
         if "derived" not in src_var_name and "derived" not in tgt_var_name:
             return {
                 "description": "Transformation not applicable (invalid or missing statistical type)."
             }, "Not Applicable"
-
+        else:
+            return {
+                "description": "Derived variable - Transformation depends on derivation logic."
+            }, "Complete Match (Compatible)"
     elif src_type == tgt_type:
         if src_type == "continuous_variable":
             if src_unit and tgt_unit and src_unit != tgt_unit:
@@ -666,20 +669,21 @@ def apply_rules(domain, src_info, tgt_info):
     ):
         if src_data_type == "datetime" or tgt_data_type == "datetime":
             return {
-                "description": "Convert datetime to binary indicator (presence/absence) if needed.",
+                "description": "Unable to align datetime to binary indicator (presence/absence)",
                 "source_categories": "; ".join(src_categories),
-                "target_categories": "; ".join(tgt_categories)
-            }, "Partial Match (Tentative)"
+                "target_categories": "; ".join(tgt_categories),
+            }, "Not Applicable"
         msg = (
             "Discretize continuous variable to categories. Acceptable only if information loss is minimal. Represent as: (1) binary flag for event presence, (2) category of event type."
             if domain not in ["drug_exposure", "drug_era"]
             else "Harmonization may not be possible for drug-related continuous to categorical mappings. Review medication normalization depending on research question."
         )
+        match = "Not Applicable" if domain in ["drug_exposure", "drug_era"] else "Partial Match (Tentative)"
         return {
             "description": msg,
             "source_categories": "; ".join(src_categories),
             "target_categories": "; ".join(tgt_categories)
-        }, "Partial Match (Tentative)"
+        }, match
 
     elif src_type in {"binary_class_variable", "multi_class_variable"} and tgt_type == "qualitative_variable":
         return {
