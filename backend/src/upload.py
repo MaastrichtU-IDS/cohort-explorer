@@ -23,7 +23,7 @@ from src.auth import get_current_user
 from src.utils import (
     ICARE,
     curie_converter,
-    get_variables_query,
+    get_cohorts_metadata_query,
     init_graph,
     OntologyNamespaces,
     normalize_text,
