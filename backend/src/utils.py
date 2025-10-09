@@ -2,8 +2,10 @@ import logging
 from typing import Any
 
 import curies
-from rdflib import Dataset, Namespace
+from rdflib import Dataset, Namespace, URIRef
 from rdflib.namespace import RDF, RDFS, DC
+from enum import Enum
+import urllib.parse
 from SPARQLWrapper import JSON, SPARQLWrapper
 
 from src.config import settings
@@ -11,6 +13,25 @@ from src.models import Cohort, CohortVariable, VariableCategory
 
 # Define the namespaces
 ICARE = Namespace("https://w3id.org/icare4cvd/")
+
+class OntologyNamespaces(Enum):
+    CMEO = Namespace("https://w3id.org/CMEO/")
+    OMOP = Namespace("http://omop.org/OMOP/")
+    ATC = Namespace("http://purl.bioontology.org/ontology/ATC/")
+    RXNORM = Namespace("http://purl.bioontology.org/ontology/RXNORM/")
+    UCUM = Namespace("http://unitsofmeasure.org/")
+    OMOP_EXT = Namespace("http://omop.org/omopextension/")
+    OWL = Namespace("http://www.w3.org/2002/07/owl#")
+    OBI = Namespace("http://purl.obolibrary.org/obo/obi.owl/")
+    BFO = Namespace("http://purl.obolibrary.org/obo/bfo.owl/")
+    STATO = Namespace("http://purl.obolibrary.org/obo/stato.owl/")
+    DEFAULT_VALUE = 'Unmapped'
+    SNOMEDCT = Namespace("http://purl.bioontology.org/ontology/SNOMEDCT/")
+    LOINC = Namespace("http://purl.bioontology.org/ontology/LNC/") 
+    RO = Namespace("http://purl.obolibrary.org/obo/ro.owl/")
+    IAO = Namespace("http://purl.obolibrary.org/obo/iao.owl/")
+    TIME = Namespace("http://www.w3.org/2006/time#")
+    SIO = Namespace("http://semanticscience.org/ontology/sio/v1.59/sio-release.owl#")
 
 query_endpoint = SPARQLWrapper(settings.query_endpoint)
 query_endpoint.setReturnFormat(JSON)
@@ -68,12 +89,41 @@ curie_converter = curies.load_extended_prefix_map(prefix_map)
 # curie_converter = curies.get_bioregistry_converter()
 # curie_converter.add_prefix("icare", str(ICARE))
 
-def init_graph(default_graph: str | None = None) -> Dataset:
-    """Initialize a new RDF graph for nquads with the iCARE4CVD namespace bindings."""
-    g = Dataset(store="Oxigraph", default_graph_base=default_graph)
-    g.bind("icare", ICARE)
+# def init_graph(default_graph: str | None = None) -> Dataset:
+#     """Initialize a new RDF graph for nquads with the iCARE4CVD namespace bindings."""
+#     g = Dataset(store="Oxigraph", default_graph_base=default_graph)
+#     g.bind("icare", ICARE)
+#     g.bind("rdf", RDF)
+#     g.bind("rdfs", RDFS)
+#     return g
+
+def normalize_text(text: str) -> str:
+    if text is None or text == "nan" or text == "":
+        return None
+    text = str(text).lower().strip().replace(" ", "_").replace("/", "_").replace(":", "_").replace('[','').replace(']','')
+    return urllib.parse.quote(text, safe='_-')
+
+def init_graph(default_graph_identifier: str | None = "https://w3id.org/CMEO/graph/studies_metadata") -> Dataset:
+    """Initialize a new RDF graph for nquads with the voc namespace bindings."""
+    g = Dataset(store="Oxigraph")
+    g.bind("cmeo", OntologyNamespaces.CMEO.value)
+    g.bind("bfo", OntologyNamespaces.BFO.value)
+    g.bind("obi", OntologyNamespaces.OBI.value)
+    g.bind("stato", OntologyNamespaces.STATO.value)
     g.bind("rdf", RDF)
     g.bind("rdfs", RDFS)
+    # g.bind("omop", OMOP)
+    g.bind("dc", DC)
+    # g.bind("snomed", SNOMED)
+    # do we need individual bindings for each ontology?
+         # g.bind("snomed", SNOMED)
+        # g.bind("loinc", LOINC)
+        # g.bind("atc", ATC)
+        # g.bind("rxnorm", RXNORM)
+        # g.bind("ucum", UCUM)
+        # g.bind("mesh", MESH)
+        # g.bind("omop_ext", OMOP_EXT)
+    g.graph(identifier=URIRef(default_graph_identifier))
     return g
 
 
@@ -83,116 +133,186 @@ def run_query(query: str) -> dict[str, Any]:
     return query_endpoint.query().convert()
 
 
-get_variables_query = """PREFIX icare: <https://w3id.org/icare4cvd/>
+def get_cohorts_metadata_query() -> str:
+    """Get SPARQL query for retrieving cohorts metadata using new CMEO-based structure."""
+    query = f"""
+PREFIX cmeo: <https://w3id.org/CMEO/>
+PREFIX obi: <http://purl.obolibrary.org/obo/>
+PREFIX bfo: <http://purl.obolibrary.org/obo/>
+PREFIX ro: <http://purl.obolibrary.org/obo/>
+PREFIX iao: <http://purl.obolibrary.org/obo/>
+PREFIX sio: <http://semanticscience.org/ontology/sio/>
 PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 PREFIX dc: <http://purl.org/dc/elements/1.1/>
-PREFIX dcterms: <http://purl.org/dc/terms/>
+PREFIX icare: <{ICARE}>
 
 SELECT DISTINCT ?cohortId ?cohortInstitution ?cohortEmail ?study_type ?study_participants ?study_duration ?study_ongoing ?study_population ?study_objective ?primary_outcome_spec ?secondary_outcome_spec ?morbidity ?study_start ?study_end ?male_percentage ?female_percentage ?administrator ?administrator_email ?study_contact_person ?study_contact_person_email ?references ?population_location ?language ?data_collection_frequency ?interventions ?sex_inclusion ?health_status_inclusion ?clinically_relevant_exposure_inclusion ?age_group_inclusion ?bmi_range_inclusion ?ethnicity_inclusion ?family_status_inclusion ?hospital_patient_inclusion ?use_of_medication_inclusion ?health_status_exclusion ?bmi_range_exclusion ?limited_life_expectancy_exclusion ?need_for_surgery_exclusion ?surgical_procedure_history_exclusion ?clinically_relevant_exposure_exclusion
     ?variable ?varName ?varLabel ?varType ?index ?count ?na ?max ?min ?units ?formula ?definition
     ?omopDomain ?conceptId ?conceptCode ?conceptName ?omopId ?mappedId ?mappedLabel ?visits ?categoryValue ?categoryLabel ?categoryConceptId ?categoryMappedId ?categoryMappedLabel
-WHERE {
-    GRAPH ?cohortMetadataGraph {
-        ?cohort a icare:Cohort ;
-            dc:identifier ?cohortId ;
-            icare:institution ?cohortInstitution .
-        OPTIONAL { ?cohort icare:cohortType ?cohortType . }
-        OPTIONAL { ?cohort icare:email ?cohortEmail . }
-        OPTIONAL { ?cohort icare:studyType ?study_type . }
-        OPTIONAL { ?cohort icare:studyParticipants ?study_participants . }
-        OPTIONAL { ?cohort icare:studyDuration ?study_duration . }
-        OPTIONAL { ?cohort icare:studyOngoing ?study_ongoing . }
-        OPTIONAL { ?cohort icare:studyPopulation ?study_population . }
-        OPTIONAL { ?cohort icare:studyObjective ?study_objective . }
-        OPTIONAL { ?cohort icare:primaryOutcomeSpec ?primary_outcome_spec . }
-        OPTIONAL { ?cohort icare:secondaryOutcomeSpec ?secondary_outcome_spec . }
-        OPTIONAL { ?cohort icare:morbidity ?morbidity . }
-        OPTIONAL { ?cohort icare:studyStart ?study_start . }
-        OPTIONAL { ?cohort icare:studyEnd ?study_end . }
-        OPTIONAL { ?cohort icare:malePercentage ?male_percentage . }
-        OPTIONAL { ?cohort icare:femalePercentage ?female_percentage . }
+WHERE {{
+    GRAPH <https://w3id.org/CMEO/graph/studies_metadata> {{
+        ?study_design_execution a obi:study_design_execution ;
+            dc:identifier ?cohortId .
         
-        # Contact information fields
-        OPTIONAL { ?cohort icare:administrator ?administrator . }
-        OPTIONAL { ?cohort icare:administratorEmail ?administrator_email . }
-        OPTIONAL { ?cohort dc:creator ?study_contact_person . }
-        OPTIONAL { ?cohort icare:email ?study_contact_person_email . }
-        OPTIONAL { ?cohort icare:references ?references . }
+        # Get institute/organization information  
+        OPTIONAL {{
+            ?study_design_execution ro:has_participant ?institute_entity .
+            ?institute_entity a obi:organization ;
+                cmeo:has_value ?cohortInstitution .
+        }}
         
-        # Additional metadata fields
-        OPTIONAL { ?cohort icare:populationLocation ?population_location . }
-        OPTIONAL { ?cohort icare:language ?language . }
-        OPTIONAL { ?cohort icare:dataCollectionFrequency ?data_collection_frequency . }
-        OPTIONAL { ?cohort icare:interventions ?interventions . }
+        # Get study type from descriptor
+        OPTIONAL {{
+            ?study_design_execution ro:concretizes ?study_design .
+            ?study_design sio:is_described_by ?study_type_entity .
+            ?study_type_entity a sio:study_descriptor ;
+                cmeo:has_value ?study_type .
+        }}
         
-        # Inclusion criteria fields
-        OPTIONAL { ?cohort icare:sexInclusion ?sex_inclusion . }
-        OPTIONAL { ?cohort icare:healthStatusInclusion ?health_status_inclusion . }
-        OPTIONAL { ?cohort icare:clinicallyRelevantExposureInclusion ?clinically_relevant_exposure_inclusion . }
-        OPTIONAL { ?cohort icare:ageGroupInclusion ?age_group_inclusion . }
-        OPTIONAL { ?cohort icare:bmiRangeInclusion ?bmi_range_inclusion . }
-        OPTIONAL { ?cohort icare:ethnicityInclusion ?ethnicity_inclusion . }
-        OPTIONAL { ?cohort icare:familyStatusInclusion ?family_status_inclusion . }
-        OPTIONAL { ?cohort icare:hospitalPatientInclusion ?hospital_patient_inclusion . }
-        OPTIONAL { ?cohort icare:useOfMedicationInclusion ?use_of_medication_inclusion . }
+        # Get study objective
+        OPTIONAL {{
+            ?study_design_execution ro:concretizes ?study_design .
+            ?study_design ro:has_part ?protocol .
+            ?protocol ro:has_part ?study_objective_entity .
+            ?study_objective_entity a obi:objective_specification ;
+                cmeo:has_value ?study_objective .
+        }}
         
-        # Exclusion criteria fields
-        OPTIONAL { ?cohort icare:healthStatusExclusion ?health_status_exclusion . }
-        OPTIONAL { ?cohort icare:bmiRangeExclusion ?bmi_range_exclusion . }
-        OPTIONAL { ?cohort icare:limitedLifeExpectancyExclusion ?limited_life_expectancy_exclusion . }
-        OPTIONAL { ?cohort icare:needForSurgeryExclusion ?need_for_surgery_exclusion . }
-        OPTIONAL { ?cohort icare:surgicalProcedureHistoryExclusion ?surgical_procedure_history_exclusion . }
-        OPTIONAL { ?cohort icare:clinicallyRelevantExposureExclusion ?clinically_relevant_exposure_exclusion . }
-    }
-
-    OPTIONAL {
-        # Bind the cohortVarGraph to be the same as the cohort URI
-        BIND(?cohort AS ?cohortVarGraph)
-        GRAPH ?cohortVarGraph {
+        # Get number of participants
+        OPTIONAL {{
+            ?protocol ro:has_part ?number_of_participants_entity .
+            ?number_of_participants_entity a cmeo:number_of_participants ;
+                cmeo:has_value ?study_participants .
+        }}
+        
+        # Get timing information
+        OPTIONAL {{
+            ?study_design_execution iao:has_time_stamp ?start_date_entity .
+            ?start_date_entity a cmeo:start_time ;
+                cmeo:has_value ?study_start .
+        }}
+        
+        OPTIONAL {{
+            ?study_design_execution iao:has_time_stamp ?end_date_entity .
+            ?end_date_entity a cmeo:end_time ;
+                cmeo:has_value ?study_end .
+        }}
+        
+        OPTIONAL {{
+            ?study_design_execution ro:has_characteristic ?ongoing_entity .
+            ?ongoing_entity a cmeo:ongoing ;
+                cmeo:has_value ?study_ongoing .
+        }}
+        
+        # Get outcome specifications (direct from protocol, not nested)
+        OPTIONAL {{
+            ?protocol ro:has_part ?primary_outcome_spec_entity .
+            ?primary_outcome_spec_entity a cmeo:primary_outcome_specification ;
+                cmeo:has_value ?primary_outcome_spec .
+        }}
+        
+        OPTIONAL {{
+            ?protocol ro:has_part ?secondary_outcome_spec_entity .
+            ?secondary_outcome_spec_entity a cmeo:secondary_outcome_specification ;
+                cmeo:has_value ?secondary_outcome_spec .
+        }}
+        
+        # Get morbidity information
+        OPTIONAL {{
+            ?protocol ro:has_part ?morbidity_entity .
+            ?morbidity_entity a obi:morbidity ;
+                cmeo:has_value ?morbidity .
+        }}
+        
+        # Get eligibility criteria and demographics
+        OPTIONAL {{
+            ?protocol ro:has_part ?eligibility .
+            ?eligibility a obi:eligibility_criterion .
+            
+            # Male/female percentages
+            OPTIONAL {{
+                ?eligibility ro:has_part ?male_percentage_entity .
+                ?male_percentage_entity a cmeo:male_percentage ;
+                    cmeo:has_value ?male_percentage .
+            }}
+            
+            OPTIONAL {{
+                ?eligibility ro:has_part ?female_percentage_entity .
+                ?female_percentage_entity a cmeo:female_percentage ;
+                    cmeo:has_value ?female_percentage .
+            }}
+        }}
+        
+        # Get age distribution
+        OPTIONAL {{
+            ?study_design_execution ro:has_characteristic ?age_distribution_entity .
+            ?age_distribution_entity a obi:age_distribution ;
+                cmeo:has_value ?age_distribution .
+        }}
+        
+        # Get population location
+        OPTIONAL {{
+            ?study_design_execution ro:has_characteristic ?population_location_entity .
+            ?population_location_entity a bfo:site ;
+                cmeo:has_value ?population_location .
+        }}
+        
+        # Get language (direct property)
+        OPTIONAL {{
+            ?study_design_execution dc:language ?language .
+        }}
+        
+        # Get contact information (simplified - direct participants)
+        OPTIONAL {{
+            ?study_design_execution ro:has_participant ?study_contact_person_entity .
+            ?study_contact_person_entity a cmeo:homo_sapiens ;
+                cmeo:has_value ?study_contact_person .
+        }}
+        
+        OPTIONAL {{
+            ?study_design_execution ro:has_participant ?administrator_entity .
+            ?administrator_entity a cmeo:homo_sapiens ;
+                cmeo:has_value ?administrator .
+        }}
+    }}
+    
+    OPTIONAL {{
+        GRAPH ?cohortGraph {{
             ?cohort icare:hasVariable ?variable .
-            ?variable a icare:Variable ;
-                dc:identifier ?varName ;
+            ?variable dc:identifier ?varName ;
                 rdfs:label ?varLabel ;
                 icare:varType ?varType ;
                 icare:index ?index .
-            OPTIONAL { ?variable icare:count ?count }
-            OPTIONAL { ?variable icare:na ?na }
-            OPTIONAL { ?variable icare:max ?max }
-            OPTIONAL { ?variable icare:min ?min }
-            OPTIONAL { ?variable icare:units ?units }
-            OPTIONAL { ?variable icare:formula ?formula }
-            OPTIONAL { ?variable icare:definition ?definition }
-            OPTIONAL { ?variable icare:conceptId ?conceptId }
-            OPTIONAL { ?variable icare:conceptCode ?conceptCode }
-            OPTIONAL { ?variable icare:conceptName ?conceptName }
-            OPTIONAL { ?variable icare:omopId ?omopId }
-            OPTIONAL { ?variable icare:domain ?omopDomain }
-            OPTIONAL { ?variable icare:visits ?visits }
-            OPTIONAL {
-                ?variable icare:categories ?category.
-                ?category rdfs:label ?categoryLabel ;
-                    rdf:value ?categoryValue .
-                OPTIONAL { ?category icare:conceptId ?categoryConceptId }
-            }
-        }
-    }
-
-    OPTIONAL {
-        GRAPH ?cohortMappingsGraph {
-            OPTIONAL {
-                ?variable icare:mappedId ?mappedId .
-                OPTIONAL { ?mappedId rdfs:label ?mappedLabel }
-            }
-            OPTIONAL {
-                ?category icare:mappedId ?categoryMappedId .
-                OPTIONAL { ?categoryMappedId rdfs:label ?categoryMappedLabel }
-            }
-            # OPTIONAL { ?cohort icare:previewEnabled ?airlock . }
-        }
-    }
-} ORDER BY ?cohort ?index
-"""
+            OPTIONAL {{ ?variable icare:count ?count . }}
+            OPTIONAL {{ ?variable icare:na ?na . }}
+            OPTIONAL {{ ?variable icare:max ?max . }}
+            OPTIONAL {{ ?variable icare:min ?min . }}
+            OPTIONAL {{ ?variable icare:units ?units . }}
+            OPTIONAL {{ ?variable icare:formula ?formula . }}
+            OPTIONAL {{ ?variable icare:definition ?definition . }}
+            OPTIONAL {{ ?variable icare:omopDomain ?omopDomain . }}
+            OPTIONAL {{ ?variable icare:conceptId ?conceptId . }}
+            OPTIONAL {{ ?variable icare:conceptCode ?conceptCode . }}
+            OPTIONAL {{ ?variable icare:conceptName ?conceptName . }}
+            OPTIONAL {{ ?variable icare:omopId ?omopId . }}
+            OPTIONAL {{ ?variable icare:mappedId ?mappedId . }}
+            OPTIONAL {{ ?variable icare:mappedLabel ?mappedLabel . }}
+            OPTIONAL {{ ?variable icare:visits ?visits . }}
+            
+            OPTIONAL {{
+                ?variable icare:categories ?category .
+                ?category rdf:value ?categoryValue ;
+                    rdfs:label ?categoryLabel .
+                OPTIONAL {{ ?category icare:conceptId ?categoryConceptId . }}
+                OPTIONAL {{ ?category icare:mappedId ?categoryMappedId . }}
+                OPTIONAL {{ ?category icare:mappedLabel ?categoryMappedLabel . }}
+            }}
+        }}
+    }}
+}}
+ORDER BY ?cohortId ?index ?categoryValue"""
+    return query
 
 
 # TODO: Utility to get value or None if key is missing or value is empty string
@@ -281,7 +401,7 @@ def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = F
     
     # Execute SPARQL query and measure its execution time
     query_start_time = time.time()
-    results = run_query(get_variables_query)["results"]["bindings"]
+    results = run_query(get_cohorts_metadata_query())["results"]["bindings"]
     query_end_time = time.time()
     query_duration = query_end_time - query_start_time
     
