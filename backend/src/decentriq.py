@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from src.auth import get_current_user
 from src.config import settings
-from src.eda_scripts import c1_data_dict_check, c2_save_to_json, c3_eda_data_profiling #, c3_map_missing_do_not_run
+from src.eda_scripts import c1_data_dict_check, c2_save_to_json, c3_eda_data_profiling, shuffle_data
 from src.models import Cohort
 from src.utils import retrieve_cohorts_metadata
 from datetime import datetime
@@ -173,6 +173,9 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
     builder.add_node_definition(
         PythonComputeNodeDefinition(name="c3_eda_data_profiling", script=c3_eda_data_profiling(cohort.cohort_id), dependencies=["c1_data_dict_check", "c2_save_to_json", metadata_node_id, data_node_id])
     )
+    builder.add_node_definition(
+        PythonComputeNodeDefinition(name="shuffle_data", script=shuffle_data(cohort.cohort_id), dependencies=[metadata_node_id, data_node_id])
+    )
 
     # Add permissions for data owners
     all_participants = set(cohort.cohort_email)
@@ -188,12 +191,12 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
             participant,
             data_owner_of=[data_node_id, metadata_node_id],
             # Permission to run scripts:
-            analyst_of=["c1_data_dict_check", "c2_save_to_json", "c3_eda_data_profiling"],
+            analyst_of=["c1_data_dict_check", "c2_save_to_json", "c3_eda_data_profiling", "shuffle_data"],
         )
 
     if settings.decentriq_email not in all_participants:
         builder.add_participant(settings.decentriq_email, 
-                                analyst_of=["c1_data_dict_check", "c2_save_to_json", "c3_eda_data_profiling"],
+                                analyst_of=["c1_data_dict_check", "c2_save_to_json", "c3_eda_data_profiling", "shuffle_data"],
                                 data_owner_of=[metadata_node_id])
 
     # Build and publish DCR
