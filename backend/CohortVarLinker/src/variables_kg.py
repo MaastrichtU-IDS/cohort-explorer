@@ -207,8 +207,8 @@ def add_missing_value_specification(g: Graph, var_uri: URIRef, missing_value: st
     missing_uri = URIRef(f"{var_uri}/missing_value_specification")
     g.add((missing_uri, RDF.type, OntologyNamespaces.CMEO.value.missing_value_specification, cohort_uri))
     g.add((missing_uri, OntologyNamespaces.CMEO.value.has_value, Literal(missing_value, datatype=XSD.string), cohort_uri))
-    g.add((var_uri, OntologyNamespaces.OBI.value.has_value_specification, missing_uri, cohort_uri))
-    g.add((missing_uri, OntologyNamespaces.OBI.value.is_value_specification_of, missing_uri, cohort_uri))
+    # g.add((var_uri, OntologyNamespaces.OBI.value.has_value_specification, missing_uri, cohort_uri))
+    g.add((missing_uri, OntologyNamespaces.OBI.value.specifies_value_of, missing_uri, cohort_uri))
     return g
 
 def add_formula(g: Graph, var_uri: URIRef, formula: str, cohort_uri: URIRef) -> Graph:
@@ -848,8 +848,8 @@ def add_categories_to_graph(g: Graph, var_uri: URIRef, cohort_uri: URIRef, row: 
             #     print(f"value: {value} defined_value: {defined_value}")
             permissible_uri = URIRef(f"{var_uri}/categorical_value_specification/{n_defined_value}")
             g.add((permissible_uri, RDF.type, OntologyNamespaces.OBI.value.categorical_value_specification, cohort_uri))
-            g.add((var_uri, OntologyNamespaces.OBI.value.has_value_specification, permissible_uri, cohort_uri))
-            g.add((permissible_uri, OntologyNamespaces.OBI.value.is_value_specification_of, var_uri, cohort_uri))
+            # g.add((var_uri, OntologyNamespaces.OBI.value.has_value_specification, permissible_uri, cohort_uri))
+            g.add((permissible_uri, OntologyNamespaces.OBI.value.specifies_value_of, var_uri, cohort_uri))
             g.add((permissible_uri, RDFS.label, Literal(defined_value, datatype=XSD.string), cohort_uri))
             if data_type_value == 'str':
                 g.add((permissible_uri, OntologyNamespaces.CMEO.value.has_value, Literal(value, datatype=XSD.string), cohort_uri))
