@@ -137,11 +137,11 @@ def get_cohorts_metadata_query() -> str:
     """Get SPARQL query for retrieving cohorts metadata using new CMEO-based structure."""
     query = f"""
 PREFIX cmeo: <https://w3id.org/CMEO/>
-PREFIX obi: <http://purl.obolibrary.org/obo/>
-PREFIX bfo: <http://purl.obolibrary.org/obo/>
-PREFIX ro: <http://purl.obolibrary.org/obo/>
-PREFIX iao: <http://purl.obolibrary.org/obo/>
-PREFIX sio: <http://semanticscience.org/ontology/sio/>
+PREFIX obi: <http://purl.obolibrary.org/obo/obi.owl/>
+PREFIX bfo: <http://purl.obolibrary.org/obo/bfo.owl/>
+PREFIX ro: <http://purl.obolibrary.org/obo/ro.owl/>
+PREFIX iao: <http://purl.obolibrary.org/obo/iao.owl/>
+PREFIX sio: <http://semanticscience.org/ontology/sio/v1.59/sio-release.owl#>
 PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 PREFIX dc: <http://purl.org/dc/elements/1.1/>
