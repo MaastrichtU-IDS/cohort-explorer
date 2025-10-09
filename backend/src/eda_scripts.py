@@ -818,7 +818,7 @@ if 'VARIABLE OMOP ID' in dictionary_df.columns:
     varname_col = [x for x in ['VARIABLE NAME', 'VARIABLENAME', 'VAR NAME'] if x in dictionary_df.columns]
     if varname_col:
         varname_col = varname_col[0]
-        patient_id_rows = dictionary_df[dictionary_df['VARIABLE OMOP ID'] == 4086934]
+        patient_id_rows = dictionary_df[dictionary_df['VARIABLE OMOP ID'] == '4086934']
         if not patient_id_rows.empty:
             patient_id_var = patient_id_rows.iloc[0][varname_col]
             print(f"Found patient ID variable with OMOP ID 4086934: {patient_id_var}")
