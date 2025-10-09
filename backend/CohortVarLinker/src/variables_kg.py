@@ -818,7 +818,7 @@ def add_categories_to_graph(g: Graph, var_uri: URIRef, cohort_uri: URIRef, row: 
         # if row['categorical'] == '' or row['categorical'] == 'nan' or row['categorical'] == None:
         #     print("No categorical information found")
         #     return g
-        categories = parse_joined_string(row['categorical'])
+        categories = row['categorical'].lower().strip().split("|")
         print(f"categories: {categories}")
         updated_categories = []
         
