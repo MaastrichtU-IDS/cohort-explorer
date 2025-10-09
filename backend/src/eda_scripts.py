@@ -831,7 +831,7 @@ else:
 
 # EXPLICITLY DEFINE PII COLUMNS TO REMOVE
 # Modify this list based on the cohort
-PII_COLUMNS = ['Patient_ID', 'Name', 'Address', 'Birth Date']
+PII_COLUMNS = []
 
 # Add the patient ID variable to PII columns if found
 if patient_id_var:
@@ -891,22 +891,31 @@ df_sample.insert(0, 'Synthetic_ID', ['SYNTH_' + str(i).zfill(5) for i in range(1
 df_sample.to_csv('/output/shuffled_sample.csv', index=False)
 
 # Create a simple summary report
-summary = f\"\"\"DATA SHUFFLE COMPLETE
+summary_template = '''DATA SHUFFLE COMPLETE
 ====================
-Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Timestamp: {}
 
-Original: {original_rows:,} rows × {original_cols} columns
-PII Removed: {len(columns_to_drop)} columns
-Retained: {len(df_anonymized.columns)} columns
-Output Sample: {len(df_sample):,} rows
+Original: {:,} rows × {} columns
+PII Removed: {} columns
+Retained: {} columns
+Output Sample: {:,} rows
 
 Privacy Method: Independent column shuffling
 - Each column shuffled separately
 - All correlations destroyed
 - No patient reconstruction possible
 
-Removed columns: {', '.join(columns_to_drop) if columns_to_drop else 'None'}
-\"\"\"
+Removed columns: {}
+'''
+summary = summary_template.format(
+    datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+    original_rows,
+    original_cols,
+    len(columns_to_drop),
+    len(df_anonymized.columns),
+    len(df_sample),
+    ', '.join(columns_to_drop) if columns_to_drop else 'None'
+)
 
 with open('/output/summary.txt', 'w') as f:
     f.write(summary)
