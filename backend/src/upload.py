@@ -755,7 +755,14 @@ async def post_create_provision_dcr(
     # cohort_id: str = Form(..., pattern="^[a-zA-Z0-9-_\w]+$"),
     cohort_id: str = Form(...),
 ) -> dict[str, Any]:
-    cohort_info = retrieve_cohorts_metadata(user["email"]).get(cohort_id)
+    import time
+    t0 = time.time()
+    # Use cache instead of SPARQL query for better performance
+    from src.cohort_cache import get_cohorts_from_cache
+    cohorts = get_cohorts_from_cache(user["email"])
+    logging.info(f"[TIMING] Retrieved cohorts from cache in {time.time() - t0:.3f}s")
+    
+    cohort_info = cohorts.get(cohort_id)
     if not cohort_info:
         raise HTTPException(
             status_code=403,
