@@ -493,7 +493,7 @@ WHERE {
 
   # ---------------- unit value + label (sample) ----------------
   OPTIONAL {
-    SELECT ?g ?var ?unit_value
+    SELECT ?g ?var 
            (SAMPLE(?uv) AS ?unit_value)
            (SAMPLE(?ul) AS ?unit_label)
     WHERE {
