@@ -71,6 +71,7 @@ def generate_studies_kg(filepath: str) -> Graph:
             protocol_uri = URIRef(study_uri + "/" + study_design_value + "/protocol")
             g.add((protocol_uri, RDF.type, OntologyNamespaces.OBI.value.protocol, metadata_graph))
             g.add((study_design_uri,OntologyNamespaces.RO.value.has_part, protocol_uri, metadata_graph))
+            g.add((protocol_uri,OntologyNamespaces.RO.value.part_of, study_design_uri, metadata_graph))
         else:
               study_design_uri = URIRef(study_uri + "/study_design")
               protocol_uri = URIRef(study_uri + "/protocol") 
@@ -100,7 +101,8 @@ def generate_studies_kg(filepath: str) -> Graph:
             g.add((data_format_uri, RDF.type, OntologyNamespaces.OBI.value.data_format_specification, metadata_graph))
             g.add((data_format_uri, RDFS.label, Literal("data format specification", datatype=XSD.string), metadata_graph))
             g.add((data_format_uri, OntologyNamespaces.CMEO.value.has_value, Literal(data_format, datatype=XSD.string), metadata_graph))
-            g.add((study_design_variable_specification_uri, DC.format, data_format_uri, metadata_graph))                        
+            g.add((study_design_variable_specification_uri, DC.format, data_format_uri, metadata_graph))
+                        
         if pd.notna(row["study type"]):
             study_descriptor=row["study type"].lower().strip() if pd.notna(row["study type"]) else ""
             print(f"Study descriptor: {study_descriptor}")
@@ -131,9 +133,9 @@ def generate_studies_kg(filepath: str) -> Graph:
         
             if pd.notna(row["study contact person"]):
                 contact_uri = URIRef(study_uri + "/" + normalize_text(row["study contact person"]))
+                 # contact_uri = URIRef(study_uri + "/contact_person")
                 study_contact_person_role_uri = URIRef(study_uri + "/study_contact_person_role")
                 
-
                 g.add((contact_uri, RDF.type, OntologyNamespaces.NCBI.value.homo_sapiens,metadata_graph))
                 g.add((organization_uri, OntologyNamespaces.OBI.value.has_member, contact_uri,metadata_graph))
                 g.add((contact_uri, OntologyNamespaces.OBI.value.member_of, organization_uri,metadata_graph))
@@ -142,6 +144,8 @@ def generate_studies_kg(filepath: str) -> Graph:
                 
                 g.add((study_contact_person_role_uri, RDF.type, OntologyNamespaces.CMEO.value.study_contact_person_role,metadata_graph))
                 g.add((contact_uri, OntologyNamespaces.RO.value.has_role, study_contact_person_role_uri,metadata_graph))
+                g.add((study_contact_person_role_uri, OntologyNamespaces.RO.value.role_of, contact_uri,metadata_graph))
+
                 g.add((study_contact_person_role_uri, OntologyNamespaces.CMEO.value.has_value, Literal(row["study contact person"], datatype=XSD.string),metadata_graph))
 
                 if pd.notna(row["study contact person email address"]):
@@ -153,12 +157,13 @@ def generate_studies_kg(filepath: str) -> Graph:
             if pd.notna(row["administrator"]):
                 administrator_person_uri = URIRef(study_uri + "/" + normalize_text(row["administrator"]))
                 g.add((administrator_person_uri, RDF.type, OntologyNamespaces.NCBI.value.homo_sapiens,metadata_graph))
-                g.add((organization_uri, OntologyNamespaces.OBI.value.has_member, contact_uri,metadata_graph))
                 g.add((contact_uri, OntologyNamespaces.OBI.value.member_of, organization_uri,metadata_graph))
+            
                 g.add((administrator_person_uri, OntologyNamespaces.CMEO.value.has_value, Literal(row["administrator"], datatype=XSD.string),metadata_graph))
                 administrator_role_uri =  URIRef(study_uri + "/administrator_role")
                 g.add((administrator_role_uri, RDF.type, OntologyNamespaces.CMEO.value.administrator_role,metadata_graph))
                 g.add((administrator_person_uri, OntologyNamespaces.RO.value.has_role, administrator_role_uri,metadata_graph))
+                g.add((administrator_role_uri, OntologyNamespaces.RO.value.role_of, administrator_person_uri,metadata_graph))
                 g.add((administrator_role_uri, OntologyNamespaces.CMEO.value.has_value,  Literal(row["administrator"], datatype=XSD.string),metadata_graph))
             
                 if pd.notna(row["administrator email address"]):
@@ -197,9 +202,16 @@ def generate_studies_kg(filepath: str) -> Graph:
     print(f"Graph size: {len(g)}")
     return g
 
+
 def add_study_timing(g: Graph, row: pd.Series, study_design_execution_uri: URIRef, study_uri: URIRef, metadata_graph: URIRef) -> None:
 
-
+        if pd.notna(row["duration of observation"]):
+            duration = row["duration of observation"].lower().strip()
+            duration_uri = URIRef(study_design_execution_uri + "/duration_of_observation")
+            g.add((duration_uri, RDF.type, OntologyNamespaces.CMEO.value.duration_of_observation, metadata_graph))
+            g.add((duration_uri, OntologyNamespaces.IAO.value.is_about, study_design_execution_uri, metadata_graph))
+            g.add((duration_uri, OntologyNamespaces.CMEO.value.has_value, Literal(duration, datatype=XSD.string), metadata_graph))
+            
         if pd.notna(row["start date"]):
             start_time_tuple = day_month_year(row["start date"])
             print(f"Start time tuple: {start_time_tuple}")
@@ -228,13 +240,13 @@ def add_study_timing(g: Graph, row: pd.Series, study_design_execution_uri: URIRe
             #     g.add((study_completion_date_uri, OntologyNamespaces.TIME.value.year, Literal(year, datatype=XSD.gYear), metadata_graph)) 
             # else:
             g.add((study_completion_date_uri, OntologyNamespaces.CMEO.value.has_value, Literal(row["end date"], datatype=XSD.dateTime), metadata_graph))   
-            if pd.notna(row["ongoing"]):
-                ongoing_status = True if row["ongoing"].lower().strip() == "yes" else False
-                ongoing_uri = URIRef(study_uri + "/ongoing")
-                g.add((ongoing_uri, RDF.type, OntologyNamespaces.SIO.value.ongoing,metadata_graph))
-                g.add((ongoing_uri, OntologyNamespaces.IAO.value.is_about,study_design_execution_uri,metadata_graph))
-                g.add((ongoing_uri, OntologyNamespaces.CMEO.value.has_value, Literal(ongoing_status, datatype=XSD.boolean),metadata_graph))
-                
+        if pd.notna(row["ongoing"]):
+            ongoing_status = True if row["ongoing"].lower().strip() == "yes" else False
+            ongoing_uri = URIRef(study_uri + "/ongoing")
+            g.add((ongoing_uri, RDF.type, OntologyNamespaces.SIO.value.ongoing,metadata_graph))
+            g.add((ongoing_uri, OntologyNamespaces.IAO.value.is_about,study_design_execution_uri,metadata_graph))
+            g.add((ongoing_uri, OntologyNamespaces.CMEO.value.has_value, Literal(ongoing_status, datatype=XSD.boolean),metadata_graph))
+            
 
         return g
 
@@ -338,7 +350,6 @@ def add_timeline_specification(g: Graph, row: pd.Series, study_uri: URIRef, prot
     g.add((timeline_specification_uri, OntologyNamespaces.CMEO.value.has_value, Literal(row['frequency of data collection'], datatype=XSD.string), metadata_graph))
     return g
     
-    
 def add_inclusion_criterion(g: Graph, row: pd.Series, study_uri: URIRef, eligibility_criterion_uri: URIRef, metadata_graph: URIRef) -> None:
     
     # inclusion crieria are many and all are subclass of eligibility_criterion_uri criteria
@@ -352,7 +363,7 @@ def add_inclusion_criterion(g: Graph, row: pd.Series, study_uri: URIRef, eligibi
     for col in inclusion_criteria_columns:
         inclusion_criterion_name = normalize_text(col)
         row_value = row[col].lower().strip() if pd.notna(row[col]) else ""
-        if not row_value or row_value == "not applicable" or row_value == "":
+        if row_value == "not applicable" or row_value == "" or row_value == None:
             continue
         if "age" in inclusion_criterion_name:
             add_age_group_inclusion_criterion(g, study_uri, inclusion_criterion_uri, metadata_graph, row[col])
@@ -366,7 +377,7 @@ def add_inclusion_criterion(g: Graph, row: pd.Series, study_uri: URIRef, eligibi
                 g.add((col_inclusion_criteria_uri, RDF.type, dynamic_inclusion_criterion_type, metadata_graph))
                 g.add((col_inclusion_criteria_uri, OntologyNamespaces.RO.value.part_of, inclusion_criterion_uri, metadata_graph))
                 g.add((inclusion_criterion_uri, OntologyNamespaces.RO.value.has_part, col_inclusion_criteria_uri, metadata_graph))
-                g.add((col_inclusion_criteria_uri, RDFS.label, Literal(inclusion_criterion_name, datatype=XSD.string), metadata_graph)) 
+                g.add((col_inclusion_criteria_uri, RDFS.label, Literal(col, datatype=XSD.string), metadata_graph)) 
                 g.add((col_inclusion_criteria_uri, OntologyNamespaces.CMEO.value.has_value, Literal(inclusion_criteria_value, datatype=XSD.string), metadata_graph))
                 
     return g
@@ -425,10 +436,9 @@ def add_exclusion_criterion(g: Graph, row: pd.Series, study_uri: URIRef, eligibi
         dynamic_exclusion_criterion_type = URIRef(OntologyNamespaces.CMEO.value + "/" + exclusion_criterion_name)
         ec_all_values = row[col].lower().split(";") if pd.notna(row[col]) else ""
         for exclusion_criteria_value in ec_all_values:
-            exclusion_criteria_value = exclusion_criteria_value.lower().strip()
+            exclusion_criteria_value = exclusion_criteria_value.strip()
             if exclusion_criteria_value == "not applicable" or exclusion_criteria_value == "" or exclusion_criteria_value == None:
                 continue
-           
             col_exclusion_criteria_uri = URIRef(study_uri + "/" + exclusion_criterion_name)
             g.add((col_exclusion_criteria_uri, RDF.type, dynamic_exclusion_criterion_type, metadata_graph))
             g.add((col_exclusion_criteria_uri, OntologyNamespaces.RO.value.part_of, exclusion_criterion_uri, metadata_graph))
@@ -482,7 +492,7 @@ def update_metadata_graph(endpoint_url, cohort_uri, variable_uris, metadata_grap
     
     # Construct SPARQL `INSERT DATA` query
     inserts = "\n".join([f"<{study_variable_design_specification_uri}> <http://purl.obolibrary.org/obo/ro.owl/has_part> <{var}> ." for var in variable_uris])
-
+    # inserts = "\n".join([f"<{var}> <http://purl.obolibrary.org/obo/ro.owl/part_of> <{study_variable_design_specification_uri}> ." for var in variable_uris])
     query = f"""
         INSERT DATA {{
             GRAPH <{graph_uri}> {{
@@ -543,45 +553,6 @@ def reconstruct_metadata_graph(graph_uri, metadata_graph_path) -> None:
         save_graph_to_trig_file(g, metadata_graph_path)
     except Exception as e:
         print(f"Error querying the graph: {e}") 
-
-# def reconstruct_metadata_graph(graph_uri, metadata_graph_path):
-#     """
-#     Retrieves the entire contents of a named graph from GraphDB using the Graph Store Protocol.
-#     Saves the result as a TRiG file.
-
-#     :param repository_id: GraphDB repository ID
-#     :param graph_uri: URI of the named graph to query
-#     :param metadata_graph_path: Path to save the exported graph in TriG format
-#     """
-    
-#     print(f"Retrieving named graph from: {graph_uri}")
-
-#     headers = {"Accept": "application/trig"}  # Request TriG format
-
-#     try:
-#         # Send GET request to retrieve the graph
-#         response = requests.get(graph_uri, headers=headers, timeout=300)
-
-#         if response.status_code == 200:
-#             print(f"Successfully retrieved RDF data from {graph_uri}")
-
-#             # Parse the RDF data using rdflib
-#             g = rdflib.Graph()
-#             g.parse(data=response.text, format="trig")
-
-#             # Save the RDF graph as a .trig file
-#             with open(metadata_graph_path, "w", encoding="utf-8") as trig_file:
-#                 trig_file.write(response.text)
-
-#             print(f"Saved RDF data to {metadata_graph_path}")
-#             return True
-#         else:
-#             print(f"Failed to retrieve graph: {response.status_code}, {response.text}")
-#             return False
-
-#     except Exception as e:
-#         print(f"Error querying the graph: {e}")
-#         return False
 
 
 

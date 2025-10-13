@@ -821,7 +821,7 @@ def add_categories_to_graph(g: Graph, var_uri: URIRef, cohort_uri: URIRef, row: 
         categories = row['categorical'].lower().strip().split("|")
         print(f"categories: {categories}")
         updated_categories = []
-        
+        # Split categories by comma and strip whitespace
         # Parse categories as value=defined_value pairs
         for category in categories:
             try:
@@ -1114,6 +1114,7 @@ def add_composite_concepts_info(g: Graph, linked_uri: URIRef, concepts: list[Con
 
         g.add((code_set_uri, OntologyNamespaces.RO.value.has_part, code_uri,cohort_uri))
         g.add((code_uri, OntologyNamespaces.RO.value.is_part_of, code_set_uri,cohort_uri))
+        g.add((code_set_uri, RDF[f"_{i}"], code_uri, cohort_uri))
         # g.add((code_set_uri, RDF[f"_{i+
     # print(f"omop_id: {omop_id} for {linked_uri}")
     return g
@@ -1133,6 +1134,16 @@ def add_solo_concept_info(g: Graph, linked_uri: URIRef, concept: Concept, cohort
 
    
     
+    # code_set_uri = URIRef(f"{linked_uri}/code_set")
+    # g.add((code_set_uri, RDF.type, OntologyNamespaces.CMEO.value.code_set,cohort_uri))
+    # g.add((data_standardization_uri, OntologyNamespaces.OBI.value.has_specified_output, code_set_uri,cohort_uri))
+    # g.add((code_set_uri, OntologyNamespaces.OBI.value.is_specified_output_of, data_standardization_uri,cohort_uri))
+
+
+ 
+    # code = normalize_text(concept.code.strip())
+    # label = concept.standard_label.strip().replace("\n","")
+    # omop_id = concept.omop_id
     if concept.code is None or concept.standard_label is None or concept.omop_id is None:
         return g
     code = concept.code.strip()
@@ -1146,7 +1157,15 @@ def add_solo_concept_info(g: Graph, linked_uri: URIRef, concept: Concept, cohort
     g.add((code_uri, OntologyNamespaces.OBI.value.is_specified_output_of, data_standardization_uri,cohort_uri))
     g.add((data_standardization_uri, OntologyNamespaces.OBI.value.has_specified_output, code_uri,cohort_uri))
     g.add((code_uri, RDFS.label, Literal(label, datatype=XSD.string),cohort_uri))
-   
+    # standard_label_uri = get_standard_label_uri(linked_uri, label)
+    # g.add((standard_label_uri, RDF.type, OntologyNamespaces.CMEO.value.standard_label,cohort_uri))
+    # g.add((code_uri, OntologyNamespaces.OBI.value.is_denoted_by, standard_label_uri,cohort_uri))
+    
+  
+    # omop_id_uri = get_omop_id_uri(linked_uri, omop_id)
+    # g.add((omop_id_uri, RDF.type, OntologyNamespaces.CMEO.value.omop_id,cohort_uri))
+    # g.add((code_uri, OntologyNamespaces.IAO.value.denotes, omop_id_uri,cohort_uri))
+    # g.add((standard_label_uri, OntologyNamespaces.CMEO.value.has_value, Literal(label, datatype=XSD.string),cohort_uri))
     g.add((code_uri, OntologyNamespaces.CMEO.value.has_value, Literal(code, datatype=XSD.string),cohort_uri))
     omop_id_uri = URIRef(f"{OntologyNamespaces.OMOP.value}{omop_id}")
     g.add((omop_id_uri, RDF.type, OntologyNamespaces.CMEO.value.omop_id,cohort_uri))
@@ -1258,7 +1277,8 @@ def add_raw_data_graph(cohort_data_file_path, cohort_name) -> Graph:
                     print(f"Skipping row {i}: Missing patient ID.")
                     continue
 
-               
+                # Create unique URIs for the patient and participant identifier
+                # identifier_uri =  URIRef(OntologyNamespaces.OBI.value + f"participant_identifier/{patient_id}")
                 participant_under_investigation_role_uri = URIRef(OntologyNamespaces.OBI.value + f"participant_under_investigation_role/{patient_id}")
                 person_uri = URIRef(OntologyNamespaces.CMEO.value + f"person/{patient_id}")
                 # g.add((identifier_uri, RDF.type, OntologyNamespaces.CMEO.value.participant_identifier,cohort_graph))
@@ -1299,3 +1319,4 @@ def add_raw_data_graph(cohort_data_file_path, cohort_name) -> Graph:
     except Exception as e:
         print(f"Error processing raw data file: {e}")
         return None
+
