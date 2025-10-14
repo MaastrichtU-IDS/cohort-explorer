@@ -17,7 +17,6 @@ query_endpoint.setReturnFormat(JSON)
 # Set timeout to 300 seconds (5 minutes) for large queries
 query_endpoint.setTimeout(300)
 # Enable HTTP connection keep-alive for better performance
-query_endpoint.setHTTPAuth(None)  # Ensures urllib3 connection pooling
 query_endpoint.addCustomHttpHeader("Connection", "keep-alive")
 
 # CURIES converter docs: https://curies.readthedocs.io/en/latest/

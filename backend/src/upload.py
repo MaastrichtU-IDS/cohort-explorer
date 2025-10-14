@@ -187,7 +187,10 @@ def insert_triples(
     user: Any = Depends(get_current_user),
 ) -> None:
     """Insert triples about mappings for cohorts variables or variables categories into the triplestore"""
-    cohort_info = retrieve_cohorts_metadata(user["email"]).get(cohort_id)
+    # Use cache instead of SPARQL query for better performance
+    from src.cohort_cache import get_cohorts_from_cache
+    cohorts = get_cohorts_from_cache(user["email"])
+    cohort_info = cohorts.get(cohort_id)
     if not cohort_info:
         raise HTTPException(
             status_code=403,
@@ -645,8 +648,10 @@ async def upload_cohort(
 ) -> dict[str, Any]:
     """Upload a cohort metadata file to the server and add its variables to the triplestore."""
     user_email = user["email"]
-    cohort_info = retrieve_cohorts_metadata(user_email).get(cohort_id)
-    # cohorts = retrieve_cohorts_metadata(user_email)
+    # Use cache instead of SPARQL query for better performance
+    from src.cohort_cache import get_cohorts_from_cache
+    cohorts = get_cohorts_from_cache(user_email)
+    cohort_info = cohorts.get(cohort_id)
     if not cohort_info:
         raise HTTPException(
             status_code=403,
