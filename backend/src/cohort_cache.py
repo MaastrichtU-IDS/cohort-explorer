@@ -22,6 +22,12 @@ def get_cache_file_path() -> Path:
     cache_dir.mkdir(exist_ok=True)
     return cache_dir / "cohorts_cache.json"
 
+def get_cache_timestamp_file() -> Path:
+    """Get the path to the cache timestamp file (marks when service started)."""
+    cache_dir = Path(settings.data_folder) / "cache"
+    cache_dir.mkdir(exist_ok=True)
+    return cache_dir / ".cache_timestamp"
+
 def save_cache_to_disk() -> None:
     """Save the current cache to disk."""
     if not _cohorts_cache:
@@ -421,7 +427,7 @@ def create_cohort_from_dict_file(cohort_id: str, cohort_uri: URIRef, g: Dataset)
         logging.error(f"Error creating cohort from dictionary file: {e}")
         return None
 
-def initialize_cache_from_triplestore(admin_email: str = "admin@example.com") -> None:
+def initialize_cache_from_triplestore(admin_email: str | None = None, force_refresh: bool = False) -> None:
     """Initialize the cache from the triplestore.
     
     This function can be called independently of the triplestore initialization
@@ -429,12 +435,14 @@ def initialize_cache_from_triplestore(admin_email: str = "admin@example.com") ->
     Uses file-based locking to prevent multiple workers from initializing simultaneously.
     
     Args:
-        admin_email: Email to use for retrieving cohorts from the triplestore
+        admin_email: Email to use for retrieving cohorts from the triplestore. 
+                     If None, uses first admin from settings.
+        force_refresh: If True, forces re-initialization even if cache exists
     """
     global _cohorts_cache, _cache_initialized
     
-    # If already initialized, skip
-    if _cache_initialized:
+    # If already initialized and not forcing refresh, skip
+    if _cache_initialized and not force_refresh:
         logging.info("Cache already initialized, skipping")
         return
     
@@ -442,7 +450,12 @@ def initialize_cache_from_triplestore(admin_email: str = "admin@example.com") ->
     import time
     from src.config import settings
     
+    # Get admin email from settings if not provided
+    if admin_email is None:
+        admin_email = settings.admins_list[0] if settings.admins_list else ""
+    
     lock_file_path = os.path.join(settings.data_folder, ".cache_init.lock")
+    timestamp_file = get_cache_timestamp_file()
     
     # Try to acquire lock with timeout
     lock_file = None
@@ -479,6 +492,11 @@ def initialize_cache_from_triplestore(admin_email: str = "admin@example.com") ->
             add_cohort_to_cache(cohort)
         
         _cache_initialized = True
+        
+        # Write timestamp file to mark this initialization session
+        with open(timestamp_file, 'w') as f:
+            f.write(str(time.time()))
+        
         logging.info(f"Cache initialized with {len(cohorts)} cohorts from triplestore")
         
     except Exception as e:
@@ -497,16 +515,30 @@ def get_cohorts_from_cache(user_email: str) -> Dict[str, Cohort]:
     """Get all cohorts from the cache, updating the can_edit field based on user email."""
     global _cohorts_cache, _cache_initialized
     
-    if not _cache_initialized:
-        # Cache not initialized, load from disk if available
-        load_cache_from_disk()
+    import time
+    
+    # If cache is empty in this worker's memory
+    if not _cohorts_cache:
+        cache_file = get_cache_file_path()
+        timestamp_file = get_cache_timestamp_file()
         
-        # If still not initialized or empty, try to initialize from triplestore
-        if not _cohorts_cache:
+        # Check if we need to refresh cache (timestamp file doesn't exist = new service start)
+        if not timestamp_file.exists():
+            # New service start - force fresh initialization from triplestore
+            logging.info("New service start detected, initializing fresh cache from triplestore")
+            initialize_cache_from_triplestore(force_refresh=True)
+        elif cache_file.exists():
+            # Timestamp exists and cache file exists - load from disk (same session)
+            logging.info("Loading cache from disk for this worker")
+            load_cache_from_disk()
+        else:
+            # Timestamp exists but no cache file - initialize
+            logging.info("No cache file found, initializing from triplestore")
             initialize_cache_from_triplestore()
     
-    # If still not initialized or empty, return empty dict
+    # If still empty, return empty dict
     if not _cohorts_cache:
+        logging.warning("Cache is empty after initialization attempts")
         return {}
     
     # Create a copy of the cache with updated can_edit fields
@@ -523,9 +555,25 @@ def get_cohorts_from_cache(user_email: str) -> Dict[str, Cohort]:
     return result
 
 def is_cache_initialized() -> bool:
-    """Check if the cache has been initialized."""
-    global _cache_initialized
-    return _cache_initialized
+    """Check if the cache has been initialized.
+    
+    Checks both in-memory flag and disk cache file to handle multi-worker scenarios.
+    """
+    global _cache_initialized, _cohorts_cache
+    
+    # Check in-memory first
+    if _cache_initialized and _cohorts_cache:
+        return True
+    
+    # Check if cache file exists on disk (for multi-worker scenarios)
+    cache_file = get_cache_file_path()
+    if cache_file.exists():
+        # Try to load from disk if not already loaded
+        if not _cohorts_cache:
+            load_cache_from_disk()
+        return len(_cohorts_cache) > 0
+    
+    return False
 
 def clear_cache() -> None:
     """Clear the cache."""
