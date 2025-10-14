@@ -426,19 +426,51 @@ def initialize_cache_from_triplestore(admin_email: str = "admin@example.com") ->
     
     This function can be called independently of the triplestore initialization
     to ensure the cache is built even when the triplestore is not empty.
+    Uses file-based locking to prevent multiple workers from initializing simultaneously.
     
     Args:
         admin_email: Email to use for retrieving cohorts from the triplestore
     """
     global _cohorts_cache, _cache_initialized
     
-    # Clear the cache before initialization
-    clear_cache()
+    # If already initialized, skip
+    if _cache_initialized:
+        logging.info("Cache already initialized, skipping")
+        return
     
-    # Import here to avoid circular imports
-    from src.utils import retrieve_cohorts_metadata
+    import fcntl
+    import time
+    from src.config import settings
     
+    lock_file_path = os.path.join(settings.data_folder, ".cache_init.lock")
+    
+    # Try to acquire lock with timeout
+    lock_file = None
     try:
+        lock_file = open(lock_file_path, 'w')
+        # Try to acquire exclusive lock with timeout (non-blocking)
+        try:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            logging.info("Acquired cache initialization lock, starting initialization...")
+        except IOError:
+            # Another process is initializing, wait for it to finish
+            logging.info("Another worker is initializing cache, waiting...")
+            max_wait = 120  # Wait up to 2 minutes
+            start_wait = time.time()
+            while time.time() - start_wait < max_wait:
+                time.sleep(2)
+                if _cache_initialized or is_cache_initialized():
+                    logging.info("Cache initialized by another worker")
+                    return
+            logging.warning("Timeout waiting for cache initialization by another worker")
+            return
+        
+        # Clear the cache before initialization
+        clear_cache()
+        
+        # Import here to avoid circular imports
+        from src.utils import retrieve_cohorts_metadata
+        
         # Retrieve cohorts from the triplestore
         cohorts = retrieve_cohorts_metadata(admin_email)
         
@@ -448,8 +480,17 @@ def initialize_cache_from_triplestore(admin_email: str = "admin@example.com") ->
         
         _cache_initialized = True
         logging.info(f"Cache initialized with {len(cohorts)} cohorts from triplestore")
+        
     except Exception as e:
         logging.error(f"Error initializing cache from triplestore: {e}")
+    finally:
+        # Release lock
+        if lock_file:
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                lock_file.close()
+            except:
+                pass
 
 
 def get_cohorts_from_cache(user_email: str) -> Dict[str, Cohort]:
