@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from src.auth import get_current_user
 from src.config import settings
-from src.eda_scripts import c1_data_dict_check, c2_save_to_json, c3_eda_data_profiling #, c3_map_missing_do_not_run
+from src.eda_scripts import c1_data_dict_check, c2_save_to_json, c3_eda_data_profiling, shuffle_data
 from src.models import Cohort
 from src.utils import retrieve_cohorts_metadata
 from datetime import datetime
@@ -115,8 +115,14 @@ def identify_cohort_meta_schema(cohort):
 # https://docs.decentriq.com/sdk/python-getting-started
 def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
     """Initialize a Data Clean Room in Decentriq when a new cohort is uploaded"""
+    import time
+    start_time = time.time()
+    logging.info(f"[TIMING] Starting DCR provisioning for {cohort.cohort_id}")
+    
     # Establish connection to Decentriq
+    t0 = time.time()
     client = dq.create_client(settings.decentriq_email, settings.decentriq_token)
+    logging.info(f"[TIMING] Client creation took {time.time() - t0:.2f}s")
 
     # Creation of a Data Clean Room (DCR)
     dcr_title = f"iCARE4CVD DCR provision {cohort.cohort_id}"
@@ -160,6 +166,7 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
     )
 
     # Add scripts that perform EDA to get info about the dataset as a PNG image
+    t0 = time.time()
     builder.add_node_definition(
         PythonComputeNodeDefinition(name="c1_data_dict_check", script=c1_data_dict_check(cohort.cohort_id), dependencies=[metadata_node_id, data_node_id])
     )
@@ -173,6 +180,10 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
     builder.add_node_definition(
         PythonComputeNodeDefinition(name="c3_eda_data_profiling", script=c3_eda_data_profiling(cohort.cohort_id), dependencies=["c1_data_dict_check", "c2_save_to_json", metadata_node_id, data_node_id])
     )
+    builder.add_node_definition(
+        PythonComputeNodeDefinition(name="shuffle_data", script=shuffle_data(cohort.cohort_id), dependencies=[metadata_node_id, data_node_id])
+    )
+    logging.info(f"[TIMING] Adding 4 EDA script nodes took {time.time() - t0:.2f}s")
 
     # Add permissions for data owners
     all_participants = set(cohort.cohort_email)
@@ -188,27 +199,33 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
             participant,
             data_owner_of=[data_node_id, metadata_node_id],
             # Permission to run scripts:
-            analyst_of=["c1_data_dict_check", "c2_save_to_json", "c3_eda_data_profiling"],
+            analyst_of=["c1_data_dict_check", "c2_save_to_json", "c3_eda_data_profiling", "shuffle_data"],
         )
 
     if settings.decentriq_email not in all_participants:
         builder.add_participant(settings.decentriq_email, 
-                                analyst_of=["c1_data_dict_check", "c2_save_to_json", "c3_eda_data_profiling"],
+                                analyst_of=["c1_data_dict_check", "c2_save_to_json", "c3_eda_data_profiling", "shuffle_data"],
                                 data_owner_of=[metadata_node_id])
 
     # Build and publish DCR
+    t0 = time.time()
     dcr_definition = builder.build()
+    logging.info(f"[TIMING] Building DCR definition took {time.time() - t0:.2f}s")
 
     #for debugging:
     print("NOW INSIDE THE provision function!!!", datetime.now())
     print("User ", user)
     with open(f"dcr_{data_node_id}_representation.json", "w") as f:
         json.dump({ "dataScienceDataRoom": dcr_definition._get_high_level_representation() }, f)
+    
+    t0 = time.time()
     dcr = client.publish_analytics_dcr(dcr_definition)
+    logging.info(f"[TIMING] Publishing DCR to Decentriq took {time.time() - t0:.2f}s")
     dcr_url = f"https://platform.decentriq.com/datarooms/p/{dcr.id}"
 
     # Now the DCR has been created we can upload the metadata file and run computations
     try:
+        t0 = time.time()
         key = dq.Key()  # generate an encryption key with which to encrypt the dataset
         metadata_node = dcr.get_node(metadata_node_id)
         
@@ -220,6 +237,7 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
         if not metadata_file_to_upload or not os.path.exists(metadata_file_to_upload):
              raise FileNotFoundError(f"Physical metadata CSV file for cohort {cohort.cohort_id} not found at expected path: {metadata_file_to_upload or '[No path determined]'}")
 
+        t1 = time.time()
         metadata_noheader_filepath = metadata_file_to_upload.split(".")[0] + "_noHeader.csv"
         with open(metadata_file_to_upload, "rb") as data:
             header = data.readline()
@@ -228,8 +246,13 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
         with open( metadata_noheader_filepath, "wb") as data_noheader:
             data_noheader.write(restfile)
         os.sync()
+        logging.info(f"[TIMING] Preparing metadata file (removing header) took {time.time() - t1:.2f}s")
+        
+        t1 = time.time()
         with open(metadata_noheader_filepath, "rb") as data_noheader:
             metadata_node.upload_and_publish_dataset(data_noheader, key, f"{metadata_node_id}.csv")
+        logging.info(f"[TIMING] Uploading and publishing metadata to DCR took {time.time() - t1:.2f}s")
+        logging.info(f"[TIMING] Total metadata upload process took {time.time() - t0:.2f}s")
 
     except FileNotFoundError as e:
         logging.error(f"Decentriq DCR provisioning: Metadata file not found for cohort {cohort.cohort_id}. Detail: {e}")
@@ -256,6 +279,8 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
                       "User": user["email"], "Prov Time":str(datetime.now()),
                       "Metadata file path":cohort.metadata_filepath})
 
+    total_time = time.time() - start_time
+    logging.info(f"[TIMING] *** TOTAL DCR provisioning for {cohort.cohort_id} took {total_time:.2f}s ***")
 
     return {
         "message": f"Data Clean Room for {cohort.cohort_id} provisioned at {dcr_url}",

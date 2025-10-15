@@ -37,6 +37,8 @@ query_endpoint = SPARQLWrapper(settings.query_endpoint)
 query_endpoint.setReturnFormat(JSON)
 # Set timeout to 300 seconds (5 minutes) for large queries
 query_endpoint.setTimeout(300)
+# Enable HTTP connection keep-alive for better performance
+query_endpoint.addCustomHttpHeader("Connection", "keep-alive")
 
 # CURIES converter docs: https://curies.readthedocs.io/en/latest/
 # Using URIs from from https://bioregistry.io/
@@ -129,8 +131,14 @@ def init_graph(default_graph_identifier: str | None = "https://w3id.org/CMEO/gra
 
 def run_query(query: str) -> dict[str, Any]:
     """Function to run a SPARQL query against a remote endpoint"""
+    import time
+    start = time.time()
     query_endpoint.setQuery(query)
-    return query_endpoint.query().convert()
+    result = query_endpoint.query().convert()
+    duration = time.time() - start
+    if duration > 1.0:  # Log queries taking more than 1 second
+        logging.warning(f"[TIMING] SPARQL query took {duration:.2f}s")
+    return result
 
 
 def get_cohorts_metadata_query() -> str:
