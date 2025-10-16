@@ -31,7 +31,7 @@ class OntologyNamespaces(Enum):
     RO = Namespace("http://purl.obolibrary.org/obo/ro.owl/")
     IAO = Namespace("http://purl.obolibrary.org/obo/iao.owl/")
     TIME = Namespace("http://www.w3.org/2006/time#")
-    SIO = Namespace("http://semanticscience.org/ontology/sio/v1.59/sio-release.owl#")
+    SIO = Namespace("http://semanticscience.org/ontology/sio.owl/")
 
 query_endpoint = SPARQLWrapper(settings.query_endpoint)
 query_endpoint.setReturnFormat(JSON)
