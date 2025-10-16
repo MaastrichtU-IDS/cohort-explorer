@@ -401,14 +401,14 @@ def get_curie_value(key: str, row: dict[str, Any]) -> str | None:
 
 def get_studies_metadata_query() -> str:
     """Get SPARQL query for retrieving studies/cohorts metadata (from sparql_queries.txt)."""
-    # Load the first query from CohortVarLinker/queries/sparql_queries.txt (lines 3-291)
+    # Load the first query from CohortVarLinker/queries/sparql_queries.txt (lines 3-290)
     import os
     query_file = os.path.join(os.path.dirname(__file__), '..', 'CohortVarLinker', 'queries', 'sparql_queries.txt')
     with open(query_file, 'r') as f:
         lines = f.readlines()
-        # Extract lines 3-291 (study metadata query)
+        # Extract lines 3-290 (study metadata query including final GROUP BY)
         # Lines 1-2 are comments, so we skip them
-        query = ''.join(lines[2:290])  # 0-indexed, so lines[2:290] = lines 3-290
+        query = ''.join(lines[2:291])  # 0-indexed, so lines[2:291] = lines 3-290 (inclusive)
     return query
 
 
@@ -419,12 +419,12 @@ def get_variables_metadata_query() -> str:
     query_file = os.path.join(os.path.dirname(__file__), '..', 'CohortVarLinker', 'queries', 'sparql_queries.txt')
     with open(query_file, 'r') as f:
         lines = f.readlines()
-        # Extract lines 298-542 (variables metadata query)
+        # Extract lines 298-542 (variables metadata query including final ORDER BY)
         # Line 295 says "# Query to Retrieve Variables Metadata from All studies"
         # Line 296 says "it takes 70 seconds with oxigraph"
         # Line 297 is blank
-        # Line 298 starts with PREFIX
-        query = ''.join(lines[297:542])  # 0-indexed
+        # Line 298 starts with PREFIX, line 542 ends with ORDER BY
+        query = ''.join(lines[297:543])  # 0-indexed, so lines[297:543] = lines 298-542 (inclusive)
     return query
 
 
