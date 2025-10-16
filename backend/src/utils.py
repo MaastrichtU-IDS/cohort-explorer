@@ -446,20 +446,23 @@ def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = F
     start_time = time.time()
     
     # ===== STEP 1: Execute Studies Metadata Query =====
+    logging.info("🔍 Starting studies metadata query...")
     studies_query_start = time.time()
     studies_results = run_query(get_studies_metadata_query())["results"]["bindings"]
     studies_query_duration = time.time() - studies_query_start
-    logging.info(f"Studies metadata query: {studies_query_duration:.2f}s, {len(studies_results)} results")
+    logging.info(f"✅ Studies metadata query completed: {studies_query_duration:.2f}s, {len(studies_results)} results")
     
     # ===== STEP 2: Execute Variables Metadata Query =====
+    logging.info("🔍 Starting variables metadata query...")
     variables_query_start = time.time()
     variables_results = run_query(get_variables_metadata_query())["results"]["bindings"]
     variables_query_duration = time.time() - variables_query_start
-    logging.info(f"Variables metadata query: {variables_query_duration:.2f}s, {len(variables_results)} results")
+    logging.info(f"✅ Variables metadata query completed: {variables_query_duration:.2f}s, {len(variables_results)} results")
     
     total_query_duration = studies_query_duration + variables_query_duration
     
     # ===== STEP 3: Process Studies Metadata =====
+    logging.info(f"📊 Processing {len(studies_results)} study metadata rows...")
     cohorts = {}
     
     for row in studies_results:
@@ -525,29 +528,36 @@ def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = F
                     cohorts[cohort_id].physical_dictionary_exists = False
                     
         except Exception as e:
-            logging.warning(f"Error processing study row {row}: {e}")
+            logging.warning(f"Error processing study row: {e}")
+    
+    logging.info(f"✅ Studies processing completed: {len(cohorts)} cohorts created")
     
     # ===== STEP 4: Process Variables Metadata =====
-    # Group variables by study
+    logging.info(f"📊 Processing {len(variables_results)} variable metadata rows...")
+    
+    # Create a mapping for faster lookup (case-insensitive)
+    cohort_id_map = {cid.lower(): cid for cid in cohorts.keys()}
+    
+    variables_processed = 0
     for row in variables_results:
         try:
             # Extract study name from the query result
             study_name = get_value("study_name", row)
             var_name = get_value("var_name", row)
             
-            # Match study_name to cohort_id (they should be the same or similar)
-            # Find the matching cohort
-            cohort_id = None
-            for cid in cohorts.keys():
-                if cid.lower() == study_name.lower() or study_name.lower() in cid.lower():
-                    cohort_id = cid
-                    break
+            # Fast lookup using pre-built map
+            cohort_id = cohort_id_map.get(study_name.lower())
+            
+            if not cohort_id:
+                # Try partial match as fallback
+                for lower_cid, actual_cid in cohort_id_map.items():
+                    if study_name.lower() in lower_cid or lower_cid in study_name.lower():
+                        cohort_id = actual_cid
+                        break
             
             if not cohort_id:
                 # If we can't find a match, use study_name as cohort_id
                 cohort_id = study_name
-                
-            # If cohort doesn't exist yet (shouldn't happen), skip or create skeleton
             if cohort_id not in cohorts:
                 logging.warning(f"Variable for unknown cohort: {cohort_id}")
                 continue
@@ -602,9 +612,12 @@ def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = F
                     na=0,  # Not in new query
                     categories=categories
                 )
+                variables_processed += 1
                 
         except Exception as e:
             logging.warning(f"Error processing variable row: {e}")
+    
+    logging.info(f"✅ Variables processing completed: {variables_processed} variables added")
     
     # ===== STEP 5: Separate cohorts with and without variables =====
     cohorts_with_variables = {k: v for k, v in cohorts.items() if v.variables}
