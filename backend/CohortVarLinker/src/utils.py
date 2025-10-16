@@ -1,4 +1,4 @@
-from rdflib import Dataset, Namespace,Graph, RDF, RDFS, URIRef, DC
+from rdflib import Dataset, Namespace,Graph, RDF, RDFS, URIRef, DC, Literal
 from SPARQLWrapper import SPARQLWrapper, JSON
 from urllib.parse import quote
 import pandas as pd
@@ -9,6 +9,7 @@ import os
 import re
 import urllib.parse
 from enum import Enum
+
 
 
 from datetime import datetime
@@ -33,6 +34,7 @@ class OntologyNamespaces(Enum):
     OMOP_EXT = Namespace("http://omop.org/omopextension/")
     OWL = Namespace("http://www.w3.org/2002/07/owl#")
     OBI = Namespace("http://purl.obolibrary.org/obo/obi.owl/")
+    OBCS = Namespace("http://purl.obolibrary.org/obo/obcs.owl/")
     BFO = Namespace("http://purl.obolibrary.org/obo/bfo.owl/")
     STATO = Namespace("http://purl.obolibrary.org/obo/stato.owl/")
     DEFAULT_VALUE = 'Unmapped'
@@ -41,12 +43,23 @@ class OntologyNamespaces(Enum):
     RO = Namespace("http://purl.obolibrary.org/obo/ro.owl/")
     IAO = Namespace("http://purl.obolibrary.org/obo/iao.owl/")
     TIME = Namespace("http://www.w3.org/2006/time#")
-    SIO = Namespace("http://semanticscience.org/ontology/sio/v1.59/sio-release.owl#")
+    SIO = Namespace("http://semanticscience.org/ontology/sio.owl/")
+    ICD10 = Namespace("http://purl.bioontology.org/ontology/ICD10/")
+    ICD9 = Namespace("http://purl.bioontology.org/ontology/ICD9CM/")
+    DUO = Namespace("http://purl.obolibrary.org/obo/duo.owl/")
+    NCBI = Namespace("http://purl.bioontology.org/ontology/NCBITAXON/")
     # UCUM = Namespace("http://purl.bioontology.org/ontology/UCUM/")
     # RXNORM = Namespace("http://purl.bioontology.org/ontology/RXNORM/")
 
 
 
+STUDY_TYPES = {
+    "observational study": URIRef(f"{OntologyNamespaces.CMEO.value}observational_study_design"),
+    "randomized controlled trial": URIRef(f"{OntologyNamespaces.CMEO.value}randomized_controlled_trial_design"),
+    "RCT": URIRef(f"{OntologyNamespaces.CMEO.value}randomized_controlled_trial_design"),
+    "federated database": URIRef(f"{OntologyNamespaces.CMEO.value}federated_database"),
+    "single-arm cross-over randomized intervention": URIRef(f"{OntologyNamespaces.CMEO.value}single_arm_cross_over_design"),
+}
 
 
 
@@ -57,6 +70,45 @@ def normalize_text(text: str) -> str:
     return urllib.parse.quote(text, safe='_-')
 
 
+# def publish_graph_in_chunks(g: Graph, graph_uri: str | None = None, chunk_size: int = 50000) -> bool:
+#     """
+#     Insert the graph into the triplestore endpoint in chunks.
+    
+#     :param g: RDF Graph (rdflib.Graph)
+#     :param graph_uri: The named graph URI (optional)
+#     :param chunk_size: Number of triples per chunk
+#     :return: True if all chunks are uploaded successfully, False otherwise
+#     """
+#     url = f"{settings.sparql_endpoint}/store"
+#     if graph_uri:
+#         url += f"?graph={graph_uri}"
+#         print(f"URL: {url}")
+
+#     headers = {"Content-Type": "application/trig"}
+#     total_triples = len(g)
+#     print(f"Total triples: {total_triples}")
+
+#     success = True
+#     chunk_graph = Graph()
+    
+#     for i, triple in enumerate(g):
+#         chunk_graph.add(triple)
+
+#         # Upload when chunk reaches chunk_size or at the last iteration
+#         if len(chunk_graph) >= chunk_size or i == total_triples - 1:
+#             with tempfile.NamedTemporaryFile(delete=False, suffix=".trig") as tmp_file:
+#                 chunk_graph.serialize(tmp_file.name, format="trig")
+#                 with open(tmp_file.name, "rb") as file:
+#                     response = requests.post(url, headers=headers, data=file, timeout=300)
+#                     print(f"Chunk {i//chunk_size + 1}: Response {response.status_code}")
+#                     if not response.ok:
+#                         print(f"Failed to upload chunk: {response.status_code}, {response.text}")
+#                         success = False
+            
+#             # Clear the chunk_graph for the next batch
+#             chunk_graph = Graph()
+
+#     return success
 
 def init_graph(default_graph_identifier: str | None = "https://w3id.org/CMEO/graph/studies_metadata") -> Dataset:
     """Initialize a new RDF graph for nquads with the voc namespace bindings."""
@@ -65,7 +117,14 @@ def init_graph(default_graph_identifier: str | None = "https://w3id.org/CMEO/gra
     g.bind("bfo", OntologyNamespaces.BFO.value)
     g.bind("obi", OntologyNamespaces.OBI.value)
     g.bind("stato", OntologyNamespaces.STATO.value)
+    g.bind("obcs", OntologyNamespaces.OBCS.value)
     g.bind("rdf", RDF)
+    g.bind("iao", OntologyNamespaces.IAO.value)
+    g.bind("ro", OntologyNamespaces.RO.value)
+    g.bind("time", OntologyNamespaces.TIME.value)
+    g.bind("sio", OntologyNamespaces.SIO.value)
+    g.bind("duo", OntologyNamespaces.DUO.value)
+    g.bind("ncbi", OntologyNamespaces.NCBI.value)  
     g.bind("rdfs", RDFS)
     # g.bind("omop", OMOP)
     g.bind("dc", DC)
@@ -81,6 +140,16 @@ def init_graph(default_graph_identifier: str | None = "https://w3id.org/CMEO/gra
     g.graph(identifier=URIRef(default_graph_identifier))
     return g
 
+# create log file and add log function
+
+# def log(message: str) -> None:
+#     """Append a log message to the log file with a timestamp."""
+#     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+#     log_message = f"{timestamp} - {message}\n"
+#     with open(settings.logs_filepath, "a") as log_file:
+#         log_file.write(log_message)
+#         log_file.flush()    
+    
 # def sanitize(value: str) -> str:
 #     """Sanitizes the input value for URI safety."""
 #     if value is None:
@@ -211,6 +280,43 @@ def is_categorical_variable(df):
     # print(f"categorical columns: ({len(multi_class_categorical)})")
     return binary_categorical, multi_class_categorical
 
+# def get_standard_label_uri(var_uri: URIRef, base_entity_label: str) -> URIRef:
+#     safe_base_entity_label = normalize_text(base_entity_label)
+#     return URIRef(f"{var_uri}/standard_label/{safe_base_entity_label}")
+
+
+# def get_code_uri(var_uri: URIRef, code: str) -> URIRef:
+#     # safe_base_entity_label = sanitize(base_entity_label)
+#     return URIRef(f"{var_uri}/code/{code}")
+
+# def get_omop_id_uri(var_uri: URIRef, omop_id: str) -> URIRef:
+#     # safe_base_entity_label = sanitize(base_entity_label)
+#     if omop_id == "" or omop_id is None:
+#         print("OMOP ID is empty")
+#     return URIRef(f"{var_uri}/omop_id/{omop_id}")
+
+# def get_category_uri(var_uri: URIRef, category_value: str) -> URIRef:
+#     """Generates a unique and URI-safe URI for each category based on the variable URI and category value."""
+#     # Encode the category value to make it URI-safe
+#     safe_category_value = normalize_text(category_value) # This will replace unsafe characters with % encoding
+#     return URIRef(f"{var_uri}/category/{safe_category_value}")
+
+
+# def get_context_uri(var_uri: str | URIRef, context_id: str) -> URIRef: 
+#     safe_context_id = normalize_text(context_id)
+#     return URIRef(f"{var_uri!s}/context/{safe_context_id}")
+
+# def get_temporal_context_uri(var_uri: str | URIRef, temporal_context_id: str) -> URIRef:
+#     safe_temporal_context_id = normalize_text(temporal_context_id)
+#     return URIRef(f"{var_uri!s}/visit/{safe_temporal_context_id}")
+
+# def get_measurement_unit_uri(var_uri: str | URIRef, unit_label: str) -> URIRef:
+#     if unit_label is None:
+#         print("Unit label is None")
+#     safe_unit_label = normalize_text(unit_label)
+#     return URIRef(f"{var_uri!s}/unit/{safe_unit_label}")
+
+
 def safe_int(value):
     """Safely convert a value to an integer, returning None if the value is invalid."""
     try:
@@ -221,178 +327,397 @@ def safe_int(value):
 
 
 
+# Read a small part of the file to detect encoding
+
+# def detect_code(file_path: str) -> str:
+#     with open(file_path, 'rb') as f:
+#         # Read the first 10,000 bytes of the file for detection
+#         rawdata = f.read(10000)
+#     result = chardet.detect(rawdata)
+#     print(result)
+#     if 'encoding' in result and result['encoding']:
+#         return result
+#     else:
+#         raise ValueError("Encoding detection failed, no valid encoding found.")
+    
+    
+
+
+# def add_optional_literal(
+#     graph: Graph, 
+#     uri: URIRef, 
+#     predicate: URIRef, 
+#     row: pd.Series, 
+#     column: str, 
+#     datatype=XSD.string, 
+#     graph_context: URIRef = None
+# ) -> None:
+#     """
+#     Adds a literal to the graph if the value exists in the row.
+
+#     :param graph: RDF Graph
+#     :param uri: URIRef to which the literal is attached
+#     :param predicate: RDF predicate
+#     :param row: Pandas Series representing the row
+#     :param column: Column name in the row
+#     :param datatype: XSD datatype for the literal
+#     :param graph_context: Specific graph/context to add the triple to
+#     """
+#     value = row.get(column)
+#     if pd.notna(value) and value != "":
+#         if datatype == XSD.boolean:
+#             if isinstance(value, str):
+#                 value = value.strip().lower()
+#                 if value in ['yes', 'true', '1']:
+#                     literal_value = True
+#                 elif value in ['no', 'false', '0']:
+#                     literal_value = False
+#                 else:
+#                     print(f"Warning: Unrecognized boolean value '{value}' in column '{column}'. Skipping.")
+#                     return
+#             else:
+#                 literal_value = bool(value)
+#         elif datatype == XSD.integer:
+#             try:
+#                 literal_value = safe_int(value)
+#             except ValueError:
+#                 print(f"Warning: Cannot convert value '{value}' to integer for column '{column}'. Skipping.")
+#                 return
+#         elif datatype == XSD.decimal:
+#             try:
+#                 literal_value = float(value)
+#             except ValueError:
+#                 print(f"Warning: Cannot convert value '{value}' to decimal for column '{column}'. Skipping.")
+#                 return
+#         else:
+#             literal_value = normalize_text(value)
+        
+#         if literal_value is not None:
+#             if graph_context:
+#                 graph.add((uri, predicate, Literal(literal_value, datatype=datatype), graph_context))
+#                 print(f"Added triple: {uri} {predicate} {literal_value} in graph {graph_context}")
+#             else:
+#                 graph.add((uri, predicate, Literal(literal_value, datatype=datatype)))
+#                 print(f"Added triple: {uri} {predicate} {literal_value}")
+#     return  graph
+
+
+
+# def apply_rules(domain, src_info, tgt_info):
+#     def parse_categories(cat_str):
+#         if pd.notna(cat_str) and cat_str not in [None, '']:
+#             return [c.strip().lower() for c in str(cat_str).split(";")]
+#         return []
+
+#     print(f"src_info: {src_info}  tgt_info: {tgt_info}")
+#     src_var_name = src_info.get('var_name', '').lower()
+#     tgt_var_name = tgt_info.get('var_name', '').lower()
+#     src_type = str(src_info.get('stats_type')).lower() if pd.notna(src_info.get('stats_type')) and src_info.get('stats_type') not in [None, ''] else None
+#     tgt_type = str(tgt_info.get('stats_type')).lower() if pd.notna(tgt_info.get('stats_type')) and tgt_info.get('stats_type') not in [None, ''] else None
+
+#     src_unit = str(src_info.get('unit', '').lower() if pd.notna(src_info.get('unit', '')) else None)
+#     tgt_unit = str(tgt_info.get('unit', '').lower() if pd.notna(tgt_info.get('unit', '')) else None)
+#     src_data_type = str(src_info.get('data_type', '').lower() if pd.notna(src_info.get('data_type', '')) else None)
+#     tgt_data_type = str(tgt_info.get('data_type', '').lower() if pd.notna(tgt_info.get('data_type', '')) else None)
+#     src_categories = parse_categories(src_info.get('categories', ''))
+#     tgt_categories = parse_categories(tgt_info.get('categories', ''))
+
+#     valid_types = {"continuous_variable", "binary_class_variable", "multi_class_variable", "qualitative_variable"}
+#     if src_type not in valid_types or tgt_type not in valid_types:
+#         if "derived" not in src_var_name and "derived" not in tgt_var_name:
+#             return {
+#                 "rule": "Transformation not applicable (invalid or missing statistical type).",
+#                 "source_categories": "; ".join(src_categories),
+#                 "target_categories": "; ".join(tgt_categories)
+#             }
+
+#     # Handle domains
+#     if "|" in domain:
+#         domains = domain.split("|")
+#         for d in domains:
+#             if d.strip() not in domains:
+#                 return {
+#                     "rule": "Transformation not applicable for given domain(s).",
+#                     "source_categories": "; ".join(src_categories),
+#                     "target_categories": "; ".join(tgt_categories)
+#                 }
+
+#     if src_type == tgt_type:
+#         if src_type == "continuous_variable":
+#             if src_unit and tgt_unit and src_unit != tgt_unit:
+#                 if (src_unit in ["mg", "milligram"] and tgt_unit in ["%", "percent"]) or \
+#                    (src_unit in ["%", "percent"] and tgt_unit in ["mg", "milligram"]):
+#                     return {
+#                         "rule": "Unit conversion required (e.g., mg to %).",
+#                         "source_categories": "",
+#                         "target_categories": ""
+#                     }
+#                 return {
+#                     "rule": "Unit conversion required. Evaluate based on research question.",
+#                     "source_categories": "",
+#                     "target_categories": ""
+#                 }
+#             return {
+#                 "rule": "No transformation required. Continuous types and units match.",
+#                 "source_categories": "",
+#                 "target_categories": ""
+#             }
+#         elif set(src_categories) == set(tgt_categories):
+#             return {
+#                 "rule": "No transformation required. Source and target categorical values match.",
+#                 "source_categories": "; ".join(src_categories),
+#                 "target_categories": "; ".join(tgt_categories)
+#             }
+#         else:
+#             return {
+#                 "rule": (
+#                     "Alignment of categorical values required. Source and target differ. "
+#                     "Map categories semantically across datasets."
+#                 ),
+#                 "source_categories": "; ".join(src_categories),
+#                 "target_categories": "; ".join(tgt_categories)
+#             }
+
+#     if (
+#         (src_type == "binary_class_variable" and tgt_type == "multi_class_variable") or
+#         (src_type == "multi_class_variable" and tgt_type == "binary_class_variable")
+#     ):
+#         msg = (
+#             "Convert multi-class to binary class. Accept only justified information loss. "
+#             "For drug-related variables, consider therapy details and surrounding context."
+#             if domain in ["drug_exposure", "drug_era"]
+#             else "Convert multi-class to binary class. Information loss must be justified."
+#         )
+#         return {
+#             "rule": msg,
+#             "source_categories": "; ".join(src_categories),
+#             "target_categories": "; ".join(tgt_categories)
+#         }
+
+#     if (
+#         (src_type == "continuous_variable" and tgt_type in {"binary_class_variable", "multi_class_variable"}) or
+#         (tgt_type == "continuous_variable" and src_type in {"binary_class_variable", "multi_class_variable"})
+#     ):
+#         if src_data_type == "datetime" or tgt_data_type == "datetime":
+#             return {
+#                 "rule": "Convert datetime to binary indicator (presence/absence).",
+#                 "source_categories": "; ".join(src_categories),
+#                 "target_categories": "; ".join(tgt_categories)
+#             }
+#         msg = (
+#             "Discretize continuous variable to categories. Acceptable only if information loss is minimal. "
+#             "Represent as: (1) binary flag for event presence, (2) category of event type."
+#             if domain not in ["drug_exposure", "drug_era"]
+#             else "Harmonization may not be possible for drug-related continuous ↔ categorical mappings. Review therapy context."
+#         )
+#         return {
+#             "rule": msg,
+#             "source_categories": "; ".join(src_categories),
+#             "target_categories": "; ".join(tgt_categories)
+#         }
+
+#     if src_type in {"binary_class_variable", "multi_class_variable"} and tgt_type == "qualitative_variable":
+#         return {
+#             "rule": (
+#                 "Map structured categorical codes to consistent text labels. Requires normalization. "
+#                 "Only suitable for qualitative fields with finite, structured values."
+#             ),
+#             "source_categories": "; ".join(src_categories),
+#             "target_categories": ""
+#         }
+
+#     if src_type == "qualitative_variable" and tgt_type in {"binary_class_variable", "multi_class_variable"}:
+#         return {
+#             "rule": (
+#                 "Map qualitative text to standard categories. Normalize and encode. "
+#                 "Applicable only if text values are consistently structured."
+#             ),
+#             "source_categories": "",
+#             "target_categories": "; ".join(tgt_categories)
+#         }
+
+#     return {
+#         "rule": "No specific transformation rule matched.",
+#         "source_categories": "; ".join(src_categories),
+#         "target_categories": "; ".join(tgt_categories)
+#     }
+
+
+
+def build_label_mapping(src_labels_str,src_codes_str,  tgt_labels_str, tgt_codes_str,):
+
+
+    def parse_list(v):
+        if v in (None, "") or (isinstance(v, float) and pd.isna(v)):
+            return []
+        return [str(x).strip() for x in str(v).split(";") if str(x).strip()]
+
+    # code -> label
+    def c2l(codes, labels):
+        return {c:l for c,l in zip(parse_list(codes), parse_list(labels)) if c and l}
+   
+    src_c2l = c2l(src_codes_str, src_labels_str)
+    tgt_c2l = c2l(tgt_codes_str, tgt_labels_str)
+
+    # label -> [codes] (case-insensitive key, but keep a pretty label)
+    def l2codes(c2l_):
+        lab2codes, pretty = {}, {}
+        for c, l in c2l_.items():
+            k = l.lower()
+            lab2codes.setdefault(k, []).append(c)
+            pretty.setdefault(k, l)
+        for k in lab2codes:
+            lab2codes[k].sort()
+        return lab2codes, pretty
+
+    src_lab2codes, src_pretty = l2codes(src_c2l)
+    tgt_lab2codes, tgt_pretty = l2codes(tgt_c2l)
+
+    overlap_keys = sorted(set(src_lab2codes) & set(tgt_lab2codes))
+
+    # Build readable mapping and a deterministic code→code map (choose first target code per label)
+    items, code_map = [], {}
+    for k in overlap_keys:
+        label = src_pretty.get(k, tgt_pretty.get(k, k))
+        s_codes = src_lab2codes[k]
+        t_codes = tgt_lab2codes[k]
+        items.append(f"{label}: {', '.join(s_codes)}<->{', '.join(t_codes)}")
+        # choose first source code and first target code for a compact map
+        code_map[s_codes[0]] = t_codes[0]
+
+    unmapped_src_labels = sorted(src_pretty[k] for k in src_lab2codes.keys() - set(overlap_keys))
+    unmapped_tgt_labels = sorted(tgt_pretty[k] for k in tgt_lab2codes.keys() - set(overlap_keys))
+
+    identical = (set(src_lab2codes) == set(tgt_lab2codes)) and all(
+        len(src_lab2codes[k]) == len(tgt_lab2codes[k]) for k in overlap_keys
+    )
+
+    return {
+        "mapping_str": "; ".join(items) if items else None,
+        "code_map": code_map,  # e.g., {"2": "3", "5": "6"}
+        "overlap_labels": [src_pretty[k] for k in overlap_keys],
+        "unmapped_source_labels": "; ".join(unmapped_src_labels),
+        "unmapped_target_labels": "; ".join(unmapped_tgt_labels),
+        "has_overlap": bool(overlap_keys),
+        "identical": identical,
+    }
 
 
 def apply_rules(domain, src_info, tgt_info):
-    def parse_categories(cat_str):
-        if pd.notna(cat_str) and cat_str not in [None, '']:
-            return [c.strip().lower() for c in str(cat_str).split(";")]
-        return []
+    import pandas as pd
 
-    def map_category_to_code(code_str:list, label_str:list):
-        codes = [c.strip() for c in code_str]
-        labels = [l.strip().lower() for l in label_str]
-        # Returns a dict: label → code
-        return {code: label for code, label in zip(codes, labels) if code and label}
+    def norm_or_none(x):
+        return str(x).strip().lower() if (x not in (None, "") and not pd.isna(x)) else None
+
+    src_type = norm_or_none(src_info.get('stats_type'))
+    tgt_type = norm_or_none(tgt_info.get('stats_type'))
+    src_unit = norm_or_none(src_info.get('unit'))
+    tgt_unit = norm_or_none(tgt_info.get('unit'))
+    src_data_type = norm_or_none(src_info.get('data_type'))
+    tgt_data_type = norm_or_none(tgt_info.get('data_type'))
     
-    print(f"src_info: {src_info}  tgt_info: {tgt_info}")
-    src_var_name = src_info.get('var_name', '').lower()
-    tgt_var_name = tgt_info.get('var_name', '').lower()
-    src_type = str(src_info.get('stats_type')).lower() if pd.notna(src_info.get('stats_type')) and src_info.get('stats_type') not in [None, ''] else None
-    tgt_type = str(tgt_info.get('stats_type')).lower() if pd.notna(tgt_info.get('stats_type')) and tgt_info.get('stats_type') not in [None, ''] else None
-
-    src_unit = str(src_info.get('unit', '').lower() if pd.notna(src_info.get('unit', '')) else None)
-    tgt_unit = str(tgt_info.get('unit', '').lower() if pd.notna(tgt_info.get('unit', '')) else None)
-    src_data_type = str(src_info.get('data_type', '').lower() if pd.notna(src_info.get('data_type', '')) else None)
-    tgt_data_type = str(tgt_info.get('data_type', '').lower() if pd.notna(tgt_info.get('data_type', '')) else None)
-    src_categories = parse_categories(src_info.get('categories_codes', ''))
-    tgt_categories = parse_categories(tgt_info.get('categories_codes', ''))
-    original_src_categories = parse_categories(src_info.get('original_categories', ''))
-    original_tgt_categories = parse_categories(tgt_info.get('original_categories', ''))
- 
     valid_types = {"continuous_variable", "binary_class_variable", "multi_class_variable", "qualitative_variable"}
-    if src_type not in valid_types or tgt_type not in valid_types:
-        if "derived" not in src_var_name and "derived" not in tgt_var_name:
-            return {
-                "description": "Transformation not applicable (invalid or missing statistical type)."
-            }, "Not Applicable"
+    if (src_type not in valid_types or tgt_type not in valid_types) or (src_type is None or tgt_type is None):
+        return {"description": "Transformation not applicable (invalid or missing statistical type)."}, "Not Applicable"
 
-    elif src_type == tgt_type:
+    # --- same type
+    if src_type == tgt_type:
         if src_type == "continuous_variable":
             if src_unit and tgt_unit and src_unit != tgt_unit:
-                # if (src_unit in ["mg", "milligram"] and tgt_unit in ["%", "percent"]) or \
-                #    (src_unit in ["%", "percent"] and tgt_unit in ["mg", "milligram"]):
                 return {
-                        "description": "Unit conversion in dataset required from {src_unit} to {tgt_unit} or vice versa.",
-                    }, "Complete Match (Compatible)"
-                # return {
-                #     "description": "Unit conversion required. Evaluate based on research question."
-                # }
-            return {
-                "description": "No transformation required. Continuous types and units match."
-            }, "Complete Match (Identical)"
-        elif set(src_categories) == set(tgt_categories):
-            src_pairs = map_category_to_code(src_categories, original_src_categories)
-            tgt_pairs = map_category_to_code(tgt_categories, original_tgt_categories)
+                    "description": f"Unit conversion in dataset required from {src_unit} to {tgt_unit} (or vice versa)."
+                }, "Complete Match (Compatible)"
+            return {"description": "No transformation required. Continuous types and units match."}, "Complete Match (Identical)"
 
-            print(f"src_label_to_code: {src_pairs}")
-            print(f"tgt_label_to_code: {tgt_pairs}")
-            # Try to match on label (case-insensitive)
-            common_codes = set(src_pairs) & set(tgt_pairs)
+        # categorical/qualitative — align by labels
+        m = build_label_mapping(
+            src_info.get('categories_labels', ''),
+            src_info.get('original_categories', ''),
+            tgt_info.get('categories_labels', ''),
+            tgt_info.get('original_categories', '')
+        )
 
-            if common_codes:
-                if set(original_src_categories) == set(original_tgt_categories):
-                    mapping_str = [f"{sl} ↔ {tl}" for sl, tl in zip(original_src_categories, original_tgt_categories)]
-                    print(f"mapping_str: {mapping_str}")
-                    return {
-                        "description": "Categorical values are identical and aligned by standard codes.",
-                        "categorical_mapping": "; ".join(mapping_str),
-                        "standard_codes": "; ".join(common_codes) if common_codes else "No common codes found",
-                    }, "Complete Match (Identical)"
-                else:
-                    mapping_str = [f"{sl} -> {tl}" for sl, tl in zip(src_pairs.values(), tgt_pairs.values())]
-                    print(f"mapping_str: {mapping_str}")
-                    return {
-                        "description": f"The original categorical values are not similar however aligned by standard codes.",
-                        "categorical_mapping": "; ".join(mapping_str),
-                        "standard_codes": "; ".join(common_codes) if common_codes else "No common codes found",
-                    }, "Complete Match (Compatible)"
+        if m["has_overlap"]:
+            if m["identical"]:
+                return {
+                    "description": "Categorical values are identical and aligned by standard labels.",
+                    "categorical_mapping": m["mapping_str"],
+                    "standard_labels": "; ".join(sorted(m["overlap_labels"]))
+                }, "Complete Match (Identical)"
             else:
-                
                 return {
-                    "description": "Found no matching standard labels for categories values. Mapping/review is required for harmonization.",
-                    "source_categories": "; ".join(src_categories),
-                    "target_categories": "; ".join(tgt_categories)
-                }, "Partial Match (Tentative)"
-           
-    elif (
-        (src_type == "binary_class_variable" and tgt_type == "multi_class_variable") or
-        (src_type == "multi_class_variable" and tgt_type == "binary_class_variable")
-    ):
-        print(f"src_categories: {src_categories} and tgt_categories: {tgt_categories} for vars {src_var_name} and {tgt_var_name}")
-        msg = (
-            "multi-class to binary class requires justification of information loss for specific research question. For drug-related variables, consider therapy details and surrounding context."
-            if domain in ["drug_exposure", "drug_era"]
-            else "Both variables don't share similar categories. The conversion of multi-class to binary class (e.g. yes/no) requires justification of information loss for specific research question."
-        )
-        
-        # src_codes = map_category_to_code(src_categories, original_src_categories)
-        # tgt_codes = map_category_to_code(tgt_categories, original_tgt_categories)
-        
-        # check if src code exists in tgt codes
-        
-         # Check if all source categories exist in target categories or vice versa
-        if (src_type == "multi_class_variable" and tgt_type == "binary_class_variable"):
-            proximate_ok = set(tgt_categories).issubset(set(src_categories))
-        elif (src_type == "binary_class_variable" and tgt_type == "multi_class_variable"):
-            proximate_ok = set(src_categories).issubset(set(tgt_categories))
+                    "description": "Original categorical values differ but overlap on standard labels.",
+                    "categorical_mapping": m["mapping_str"],
+                    "unmapped_source_labels": m["unmapped_source_labels"],
+                    "unmapped_target_labels": m["unmapped_target_labels"]
+                }, "Complete Match (Compatible)"
         else:
-            proximate_ok = False
-        if proximate_ok:
             return {
-                "description": f"Both variables share some categories. Expand binary categories in one variable by extending with additional categories from other variables",
-                "source_categories": "; ".join([f"{s} <-> {t}" for s, t in zip(src_categories, original_src_categories)]),
-                "target_categories": "; ".join([f"{s} <-> {t}" for s, t in zip(tgt_categories, original_tgt_categories)])
-            }, "Partial Match (Proximate)"
-        else:   
-            return {
-                "description": msg,
-                "source_categories": "; ".join([f"{s} <-> {t}" for s, t in zip(src_categories, original_src_categories)]),
-                "target_categories": "; ".join([f"{s} <-> {t}" for s, t in zip(tgt_categories, original_tgt_categories)])
+                "description": "No overlap in standard labels between categorical values; mapping/review required.",
+                "source_labels": "; ".join(sorted(set([v for v in (src_info.get('original_categories','') or '').split(';') if v.strip()]))),
+                "target_labels": "; ".join(sorted(set([v for v in (tgt_info.get('original_categories','') or '').split(';') if v.strip()])))
             }, "Partial Match (Tentative)"
 
-    elif (
-        (src_type == "continuous_variable" and tgt_type in {"binary_class_variable", "multi_class_variable"}) or
-        (tgt_type == "continuous_variable" and src_type in {"binary_class_variable", "multi_class_variable"})
-    ):
-        if src_data_type == "datetime" or tgt_data_type == "datetime":
-            return {
-                "description": "Convert datetime to binary indicator (presence/absence) if needed.",
-                "source_categories": "; ".join(src_categories),
-                "target_categories": "; ".join(tgt_categories)
-            }, "Partial Match (Tentative)"
-        msg = (
-            "Discretize continuous variable to categories. Acceptable only if information loss is minimal. Represent as: (1) binary flag for event presence, (2) category of event type."
-            if domain not in ["drug_exposure", "drug_era"]
-            else "Harmonization may not be possible for drug-related continuous to categorical mappings. Review medication normalization depending on research question."
+    # --- binary vs multi-class
+    if ((src_type == "binary_class_variable" and tgt_type == "multi_class_variable") or
+        (src_type == "multi_class_variable" and tgt_type == "binary_class_variable")):
+        m = build_label_mapping(
+            src_info.get('categories_codes', ''),
+            src_info.get('original_categories', ''),
+            tgt_info.get('categories_codes', ''),
+            tgt_info.get('original_categories', '')
         )
-        return {
-            "description": msg,
-            "source_categories": "; ".join(src_categories),
-            "target_categories": "; ".join(tgt_categories)
-        }, "Partial Match (Tentative)"
+        msg = ("Multi-class <-> binary conversion requires justification of information loss. "
+               "For drug-related variables, consider therapy details and context."
+               if domain in ["drug_exposure", "drug_era"]
+               else "Multi-class ↔ binary conversion requires justification of information loss for the specific research question.")
 
-    elif src_type in {"binary_class_variable", "multi_class_variable"} and tgt_type == "qualitative_variable":
-        return {
-            "description": (
-                "Map structured categorical codes to consistent/unique text labels. Requires normalization."
-                "Only suitable for qualitative fields with finite, structured values."
-            ),
-            "source_categories": "; ".join(src_categories),
-            "target_categories": ""
-        }, "Partial Match (Tentative)"
+        # proximate if the smaller label set ⊆ larger label set
+        # (use labels for subset check; overlap already built)
+        src_labels = set(l.lower() for l in m["overlap_labels"]) | set(
+            x.strip().lower() for x in (src_info.get('categories_codes','') or '').split(';') if x.strip()
+        )
+        tgt_labels = set(l.lower() for l in m["overlap_labels"]) | set(
+            x.strip().lower() for x in (tgt_info.get('categories_codes','') or '').split(';') if x.strip()
+        )
 
-    elif src_type == "qualitative_variable" and tgt_type in {"binary_class_variable", "multi_class_variable"}:
-        return {
-            "description": (
-                "Map qualitative text to standard categories. Normalize and encode."
-                "Applicable only if text values are consistently structured."
-            ),
-            "source_categories": "",
-            "target_categories": "; ".join(tgt_categories)
-        }, "Partial Match (Tentative)"
-    elif src_type == "qualitative_variable" and tgt_type == "continuous_variable" or src_type == "continuous_variable" and tgt_type == "qualitative_variable":
-        return {
-            "description": (
-                "Map qualitative text to binary indicators."
-                "Applicable only if text values are consistently structured."
-            ),
-            "source_categories": "",
-            "target_categories": "; ".join(tgt_categories)
-        }, "Partial Match (Tentative)"
-    return {
-        "description": "No specific transformation rule available."
-    }, "Not Applicable"
+        if (src_type == "binary_class_variable" and src_labels.issubset(tgt_labels) and len(src_labels) > 0) or \
+           (tgt_type == "binary_class_variable" and tgt_labels.issubset(src_labels) and len(tgt_labels) > 0):
+            categorical_mapping = m["mapping_str"] if m["has_overlap"] and m["mapping_str"] else None
+            if categorical_mapping: 
+                return {
+                    "description": "Binary categories are a subset of multi-class categories; expansion/aggregation is possible.",
+                    "categorical_mapping": categorical_mapping
+                }, "Partial Match (Proximate)"
+            else:
+                return {
+                    "description": msg,
+                    "categorical_mapping": None,
+                    "unmapped_source_labels": m["unmapped_source_labels"],
+                    "unmapped_target_labels": m["unmapped_target_labels"]
+                }, "Not Applicable"
+
+    # --- continuous vs categorical
+    if ((src_type == "continuous_variable" and tgt_type in {"binary_class_variable", "multi_class_variable"}) or
+        (tgt_type == "continuous_variable" and src_type in {"binary_class_variable", "multi_class_variable"})):
+        if src_data_type == "datetime" or tgt_data_type == "datetime":
+            return {"description": "Unable to align datetime to binary/multi-class indicator."}, "Not Applicable"
+        msg = ("Discretize continuous variable to categories only if information loss is minimal (e.g., event flag or type)."
+               if domain not in ["drug_exposure", "drug_era"]
+               else "Avoid continuous→categorical harmonization for drug-related variables unless strongly justified.")
+        status = "Not Applicable" if domain in ["drug_exposure", "drug_era"] else "Partial Match (Tentative)"
+        return {"description": msg}, status
+
+    # --- qualitative vs categorical/continuous
+    if (src_type in {"binary_class_variable", "multi_class_variable"} and tgt_type == "qualitative_variable"):
+        return {"description": "Map structured categorical codes to consistent text labels; normalize values."}, "Partial Match (Tentative)"
+    if (src_type == "qualitative_variable" and tgt_type in {"binary_class_variable", "multi_class_variable"}):
+        return {"description": "Normalize qualitative text to standard categories; encode to labels/codes."}, "Partial Match (Tentative)"
+    if ((src_type == "qualitative_variable" and tgt_type == "continuous_variable") or
+        (src_type == "continuous_variable" and tgt_type == "qualitative_variable")):
+        return {"description": "Map qualitative text to binary indicators only if values are consistently structured."}, "Partial Match (Tentative)"
+
+    return {"description": "No specific transformation rule available."}, "Not Applicable"
 
 
 
@@ -470,10 +795,38 @@ def graph_exists(graph_uri: str | URIRef):
     return results['boolean']
 
 
+def check_triple_exists(graph_uri: str | URIRef, subject: URIRef, predicate: URIRef, obj: URIRef | Literal):
+    query = f"""
+    ASK WHERE {{
+        GRAPH <{graph_uri!s}> {{ <{subject}> <{predicate}> {f'<{obj}>' if isinstance(obj, URIRef) else f'"{obj}"'} }}
+    }}
+    """
+    print(f"Checking if triple exists: {query}")
+    query_endpoint = SPARQLWrapper(settings.query_endpoint)
+    query_endpoint.setReturnFormat(JSON)
+    query_endpoint.setQuery(query)
+    results = query_endpoint.query().convert()
+    # print(f"Triple exists: {results['boolean']}")
+    return results['boolean']
     
 
 
-    
+def add_triples_to_graph(graph: Graph, triples: list, graph_context: URIRef = None) -> None:
+    """
+    Adds a list of triples to the graph, optionally under a specific graph context.
+
+    :param graph: RDF Graph
+    :param triples: List of triples (subject, predicate, object)
+    :param graph_context: Specific graph/context to add the triples to
+    """
+    for subj, pred, obj in triples:
+        if graph_context:
+            graph.add((subj, pred, obj, graph_context))
+            print(f"Added triple: {subj} {pred} {obj} in graph {graph_context}")
+        else:
+            graph.add((subj, pred, obj))
+            print(f"Added triple: {subj} {pred} {obj}")
+    return graph
 
 
 
@@ -519,39 +872,36 @@ def publish_graph_to_endpoint(g: Graph, graph_uri: str | None = None) -> bool:
     return response.ok
 
 
-def variable_exists(cohort_uri, variable_name) -> bool:
-    sparql = SPARQLWrapper(settings.sparql_endpoint)
-    variable_name = normalize_text(variable_name)
-    sparql.setReturnFormat(JSON)
 
+def find_related_studies(study_name:str) -> list[str]:
     query = f"""
-            PREFIX cmeo: <https://w3id.org/CMEO/>
-            PREFIX bfo: <http://purl.obolibrary.org/obo/bfo.owl/>
-            PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-            PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-            PREFIX dc: <http://purl.org/dc/elements/1.1/>
-            ASK WHERE {{
-                GRAPH <{cohort_uri}> {{
-                    ?variable rdf:type cmeo:data_element ;
-                            dc:identifier "{variable_name}" ;
-                            bfo:is_part_of ?variable_spec_uri .
-                }}
-            }}
+
+    PREFIX dc:  <http://purl.org/dc/elements/1.1/>
+    PREFIX ro:  <http://purl.obolibrary.org/obo/ro.owl/>
+
+    SELECT DISTINCT ?parent_name
+    WHERE {{
+    GRAPH <https://w3id.org/CMEO/graph/studies_metadata> {{
+        VALUES (?q) { (study_name) }
+        ?design dc:identifier ?study_name .
+        FILTER(LCASE(STR(?study_name)) = LCASE(?q))
+
+        # Only true parents of the design (protocol is not linked this way)
+        ?design (ro:has_part|ro:part_of) ?parent_design .
+        ?parent_design dc:identifier ?parent_name .
+    }}
+    }}
     """
-    # print(f"Query: {query}")        
-        # print(f"SPARQL Query: {query}")
+    sparql = SPARQLWrapper(settings.query_endpoint)
+    sparql.setReturnFormat(JSON)
     sparql.setQuery(query)
-    # print(f"Query: {query}")
     results = sparql.query().convert()
     
-   # print(f"Results: {results}")
-    if results['boolean'] == True:
-        print(f"Variable {variable_name} exists in the graph.")
-    return results['boolean']
-
-
-
-
+    related_studies = []
+    if results['results']['bindings']:
+        for binding in results['results']['bindings']:
+            related_studies.append(binding['parent_name']['value'])
+    return related_studies
 def load_dictionary( filepath=None) -> pd.DataFrame:
         """Loads the input dataset."""
         if filepath.endswith('.sav'):
@@ -568,7 +918,9 @@ def load_dictionary( filepath=None) -> pd.DataFrame:
             return df_input
         else:
             return None
-            
+   
+   
+         
 def export_hierarchy_to_excel(hierarchy: dict, label_map: dict, output_file: str):
  
  rows = []
@@ -589,3 +941,65 @@ def export_hierarchy_to_excel(hierarchy: dict, label_map: dict, output_file: str
         })
  df.to_excel(output_file, index=False)
  print(f"[INFO] Hierarchy exported to {output_file}")
+ 
+ 
+ 
+
+def create_code_uri(code:str, cohort_uri: URIRef) -> URIRef:
+    code_only = code.split(":")[-1]
+    code_only_encoded = quote(code_only, safe='')
+    if 'snomed' in code or 'snomedct' in code:
+        code_uri = URIRef(f"{OntologyNamespaces.SNOMEDCT.value}{code_only_encoded}")
+    elif 'icd9' in code:
+        code_uri = URIRef(f"{OntologyNamespaces.ICD9.value}{code_only_encoded}")
+    elif 'icd10' in code:
+        code_uri = URIRef(f"{OntologyNamespaces.ICD10.value}{code_only_encoded}")
+    elif 'loinc' in code:
+        code_uri = URIRef(f"{OntologyNamespaces.LOINC.value}{code_only_encoded}")
+    elif 'ucum' in code:
+        code_uri = URIRef(f"{OntologyNamespaces.UCUM.value}{code_only_encoded}")
+    elif 'rxnorm' in code:
+        code_uri = URIRef(f"{OntologyNamespaces.RXNORM.value}{code_only_encoded}")
+    elif 'atc' in code:
+        code_uri = URIRef(f"{OntologyNamespaces.ATC.value}{code_only_encoded}")
+    elif 'omop' in code:
+        code_uri = URIRef(f"{OntologyNamespaces.OMOP.value}{code_only_encoded}")
+    else:
+        code_uri = URIRef(f"{cohort_uri}/{code_only_encoded}")
+    return code_uri
+    
+def insert_graph_into_named_graph(g_new: Graph, graph_uri: str, chunk_size: int = 500) -> None:
+    """
+    Append triples from g_new into an existing named graph using SPARQL UPDATE INSERT DATA.
+    Does NOT delete/replace existing data.
+
+    :param g_new: rdflib.Graph containing only the new triples to insert
+    :param graph_uri: target named graph URI (string)
+    :param chunk_size: number of triples per INSERT batch (avoid huge updates)
+    """
+    # Convert the new triples to N-Triples lines (safe to embed in SPARQL)
+    nt_bytes = g_new.serialize(format="nt")
+    nt_str = nt_bytes.decode("utf-8") if isinstance(nt_bytes, (bytes, bytearray)) else nt_bytes
+
+    lines = [ln for ln in nt_str.splitlines() if ln.strip()]
+    if not lines:
+        print("No new triples to insert.")
+        return
+
+    sparql = SPARQLWrapper(settings.update_endpoint)
+    sparql.setMethod("POST")
+    sparql.setRequestMethod("urlencoded")
+
+    # Chunk the payload into multiple INSERT DATA blocks
+    for i in range(0, len(lines), chunk_size):
+        block = "\n".join(lines[i:i+chunk_size])
+        query = f"""
+        INSERT DATA {{
+          GRAPH <{graph_uri}> {{
+            {block}
+          }}
+        }}
+        """
+        sparql.setQuery(query)
+        res = sparql.query()
+        print(f"Inserted {min(i+chunk_size, len(lines))}/{len(lines)} triples; HTTP {res.response.status}")
