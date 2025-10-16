@@ -1,11 +1,16 @@
 import glob
 import logging
+import math
 import os
+import re
 import shutil
+import csv
+import json
 from datetime import datetime
-from re import sub
+from enum import Enum
+from pathlib import Path
 from typing import Any
-
+from re import sub
 import pandas as pd
 import requests
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
@@ -13,13 +18,58 @@ from rdflib import XSD, Dataset, Graph, Literal, URIRef
 from rdflib.namespace import DC, RDF, RDFS
 from SPARQLWrapper import SPARQLWrapper
 
-from src.auth import get_current_user
 from src.config import settings
-from src.decentriq import create_provision_dcr
+from src.auth import get_current_user
+from src.utils import (
+    ICARE,
+    curie_converter,
+    get_cohorts_metadata_query,
+    init_graph,
+    OntologyNamespaces,
+    normalize_text,
+    retrieve_cohorts_metadata,
+    run_query
+)
+from src.cohort_cache import add_cohort_to_cache, clear_cache, create_cohort_from_dict_file, create_cohort_from_metadata_graph
+from src.decentriq import create_provision_dcr, metadatadict_cols_schema1
 from src.mapping_generation.retriever import map_csv_to_standard_codes
-from src.utils import ICARE, curie_converter, init_graph, prefix_map, retrieve_cohorts_metadata, run_query
 
 router = APIRouter()
+
+
+def update_upload_log(upload_data: dict):
+    """Update the upload log with structured data similar to provision_dcr logging"""
+    try:
+        upload_log_file = os.path.join(settings.data_folder, "upload_dictionary_log.jsonl")
+        with open(upload_log_file, "r") as f:
+            log = json.load(f)
+            log.append(upload_data)
+    except (FileNotFoundError, json.JSONDecodeError):
+        log = [upload_data]
+    
+    with open(upload_log_file, "w") as f:
+        json.dump(log, f, indent=2, default=str)
+
+
+def log_upload_event_csv(upload_data: dict):
+    """Log upload events to CSV file for easy analysis"""
+    upload_events_log = os.path.join(settings.data_folder, "upload_dictionary_events.csv")
+    
+    # Define the fieldnames for the CSV
+    fieldnames = [
+        "timestamp", "cohort_id", "user_email", "filename", "file_size_bytes", 
+        "total_rows", "total_variables", "errors_count", "success", "processing_time_seconds",
+        "source", "graph_triples_count"
+    ]
+    
+    # Check if file exists to determine if we need to write headers
+    file_exists = os.path.exists(upload_events_log)
+    
+    with open(upload_events_log, 'a', newline='') as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        if not file_exists:
+            writer.writeheader()
+        writer.writerow(upload_data)
 
 
 def publish_graph_to_endpoint(g: Graph, graph_uri: str | None = None) -> bool:
@@ -46,6 +96,7 @@ def delete_existing_triples(graph_uri: str | URIRef, subject="?s", predicate="?p
     query_endpoint = SPARQLWrapper(settings.update_endpoint)
     query_endpoint.setMethod("POST")
     query_endpoint.setRequestMethod("urlencoded")
+    query_endpoint.setTimeout(300)  # 5 minutes timeout
     
     try:
         # Count triples before deletion (for logging)
@@ -57,6 +108,7 @@ def delete_existing_triples(graph_uri: str | URIRef, subject="?s", predicate="?p
         """
         count_endpoint = SPARQLWrapper(settings.query_endpoint)
         count_endpoint.setReturnFormat("json")
+        count_endpoint.setTimeout(300)  # 5 minutes timeout
         count_endpoint.setQuery(count_query)
         count_results = count_endpoint.query().convert()
         triples_before = count_results["results"]["bindings"][0]["count"]["value"]
@@ -100,6 +152,33 @@ def get_category_uri(var_uri: str | URIRef, category_id: str) -> URIRef:
     return URIRef(f"{var_uri!s}/category/{category_id}")
 
 
+def get_latest_datadictionary(cohort_folder_path: str) -> str | None:
+    """
+    Get the latest datadictionary file from a cohort folder.
+    
+    Args:
+        cohort_folder_path: Path to the cohort folder
+        
+    Returns:
+        Path to the latest datadictionary file or None if no datadictionary file is found
+    """
+    if not os.path.isdir(cohort_folder_path):
+        return None
+        
+    # Select most recent CSV file with 'datadictionary' in the name
+    csv_candidates = [
+        f for f in glob.glob(os.path.join(cohort_folder_path, "*.csv"))
+        if ("datadictionary" in os.path.basename(f).lower()
+        and "noheader" not in os.path.basename(f).lower())
+    ]
+    
+    if not csv_candidates:
+        return None
+        
+    # Pick the most recently modified file
+    return max(csv_candidates, key=os.path.getmtime)
+
+
 # TODO
 @router.post(
     "/insert-triples",
@@ -116,7 +195,10 @@ def insert_triples(
     user: Any = Depends(get_current_user),
 ) -> None:
     """Insert triples about mappings for cohorts variables or variables categories into the triplestore"""
-    cohort_info = retrieve_cohorts_metadata(user["email"]).get(cohort_id)
+    # Use cache instead of SPARQL query for better performance
+    from src.cohort_cache import get_cohorts_from_cache
+    cohorts = get_cohorts_from_cache(user["email"])
+    cohort_info = cohorts.get(cohort_id)
     if not cohort_info:
         raise HTTPException(
             status_code=403,
@@ -150,6 +232,7 @@ def insert_triples(
     query_endpoint = SPARQLWrapper(f"{settings.sparql_endpoint}/update")
     query_endpoint.setMethod("POST")
     query_endpoint.setRequestMethod("urlencoded")
+    query_endpoint.setTimeout(300)  # 5 minutes timeout
     query_endpoint.setQuery(query)
     query_endpoint.query()
 
@@ -174,68 +257,108 @@ def parse_categorical_string(s: str) -> list[dict[str, str]]:
         )
     return result
 
-cols_normalized = {"VARIABLENAME": "VARIABLE NAME", 
-                   "VARIABLELABEL": "VARIABLE LABEL",
-                   "VARTYPE": "VAR TYPE"}
-
-COLUMNS_LIST = [
-    "VARIABLE NAME",
-    "VARIABLE LABEL",
-    "VAR TYPE",
-    "UNITS",
-    "CATEGORICAL",
-    "COUNT",
-#    "NA",
-#    "MIN",
-#    "MAX",
-#    "Definition",
-#    "Formula",
-#    "OMOP",
-#    "Visits",
-]
+cols_normalized = {"VARIABLE NAME": "VARIABLENAME", 
+                   "VARIABLE LABEL": "VARIABLELABEL",
+                   "VAR TYPE": "VARTYPE",
+                   "CATEGORICALVALUECONCEPTCODE": "CATEGORICAL VALUE CONCEPT CODE"}
 
 ACCEPTED_DATATYPES = ["STR", "FLOAT", "INT", "DATETIME"]
 
 def to_camelcase(s: str) -> str:
+    # Special case mappings for variable concept fields
+    special_mappings = {
+        "VARIABLE CONCEPT CODE": "conceptCode",
+        "VARIABLE CONCEPT NAME": "conceptName",
+        "VARIABLE OMOP ID": "omopId",
+        "VARIABLENAME": "variableName",
+        "VARIABLELABEL": "variableLabel",
+        "VARTYPE": "varType",
+    }
+    
+    # Check if the uppercase string is in our special mappings
+    if s.upper() in special_mappings:
+        return special_mappings[s.upper()]
+    
+    # Otherwise, use the standard camelCase conversion
     s = sub(r"(_|-)+", " ", s).title().replace(" ", "")
     return "".join([s[0].lower(), s[1:]])
 
 
-def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
-    """Parse the cohort dictionary uploaded as excel or CSV spreadsheet, and load it to the triplestore"""
-    print(f"NOW PROCESSING DICTIONARY FILE FOR COHORT: {cohort_id} \nFile path: {dict_path}")
+
+def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user_email: str = None, filename: str = None) -> Dataset:
+    """Parse the cohort dictionary uploaded as excel or CSV spreadsheet, and load it to the triplestore
+    
+    Also updates the cohort cache with the new data.
+    """
+    # Initialize logging variables
+    start_time = datetime.now()
+    file_size_bytes = 0
+    total_rows = 0
+    total_variables = 0
+    errors = []
+    success = False
+    graph_triples_count = 0
+    
+    # Get file information for logging
+    if os.path.exists(dict_path):
+        file_size_bytes = os.path.getsize(dict_path)
+    
+    print(f"NOW PROCESSING DICTIONARY FILE FOR COHORT: {cohort_id} \nFile path: {dict_path} - source: {source}")
+    
+    # Log the start of processing for upload dictionary calls
+    if source == "upload_dict":
+        logging.info(f"Starting dictionary upload processing for cohort {cohort_id} by user {user_email}. File: {filename}, Size: {file_size_bytes} bytes")
+    
     if not dict_path.endswith(".csv"):
-        raise HTTPException(
-            status_code=422,
-            detail="Only CSV files are supported. Please convert your file to CSV and try again.",
-        )
-    errors: list[str] = []
-    warnings: list[str] = []
+        error_msg = "Only CSV files are supported. Please convert your file to CSV and try again."
+        if source == "upload_dict":
+            # Log the failure
+            log_data = {
+                "timestamp": start_time,
+                "cohort_id": cohort_id,
+                "user_email": user_email or "system",
+                "filename": filename or os.path.basename(dict_path),
+                "file_size_bytes": file_size_bytes,
+                "total_rows": 0,
+                "total_variables": 0,
+                "errors_count": 1,
+                "success": False,
+                "processing_time_seconds": (datetime.now() - start_time).total_seconds(),
+                "source": source,
+                "graph_triples_count": 0
+            }
+            log_upload_event_csv(log_data)
+            update_upload_log({**log_data, "errors": [error_msg]})
+        raise HTTPException(status_code=422, detail=error_msg)
     
     try:
         df = pd.read_csv(dict_path, na_values=[""], keep_default_na=False)
         df = df.dropna(how="all") # Drop rows where all cells are NA
         df = df.fillna("") # Fill remaining NA with empty string
         
-        # Normalize column names (uppercase, specific substitutions)
-        df.columns = [cols_normalized.get(c.upper().strip(), c.upper().strip()) for c in df.columns]
-
-        # --- Structural Validation: Check for required columns ---
-        missing_critical_columns = False
-        # Define columns absolutely essential for the row-processing logic to run without KeyErrors
-        critical_column_names_for_processing = {"VARIABLE NAME", "VARIABLE LABEL", "VAR TYPE", "CATEGORICAL"} 
+        # Capture data metrics for logging
+        total_rows = len(df)
+        total_variables = len(df['VARIABLENAME'].unique()) if 'VARIABLENAME' in df.columns else 0
         
-        for required_col_name in COLUMNS_LIST:
+        # Normalize column names (uppercase, specific substitutions)
+        #df.columns = [cols_normalized.get(c.upper().strip(), c.upper().strip().replace("VALUES", "VALUE")) for c in df.columns]
+        df.columns = [cols_normalized.get(c.upper().strip(), c.upper().strip()) for c in df.columns]
+        # print(f"POST NORMALIZATION -- COHORT {cohort_id} -- Columns: {df.columns}")
+        # --- Structural Validation: Check for required columns ---
+        # Define columns absolutely essential for the row-processing logic to run without KeyErrors
+        #critical_column_names_for_processing = [c.name.upper().strip() for c in metadatadict_cols_schema1 if c.name.upper().strip() != "VISITS"]
+        critical_column_names_for_processing = [c.name.upper().strip() for c in metadatadict_cols_schema1]
+        missing_columns = []
+        for required_col_name in critical_column_names_for_processing:
             if required_col_name not in df.columns:
-                errors.append(f"Missing required column: '{required_col_name}'")
-                if required_col_name in critical_column_names_for_processing:
-                    missing_critical_columns = True
+                missing_columns.append(required_col_name)
         
         # If critical columns are missing, further processing is unreliable or will cause crashes.
         # Report all errors found so far (which will include all missing column messages) and stop.
-        if missing_critical_columns:
-            errors.append("Critical columns are missing. Further detailed validation of rows cannot proceed.")
-            raise HTTPException(status_code=422, detail="\n\n".join(errors))
+        if len(missing_columns) > 0:
+            errors.append(f"Missing required columns: {', '.join(missing_columns)}")
+            if source == "upload_dict":
+                raise HTTPException(status_code=422, detail="\n\n".join(errors))
 
         # --- Content Pre-processing (assuming critical columns are present) ---
         try:
@@ -245,26 +368,34 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
             # If this parsing fails, we might still be able to report other errors, so don't raise immediately
             # unless it's the only error. The final check `if len(errors) > 0` will handle it.
 
-        df["VAR TYPE"] = df.apply(lambda row: str(row["VAR TYPE"]).upper(), axis=1)
+        df["VARTYPE"] = df.apply(lambda row: str(row["VARTYPE"]).upper(), axis=1)
 
         # --- Content Validation: DataFrame-level and Row-level ---
-        duplicate_variables = df[df.duplicated(subset=["VARIABLE NAME"], keep=False)]
+        duplicate_variables = df[df.duplicated(subset=["VARIABLENAME"], keep=False)]
         if not duplicate_variables.empty:
-            errors.append(f"Duplicate VARIABLE NAME found: {', '.join(duplicate_variables['VARIABLE NAME'].unique())}")
+            errors.append(f"Duplicate VARIABLENAME found: {', '.join(duplicate_variables['VARIABLENAME'].unique())}")
 
         for i, row in df.iterrows():
-            var_name_for_error = row.get("VARIABLE NAME", f"UNKNOWN_VAR_ROW_{i+2}")
+            var_name_for_error = row.get("VARIABLENAME", f"UNKNOWN_VAR_ROW_{i+2}")
 
             # Check if required values are present in rows (for critical columns)
-            if not row["VARIABLE NAME"] or not row["VARIABLE LABEL"] or not row["VAR TYPE"]:
-                errors.append(f"Row {i+2} (Variable: '{var_name_for_error}') is missing required data in 'VARIABLE NAME', 'VARIABLE LABEL', or 'VAR TYPE'.")
+            req_fields = ["VARIABLENAME", "VARIABLELABEL", "VARTYPE", "DOMAIN"]
+            for rf in req_fields:
+                if not row[rf].strip():
+                    errors.append(f"Row {i+2} (Variable: '{var_name_for_error}') is missing value for the required field: '{rf}'.")
             
-            if row["VAR TYPE"] not in ACCEPTED_DATATYPES:
+            if row["VARTYPE"] not in ACCEPTED_DATATYPES:
                 errors.append(
-                    f"Row {i+2} (Variable: '{var_name_for_error}') has an invalid data type: '{row['VAR TYPE']}'. Accepted types: {', '.join(ACCEPTED_DATATYPES)}."
+                    f"Row {i+2} (Variable: '{var_name_for_error}') has an invalid data type: '{row['VARTYPE']}'. Accepted types: {', '.join(ACCEPTED_DATATYPES)}."
                 )
 
-            # Handle Category validation (from 'categories' column created by parse_categorical_string)
+            acc_domains = ["condition_occurrence", "visit_occurrence", "procedure_occurrence", "measurement", "drug_exposure", "device_exposure", "person", "observation", "observation_period", "death", "specimen", "condition_era"]
+            if row['DOMAIN'].strip().lower() not in acc_domains:
+                errors.append(
+                    f'Row {i+2} (Variable: "{var_name_for_error}") has an invalid domain: "{row["DOMAIN"]}". Accepted domains: {", ".join(acc_domains)}.'
+                )
+
+            # Handle "codes" columns validation (from 'categories' column created by parse_categorical_string)
             # Ensure 'categories' column exists and is a list before checking its length or content
             current_categories = row.get("categories")
             if isinstance(current_categories, list):
@@ -280,15 +411,18 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
                     if categories_codes_str: # Only process if there's content
                         categories_codes = categories_codes_str.split("|")
                         if len(categories_codes) != len(current_categories) and current_categories: # check if categories were successfully parsed
-                             warnings.append(
+                             errors.append(
                                  f"Row {i+2} (Variable: '{var_name_for_error}'): The number of category concept codes ({len(categories_codes)}) does not match the number of parsed categories ({len(current_categories)})."
                              )
-                        else:
+                        else: 
                             for idx, category_data in enumerate(current_categories):
                                 if idx < len(categories_codes):
                                     code_to_check = categories_codes[idx].strip()
                                     if code_to_check and code_to_check.lower() != "na":
                                         try:
+                                            # Another temp fix just for TIM-HF!!
+                                            #if code_to_check.find(":") == -1:
+                                            #    code_to_check = code_to_check.replace("OMOP", "OMOP:")
                                             expanded_uri = curie_converter.expand(code_to_check)
                                             if not expanded_uri:
                                                 errors.append(
@@ -300,11 +434,13 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
                                             )
             elif row.get("CATEGORICAL") and not isinstance(current_categories, list): # If original CATEGORICAL had content but parsing failed (already logged by parse_categorical_string's own exception if it was fatal)
                  # This case might be covered if parse_categorical_string added its own error to the 'errors' list already
-                 pass
+                 errors.append(
+                     f"Row {i+2} (Variable: '{var_name_for_error}') has an invalid category: '{row['CATEGORICAL']}'."
+                 )
 
 
         # --- Final Error Check & Graph Generation ---
-        if len(errors) > 0:
+        if len(errors) > 0 and source == "upload_dict":
             raise HTTPException(
                 status_code=422,
                 detail="\n\n".join(errors),
@@ -316,12 +452,13 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
         g.add((cohort_uri, RDF.type, ICARE.Cohort, cohort_uri))
         g.add((cohort_uri, DC.identifier, Literal(cohort_id), cohort_uri))
 
+        i = 0
         for i, row in df.iterrows():
-            variable_uri = get_var_uri(cohort_id, row["VARIABLE NAME"])
+            variable_uri = get_var_uri(cohort_id, row["VARIABLENAME"])
             g.add((cohort_uri, ICARE.hasVariable, variable_uri, cohort_uri))
             g.add((variable_uri, RDF.type, ICARE.Variable, cohort_uri))
-            g.add((variable_uri, DC.identifier, Literal(row["VARIABLE NAME"]), cohort_uri))
-            g.add((variable_uri, RDFS.label, Literal(row["VARIABLE LABEL"]), cohort_uri))
+            g.add((variable_uri, DC.identifier, Literal(row["VARIABLENAME"]), cohort_uri))
+            g.add((variable_uri, RDFS.label, Literal(row["VARIABLELABEL"]), cohort_uri))
             g.add((variable_uri, ICARE["index"], Literal(i, datatype=XSD.integer), cohort_uri))
 
             # Get categories code if provided (re-fetch for graph generation phase)
@@ -330,6 +467,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
                  categories_codes = str(row["CATEGORICAL VALUE CONCEPT CODE"]).split("|")
 
             for column_name_from_df, col_value in row.items():
+                #print("in load_cohort_dict_file -- column_name_from_df value:", column_name_from_df)
                 # Use the already normalized column_name_from_df
                 if column_name_from_df not in ["categories"] and col_value: # Exclude our temporary 'categories' column
                     property_uri = ICARE[to_camelcase(column_name_from_df)] # to_camelcase expects original-like names
@@ -353,34 +491,101 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str) -> Dataset:
                         if index < len(categories_codes):
                             code_to_check = categories_codes[index].strip()
                             if code_to_check and code_to_check.lower() != "na":
-                                cat_code_uri = curie_converter.expand(code_to_check)
-                                if cat_code_uri: # Only add if valid and expanded
-                                    g.add((cat_uri, ICARE.conceptId, URIRef(cat_code_uri), cohort_uri))
+                                #code_to_check = code_to_check.lower().replace("ucum:%", "ucum:percent").replace("[", "").replace("]", "")
+                                try:
+                                    cat_code_uri = curie_converter.expand(code_to_check)
+                                    if cat_code_uri: # Only add if valid and expanded
+                                        #print(f"Adding category code {cat_code_uri} for category {category['value']} in cohort {cohort_id}, line {i}")
+                                        # Another temp fix just for TIM-HF!!
+                                        # cat_code_uri = cat_code_uri.lower().replace("ucum/%", "ucum/percent").replace("[", "").replace("]", "")
+                                        #print(f"Adding category code {cat_code_uri} for category {category['value']} in cohort {cohort_id}, line {i}, cat_uri: {cat_uri}, conceptId: {ICARE.conceptId}")
+                                        g.add((cat_uri, ICARE.conceptId, URIRef(cat_code_uri), cohort_uri))
+                                except Exception as curie_exc:
+                                    errors.append(
+                                        f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_data['value']}'): Error expanding CURIE '{code_to_check}': {curie_exc}."
+                                    )
+
+        print(f"Finished processing cohort dictionary: {cohort_id}")
         
-        if len(warnings) > 0: # Log warnings even if processing succeeds
-            logging.warning(f"Warnings uploading {cohort_id}: \n" + "\n".join(warnings))
-        return g
 
     except HTTPException as http_exc: # Re-raise specific HTTPExceptions (ours or from parse_categorical_string)
         # Log the collected errors that led to this for server-side records
         logging.warning(f"Validation errors for cohort {cohort_id}:\n{http_exc.detail}")
-        raise http_exc 
+        if source == "upload_dict":
+            raise http_exc 
     except pd.errors.EmptyDataError:
         logging.warning(f"Uploaded CSV for cohort {cohort_id} is empty or unreadable.")
-        raise HTTPException(status_code=422, detail="The uploaded CSV file is empty or could not be read.")
+        if source == "upload_dict":
+            raise HTTPException(status_code=422, detail="The uploaded CSV file is empty or could not be read.")
     except Exception as e:
         logging.error(f"Unexpected error during dictionary processing for {cohort_id}: {str(e)}", exc_info=True)
-        # Combine any validation errors found before the crash with the unexpected error message
-        final_error_detail = "\n\n".join(errors) if errors else "An unexpected error occurred."
-        if errors: # if validation errors were already collected, add the unexpected error to them
-            final_error_detail += f"\n\nAdditionally, an unexpected processing error occurred: {str(e)}"
-        else: # if no prior validation errors, just report the unexpected one
-            final_error_detail = f"An unexpected error occurred during file processing: {str(e)}"
+        errors.append(f"An unexpected error occurred during file processing: {str(e)}")
+        if source == "upload_dict":
+            raise HTTPException(
+                status_code=500, # Use 500 for truly unexpected server-side issues
+                detail="\n\n".join(errors),
+            )
+    
+    # Calculate final metrics
+    processing_time = (datetime.now() - start_time).total_seconds()
+    success = len(errors) == 0
+    graph_triples_count = len(g) if 'g' in locals() else 0
+    
+    # Log to existing text file (maintain backward compatibility)
+    if len(errors) > 0:
+        errors_file = os.path.join(settings.data_folder, f"metadata_files_issues.txt")
+        with open(errors_file, "a") as f:
+            f.write(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            f.write(f"Errors for cohort {cohort_id}:\n")
+            f.write("\n".join(errors))
+            f.write("\n\n\n")
+    
+    # Enhanced structured logging for upload dictionary calls
+    if source == "upload_dict":
+        log_data = {
+            "timestamp": start_time,
+            "cohort_id": cohort_id,
+            "user_email": user_email or "system",
+            "filename": filename or os.path.basename(dict_path),
+            "file_size_bytes": file_size_bytes,
+            "total_rows": total_rows,
+            "total_variables": total_variables,
+            "errors_count": len(errors),
+            "success": success,
+            "processing_time_seconds": processing_time,
+            "source": source,
+            "graph_triples_count": graph_triples_count
+        }
         
-        raise HTTPException(
-            status_code=500, # Use 500 for truly unexpected server-side issues
-            detail=final_error_detail,
-        )
+        # Log to CSV for easy analysis
+        log_upload_event_csv(log_data)
+        
+        # Log to JSON with detailed error information
+        detailed_log_data = {**log_data, "errors": errors}
+        update_upload_log(detailed_log_data)
+        
+        # Log completion status
+        if success:
+            logging.info(f"Successfully processed dictionary upload for cohort {cohort_id}. Processed {total_variables} variables from {total_rows} rows in {processing_time:.2f}s. Generated {graph_triples_count} triples.")
+        else:
+            logging.warning(f"Dictionary upload for cohort {cohort_id} completed with {len(errors)} errors. Processing time: {processing_time:.2f}s")
+
+
+    # Update the cohort cache directly from the graph data
+    # This is more efficient than retrieving it from the triplestore later
+    # Only update cache if this is called from upload API, not from init_triplestore
+    if source == "upload_dict":
+        from src.cohort_cache import create_cohort_from_dict_file
+        cohort_uri = get_cohort_uri(cohort_id)
+        create_cohort_from_dict_file(cohort_id, cohort_uri, g)
+        logging.info(f"Added cohort {cohort_id} to cache directly from dictionary file")
+    else:
+        logging.info(f"Skipping cache update for cohort {cohort_id} - cache managed by {source}")
+
+    return g
+
+
+
 
 
 @router.post(
@@ -424,6 +629,12 @@ async def delete_cohort(
     cohort_folder_path = os.path.join(settings.data_folder, "cohorts", cohort_id)
     if os.path.exists(cohort_folder_path) and os.path.isdir(cohort_folder_path):
         shutil.rmtree(cohort_folder_path)
+    
+    # Remove the cohort from the cache
+    from src.cohort_cache import remove_cohort_from_cache
+    remove_cohort_from_cache(cohort_id)
+    logging.info(f"Removed cohort {cohort_id} from cache after deletion")
+    
     return {
         "message": f"Cohort {cohort_id} has been successfully deleted.",
     }
@@ -445,8 +656,10 @@ async def upload_cohort(
 ) -> dict[str, Any]:
     """Upload a cohort metadata file to the server and add its variables to the triplestore."""
     user_email = user["email"]
-    cohort_info = retrieve_cohorts_metadata(user_email).get(cohort_id)
-    # cohorts = retrieve_cohorts_metadata(user_email)
+    # Use cache instead of SPARQL query for better performance
+    from src.cohort_cache import get_cohorts_from_cache
+    cohorts = get_cohorts_from_cache(user_email)
+    cohort_info = cohorts.get(cohort_id)
     if not cohort_info:
         raise HTTPException(
             status_code=403,
@@ -485,7 +698,7 @@ async def upload_cohort(
         shutil.copyfileobj(cohort_dictionary.file, buffer)
 
     try:
-        g = load_cohort_dict_file(metadata_path, cohort_id)
+        g = load_cohort_dict_file(metadata_path, cohort_id, source="upload_dict", user_email=user_email, filename=metadata_filename)
         # Airlock preview setting goes to mapping graph because it is defined in the explorer UI
         # g.add(
         #     (
@@ -507,7 +720,12 @@ async def upload_cohort(
             #     get_cohort_mapping_uri(cohort_id), f"<{get_cohort_uri(cohort_id)!s}>", "icare:previewEnabled"
             # )
             delete_existing_triples(get_cohort_uri(cohort_id))
-            publish_graph_to_endpoint(g)
+            if publish_graph_to_endpoint(g):
+                # Update the cache with the new cohort data
+                cohorts = retrieve_cohorts_metadata(user_email)
+                if cohort_id in cohorts:
+                    add_cohort_to_cache(cohorts[cohort_id])
+                    logging.info(f"Added cohort {cohort_id} to cache after upload")
     except Exception as e:
         os.remove(cohort_info.metadata_filepath)
         raise e
@@ -522,8 +740,9 @@ async def upload_cohort(
         "identifier": cohort_id,
     }
 
-def generate_mappings(cohort_id: str, metadata_path: str, g: Graph) -> None:
 
+
+def generate_mappings(cohort_id: str, metadata_path: str, g: Graph) -> None:
     """Function to generate mappings for a cohort and publish them to the triplestore running as background task"""
     print(f"Generating mappings for cohort {cohort_id}")
     map_csv_to_standard_codes(metadata_path)
@@ -531,7 +750,13 @@ def generate_mappings(cohort_id: str, metadata_path: str, g: Graph) -> None:
     #     get_cohort_mapping_uri(cohort_id), f"<{get_cohort_uri(cohort_id)!s}>", "icare:previewEnabled"
     # )
     delete_existing_triples(get_cohort_uri(cohort_id))
-    publish_graph_to_endpoint(g)
+    if publish_graph_to_endpoint(g):
+        # Update the cache with the new cohort data
+        # Use admin email to ensure we can access all cohorts
+        cohorts = retrieve_cohorts_metadata("admin@example.com")
+        if cohort_id in cohorts:
+            add_cohort_to_cache(cohorts[cohort_id])
+            logging.info(f"Added cohort {cohort_id} to cache after generating mappings")
 
 @router.post(
     "/create-provision-dcr",
@@ -543,7 +768,14 @@ async def post_create_provision_dcr(
     # cohort_id: str = Form(..., pattern="^[a-zA-Z0-9-_\w]+$"),
     cohort_id: str = Form(...),
 ) -> dict[str, Any]:
-    cohort_info = retrieve_cohorts_metadata(user["email"]).get(cohort_id)
+    import time
+    t0 = time.time()
+    # Use cache instead of SPARQL query for better performance
+    from src.cohort_cache import get_cohorts_from_cache
+    cohorts = get_cohorts_from_cache(user["email"])
+    logging.info(f"[TIMING] Retrieved cohorts from cache in {time.time() - t0:.3f}s")
+    
+    cohort_info = cohorts.get(cohort_id)
     if not cohort_info:
         raise HTTPException(
             status_code=403,
@@ -586,132 +818,379 @@ async def upload_cohorts_metadata(
         publish_graph_to_endpoint(g)
 
 
+def is_valid_value(value: Any) -> bool:
+    """
+    Check if a value is valid (not empty and not 'Not Applicable')
+    Handles various data types, not just strings.
+    """
+    # Handle None, empty values, NaN
+    if value is None or value == "" or (isinstance(value, float) and math.isnan(value)):
+        return False
+    
+    # Convert to string for text-based checks
+    try:
+        # Handle numeric values that should be considered valid
+        if isinstance(value, (int, float)):
+            # Zero is considered valid
+            return True
+        # Convert to string for text comparison
+        str_value = str(value).strip().lower()
+        if str_value == "" or str_value == "not applicable" or str_value == "nan":
+            return False
+        return True
+    except:
+        # If any error occurs during conversion, consider it invalid
+        return False
+
 def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
     df = pd.read_excel(filepath, sheet_name="Descriptions")
     df = df.fillna("")
+    # Convert column names to lowercase for consistency
+    df.columns = df.columns.str.lower()
+    
     g = init_graph()
+    metadata_graph = URIRef(OntologyNamespaces.CMEO.value + "graph/studies_metadata")
+    
     for _i, row in df.iterrows():
-        cohort_id = str(row["Name of Study"]).strip()
-        # print(cohort_id)
-        cohort_uri = get_cohort_uri(cohort_id)
-        cohorts_graph = ICARE["graph/metadata"]
-
-        g.add((cohort_uri, RDF.type, ICARE.Cohort, cohorts_graph))
-        g.add((cohort_uri, DC.identifier, Literal(cohort_id), cohorts_graph))
-        g.add((cohort_uri, ICARE.institution, Literal(row["Institution"]), cohorts_graph))
-        if row["Contact partner"]:
-            g.add((cohort_uri, DC.creator, Literal(row["Contact partner"]), cohorts_graph))
-        if row["Email"]:
-            for email in row["Email"].split(";"):
-                g.add((cohort_uri, ICARE.email, Literal(email.strip()), cohorts_graph))
-        if row["Type"]:
-            g.add((cohort_uri, ICARE.cohortType, Literal(row["Type"]), cohorts_graph))
-        if row["Study Design"]:
-            g.add((cohort_uri, ICARE.studyType, Literal(row["Study Design"]), cohorts_graph))
-        if row["N"]:
-            g.add((cohort_uri, ICARE.studyParticipants, Literal(row["N"]), cohorts_graph))
-        if row["Study duration"]:
-            g.add((cohort_uri, ICARE.studyDuration, Literal(row["Study duration"]), cohorts_graph))
-        if row["Ongoing"]:
-            g.add((cohort_uri, ICARE.studyOngoing, Literal(row["Ongoing"]), cohorts_graph))
-        if row["Patient population"]:
-            g.add((cohort_uri, ICARE.studyPopulation, Literal(row["Patient population"]), cohorts_graph))
-        if row["Primary objective"]:
-            g.add((cohort_uri, ICARE.studyObjective, Literal(row["Primary objective"]), cohorts_graph))
+        print("now processing cohorts' metadata row: ", _i, row)
+        
+        # Use study name as the main identifier
+        if pd.isna(row.get("study name", "")):
+            print("Study name is missing, skipping this row.")
+            continue
+            
+        study_name = normalize_text(str(row["study name"]).strip())
+        study_uri = URIRef(OntologyNamespaces.CMEO.value + study_name)
+        study_design_execution_uri = URIRef(study_uri + "/study_design_execution")
+        
+        # Create study design execution (main entity)
+        g.add((study_design_execution_uri, RDF.type, OntologyNamespaces.OBI.value.study_design_execution, metadata_graph))
+        g.add((study_design_execution_uri, DC.identifier, Literal(row["study name"], datatype=XSD.string), metadata_graph))
+        
+        # Create study design and protocol structure
+        study_design_value = row.get("study design", "").lower().strip() if pd.notna(row.get("study design", "")) else None
+        if study_design_value:
+            study_design_value = normalize_text(study_design_value)
+            study_design_uri = URIRef(study_uri + "/" + study_design_value)
+            g.add((study_design_uri, OntologyNamespaces.CMEO.value.has_value, Literal(study_design_value, datatype=XSD.string), metadata_graph))
+            g.add((study_design_uri, DC.identifier, Literal(study_name, datatype=XSD.string), metadata_graph))
+            dynamic_class_uri = URIRef(OntologyNamespaces.OBI.value + study_design_value)
+            g.add((study_design_uri, RDF.type, dynamic_class_uri, metadata_graph))
+            protocol_uri = URIRef(study_uri + "/" + study_design_value + "/protocol")
+            g.add((protocol_uri, RDF.type, OntologyNamespaces.OBI.value.protocol, metadata_graph))
+            g.add((study_design_uri, OntologyNamespaces.RO.value.has_part, protocol_uri, metadata_graph))
+        else:
+            study_design_uri = URIRef(study_uri + "/study_design")
+            protocol_uri = URIRef(study_uri + "/protocol")
+            g.add((protocol_uri, RDF.type, OntologyNamespaces.OBI.value.protocol, metadata_graph))
+            g.add((study_design_uri, RDF.type, OntologyNamespaces.OBI.value.study_design, metadata_graph))
+            g.add((study_design_uri, OntologyNamespaces.RO.value.has_part, protocol_uri, metadata_graph))
+            g.add((study_design_uri, DC.identifier, Literal(study_name, datatype=XSD.string), metadata_graph))
+            
+        g.add((study_design_execution_uri, OntologyNamespaces.RO.value.concretizes, study_design_uri, metadata_graph))
+        g.add((study_design_uri, OntologyNamespaces.RO.value.is_concretized_by, study_design_execution_uri, metadata_graph))
+        
+        # Create study design variable specification
+        study_design_variable_specification_uri = URIRef(study_uri + "/study_design_variable_specification")
+        g.add((study_design_variable_specification_uri, RDFS.label, Literal("study design variable specification", datatype=XSD.string), metadata_graph))
+        g.add((study_design_variable_specification_uri, RDF.type, OntologyNamespaces.CMEO.value.study_design_variable_specification, metadata_graph))
+        g.add((protocol_uri, OntologyNamespaces.RO.value.has_part, study_design_variable_specification_uri, metadata_graph))
+        
+        # Process all metadata fields using unified mapping
+        g = process_all_metadata_fields(g, row, study_design_execution_uri, study_design_uri, study_uri, protocol_uri, metadata_graph)
+        
+    print(f"Graph size: {len(g)}")
     return g
 
 
-def init_triplestore() -> None:
-    """Initialize triplestore with the OMOP CDM ontology and the iCARE4CVD cohorts metadata."""
-    # If triples exist, skip initialization
-    if run_query("ASK WHERE { GRAPH ?g {?s ?p ?o .} }")["boolean"]:
-        print("⏩ Triplestore already contains data. Skipping initialization.")
-        return
-    # Load OMOP CDM ontology
-    onto_graph_uri = URIRef("https://w3id.org/icare4cvd/omop-cdm-v6")
-    g = init_graph(onto_graph_uri)
-    ntriple_g = init_graph()
-    # ntriple_g.parse("https://raw.githubusercontent.com/vemonet/omop-cdm-owl/main/omop_cdm_v6.ttl", format="turtle")
-    ntriple_g.parse(
-        "https://raw.githubusercontent.com/MaastrichtU-IDS/cohort-explorer/main/cohort-explorer-ontology.ttl",
-        format="turtle",
-    )
-    # Trick to convert ntriples to nquads with a given graph
-    for s, p, o in ntriple_g.triples((None, None, None)):
-        g.add((s, p, o, onto_graph_uri))
-    # print(g.serialize(format="trig"))
-    if publish_graph_to_endpoint(g):
-        print(f"🦉 Triplestore initialization: added {len(g)} triples for the iCARE4CVD Cohort Explorer OWL ontology.")
+def process_all_metadata_fields(g: Graph, row: pd.Series, study_design_execution_uri: URIRef, 
+                               study_design_uri: URIRef, study_uri: URIRef, protocol_uri: URIRef, 
+                               metadata_graph: URIRef) -> Graph:
+    """Process ALL metadata fields using unified mapping to eliminate code repetition"""
+    
+    # Simplified field mapping - only essential info, rest is derived
+    field_config = {
+        # Direct properties (no entity creation)
+        "language": "direct_property",
+        
+        # Entity fields - minimal config, smart defaults
+        "study type": {"ns": "SIO", "type": "study_descriptor", "target": "study_design", "rel": "is_described_by"},
+        "study objective": {"ns": "OBI", "type": "objective_specification", "target": "protocol"},
+        "number of participants": {"ns": "CMEO", "type": "number_of_participants", "target": "protocol", "label": True},
+        "start date": {"ns": "CMEO", "type": "start_time", "target": "execution", "rel": "has_time_stamp", "rel_ns": "IAO"},
+        "end date": {"ns": "CMEO", "type": "end_time", "target": "execution", "rel": "has_time_stamp", "rel_ns": "IAO"},
+        "ongoing": {"ns": "CMEO", "type": "ongoing", "target": "execution", "datatype": "boolean"},
+        "age distribution": {"ns": "OBI", "type": "age_distribution", "target": "execution", "label": True},
+        "population location": {"ns": "BFO", "type": "site", "target": "execution"},
+        "institute": {"ns": "OBI", "type": "organization", "target": "execution", "rel": "has_participant"},
+        "primary outcome specification": {"ns": "CMEO", "type": "primary_outcome_specification", "target": "protocol"},
+        "secondary outcome specification": {"ns": "CMEO", "type": "secondary_outcome_specification", "target": "protocol"},
+        "morbidity": {"ns": "OBI", "type": "morbidity", "target": "protocol"},
+        "administrator": {"ns": "CMEO", "type": "homo_sapiens", "target": "execution", "rel": "has_participant"},
+        "study contact person": {"ns": "CMEO", "type": "homo_sapiens", "target": "execution", "rel": "has_participant"}
+    }
+    
+    # Smart defaults and derivation logic
+    def get_namespace(ns_key):
+        ns_map = {"DC": DC, "SIO": OntologyNamespaces.SIO.value, "OBI": OntologyNamespaces.OBI.value, 
+                  "CMEO": OntologyNamespaces.CMEO.value, "BFO": OntologyNamespaces.BFO.value, "IAO": OntologyNamespaces.IAO.value}
+        return ns_map[ns_key]
+    
+    def get_subject_uri(target):
+        targets = {"execution": study_design_execution_uri, "protocol": protocol_uri, "study_design": study_design_uri}
+        return targets[target]
+    
+    def get_uri_suffix(field_name):
+        return "/" + field_name.replace(" ", "_").replace("specification", "spec")
+    
+    def get_default_relationship(rdf_type):
+        return "has_part"  # Most common default
+    
+    # Process all fields using simplified mapping with smart defaults
+    for excel_field, config in field_config.items():
+        if pd.notna(row.get(excel_field, "")):
+            
+            # Handle direct properties
+            if config == "direct_property":
+                if excel_field == "language":
+                    value = str(row[excel_field]).lower().strip()
+                    g.add((study_design_execution_uri, DC.language, Literal(value, datatype=XSD.string), metadata_graph))
+                continue
+            
+            # Process value with smart defaults
+            if config.get("datatype") == "boolean":
+                value = True if str(row[excel_field]).lower().strip() == "yes" else False
+                datatype = XSD.boolean
+            else:
+                value = str(row[excel_field]).strip()
+                datatype = XSD.string
+            
+            # Create entity with derived properties
+            namespace = get_namespace(config["ns"])
+            rdf_type = config["type"]
+            subject_uri = get_subject_uri(config["target"])
+            uri_suffix = get_uri_suffix(excel_field)
+            relationship = config.get("rel", get_default_relationship(rdf_type))
+            rel_namespace = get_namespace(config.get("rel_ns", "RO")) if config.get("rel_ns") else OntologyNamespaces.RO.value
+            
+            # Add RDF triples
+            entity_uri = URIRef(study_uri + uri_suffix)
+            rdf_type_uri = URIRef(namespace + rdf_type)
+            g.add((entity_uri, RDF.type, rdf_type_uri, metadata_graph))
+            
+            # Add relationship
+            relationship_uri = URIRef(rel_namespace + relationship)
+            g.add((subject_uri, relationship_uri, entity_uri, metadata_graph))
+            
+            # Add label if specified
+            if config.get("label"):
+                g.add((entity_uri, RDFS.label, Literal(excel_field, datatype=XSD.string), metadata_graph))
+            
+            # Add value
+            g.add((entity_uri, OntologyNamespaces.CMEO.value.has_value, Literal(value, datatype=datatype), metadata_graph))
+    
+    # Handle special cases that need custom logic
+    g = handle_special_fields(g, row, study_design_execution_uri, study_uri, protocol_uri, metadata_graph)
+    return g
 
-    os.makedirs(os.path.join(settings.data_folder, "cohorts"), exist_ok=True)
-    # Load cohorts data dictionaries already present in data/cohorts/
+
+def handle_special_fields(g: Graph, row: pd.Series, study_design_execution_uri: URIRef,
+                         study_uri: URIRef, protocol_uri: URIRef, metadata_graph: URIRef) -> Graph:
+    """Handle only the truly special cases that can't be mapped generically"""
+    
+    # Create eligibility criterion container (needed for male/female percentages)
+    eligibility_criterion_uri = URIRef(study_uri + "/eligibility_criterion")
+    g.add((eligibility_criterion_uri, RDF.type, OntologyNamespaces.OBI.value.eligibility_criterion, metadata_graph))
+    g.add((protocol_uri, OntologyNamespaces.RO.value.has_part, eligibility_criterion_uri, metadata_graph))
+    
+    # Handle Mixed Sex field with male/female percentage parsing
+    if pd.notna(row.get("mixed sex", "")):
+        mixed_sex_value = str(row["mixed sex"])
+        male_percentage = None
+        female_percentage = None
+        
+        # Parse percentages from mixed sex field
+        parts = mixed_sex_value.split(";") if ";" in mixed_sex_value else mixed_sex_value.split("and") if "and" in mixed_sex_value else [mixed_sex_value]
+        
+        for part in parts:
+            part = part.strip().lower().replace(",", ".")
+            digits_only = ''.join(c for c in part if c.isdigit() or c == '.')
+            if digits_only:
+                try:
+                    percentage = float(digits_only)
+                    if "male" in part and "female" not in part:
+                        male_percentage = percentage
+                    elif "female" in part:
+                        female_percentage = percentage
+                except ValueError:
+                    continue
+        
+        # Add parsed percentages to graph
+        if male_percentage is not None:
+            male_percentage_uri = URIRef(study_uri + "/male_percentage")
+            g.add((male_percentage_uri, RDF.type, OntologyNamespaces.CMEO.value.male_percentage, metadata_graph))
+            g.add((eligibility_criterion_uri, OntologyNamespaces.RO.value.has_part, male_percentage_uri, metadata_graph))
+            g.add((male_percentage_uri, OntologyNamespaces.CMEO.value.has_value, Literal(male_percentage, datatype=XSD.float), metadata_graph))
+            
+        if female_percentage is not None:
+            female_percentage_uri = URIRef(study_uri + "/female_percentage")
+            g.add((female_percentage_uri, RDF.type, OntologyNamespaces.CMEO.value.female_percentage, metadata_graph))
+            g.add((eligibility_criterion_uri, OntologyNamespaces.RO.value.has_part, female_percentage_uri, metadata_graph))
+            g.add((female_percentage_uri, OntologyNamespaces.CMEO.value.has_value, Literal(female_percentage, datatype=XSD.float), metadata_graph))
+        
+        print(f"Mixed Sex parsing for {row.get('study name', 'unknown')}: '{mixed_sex_value}' → Male: {male_percentage}, Female: {female_percentage}")
+    
+    return g
+
+
+def init_triplestore():
+    """Initialize triplestore with the OMOP CDM ontology and the iCARE4CVD cohorts metadata."""
+    import fcntl
+    import time
+    
+    # Use file-based locking to ensure only one worker initializes the triplestore
+    lock_file_path = os.path.join(settings.data_folder, "triplestore_init.lock")
+    os.makedirs(os.path.dirname(lock_file_path), exist_ok=True)
+    
+    try:
+        with open(lock_file_path, "w") as lock_file:
+            # Try to acquire exclusive lock (non-blocking)
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                print(f"🔒 Worker {os.getpid()} acquired initialization lock")
+            except BlockingIOError:
+                print(f"⏳ Worker {os.getpid()} waiting for initialization to complete by another worker...")
+                # Another worker is initializing, wait for it to complete
+                time.sleep(5)
+                # Initialize cache from triplestore after other worker completes
+                from src.cohort_cache import initialize_cache_from_triplestore
+                admin_email = settings.admins_list[0] if settings.admins_list else "admin@example.com"
+                initialize_cache_from_triplestore(admin_email)
+                print(f"✅ Worker {os.getpid()} cache initialized from triplestore")
+                return
+            
+            # If we reach here, we have the lock and should proceed with initialization
+            print("Clearing cohort cache before initialization...")
+            clear_cache()
+            
+            # Create/clear the metadata issues file at the start of initialization
+            errors_file = os.path.join(settings.data_folder, "metadata_files_issues.txt")
+            os.makedirs(os.path.dirname(errors_file), exist_ok=True)
+            with open(errors_file, "w") as f:
+                f.write(f"Metadata Issues Log - Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write("=" * 50 + "\n\n")
+            
+            # Continue with the rest of the initialization logic...
+            _perform_triplestore_initialization()
+            
+    except Exception as e:
+        print(f"❌ Error during triplestore initialization: {e}")
+        raise
+    finally:
+        # Clean up lock file
+        if os.path.exists(lock_file_path):
+            os.remove(lock_file_path)
+
+
+def _perform_triplestore_initialization():
+    """Perform the actual triplestore initialization logic."""
+    import time
+    
+    # Check multiple times if triples exist to ensure we don't have race conditions
+    triplestore_initialized = False
+    for _ in range(3):
+        if run_query("ASK WHERE { GRAPH ?g {?s ?p ?o .} }")["boolean"]:
+            print("⏩ Triplestore already contains data. Skipping triplestore initialization.")
+            triplestore_initialized = True
+            break
+        time.sleep(0.5)  # Small delay between checks
+    
+    # Initialize the cache from triplestore
+    # This works whether the triplestore is initialized or not
+    from src.cohort_cache import initialize_cache_from_triplestore
+    print("Initializing cache from triplestore...")
+    # Use the first admin email to ensure we get all cohorts
+    admin_email = settings.admins_list[0] if settings.admins_list else "admin@example.com"
+    initialize_cache_from_triplestore(admin_email)
+    print("✅ Cohort cache initialization complete.")
+    
+    # If triplestore is already initialized, we're done
+    if triplestore_initialized:
+        return
+    
+    # Otherwise, continue with triplestore initialization
+    # First, load cohorts metadata to establish basic cohort entities
+    print("Loading cohorts metadata file to triplestore...")
+    g = cohorts_metadata_file_to_graph(COHORTS_METADATA_FILEPATH)
+    
+    # Delete existing triples for cohorts metadata before publishing new ones
+    cohorts_graph = URIRef("https://w3id.org/icare4cvd/cohorts")
+    delete_existing_triples(cohorts_graph)
+
+    if publish_graph_to_endpoint(g):
+        print(f"🪪 Triplestore initialization: added {len(g)} triples for the cohorts metadata.")
+        
+        # Add cohort metadata to the cache
+        print("Adding cohort metadata to the cache...")
+        # Extract cohort IDs and URIs from the graph
+        cohort_uris = set()
+        for s, p, o, _ in g.quads((None, RDF.type, ICARE.Cohort, None)):
+            cohort_uris.add(s)
+        
+        # Create cohort objects from metadata and add them to the cache
+        for cohort_uri in cohort_uris:
+            # Extract cohort ID from URI
+            cohort_id = None
+            for _, _, o, _ in g.quads((cohort_uri, DC.identifier, None, None)):
+                cohort_id = str(o)
+                break
+            
+            if cohort_id:
+                from src.cohort_cache import create_cohort_from_metadata_graph
+                create_cohort_from_metadata_graph(cohort_id, cohort_uri, g)
+        
+        print("✅ Cohort metadata added to cache.")
+    else:
+        print("❌ Failed to publish cohort metadata to triplestore.")
+        return
+    
+    # Then, load cohorts data dictionaries to add variables to the established cohorts
+    print("Now loading cohort data dictionaries to add variables to the established cohorts...")
     for folder in os.listdir(os.path.join(settings.data_folder, "cohorts")):
         folder_path = os.path.join(settings.data_folder, "cohorts", folder)
         if os.path.isdir(folder_path):
-            for file in glob.glob(os.path.join(folder_path, "*_datadictionary.*")):
-                # NOTE: default airlock preview to false if we ever need to reset cohorts,
-                # admins can easily ddl and reupload the cohorts with the correct airlock value
-                g = load_cohort_dict_file(file, folder)
+            #Note (August 2025): we now find the latest version of a data dictionary instead of processing all
+            #for file in glob.glob(os.path.join(folder_path, "*_datadictionary.*")):
+            latest_dict_file = get_latest_datadictionary(folder_path)
+            if latest_dict_file:
+                print(f"Using latest datadictionary file for {folder}: {os.path.basename(latest_dict_file)}, date: {os.path.getmtime(latest_dict_file)}")
+                g = load_cohort_dict_file(latest_dict_file, folder, source="init_triplestore")
+                # Delete existing triples for this cohort before publishing new ones
+                # This ensures we don't have duplicate or conflicting triples
+                delete_existing_triples(get_cohort_uri(folder))
                 # g.serialize(f"{settings.data_folder}/cohort_explorer_triplestore.trig", format="trig")
                 if publish_graph_to_endpoint(g):
-                    print(f"💾 Triplestore initialization: added {len(g)} triples for cohorts {file}.")
-
-    # Load cohorts metadata
-    g = cohorts_metadata_file_to_graph(COHORTS_METADATA_FILEPATH)
-
-    # g.serialize(f"{settings.data_folder}/cohort_explorer_triplestore.ttl", format="turtle")
-    if publish_graph_to_endpoint(g):
-        print(f"🪪 Triplestore initialization: added {len(g)} triples for the cohorts metadata.")
-
-
-@router.get("/test-sparql")
-def test_sparql(query: str = None, user: Any = Depends(get_current_user)) -> dict:
-    """Run test SPARQL queries"""
-    if user["email"] not in settings.admins_list:
-        raise HTTPException(status_code=403, detail="Admin access required")
+                    print(f"💾 Triplestore initialization: added {len(g)} triples for cohort {folder}.")
+                    # Note: Variables are added to cache via create_cohort_from_dict_file in init_triplestore
+                    from src.cohort_cache import create_cohort_from_dict_file
+                    cohort_uri = get_cohort_uri(folder)
+                    create_cohort_from_dict_file(folder, cohort_uri, g)
+            else:
+                print(f"No datadictionary file found for cohort {folder}.")
+                # Ensure cohorts without dictionaries are still properly cached
+                # Check if this cohort exists in the metadata and add it to cache if missing
+                cohort_uri = get_cohort_uri(folder)
+                from src.cohort_cache import get_cohorts_from_cache, create_cohort_from_metadata_graph
+                admin_email = settings.admins_list[0] if settings.admins_list else "admin@example.com"
+                current_cache = get_cohorts_from_cache(admin_email)
+                if folder not in current_cache:
+                    print(f"Adding cohort {folder} to cache (metadata only, no dictionary)")
+                    # Get the metadata graph to extract cohort info
+                    metadata_graph = cohorts_metadata_file_to_graph(COHORTS_METADATA_FILEPATH)
+                    create_cohort_from_metadata_graph(folder, cohort_uri, metadata_graph)
+        else:
+            print(f"No datadictionary file found for cohort {folder}.")
     
-    # If no query is provided, run the test queries
-    if not query:
-        results = {}
-        
-        # Query 1: Count triples in metadata graph
-        query1 = """
-        SELECT (COUNT(*) as ?count)
-        WHERE {
-          GRAPH <https://w3id.org/icare4cvd/graph/metadata> { ?s ?p ?o }
-        }
-        """
-        results["metadata_triples_count"] = run_query(query1)
-        
-        # Query 2: Check what cohorts exist
-        query2 = """
-        SELECT ?cohort ?cohortId
-        WHERE {
-          GRAPH <https://w3id.org/icare4cvd/graph/metadata> {
-            ?cohort a <https://w3id.org/icare4cvd/Cohort> ;
-                    <http://purl.org/dc/elements/1.1/identifier> ?cohortId .
-          }
-        }
-        """
-        results["cohorts_in_metadata"] = run_query(query2)
-        
-        # Query 3: Compare with cohorts that have variables
-        query3 = """
-        SELECT DISTINCT ?cohort
-        WHERE {
-          GRAPH ?varGraph {
-            ?cohort <https://w3id.org/icare4cvd/hasVariable> ?var .
-          }
-          FILTER NOT EXISTS {
-            GRAPH <https://w3id.org/icare4cvd/graph/metadata> {
-              ?cohort a <https://w3id.org/icare4cvd/Cohort> .
-            }
-          }
-        }
-        """
-        results["orphaned_cohorts"] = run_query(query3)
-        
-        return results
+    print("✅ Triplestore initialization complete!")
     
-    # If a query is provided, run it
-    return run_query(query)
+    print("✅ Cohort cache initialization complete.")

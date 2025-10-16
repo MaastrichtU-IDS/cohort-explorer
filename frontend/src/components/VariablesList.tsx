@@ -6,6 +6,18 @@ import VariableGraphModal from '@/components/VariableGraphModal';
 import {InfoIcon} from '@/components/Icons';
 import {Concept, Variable} from '@/types';
 import {apiUrl} from '@/utils';
+import {parseSearchQuery, searchInObject, highlightSearchTerms} from '@/utils/search';
+
+// Helper component to render highlighted text
+const HighlightedText = ({text, searchTerms, searchMode}: {text: string, searchTerms: string[], searchMode?: 'or' | 'and' | 'exact'}) => {
+  const highlightedHtml = highlightSearchTerms(text, searchTerms, searchMode);
+  
+  if (highlightedHtml === text) {
+    return <span>{text}</span>;
+  }
+  
+  return <span dangerouslySetInnerHTML={{__html: highlightedHtml}} />;
+};
 
 const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
   const {cohortsData, updateCohortData, dataCleanRoom, setDataCleanRoom} = useCohorts();
@@ -76,15 +88,108 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
     dataTypes.add(variable.var_type);
   });
 
+  // Get search configuration from props - simple space-separated terms
+  const searchTerms = useMemo(() => {
+    if (searchFilters.searchTerms) {
+      return searchFilters.searchTerms;
+    }
+    if (searchFilters.searchQuery) {
+      // Simple split on spaces, trim, and filter out empty strings
+      return searchFilters.searchQuery
+        .split(' ')
+        .map((term: string) => term.trim())
+        .filter((term: string) => term.length > 0);
+    }
+    return [];
+  }, [searchFilters.searchTerms, searchFilters.searchQuery]);
+  
+  const searchMode = searchFilters.searchMode || 'or';
+
   // Filter variables based on search query and selected filters
   const filteredVars = useMemo(() => {
     if (cohortsData && cohortsData[cohortId]) {
       return Object.entries(cohortsData[cohortId]['variables'])
-        .filter(
-          ([variableName, variableData]: any) =>
-            variableName.toLowerCase().includes(searchFilters.searchQuery.toLowerCase()) ||
-            JSON.stringify(variableData).toLowerCase().includes(searchFilters.searchQuery.toLowerCase())
-        )
+        .filter(([variableName, variableData]: any) => {
+          // Enhanced search with word boundaries and configurable logic
+          // Only search in fields that contain actual variable content, not metadata
+          const searchableFields = [
+            'var_name', 'var_label', 'concept_name', 'mapped_label', 'omop_domain', 'concept_code', 'omop_id'
+          ];
+          
+          // Add variable name to the data for searching
+          const variableWithName = { ...variableData, var_name: variableName };
+          
+          // Only filter by search if there are actual search terms
+          if (searchTerms.length === 0 || searchTerms.every((term: string) => !term.trim())) {
+            return true; // No search terms, show all variables
+          }
+          
+          // Simple direct search implementation for better control
+          let variableMatches = false;
+          
+          // Check each searchable field directly
+          for (const field of searchableFields) {
+            const fieldValue = variableWithName[field];
+            if (fieldValue != null) {
+              const fieldText = String(fieldValue).toLowerCase();
+              
+              if (searchMode === 'exact') {
+                const fullPhrase = searchTerms.join(' ').toLowerCase();
+                if (fieldText.includes(fullPhrase)) {
+                  variableMatches = true;
+                  break;
+                }
+              } else if (searchMode === 'and') {
+                if (searchTerms.every((term: string) => fieldText.includes(term.toLowerCase()))) {
+                  variableMatches = true;
+                  break;
+                }
+              } else { // 'or' mode
+                if (searchTerms.some((term: string) => fieldText.includes(term.toLowerCase()))) {
+                  variableMatches = true;
+                  break;
+                }
+              }
+            }
+          }
+          
+          // Check categories
+          let categoryMatches = false;
+          if (variableData.categories) {
+            for (const category of variableData.categories) {
+              const categoryFields = ['value', 'label', 'mapped_label'];
+              for (const field of categoryFields) {
+                const fieldValue = category[field];
+                if (fieldValue != null) {
+                  const fieldText = String(fieldValue).toLowerCase();
+                  
+                  if (searchMode === 'exact') {
+                    const fullPhrase = searchTerms.join(' ').toLowerCase();
+                    if (fieldText.includes(fullPhrase)) {
+                      categoryMatches = true;
+                      break;
+                    }
+                  } else if (searchMode === 'and') {
+                    if (searchTerms.every((term: string) => fieldText.includes(term.toLowerCase()))) {
+                      categoryMatches = true;
+                      break;
+                    }
+                  } else { // 'or' mode
+                    if (searchTerms.some((term: string) => fieldText.includes(term.toLowerCase()))) {
+                      categoryMatches = true;
+                      break;
+                    }
+                  }
+                }
+              }
+              if (categoryMatches) break;
+            }
+          }
+          
+          const matchesSearch = variableMatches || categoryMatches;
+          
+          return matchesSearch;
+        })
         .filter(
           ([variableName, variableData]: any) =>
             (selectedOMOPDomains.size === 0 || selectedOMOPDomains.has(variableData.omop_domain)) &&
@@ -100,7 +205,8 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
   }, [
     cohortsData,
     cohortId,
-    searchFilters,
+    searchTerms,
+    searchMode,
     selectedOMOPDomains,
     selectedDataTypes,
     includeCategorical,
@@ -199,9 +305,16 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
             {Object.keys(cohortsData[cohortId]['variables']).length} variables
           </span>
         ) : (
-          <span className="badge badge-ghost mb-2">
-            {filteredVars.length}/{Object.keys(cohortsData[cohortId]['variables']).length} variables
-          </span>
+          <div className="mb-2">
+            <span className="badge badge-ghost">
+              {filteredVars.length}/{Object.keys(cohortsData[cohortId]['variables']).length} variables
+            </span>
+            {searchFilters.searchQuery && (
+              <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                {filteredVars.length} variable{filteredVars.length !== 1 ? 's' : ''} match{filteredVars.length === 1 ? 'es' : ''} your search
+              </div>
+            )}
+          </div>
         )}
         <FilterByMetadata
           label="OMOP domains"
@@ -240,16 +353,15 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
 
       {/* List of variables */}
       <div className="flex flex-col">
-        {cohortsData[cohortId].study_objective && (
-          <div className="card p-3 mb-3 bg-base-300">🎯 Study objective: {cohortsData[cohortId].study_objective}</div>
-        )}
         <div className="space-y-2">
           {filteredVars?.map((variable: any) => (
             <div key={variable.var_name} className="card card-compact card-bordered bg-base-100 shadow-xl">
               <div className="card-body">
                 <div className="flex justify-between">
                   <div className="flex flex-wrap items-center space-x-3">
-                    <h2 className="font-bold text-lg">{variable.var_name}</h2>
+                    <h2 className="font-bold text-lg">
+                      <HighlightedText text={variable.var_name} searchTerms={searchTerms} searchMode={searchMode} />
+                    </h2>
                     {/* Badges for units and categorical variable */}
                     <span className="badge badge-ghost">{variable.var_type}</span>
                     {variable.units && <span className="badge badge-ghost">{variable.units}</span>}
@@ -258,6 +370,8 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
                     )}
                     {variable.omop_domain && <span className="badge badge-default">{variable.omop_domain}</span>}
                     {variable.formula && <span className="badge badge-outline">🧪 {variable.formula}</span>}
+                    {variable.concept_code && <span className="badge" style={{ backgroundColor: '#dbeafe', color: '#1e3a8a', border: '1px solid #bfdbfe' }}>{variable.concept_code}</span>}
+                    {variable.omop_id && <span className="badge" style={{ backgroundColor: '#dbeafe', color: '#1e3a8a', border: '1px solid #bfdbfe' }}>OMOP ID: {variable.omop_id}</span>}
                     {/* {(variable.concept_id || variable.mapped_id) && ( */}
                     <AutocompleteConcept
                       query={variable.var_label}
@@ -307,7 +421,9 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
                     <div />
                   )}
                 </div>
-                <p>{variable.var_label}</p>
+                <p>
+                  <HighlightedText text={variable.var_label || ''} searchTerms={searchTerms} searchMode={searchMode} />
+                </p>
 
                 {/* Popup with additional infos about the variable */}
                 {openedModal === variable.var_name && (
@@ -359,8 +475,12 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
                           <tbody>
                             {variable.categories.map((option: any, index: number) => (
                               <tr key={index}>
-                                <td>{option.value}</td>
-                                <td>{option.label}</td>
+                                <td>
+                                  <HighlightedText text={option.value || ''} searchTerms={searchTerms} searchMode={searchMode} />
+                                </td>
+                                <td>
+                                  <HighlightedText text={option.label || ''} searchTerms={searchTerms} searchMode={searchMode} />
+                                </td>
                                 <td>
                                   <AutocompleteConcept
                                     query={option.label}

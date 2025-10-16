@@ -29,3 +29,7 @@ services:
     # image: oxigraph/oxigraph:0.4.0-alpha.3
     volumes:
       - ./data/db:/data
+    environment:
+      - RUST_LOG=info
+      # Increase Oxigraph's query timeout and memory limits
+      - OXIGRAPH_QUERY_TIMEOUT=300

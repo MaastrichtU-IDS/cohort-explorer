@@ -249,6 +249,9 @@ def extract_tick_values(texts: str) -> list[float]:
     """
     ticks = []
     # Split the string at the separators used by the user (" - ")
+    if texts is None:
+        return ticks
+        
     for token in texts.split(" - "):
         # Regex captures the *label* part (text between the final pair of quotes)
         m = re.search(r"Text\([^,]+,\s*[^,]+,\s*'([^']+)'\)", token)
@@ -715,7 +718,6 @@ def apply_rules(domain, src_info, tgt_info):
         return {"description": "Map qualitative text to binary indicators only if values are consistently structured."}, "Partial Match (Tentative)"
 
     return {"description": "No specific transformation rule available."}, "Not Applicable"
-
 
 
 
