@@ -249,9 +249,6 @@ def extract_tick_values(texts: str) -> list[float]:
     """
     ticks = []
     # Split the string at the separators used by the user (" - ")
-    if texts is None:
-        return ticks
-        
     for token in texts.split(" - "):
         # Regex captures the *label* part (text between the final pair of quotes)
         m = re.search(r"Text\([^,]+,\s*[^,]+,\s*'([^']+)'\)", token)
@@ -721,6 +718,7 @@ def apply_rules(domain, src_info, tgt_info):
 
 
 
+
 def parse_joined_string(input_str: str) -> list:
     """
     Parses a string that may be either:
@@ -1003,3 +1001,36 @@ def insert_graph_into_named_graph(g_new: Graph, graph_uri: str, chunk_size: int 
         sparql.setQuery(query)
         res = sparql.query()
         print(f"Inserted {min(i+chunk_size, len(lines))}/{len(lines)} triples; HTTP {res.response.status}")
+
+
+
+# added from an older commit of the branch "cross_mapping"
+def variable_exists(cohort_uri, variable_name) -> bool:
+    sparql = SPARQLWrapper(settings.sparql_endpoint)
+    variable_name = normalize_text(variable_name)
+    sparql.setReturnFormat(JSON)
+
+    query = f"""
+            PREFIX cmeo: <https://w3id.org/CMEO/>
+            PREFIX bfo: <http://purl.obolibrary.org/obo/bfo.owl/>
+            PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+            PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+            PREFIX dc: <http://purl.org/dc/elements/1.1/>
+            ASK WHERE {{
+                GRAPH <{cohort_uri}> {{
+                    ?variable rdf:type cmeo:data_element ;
+                            dc:identifier "{variable_name}" ;
+                            bfo:is_part_of ?variable_spec_uri .
+                }}
+            }}
+    """
+    # print(f"Query: {query}")        
+        # print(f"SPARQL Query: {query}")
+    sparql.setQuery(query)
+    # print(f"Query: {query}")
+    results = sparql.query().convert()
+    
+   # print(f"Results: {results}")
+    if results['boolean'] == True:
+        print(f"Variable {variable_name} exists in the graph.")
+    return results['boolean']
