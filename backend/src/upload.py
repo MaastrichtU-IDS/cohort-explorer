@@ -923,8 +923,7 @@ def process_all_metadata_fields(g: Graph, row: pd.Series, study_design_execution
         "age distribution": {"ns": "OBI", "type": "age_distribution", "target": "execution", "label": True},
         "population location": {"ns": "BFO", "type": "site", "target": "execution"},
         "institute": {"ns": "OBI", "type": "organization", "target": "execution", "rel": "has_participant"},
-        "primary outcome specification": {"ns": "CMEO", "type": "primary_outcome_specification", "target": "protocol"},
-        "secondary outcome specification": {"ns": "CMEO", "type": "secondary_outcome_specification", "target": "protocol"},
+        # Note: primary/secondary outcome specifications handled in handle_special_fields (need nested structure)
         "morbidity": {"ns": "OBI", "type": "morbidity", "target": "protocol"},
         "administrator": {"ns": "CMEO", "type": "homo_sapiens", "target": "execution", "rel": "has_participant"},
         "study contact person": {"ns": "CMEO", "type": "homo_sapiens", "target": "execution", "rel": "has_participant"}
@@ -1039,6 +1038,33 @@ def handle_special_fields(g: Graph, row: pd.Series, study_design_execution_uri: 
             g.add((female_percentage_uri, OntologyNamespaces.CMEO.value.has_value, Literal(female_percentage, datatype=XSD.float), metadata_graph))
         
         print(f"Mixed Sex parsing for {row.get('study name', 'unknown')}: '{mixed_sex_value}' → Male: {male_percentage}, Female: {female_percentage}")
+    
+    # Handle outcome specifications with nested structure required by SPARQL query
+    # Query expects: protocol -> outcome_specification -> primary/secondary_outcome_specification
+    has_primary = pd.notna(row.get("primary outcome specification", ""))
+    has_secondary = pd.notna(row.get("secondary outcome specification", ""))
+    
+    if has_primary or has_secondary:
+        # Create the parent outcome_specification entity
+        outcome_spec_uri = URIRef(study_uri + "/outcome_specification")
+        g.add((outcome_spec_uri, RDF.type, OntologyNamespaces.CMEO.value.outcome_specification, metadata_graph))
+        g.add((protocol_uri, OntologyNamespaces.RO.value.has_part, outcome_spec_uri, metadata_graph))
+        
+        # Add primary outcome specification as child of outcome_specification
+        if has_primary:
+            primary_value = str(row["primary outcome specification"]).strip()
+            primary_uri = URIRef(study_uri + "/primary_outcome_spec")
+            g.add((primary_uri, RDF.type, OntologyNamespaces.CMEO.value.primary_outcome_specification, metadata_graph))
+            g.add((outcome_spec_uri, OntologyNamespaces.RO.value.has_part, primary_uri, metadata_graph))
+            g.add((primary_uri, OntologyNamespaces.CMEO.value.has_value, Literal(primary_value, datatype=XSD.string), metadata_graph))
+        
+        # Add secondary outcome specification as child of outcome_specification
+        if has_secondary:
+            secondary_value = str(row["secondary outcome specification"]).strip()
+            secondary_uri = URIRef(study_uri + "/secondary_outcome_spec")
+            g.add((secondary_uri, RDF.type, OntologyNamespaces.CMEO.value.secondary_outcome_specification, metadata_graph))
+            g.add((outcome_spec_uri, OntologyNamespaces.RO.value.has_part, secondary_uri, metadata_graph))
+            g.add((secondary_uri, OntologyNamespaces.CMEO.value.has_value, Literal(secondary_value, datatype=XSD.string), metadata_graph))
     
     return g
 
