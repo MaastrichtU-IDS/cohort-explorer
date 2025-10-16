@@ -142,7 +142,9 @@ def run_query(query: str) -> dict[str, Any]:
 
 
 def get_cohorts_metadata_query() -> str:
-    """Get SPARQL query for retrieving cohorts metadata using new CMEO-based structure."""
+    """DEPRECATED: This old combined query has been replaced by two separate queries.
+    Use get_studies_metadata_query() and get_variables_metadata_query() instead.
+    This function is kept for backwards compatibility but may be removed in future versions."""
     query = f"""
 PREFIX cmeo: <https://w3id.org/CMEO/>
 PREFIX obi: <http://purl.obolibrary.org/obo/obi.owl/>
@@ -397,8 +399,42 @@ def get_curie_value(key: str, row: dict[str, Any]) -> str | None:
         return None
 
 
+def get_studies_metadata_query() -> str:
+    """Get SPARQL query for retrieving studies/cohorts metadata (from sparql_queries.txt)."""
+    # Load the first query from CohortVarLinker/queries/sparql_queries.txt (lines 3-291)
+    import os
+    query_file = os.path.join(os.path.dirname(__file__), '..', 'CohortVarLinker', 'queries', 'sparql_queries.txt')
+    with open(query_file, 'r') as f:
+        lines = f.readlines()
+        # Extract lines 3-291 (study metadata query)
+        # Lines 1-2 are comments, so we skip them
+        query = ''.join(lines[2:290])  # 0-indexed, so lines[2:290] = lines 3-290
+    return query
+
+
+def get_variables_metadata_query() -> str:
+    """Get SPARQL query for retrieving variables metadata (from sparql_queries.txt)."""
+    # Load the second query from CohortVarLinker/queries/sparql_queries.txt (lines 298-542)
+    import os
+    query_file = os.path.join(os.path.dirname(__file__), '..', 'CohortVarLinker', 'queries', 'sparql_queries.txt')
+    with open(query_file, 'r') as f:
+        lines = f.readlines()
+        # Extract lines 298-542 (variables metadata query)
+        # Line 295 says "# Query to Retrieve Variables Metadata from All studies"
+        # Line 296 says "it takes 70 seconds with oxigraph"
+        # Line 297 is blank
+        # Line 298 starts with PREFIX
+        query = ''.join(lines[297:542])  # 0-indexed
+    return query
+
+
 def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = False) -> dict[str, Cohort] | dict:
-    """Get all cohorts metadata from the SPARQL endpoint (infos, variables)
+    """Get all cohorts metadata from the SPARQL endpoint using two separate queries.
+    
+    This new implementation uses two separate queries instead of one large combined query:
+    1. First query: Retrieves study/cohort metadata from studies_metadata graph
+    2. Second query: Retrieves variables metadata from individual study graphs
+    3. Merges results to create complete Cohort objects
     
     Args:
         user_email: Email of the user requesting the data
@@ -407,40 +443,44 @@ def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = F
     import time
     start_time = time.time()
     
-    # Execute SPARQL query and measure its execution time
-    query_start_time = time.time()
-    results = run_query(get_cohorts_metadata_query())["results"]["bindings"]
-    query_end_time = time.time()
-    query_duration = query_end_time - query_start_time
+    # ===== STEP 1: Execute Studies Metadata Query =====
+    studies_query_start = time.time()
+    studies_results = run_query(get_studies_metadata_query())["results"]["bindings"]
+    studies_query_duration = time.time() - studies_query_start
+    logging.info(f"Studies metadata query: {studies_query_duration:.2f}s, {len(studies_results)} results")
     
-    cohorts_with_variables = {}
-    cohorts_without_variables = {}
-    logging.info(f"Get cohorts metadata query execution time: {query_duration:.2f} seconds, results: {len(results)})")
-    for row in results:
+    # ===== STEP 2: Execute Variables Metadata Query =====
+    variables_query_start = time.time()
+    variables_results = run_query(get_variables_metadata_query())["results"]["bindings"]
+    variables_query_duration = time.time() - variables_query_start
+    logging.info(f"Variables metadata query: {variables_query_duration:.2f}s, {len(variables_results)} results")
+    
+    total_query_duration = studies_query_duration + variables_query_duration
+    
+    # ===== STEP 3: Process Studies Metadata =====
+    cohorts = {}
+    
+    for row in studies_results:
         try:
             cohort_id = str(row["cohortId"]["value"])
-            var_id = str(row["varName"]["value"]) if "varName" in row else None
-            # Determine which dictionary to use
-            target_dict = cohorts_with_variables if var_id else cohorts_without_variables
-
-            # Initialize cohort data structure if not exists
-            if cohort_id and cohort_id not in target_dict:
+            
+            if cohort_id not in cohorts:
                 cohort = Cohort(
                     cohort_id=get_value("cohortId", row),
                     institution=get_value("cohortInstitution", row),
                     study_type=get_value("study_type", row),
                     study_participants=get_value("study_participants", row),
-                    study_duration=get_value("study_duration", row),
+                    study_duration=get_value("duration", row),  # Note: new query uses "duration" not "study_duration"
                     study_ongoing=get_value("study_ongoing", row),
-                    study_population=get_value("study_population", row),
+                    study_population=get_value("study_population", row),  # May not be in new query
                     study_objective=get_value("study_objective", row),
                     primary_outcome_spec=get_value("primary_outcome_spec", row),
                     secondary_outcome_spec=get_value("secondary_outcome_spec", row),
                     morbidity=get_value("morbidity", row),
                     study_start=get_value("study_start", row),
                     study_end=get_value("study_end", row),
-                    male_percentage=float(get_value("male_percentage", row)) if get_value("male_percentage", row) else None,
-                    female_percentage=float(get_value("female_percentage", row)) if get_value("female_percentage", row) else None,
+                    male_percentage=None,  # Not in new query structure
+                    female_percentage=None,  # Not in new query structure
                     # Contact information fields
                     administrator=get_value("administrator", row),
                     administrator_email=get_value("administrator_email", row),
@@ -452,105 +492,144 @@ def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = F
                     language=get_value("language", row),
                     data_collection_frequency=get_value("data_collection_frequency", row),
                     interventions=get_value("interventions", row),
-                    # Inclusion criteria fields
-                    sex_inclusion=get_value("sex_inclusion", row),
-                    health_status_inclusion=get_value("health_status_inclusion", row),
-                    clinically_relevant_exposure_inclusion=get_value("clinically_relevant_exposure_inclusion", row),
-                    age_group_inclusion=get_value("age_group_inclusion", row),
-                    bmi_range_inclusion=get_value("bmi_range_inclusion", row),
-                    ethnicity_inclusion=get_value("ethnicity_inclusion", row),
-                    family_status_inclusion=get_value("family_status_inclusion", row),
-                    hospital_patient_inclusion=get_value("hospital_patient_inclusion", row),
-                    use_of_medication_inclusion=get_value("use_of_medication_inclusion", row),
+                    # Inclusion/Exclusion criteria - new query structure
+                    sex_inclusion=get_value("inclusion_labels", row),  # Aggregated in new query
+                    health_status_inclusion=get_value("inclusion_values", row),  # Aggregated
+                    clinically_relevant_exposure_inclusion="",
+                    age_group_inclusion="",
+                    bmi_range_inclusion="",
+                    ethnicity_inclusion="",
+                    family_status_inclusion="",
+                    hospital_patient_inclusion="",
+                    use_of_medication_inclusion="",
                     # Exclusion criteria fields
-                    health_status_exclusion=get_value("health_status_exclusion", row),
-                    bmi_range_exclusion=get_value("bmi_range_exclusion", row),
-                    limited_life_expectancy_exclusion=get_value("limited_life_expectancy_exclusion", row),
-                    need_for_surgery_exclusion=get_value("need_for_surgery_exclusion", row),
-                    surgical_procedure_history_exclusion=get_value("surgical_procedure_history_exclusion", row),
-                    clinically_relevant_exposure_exclusion=get_value("clinically_relevant_exposure_exclusion", row),
+                    health_status_exclusion=get_value("exclusion_labels", row),  # Aggregated
+                    bmi_range_exclusion=get_value("exclusion_values", row),  # Aggregated
+                    limited_life_expectancy_exclusion="",
+                    need_for_surgery_exclusion="",
+                    surgical_procedure_history_exclusion="",
+                    clinically_relevant_exposure_exclusion="",
                     variables={},
-                    can_edit=user_email in [*settings.admins_list, get_value("cohortEmail", row)],
+                    can_edit=user_email in settings.admins_list,
                     physical_dictionary_exists=False
                 )
-                target_dict[cohort_id] = cohort
-                # Attempt to determine if a physical dictionary file exists
+                cohorts[cohort_id] = cohort
+                
+                # Check if physical dictionary file exists
                 try:
-                    if target_dict[cohort_id].metadata_filepath: # Accessing the property
-                        target_dict[cohort_id].physical_dictionary_exists = True
+                    if cohorts[cohort_id].metadata_filepath:
+                        cohorts[cohort_id].physical_dictionary_exists = True
                 except FileNotFoundError:
-                    target_dict[cohort_id].physical_dictionary_exists = False
-
-            elif get_value("cohortEmail", row) not in target_dict[cohort_id].cohort_email:
-                # Handle multiple emails for the same cohort
-                target_dict[cohort_id].cohort_email.append(get_value("cohortEmail", row))
-                if user_email == get_value("cohortEmail", row):
-                    target_dict[cohort_id].can_edit = True
-            
-            # Handle references - process independently of other conditions
-            if get_value("references", row) and get_value("references", row) not in target_dict[cohort_id].references:
-                # Add reference to the list
-                target_dict[cohort_id].references.append(get_value("references", row))
-
-            # Process variables
-            if "varName" in row and var_id not in target_dict[cohort_id].variables:
-                target_dict[cohort_id].variables[var_id] = CohortVariable(
-                    var_name=row["varName"]["value"],
-                    var_label=row["varLabel"]["value"],
-                    var_type=row["varType"]["value"],
-                    count=get_int_value("count", row) or 0,
-                    max=get_value("max", row),
-                    min=get_value("min", row),
-                    units=get_value("units", row),
-                    visits=get_value("visits", row),
-                    formula=get_value("formula", row),
-                    definition=get_value("definition", row),
-                    concept_id=get_curie_value("conceptId", row),
-                    concept_code=get_value("conceptCode", row),
-                    concept_name=get_value("conceptName", row),
-                    omop_id=get_value("omopId", row),
-                    mapped_id=get_curie_value("mappedId", row),
-                    mapped_label=get_value("mappedLabel", row),
-                    omop_domain=get_value("omopDomain", row),
-                    index=get_int_value("index", row),
-                    na=get_int_value("na", row) or 0,
-                )
-            # raise Exception(f"OLALALA")
-
-            # Process categories of variables
-            if "varName" in row and "categoryLabel" in row and "categoryValue" in row:
-                new_category = VariableCategory(
-                    value=str(row["categoryValue"]["value"]),
-                    label=str(row["categoryLabel"]["value"]),
-                    concept_id=get_curie_value("categoryConceptId", row),
-                    mapped_id=get_curie_value("categoryMappedId", row),
-                    mapped_label=get_value("categoryMappedLabel", row),
-                )
-                # Check for duplicates before appending
-                if new_category not in target_dict[cohort_id].variables[var_id].categories:
-                    target_dict[cohort_id].variables[var_id].categories.append(new_category)
+                    cohorts[cohort_id].physical_dictionary_exists = False
+                    
         except Exception as e:
-            logging.warning(f"Error processing row {row}: {e}")
-    # Merge cohorts with and without variables
-    # Put cohorts with variables first so they appear at the top of the list
+            logging.warning(f"Error processing study row {row}: {e}")
+    
+    # ===== STEP 4: Process Variables Metadata =====
+    # Group variables by study
+    for row in variables_results:
+        try:
+            # Extract study name from the query result
+            study_name = get_value("study_name", row)
+            var_name = get_value("var_name", row)
+            
+            # Match study_name to cohort_id (they should be the same or similar)
+            # Find the matching cohort
+            cohort_id = None
+            for cid in cohorts.keys():
+                if cid.lower() == study_name.lower() or study_name.lower() in cid.lower():
+                    cohort_id = cid
+                    break
+            
+            if not cohort_id:
+                # If we can't find a match, use study_name as cohort_id
+                cohort_id = study_name
+                
+            # If cohort doesn't exist yet (shouldn't happen), skip or create skeleton
+            if cohort_id not in cohorts:
+                logging.warning(f"Variable for unknown cohort: {cohort_id}")
+                continue
+            
+            # Add variable to cohort
+            if var_name and var_name not in cohorts[cohort_id].variables:
+                # Parse categorical values (format: "value1=label1|value2=label2")
+                categories = []
+                categorical_values_str = get_value("categorical_values", row)
+                if categorical_values_str:
+                    pairs = categorical_values_str.split("|")
+                    category_codes_list = get_value("category_concept_codes", row).split("|") if get_value("category_concept_codes", row) else []
+                    category_labels_list = get_value("category_concept_label", row).split("|") if get_value("category_concept_label", row) else []
+                    category_omop_list = get_value("category_omop_id", row).split("|") if get_value("category_omop_id", row) else []
+                    
+                    for i, pair in enumerate(pairs):
+                        if "=" in pair:
+                            value, label = pair.split("=", 1)
+                            categories.append(VariableCategory(
+                                value=value.strip(),
+                                label=label.strip(),
+                                concept_id=category_codes_list[i] if i < len(category_codes_list) else None,
+                                mapped_id=None,
+                                mapped_label=category_labels_list[i] if i < len(category_labels_list) else None,
+                            ))
+                
+                # Parse concept codes and labels (format: "code1 || code2 || code3")
+                concept_codes_str = get_value("concept_codes", row)
+                concept_labels_str = get_value("concept_labels", row)
+                concept_codes_list = concept_codes_str.split(" || ") if concept_codes_str else []
+                concept_labels_list = concept_labels_str.split(" || ") if concept_labels_str else []
+                
+                cohorts[cohort_id].variables[var_name] = CohortVariable(
+                    var_name=var_name,
+                    var_label=get_value("var_label", row),
+                    var_type=get_value("varType", row),
+                    count=get_int_value("count_value", row) or 0,
+                    max=get_value("maximum_value", row),
+                    min=get_value("minimum_value", row),
+                    units=get_value("unit_value", row),
+                    visits=get_value("visit", row),
+                    formula=get_value("formula_value", row),
+                    definition="",  # Not in new query
+                    concept_id=concept_codes_list[0] if concept_codes_list else None,
+                    concept_code=concept_codes_list[0] if concept_codes_list else None,
+                    concept_name=concept_labels_list[0] if concept_labels_list else None,
+                    omop_id=get_value("concept_omop_id", row),
+                    mapped_id=None,  # Not clear in new query
+                    mapped_label=None,  # Not clear in new query
+                    omop_domain=get_value("omopDomain", row),
+                    index=None,  # Not in new query
+                    na=0,  # Not in new query
+                    categories=categories
+                )
+                
+        except Exception as e:
+            logging.warning(f"Error processing variable row: {e}")
+    
+    # ===== STEP 5: Separate cohorts with and without variables =====
+    cohorts_with_variables = {k: v for k, v in cohorts.items() if v.variables}
+    cohorts_without_variables = {k: v for k, v in cohorts.items() if not v.variables}
+    
+    # Merge with variables first (so they appear at top)
     cohorts = {**cohorts_with_variables, **cohorts_without_variables}
     
-    # Log total function execution time
+    # Log timing information
     end_time = time.time()
     total_duration = end_time - start_time
-    processing_duration = total_duration - query_duration
-    logging.info(f"Total cohorts metadata retrieval time: {total_duration:.2f} seconds (Query: {query_duration:.2f}s, Processing: {processing_duration:.2f}s)")
+    processing_duration = total_duration - total_query_duration
+    logging.info(f"Total retrieval time: {total_duration:.2f}s (Queries: {total_query_duration:.2f}s, Processing: {processing_duration:.2f}s)")
     
     # Return with metadata if requested
     if include_sparql_metadata:
         return {
             "cohorts": cohorts,
             "sparql_metadata": {
-                "row_count": len(results),
-                "query_duration_ms": round(query_duration * 1000),
+                "row_count": len(studies_results) + len(variables_results),
+                "studies_count": len(studies_results),
+                "variables_count": len(variables_results),
+                "query_duration_ms": round(total_query_duration * 1000),
                 "processing_duration_ms": round(processing_duration * 1000),
                 "total_duration_ms": round(total_duration * 1000)
             }
         }
     
     return cohorts
+
