@@ -37,6 +37,8 @@ query_endpoint = SPARQLWrapper(settings.query_endpoint)
 query_endpoint.setReturnFormat(JSON)
 # Set timeout to 300 seconds (5 minutes) for large queries
 query_endpoint.setTimeout(300)
+# Use POST method for large queries (avoids header size limits)
+query_endpoint.setMethod('POST')
 # Enable HTTP connection keep-alive for better performance
 query_endpoint.addCustomHttpHeader("Connection", "keep-alive")
 
