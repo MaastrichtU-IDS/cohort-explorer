@@ -914,7 +914,7 @@ def process_all_metadata_fields(g: Graph, row: pd.Series, study_design_execution
         "language": "direct_property",
         
         # Entity fields - minimal config, smart defaults
-        "study type": {"ns": "SIO", "type": "study_descriptor", "target": "study_design", "rel": "is_described_by"},
+        "study type": {"ns": "SIO", "type": "descriptor", "target": "study_design", "rel": "is_about", "rel_ns": "IAO", "use_rdfs_label": True},
         "study objective": {"ns": "OBI", "type": "objective_specification", "target": "protocol"},
         "number of participants": {"ns": "CMEO", "type": "number_of_participants", "target": "protocol", "label": True},
         "start date": {"ns": "CMEO", "type": "start_time", "target": "execution", "rel": "has_time_stamp", "rel_ns": "IAO"},
@@ -984,6 +984,10 @@ def process_all_metadata_fields(g: Graph, row: pd.Series, study_design_execution
             # Add label if specified
             if config.get("label"):
                 g.add((entity_uri, RDFS.label, Literal(excel_field, datatype=XSD.string), metadata_graph))
+            
+            # Add rdfs:label with the value itself (for query compatibility)
+            if config.get("use_rdfs_label"):
+                g.add((entity_uri, RDFS.label, Literal(value, datatype=XSD.string), metadata_graph))
             
             # Add value
             g.add((entity_uri, OntologyNamespaces.CMEO.value.has_value, Literal(value, datatype=datatype), metadata_graph))
