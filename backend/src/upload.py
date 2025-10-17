@@ -926,7 +926,10 @@ def process_all_metadata_fields(g: Graph, row: pd.Series, study_design_execution
         # Note: primary/secondary outcome specifications handled in handle_special_fields (need nested structure)
         "morbidity": {"ns": "OBI", "type": "morbidity", "target": "protocol"},
         "administrator": {"ns": "CMEO", "type": "homo_sapiens", "target": "execution", "rel": "has_participant"},
-        "study contact person": {"ns": "CMEO", "type": "homo_sapiens", "target": "execution", "rel": "has_participant"}
+        "study contact person": {"ns": "CMEO", "type": "homo_sapiens", "target": "execution", "rel": "has_participant"},
+        # Additional fields to match CohortVarLinker
+        "frequency of data collection": {"ns": "CMEO", "type": "timeline_specification", "target": "protocol"},
+        "interventions": {"ns": "CMEO", "type": "intervention_specification", "target": "protocol"},
     }
     
     # Smart defaults and derivation logic
@@ -940,7 +943,15 @@ def process_all_metadata_fields(g: Graph, row: pd.Series, study_design_execution
         return targets[target]
     
     def get_uri_suffix(field_name):
-        return "/" + field_name.replace(" ", "_").replace("specification", "spec")
+        # Special case mappings to match CohortVarLinker URIs
+        uri_mappings = {
+            "study type": "/descriptor",  # Must match CohortVarLinker
+            "frequency of data collection": "/timeline_specification",  # Must match CohortVarLinker
+            "interventions": "/intervention",  # Must match CohortVarLinker (singular!)
+        }
+        if field_name in uri_mappings:
+            return uri_mappings[field_name]
+        return "/" + field_name.replace(" ", "_")
     
     def get_default_relationship(rdf_type):
         return "has_part"  # Most common default
@@ -1045,6 +1056,7 @@ def handle_special_fields(g: Graph, row: pd.Series, study_design_execution_uri: 
     
     # Handle outcome specifications with nested structure required by SPARQL query
     # Query expects: protocol -> outcome_specification -> primary/secondary_outcome_specification
+    # URIs must match CohortVarLinker: /primary_outcome_specification (not /primary_outcome_spec)
     has_primary = pd.notna(row.get("primary outcome specification", ""))
     has_secondary = pd.notna(row.get("secondary outcome specification", ""))
     
@@ -1053,22 +1065,93 @@ def handle_special_fields(g: Graph, row: pd.Series, study_design_execution_uri: 
         outcome_spec_uri = URIRef(study_uri + "/outcome_specification")
         g.add((outcome_spec_uri, RDF.type, OntologyNamespaces.CMEO.value.outcome_specification, metadata_graph))
         g.add((protocol_uri, OntologyNamespaces.RO.value.has_part, outcome_spec_uri, metadata_graph))
+        g.add((outcome_spec_uri, RDFS.label, Literal("outcome specification", datatype=XSD.string), metadata_graph))
         
-        # Add primary outcome specification as child of outcome_specification
+        # Add primary outcome specification - split by semicolon like CohortVarLinker
         if has_primary:
-            primary_value = str(row["primary outcome specification"]).strip()
-            primary_uri = URIRef(study_uri + "/primary_outcome_spec")
-            g.add((primary_uri, RDF.type, OntologyNamespaces.CMEO.value.primary_outcome_specification, metadata_graph))
-            g.add((outcome_spec_uri, OntologyNamespaces.RO.value.has_part, primary_uri, metadata_graph))
-            g.add((primary_uri, OntologyNamespaces.CMEO.value.has_value, Literal(primary_value, datatype=XSD.string), metadata_graph))
+            primary_values = str(row["primary outcome specification"]).lower().split(';') if pd.notna(row["primary outcome specification"]) else []
+            for primary_value in primary_values:
+                primary_value = primary_value.strip()
+                if primary_value:  # Skip empty values
+                    # URI matches CohortVarLinker: /primary_outcome_specification
+                    primary_uri = URIRef(study_uri + "/primary_outcome_specification")
+                    g.add((primary_uri, RDF.type, OntologyNamespaces.CMEO.value.primary_outcome_specification, metadata_graph))
+                    g.add((primary_uri, RDFS.label, Literal("primary outcome specification", datatype=XSD.string), metadata_graph))
+                    g.add((outcome_spec_uri, OntologyNamespaces.RO.value.has_part, primary_uri, metadata_graph))
+                    g.add((primary_uri, OntologyNamespaces.CMEO.value.has_value, Literal(primary_value, datatype=XSD.string), metadata_graph))
         
-        # Add secondary outcome specification as child of outcome_specification
+        # Add secondary outcome specification - split by semicolon like CohortVarLinker
         if has_secondary:
-            secondary_value = str(row["secondary outcome specification"]).strip()
-            secondary_uri = URIRef(study_uri + "/secondary_outcome_spec")
-            g.add((secondary_uri, RDF.type, OntologyNamespaces.CMEO.value.secondary_outcome_specification, metadata_graph))
-            g.add((outcome_spec_uri, OntologyNamespaces.RO.value.has_part, secondary_uri, metadata_graph))
-            g.add((secondary_uri, OntologyNamespaces.CMEO.value.has_value, Literal(secondary_value, datatype=XSD.string), metadata_graph))
+            secondary_values = str(row["secondary outcome specification"]).lower().split(';') if pd.notna(row["secondary outcome specification"]) else []
+            for secondary_value in secondary_values:
+                secondary_value = secondary_value.strip()
+                if secondary_value:  # Skip empty values
+                    # URI matches CohortVarLinker: /secondary_outcome_specification
+                    secondary_uri = URIRef(study_uri + "/secondary_outcome_specification")
+                    g.add((secondary_uri, RDF.type, OntologyNamespaces.CMEO.value.secondary_outcome_specification, metadata_graph))
+                    g.add((secondary_uri, RDFS.label, Literal("secondary outcome specification", datatype=XSD.string), metadata_graph))
+                    g.add((outcome_spec_uri, OntologyNamespaces.RO.value.has_part, secondary_uri, metadata_graph))
+                    g.add((secondary_uri, OntologyNamespaces.CMEO.value.has_value, Literal(secondary_value, datatype=XSD.string), metadata_graph))
+    
+    # Handle inclusion criteria - matches CohortVarLinker implementation
+    inclusion_criteria_columns = [col for col in row.index if "inclusion criterion" in col.lower()]
+    if inclusion_criteria_columns:
+        # Create inclusion criterion container
+        inclusion_criterion_uri = URIRef(study_uri + "/inclusion_criterion")
+        g.add((inclusion_criterion_uri, RDF.type, OntologyNamespaces.OBI.value.inclusion_criterion, metadata_graph))
+        g.add((inclusion_criterion_uri, OntologyNamespaces.RO.value.part_of, eligibility_criterion_uri, metadata_graph))
+        g.add((eligibility_criterion_uri, OntologyNamespaces.RO.value.has_part, inclusion_criterion_uri, metadata_graph))
+        
+        for col in inclusion_criteria_columns:
+            inclusion_criterion_name = normalize_text(col)
+            row_value = str(row[col]).lower().strip() if pd.notna(row[col]) else ""
+            if row_value == "not applicable" or row_value == "" or row_value is None:
+                continue
+            
+            # Create dynamic type for this specific inclusion criterion
+            dynamic_inclusion_criterion_type = URIRef(OntologyNamespaces.CMEO.value + inclusion_criterion_name)
+            
+            # Split by semicolon for multiple values
+            inc_all_values = row_value.split(";") if row_value else []
+            for inclusion_criteria_value in inc_all_values:
+                inclusion_criteria_value = inclusion_criteria_value.strip()
+                if inclusion_criteria_value:
+                    col_inclusion_criteria_uri = URIRef(study_uri + "/" + inclusion_criterion_name)
+                    g.add((col_inclusion_criteria_uri, RDF.type, dynamic_inclusion_criterion_type, metadata_graph))
+                    g.add((col_inclusion_criteria_uri, OntologyNamespaces.RO.value.part_of, inclusion_criterion_uri, metadata_graph))
+                    g.add((inclusion_criterion_uri, OntologyNamespaces.RO.value.has_part, col_inclusion_criteria_uri, metadata_graph))
+                    g.add((col_inclusion_criteria_uri, RDFS.label, Literal(col, datatype=XSD.string), metadata_graph))
+                    g.add((col_inclusion_criteria_uri, OntologyNamespaces.CMEO.value.has_value, Literal(inclusion_criteria_value, datatype=XSD.string), metadata_graph))
+    
+    # Handle exclusion criteria - matches CohortVarLinker implementation
+    exclusion_criteria_columns = [col for col in row.index if "exclusion criterion" in col.lower()]
+    if exclusion_criteria_columns:
+        # Create exclusion criterion container
+        exclusion_criterion_uri = URIRef(study_uri + "/exclusion_criterion")
+        g.add((exclusion_criterion_uri, RDF.type, OntologyNamespaces.OBI.value.exclusion_criterion, metadata_graph))
+        g.add((exclusion_criterion_uri, OntologyNamespaces.RO.value.part_of, eligibility_criterion_uri, metadata_graph))
+        g.add((eligibility_criterion_uri, OntologyNamespaces.RO.value.has_part, exclusion_criterion_uri, metadata_graph))
+        
+        for col in exclusion_criteria_columns:
+            exclusion_criterion_name = normalize_text(col)
+            row_value = str(row[col]).lower().strip() if pd.notna(row[col]) else ""
+            if row_value == "not applicable" or row_value == "" or row_value is None:
+                continue
+            
+            # Create dynamic type for this specific exclusion criterion
+            dynamic_exclusion_criterion_type = URIRef(OntologyNamespaces.CMEO.value + exclusion_criterion_name)
+            
+            # Split by semicolon for multiple values
+            exc_all_values = row_value.split(";") if row_value else []
+            for exclusion_criteria_value in exc_all_values:
+                exclusion_criteria_value = exclusion_criteria_value.strip()
+                if exclusion_criteria_value:
+                    col_exclusion_criteria_uri = URIRef(study_uri + "/" + exclusion_criterion_name)
+                    g.add((col_exclusion_criteria_uri, RDF.type, dynamic_exclusion_criterion_type, metadata_graph))
+                    g.add((col_exclusion_criteria_uri, OntologyNamespaces.RO.value.part_of, exclusion_criterion_uri, metadata_graph))
+                    g.add((exclusion_criterion_uri, OntologyNamespaces.RO.value.has_part, col_exclusion_criteria_uri, metadata_graph))
+                    g.add((col_exclusion_criteria_uri, RDFS.label, Literal(col, datatype=XSD.string), metadata_graph))
+                    g.add((col_exclusion_criteria_uri, OntologyNamespaces.CMEO.value.has_value, Literal(exclusion_criteria_value, datatype=XSD.string), metadata_graph))
     
     return g
 
