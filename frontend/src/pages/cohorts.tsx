@@ -897,6 +897,47 @@ export default function CohortsList() {
                    !cohortData.interventions && (
                     <p className="text-gray-500"><em>No metadata available</em></p>
                   )}
+                  
+                  {/* Visit Distribution Section */}
+                  {(() => {
+                    // Calculate visit distribution from variables
+                    const visitCounts: { [key: string]: number } = {};
+                    let totalWithVisits = 0;
+                    
+                    Object.values(cohortData.variables).forEach((variable) => {
+                      if (variable.visits && variable.visits.trim()) {
+                        const visitValue = variable.visits.trim();
+                        visitCounts[visitValue] = (visitCounts[visitValue] || 0) + 1;
+                        totalWithVisits++;
+                      }
+                    });
+                    
+                    // Sort by count descending
+                    const sortedVisits = Object.entries(visitCounts)
+                      .sort((a, b) => b[1] - a[1]);
+                    
+                    if (sortedVisits.length > 0) {
+                      return (
+                        <div className="mt-4 pt-4 border-t">
+                          <h4 className="font-semibold mb-2">Visit Distribution:</h4>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                            {sortedVisits.map(([visit, count]) => (
+                              <div key={visit} className="flex justify-between items-center bg-gray-50 px-3 py-2 rounded">
+                                <span className="text-sm">{visit}</span>
+                                <span className="badge badge-primary badge-sm">
+                                  {count} {count === 1 ? 'variable' : 'variables'}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                          <p className="text-xs text-gray-500 mt-2">
+                            {totalWithVisits} of {Object.keys(cohortData.variables).length} variables have visit information
+                          </p>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
                 </div>
                 
                 {/* Summary Graphs Section */}
