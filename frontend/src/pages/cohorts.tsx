@@ -6,6 +6,7 @@ import {useCohorts} from '@/components/CohortsContext';
 import FilterByMetadata from '@/components/FilterByMetadata';
 import {Cohort} from '@/types';
 import VariablesList from '@/components/VariablesList';
+import CohortSummaryGraphs from '@/components/CohortSummaryGraphs';
 import {parseSearchQuery, searchInObject, highlightSearchTerms} from '@/utils/search';
 
 // Helper component to render highlighted text
@@ -897,6 +898,9 @@ export default function CohortsList() {
                     <p className="text-gray-500"><em>No metadata available</em></p>
                   )}
                 </div>
+                
+                {/* Summary Graphs Section */}
+                <CohortSummaryGraphs variables={cohortData.variables} />
                 
                 <VariablesList 
                   cohortId={cohortData.cohort_id} 
