@@ -906,7 +906,11 @@ export default function CohortsList() {
                     
                     Object.values(cohortData.variables).forEach((variable) => {
                       if (variable.visits && variable.visits.trim()) {
-                        const visitValue = variable.visits.trim();
+                        // Capitalize first letter of each word for display
+                        const visitValue = variable.visits.trim()
+                          .split(' ')
+                          .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                          .join(' ');
                         visitCounts[visitValue] = (visitCounts[visitValue] || 0) + 1;
                         totalWithVisits++;
                       }

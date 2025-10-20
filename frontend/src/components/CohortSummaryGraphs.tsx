@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
+import React, { useMemo, useState } from 'react';
+import ReactECharts from 'echarts-for-react';
 import { Variable } from '@/types';
 
 interface CohortSummaryGraphsProps {
@@ -34,54 +34,175 @@ const TYPE_COLORS = [
 ];
 
 export default function CohortSummaryGraphs({ variables }: CohortSummaryGraphsProps) {
+  const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
+  const [selectedType, setSelectedType] = useState<string | null>(null);
+
   // Calculate OMOP domain distribution
   const domainData = useMemo(() => {
     const domainCounts: { [key: string]: number } = {};
     
-    Object.values(variables).forEach((variable) => {
+    // Filter by selected type if any
+    const filteredVars = selectedType 
+      ? Object.values(variables).filter(v => (v.var_type || 'Unknown') === selectedType)
+      : Object.values(variables);
+    
+    filteredVars.forEach((variable) => {
       const domain = variable.omop_domain || 'Unmapped';
       domainCounts[domain] = (domainCounts[domain] || 0) + 1;
     });
     
     return Object.entries(domainCounts)
-      .map(([name, value]) => ({ name, value }))
-      .sort((a, b) => b.value - a.value); // Sort by count descending
-  }, [variables]);
+      .map(([name, value]) => ({ 
+        name, 
+        value,
+        itemStyle: { color: DOMAIN_COLORS[Object.keys(domainCounts).indexOf(name) % DOMAIN_COLORS.length] }
+      }))
+      .sort((a, b) => b.value - a.value);
+  }, [variables, selectedType]);
 
   // Calculate data type distribution
   const typeData = useMemo(() => {
     const typeCounts: { [key: string]: number } = {};
     
-    Object.values(variables).forEach((variable) => {
+    // Filter by selected domain if any
+    const filteredVars = selectedDomain
+      ? Object.values(variables).filter(v => (v.omop_domain || 'Unmapped') === selectedDomain)
+      : Object.values(variables);
+    
+    filteredVars.forEach((variable) => {
       const type = variable.var_type || 'Unknown';
       typeCounts[type] = (typeCounts[type] || 0) + 1;
     });
     
     return Object.entries(typeCounts)
-      .map(([name, value]) => ({ name, value }))
-      .sort((a, b) => b.value - a.value); // Sort by count descending
-  }, [variables]);
+      .map(([name, value]) => ({ 
+        name, 
+        value,
+        itemStyle: { color: TYPE_COLORS[Object.keys(typeCounts).indexOf(name) % TYPE_COLORS.length] }
+      }))
+      .sort((a, b) => b.value - a.value);
+  }, [variables, selectedDomain]);
 
-  // Custom label renderer to show percentage
-  const renderCustomLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }: any) => {
-    const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
-    const x = cx + radius * Math.cos(-midAngle * (Math.PI / 180));
-    const y = cy + radius * Math.sin(-midAngle * (Math.PI / 180));
+  // Domain chart options
+  const domainChartOptions = {
+    title: {
+      text: selectedType ? `Domains for ${selectedType}` : 'OMOP Domains Distribution',
+      left: 'center',
+      textStyle: { fontSize: 14, fontWeight: 500 }
+    },
+    tooltip: {
+      trigger: 'item',
+      formatter: '{b}: {c} ({d}%)'
+    },
+    legend: {
+      orient: 'horizontal',
+      bottom: 0,
+      type: 'scroll',
+      formatter: (name: string) => {
+        const item = domainData.find(d => d.name === name);
+        return `${name} (${item?.value || 0})`;
+      }
+    },
+    series: [
+      {
+        type: 'pie',
+        radius: ['40%', '70%'],
+        avoidLabelOverlap: true,
+        itemStyle: {
+          borderRadius: 8,
+          borderColor: '#fff',
+          borderWidth: 2
+        },
+        label: {
+          show: true,
+          formatter: '{d}%',
+          fontSize: 11
+        },
+        emphasis: {
+          label: {
+            show: true,
+            fontSize: 14,
+            fontWeight: 'bold'
+          },
+          itemStyle: {
+            shadowBlur: 10,
+            shadowOffsetX: 0,
+            shadowColor: 'rgba(0, 0, 0, 0.5)'
+          }
+        },
+        data: domainData
+      }
+    ]
+  };
 
-    if (percent < 0.05) return null; // Don't show label if slice is too small
+  // Type chart options
+  const typeChartOptions = {
+    title: {
+      text: selectedDomain ? `Types in ${selectedDomain}` : 'Data Types Distribution',
+      left: 'center',
+      textStyle: { fontSize: 14, fontWeight: 500 }
+    },
+    tooltip: {
+      trigger: 'item',
+      formatter: '{b}: {c} ({d}%)'
+    },
+    legend: {
+      orient: 'horizontal',
+      bottom: 0,
+      type: 'scroll',
+      formatter: (name: string) => {
+        const item = typeData.find(d => d.name === name);
+        return `${name} (${item?.value || 0})`;
+      }
+    },
+    series: [
+      {
+        type: 'pie',
+        radius: ['40%', '70%'],
+        avoidLabelOverlap: true,
+        itemStyle: {
+          borderRadius: 8,
+          borderColor: '#fff',
+          borderWidth: 2
+        },
+        label: {
+          show: true,
+          formatter: '{d}%',
+          fontSize: 11
+        },
+        emphasis: {
+          label: {
+            show: true,
+            fontSize: 14,
+            fontWeight: 'bold'
+          },
+          itemStyle: {
+            shadowBlur: 10,
+            shadowOffsetX: 0,
+            shadowColor: 'rgba(0, 0, 0, 0.5)'
+          }
+        },
+        data: typeData
+      }
+    ]
+  };
 
-    return (
-      <text
-        x={x}
-        y={y}
-        fill="white"
-        textAnchor={x > cx ? 'start' : 'end'}
-        dominantBaseline="central"
-        className="text-xs font-semibold"
-      >
-        {`${(percent * 100).toFixed(0)}%`}
-      </text>
-    );
+  // Handle domain chart click
+  const onDomainClick = (params: any) => {
+    if (params.name === selectedDomain) {
+      setSelectedDomain(null); // Deselect if clicking same domain
+    } else {
+      setSelectedDomain(params.name);
+    }
+  };
+
+  // Handle type chart click
+  const onTypeClick = (params: any) => {
+    if (params.name === selectedType) {
+      setSelectedType(null); // Deselect if clicking same type
+    } else {
+      setSelectedType(params.name);
+    }
   };
 
   if (Object.keys(variables).length === 0) {
@@ -95,75 +216,51 @@ export default function CohortSummaryGraphs({ variables }: CohortSummaryGraphsPr
 
   return (
     <div className="bg-white shadow-md rounded-lg p-4 mb-4">
-      <h3 className="text-lg font-semibold mb-3 border-b pb-2">Summary Graphs</h3>
+      <div className="flex justify-between items-center mb-3 border-b pb-2">
+        <h3 className="text-lg font-semibold">Summary Graphs</h3>
+        {(selectedDomain || selectedType) && (
+          <button
+            onClick={() => {
+              setSelectedDomain(null);
+              setSelectedType(null);
+            }}
+            className="text-xs bg-gray-200 hover:bg-gray-300 px-3 py-1 rounded-full transition-colors"
+          >
+            Reset Filters
+          </button>
+        )}
+      </div>
+      
+      {(selectedDomain || selectedType) && (
+        <div className="mb-3 text-sm text-gray-600 bg-blue-50 px-3 py-2 rounded">
+          <strong>💡 Tip:</strong> Charts are linked! 
+          {selectedDomain && ` Filtering by domain: "${selectedDomain}"`}
+          {selectedType && ` Filtering by type: "${selectedType}"`}
+          {' '}Click a slice again to deselect.
+        </div>
+      )}
       
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* OMOP Domains Pie Chart */}
-        <div>
-          <h4 className="text-md font-medium mb-2 text-center">OMOP Domains Distribution</h4>
-          <ResponsiveContainer width="100%" height={300}>
-            <PieChart>
-              <Pie
-                data={domainData}
-                cx="50%"
-                cy="50%"
-                labelLine={false}
-                label={renderCustomLabel}
-                outerRadius={80}
-                fill="#8884d8"
-                dataKey="value"
-              >
-                {domainData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={DOMAIN_COLORS[index % DOMAIN_COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip 
-                formatter={(value: number) => [`${value} variables`, 'Count']}
-              />
-              <Legend 
-                verticalAlign="bottom" 
-                height={36}
-                formatter={(value) => {
-                  const item = domainData.find(d => d.name === value);
-                  return `${value} (${item?.value || 0})`;
-                }}
-              />
-            </PieChart>
-          </ResponsiveContainer>
+        <div className="cursor-pointer">
+          <ReactECharts
+            option={domainChartOptions}
+            style={{ height: '350px' }}
+            onEvents={{
+              click: onDomainClick
+            }}
+          />
         </div>
 
         {/* Data Types Pie Chart */}
-        <div>
-          <h4 className="text-md font-medium mb-2 text-center">Data Types Distribution</h4>
-          <ResponsiveContainer width="100%" height={300}>
-            <PieChart>
-              <Pie
-                data={typeData}
-                cx="50%"
-                cy="50%"
-                labelLine={false}
-                label={renderCustomLabel}
-                outerRadius={80}
-                fill="#8884d8"
-                dataKey="value"
-              >
-                {typeData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={TYPE_COLORS[index % TYPE_COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip 
-                formatter={(value: number) => [`${value} variables`, 'Count']}
-              />
-              <Legend 
-                verticalAlign="bottom" 
-                height={36}
-                formatter={(value) => {
-                  const item = typeData.find(d => d.name === value);
-                  return `${value} (${item?.value || 0})`;
-                }}
-              />
-            </PieChart>
-          </ResponsiveContainer>
+        <div className="cursor-pointer">
+          <ReactECharts
+            option={typeChartOptions}
+            style={{ height: '350px' }}
+            onEvents={{
+              click: onTypeClick
+            }}
+          />
         </div>
       </div>
     </div>

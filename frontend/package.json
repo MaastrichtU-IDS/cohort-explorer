@@ -11,12 +11,13 @@
   },
   "dependencies": {
     "@tailwindcss/typography": "^0.5.13",
+    "echarts": "^5.6.0",
+    "echarts-for-react": "^3.0.2",
     "next": "14.2.3",
     "next-auth": "^4.24.7",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-feather": "^2.0.10",
-    "recharts": "^3.3.0"
+    "react-feather": "^2.0.10"
   },
   "devDependencies": {
     "@types/node": "^20.12.12",
