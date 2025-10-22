@@ -867,13 +867,14 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
             print("Study name is missing, skipping this row.")
             continue
             
-        study_name = normalize_text(str(row["study name"]).strip())
+        # Keep original study name for identifier, normalized for URI
+        original_study_name = str(row["study name"]).strip()
+        study_name = normalize_text(original_study_name)
         study_uri = URIRef(OntologyNamespaces.CMEO.value + study_name)
         study_design_execution_uri = URIRef(study_uri + "/study_design_execution")
         
-        # Create study design execution (main entity)
+        # Create study design execution entity (without dc:identifier - it goes on study_design per query expectations)
         g.add((study_design_execution_uri, RDF.type, OntologyNamespaces.OBI.value.study_design_execution, metadata_graph))
-        g.add((study_design_execution_uri, DC.identifier, Literal(row["study name"], datatype=XSD.string), metadata_graph))
         
         # Create study design and protocol structure
         study_design_value = row.get("study design", "").lower().strip() if pd.notna(row.get("study design", "")) else None
@@ -881,7 +882,7 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
             study_design_value = normalize_text(study_design_value)
             study_design_uri = URIRef(study_uri + "/" + study_design_value)
             g.add((study_design_uri, OntologyNamespaces.CMEO.value.has_value, Literal(study_design_value, datatype=XSD.string), metadata_graph))
-            g.add((study_design_uri, DC.identifier, Literal(study_name, datatype=XSD.string), metadata_graph))
+            g.add((study_design_uri, DC.identifier, Literal(original_study_name, datatype=XSD.string), metadata_graph))
             dynamic_class_uri = URIRef(OntologyNamespaces.OBI.value + study_design_value)
             g.add((study_design_uri, RDF.type, dynamic_class_uri, metadata_graph))
             protocol_uri = URIRef(study_uri + "/" + study_design_value + "/protocol")
@@ -893,7 +894,7 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
             g.add((protocol_uri, RDF.type, OntologyNamespaces.OBI.value.protocol, metadata_graph))
             g.add((study_design_uri, RDF.type, OntologyNamespaces.OBI.value.study_design, metadata_graph))
             g.add((study_design_uri, OntologyNamespaces.RO.value.has_part, protocol_uri, metadata_graph))
-            g.add((study_design_uri, DC.identifier, Literal(study_name, datatype=XSD.string), metadata_graph))
+            g.add((study_design_uri, DC.identifier, Literal(original_study_name, datatype=XSD.string), metadata_graph))
             
         g.add((study_design_execution_uri, OntologyNamespaces.RO.value.concretizes, study_design_uri, metadata_graph))
         g.add((study_design_uri, OntologyNamespaces.RO.value.is_concretized_by, study_design_execution_uri, metadata_graph))
