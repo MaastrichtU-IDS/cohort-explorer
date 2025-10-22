@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import Any
 
 import curies
@@ -32,6 +33,7 @@ class OntologyNamespaces(Enum):
     IAO = Namespace("http://purl.obolibrary.org/obo/iao.owl/")
     TIME = Namespace("http://www.w3.org/2006/time#")
     SIO = Namespace("http://semanticscience.org/ontology/sio.owl/")
+    NCBI = Namespace("http://purl.bioontology.org/ontology/NCBITAXON/")
 
 query_endpoint = SPARQLWrapper(settings.query_endpoint)
 query_endpoint.setReturnFormat(JSON)
@@ -106,6 +108,47 @@ def normalize_text(text: str) -> str:
         return None
     text = str(text).lower().strip().replace(" ", "_").replace("/", "_").replace(":", "_").replace('[','').replace(']','')
     return urllib.parse.quote(text, safe='_-')
+
+
+def extract_age_range(text):
+    """
+    Extract minimum and maximum age values from text descriptions.
+    Matches patterns like: "age >= 18", "between 18 and 65 years", etc.
+    Returns tuple (min_age, max_age) or None if no age range found.
+    """
+    # Normalize Unicode comparison symbols
+    text = text.strip().replace("≥", ">=").replace("≤", "<=")
+
+    # Patterns for extracting min and max age
+    age_conditions = re.findall(r'(?:age\s*)?(>=|<=|>|<)\s*(\d+(?:\.\d+)?)\s*(?:years\s*old|years)?', text, flags=re.IGNORECASE)
+
+    min_age = None
+    max_age = None
+
+    for operator, value in age_conditions:
+        value = float(value)
+        if operator in ('>=', '>'):
+            if min_age is None or value > min_age:
+                min_age = value if operator == '>' else value  # can adjust to value + epsilon if needed
+        elif operator in ('<=', '<'):
+            if max_age is None or value < max_age:
+                max_age = value if operator == '<' else value  # can adjust to value - epsilon if needed
+
+    # Also handle "between X and Y years" separately
+    match = re.search(r'between\s+(\d+(?:\.\d+)?)\s*(?:and|[-–])\s*(\d+(?:\.\d+)?)\s*years?', text, flags=re.IGNORECASE)
+    if match:
+        min_val = float(match.group(1))
+        max_val = float(match.group(2))
+        if min_age is None or min_val > min_age:
+            min_age = min_val
+        if max_age is None or max_val < max_age:
+            max_age = max_val
+
+    if min_age is not None or max_age is not None:
+        return min_age, max_age
+
+    return None
+
 
 def init_graph(default_graph_identifier: str | None = "https://w3id.org/CMEO/graph/studies_metadata") -> Dataset:
     """Initialize a new RDF graph for nquads with the voc namespace bindings."""

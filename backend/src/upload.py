@@ -14,8 +14,8 @@ from re import sub
 import pandas as pd
 import requests
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
-from rdflib import XSD, Dataset, Graph, Literal, URIRef
-from rdflib.namespace import DC, RDF, RDFS
+from rdflib import Graph, Literal, URIRef, Dataset
+from rdflib.namespace import DC, RDF, RDFS, XSD
 from SPARQLWrapper import SPARQLWrapper
 
 from src.config import settings
@@ -23,6 +23,7 @@ from src.auth import get_current_user
 from src.utils import (
     ICARE,
     curie_converter,
+    extract_age_range,
     get_cohorts_metadata_query,
     init_graph,
     OntologyNamespaces,
@@ -138,6 +139,11 @@ def delete_existing_triples(graph_uri: str | URIRef, subject="?s", predicate="?p
 
 def get_cohort_uri(cohort_id: str) -> URIRef:
     return ICARE[f"cohort/{cohort_id.replace(' ', '_')}"]
+
+
+def get_cohort_graph_uri(cohort_id: str) -> URIRef:
+    """Get the graph URI for a cohort in CMEO namespace (matches query expectations)"""
+    return URIRef(OntologyNamespaces.CMEO.value + f"graph/{cohort_id}")
 
 
 def get_cohort_mapping_uri(cohort_id: str) -> URIRef:
@@ -447,19 +453,21 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
             )
 
         # If no errors, proceed to create the graph (RDF triples)
+        # CRITICAL: Use CMEO graph namespace to match query expectations
         cohort_uri = get_cohort_uri(cohort_id)
+        cohort_graph_uri = get_cohort_graph_uri(cohort_id)
         g = init_graph()
-        g.add((cohort_uri, RDF.type, ICARE.Cohort, cohort_uri))
-        g.add((cohort_uri, DC.identifier, Literal(cohort_id), cohort_uri))
+        g.add((cohort_uri, RDF.type, ICARE.Cohort, cohort_graph_uri))
+        g.add((cohort_uri, DC.identifier, Literal(cohort_id), cohort_graph_uri))
 
         i = 0
         for i, row in df.iterrows():
             variable_uri = get_var_uri(cohort_id, row["VARIABLENAME"])
-            g.add((cohort_uri, ICARE.hasVariable, variable_uri, cohort_uri))
-            g.add((variable_uri, RDF.type, ICARE.Variable, cohort_uri))
-            g.add((variable_uri, DC.identifier, Literal(row["VARIABLENAME"]), cohort_uri))
-            g.add((variable_uri, RDFS.label, Literal(row["VARIABLELABEL"]), cohort_uri))
-            g.add((variable_uri, ICARE["index"], Literal(i, datatype=XSD.integer), cohort_uri))
+            g.add((cohort_uri, ICARE.hasVariable, variable_uri, cohort_graph_uri))
+            g.add((variable_uri, RDF.type, ICARE.Variable, cohort_graph_uri))
+            g.add((variable_uri, DC.identifier, Literal(row["VARIABLENAME"]), cohort_graph_uri))
+            g.add((variable_uri, RDFS.label, Literal(row["VARIABLELABEL"]), cohort_graph_uri))
+            g.add((variable_uri, ICARE["index"], Literal(i, datatype=XSD.integer), cohort_graph_uri))
 
             # Get categories code if provided (re-fetch for graph generation phase)
             categories_codes = []
@@ -476,17 +484,17 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
                         and (col_value.startswith("http://") or col_value.startswith("https://"))
                         and " " not in col_value
                     ):
-                        g.add((variable_uri, property_uri, URIRef(col_value), cohort_uri))
+                        g.add((variable_uri, property_uri, URIRef(col_value), cohort_graph_uri))
                     else:
-                        g.add((variable_uri, property_uri, Literal(col_value), cohort_uri))
+                        g.add((variable_uri, property_uri, Literal(col_value), cohort_graph_uri))
                 
                 if column_name_from_df == "categories" and isinstance(col_value, list): # 'categories' is our parsed list
                     for index, category in enumerate(col_value):
                         cat_uri = get_category_uri(variable_uri, index) # Use index for unique category URI part
-                        g.add((variable_uri, ICARE.categories, cat_uri, cohort_uri))
-                        g.add((cat_uri, RDF.type, ICARE.VariableCategory, cohort_uri))
-                        g.add((cat_uri, RDF.value, Literal(category["value"]), cohort_uri))
-                        g.add((cat_uri, RDFS.label, Literal(category["label"]), cohort_uri))
+                        g.add((variable_uri, ICARE.categories, cat_uri, cohort_graph_uri))
+                        g.add((cat_uri, RDF.type, ICARE.VariableCategory, cohort_graph_uri))
+                        g.add((cat_uri, RDF.value, Literal(category["value"]), cohort_graph_uri))
+                        g.add((cat_uri, RDFS.label, Literal(category["label"]), cohort_graph_uri))
                         
                         if index < len(categories_codes):
                             code_to_check = categories_codes[index].strip()
@@ -499,7 +507,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
                                         # Another temp fix just for TIM-HF!!
                                         # cat_code_uri = cat_code_uri.lower().replace("ucum/%", "ucum/percent").replace("[", "").replace("]", "")
                                         #print(f"Adding category code {cat_code_uri} for category {category['value']} in cohort {cohort_id}, line {i}, cat_uri: {cat_uri}, conceptId: {ICARE.conceptId}")
-                                        g.add((cat_uri, ICARE.conceptId, URIRef(cat_code_uri), cohort_uri))
+                                        g.add((cat_uri, ICARE.conceptId, URIRef(cat_code_uri), cohort_graph_uri))
                                 except Exception as curie_exc:
                                     errors.append(
                                         f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_data['value']}'): Error expanding CURIE '{code_to_check}': {curie_exc}."
@@ -624,7 +632,7 @@ async def delete_cohort(
     delete_existing_triples(
         get_cohort_mapping_uri(cohort_id), f"<{get_cohort_uri(cohort_id)!s}>", "icare:previewEnabled"
     )
-    delete_existing_triples(get_cohort_uri(cohort_id))
+    delete_existing_triples(get_cohort_graph_uri(cohort_id))
     # Delete folder
     cohort_folder_path = os.path.join(settings.data_folder, "cohorts", cohort_id)
     if os.path.exists(cohort_folder_path) and os.path.isdir(cohort_folder_path):
@@ -719,7 +727,7 @@ async def upload_cohort(
             # delete_existing_triples(
             #     get_cohort_mapping_uri(cohort_id), f"<{get_cohort_uri(cohort_id)!s}>", "icare:previewEnabled"
             # )
-            delete_existing_triples(get_cohort_uri(cohort_id))
+            delete_existing_triples(get_cohort_graph_uri(cohort_id))
             if publish_graph_to_endpoint(g):
                 # Update the cache with the new cohort data
                 cohorts = retrieve_cohorts_metadata(user_email)
@@ -749,7 +757,7 @@ def generate_mappings(cohort_id: str, metadata_path: str, g: Graph) -> None:
     # delete_existing_triples(
     #     get_cohort_mapping_uri(cohort_id), f"<{get_cohort_uri(cohort_id)!s}>", "icare:previewEnabled"
     # )
-    delete_existing_triples(get_cohort_uri(cohort_id))
+    delete_existing_triples(get_cohort_graph_uri(cohort_id))
     if publish_graph_to_endpoint(g):
         # Update the cache with the new cohort data
         # Use admin email to ensure we can access all cohorts
@@ -909,6 +917,7 @@ def process_all_metadata_fields(g: Graph, row: pd.Series, study_design_execution
     """Process ALL metadata fields using unified mapping to eliminate code repetition"""
     
     # Simplified field mapping - only essential info, rest is derived
+    # Using OntologyNamespaces enum consistently with study_kg.py
     field_config = {
         # Direct properties (no entity creation)
         "language": "direct_property",
@@ -919,23 +928,25 @@ def process_all_metadata_fields(g: Graph, row: pd.Series, study_design_execution
         "number of participants": {"ns": "CMEO", "type": "number_of_participants", "target": "protocol", "label": True},
         "start date": {"ns": "CMEO", "type": "start_time", "target": "execution", "rel": "has_time_stamp", "rel_ns": "IAO"},
         "end date": {"ns": "CMEO", "type": "end_time", "target": "execution", "rel": "has_time_stamp", "rel_ns": "IAO"},
-        "ongoing": {"ns": "CMEO", "type": "ongoing", "target": "execution", "datatype": "boolean"},
-        "age distribution": {"ns": "OBI", "type": "age_distribution", "target": "execution", "label": True},
-        "population location": {"ns": "BFO", "type": "site", "target": "execution"},
+        "ongoing": {"ns": "SIO", "type": "ongoing", "target": "execution", "rel": "is_about", "rel_ns": "IAO", "datatype": "boolean"},
+        # NOTE: age distribution, population location, and morbidity handled in handle_special_fields (need output_population structure)
+        # "age distribution": {"ns": "OBI", "type": "age_distribution", "target": "execution", "label": True},
+        # "population location": {"ns": "BFO", "type": "site", "target": "execution"},
         "institute": {"ns": "OBI", "type": "organization", "target": "execution", "rel": "has_participant"},
-        # Note: primary/secondary outcome specifications handled in handle_special_fields (need nested structure)
-        "morbidity": {"ns": "OBI", "type": "morbidity", "target": "protocol"},
-        "administrator": {"ns": "CMEO", "type": "homo_sapiens", "target": "execution", "rel": "has_participant"},
-        "study contact person": {"ns": "CMEO", "type": "homo_sapiens", "target": "execution", "rel": "has_participant"},
+        # Note: primary/secondary outcome specifications, morbidity, age distribution, population location handled in handle_special_fields (need nested structure)
+        # "morbidity": {"ns": "OBI", "type": "morbidity", "target": "protocol"},
+        "administrator": {"ns": "NCBI", "type": "homo_sapiens", "target": "execution", "rel": "has_participant"},
+        "study contact person": {"ns": "NCBI", "type": "homo_sapiens", "target": "execution", "rel": "has_participant"},
         # Additional fields to match CohortVarLinker
         "frequency of data collection": {"ns": "CMEO", "type": "timeline_specification", "target": "protocol"},
-        "interventions": {"ns": "CMEO", "type": "intervention_specification", "target": "protocol"},
+        "interventions": {"ns": "CMEO", "type": "intervention_specification", "target": "protocol", "label": True},
     }
     
     # Smart defaults and derivation logic
     def get_namespace(ns_key):
         ns_map = {"DC": DC, "SIO": OntologyNamespaces.SIO.value, "OBI": OntologyNamespaces.OBI.value, 
-                  "CMEO": OntologyNamespaces.CMEO.value, "BFO": OntologyNamespaces.BFO.value, "IAO": OntologyNamespaces.IAO.value}
+                  "CMEO": OntologyNamespaces.CMEO.value, "BFO": OntologyNamespaces.BFO.value, 
+                  "IAO": OntologyNamespaces.IAO.value, "NCBI": OntologyNamespaces.NCBI.value}
         return ns_map[ns_key]
     
     def get_subject_uri(target):
@@ -1012,16 +1023,36 @@ def handle_special_fields(g: Graph, row: pd.Series, study_design_execution_uri: 
                          study_uri: URIRef, protocol_uri: URIRef, metadata_graph: URIRef) -> Graph:
     """Handle only the truly special cases that can't be mapped generically"""
     
-    # Create eligibility criterion container (needed for male/female percentages)
+    # Create eligibility criterion container (matches study_kg.py structure)
     eligibility_criterion_uri = URIRef(study_uri + "/eligibility_criterion")
     g.add((eligibility_criterion_uri, RDF.type, OntologyNamespaces.OBI.value.eligibility_criterion, metadata_graph))
     g.add((protocol_uri, OntologyNamespaces.RO.value.has_part, eligibility_criterion_uri, metadata_graph))
     
-    # Handle Mixed Sex field with male/female percentage parsing
+    # Create enrollment and population entities (matches study_kg.py and query expectations)
+    human_subject_enrollment = URIRef(study_uri + "/human_subject_enrollment")
+    g.add((human_subject_enrollment, RDF.type, OntologyNamespaces.CMEO.value.human_subject_enrollment, metadata_graph))
+    g.add((eligibility_criterion_uri, OntologyNamespaces.RO.value.is_concretized_by, human_subject_enrollment, metadata_graph))
+    
+    input_population_uri = URIRef(study_uri + "/input_population")
+    g.add((input_population_uri, RDF.type, OntologyNamespaces.OBI.value.population, metadata_graph))
+    g.add((human_subject_enrollment, OntologyNamespaces.RO.value.has_input, input_population_uri, metadata_graph))
+    
+    output_population_uri = URIRef(study_uri + "/output_population")
+    g.add((output_population_uri, RDF.type, OntologyNamespaces.OBI.value.population, metadata_graph))
+    g.add((human_subject_enrollment, OntologyNamespaces.RO.value.has_output, output_population_uri, metadata_graph))
+    
+    # Handle Mixed Sex field with male/female percentage parsing and as characteristic of output population
     if pd.notna(row.get("mixed sex", "")):
         mixed_sex_value = str(row["mixed sex"])
         male_percentage = None
         female_percentage = None
+        
+        # Add mixed sex quality of output population (matches study_kg.py)
+        mixed_sex_quality = URIRef(study_uri + "/mixed_sex")
+        g.add((mixed_sex_quality, RDF.type, OntologyNamespaces.OBI.value.mixed_sex, metadata_graph))
+        g.add((output_population_uri, OntologyNamespaces.RO.value.has_characteristic, mixed_sex_quality, metadata_graph))
+        g.add((mixed_sex_quality, RDFS.label, Literal("mixed sex", datatype=XSD.string), metadata_graph))
+        g.add((mixed_sex_quality, OntologyNamespaces.CMEO.value.has_value, Literal(mixed_sex_value, datatype=XSD.string), metadata_graph))
         
         # Parse percentages from mixed sex field
         parts = mixed_sex_value.split(";") if ";" in mixed_sex_value else mixed_sex_value.split("and") if "and" in mixed_sex_value else [mixed_sex_value]
@@ -1039,7 +1070,7 @@ def handle_special_fields(g: Graph, row: pd.Series, study_design_execution_uri: 
                 except ValueError:
                     continue
         
-        # Add parsed percentages to graph
+        # Add parsed percentages to graph (for frontend display)
         if male_percentage is not None:
             male_percentage_uri = URIRef(study_uri + "/male_percentage")
             g.add((male_percentage_uri, RDF.type, OntologyNamespaces.CMEO.value.male_percentage, metadata_graph))
@@ -1053,6 +1084,34 @@ def handle_special_fields(g: Graph, row: pd.Series, study_design_execution_uri: 
             g.add((female_percentage_uri, OntologyNamespaces.CMEO.value.has_value, Literal(female_percentage, datatype=XSD.float), metadata_graph))
         
         print(f"Mixed Sex parsing for {row.get('study name', 'unknown')}: '{mixed_sex_value}' → Male: {male_percentage}, Female: {female_percentage}")
+    
+    # Handle morbidity as characteristic of output population (matches query expectations)
+    if pd.notna(row.get("morbidity", "")):
+        morbidities = str(row["morbidity"]).lower().split(";") if ";" in str(row["morbidity"]) else [str(row["morbidity"]).lower()]
+        for morbidity in morbidities:
+            morbidity = morbidity.strip()
+            if morbidity:
+                dynamic_morbidity_uri = URIRef(OntologyNamespaces.OBI.value + normalize_text(morbidity))
+                g.add((output_population_uri, OntologyNamespaces.RO.value.has_characteristic, dynamic_morbidity_uri, metadata_graph))
+                g.add((dynamic_morbidity_uri, OntologyNamespaces.RO.value.is_characteristic_of, output_population_uri, metadata_graph))
+                g.add((dynamic_morbidity_uri, RDF.type, OntologyNamespaces.OBI.value.morbidity, metadata_graph))
+                g.add((dynamic_morbidity_uri, RDFS.label, Literal(morbidity, datatype=XSD.string), metadata_graph))
+                g.add((dynamic_morbidity_uri, OntologyNamespaces.CMEO.value.has_value, Literal(morbidity, datatype=XSD.string), metadata_graph))
+    
+    # Handle age distribution as characteristic of output population (matches query expectations)
+    if pd.notna(row.get("age distribution", "")):
+        age_quality = URIRef(study_uri + "/age_distribution")
+        g.add((age_quality, RDF.type, OntologyNamespaces.OBI.value.age_distribution, metadata_graph))
+        g.add((output_population_uri, OntologyNamespaces.RO.value.has_characteristic, age_quality, metadata_graph))
+        g.add((age_quality, RDFS.label, Literal("age distribution", datatype=XSD.string), metadata_graph))
+        g.add((age_quality, OntologyNamespaces.CMEO.value.has_value, Literal(str(row["age distribution"]), datatype=XSD.string), metadata_graph))
+    
+    # Handle population location with site pointing to output population (matches query expectations)
+    if pd.notna(row.get("population location", "")):
+        site_uri = URIRef(output_population_uri + "/site")
+        g.add((site_uri, RDF.type, OntologyNamespaces.BFO.value.site, metadata_graph))
+        g.add((site_uri, OntologyNamespaces.IAO.value.is_about, output_population_uri, metadata_graph))
+        g.add((site_uri, OntologyNamespaces.CMEO.value.has_value, Literal(str(row["population location"]), datatype=XSD.string), metadata_graph))
     
     # Handle outcome specifications with nested structure required by SPARQL query
     # Query expects: protocol -> outcome_specification -> primary/secondary_outcome_specification
@@ -1108,20 +1167,24 @@ def handle_special_fields(g: Graph, row: pd.Series, study_design_execution_uri: 
             if row_value == "not applicable" or row_value == "" or row_value is None:
                 continue
             
-            # Create dynamic type for this specific inclusion criterion
-            dynamic_inclusion_criterion_type = URIRef(OntologyNamespaces.CMEO.value + inclusion_criterion_name)
-            
-            # Split by semicolon for multiple values
-            inc_all_values = row_value.split(";") if row_value else []
-            for inclusion_criteria_value in inc_all_values:
-                inclusion_criteria_value = inclusion_criteria_value.strip()
-                if inclusion_criteria_value:
-                    col_inclusion_criteria_uri = URIRef(study_uri + "/" + inclusion_criterion_name)
-                    g.add((col_inclusion_criteria_uri, RDF.type, dynamic_inclusion_criterion_type, metadata_graph))
-                    g.add((col_inclusion_criteria_uri, OntologyNamespaces.RO.value.part_of, inclusion_criterion_uri, metadata_graph))
-                    g.add((inclusion_criterion_uri, OntologyNamespaces.RO.value.has_part, col_inclusion_criteria_uri, metadata_graph))
-                    g.add((col_inclusion_criteria_uri, RDFS.label, Literal(col, datatype=XSD.string), metadata_graph))
-                    g.add((col_inclusion_criteria_uri, OntologyNamespaces.CMEO.value.has_value, Literal(inclusion_criteria_value, datatype=XSD.string), metadata_graph))
+            # Special handling for age-related inclusion criteria (matches study_kg.py)
+            if "age" in inclusion_criterion_name:
+                g = add_age_group_inclusion_criterion(g, study_uri, inclusion_criterion_uri, metadata_graph, row[col])
+            else:
+                # Create dynamic type for this specific inclusion criterion
+                dynamic_inclusion_criterion_type = URIRef(OntologyNamespaces.CMEO.value + inclusion_criterion_name)
+                
+                # Split by semicolon for multiple values
+                inc_all_values = row_value.split(";") if row_value else []
+                for inclusion_criteria_value in inc_all_values:
+                    inclusion_criteria_value = inclusion_criteria_value.strip()
+                    if inclusion_criteria_value:
+                        col_inclusion_criteria_uri = URIRef(study_uri + "/" + inclusion_criterion_name)
+                        g.add((col_inclusion_criteria_uri, RDF.type, dynamic_inclusion_criterion_type, metadata_graph))
+                        g.add((col_inclusion_criteria_uri, OntologyNamespaces.RO.value.part_of, inclusion_criterion_uri, metadata_graph))
+                        g.add((inclusion_criterion_uri, OntologyNamespaces.RO.value.has_part, col_inclusion_criteria_uri, metadata_graph))
+                        g.add((col_inclusion_criteria_uri, RDFS.label, Literal(col, datatype=XSD.string), metadata_graph))
+                        g.add((col_inclusion_criteria_uri, OntologyNamespaces.CMEO.value.has_value, Literal(inclusion_criteria_value, datatype=XSD.string), metadata_graph))
     
     # Handle exclusion criteria - matches CohortVarLinker implementation
     exclusion_criteria_columns = [col for col in row.index if "exclusion criterion" in col.lower()]
@@ -1152,6 +1215,44 @@ def handle_special_fields(g: Graph, row: pd.Series, study_design_execution_uri: 
                     g.add((exclusion_criterion_uri, OntologyNamespaces.RO.value.has_part, col_exclusion_criteria_uri, metadata_graph))
                     g.add((col_exclusion_criteria_uri, RDFS.label, Literal(col, datatype=XSD.string), metadata_graph))
                     g.add((col_exclusion_criteria_uri, OntologyNamespaces.CMEO.value.has_value, Literal(exclusion_criteria_value, datatype=XSD.string), metadata_graph))
+    
+    return g
+
+
+def add_age_group_inclusion_criterion(g: Graph, study_uri: URIRef, inclusion_criterion_uri: URIRef, 
+                                      metadata_graph: URIRef, inclusion_criteria_value: str) -> Graph:
+    """
+    Add age group inclusion criterion with min/max age value specifications.
+    Matches study_kg.py implementation.
+    """
+    if pd.isna(inclusion_criteria_value):
+        return g
+    
+    age_group_inclusion_criterion_uri = URIRef(study_uri + "/age_group_inclusion_criterion")
+    g.add((age_group_inclusion_criterion_uri, RDF.type, OntologyNamespaces.CMEO.value.age_group_inclusion_criterion, metadata_graph))
+    g.add((inclusion_criterion_uri, OntologyNamespaces.RO.value.has_part, age_group_inclusion_criterion_uri, metadata_graph))
+    g.add((age_group_inclusion_criterion_uri, OntologyNamespaces.RO.value.part_of, inclusion_criterion_uri, metadata_graph))
+    g.add((age_group_inclusion_criterion_uri, RDFS.label, Literal("age group inclusion criterion", datatype=XSD.string), metadata_graph))
+    g.add((age_group_inclusion_criterion_uri, OntologyNamespaces.CMEO.value.has_value, Literal(inclusion_criteria_value, datatype=XSD.string), metadata_graph))
+    
+    # Extract age range using the utility function
+    agic_value_ranges = extract_age_range(inclusion_criteria_value)
+    if agic_value_ranges:
+        min_age, max_age = agic_value_ranges
+        
+        if min_age is not None:
+            min_age = float(min_age)
+            min_age_value_specification = URIRef(age_group_inclusion_criterion_uri + "/minimum_age_value_specification")
+            g.add((min_age_value_specification, RDF.type, OntologyNamespaces.OBI.value.minimum_age_value_specification, metadata_graph))
+            g.add((min_age_value_specification, OntologyNamespaces.CMEO.value.has_value, Literal(min_age, datatype=XSD.float), metadata_graph))
+            g.add((age_group_inclusion_criterion_uri, OntologyNamespaces.RO.value.has_part, min_age_value_specification, metadata_graph))
+        
+        if max_age is not None:
+            max_age = float(max_age)
+            max_age_value_specification = URIRef(age_group_inclusion_criterion_uri + "/maximum_age_value_specification")
+            g.add((max_age_value_specification, RDF.type, OntologyNamespaces.OBI.value.maximum_age_value_specification, metadata_graph))
+            g.add((age_group_inclusion_criterion_uri, OntologyNamespaces.RO.value.has_part, max_age_value_specification, metadata_graph))
+            g.add((max_age_value_specification, OntologyNamespaces.CMEO.value.has_value, Literal(max_age, datatype=XSD.float), metadata_graph))
     
     return g
 
@@ -1280,7 +1381,7 @@ def _perform_triplestore_initialization():
                 g = load_cohort_dict_file(latest_dict_file, folder, source="init_triplestore")
                 # Delete existing triples for this cohort before publishing new ones
                 # This ensures we don't have duplicate or conflicting triples
-                delete_existing_triples(get_cohort_uri(folder))
+                delete_existing_triples(get_cohort_graph_uri(folder))
                 # g.serialize(f"{settings.data_folder}/cohort_explorer_triplestore.trig", format="trig")
                 if publish_graph_to_endpoint(g):
                     print(f"💾 Triplestore initialization: added {len(g)} triples for cohort {folder}.")
