@@ -392,17 +392,17 @@ def add_unique_values_count_to_graph(g: Graph, statistic_uri: URIRef, unique_val
 
 def add_device_senors_for_variable(g: Graph, var_uri:URIRef, data_set_uri: URIRef,  cohort_uri: URIRef, row_info:pd.Series) -> Graph:
     
-    data_acquisition_process_uri = URIRef(f"{var_uri}/data_acquisition")
-    g.add((data_acquisition_process_uri, RDF.type, OntologyNamespaces.OBCS.value.data_acquisition, cohort_uri))
-    g.add((data_set_uri, OntologyNamespaces.OBI.value.is_specified_output_of, data_acquisition_process_uri, cohort_uri))
-    g.add((data_acquisition_process_uri, OntologyNamespaces.OBI.value.has_specified_output, data_set_uri, cohort_uri))
+    data_collection_process_uri = URIRef(f"{var_uri}/data_collection")
+    g.add((data_collection_process_uri, RDF.type, OntologyNamespaces.OBCS.value.data_collection, cohort_uri))
+    g.add((data_set_uri, OntologyNamespaces.OBI.value.is_specified_output_of, data_collection_process_uri, cohort_uri))
+    g.add((data_collection_process_uri, OntologyNamespaces.OBI.value.has_specified_output, data_set_uri, cohort_uri))
     if 'device' in row_info and pd.notna(row_info['device']):
         device_value = row_info['device'].strip().lower().replace(' ','_')
         device_uri = URIRef(OntologyNamespaces.CMEO.value + f"wearable_device/{device_value}")
         g.add((device_uri, RDF.type, OntologyNamespaces.CMEO.value.wearable_device, cohort_uri))
         g.add((device_uri, OntologyNamespaces.CMEO.value.has_value, Literal(device_value, datatype=XSD.string), cohort_uri))  
-        g.add((data_acquisition_process_uri, OntologyNamespaces.OBI.value.has_specified_input, device_uri, cohort_uri))
-        g.add((device_uri, OntologyNamespaces.OBI.value.is_specified_input_of, data_acquisition_process_uri, cohort_uri))
+        g.add((data_collection_process_uri, OntologyNamespaces.OBI.value.has_specified_input, device_uri, cohort_uri))
+        g.add((device_uri, OntologyNamespaces.OBI.value.is_specified_input_of, data_collection_process_uri, cohort_uri))
         if 'sensor' in row_info and pd.notna(row_info['sensor']):
             sensor_value = row_info['sensor'].strip().lower().replace(' ','_')
             sensor_uri =URIRef(OntologyNamespaces.CMEO.value + f"sensor/{sensor_value}")
@@ -415,10 +415,11 @@ def add_device_senors_for_variable(g: Graph, var_uri:URIRef, data_set_uri: URIRe
             wearer_location_uri = URIRef(OntologyNamespaces.CMEO.value + f"body_region/{wearer_location_value}")
             g.add((sensor_uri, OntologyNamespaces.RO.value.is_located_in, wearer_location_uri, cohort_uri))
             g.add((wearer_location_uri, RDF.type, OntologyNamespaces.CMEO.value.body_region, cohort_uri))
-            g.add((data_acquisition_process_uri, OntologyNamespaces.RO.value.occurs_in, wearer_location_uri, cohort_uri))
+            g.add((data_collection_process_uri, OntologyNamespaces.RO.value.occurs_in, wearer_location_uri, cohort_uri))
             g.add((wearer_location_uri, OntologyNamespaces.CMEO.value.has_value, Literal(wearer_location_value, datatype=XSD.string), cohort_uri))
 
     return g
+
 
         
     
