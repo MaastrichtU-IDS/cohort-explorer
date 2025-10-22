@@ -860,12 +860,13 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
     metadata_graph = URIRef(OntologyNamespaces.CMEO.value + "graph/studies_metadata")
     
     for _i, row in df.iterrows():
-        print("now processing cohorts' metadata row: ", _i, row)
-        
         # Use study name as the main identifier
         if pd.isna(row.get("study name", "")):
             print("Study name is missing, skipping this row.")
             continue
+        
+        # Process row
+        print(f"Processing cohort metadata row {_i}: {row.get('study name')}")
             
         # Keep original study name for identifier, normalized for URI
         original_study_name = str(row["study name"]).strip()
@@ -908,7 +909,7 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
         # Process all metadata fields using unified mapping
         g = process_all_metadata_fields(g, row, study_design_execution_uri, study_design_uri, study_uri, protocol_uri, metadata_graph)
         
-    print(f"Graph size: {len(g)}")
+    print(f"✅ Cohorts metadata graph created with {len(g)} triples")
     return g
 
 
