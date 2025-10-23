@@ -33,9 +33,92 @@ const TYPE_COLORS = [
   '#fb7185', // rose
 ];
 
+const CATEGORY_COLORS = [
+  '#64748b', // slate - non-categorical
+  '#3b82f6', // blue - 2 categories
+  '#10b981', // green - 3 categories  
+  '#f59e0b', // amber - 4 categories
+  '#ef4444', // red - 5+ categories
+];
+
 export default function CohortSummaryGraphs({ variables }: CohortSummaryGraphsProps) {
   const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
   const [selectedType, setSelectedType] = useState<string | null>(null);
+
+  // Calculate category distribution
+  const categoryDistributionData = useMemo(() => {
+    const categoryCounts: { [key: string]: number } = {
+      'Non-categorical': 0,
+      '2 categories': 0,
+      '3 categories': 0,
+      '4 categories': 0,
+      '5+ categories': 0,
+    };
+    
+    // Filter variables based on selections
+    let filteredVars = Object.values(variables);
+    if (selectedDomain) {
+      filteredVars = filteredVars.filter(v => (v.omop_domain || 'Unmapped') === selectedDomain);
+    }
+    if (selectedType) {
+      filteredVars = filteredVars.filter(v => (v.var_type || 'Unknown') === selectedType);
+    }
+    
+    filteredVars.forEach((variable) => {
+      const numCategories = variable.categories?.length || 0;
+      
+      if (numCategories === 0) {
+        categoryCounts['Non-categorical']++;
+      } else if (numCategories === 2) {
+        categoryCounts['2 categories']++;
+      } else if (numCategories === 3) {
+        categoryCounts['3 categories']++;
+      } else if (numCategories === 4) {
+        categoryCounts['4 categories']++;
+      } else if (numCategories >= 5) {
+        categoryCounts['5+ categories']++;
+      }
+    });
+    
+    return Object.entries(categoryCounts).map(([name, value]) => ({ name, value }));
+  }, [variables, selectedDomain, selectedType]);
+
+  // Calculate visit types distribution
+  const visitTypesData = useMemo(() => {
+    const visitCounts: { [key: string]: number } = {};
+    
+    // Filter variables based on selections
+    let filteredVars = Object.values(variables);
+    if (selectedDomain) {
+      filteredVars = filteredVars.filter(v => (v.omop_domain || 'Unmapped') === selectedDomain);
+    }
+    if (selectedType) {
+      filteredVars = filteredVars.filter(v => (v.var_type || 'Unknown') === selectedType);
+    }
+    
+    filteredVars.forEach((variable) => {
+      const visits = variable.visits?.trim();
+      
+      if (!visits || visits === '' || visits.toLowerCase() === 'not applicable' || visits.toLowerCase() === 'n/a') {
+        visitCounts['Not specified'] = (visitCounts['Not specified'] || 0) + 1;
+      } else {
+        // Split by common delimiters and count each visit type
+        const visitTypes = visits.split(/[;,/]/).map(v => v.trim()).filter(v => v.length > 0);
+        
+        if (visitTypes.length === 0) {
+          visitCounts['Not specified'] = (visitCounts['Not specified'] || 0) + 1;
+        } else {
+          visitTypes.forEach(visitType => {
+            visitCounts[visitType] = (visitCounts[visitType] || 0) + 1;
+          });
+        }
+      }
+    });
+    
+    return Object.entries(visitCounts)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value);
+  }, [variables, selectedDomain, selectedType]);
 
   // Calculate OMOP domain distribution
   const domainData = useMemo(() => {
@@ -86,9 +169,21 @@ export default function CohortSummaryGraphs({ variables }: CohortSummaryGraphsPr
   // Domain chart options
   const domainChartOptions = {
     title: {
-      text: selectedType ? `Domains for ${selectedType}` : 'OMOP Domains Distribution',
+      text: selectedType ? `Domains for {filter|${selectedType}}` : 'OMOP Domains Distribution',
       left: 'center',
-      textStyle: { fontSize: 14, fontWeight: 500 }
+      textStyle: { 
+        fontSize: 14, 
+        fontWeight: 500,
+        rich: {
+          filter: {
+            color: '#3b82f6',
+            fontWeight: 'bold',
+            backgroundColor: '#dbeafe',
+            padding: [2, 6],
+            borderRadius: 4
+          }
+        }
+      }
     },
     tooltip: {
       trigger: 'item',
@@ -138,9 +233,21 @@ export default function CohortSummaryGraphs({ variables }: CohortSummaryGraphsPr
   // Type chart options
   const typeChartOptions = {
     title: {
-      text: selectedDomain ? `Types in ${selectedDomain}` : 'Data Types Distribution',
+      text: selectedDomain ? `Types in {filter|${selectedDomain}}` : 'Data Types Distribution',
       left: 'center',
-      textStyle: { fontSize: 14, fontWeight: 500 }
+      textStyle: { 
+        fontSize: 14, 
+        fontWeight: 500,
+        rich: {
+          filter: {
+            color: '#10b981',
+            fontWeight: 'bold',
+            backgroundColor: '#d1fae5',
+            padding: [2, 6],
+            borderRadius: 4
+          }
+        }
+      }
     },
     tooltip: {
       trigger: 'item',
@@ -185,6 +292,172 @@ export default function CohortSummaryGraphs({ variables }: CohortSummaryGraphsPr
         data: typeData
       }
     ]
+  };
+
+  // Category distribution chart options
+  const categoryChartOptions = {
+    title: {
+      text: selectedDomain || selectedType 
+        ? `Categorization${selectedDomain ? ` in {filter|${selectedDomain}}` : ''}${selectedType ? ` for {filter|${selectedType}}` : ''}`
+        : 'Variable Categorization Distribution',
+      left: 'center',
+      textStyle: { 
+        fontSize: 14, 
+        fontWeight: 500,
+        rich: {
+          filter: {
+            color: '#f59e0b',
+            fontWeight: 'bold',
+            backgroundColor: '#fef3c7',
+            padding: [2, 6],
+            borderRadius: 4
+          }
+        }
+      }
+    },
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: {
+        type: 'shadow'
+      },
+      formatter: (params: any) => {
+        const data = params[0];
+        const total = categoryDistributionData.reduce((sum, item) => sum + item.value, 0);
+        const percentage = total > 0 ? ((data.value / total) * 100).toFixed(1) : '0';
+        return `${data.name}<br/>Count: ${data.value} (${percentage}%)`;
+      }
+    },
+    xAxis: {
+      type: 'category',
+      data: categoryDistributionData.map(d => d.name),
+      axisLabel: {
+        interval: 0,
+        rotate: 0,
+        fontSize: 11
+      }
+    },
+    yAxis: {
+      type: 'value',
+      name: 'Number of Variables',
+      nameTextStyle: {
+        fontSize: 12
+      }
+    },
+    series: [
+      {
+        type: 'bar',
+        data: categoryDistributionData.map((d, index) => ({
+          value: d.value,
+          itemStyle: {
+            color: CATEGORY_COLORS[index],
+            borderRadius: [8, 8, 0, 0]
+          }
+        })),
+        barWidth: '60%',
+        label: {
+          show: true,
+          position: 'top',
+          fontSize: 11,
+          fontWeight: 'bold'
+        },
+        emphasis: {
+          itemStyle: {
+            shadowBlur: 10,
+            shadowOffsetX: 0,
+            shadowColor: 'rgba(0, 0, 0, 0.5)'
+          }
+        }
+      }
+    ],
+    grid: {
+      left: '12%',
+      right: '8%',
+      bottom: '10%',
+      top: '20%'
+    }
+  };
+
+  // Visit types distribution chart options
+  const visitTypesChartOptions = {
+    title: {
+      text: selectedDomain || selectedType 
+        ? `Visit Types${selectedDomain ? ` in {filter|${selectedDomain}}` : ''}${selectedType ? ` for {filter|${selectedType}}` : ''}`
+        : 'Visit Types Distribution',
+      left: 'center',
+      textStyle: { 
+        fontSize: 14, 
+        fontWeight: 500,
+        rich: {
+          filter: {
+            color: '#8b5cf6',
+            fontWeight: 'bold',
+            backgroundColor: '#ede9fe',
+            padding: [2, 6],
+            borderRadius: 4
+          }
+        }
+      }
+    },
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: {
+        type: 'shadow'
+      },
+      formatter: (params: any) => {
+        const data = params[0];
+        const total = visitTypesData.reduce((sum, item) => sum + item.value, 0);
+        const percentage = total > 0 ? ((data.value / total) * 100).toFixed(1) : '0';
+        return `${data.name}<br/>Count: ${data.value} (${percentage}%)`;
+      }
+    },
+    xAxis: {
+      type: 'category',
+      data: visitTypesData.map(d => d.name),
+      axisLabel: {
+        interval: 0,
+        rotate: 45,
+        fontSize: 10
+      }
+    },
+    yAxis: {
+      type: 'value',
+      name: 'Number of Variables',
+      nameTextStyle: {
+        fontSize: 12
+      }
+    },
+    series: [
+      {
+        type: 'bar',
+        data: visitTypesData.map((d) => ({
+          value: d.value,
+          itemStyle: {
+            color: '#8b5cf6', // purple
+            borderRadius: [8, 8, 0, 0]
+          }
+        })),
+        barWidth: '60%',
+        label: {
+          show: true,
+          position: 'top',
+          fontSize: 11,
+          fontWeight: 'bold'
+        },
+        emphasis: {
+          itemStyle: {
+            shadowBlur: 10,
+            shadowOffsetX: 0,
+            shadowColor: 'rgba(0, 0, 0, 0.5)'
+          }
+        }
+      }
+    ],
+    grid: {
+      left: '12%',
+      right: '8%',
+      bottom: '30%',
+      top: '20%'
+    }
   };
 
   // Handle domain chart click
@@ -240,27 +513,49 @@ export default function CohortSummaryGraphs({ variables }: CohortSummaryGraphsPr
         </div>
       )}
       
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* OMOP Domains Pie Chart */}
-        <div className="cursor-pointer">
-          <ReactECharts
-            option={domainChartOptions}
-            style={{ height: '350px' }}
-            onEvents={{
-              click: onDomainClick
-            }}
-          />
+      <div className="space-y-6">
+        {/* Top row: Pie charts */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* OMOP Domains Pie Chart */}
+          <div className="cursor-pointer">
+            <ReactECharts
+              option={domainChartOptions}
+              style={{ height: '350px' }}
+              onEvents={{
+                click: onDomainClick
+              }}
+            />
+          </div>
+
+          {/* Data Types Pie Chart */}
+          <div className="cursor-pointer">
+            <ReactECharts
+              option={typeChartOptions}
+              style={{ height: '350px' }}
+              onEvents={{
+                click: onTypeClick
+              }}
+            />
+          </div>
         </div>
 
-        {/* Data Types Pie Chart */}
-        <div className="cursor-pointer">
-          <ReactECharts
-            option={typeChartOptions}
-            style={{ height: '350px' }}
-            onEvents={{
-              click: onTypeClick
-            }}
-          />
+        {/* Bottom row: Bar charts */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Category distribution bar chart */}
+          <div>
+            <ReactECharts
+              option={categoryChartOptions}
+              style={{ height: '350px' }}
+            />
+          </div>
+
+          {/* Visit types distribution bar chart */}
+          <div>
+            <ReactECharts
+              option={visitTypesChartOptions}
+              style={{ height: '350px' }}
+            />
+          </div>
         </div>
       </div>
     </div>
