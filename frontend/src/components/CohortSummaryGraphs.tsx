@@ -44,6 +44,8 @@ const CATEGORY_COLORS = [
 export default function CohortSummaryGraphs({ variables }: CohortSummaryGraphsProps) {
   const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
   const [selectedType, setSelectedType] = useState<string | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [selectedVisitType, setSelectedVisitType] = useState<string | null>(null);
 
   // Calculate category distribution
   const categoryDistributionData = useMemo(() => {
@@ -124,10 +126,31 @@ export default function CohortSummaryGraphs({ variables }: CohortSummaryGraphsPr
   const domainData = useMemo(() => {
     const domainCounts: { [key: string]: number } = {};
     
-    // Filter by selected type if any
-    const filteredVars = selectedType 
-      ? Object.values(variables).filter(v => (v.var_type || 'Unknown') === selectedType)
-      : Object.values(variables);
+    // Apply all filters
+    let filteredVars = Object.values(variables);
+    if (selectedType) {
+      filteredVars = filteredVars.filter(v => (v.var_type || 'Unknown') === selectedType);
+    }
+    if (selectedCategory) {
+      filteredVars = filteredVars.filter(v => {
+        const numCategories = v.categories?.length || 0;
+        if (selectedCategory === 'Non-categorical') return numCategories === 0;
+        if (selectedCategory === '2 categories') return numCategories === 2;
+        if (selectedCategory === '3 categories') return numCategories === 3;
+        if (selectedCategory === '4 categories') return numCategories === 4;
+        if (selectedCategory === '5+ categories') return numCategories >= 5;
+        return false;
+      });
+    }
+    if (selectedVisitType) {
+      filteredVars = filteredVars.filter(v => {
+        const visits = v.visits?.trim();
+        if (selectedVisitType === 'Not specified') {
+          return !visits || visits === '' || visits.toLowerCase() === 'not applicable' || visits.toLowerCase() === 'n/a';
+        }
+        return visits?.includes(selectedVisitType);
+      });
+    }
     
     filteredVars.forEach((variable) => {
       const domain = variable.omop_domain || 'Unmapped';
@@ -141,16 +164,37 @@ export default function CohortSummaryGraphs({ variables }: CohortSummaryGraphsPr
         itemStyle: { color: DOMAIN_COLORS[Object.keys(domainCounts).indexOf(name) % DOMAIN_COLORS.length] }
       }))
       .sort((a, b) => b.value - a.value);
-  }, [variables, selectedType]);
+  }, [variables, selectedType, selectedCategory, selectedVisitType]);
 
   // Calculate data type distribution
   const typeData = useMemo(() => {
     const typeCounts: { [key: string]: number } = {};
     
-    // Filter by selected domain if any
-    const filteredVars = selectedDomain
-      ? Object.values(variables).filter(v => (v.omop_domain || 'Unmapped') === selectedDomain)
-      : Object.values(variables);
+    // Apply all filters
+    let filteredVars = Object.values(variables);
+    if (selectedDomain) {
+      filteredVars = filteredVars.filter(v => (v.omop_domain || 'Unmapped') === selectedDomain);
+    }
+    if (selectedCategory) {
+      filteredVars = filteredVars.filter(v => {
+        const numCategories = v.categories?.length || 0;
+        if (selectedCategory === 'Non-categorical') return numCategories === 0;
+        if (selectedCategory === '2 categories') return numCategories === 2;
+        if (selectedCategory === '3 categories') return numCategories === 3;
+        if (selectedCategory === '4 categories') return numCategories === 4;
+        if (selectedCategory === '5+ categories') return numCategories >= 5;
+        return false;
+      });
+    }
+    if (selectedVisitType) {
+      filteredVars = filteredVars.filter(v => {
+        const visits = v.visits?.trim();
+        if (selectedVisitType === 'Not specified') {
+          return !visits || visits === '' || visits.toLowerCase() === 'not applicable' || visits.toLowerCase() === 'n/a';
+        }
+        return visits?.includes(selectedVisitType);
+      });
+    }
     
     filteredVars.forEach((variable) => {
       const type = variable.var_type || 'Unknown';
@@ -164,12 +208,14 @@ export default function CohortSummaryGraphs({ variables }: CohortSummaryGraphsPr
         itemStyle: { color: TYPE_COLORS[Object.keys(typeCounts).indexOf(name) % TYPE_COLORS.length] }
       }))
       .sort((a, b) => b.value - a.value);
-  }, [variables, selectedDomain]);
+  }, [variables, selectedDomain, selectedCategory, selectedVisitType]);
 
   // Domain chart options
   const domainChartOptions = {
     title: {
-      text: selectedType ? `Domains for {filter|${selectedType}}` : 'OMOP Domains Distribution',
+      text: selectedType || selectedCategory || selectedVisitType
+        ? `Domains${selectedType ? ` for {filter|${selectedType}}` : ''}${selectedCategory ? ` with {filter|${selectedCategory}}` : ''}${selectedVisitType ? ` in {filter|${selectedVisitType}}` : ''}`
+        : 'OMOP Domains Distribution',
       left: 'center',
       textStyle: { 
         fontSize: 14, 
@@ -233,7 +279,9 @@ export default function CohortSummaryGraphs({ variables }: CohortSummaryGraphsPr
   // Type chart options
   const typeChartOptions = {
     title: {
-      text: selectedDomain ? `Types in {filter|${selectedDomain}}` : 'Data Types Distribution',
+      text: selectedDomain || selectedCategory || selectedVisitType
+        ? `Types${selectedDomain ? ` in {filter|${selectedDomain}}` : ''}${selectedCategory ? ` with {filter|${selectedCategory}}` : ''}${selectedVisitType ? ` for {filter|${selectedVisitType}}` : ''}`
+        : 'Data Types Distribution',
       left: 'center',
       textStyle: { 
         fontSize: 14, 
@@ -297,8 +345,8 @@ export default function CohortSummaryGraphs({ variables }: CohortSummaryGraphsPr
   // Category distribution chart options
   const categoryChartOptions = {
     title: {
-      text: selectedDomain || selectedType 
-        ? `Categorization${selectedDomain ? ` in {filter|${selectedDomain}}` : ''}${selectedType ? ` for {filter|${selectedType}}` : ''}`
+      text: selectedDomain || selectedType || selectedVisitType
+        ? `Categorization${selectedDomain ? ` in {filter|${selectedDomain}}` : ''}${selectedType ? ` for {filter|${selectedType}}` : ''}${selectedVisitType ? ` with {filter|${selectedVisitType}}` : ''}`
         : 'Variable Categorization Distribution',
       left: 'center',
       textStyle: { 
@@ -380,8 +428,8 @@ export default function CohortSummaryGraphs({ variables }: CohortSummaryGraphsPr
   // Visit types distribution chart options
   const visitTypesChartOptions = {
     title: {
-      text: selectedDomain || selectedType 
-        ? `Visit Types${selectedDomain ? ` in {filter|${selectedDomain}}` : ''}${selectedType ? ` for {filter|${selectedType}}` : ''}`
+      text: selectedDomain || selectedType || selectedCategory
+        ? `Visit Types${selectedDomain ? ` in {filter|${selectedDomain}}` : ''}${selectedType ? ` for {filter|${selectedType}}` : ''}${selectedCategory ? ` with {filter|${selectedCategory}}` : ''}`
         : 'Visit Types Distribution',
       left: 'center',
       textStyle: { 
@@ -478,6 +526,24 @@ export default function CohortSummaryGraphs({ variables }: CohortSummaryGraphsPr
     }
   };
 
+  // Handle category chart click
+  const onCategoryClick = (params: any) => {
+    if (params.name === selectedCategory) {
+      setSelectedCategory(null); // Deselect if clicking same category
+    } else {
+      setSelectedCategory(params.name);
+    }
+  };
+
+  // Handle visit type chart click
+  const onVisitTypeClick = (params: any) => {
+    if (params.name === selectedVisitType) {
+      setSelectedVisitType(null); // Deselect if clicking same visit type
+    } else {
+      setSelectedVisitType(params.name);
+    }
+  };
+
   if (Object.keys(variables).length === 0) {
     return (
       <div className="bg-white shadow-md rounded-lg p-4 mb-4">
@@ -489,27 +555,37 @@ export default function CohortSummaryGraphs({ variables }: CohortSummaryGraphsPr
 
   return (
     <div className="bg-white shadow-md rounded-lg p-4 mb-4">
-      <div className="flex justify-between items-center mb-3 border-b pb-2">
+      <div className="mb-3 border-b pb-2">
         <h3 className="text-lg font-semibold">Summary Graphs</h3>
-        {(selectedDomain || selectedType) && (
+      </div>
+      
+      {(selectedDomain || selectedType || selectedCategory || selectedVisitType) && (
+        <div className="mb-3 text-sm text-gray-600 bg-blue-50 px-3 py-2 rounded">
+          <strong>💡 Tip:</strong> All charts are interactive! 
+          {selectedDomain && ` Filtering by domain: "${selectedDomain}".`}
+          {selectedType && ` Filtering by type: "${selectedType}".`}
+          {selectedCategory && ` Filtering by category: "${selectedCategory}".`}
+          {selectedVisitType && ` Filtering by visit type: "${selectedVisitType}".`}
+          {' '}Click again to deselect.
+        </div>
+      )}
+      
+      {(selectedDomain || selectedType || selectedCategory || selectedVisitType) && (
+        <div className="mb-4 flex justify-center">
           <button
             onClick={() => {
               setSelectedDomain(null);
               setSelectedType(null);
+              setSelectedCategory(null);
+              setSelectedVisitType(null);
             }}
-            className="text-xs bg-gray-200 hover:bg-gray-300 px-3 py-1 rounded-full transition-colors"
+            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-2.5 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 flex items-center gap-2"
           >
-            Reset Filters
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
+            </svg>
+            Reset All Filters
           </button>
-        )}
-      </div>
-      
-      {(selectedDomain || selectedType) && (
-        <div className="mb-3 text-sm text-gray-600 bg-blue-50 px-3 py-2 rounded">
-          <strong>💡 Tip:</strong> Charts are linked! 
-          {selectedDomain && ` Filtering by domain: "${selectedDomain}"`}
-          {selectedType && ` Filtering by type: "${selectedType}"`}
-          {' '}Click a slice again to deselect.
         </div>
       )}
       
@@ -542,18 +618,24 @@ export default function CohortSummaryGraphs({ variables }: CohortSummaryGraphsPr
         {/* Bottom row: Bar charts */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Category distribution bar chart */}
-          <div>
+          <div className="cursor-pointer">
             <ReactECharts
               option={categoryChartOptions}
               style={{ height: '350px' }}
+              onEvents={{
+                click: onCategoryClick
+              }}
             />
           </div>
 
           {/* Visit types distribution bar chart */}
-          <div>
+          <div className="cursor-pointer">
             <ReactECharts
               option={visitTypesChartOptions}
               style={{ height: '350px' }}
+              onEvents={{
+                click: onVisitTypeClick
+              }}
             />
           </div>
         </div>
