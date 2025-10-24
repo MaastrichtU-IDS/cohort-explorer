@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { Variable } from '@/types';
 
@@ -46,6 +46,41 @@ export default function CohortSummaryGraphs({ variables }: CohortSummaryGraphsPr
   const [selectedType, setSelectedType] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedVisitType, setSelectedVisitType] = useState<string | null>(null);
+  const [isVisible, setIsVisible] = useState(false);
+  const [shouldRender, setShouldRender] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Intersection Observer for lazy loading
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting && !isVisible) {
+            setIsVisible(true);
+            // Wait 500ms before rendering to avoid rendering during fast scrolling
+            const timer = setTimeout(() => {
+              setShouldRender(true);
+            }, 500);
+            return () => clearTimeout(timer);
+          }
+        });
+      },
+      {
+        rootMargin: '100px', // Start loading slightly before it comes into view
+        threshold: 0.1,
+      }
+    );
+
+    if (containerRef.current) {
+      observer.observe(containerRef.current);
+    }
+
+    return () => {
+      if (containerRef.current) {
+        observer.unobserve(containerRef.current);
+      }
+    };
+  }, [isVisible]);
 
   // Calculate category distribution
   const categoryDistributionData = useMemo(() => {
@@ -553,8 +588,24 @@ export default function CohortSummaryGraphs({ variables }: CohortSummaryGraphsPr
     );
   }
 
+  // Show placeholder while waiting to render
+  if (!shouldRender) {
+    return (
+      <div ref={containerRef} className="bg-white shadow-md rounded-lg p-4 mb-4">
+        <div className="mb-3 border-b pb-2">
+          <h3 className="text-lg font-semibold">Summary Graphs</h3>
+        </div>
+        <div className="flex flex-col items-center justify-center py-16">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
+          <p className="text-gray-600 font-medium">Rendering variable graphs...</p>
+          <p className="text-gray-400 text-sm mt-2">Please wait a moment</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="bg-white shadow-md rounded-lg p-4 mb-4">
+    <div ref={containerRef} className="bg-white shadow-md rounded-lg p-4 mb-4">
       <div className="mb-3 border-b pb-2">
         <h3 className="text-lg font-semibold">Summary Graphs</h3>
       </div>
