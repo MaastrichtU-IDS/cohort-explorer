@@ -945,7 +945,10 @@ export default function CohortsList() {
                 </div>
                 
                 {/* Summary Graphs Section */}
-                <CohortSummaryGraphs variables={cohortData.variables} />
+                <CohortSummaryGraphs 
+                  variables={cohortData.variables}
+                  isExpanded={expandedCohorts[cohortData.cohort_id] || false}
+                />
                 
                 <VariablesList 
                   cohortId={cohortData.cohort_id} 

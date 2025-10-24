@@ -4,6 +4,7 @@ import { Variable } from '@/types';
 
 interface CohortSummaryGraphsProps {
   variables: { [key: string]: Variable };
+  isExpanded?: boolean;
 }
 
 // Color palettes for the pie charts
@@ -41,46 +42,20 @@ const CATEGORY_COLORS = [
   '#ef4444', // red - 5+ categories
 ];
 
-export default function CohortSummaryGraphs({ variables }: CohortSummaryGraphsProps) {
+export default function CohortSummaryGraphs({ variables, isExpanded = false }: CohortSummaryGraphsProps) {
   const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
   const [selectedType, setSelectedType] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedVisitType, setSelectedVisitType] = useState<string | null>(null);
-  const [isVisible, setIsVisible] = useState(false);
   const [shouldRender, setShouldRender] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Intersection Observer for lazy loading
+  // Trigger rendering immediately when cohort is expanded
   useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting && !isVisible) {
-            setIsVisible(true);
-            // Wait 500ms before rendering to avoid rendering during fast scrolling
-            const timer = setTimeout(() => {
-              setShouldRender(true);
-            }, 500);
-            return () => clearTimeout(timer);
-          }
-        });
-      },
-      {
-        rootMargin: '100px', // Start loading slightly before it comes into view
-        threshold: 0.1,
-      }
-    );
-
-    if (containerRef.current) {
-      observer.observe(containerRef.current);
+    if (isExpanded && !shouldRender) {
+      setShouldRender(true);
     }
-
-    return () => {
-      if (containerRef.current) {
-        observer.unobserve(containerRef.current);
-      }
-    };
-  }, [isVisible]);
+  }, [isExpanded, shouldRender]);
 
   // Calculate category distribution - ONLY when shouldRender is true
   const categoryDistributionData = useMemo(() => {
