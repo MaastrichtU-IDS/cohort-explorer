@@ -82,8 +82,10 @@ export default function CohortSummaryGraphs({ variables }: CohortSummaryGraphsPr
     };
   }, [isVisible]);
 
-  // Calculate category distribution
+  // Calculate category distribution - ONLY when shouldRender is true
   const categoryDistributionData = useMemo(() => {
+    if (!shouldRender) return [];
+    
     const categoryCounts: { [key: string]: number } = {
       'Non-categorical': 0,
       '2 categories': 0,
@@ -118,10 +120,12 @@ export default function CohortSummaryGraphs({ variables }: CohortSummaryGraphsPr
     });
     
     return Object.entries(categoryCounts).map(([name, value]) => ({ name, value }));
-  }, [variables, selectedDomain, selectedType]);
+  }, [variables, selectedDomain, selectedType, shouldRender]);
 
-  // Calculate visit types distribution
+  // Calculate visit types distribution - ONLY when shouldRender is true
   const visitTypesData = useMemo(() => {
+    if (!shouldRender) return [];
+    
     const visitCounts: { [key: string]: number } = {};
     
     // Filter variables based on selections
@@ -155,10 +159,12 @@ export default function CohortSummaryGraphs({ variables }: CohortSummaryGraphsPr
     return Object.entries(visitCounts)
       .map(([name, value]) => ({ name, value }))
       .sort((a, b) => b.value - a.value);
-  }, [variables, selectedDomain, selectedType]);
+  }, [variables, selectedDomain, selectedType, shouldRender]);
 
-  // Calculate OMOP domain distribution
+  // Calculate OMOP domain distribution - ONLY when shouldRender is true
   const domainData = useMemo(() => {
+    if (!shouldRender) return [];
+    
     const domainCounts: { [key: string]: number } = {};
     
     // Apply all filters
@@ -199,10 +205,12 @@ export default function CohortSummaryGraphs({ variables }: CohortSummaryGraphsPr
         itemStyle: { color: DOMAIN_COLORS[Object.keys(domainCounts).indexOf(name) % DOMAIN_COLORS.length] }
       }))
       .sort((a, b) => b.value - a.value);
-  }, [variables, selectedType, selectedCategory, selectedVisitType]);
+  }, [variables, selectedType, selectedCategory, selectedVisitType, shouldRender]);
 
-  // Calculate data type distribution
+  // Calculate data type distribution - ONLY when shouldRender is true
   const typeData = useMemo(() => {
+    if (!shouldRender) return [];
+    
     const typeCounts: { [key: string]: number } = {};
     
     // Apply all filters
@@ -243,7 +251,7 @@ export default function CohortSummaryGraphs({ variables }: CohortSummaryGraphsPr
         itemStyle: { color: TYPE_COLORS[Object.keys(typeCounts).indexOf(name) % TYPE_COLORS.length] }
       }))
       .sort((a, b) => b.value - a.value);
-  }, [variables, selectedDomain, selectedCategory, selectedVisitType]);
+  }, [variables, selectedDomain, selectedCategory, selectedVisitType, shouldRender]);
 
   // Domain chart options
   const domainChartOptions = {
