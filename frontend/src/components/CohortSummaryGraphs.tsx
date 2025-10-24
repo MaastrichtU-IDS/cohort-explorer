@@ -61,7 +61,11 @@ const CohortSummaryGraphs = React.memo(function CohortSummaryGraphs({ variables,
       (entries) => {
         entries.forEach((entry) => {
           if (entry.isIntersecting && !shouldRender) {
-            setShouldRender(true);
+            // Wait 1.5 seconds before rendering
+            const timer = setTimeout(() => {
+              setShouldRender(true);
+            }, 1500);
+            return () => clearTimeout(timer);
           }
         });
       },
@@ -346,8 +350,9 @@ const CohortSummaryGraphs = React.memo(function CohortSummaryGraphs({ variables,
         },
         label: {
           show: true,
-          formatter: '{d}%',
-          fontSize: 11
+          formatter: '{b}\n{d}%',
+          fontSize: 10,
+          fontWeight: 'bold'
         },
         emphasis: {
           label: {
@@ -412,8 +417,9 @@ const CohortSummaryGraphs = React.memo(function CohortSummaryGraphs({ variables,
         },
         label: {
           show: true,
-          formatter: '{d}%',
-          fontSize: 11
+          formatter: '{b}\n{d}%',
+          fontSize: 10,
+          fontWeight: 'bold'
         },
         emphasis: {
           label: {
@@ -652,8 +658,8 @@ const CohortSummaryGraphs = React.memo(function CohortSummaryGraphs({ variables,
         </div>
         <div className="flex flex-col items-center justify-center py-16">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
-          <p className="text-gray-600 font-medium">Rendering variable graphs...</p>
-          <p className="text-gray-400 text-sm mt-2">Please wait a moment</p>
+          <p className="text-gray-600 font-medium">Rendering charts...</p>
+          <p className="text-gray-400 text-sm mt-2">This will take just a moment</p>
         </div>
       </div>
     );
