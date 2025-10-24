@@ -42,7 +42,7 @@ const CATEGORY_COLORS = [
   '#ef4444', // red - 5+ categories
 ];
 
-export default function CohortSummaryGraphs({ variables, isExpanded = false }: CohortSummaryGraphsProps) {
+const CohortSummaryGraphs = React.memo(function CohortSummaryGraphs({ variables, isExpanded = false }: CohortSummaryGraphsProps) {
   const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
   const [selectedType, setSelectedType] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -50,12 +50,78 @@ export default function CohortSummaryGraphs({ variables, isExpanded = false }: C
   const [shouldRender, setShouldRender] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Trigger rendering immediately when cohort is expanded
+  // Use Intersection Observer to render only when scrolled into view
   useEffect(() => {
-    if (isExpanded && !shouldRender) {
-      setShouldRender(true);
+    // Only start observing if cohort is expanded
+    if (!isExpanded) {
+      return;
     }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting && !shouldRender) {
+            setShouldRender(true);
+          }
+        });
+      },
+      {
+        rootMargin: '200px', // Start loading before it comes into view
+        threshold: 0.1,
+      }
+    );
+
+    if (containerRef.current) {
+      observer.observe(containerRef.current);
+    }
+
+    return () => {
+      if (containerRef.current) {
+        observer.unobserve(containerRef.current);
+      }
+    };
   }, [isExpanded, shouldRender]);
+
+  // Helper function to apply all filters to variables - create this ONCE and reuse
+  const getFilteredVariables = useMemo(() => {
+    if (!shouldRender) return [];
+    
+    return Object.values(variables).filter((v) => {
+      // Apply domain filter
+      if (selectedDomain && (v.omop_domain || 'Unmapped') !== selectedDomain) {
+        return false;
+      }
+      
+      // Apply type filter
+      if (selectedType && (v.var_type || 'Unknown') !== selectedType) {
+        return false;
+      }
+      
+      // Apply category filter
+      if (selectedCategory) {
+        const numCategories = v.categories?.length || 0;
+        if (selectedCategory === 'Non-categorical' && numCategories !== 0) return false;
+        if (selectedCategory === '2 categories' && numCategories !== 2) return false;
+        if (selectedCategory === '3 categories' && numCategories !== 3) return false;
+        if (selectedCategory === '4 categories' && numCategories !== 4) return false;
+        if (selectedCategory === '5+ categories' && numCategories < 5) return false;
+      }
+      
+      // Apply visit type filter
+      if (selectedVisitType) {
+        const visits = v.visits?.trim();
+        if (selectedVisitType === 'Not specified') {
+          if (visits && visits !== '' && visits.toLowerCase() !== 'not applicable' && visits.toLowerCase() !== 'n/a') {
+            return false;
+          }
+        } else if (!visits?.includes(selectedVisitType)) {
+          return false;
+        }
+      }
+      
+      return true;
+    });
+  }, [variables, selectedDomain, selectedType, selectedCategory, selectedVisitType, shouldRender]);
 
   // Calculate category distribution - ONLY when shouldRender is true
   const categoryDistributionData = useMemo(() => {
@@ -69,14 +135,20 @@ export default function CohortSummaryGraphs({ variables, isExpanded = false }: C
       '5+ categories': 0,
     };
     
-    // Filter variables based on selections
-    let filteredVars = Object.values(variables);
-    if (selectedDomain) {
-      filteredVars = filteredVars.filter(v => (v.omop_domain || 'Unmapped') === selectedDomain);
-    }
-    if (selectedType) {
-      filteredVars = filteredVars.filter(v => (v.var_type || 'Unknown') === selectedType);
-    }
+    // Use pre-filtered variables (filter out category filter for this chart)
+    const filteredVars = selectedCategory 
+      ? Object.values(variables).filter((v) => {
+          if (selectedDomain && (v.omop_domain || 'Unmapped') !== selectedDomain) return false;
+          if (selectedType && (v.var_type || 'Unknown') !== selectedType) return false;
+          if (selectedVisitType) {
+            const visits = v.visits?.trim();
+            if (selectedVisitType === 'Not specified') {
+              if (visits && visits !== '' && visits.toLowerCase() !== 'not applicable' && visits.toLowerCase() !== 'n/a') return false;
+            } else if (!visits?.includes(selectedVisitType)) return false;
+          }
+          return true;
+        })
+      : getFilteredVariables;
     
     filteredVars.forEach((variable) => {
       const numCategories = variable.categories?.length || 0;
@@ -95,7 +167,7 @@ export default function CohortSummaryGraphs({ variables, isExpanded = false }: C
     });
     
     return Object.entries(categoryCounts).map(([name, value]) => ({ name, value }));
-  }, [variables, selectedDomain, selectedType, shouldRender]);
+  }, [variables, selectedDomain, selectedType, selectedVisitType, getFilteredVariables, shouldRender]);
 
   // Calculate visit types distribution - ONLY when shouldRender is true
   const visitTypesData = useMemo(() => {
@@ -103,14 +175,22 @@ export default function CohortSummaryGraphs({ variables, isExpanded = false }: C
     
     const visitCounts: { [key: string]: number } = {};
     
-    // Filter variables based on selections
-    let filteredVars = Object.values(variables);
-    if (selectedDomain) {
-      filteredVars = filteredVars.filter(v => (v.omop_domain || 'Unmapped') === selectedDomain);
-    }
-    if (selectedType) {
-      filteredVars = filteredVars.filter(v => (v.var_type || 'Unknown') === selectedType);
-    }
+    // Use pre-filtered variables (filter out visit type filter for this chart)
+    const filteredVars = selectedVisitType
+      ? Object.values(variables).filter((v) => {
+          if (selectedDomain && (v.omop_domain || 'Unmapped') !== selectedDomain) return false;
+          if (selectedType && (v.var_type || 'Unknown') !== selectedType) return false;
+          if (selectedCategory) {
+            const numCategories = v.categories?.length || 0;
+            if (selectedCategory === 'Non-categorical' && numCategories !== 0) return false;
+            if (selectedCategory === '2 categories' && numCategories !== 2) return false;
+            if (selectedCategory === '3 categories' && numCategories !== 3) return false;
+            if (selectedCategory === '4 categories' && numCategories !== 4) return false;
+            if (selectedCategory === '5+ categories' && numCategories < 5) return false;
+          }
+          return true;
+        })
+      : getFilteredVariables;
     
     filteredVars.forEach((variable) => {
       const visits = variable.visits?.trim();
@@ -134,7 +214,7 @@ export default function CohortSummaryGraphs({ variables, isExpanded = false }: C
     return Object.entries(visitCounts)
       .map(([name, value]) => ({ name, value }))
       .sort((a, b) => b.value - a.value);
-  }, [variables, selectedDomain, selectedType, shouldRender]);
+  }, [variables, selectedDomain, selectedType, selectedCategory, getFilteredVariables, shouldRender]);
 
   // Calculate OMOP domain distribution - ONLY when shouldRender is true
   const domainData = useMemo(() => {
@@ -142,31 +222,27 @@ export default function CohortSummaryGraphs({ variables, isExpanded = false }: C
     
     const domainCounts: { [key: string]: number } = {};
     
-    // Apply all filters
-    let filteredVars = Object.values(variables);
-    if (selectedType) {
-      filteredVars = filteredVars.filter(v => (v.var_type || 'Unknown') === selectedType);
-    }
-    if (selectedCategory) {
-      filteredVars = filteredVars.filter(v => {
-        const numCategories = v.categories?.length || 0;
-        if (selectedCategory === 'Non-categorical') return numCategories === 0;
-        if (selectedCategory === '2 categories') return numCategories === 2;
-        if (selectedCategory === '3 categories') return numCategories === 3;
-        if (selectedCategory === '4 categories') return numCategories === 4;
-        if (selectedCategory === '5+ categories') return numCategories >= 5;
-        return false;
-      });
-    }
-    if (selectedVisitType) {
-      filteredVars = filteredVars.filter(v => {
-        const visits = v.visits?.trim();
-        if (selectedVisitType === 'Not specified') {
-          return !visits || visits === '' || visits.toLowerCase() === 'not applicable' || visits.toLowerCase() === 'n/a';
-        }
-        return visits?.includes(selectedVisitType);
-      });
-    }
+    // Use pre-filtered variables (filter out domain filter for this chart)
+    const filteredVars = selectedDomain
+      ? Object.values(variables).filter((v) => {
+          if (selectedType && (v.var_type || 'Unknown') !== selectedType) return false;
+          if (selectedCategory) {
+            const numCategories = v.categories?.length || 0;
+            if (selectedCategory === 'Non-categorical' && numCategories !== 0) return false;
+            if (selectedCategory === '2 categories' && numCategories !== 2) return false;
+            if (selectedCategory === '3 categories' && numCategories !== 3) return false;
+            if (selectedCategory === '4 categories' && numCategories !== 4) return false;
+            if (selectedCategory === '5+ categories' && numCategories < 5) return false;
+          }
+          if (selectedVisitType) {
+            const visits = v.visits?.trim();
+            if (selectedVisitType === 'Not specified') {
+              if (visits && visits !== '' && visits.toLowerCase() !== 'not applicable' && visits.toLowerCase() !== 'n/a') return false;
+            } else if (!visits?.includes(selectedVisitType)) return false;
+          }
+          return true;
+        })
+      : getFilteredVariables;
     
     filteredVars.forEach((variable) => {
       const domain = variable.omop_domain || 'Unmapped';
@@ -180,7 +256,7 @@ export default function CohortSummaryGraphs({ variables, isExpanded = false }: C
         itemStyle: { color: DOMAIN_COLORS[Object.keys(domainCounts).indexOf(name) % DOMAIN_COLORS.length] }
       }))
       .sort((a, b) => b.value - a.value);
-  }, [variables, selectedType, selectedCategory, selectedVisitType, shouldRender]);
+  }, [variables, selectedType, selectedCategory, selectedVisitType, getFilteredVariables, shouldRender]);
 
   // Calculate data type distribution - ONLY when shouldRender is true
   const typeData = useMemo(() => {
@@ -188,31 +264,27 @@ export default function CohortSummaryGraphs({ variables, isExpanded = false }: C
     
     const typeCounts: { [key: string]: number } = {};
     
-    // Apply all filters
-    let filteredVars = Object.values(variables);
-    if (selectedDomain) {
-      filteredVars = filteredVars.filter(v => (v.omop_domain || 'Unmapped') === selectedDomain);
-    }
-    if (selectedCategory) {
-      filteredVars = filteredVars.filter(v => {
-        const numCategories = v.categories?.length || 0;
-        if (selectedCategory === 'Non-categorical') return numCategories === 0;
-        if (selectedCategory === '2 categories') return numCategories === 2;
-        if (selectedCategory === '3 categories') return numCategories === 3;
-        if (selectedCategory === '4 categories') return numCategories === 4;
-        if (selectedCategory === '5+ categories') return numCategories >= 5;
-        return false;
-      });
-    }
-    if (selectedVisitType) {
-      filteredVars = filteredVars.filter(v => {
-        const visits = v.visits?.trim();
-        if (selectedVisitType === 'Not specified') {
-          return !visits || visits === '' || visits.toLowerCase() === 'not applicable' || visits.toLowerCase() === 'n/a';
-        }
-        return visits?.includes(selectedVisitType);
-      });
-    }
+    // Use pre-filtered variables (filter out type filter for this chart)
+    const filteredVars = selectedType
+      ? Object.values(variables).filter((v) => {
+          if (selectedDomain && (v.omop_domain || 'Unmapped') !== selectedDomain) return false;
+          if (selectedCategory) {
+            const numCategories = v.categories?.length || 0;
+            if (selectedCategory === 'Non-categorical' && numCategories !== 0) return false;
+            if (selectedCategory === '2 categories' && numCategories !== 2) return false;
+            if (selectedCategory === '3 categories' && numCategories !== 3) return false;
+            if (selectedCategory === '4 categories' && numCategories !== 4) return false;
+            if (selectedCategory === '5+ categories' && numCategories < 5) return false;
+          }
+          if (selectedVisitType) {
+            const visits = v.visits?.trim();
+            if (selectedVisitType === 'Not specified') {
+              if (visits && visits !== '' && visits.toLowerCase() !== 'not applicable' && visits.toLowerCase() !== 'n/a') return false;
+            } else if (!visits?.includes(selectedVisitType)) return false;
+          }
+          return true;
+        })
+      : getFilteredVariables;
     
     filteredVars.forEach((variable) => {
       const type = variable.var_type || 'Unknown';
@@ -226,7 +298,7 @@ export default function CohortSummaryGraphs({ variables, isExpanded = false }: C
         itemStyle: { color: TYPE_COLORS[Object.keys(typeCounts).indexOf(name) % TYPE_COLORS.length] }
       }))
       .sort((a, b) => b.value - a.value);
-  }, [variables, selectedDomain, selectedCategory, selectedVisitType, shouldRender]);
+  }, [variables, selectedDomain, selectedCategory, selectedVisitType, getFilteredVariables, shouldRender]);
 
   // Domain chart options
   const domainChartOptions = {
@@ -676,4 +748,6 @@ export default function CohortSummaryGraphs({ variables, isExpanded = false }: C
       </div>
     </div>
   );
-}
+});
+
+export default CohortSummaryGraphs;
