@@ -50,6 +50,11 @@ prefix_map = [
         "prefix_synonyms": ["RXNORM"]
     },
     {
+        "prefix": "rxnorm extension",
+        "uri_prefix": "https://athena.ohdsi.org/search-terms/terms/",
+        "prefix_synonyms": ["RXNORM EXTENSION", "RxNorm Extension"]
+    },
+    {
         "prefix": "cdisc",
         "uri_prefix": "https://www.cdisc.org/search?search_api_fulltext="
     },
