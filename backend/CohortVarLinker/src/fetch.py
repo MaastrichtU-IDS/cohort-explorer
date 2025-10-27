@@ -21,7 +21,7 @@ import json
 #     code_label: str
 #     category: str
 
-TIME_HINTS = ["date", "visit", "compliance"]
+TIME_HINTS = ["visit date", "6 months prior to baseline", "prior to baseline visit"]
 DERIVED_VARIABLES_LIST= [
     
      {
