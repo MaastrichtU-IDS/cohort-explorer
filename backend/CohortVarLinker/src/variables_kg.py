@@ -1114,7 +1114,7 @@ def add_composite_concepts_info(g: Graph, linked_uri: URIRef, concepts: list[Con
 
         g.add((code_set_uri, OntologyNamespaces.RO.value.has_part, code_uri,cohort_uri))
         g.add((code_uri, OntologyNamespaces.RO.value.is_part_of, code_set_uri,cohort_uri))
-        g.add((code_set_uri, RDF[f"_{i}"], code_uri, cohort_uri))
+        g.add((code_set_uri, RDF[f"_{i+1}"], code_uri, cohort_uri))
         # g.add((code_set_uri, RDF[f"_{i+
     # print(f"omop_id: {omop_id} for {linked_uri}")
     return g

@@ -84,11 +84,11 @@ def _build_alignment_query(
                 ("{source}" AS ?source)
                 WHERE {{
                 GRAPH <{graph_repo}/{source}>  {{
-                    # 1) Most selective: mapping from data element -> standardized code (rdf:_0) -> OMOP
+                    # 1) Most selective: mapping from data element -> standardized code (rdf:_1) -> OMOP
                     ?stdProcessA a cmeo:data_standardization ;
                                 obi:has_specified_output ?codeSetA ;
                                 obi:has_specified_input  ?dataElementA .
-                    ?codeSetA rdf:_0 ?codeNodeA .
+                    ?codeSetA rdf:_1 ?codeNodeA .
                     ?codeNodeA a cmeo:code ;
                             cmeo:has_value ?code_value ;
                             rdfs:label     ?code_label ;
@@ -141,7 +141,7 @@ def _build_alignment_query(
                     ?stdProcessB a cmeo:data_standardization ;
                                 obi:has_specified_output ?codeSetB ;
                                 obi:has_specified_input  ?dataElementB .
-                    ?codeSetB rdf:_0 ?codeNodeB .
+                    ?codeSetB rdf:_1 ?codeNodeB .
                     ?codeNodeB a cmeo:code ;
                             cmeo:has_value ?code_value ;
                             rdfs:label     ?code_label ;
