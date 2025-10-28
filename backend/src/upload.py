@@ -751,6 +751,44 @@ def generate_mappings(cohort_id: str, metadata_path: str, g: Graph) -> None:
             logging.info(f"Added cohort {cohort_id} to cache after generating mappings")
 
 
+@router.post(
+    "/create-provision-dcr",
+    name="Create Data Clean Room to provision the dataset",
+    response_description="Creation result",
+)
+async def post_create_provision_dcr(
+    user: Any = Depends(get_current_user),
+    # cohort_id: str = Form(..., pattern="^[a-zA-Z0-9-_\w]+$"),
+    cohort_id: str = Form(...),
+) -> dict[str, Any]:
+    import time
+    t0 = time.time()
+    # Use cache instead of SPARQL query for better performance
+    from src.cohort_cache import get_cohorts_from_cache
+    cohorts = get_cohorts_from_cache(user["email"])
+    logging.info(f"[TIMING] Retrieved cohorts from cache in {time.time() - t0:.3f}s")
+    
+    cohort_info = cohorts.get(cohort_id)
+    if not cohort_info:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Cohort ID {cohort_id} does not exists",
+        )
+    if not cohort_info.can_edit:
+        raise HTTPException(
+            status_code=403,
+            detail=f"User {user['email']} cannot publish cohort {cohort_id}",
+        )
+    try:
+        dcr_data = create_provision_dcr(user, cohort_info)
+    except Exception as e:
+        raise HTTPException(
+            status_code=422,
+            detail=f"There was an issue when uploading the cohort {cohort_id} to Decentriq: {e}",
+        )
+    return dcr_data
+
+
 COHORTS_METADATA_FILEPATH = os.path.join(settings.data_folder, "iCARE4CVD_Cohorts.xlsx")
 
 
