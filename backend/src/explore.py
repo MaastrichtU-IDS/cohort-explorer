@@ -1,5 +1,6 @@
 import os
 import logging
+import json
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -37,6 +38,47 @@ def get_cohorts_metadata(user: Any = Depends(get_current_user)) -> dict[str, Coh
     cohorts = retrieve_cohorts_metadata(user_email)
     
     return cohorts
+
+
+@router.get("/cohort-eda-output/{cohort_name}")
+async def get_cohort_eda_output(
+    cohort_name: str,
+    user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Retrieve the EDA output JSON file for a given cohort."""
+    # Construct the directory and file paths
+    dcr_output_dir = os.path.join(settings.data_folder, f"dcr_output_{cohort_name}")
+    eda_file_path = os.path.join(dcr_output_dir, f"eda_output_{cohort_name}.json")
+    
+    # Check if directory exists
+    if not os.path.exists(dcr_output_dir):
+        raise HTTPException(
+            status_code=404,
+            detail=f"DCR output directory not found for cohort '{cohort_name}'"
+        )
+    
+    # Check if file exists
+    if not os.path.exists(eda_file_path):
+        raise HTTPException(
+            status_code=404,
+            detail=f"EDA output file not found for cohort '{cohort_name}'"
+        )
+    
+    # Read and return the JSON file
+    try:
+        with open(eda_file_path, 'r') as f:
+            eda_data = json.load(f)
+        return eda_data
+    except json.JSONDecodeError as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error parsing EDA output JSON: {str(e)}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error reading EDA output file: {str(e)}"
+        )
 
 
 @router.get("/cohorts-metadata-sparql")
