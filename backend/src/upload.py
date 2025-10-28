@@ -796,6 +796,7 @@ COHORTS_METADATA_FILEPATH = os.path.join(settings.data_folder, "iCARE4CVD_Cohort
     response_description="Upload result",
 )
 async def upload_cohorts_metadata(
+    background_tasks: BackgroundTasks,
     user: Any = Depends(get_current_user),
     cohorts_metadata: UploadFile = File(...),
 ) -> dict[str, Any]:
@@ -808,6 +809,16 @@ async def upload_cohorts_metadata(
     if len(g) > 0:
         delete_existing_triples(ICARE["graph/metadata"])
         publish_graph_to_endpoint(g)
+        
+        # Refresh the cache in background to avoid blocking the response
+        from src.cohort_cache import initialize_cache_from_triplestore
+        background_tasks.add_task(initialize_cache_from_triplestore, user["email"], True)
+        logging.info("Cache refresh scheduled after cohorts metadata update")
+    
+    return {
+        "message": "Cohorts metadata file has been successfully uploaded and processed. The cache will be refreshed in the background and changes will be visible in a few minutes.",
+        "triples_count": len(g)
+    }
 
 
 def is_valid_value(value: Any) -> bool:
