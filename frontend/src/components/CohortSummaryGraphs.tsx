@@ -61,10 +61,10 @@ const CohortSummaryGraphs = React.memo(function CohortSummaryGraphs({ variables,
       (entries) => {
         entries.forEach((entry) => {
           if (entry.isIntersecting && !shouldRender) {
-            // Wait 1.5 seconds before rendering
+            // Wait 0.5 seconds before rendering
             const timer = setTimeout(() => {
               setShouldRender(true);
-            }, 1500);
+            }, 500);
             return () => clearTimeout(timer);
           }
         });
@@ -657,7 +657,7 @@ const CohortSummaryGraphs = React.memo(function CohortSummaryGraphs({ variables,
           <h3 className="text-lg font-semibold">Summary Graphs</h3>
         </div>
         <div className="flex flex-col items-center justify-center py-16">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
+          <div className="animate-spin-slow rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
           <p className="text-gray-600 font-medium">Rendering charts...</p>
           <p className="text-gray-400 text-sm mt-2">This will take just a moment</p>
         </div>
@@ -728,7 +728,7 @@ const CohortSummaryGraphs = React.memo(function CohortSummaryGraphs({ variables,
         </div>
 
         {/* Bottom row: Bar charts */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-12">
           {/* Category distribution bar chart */}
           <div className="cursor-pointer">
             <ReactECharts
