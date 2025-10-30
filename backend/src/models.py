@@ -29,6 +29,7 @@ class CohortVariable:
     min: Optional[str] = None
     units: Optional[str] = None
     visits: Optional[str] = None
+    visit_concept_name: Optional[str] = None
     formula: Optional[str] = None
     definition: Optional[str] = None
     concept_id: Optional[str] = None

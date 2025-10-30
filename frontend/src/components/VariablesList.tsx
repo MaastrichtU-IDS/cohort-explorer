@@ -369,6 +369,7 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
                       <span className="badge badge-ghost">🏷️ {variable.categories.length} categories</span>
                     )}
                     {variable.omop_domain && <span className="badge badge-default">{variable.omop_domain}</span>}
+                    {variable.visit_concept_name && <span className="badge badge-accent">📅 {variable.visit_concept_name}</span>}
                     {variable.formula && <span className="badge badge-outline">🧪 {variable.formula}</span>}
                     {variable.concept_code && <span className="badge" style={{ backgroundColor: '#dbeafe', color: '#1e3a8a', border: '1px solid #bfdbfe' }}>{variable.concept_code}</span>}
                     {variable.omop_id && <span className="badge" style={{ backgroundColor: '#dbeafe', color: '#1e3a8a', border: '1px solid #bfdbfe' }}>OMOP ID: {variable.omop_id}</span>}

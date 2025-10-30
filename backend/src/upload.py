@@ -865,13 +865,13 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
         if is_valid_value(row.get("Administrator", "")):
             g.add((cohort_uri, ICARE.administrator, Literal(row["Administrator"]), cohorts_graph))
         if is_valid_value(row.get("Administrator Email Address", "")):
-            g.add((cohort_uri, ICARE.administratorEmail, Literal(row["Administrator Email Address"]), cohorts_graph))
+            g.add((cohort_uri, ICARE.administratorEmail, Literal(row["Administrator Email Address"].lower()), cohorts_graph))
         # Study contact person information
         if is_valid_value(row["Study Contact Person"]):
             g.add((cohort_uri, DC.creator, Literal(row["Study Contact Person"]), cohorts_graph))
         if is_valid_value(row["Study Contact Person Email Address"]):
             for email in row["Study Contact Person Email Address"].split(";"):
-                g.add((cohort_uri, ICARE.email, Literal(email.strip()), cohorts_graph))
+                g.add((cohort_uri, ICARE.email, Literal(email.strip().lower()), cohorts_graph))
         # References
         if is_valid_value(row.get("References", "")):
             for reference in row["References"].split(";"):

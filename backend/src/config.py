@@ -63,7 +63,7 @@ class Settings:
 
     @property
     def admins_list(self) -> list[str]:
-        return self.admins.split(",")
+        return [email.strip().lower() for email in self.admins.split(",")]
 
     @property
     def logs_filepath(self) -> str:

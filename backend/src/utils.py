@@ -99,7 +99,7 @@ PREFIX dcterms: <http://purl.org/dc/terms/>
 
 SELECT DISTINCT ?cohortId ?cohortInstitution ?cohortEmail ?study_type ?study_participants ?study_duration ?study_ongoing ?study_population ?study_objective ?primary_outcome_spec ?secondary_outcome_spec ?morbidity ?study_start ?study_end ?male_percentage ?female_percentage ?administrator ?administrator_email ?study_contact_person ?study_contact_person_email ?references ?population_location ?language ?data_collection_frequency ?interventions ?sex_inclusion ?health_status_inclusion ?clinically_relevant_exposure_inclusion ?age_group_inclusion ?bmi_range_inclusion ?ethnicity_inclusion ?family_status_inclusion ?hospital_patient_inclusion ?use_of_medication_inclusion ?health_status_exclusion ?bmi_range_exclusion ?limited_life_expectancy_exclusion ?need_for_surgery_exclusion ?surgical_procedure_history_exclusion ?clinically_relevant_exposure_exclusion
     ?variable ?varName ?varLabel ?varType ?index ?count ?na ?max ?min ?units ?formula ?definition
-    ?omopDomain ?conceptId ?conceptCode ?conceptName ?omopId ?mappedId ?mappedLabel ?visits ?categoryValue ?categoryLabel ?categoryConceptId ?categoryMappedId ?categoryMappedLabel
+    ?omopDomain ?conceptId ?conceptCode ?conceptName ?omopId ?mappedId ?mappedLabel ?visits ?visitConceptName ?categoryValue ?categoryLabel ?categoryConceptId ?categoryMappedId ?categoryMappedLabel
 WHERE {
     GRAPH ?cohortMetadataGraph {
         ?cohort a icare:Cohort ;
@@ -177,6 +177,7 @@ WHERE {
             OPTIONAL { ?variable icare:omopId ?omopId }
             OPTIONAL { ?variable icare:domain ?omopDomain }
             OPTIONAL { ?variable icare:visits ?visits }
+            OPTIONAL { ?variable icare:visitConceptName ?visitConceptName }
             OPTIONAL {
                 ?variable icare:categories ?category.
                 ?category rdfs:label ?categoryLabel ;
@@ -323,9 +324,9 @@ def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = F
                     female_percentage=float(get_value("female_percentage", row)) if get_value("female_percentage", row) else None,
                     # Contact information fields
                     administrator=get_value("administrator", row),
-                    administrator_email=get_value("administrator_email", row),
+                    administrator_email=get_value("administrator_email", row).lower() if get_value("administrator_email", row) else "",
                     study_contact_person=get_value("study_contact_person", row),
-                    study_contact_person_email=get_value("study_contact_person_email", row),
+                    study_contact_person_email=get_value("study_contact_person_email", row).lower() if get_value("study_contact_person_email", row) else "",
                     references=[],
                     # Additional metadata fields
                     population_location=get_value("population_location", row),
@@ -350,7 +351,7 @@ def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = F
                     surgical_procedure_history_exclusion=get_value("surgical_procedure_history_exclusion", row),
                     clinically_relevant_exposure_exclusion=get_value("clinically_relevant_exposure_exclusion", row),
                     variables={},
-                    can_edit=user_email in [*settings.admins_list, get_value("cohortEmail", row)],
+                    can_edit=user_email in [*settings.admins_list, get_value("cohortEmail", row).lower() if get_value("cohortEmail", row) else ""],
                     physical_dictionary_exists=False
                 )
                 target_dict[cohort_id] = cohort
@@ -361,11 +362,13 @@ def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = F
                 except FileNotFoundError:
                     target_dict[cohort_id].physical_dictionary_exists = False
 
-            elif get_value("cohortEmail", row) not in target_dict[cohort_id].cohort_email:
+            elif get_value("cohortEmail", row).lower() not in target_dict[cohort_id].cohort_email:
                 # Handle multiple emails for the same cohort
-                target_dict[cohort_id].cohort_email.append(get_value("cohortEmail", row))
-                if user_email == get_value("cohortEmail", row):
-                    target_dict[cohort_id].can_edit = True
+                cohort_email = get_value("cohortEmail", row).lower() if get_value("cohortEmail", row) else ""
+                if cohort_email:
+                    target_dict[cohort_id].cohort_email.append(cohort_email)
+                    if user_email == cohort_email:
+                        target_dict[cohort_id].can_edit = True
             
             # Handle references - process independently of other conditions
             if get_value("references", row) and get_value("references", row) not in target_dict[cohort_id].references:

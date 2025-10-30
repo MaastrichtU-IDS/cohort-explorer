@@ -134,6 +134,7 @@ def cohort_to_dict(cohort: Cohort) -> Dict[str, Any]:
             "min": variable.min,
             "units": variable.units,
             "visits": variable.visits,
+            "visit_concept_name": variable.visit_concept_name,
             "formula": variable.formula,
             "definition": variable.definition,
             "concept_id": variable.concept_id,
@@ -278,14 +279,15 @@ def create_cohort_from_metadata_graph(cohort_id: str, cohort_uri: URIRef, g: Dat
         
         # Contact information
         cohort.administrator = get_literal_value(ICARE.administrator)
-        cohort.administrator_email = get_literal_value(ICARE.administratorEmail)
+        admin_email = get_literal_value(ICARE.administratorEmail)
+        cohort.administrator_email = admin_email.lower() if admin_email else None
         cohort.study_contact_person = get_literal_value(DC.creator)
         
-        # Get all emails
+        # Get all emails (normalize to lowercase)
         emails = get_literal_values(ICARE.email)
         if emails:
-            cohort.cohort_email = emails
-            cohort.study_contact_person_email = emails[0]  # Use the first email as contact
+            cohort.cohort_email = [email.lower() for email in emails if email]
+            cohort.study_contact_person_email = cohort.cohort_email[0]  # Use the first email as contact
         
         # References
         cohort.references = get_literal_values(ICARE.references)

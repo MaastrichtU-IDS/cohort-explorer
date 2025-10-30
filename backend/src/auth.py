@@ -131,7 +131,7 @@ async def auth_callback(code: str) -> RedirectResponse:
             # Reuse expiration time from decentriq Auth0 access token
             exp_timestamp = access_payload["exp"]
             jwt_token = create_access_token(
-                data={"email": id_payload["email"], "access_token": token["access_token"]},
+                data={"email": id_payload["email"].lower(), "access_token": token["access_token"]},
                 expires_timestamp=exp_timestamp,
             )
 
