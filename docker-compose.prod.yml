@@ -33,6 +33,8 @@ services:
     extends:
       file: docker-compose.base.yml
       service: db
+    ports:
+      - "7878:7878"
     deploy:
       resources:
         limits:
