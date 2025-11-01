@@ -420,9 +420,6 @@ def add_device_senors_for_variable(g: Graph, var_uri:URIRef, data_set_uri: URIRe
 
     return g
 
-
-        
-    
 def add_frequency_distribution_to_graph(g: Graph, statistic_uri: URIRef, fd:str, cohort_uri: URIRef) -> Graph:
     if fd is None:
         return g
@@ -800,7 +797,8 @@ def add_temporal_context(g: Graph, var_uri: URIRef, cohort_uri: URIRef, row: pd.
                     code=row['visit concept code'] if pd.notna(row['visit concept code']) else None,
                     omop_id=safe_int(row['visit omop id']) if pd.notna(row['visit omop id']) else None,
                 )
-                add_solo_concept_info(g, visit_uri, concepts, cohort_uri)
+                
+                g= add_solo_concept_info(g, visit_uri, concepts, cohort_uri)
             
                 return g
         return g
@@ -1092,6 +1090,7 @@ def add_composite_concepts_info(g: Graph, linked_uri: URIRef, concepts: list[Con
     # g.add((code_set_uri, RDF.type, RDF.Seq, cohort_uri))
     g.add((data_standardization_uri, OntologyNamespaces.OBI.value.has_specified_output, code_set_uri,cohort_uri))
     g.add((code_set_uri, OntologyNamespaces.OBI.value.is_specified_output_of, data_standardization_uri,cohort_uri))
+    g.add((linked_uri, OntologyNamespaces.SKOS.value.closeMatch, code_set_uri, cohort_uri)) # for composite concepts we use closeMatch instead of exactMatch as they are not exactly defined by the code set in other vocabularies but our interpretation of them
     # print(linked_uri)
     for i, concept in enumerate(concepts):
         # print(concept)
@@ -1115,11 +1114,8 @@ def add_composite_concepts_info(g: Graph, linked_uri: URIRef, concepts: list[Con
         g.add((code_set_uri, OntologyNamespaces.RO.value.has_part, code_uri,cohort_uri))
         g.add((code_uri, OntologyNamespaces.RO.value.is_part_of, code_set_uri,cohort_uri))
         g.add((code_set_uri, RDF[f"_{i+1}"], code_uri, cohort_uri))
-        # g.add((code_set_uri, RDF[f"_{i+
     # print(f"omop_id: {omop_id} for {linked_uri}")
     return g
-
-
 
 def add_solo_concept_info(g: Graph, linked_uri: URIRef, concept: Concept, cohort_uri: URIRef) -> Graph:
 
@@ -1157,6 +1153,7 @@ def add_solo_concept_info(g: Graph, linked_uri: URIRef, concept: Concept, cohort
     g.add((code_uri, OntologyNamespaces.OBI.value.is_specified_output_of, data_standardization_uri,cohort_uri))
     g.add((data_standardization_uri, OntologyNamespaces.OBI.value.has_specified_output, code_uri,cohort_uri))
     g.add((code_uri, RDFS.label, Literal(label, datatype=XSD.string),cohort_uri))
+    g.add((linked_uri, OntologyNamespaces.SKOS.value.exactMatch, code_uri, cohort_uri))
     # standard_label_uri = get_standard_label_uri(linked_uri, label)
     # g.add((standard_label_uri, RDF.type, OntologyNamespaces.CMEO.value.standard_label,cohort_uri))
     # g.add((code_uri, OntologyNamespaces.OBI.value.is_denoted_by, standard_label_uri,cohort_uri))
@@ -1245,4 +1242,3 @@ def add_all_derived_variables(
         print(f"[{dv['name']}] Added derivation process for: {out_var_uri} using {[i['uri'] for i in input_vars]}")
 
     return g
-
