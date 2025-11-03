@@ -431,7 +431,25 @@ def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = F
                 if new_category not in target_dict[cohort_id].variables[var_id].categories:
                     target_dict[cohort_id].variables[var_id].categories.append(new_category)
         except Exception as e:
-            logging.warning(f"Error processing row {row}: {e}")
+            var_name = None
+            try:
+                var_name = row.get("varName", {}).get("value") if isinstance(row.get("varName"), dict) else None
+            except Exception:
+                pass
+            exc_type = type(e).__name__
+            sig = (str(cohort_id), str(var_name), exc_type)
+            _sig_set = globals().setdefault("_SPARQL_ROW_ERROR_SIGNATURES", set())
+            if len(_sig_set) > 5000:
+                _sig_set.clear()
+            if sig not in _sig_set:
+                _sig_set.add(sig)
+                logging.exception(
+                    f"Error processing SPARQL row for cohort_id={cohort_id}, varName={var_name}, error={exc_type}. Raw row keys={list(row.keys())}"
+                )
+            else:
+                logging.debug(
+                    f"Suppressed duplicate error for cohort_id={cohort_id}, varName={var_name}, error={exc_type}"
+                )
     # Merge cohorts with and without variables
     # Put cohorts with variables first so they appear at the top of the list
     cohorts = {**cohorts_with_variables, **cohorts_without_variables}
