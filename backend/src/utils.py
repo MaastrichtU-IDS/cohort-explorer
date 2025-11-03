@@ -354,6 +354,9 @@ def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = F
                     physical_dictionary_exists=False
                 )
                 
+                # Make the cohort accessible via target_dict before any access
+                target_dict[cohort_id] = cohort
+                
                 # Debug logging for cohort creation
                 cohort_email = get_value("cohortEmail", row).lower() if get_value("cohortEmail", row) else ""
                 is_admin = user_email in settings.admins_list
@@ -374,9 +377,10 @@ def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = F
                 
                 # Attempt to determine if a physical dictionary file exists
                 try:
-                    if target_dict[cohort_id].metadata_filepath: # Accessing the property
-                        target_dict[cohort_id].physical_dictionary_exists = True
-                except FileNotFoundError:
+                    meta_path = getattr(target_dict[cohort_id], "metadata_filepath", None)
+                    target_dict[cohort_id].physical_dictionary_exists = bool(meta_path)
+                except Exception as _e:
+                    logging.debug(f"Skipping physical dictionary check for cohort_id={cohort_id}: {_e}")
                     target_dict[cohort_id].physical_dictionary_exists = False
 
             elif get_value("cohortEmail", row).lower() not in target_dict[cohort_id].cohort_email:
