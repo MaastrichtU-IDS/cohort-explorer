@@ -158,52 +158,44 @@ async def auth_callback(code: str) -> RedirectResponse:
 @router.get("/debug/permissions")
 async def debug_permissions() -> dict[str, Any]:
     """
-    Debug endpoint to list all users, admins, and their cohort access permissions.
-    Only accessible to admins.
+    Compact permission map for emails present in spreadsheet fields.
+    For each email that appears as cohort email, administrator_email, or study_contact_person_email,
+    list cohorts where that email has access (owner or admin). Cohorts with no access are omitted.
     """
     from src.cohort_cache import get_cohorts_from_cache
     from src.config import settings
-    
-    # Get all unique users from the system
-    # Note: In a real system, you'd get this from your user database
-    # For now, we'll combine admins and any users found in cohort emails
+
     all_cohorts = get_cohorts_from_cache("")
-    
-    # Get all unique users from cohort emails
-    all_users = set()
-    for cohort in all_cohorts.values():
-        all_users.update(email.lower() for email in cohort.cohort_email if email)
-    
-    # Add admins to the user list
-    all_users.update(admin.lower() for admin in settings.admins_list)
-    
-    # For each user, check their access to each cohort
-    result = {
-        "admins": list(settings.admins_list),
-        "users": {}
-    }
-    
-    for user_email in sorted(all_users):
-        user_permissions = {
-            "is_admin": user_email.lower() in [a.lower() for a in settings.admins_list],
-            "cohorts": {}
-        }
-        
+
+    # Collect emails from spreadsheet-driven fields
+    spreadsheet_emails: set[str] = set()
+    for c in all_cohorts.values():
+        spreadsheet_emails.update(e.lower() for e in c.cohort_email or [] if e)
+        if c.administrator_email:
+            spreadsheet_emails.add(c.administrator_email.lower())
+        if c.study_contact_person_email:
+            spreadsheet_emails.add(c.study_contact_person_email.lower())
+
+    admins_lower = {a.lower() for a in settings.admins_list}
+
+    # Build compact mapping email -> [cohort_ids]
+    emails_map: dict[str, list[str]] = {}
+    for email in sorted(spreadsheet_emails):
+        has_admin = email in admins_lower
+        accessible: list[str] = []
         for cohort_id, cohort in all_cohorts.items():
-            is_owner = user_email.lower() in [e.lower() for e in cohort.cohort_email]
-            is_admin = user_email.lower() in [a.lower() for a in settings.admins_list]
-            can_edit = is_owner or is_admin
-            
-            user_permissions["cohorts"][cohort_id] = {
-                "can_edit": can_edit,
-                "is_owner": is_owner,
-                "is_admin": is_admin,
-                "cohort_emails": cohort.cohort_email
-            }
-        
-        result["users"][user_email] = user_permissions
-    
-    return result
+            is_owner = email in [e.lower() for e in (cohort.cohort_email or [])] or \
+                       (cohort.administrator_email and email == cohort.administrator_email.lower()) or \
+                       (cohort.study_contact_person_email and email == cohort.study_contact_person_email.lower())
+            if has_admin or is_owner:
+                accessible.append(cohort_id)
+        if accessible:
+            emails_map[email] = sorted(accessible)
+
+    return {
+        "admins": sorted(settings.admins_list),
+        "emails": emails_map,
+    }
 
 
 @router.post("/logout")

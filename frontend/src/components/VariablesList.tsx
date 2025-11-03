@@ -369,7 +369,6 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
                       <span className="badge badge-ghost">🏷️ {variable.categories.length} categories</span>
                     )}
                     {variable.omop_domain && <span className="badge badge-default">{variable.omop_domain}</span>}
-                    {variable.visit_concept_name && <span className="badge badge-accent">📅 {variable.visit_concept_name}</span>}
                     {variable.formula && <span className="badge badge-outline">🧪 {variable.formula}</span>}
                     {variable.concept_code && <span className="badge" style={{ backgroundColor: '#dbeafe', color: '#1e3a8a', border: '1px solid #bfdbfe' }}>{variable.concept_code}</span>}
                     {variable.omop_id && <span className="badge" style={{ backgroundColor: '#dbeafe', color: '#1e3a8a', border: '1px solid #bfdbfe' }}>OMOP ID: {variable.omop_id}</span>}
@@ -503,6 +502,7 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
                         </p>
                       )}
                       {variable.definition && <p>Definition: {variable.definition}</p>}
+                      {variable.visit_concept_name && <p>Visit concept name: {variable.visit_concept_name}</p>}
                       {variable.visits && <p>Visit: {variable.visits}</p>}
                       {variable.frequency && <p>Frequency: {variable.frequency}</p>}
                       {variable.duration && <p>Duration: {variable.duration}</p>}
