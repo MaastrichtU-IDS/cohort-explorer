@@ -2,7 +2,7 @@ import base64
 import json
 import time
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, Any
 from urllib.parse import urlencode
 
 import httpx
@@ -13,6 +13,7 @@ from jose import JWTError, jwt
 from starlette.status import HTTP_401_UNAUTHORIZED, HTTP_403_FORBIDDEN
 
 from src.config import settings
+
 
 router = APIRouter()
 
