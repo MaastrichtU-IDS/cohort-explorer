@@ -351,24 +351,27 @@ def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = F
                     surgical_procedure_history_exclusion=get_value("surgical_procedure_history_exclusion", row),
                     clinically_relevant_exposure_exclusion=get_value("clinically_relevant_exposure_exclusion", row),
                     variables={},
-                    # Debug logging for cohort creation
-                    cohort_email = get_value("cohortEmail", row).lower() if get_value("cohortEmail", row) else ""
-                    is_admin = user_email in settings.admins_list
-                    is_cohort_owner = user_email == cohort_email
-                    can_edit = is_admin or is_cohort_owner
-                    
-                    logging.debug(
-                        f"Cohort {get_value('cohortId', row)} - "
-                        f"User: {user_email}, "
-                        f"Cohort Email: {cohort_email}, "
-                        f"Is Admin: {is_admin}, "
-                        f"Is Owner: {is_cohort_owner}, "
-                        f"Can Edit: {can_edit}"
-                    )
-                    can_edit=can_edit,
                     physical_dictionary_exists=False
                 )
-                target_dict[cohort_id] = cohort
+                
+                # Debug logging for cohort creation
+                cohort_email = get_value("cohortEmail", row).lower() if get_value("cohortEmail", row) else ""
+                is_admin = user_email in settings.admins_list
+                is_cohort_owner = user_email == cohort_email
+                can_edit = is_admin or is_cohort_owner
+                
+                logging.debug(
+                    f"Cohort {get_value('cohortId', row)} - "
+                    f"User: {user_email}, "
+                    f"Cohort Email: {cohort_email}, "
+                    f"Is Admin: {is_admin}, "
+                    f"Is Owner: {is_cohort_owner}, "
+                    f"Can Edit: {can_edit}"
+                )
+                
+                # Update the can_edit flag after initialization
+                cohort.can_edit = can_edit
+                
                 # Attempt to determine if a physical dictionary file exists
                 try:
                     if target_dict[cohort_id].metadata_filepath: # Accessing the property
