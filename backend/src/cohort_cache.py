@@ -549,8 +549,17 @@ def get_cohorts_from_cache(user_email: str) -> Dict[str, Cohort]:
         # Create a copy of the cohort
         cohort_copy = dict_to_cohort(cohort_to_dict(cohort))
         
-        # Update can_edit based on user email (admin or cohort owner)
-        cohort_copy.can_edit = user_email in [*settings.admins_list, *cohort_copy.cohort_email]
+        # Debug logging for permission issues
+        is_admin = user_email in settings.admins_list
+        is_cohort_owner = user_email in cohort_copy.cohort_email
+        cohort_copy.can_edit = is_admin or is_cohort_owner
+        
+        if not cohort_copy.can_edit and user_email in [*settings.admins_list, *cohort_copy.cohort_email]:
+            logging.warning(
+                f"Permission issue for user {user_email} on cohort {cohort_id}. "
+                f"is_admin: {is_admin}, is_cohort_owner: {is_cohort_owner}, "
+                f"cohort_emails: {cohort_copy.cohort_email}"
+            )
         
         result[cohort_id] = cohort_copy
     

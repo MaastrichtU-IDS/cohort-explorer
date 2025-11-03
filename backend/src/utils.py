@@ -351,7 +351,21 @@ def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = F
                     surgical_procedure_history_exclusion=get_value("surgical_procedure_history_exclusion", row),
                     clinically_relevant_exposure_exclusion=get_value("clinically_relevant_exposure_exclusion", row),
                     variables={},
-                    can_edit=user_email in [*settings.admins_list, get_value("cohortEmail", row).lower() if get_value("cohortEmail", row) else ""],
+                    # Debug logging for cohort creation
+                    cohort_email = get_value("cohortEmail", row).lower() if get_value("cohortEmail", row) else ""
+                    is_admin = user_email in settings.admins_list
+                    is_cohort_owner = user_email == cohort_email
+                    can_edit = is_admin or is_cohort_owner
+                    
+                    logging.debug(
+                        f"Cohort {get_value('cohortId', row)} - "
+                        f"User: {user_email}, "
+                        f"Cohort Email: {cohort_email}, "
+                        f"Is Admin: {is_admin}, "
+                        f"Is Owner: {is_cohort_owner}, "
+                        f"Can Edit: {can_edit}"
+                    )
+                    can_edit=can_edit,
                     physical_dictionary_exists=False
                 )
                 target_dict[cohort_id] = cohort
@@ -386,6 +400,7 @@ def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = F
                     min=get_value("min", row),
                     units=get_value("units", row),
                     visits=get_value("visits", row),
+                    visit_concept_name=get_value("visitConceptName", row),
                     formula=get_value("formula", row),
                     definition=get_value("definition", row),
                     concept_id=get_curie_value("conceptId", row),
