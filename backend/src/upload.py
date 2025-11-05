@@ -865,7 +865,11 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
         if is_valid_value(row.get("Administrator", "")):
             g.add((cohort_uri, ICARE.administrator, Literal(row["Administrator"]), cohorts_graph))
         if is_valid_value(row.get("Administrator Email Address", "")):
+            # Store as administratorEmail for backward compatibility
             g.add((cohort_uri, ICARE.administratorEmail, Literal(row["Administrator Email Address"].lower()), cohorts_graph))
+            # Also add to icare:email predicate (split by semicolon) for cohort ownership permissions
+            for email in row["Administrator Email Address"].split(";"):
+                g.add((cohort_uri, ICARE.email, Literal(email.strip().lower()), cohorts_graph))
         # Study contact person information
         if is_valid_value(row["Study Contact Person"]):
             g.add((cohort_uri, DC.creator, Literal(row["Study Contact Person"]), cohorts_graph))
