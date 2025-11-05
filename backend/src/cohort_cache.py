@@ -29,47 +29,98 @@ def get_cache_timestamp_file() -> Path:
     return cache_dir / ".cache_timestamp"
 
 def save_cache_to_disk() -> None:
-    """Save the current cache to disk."""
+    """Save the current cache to disk using atomic write with file locking."""
     if not _cohorts_cache:
         logging.warning("Attempted to save empty cache to disk")
         return
     
+    import fcntl
+    import tempfile
+    
     try:
         cache_file = get_cache_file_path()
+        lock_file_path = cache_file.parent / ".cache_write.lock"
         
-        # Convert Cohort objects to serializable dictionaries
-        serializable_cache = {}
-        for cohort_id, cohort_data in _cohorts_cache.items():
-            # Convert each cohort to a serializable dictionary
-            serializable_cache[cohort_id] = cohort_to_dict(cohort_data)
-        
-        with open(cache_file, 'w') as f:
-            json.dump(serializable_cache, f)
-        
-        logging.info(f"Saved cohorts cache to {cache_file}")
+        # Acquire lock to prevent concurrent writes
+        with open(lock_file_path, 'w') as lock_file:
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+                
+                # Convert Cohort objects to serializable dictionaries
+                serializable_cache = {}
+                for cohort_id, cohort_data in _cohorts_cache.items():
+                    # Convert each cohort to a serializable dictionary
+                    serializable_cache[cohort_id] = cohort_to_dict(cohort_data)
+                
+                # Use atomic write: write to temp file then rename
+                temp_fd, temp_path = tempfile.mkstemp(
+                    dir=cache_file.parent,
+                    prefix='.cohorts_cache_',
+                    suffix='.tmp'
+                )
+                
+                try:
+                    with os.fdopen(temp_fd, 'w') as f:
+                        json.dump(serializable_cache, f, indent=2)
+                    
+                    # Atomic rename (overwrites existing file)
+                    os.replace(temp_path, cache_file)
+                    logging.info(f"Saved cohorts cache to {cache_file} ({len(_cohorts_cache)} cohorts)")
+                except Exception as write_error:
+                    # Clean up temp file on error
+                    if os.path.exists(temp_path):
+                        os.remove(temp_path)
+                    raise write_error
+                    
+            finally:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                
     except Exception as e:
         logging.error(f"Error saving cohorts cache to disk: {e}")
 
 def load_cache_from_disk() -> bool:
-    """Load the cache from disk if it exists."""
+    """Load the cache from disk if it exists, with file locking to prevent reading partial writes."""
     global _cohorts_cache, _cache_initialized
+    
+    import fcntl
     
     cache_file = get_cache_file_path()
     if not cache_file.exists():
         logging.info("No cohorts cache file found")
         return False
     
+    lock_file_path = cache_file.parent / ".cache_write.lock"
+    
     try:
-        with open(cache_file, 'r') as f:
-            serialized_cache = json.load(f)
-        
-        # Convert serialized dictionaries back to Cohort objects
-        for cohort_id, cohort_data in serialized_cache.items():
-            _cohorts_cache[cohort_id] = dict_to_cohort(cohort_data)
-        
-        _cache_initialized = True
-        logging.info(f"Loaded cohorts cache from {cache_file} with {len(_cohorts_cache)} cohorts")
-        return True
+        # Try to acquire read lock (will wait if someone is writing)
+        with open(lock_file_path, 'w') as lock_file:
+            try:
+                # Use shared lock for reading (multiple readers OK, blocks if writer active)
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_SH)
+                
+                with open(cache_file, 'r') as f:
+                    serialized_cache = json.load(f)
+                
+                # Convert serialized dictionaries back to Cohort objects
+                for cohort_id, cohort_data in serialized_cache.items():
+                    _cohorts_cache[cohort_id] = dict_to_cohort(cohort_data)
+                
+                _cache_initialized = True
+                logging.info(f"Loaded cohorts cache from {cache_file} with {len(_cohorts_cache)} cohorts")
+                return True
+                
+            finally:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                
+    except json.JSONDecodeError as json_err:
+        logging.error(f"Error loading cohorts cache from disk: Invalid JSON - {json_err}. Cache file may be corrupted, will re-initialize.")
+        # Delete corrupted cache file
+        try:
+            cache_file.unlink()
+            logging.info("Deleted corrupted cache file")
+        except:
+            pass
+        return False
     except Exception as e:
         logging.error(f"Error loading cohorts cache from disk: {e}")
         return False
