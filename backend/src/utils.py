@@ -14,8 +14,8 @@ ICARE = Namespace("https://w3id.org/icare4cvd/")
 
 query_endpoint = SPARQLWrapper(settings.query_endpoint)
 query_endpoint.setReturnFormat(JSON)
-# Set timeout to 480 seconds (8 minutes) for large queries
-query_endpoint.setTimeout(480)
+# Set timeout to 600 seconds (10 minutes) for large queries
+query_endpoint.setTimeout(600)
 # Enable HTTP connection keep-alive for better performance
 query_endpoint.addCustomHttpHeader("Connection", "keep-alive")
 

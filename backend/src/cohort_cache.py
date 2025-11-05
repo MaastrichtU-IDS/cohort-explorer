@@ -511,7 +511,7 @@ def initialize_cache_from_triplestore(admin_email: str | None = None, force_refr
     timestamp_file = get_cache_timestamp_file()
     
     # Check for and remove stale lock files
-    max_lock_age = 480  # 8 minutes in seconds (same as max_wait)
+    max_lock_age = 600  # 10 minutes in seconds (same as max_wait)
     if os.path.exists(lock_file_path):
         try:
             lock_age = time.time() - os.path.getmtime(lock_file_path)
@@ -533,7 +533,7 @@ def initialize_cache_from_triplestore(admin_email: str | None = None, force_refr
         except IOError:
             # Another process is initializing, wait for it to finish
             logging.info("Another worker is initializing cache, waiting...")
-            max_wait = 480  # Wait up to 8 minutes
+            max_wait = 600  # Wait up to 10 minutes
             start_wait = time.time()
             while time.time() - start_wait < max_wait:
                 time.sleep(2)
