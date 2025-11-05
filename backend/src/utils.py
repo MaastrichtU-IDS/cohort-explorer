@@ -14,8 +14,8 @@ ICARE = Namespace("https://w3id.org/icare4cvd/")
 
 query_endpoint = SPARQLWrapper(settings.query_endpoint)
 query_endpoint.setReturnFormat(JSON)
-# Set timeout to 300 seconds (5 minutes) for large queries
-query_endpoint.setTimeout(300)
+# Set timeout to 480 seconds (8 minutes) for large queries
+query_endpoint.setTimeout(480)
 # Enable HTTP connection keep-alive for better performance
 query_endpoint.addCustomHttpHeader("Connection", "keep-alive")
 
@@ -289,15 +289,38 @@ def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = F
     start_time = time.time()
     
     # Execute SPARQL query and measure its execution time
+    logging.info("Executing SPARQL query to retrieve cohorts metadata...")
     query_start_time = time.time()
-    results = run_query(get_variables_query)["results"]["bindings"]
+    
+    try:
+        results = run_query(get_variables_query)["results"]["bindings"]
+    except Exception as e:
+        logging.error(f"SPARQL query failed: {e}")
+        raise
+    
     query_end_time = time.time()
     query_duration = query_end_time - query_start_time
     
     cohorts_with_variables = {}
     cohorts_without_variables = {}
-    logging.info(f"Get cohorts metadata query execution time: {query_duration:.2f} seconds, results: {len(results)})")
+    total_rows = len(results)
+    logging.info(f"SPARQL query completed in {query_duration:.2f}s, returned {total_rows} rows. Starting processing...")
+    
+    # Track progress during row processing
+    rows_processed = 0
+    last_progress_log = time.time()
+    progress_interval = 30  # Log progress every 30 seconds
+    
     for row in results:
+        rows_processed += 1
+        
+        # Log progress every 30 seconds
+        current_time = time.time()
+        if current_time - last_progress_log >= progress_interval:
+            elapsed = current_time - query_end_time
+            progress_pct = (rows_processed / total_rows * 100) if total_rows > 0 else 0
+            logging.info(f"Processing progress: {rows_processed}/{total_rows} rows ({progress_pct:.1f}%) - {elapsed:.1f}s elapsed")
+            last_progress_log = current_time
         try:
             cohort_id = str(row["cohortId"]["value"])
             var_id = str(row["varName"]["value"]) if "varName" in row else None
@@ -456,13 +479,25 @@ def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = F
                 )
     # Merge cohorts with and without variables
     # Put cohorts with variables first so they appear at the top of the list
+    logging.info(f"Merging cohorts: {len(cohorts_with_variables)} with variables, {len(cohorts_without_variables)} without")
     cohorts = {**cohorts_with_variables, **cohorts_without_variables}
+    
+    # Count total variables and categories
+    total_variables = sum(len(c.variables) for c in cohorts.values())
+    total_categories = sum(
+        len(var.categories) 
+        for cohort in cohorts.values() 
+        for var in cohort.variables.values()
+    )
     
     # Log total function execution time
     end_time = time.time()
     total_duration = end_time - start_time
     processing_duration = total_duration - query_duration
-    logging.info(f"Total cohorts metadata retrieval time: {total_duration:.2f} seconds (Query: {query_duration:.2f}s, Processing: {processing_duration:.2f}s)")
+    logging.info(
+        f"Cohorts metadata retrieval completed: {len(cohorts)} cohorts, {total_variables} variables, {total_categories} categories. "
+        f"Time: {total_duration:.2f}s (Query: {query_duration:.2f}s, Processing: {processing_duration:.2f}s)"
+    )
     
     # Return with metadata if requested
     if include_sparql_metadata:
