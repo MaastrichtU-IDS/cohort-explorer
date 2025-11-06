@@ -601,6 +601,49 @@ async def get_logs(
 
 
 @router.post(
+    "/clear-cache",
+    name="Clear the cohort cache",
+    response_description="Cache clear result",
+)
+async def clear_cohort_cache(
+    user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Clear the cohort cache (in-memory, disk files, and timestamps). Admins only."""
+    user_email = user["email"]
+    if user_email not in settings.admins_list:
+        raise HTTPException(status_code=403, detail="You need to be admin to perform this action.")
+    
+    from src.cohort_cache import clear_cache, get_cache_file_path, get_cache_timestamp_file
+    
+    # Clear in-memory cache and remove cache file
+    clear_cache()
+    
+    # Remove timestamp file if it exists
+    timestamp_file = get_cache_timestamp_file()
+    if timestamp_file.exists():
+        os.remove(timestamp_file)
+        logging.info(f"Removed cache timestamp file {timestamp_file}")
+    
+    # Remove any stale lock files
+    lock_file_path = os.path.join(settings.data_folder, ".cache_init.lock")
+    write_lock_path = os.path.join(settings.data_folder, ".cache_write.lock")
+    
+    for lock_path in [lock_file_path, write_lock_path]:
+        if os.path.exists(lock_path):
+            try:
+                os.remove(lock_path)
+                logging.info(f"Removed lock file {lock_path}")
+            except Exception as e:
+                logging.warning(f"Could not remove lock file {lock_path}: {e}")
+    
+    logging.info(f"Cache cleared by admin user {user_email}")
+    return {
+        "message": "Cache has been successfully cleared. It will be re-initialized on the next API request.",
+        "cleared_by": user_email
+    }
+
+
+@router.post(
     "/delete-cohort",
     name="Delete a cohort from the database",
     response_description="Delete result",

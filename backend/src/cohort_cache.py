@@ -567,13 +567,17 @@ def initialize_cache_from_triplestore(admin_email: str | None = None, force_refr
     except Exception as e:
         logging.error(f"Error initializing cache from triplestore: {e}")
     finally:
-        # Release lock
+        # Release lock and clean up lock file
         if lock_file:
             try:
                 fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
                 lock_file.close()
-            except:
-                pass
+                # Delete the lock file to prevent stale locks and signal completion
+                if os.path.exists(lock_file_path):
+                    os.remove(lock_file_path)
+                    logging.debug("Lock file removed after releasing lock")
+            except Exception as e:
+                logging.warning(f"Error cleaning up lock file: {e}")
 
 
 def get_cohorts_from_cache(user_email: str) -> Dict[str, Cohort]:
