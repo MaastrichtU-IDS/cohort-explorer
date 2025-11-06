@@ -324,11 +324,25 @@ def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = F
         try:
             cohort_id = str(row["cohortId"]["value"])
             var_id = str(row["varName"]["value"]) if "varName" in row else None
-            # Determine which dictionary to use
-            target_dict = cohorts_with_variables if var_id else cohorts_without_variables
+            
+            # Check if cohort exists in EITHER dictionary to avoid duplicates
+            cohort_exists = cohort_id in cohorts_with_variables or cohort_id in cohorts_without_variables
+            
+            # Determine which dictionary to use (prefer cohorts_with_variables if it has variables)
+            if cohort_id in cohorts_with_variables:
+                target_dict = cohorts_with_variables
+            elif cohort_id in cohorts_without_variables and var_id:
+                # Move cohort from without_variables to with_variables if we now have a variable
+                target_dict = cohorts_with_variables
+                cohorts_with_variables[cohort_id] = cohorts_without_variables.pop(cohort_id)
+            elif cohort_id in cohorts_without_variables:
+                target_dict = cohorts_without_variables
+            else:
+                # New cohort: put in appropriate dict based on whether it has variables
+                target_dict = cohorts_with_variables if var_id else cohorts_without_variables
 
             # Initialize cohort data structure if not exists
-            if cohort_id and cohort_id not in target_dict:
+            if cohort_id and not cohort_exists:
                 cohort = Cohort(
                     cohort_id=get_value("cohortId", row),
                     institution=get_value("cohortInstitution", row),
