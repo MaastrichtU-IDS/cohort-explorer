@@ -1,5 +1,4 @@
 # Query to Retrieve Studies Metadata
-it takes 8.94 seconds with oxigraph
 PREFIX rdf:   <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
 PREFIX rdfs:  <http://www.w3.org/2000/01/rdf-schema#>
 PREFIX xsd:   <http://www.w3.org/2001/XMLSchema#>
@@ -240,7 +239,7 @@ WHERE {
               
             }
             # criterion type (any subclass)
-            ?criterion a obi:inclusion_criterion;
+           OPTIONAL{ ?criterion a obi:inclusion_criterion;
                 ro:has_part  ?inclusion_criterion_sub.
                
 
@@ -260,8 +259,10 @@ WHERE {
 
             # keep only rows that actually have a value
             FILTER(BOUND(?val) && ?val != "")
+            }
+            OPTIONAL{
             
-            ?exclusionlusion_criterion a obi:exclusion_criterion;
+            ?criterion a obi:exclusion_criterion;
                 ro:has_part  ?exclusion_criterion_sub.
             
              BIND(STR(?exclusion_criterion_sub) AS ?exc_k)
@@ -277,7 +278,7 @@ WHERE {
 
             # keep only rows that actually have a value
             FILTER(BOUND(?ex_val) && ?ex_val != "")
-            
+            }
 
           }
         }
@@ -291,260 +292,10 @@ GROUP BY ?study ?cohortId ?study_type
 
 
 
-
-# Query to Retrieve Variables Metadata from All studies
-it takes 70 seconds with oxigraph
-
-PREFIX stato: <http://purl.obolibrary.org/obo/stato.owl/>
-PREFIX ro:   <http://purl.obolibrary.org/obo/ro.owl/>
-PREFIX rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
-PREFIX dc:   <http://purl.org/dc/elements/1.1/>
-PREFIX obi:  <http://purl.obolibrary.org/obo/obi.owl/>
-PREFIX iao:  <http://purl.obolibrary.org/obo/iao.owl/>
-PREFIX cmeo: <https://w3id.org/CMEO/>
-
-SELECT
-  ?study_graph
-  ?study_name
-  ?var_name
-  ?var_label
-  ?varType
-  ?categorical_values
-  ?category_concept_codes
-  ?category_concept_label
-  ?category_omop_id
-  ?concept_labels
-  ?concept_codes
-  ?concept_omop_id
-  ?unit_value
-  ?unit_label
-  ?visit
-  ?omopDomain
-  ?count_value
-  ?formula_value
-  ?minimum_value
-?maximum_value
-WHERE {
-  # -------- base: all variables from each study graph (skip studies_metadata) --------
-  GRAPH ?g {
-    ?var a cmeo:data_element ;
-         dc:identifier ?var_name ;
-         rdfs:label ?var_label .
-    OPTIONAL { ?study a cmeo:study ; rdfs:label ?_study_label . }
-  }
-
-  # Limit to your CMEO named graphs and exclude the metadata graph
-  FILTER( STRSTARTS(STR(?g), "https://w3id.org/CMEO/graph/") )
-  FILTER( STRAFTER(STR(?g), "https://w3id.org/CMEO/graph/") != "studies_metadata" )
-
-  BIND(?g AS ?study_graph)
-  BIND(
-    COALESCE(?_study_label, REPLACE(STRAFTER(STR(?g), "/graph/"), "-", "_"))
-    AS ?study_name
-  )
-
-  # ---------------- data type (one per var; SAMPLE just in case) ----------------
-  OPTIONAL {
-    SELECT ?g ?var (SAMPLE(?vt) AS ?varType)
-    WHERE {
-      GRAPH ?g {
-        ?dt a cmeo:data_type ;
-              iao:is_about ?var ;
-            cmeo:has_value ?vt .
-        # If you require: ?dt a cmeo:data_type .
-      }
-    } GROUP BY ?g ?var
-  }
-  
-   # ---------------- formula (one per var; SAMPLE just in case) ----------------
-  OPTIONAL {
-    SELECT ?g ?var (GROUP_CONCAT(DISTINCT ?f_val; SEPARATOR=" || ") AS ?formula_value)
-    WHERE {
-      GRAPH ?g {
-        ?formula_datum a cmeo:formula ;
-              iao:is_about ?var ;
-            cmeo:has_value ?f_val .
-        # If you require: ?dt a cmeo:data_type .
-      }
-    } 
-    GROUP BY ?g ?var
-  }
-    
-     # ---------------- categorical values (value=label pairs) ----------------
-    OPTIONAL {
-      SELECT ?g ?var
-             (GROUP_CONCAT(DISTINCT ?pair; SEPARATOR="|") AS ?categorical_value)
-             
-
-      WHERE {
-        GRAPH ?g {
-          ?cat_values a obi:categorical_value_specification ;
-                      obi:specifies_value_of ?var ;         # <— was obi:..., should be iao:
-                      cmeo:has_value ?f_val ;
-                      rdfs:label ?f_label ;
-        			 obi:is_specified_input_of ?catstandProc .
-          BIND(CONCAT(STR(?f_val), "=", STR(?f_label)) AS ?pair)
-    
-          
-        }
-      } GROUP BY ?g ?var
-    }
-  
-    # ---------------- categorical values standardization (value=label pairs) ----------------
-    OPTIONAL {
-      SELECT ?g ?var
-             (GROUP_CONCAT(DISTINCT ?cat_code; SEPARATOR="|") AS ?category_concept_codes)
-             (GROUP_CONCAT(DISTINCT ?cat_lbl; SEPARATOR="|") AS ?category_concept_label)
-             (GROUP_CONCAT(DISTINCT ?omopStr; SEPARATOR="|") AS ?category_omop_id)
-      WHERE {
-        GRAPH ?g {
-          
-        ?cat_values a obi:categorical_value_specification ;
-                     obi:specifies_value_of ?var ;
-        			 obi:is_specified_input_of ?catstandProc .
-        
-          ?catstandProc a cmeo:data_standardization ;
-             obi:has_specified_output ?code .
-        
-          ?code a cmeo:code;
-              rdfs:label ?cat_lbl ;
-                  cmeo:has_value ?cat_code ;
-                  iao:denotes ?cat_omopClass .
-        ?cat_omopClass a cmeo:omop_id;
-                  cmeo:has_value ?cat_omop .
-        BIND( STR(?cat_omop) AS ?omopStr )
-          
-        }
-      } GROUP BY ?g ?var
-    }
+Query 2: Cross Mapping 
 
 
-  # ---------------- visit(s) (concat if multiple) ----------------
-  OPTIONAL {
-    SELECT ?g ?var (GROUP_CONCAT(DISTINCT ?v; SEPARATOR=" || ") AS ?visit)
-    WHERE {
-      GRAPH ?g {
-        ?visitDatum a cmeo:visit_measurement_datum ;
-            		iao:is_about ?var ;
-                    cmeo:has_value ?v .
-        # If needed: ?visitDatum a cmeo:visit_measurement_datum .
-      }
-    } GROUP BY ?g ?var
-  }
-
-  # ---------------- OMOP domain(s) (concat) ----------------
-  OPTIONAL {
-    SELECT ?g ?var (GROUP_CONCAT(DISTINCT ?dom; SEPARATOR=" || ") AS ?omopDomain)
-    WHERE {
-      GRAPH ?g {
-        ?var obi:is_specified_input_of ?catProc .
-        ?catProc a cmeo:categorization_process;
-             obi:has_specified_output ?catOut .
-        ?catOut cmeo:has_value ?dom .
-        # Optionally: ?catProc a cmeo:categorization_process ; ?catOut a cmeo:category .
-      }
-    } GROUP BY ?g ?var
-  }
-
-  # ---------------- codes + labels + OMOP IDs (concat) ----------------
- OPTIONAL {
-  SELECT ?g ?var
-         (GROUP_CONCAT(?lbl;      SEPARATOR=" || ") AS ?concept_labels)
-         (GROUP_CONCAT(?code;     SEPARATOR=" || ") AS ?concept_codes)
-         (GROUP_CONCAT(?omopStr;  SEPARATOR=" || ") AS ?concept_omop_id)
-  WHERE {
-    # Order first, then aggregate
-    SELECT ?g ?var  ?p ?lbl ?code ?omopStr
-    WHERE {
-      GRAPH ?g {
-        ?var obi:is_specified_input_of ?stdProc .
-        ?stdProc a cmeo:data_standardization ;
-                 obi:has_specified_output ?codeset .
-
-        # take only ordered membership predicates rdf:_n
-        ?codeset ?p ?codeNode .
-        FILTER(STRSTARTS(STR(?p), STR(rdf:_)))
-
-        # values
-        ?codeNode cmeo:has_value ?code .
-
-        # label (prefer en/plain; fallback to local name)
-        ?codeNode rdfs:label ?lblRaw .
-         BIND(STR(?lblRaw) as ?lbl)
-
-        # OMOP mapping (may be absent → keep position with empty string)
-        OPTIONAL {
-          ?codeNode iao:denotes ?omopClass .
-          ?omopClass a cmeo:omop_id ; cmeo:has_value ?omop_value .
-          BIND(STR(?omop_value) AS ?omop_valueStr)
-        }
-        BIND(COALESCE(?omop_valueStr, "") AS ?omopStr)
-      }
-    }
-    ORDER BY ?g ?var ?p 
-  }
-  GROUP BY ?g ?var
-}
-
-  
-  
-
-  # ---------------- unit value + label (sample) ----------------
-  OPTIONAL {
-    SELECT ?g ?var 
-           (SAMPLE(?uv) AS ?unit_value)
-           (SAMPLE(?ul) AS ?unit_label)
-    WHERE {
-      GRAPH ?g {
-        ?var obi:has_measurement_unit_label ?unit .
-        ?unit cmeo:has_value ?uv ;
-              obi:is_specified_input_of ?muStd .
-        ?muStd obi:has_specified_output ?unit_code_node .
-        ?unit_code_node rdfs:label ?ul .
-      }
-    } GROUP BY ?g ?var
-  }
-
-
-  # ---------------- count (sample) ----------------
-  OPTIONAL {
-    SELECT ?g ?var (SAMPLE(?cnt) AS ?count_value)
-                 (SAMPLE(?minv) AS ?minimum_value)
-             (SAMPLE(?maxv) AS ?maximum_value)
-    WHERE {
-      GRAPH ?g {
-        ?var iao:is_denoted_by ?vnode .
-        ?dataset iao:is_about ?vnode ;
-                 obi:is_specified_input_of ?eda_proc .
-        ?eda_proc obi:has_specified_output ?stats .
-        
-        
-        ?stats ro:has_part ?part .
-        ?part a stato:count_ ;
-              cmeo:has_value ?cnt .
-        
-           # MIN
-            ?stats ro:has_part ?minPart .
-            ?minPart a stato:minimum_value; 
-                   cmeo:has_value ?minv .
-        	
-		   # MAX
-            ?stats ro:has_part ?maxPart .
-            ?maxPart  a stato:maximum_value; 
-                   cmeo:has_value ?maxv .
-          
-      }
-    } GROUP BY ?g ?var
-  }
-}
-ORDER BY ?study_name ?var_name
-
-
-Query 3: Cross Mapping 
-
-PREFIX rdf:   <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+          PREFIX rdf:   <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
           PREFIX rdfs:  <http://www.w3.org/2000/01/rdf-schema#>
           PREFIX xsd:   <http://www.w3.org/2001/XMLSchema#>
           PREFIX dc:    <http://purl.org/dc/elements/1.1/>
@@ -570,11 +321,11 @@ PREFIX rdf:   <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
               ("{source}" AS ?source)
               WHERE {{
               GRAPH <{graph_repo}/{source}>  {{
-                  # 1) Most selective: mapping from data element -> standardized code (rdf:_0) -> OMOP
+                  # 1) Most selective: mapping from data element -> standardized code (rdf:_1) -> OMOP
                   ?stdProcessA a cmeo:data_standardization ;
                               obi:has_specified_output ?codeSetA ;
                               obi:has_specified_input  ?dataElementA .
-                  ?codeSetA rdf:_0 ?codeNodeA .
+                  ?codeSetA rdf:_1 ?codeNodeA .
                   ?codeNodeA a cmeo:code ;
                           cmeo:has_value ?code_value ;
                           rdfs:label     ?code_label ;
@@ -627,7 +378,7 @@ PREFIX rdf:   <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
                   ?stdProcessB a cmeo:data_standardization ;
                               obi:has_specified_output ?codeSetB ;
                               obi:has_specified_input  ?dataElementB .
-                  ?codeSetB rdf:_0 ?codeNodeB .
+                  ?codeSetB rdf:_1 ?codeNodeB .
                   ?codeNodeB a cmeo:code ;
                           cmeo:has_value ?code_value ;
                           rdfs:label     ?code_label ;
