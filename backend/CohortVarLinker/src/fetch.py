@@ -11,17 +11,9 @@ from .vector_db import search_in_db
 
 import json
 
-# @dataclass
-# class Element:
-#     role: str
-#     name: str
-#     visit: str
-#     omop_id: int
-#     code: str
-#     code_label: str
-#     category: str
+TIME_HINTS = ["visit date", "6 months prior to baseline", "prior to baseline visit"]
 
-TIME_HINTS = ["date", "visit", "compliance"]
+# we may later seperate "6 months prior to baseline", "prior to baseline visit" as a match but not to baseline time
 DERIVED_VARIABLES_LIST= [
     
      {
@@ -182,8 +174,7 @@ def _build_alignment_query(
             ORDER BY ?omop_id
 
         """
-
-
+    
 def _execute_query(query: str) -> Iterable[Dict[str, Any]]:
     sparql = SPARQLWrapper(settings.query_endpoint)
     sparql.setQuery(query)
@@ -496,10 +487,10 @@ def fetch_variables_statistics(var_names_list:list[str], study_name:str) -> pd.D
                     OPTIONAL {{
 
                         ?dataElement obi:has_measurement_unit_label ?unit .
-                        ?unit obi:is_specified_input_of ?mu_standardization .
+                        ?unit a obi:measurement_unit_label; obi:is_specified_input_of ?mu_standardization.
                         
                         ?mu_standardization obi:has_specified_output ?unit_code_node .
-                        ?unit_code_node rdfs:label ?unit_label .
+                        ?unit_code_node a cmeo:code; cmeo:has_value ?unit_label .
 
                 }}
                 # Optional: permissible values
@@ -604,13 +595,15 @@ def _cross_category_matches(
     src_index: Dict[tuple, List[Dict[str, Any]]] = defaultdict(list)
 
     for s in source_elements:
-        src_index[(s["omop_id"], s["visit"])].append(s)
+        s['visit'] = check_visit_string(s['visit'])
+        src_index[(s["omop_id"], s['visit'])].append(s)
 
     for t in target_elements:
-        key = (t["omop_id"], t["visit"])
+        t['visit'] = check_visit_string(t['visit'])    
+        key = (t["omop_id"],  t['visit'])
         for s in src_index.get(key, []):
             print(s)
-            if s['category'] in ["measurement", "observation", "condition_occurrence", "condition_era"] and t['category'] in ["measurement", "observation", "condition_occurrence", "condition_era"]:
+            if s['category'].strip().lower() in ["measurement", "observation", "condition_occurrence", "condition_era", "observation_period"] and t['category'].strip().lower() in ["measurement", "observation", "condition_occurrence", "condition_era","observation_period"]:
                 # tvisit= check_visit_string(t['visit'], visit_constraint)
                 # svisit = check_visit_string(s['visit'], visit_constraint)
                 tvisit = check_visit_string(t['visit'])
@@ -739,6 +732,7 @@ def map_source_target(
             domain=row.get("category", "") if "category" in row and pd.notna(row.get("category")) else "",
             src_info={
                 "var_name": row.get("source", ""),
+                "omop_id": row.get("somop_id", ""),
                 "stats_type": row.get("source_type", ""),
                 "unit": row.get("source_unit", ""),
                 "data_type": row.get("source_data_type", ""),
@@ -747,6 +741,7 @@ def map_source_target(
             },
             tgt_info={
                 "var_name": row.get("target", ""),
+                "omop_id": row.get("tomop_id", ""),
                 "stats_type": row.get("target_type", ""),
                 "unit": row.get("target_unit", ""),
                 "data_type": row.get("target_data_type", ""),
