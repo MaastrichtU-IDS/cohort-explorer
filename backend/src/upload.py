@@ -1074,8 +1074,9 @@ def init_triplestore():
     import time
     
     # Use file-based locking to ensure only one worker initializes the triplestore
+    # Ensure data folder exists first
+    os.makedirs(settings.data_folder, exist_ok=True)
     lock_file_path = os.path.join(settings.data_folder, "triplestore_init.lock")
-    os.makedirs(os.path.dirname(lock_file_path), exist_ok=True)
     
     try:
         with open(lock_file_path, "w") as lock_file:
