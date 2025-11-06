@@ -232,15 +232,22 @@ def dict_to_cohort(cohort_dict: Dict[str, Any]) -> Cohort:
     
     return cohort
 
-def add_cohort_to_cache(cohort: Cohort) -> None:
-    """Add or update a cohort in the cache."""
+def add_cohort_to_cache(cohort: Cohort, save_to_disk: bool = True) -> None:
+    """Add or update a cohort in the cache.
+    
+    Args:
+        cohort: The cohort to add
+        save_to_disk: If True, saves cache to disk after adding. Set to False during
+                     bulk operations to avoid race conditions and improve performance.
+    """
     global _cohorts_cache, _cache_initialized
     
     _cohorts_cache[cohort.cohort_id] = cohort
     _cache_initialized = True
     
-    # Save the updated cache to disk
-    save_cache_to_disk()
+    # Save the updated cache to disk (unless explicitly disabled for bulk operations)
+    if save_to_disk:
+        save_cache_to_disk()
 
 def remove_cohort_from_cache(cohort_id: str) -> None:
     """Remove a cohort from the cache."""
@@ -552,11 +559,14 @@ def initialize_cache_from_triplestore(admin_email: str | None = None, force_refr
         # Retrieve cohorts from the triplestore
         cohorts = retrieve_cohorts_metadata(admin_email)
         
-        # Add each cohort to the cache
+        # Add each cohort to the cache (without saving to disk after each one)
         for cohort_id, cohort in cohorts.items():
-            add_cohort_to_cache(cohort)
+            add_cohort_to_cache(cohort, save_to_disk=False)
         
         _cache_initialized = True
+        
+        # Save all cohorts to disk at once (prevents race conditions)
+        save_cache_to_disk()
         
         # Write timestamp file to mark this initialization session
         with open(timestamp_file, 'w') as f:
