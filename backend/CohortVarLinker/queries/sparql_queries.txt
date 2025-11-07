@@ -291,8 +291,132 @@ WHERE {
 GROUP BY ?study ?cohortId ?study_type
 
 
+Query 2: All variables from each study graph 
+REFIX stato: <http://purl.obolibrary.org/obo/stato.owl/>
+PREFIX ro:   <http://purl.obolibrary.org/obo/ro.owl/>
+PREFIX rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
+PREFIX dc:   <http://purl.org/dc/elements/1.1/>
+PREFIX obi:  <http://purl.obolibrary.org/obo/obi.owl/>
+PREFIX iao:  <http://purl.obolibrary.org/obo/iao.owl/>
+PREFIX cmeo: <https://w3id.org/CMEO/>
 
-Query 2: Cross Mapping 
+SELECT
+  ?study_graph
+  ?study_name
+  ?var_name
+  ?var_label
+  ?varType
+  ?categorical_values
+  ?category_concept_codes
+  ?category_concept_label
+  ?category_omop_id
+  ?concept_labels
+  ?concept_codes
+  ?concept_omop_id
+  ?unit_value
+  ?unit_label
+  ?visit
+  ?omopDomain
+  ?count_value
+  ?formula_value
+  ?minimum_value
+?maximum_value
+WHERE {
+  # -------- base: all variables from each study graph (skip studies_metadata) --------
+  GRAPH ?g {
+    ?var a cmeo:data_element ;
+         dc:identifier ?var_name ;
+         rdfs:label ?var_label .
+    OPTIONAL { ?study a cmeo:study ; rdfs:label ?_study_label . }
+  }
+
+  # Limit to your CMEO named graphs and exclude the metadata graph
+  FILTER( STRSTARTS(STR(?g), "https://w3id.org/CMEO/graph/") )
+  FILTER( STRAFTER(STR(?g), "https://w3id.org/CMEO/graph/") != "studies_metadata" )
+
+  BIND(?g AS ?study_graph)
+  BIND(
+    COALESCE(?_study_label, REPLACE(STRAFTER(STR(?g), "/graph/"), "-", "_"))
+    AS ?study_name
+  )
+
+  # ---------------- data type (one per var; SAMPLE just in case) ----------------
+  OPTIONAL {
+    SELECT ?g ?var (SAMPLE(?vt) AS ?varType)
+    WHERE {
+      GRAPH ?g {
+        ?dt a cmeo:data_type ;
+              iao:is_about ?var ;
+            cmeo:has_value ?vt .
+        # If you require: ?dt a cmeo:data_type .
+      }
+    } GROUP BY ?g ?var
+  }
+  
+   # ---------------- formula (one per var; SAMPLE just in case) ----------------
+  OPTIONAL {
+    SELECT ?g ?var (GROUP_CONCAT(DISTINCT ?f_val; SEPARATOR=" || ") AS ?formula_value)
+    WHERE {
+      GRAPH ?g {
+        ?formula_datum a cmeo:formula ;
+              iao:is_about ?var ;
+            cmeo:has_value ?f_val .
+        # If you require: ?dt a cmeo:data_type .
+      }
+    } 
+    GROUP BY ?g ?var
+  }
+    
+     # ---------------- categorical values (value=label pairs) ----------------
+    OPTIONAL {
+      SELECT ?g ?var
+             (GROUP_CONCAT(DISTINCT ?pair; SEPARATOR="|") AS ?categorical_value)
+             
+
+      WHERE {
+        GRAPH ?g {
+          ?cat_values a obi:categorical_value_specification ;
+                      obi:specifies_value_of ?var ;         # <— was obi:..., should be iao:
+                      cmeo:has_value ?f_val ;
+                      rdfs:label ?f_label ;
+        			 obi:is_specified_input_of ?catstandProc .
+          BIND(CONCAT(STR(?f_val), "=", STR(?f_label)) AS ?pair)
+    
+          
+        }
+      } GROUP BY ?g ?var
+    }
+  
+    # ---------------- categorical values standardization (value=label pairs) ----------------
+    OPTIONAL {
+      SELECT ?g ?var
+             (GROUP_CONCAT(DISTINCT ?cat_code; SEPARATOR="|") AS ?category_concept_codes)
+             (GROUP_CONCAT(DISTINCT ?cat_lbl; SEPARATOR="|") AS ?category_concept_label)
+             (GROUP_CONCAT(DISTINCT ?omopStr; SEPARATOR="|") AS ?category_omop_id)
+      WHERE {
+        GRAPH ?g {
+          
+        ?cat_values a obi:categorical_value_specification ;
+                     obi:specifies_value_of ?var ;
+        			 obi:is_specified_input_of ?catstandProc .
+        
+          ?catstandProc a cmeo:data_standardization ;
+             obi:has_specified_output ?code .
+        
+          ?code a cmeo:code;
+              rdfs:label ?cat_lbl ;
+                  cmeo:has_value ?cat_code ;
+                  iao:denotes ?cat_omopClass .
+        ?cat_omopClass a cmeo:omop_id;
+                  cmeo:has_value ?cat_omop .
+        BIND( STR(?cat_omop) AS ?omopStr )
+          
+        }
+      } GROUP BY ?g ?var
+    }
+Query 3: Cross Mapping 
 
 
           PREFIX rdf:   <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
