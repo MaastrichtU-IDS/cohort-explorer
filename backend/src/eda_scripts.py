@@ -917,7 +917,7 @@ summary = summary_template.format(
     ', '.join(columns_to_drop) if columns_to_drop else 'None'
 )
 
-with open('/output/summary.txt', 'w') as f:
+with open('/output/shuffle_summary.txt', 'w') as f:
     f.write(summary)
 """
     return raw_script.replace("{cohort_id}", cohort_id)

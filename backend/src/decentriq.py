@@ -3,6 +3,8 @@ from copy import deepcopy
 from typing import Any
 import os, json
 import logging # Add logging import
+import zipfile
+import tempfile
 
 import decentriq_platform as dq
 from decentriq_platform.analytics import (
@@ -15,6 +17,7 @@ from decentriq_platform.analytics import (
     RawDataNodeDefinition
 )
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
 
 from src.auth import get_current_user
 from src.config import settings
@@ -532,22 +535,93 @@ async def get_compute_dcr_definition(
 
 @router.post(
     "/get-compute-dcr-definition",
-    name="Get the Data Clean Room definition for computing as JSON",
-    response_description="Upload result",
+    name="Get the Data Clean Room definition for computing as JSON or ZIP with shuffled samples",
+    response_description="DCR definition JSON or ZIP file with config and shuffled samples",
 )
 async def api_get_compute_dcr_definition(
     cohorts_request: dict[str, Any],
     user: Any = Depends(get_current_user),
 ) -> Any:
-    """Create a Data Clean Room for computing with the cohorts requested using Decentriq SDK"""
+    """Create a Data Clean Room for computing with the cohorts requested using Decentriq SDK.
+    
+    If shuffled sample files exist for any of the selected cohorts, returns a ZIP file containing:
+    - dcr_config.json: The DCR configuration
+    - {cohort_id}_shuffled_sample.csv: Shuffled sample data for each cohort (if available)
+    - {cohort_id}_shuffle_summary.txt: Shuffle summary for each cohort (if available)
+    
+    If no shuffled samples exist, returns just the JSON configuration.
+    """
     # Establish connection to Decentriq
     client = dq.create_client(settings.decentriq_email, settings.decentriq_token)
 
     dcr_definition, _dcr_title = await get_compute_dcr_definition(cohorts_request, user, client)
 
-    # return dcr_definition.model_dump_json(by_alias=True)
-    # return json.dumps(dcr_definition.high_level)
-    return { "dataScienceDataRoom": dcr_definition.high_level }
+    # Generate DCR config JSON
+    dcr_config_json = { "dataScienceDataRoom": dcr_definition.high_level }
+    
+    # Check for shuffled sample files for each selected cohort
+    shuffled_files = {}
+    for cohort_id in cohorts_request["cohorts"].keys():
+        storage_dir = os.path.join(settings.data_folder, f"dcr_output_{cohort_id}")
+        shuffled_csv = os.path.join(storage_dir, "shuffled_sample.csv")
+        shuffled_summary = os.path.join(storage_dir, "shuffle_summary.txt")
+        
+        cohort_files = {}
+        if os.path.exists(shuffled_csv):
+            cohort_files["csv"] = shuffled_csv
+            logging.info(f"Found shuffled sample CSV for cohort {cohort_id}")
+        if os.path.exists(shuffled_summary):
+            cohort_files["summary"] = shuffled_summary
+            logging.info(f"Found shuffle summary for cohort {cohort_id}")
+        
+        if cohort_files:
+            shuffled_files[cohort_id] = cohort_files
+    
+    # If no shuffled files found, return JSON as before
+    if not shuffled_files:
+        logging.info("No shuffled sample files found, returning JSON config only")
+        return dcr_config_json
+    
+    # Create a temporary ZIP file with config and shuffled samples
+    logging.info(f"Creating ZIP with DCR config and shuffled samples for {len(shuffled_files)} cohorts")
+    
+    # Create temp file that won't be auto-deleted (we'll handle cleanup)
+    temp_zip = tempfile.NamedTemporaryFile(mode='w+b', suffix='.zip', delete=False)
+    temp_zip_path = temp_zip.name
+    temp_zip.close()
+    
+    try:
+        with zipfile.ZipFile(temp_zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            # Add DCR config JSON
+            config_json_str = json.dumps(dcr_config_json, indent=2)
+            zipf.writestr("dcr_config.json", config_json_str)
+            logging.info("Added dcr_config.json to ZIP")
+            
+            # Add shuffled sample files for each cohort
+            for cohort_id, files in shuffled_files.items():
+                if "csv" in files:
+                    # Add with cohort-specific name
+                    zipf.write(files["csv"], f"{cohort_id}_shuffled_sample.csv")
+                    logging.info(f"Added {cohort_id}_shuffled_sample.csv to ZIP")
+                
+                if "summary" in files:
+                    zipf.write(files["summary"], f"{cohort_id}_shuffle_summary.txt")
+                    logging.info(f"Added {cohort_id}_shuffle_summary.txt to ZIP")
+        
+        # Return the ZIP file for download
+        return FileResponse(
+            path=temp_zip_path,
+            filename="dcr_config_with_samples.zip",
+            media_type="application/zip",
+            background=None  # File will be cleaned up by FastAPI after sending
+        )
+        
+    except Exception as e:
+        # Clean up temp file on error
+        if os.path.exists(temp_zip_path):
+            os.remove(temp_zip_path)
+        logging.error(f"Error creating ZIP file: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to create ZIP file: {str(e)}")
 
 
 @router.get("/dcr-log/{dcr_id}", 
@@ -578,6 +652,59 @@ def get_dcr_log_main(dcr_id: str,  user: Any = Depends(get_current_user)):
     return main_events
 
 
+@router.get("/shuffle-get-output/{dcr_id}",
+            name = "run the C4 shuffle script for a given DCR and download the output")
+def run_shuffle_get_output(dcr_id: str, user: Any = Depends(get_current_user)):
+    """Run the C4 shuffle_data script and save output to the same folder as C3 (EDA) output.
+    
+    The shuffle script:
+    - Removes PII columns (patient ID with OMOP ID 4086934)
+    - Independently shuffles each column to destroy correlations
+    - Samples a subset of rows
+    - Outputs shuffled_sample.csv and shuffle_summary.txt
+    """
+    client = dq.create_client(settings.decentriq_email, settings.decentriq_token)
+    dcr = client.retrieve_analytics_dcr(dcr_id)
+    cohort_id = dcr.node_definitions[0].name.strip()
+    
+    #SINCE C3 depends on c1 and c2, they will run automatically in the background!
+    #c1_node = dcr.get_node("c1_data_dict_check") 
+    #c1_node.run_computation()
+    #c2_node = dcr.get_node("c2_save_to_json") 
+    c3_node = dcr.get_node("c3_eda_data_profiling")
+    result = c3_node.run_computation_and_get_results_as_zip()
+    #timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    storage_dir = f"/data/dcr_output_{cohort_id}"
+
+    data_to_log = {"DCR_id": dcr_id, 
+                   "user": settings.decentriq_email,
+                   "cohort_id": cohort_id,  "datetime": datetime.now(),
+                   "storage_directory": os.path.abspath(storage_dir)}
+    print("Compute evet: ", data_to_log)
+
+    compute_events_log = "/data/dcr_computations.csv"
+    if not os.path.exists(compute_events_log):
+        print(f"Note: The file '{compute_events_log}' does not exist.")
+    else:
+        # Append to the existing file
+        with open(compute_events_log, 'a', newline='') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=data_to_log.keys())
+            writer.writerow(data_to_log)
+            
+
+    #print("Full path of storage directory: ", storage_dir.resolve())
+    os.makedirs(storage_dir, mode=0o777, exist_ok=True)
+    result.extractall(str(storage_dir))
+    os.sync()
+        
+    return {
+        "status": "success",
+        "saved_path": str(storage_dir),
+        "script": "shuffle_data",
+        "files": ["shuffled_sample.csv", "shuffle_summary.txt"]
+    }
+
+
 @router.get("/compute-get-output/{dcr_id}", 
             name = "run the scripts for a given DCR and download the output")
 def run_computation_get_output(dcr_id: str,  user: Any = Depends(get_current_user)):
@@ -590,7 +717,6 @@ def run_computation_get_output(dcr_id: str,  user: Any = Depends(get_current_use
     #c1_node = dcr.get_node("c1_data_dict_check") 
     #c1_node.run_computation()
     #c2_node = dcr.get_node("c2_save_to_json") 
-    #c2_node.run_computation()
     c3_node = dcr.get_node("c3_eda_data_profiling")
     result = c3_node.run_computation_and_get_results_as_zip()
     #timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -618,6 +744,64 @@ def run_computation_get_output(dcr_id: str,  user: Any = Depends(get_current_use
     os.sync()
         
     return {"status": "success", "saved_path": str(storage_dir)}
+
+
+@router.get("/shuffle-get-output/{dcr_id}",
+            name = "run the C4 shuffle script for a given DCR and download the output")
+def run_shuffle_get_output(dcr_id: str, user: Any = Depends(get_current_user)):
+    """Run the C4 shuffle_data script and save output to the same folder as C3 (EDA) output.
+    
+    The shuffle script:
+    - Removes PII columns (patient ID with OMOP ID 4086934)
+    - Independently shuffles each column to destroy correlations
+    - Samples a subset of rows
+    - Outputs shuffled_sample.csv and shuffle_summary.txt
+    """
+    client = dq.create_client(settings.decentriq_email, settings.decentriq_token)
+    dcr = client.retrieve_analytics_dcr(dcr_id)
+    cohort_id = dcr.node_definitions[0].name.strip()
+    
+    # Run the shuffle_data node (C4)
+    shuffle_node = dcr.get_node("shuffle_data")
+    result = shuffle_node.run_computation_and_get_results_as_zip()
+    
+    # Save to the same directory as C3 output
+    storage_dir = f"/data/dcr_output_{cohort_id}"
+    
+    data_to_log = {
+        "DCR_id": dcr_id,
+        "script": "shuffle_data",
+        "user": settings.decentriq_email,
+        "cohort_id": cohort_id,
+        "datetime": datetime.now(),
+        "storage_directory": os.path.abspath(storage_dir)
+    }
+    logging.info(f"Shuffle computation event: {data_to_log}")
+    
+    # Log to the same CSV file
+    compute_events_log = "/data/dcr_computations.csv"
+    if os.path.exists(compute_events_log):
+        with open(compute_events_log, 'a', newline='') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=data_to_log.keys())
+            writer.writerow(data_to_log)
+    else:
+        # Create file with header if it doesn't exist
+        with open(compute_events_log, 'w', newline='') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=data_to_log.keys())
+            writer.writeheader()
+            writer.writerow(data_to_log)
+    
+    # Extract results to the same folder as C3 output
+    os.makedirs(storage_dir, mode=0o777, exist_ok=True)
+    result.extractall(str(storage_dir))
+    os.sync()
+    
+    return {
+        "status": "success",
+        "saved_path": str(storage_dir),
+        "script": "shuffle_data",
+        "files": ["shuffled_sample.csv", "shuffle_summary.txt"]
+    }
 
 
 def update_provision_log(new_dcr):
