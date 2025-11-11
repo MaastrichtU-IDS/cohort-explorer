@@ -71,7 +71,12 @@ def process_variables_metadata_file(file_path:str, study_metadata_graph_file_pat
         binary_categorical, multi_class_categorical = is_categorical_variable(data)
         variables_to_update = {}
         # units_count = 0
-        data.columns = [c.lower() for c in data.columns]
+        data.columns = [
+            'variablename' if col.lower().strip() == 'variable name' else
+            'variablelabel' if col.lower().strip() == 'variable label' else
+            'vartype' if col.lower().strip() in ['variable type', 'var type'] else 
+            col for col in data.columns
+        ]
         varname_col = [x for x in ['variablename', 'variable name'] 
                     if x in data.columns][0]
         for rownum, row in data.iterrows():
