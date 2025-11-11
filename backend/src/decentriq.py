@@ -652,59 +652,6 @@ def get_dcr_log_main(dcr_id: str,  user: Any = Depends(get_current_user)):
     return main_events
 
 
-@router.get("/shuffle-get-output/{dcr_id}",
-            name = "run the C4 shuffle script for a given DCR and download the output")
-def run_shuffle_get_output(dcr_id: str, user: Any = Depends(get_current_user)):
-    """Run the C4 shuffle_data script and save output to the same folder as C3 (EDA) output.
-    
-    The shuffle script:
-    - Removes PII columns (patient ID with OMOP ID 4086934)
-    - Independently shuffles each column to destroy correlations
-    - Samples a subset of rows
-    - Outputs shuffled_sample.csv and shuffle_summary.txt
-    """
-    client = dq.create_client(settings.decentriq_email, settings.decentriq_token)
-    dcr = client.retrieve_analytics_dcr(dcr_id)
-    cohort_id = dcr.node_definitions[0].name.strip()
-    
-    #SINCE C3 depends on c1 and c2, they will run automatically in the background!
-    #c1_node = dcr.get_node("c1_data_dict_check") 
-    #c1_node.run_computation()
-    #c2_node = dcr.get_node("c2_save_to_json") 
-    c3_node = dcr.get_node("c3_eda_data_profiling")
-    result = c3_node.run_computation_and_get_results_as_zip()
-    #timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    storage_dir = f"/data/dcr_output_{cohort_id}"
-
-    data_to_log = {"DCR_id": dcr_id, 
-                   "user": settings.decentriq_email,
-                   "cohort_id": cohort_id,  "datetime": datetime.now(),
-                   "storage_directory": os.path.abspath(storage_dir)}
-    print("Compute evet: ", data_to_log)
-
-    compute_events_log = "/data/dcr_computations.csv"
-    if not os.path.exists(compute_events_log):
-        print(f"Note: The file '{compute_events_log}' does not exist.")
-    else:
-        # Append to the existing file
-        with open(compute_events_log, 'a', newline='') as csvfile:
-            writer = csv.DictWriter(csvfile, fieldnames=data_to_log.keys())
-            writer.writerow(data_to_log)
-            
-
-    #print("Full path of storage directory: ", storage_dir.resolve())
-    os.makedirs(storage_dir, mode=0o777, exist_ok=True)
-    result.extractall(str(storage_dir))
-    os.sync()
-        
-    return {
-        "status": "success",
-        "saved_path": str(storage_dir),
-        "script": "shuffle_data",
-        "files": ["shuffled_sample.csv", "shuffle_summary.txt"]
-    }
-
-
 @router.get("/compute-get-output/{dcr_id}", 
             name = "run the scripts for a given DCR and download the output")
 def run_computation_get_output(dcr_id: str,  user: Any = Depends(get_current_user)):

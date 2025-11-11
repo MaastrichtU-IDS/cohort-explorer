@@ -905,9 +905,9 @@ export default function CohortsList() {
                     let totalWithVisits = 0;
                     
                     Object.values(cohortData.variables).forEach((variable) => {
-                      if (variable.visits && variable.visits.trim()) {
+                      if (variable.visit_concept_name && variable.visit_concept_name.trim()) {
                         // Capitalize first letter of each word for display
-                        const visitValue = variable.visits.trim()
+                        const visitValue = variable.visit_concept_name.trim()
                           .split(' ')
                           .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
                           .join(' ');
