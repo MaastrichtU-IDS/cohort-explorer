@@ -369,6 +369,73 @@ def find_variable_by_omop_id(cohort_id: str, omop_id: str) -> str | None:
         return None
 
 
+def remove_id_column_from_shuffled_csv(csv_file_path: str, cohort_id: str) -> bool:
+    """Post-process shuffled CSV file by removing the ID variable column.
+    
+    Uses find_variable_by_omop_id to identify the patient ID variable (OMOP ID 4086934)
+    and removes that column from the CSV file. Does NOT use pandas to preserve data types.
+    
+    Args:
+        csv_file_path: Path to the shuffled CSV file
+        cohort_id: The cohort ID to look up the ID variable
+        
+    Returns:
+        True if ID column was found and removed, False otherwise
+    """
+    try:
+        # Find the ID variable name using OMOP ID
+        id_variable_name = find_variable_by_omop_id(cohort_id, "4086934")
+        
+        if not id_variable_name:
+            logging.info(f"No ID variable (OMOP ID 4086934) found for cohort {cohort_id}, CSV not modified")
+            return False
+        
+        if not os.path.exists(csv_file_path):
+            logging.warning(f"CSV file not found: {csv_file_path}")
+            return False
+        
+        # Read the CSV file without pandas
+        rows = []
+        id_column_index = None
+        
+        with open(csv_file_path, 'r', newline='', encoding='utf-8') as f:
+            reader = csv.reader(f)
+            header = next(reader)
+            
+            # Find the ID column index (case-insensitive match)
+            id_variable_lower = id_variable_name.lower()
+            for idx, col_name in enumerate(header):
+                if col_name.lower() == id_variable_lower:
+                    id_column_index = idx
+                    logging.info(f"Found ID column '{col_name}' at index {idx} in shuffled CSV")
+                    break
+            
+            if id_column_index is None:
+                logging.info(f"ID column '{id_variable_name}' not found in CSV header, CSV not modified")
+                return False
+            
+            # Remove the ID column from header
+            new_header = [col for idx, col in enumerate(header) if idx != id_column_index]
+            rows.append(new_header)
+            
+            # Read and process all data rows, removing the ID column
+            for row in reader:
+                new_row = [val for idx, val in enumerate(row) if idx != id_column_index]
+                rows.append(new_row)
+        
+        # Write the modified CSV back to the same file
+        with open(csv_file_path, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerows(rows)
+        
+        logging.info(f"Successfully removed ID column '{id_variable_name}' from {csv_file_path}")
+        return True
+        
+    except Exception as e:
+        logging.error(f"Error removing ID column from shuffled CSV {csv_file_path}: {e}")
+        return False
+
+
 async def get_compute_dcr_definition(
     cohorts_request: dict[str, Any],
     user: Any,
