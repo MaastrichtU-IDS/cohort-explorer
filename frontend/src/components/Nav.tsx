@@ -70,20 +70,43 @@ export function Nav() {
         },
         body: JSON.stringify(dataCleanRoom)
       });
-      const res = await response.json();
-      const blob = new Blob([JSON.stringify(res, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'dcr_definition.json';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      setPublishedDCR((
-        <p>✅ Data Clean Room configuration file has been downloaded. <br />
-        Please go to <a href="https://platform.decentriq.com/" target="_blank" className="underline text-blue-600 hover:text-blue-800">https://platform.decentriq.com</a> to create a new DCR from the configuration file. </p>
-      ))
+      
+      // Check content type to determine if it's a ZIP file or JSON
+      const contentType = response.headers.get('content-type');
+      
+      if (contentType && contentType.includes('application/zip')) {
+        // Handle ZIP file response (with shuffled samples)
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'dcr_config_with_samples.zip';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        setPublishedDCR((
+          <p>✅ Data Clean Room configuration package (with shuffled samples) has been downloaded. <br />
+          Please go to <a href="https://platform.decentriq.com/" target="_blank" className="underline text-blue-600 hover:text-blue-800">https://platform.decentriq.com</a> to create a new DCR from the configuration file. </p>
+        ))
+      } else {
+        // Handle JSON response (no shuffled samples)
+        const res = await response.json();
+        const blob = new Blob([JSON.stringify(res, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'dcr_definition.json';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        setPublishedDCR((
+          <p>✅ Data Clean Room configuration file has been downloaded. <br />
+          Please go to <a href="https://platform.decentriq.com/" target="_blank" className="underline text-blue-600 hover:text-blue-800">https://platform.decentriq.com</a> to create a new DCR from the configuration file. </p>
+        ))
+      }
+      
       setIsLoading(false);
       // Handle response
     } catch (error) {
