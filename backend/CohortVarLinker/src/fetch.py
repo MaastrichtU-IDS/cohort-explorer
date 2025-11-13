@@ -11,7 +11,7 @@ from .vector_db import search_in_db
 
 import json
 
-TIME_HINTS = ["visit date", "6 months prior to baseline", "prior to baseline visit"]
+TIME_HINTS = ["visit date", "6 months prior to baseline", "prior to baseline visit","date of event"]
 
 # we may later seperate "6 months prior to baseline", "prior to baseline visit" as a match but not to baseline time
 DERIVED_VARIABLES_LIST= [
