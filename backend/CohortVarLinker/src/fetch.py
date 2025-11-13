@@ -11,6 +11,16 @@ from .vector_db import search_in_db
 
 import json
 
+# @dataclass
+# class Element:
+#     role: str
+#     name: str
+#     visit: str
+#     omop_id: int
+#     code: str
+#     code_label: str
+#     category: str
+
 TIME_HINTS = ["visit date", "6 months prior to baseline", "prior to baseline visit","date of event"]
 
 # we may later seperate "6 months prior to baseline", "prior to baseline visit" as a match but not to baseline time
@@ -174,7 +184,118 @@ def _build_alignment_query(
             ORDER BY ?omop_id
 
         """
-    
+    # return f"""
+        
+    #         PREFIX rdf:   <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+    #         PREFIX rdfs:  <http://www.w3.org/2000/01/rdf-schema#>
+    #         PREFIX xsd:   <http://www.w3.org/2001/XMLSchema#>
+    #         PREFIX dc:    <http://purl.org/dc/elements/1.1/>
+    #         PREFIX ro:    <http://purl.obolibrary.org/obo/ro.owl/>
+    #         PREFIX obi:   <http://purl.obolibrary.org/obo/obi.owl/>
+    #         PREFIX iao:   <http://purl.obolibrary.org/obo/iao.owl/>
+    #         PREFIX sio:   <http://semanticscience.org/ontology/sio.owl/>
+    #         PREFIX bfo:   <http://purl.obolibrary.org/obo/bfo.owl/>
+    #         PREFIX ncbi:  <http://purl.bioontology.org/ontology/NCBITAXON/>
+    #         PREFIX cmeo:  <https://w3id.org/CMEO/>
+    #         SELECT
+    #         ?omop_id ?code_label ?code_value ?val
+    #         (GROUP_CONCAT(DISTINCT ?varNameA; SEPARATOR=", ") AS ?source)
+    #         (GROUP_CONCAT(DISTINCT ?varNameB; SEPARATOR=", ") AS ?target)
+    #         (GROUP_CONCAT(DISTINCT STR(?visitsA); SEPARATOR=", ") AS ?source_visit)
+    #         (GROUP_CONCAT(DISTINCT STR(?visitsB); SEPARATOR=", ") AS ?target_visit)
+            
+    #         WHERE 
+    #         {{
+    #          {{
+    #                     SELECT
+    #                     ?omop_id ?code_label ?code_value ?val
+
+    #                     (COUNT(DISTINCT ?primary_code_literal) AS ?codeCountA)
+    #                     (GROUP_CONCAT(DISTINCT STR(?var_nameA); SEPARATOR=", ") AS ?varNameA)
+    #                     (GROUP_CONCAT(CONCAT(STR(?var_nameA), "||", STR(?visitcodelabelA)); SEPARATOR=", ") AS ?visitsA)
+    #                     ("{source}" AS ?source)
+    #                     WHERE {{
+    #                     GRAPH <{graph_repo}/{source}> 
+    #                     {{
+    #                                 ?dataElementA rdf:type cmeo:data_element ;
+    #                                                 dc:identifier ?var_nameA ;
+    #                                                 obi:is_specified_input_of ?catProcessA, ?stdProcessA .
+    #                                  OPTIONAL {{
+    #                                 ?visitdatum  rdf:type cmeo:visit_measurement_datum ;
+    #                                             iao:is_about ?dataElementA ;
+    #                                             obi:is_specified_input_of ?vs_stdProcessA .
+                                    
+                                    
+    #                                 ?vs_stdProcessA obi:has_specified_output ?visit_code.
+    #                                 ?visit_code rdfs:label ?visitcodelabelA.
+    #                                 }}
+    #                                 ?catProcessA rdf:type cmeo:categorization_process ;
+    #                                             obi:has_specified_output ?cat_outputA .
+    #                                 ?cat_outputA cmeo:has_value ?val .
+    #                                 #FILTER(?val IN ("measurement", "drug_exposure"))
+
+    #                                 ?stdProcessA rdf:type cmeo:data_standardization ;
+    #                                             obi:has_specified_output ?codeA .
+    #                                 ?codeA rdf:_1 ?primary_code_literal .
+    #                                 ?primary_code_literal iao:denotes ?omop_id_uri ;
+    #                                         cmeo:has_value ?code_value ;
+    #                                         rdfs:label ?code_label .
+    #                                 ?omop_id_uri rdf:type cmeo:omop_id ;
+    #                                             cmeo:has_value ?omop_id .
+    #                         }}
+    #                     }}
+    #                     GROUP BY ?omop_id ?code_label ?code_value ?val
+    #             }}
+    #         UNION
+    #         {{
+    #                 SELECT
+    #                 ?omop_id ?code_label  ?code_value ?val
+    #                 (COUNT(DISTINCT ?primary_code_literal) AS ?codeCountB)
+    #                 (GROUP_CONCAT(DISTINCT STR(?var_nameB); SEPARATOR=", ") AS ?varNameB)
+    #                  (GROUP_CONCAT(CONCAT(STR(?var_nameB), "||", STR(?visitcodelabelB)); SEPARATOR=", ") AS ?visitsB)
+    #                 ("{target}" AS ?target)
+    #                     WHERE 
+    #                     {{
+    #                             GRAPH <{graph_repo}/{target}> 
+    #                             {{
+    #                                 ?dataElementB rdf:type cmeo:data_element ;
+    #                                 dc:identifier ?var_nameB ;
+    #                                 obi:is_specified_input_of ?catProcessB, ?stdProcessB.
+                                    
+    #                                 OPTIONAL {{
+    #                                 ?visitdatum  rdf:type cmeo:visit_measurement_datum ;
+    #                                             iao:is_about ?dataElementB ;
+    #                                             obi:is_specified_input_of ?vs_stdProcessAB .
+                                    
+    #                                 ?vs_stdProcessAB obi:has_specified_output ?visit_code.
+    #                                 ?visit_code rdfs:label ?visitcodelabelB.
+                                    
+    #                                 }}
+    #                                 ?catProcessB rdf:type cmeo:categorization_process ;
+    #                                 obi:has_specified_output ?cat_outputB .
+    #                                 ?cat_outputB cmeo:has_value ?val .
+    #                                 #FILTER(?val IN ("measurement", "drug_exposure"))
+
+    #                                 ?stdProcessB rdf:type cmeo:data_standardization ;
+    #                                         obi:has_specified_output ?codeB .
+    #                                 ?codeB rdf:_1 ?primary_code_literal .
+    #                                 ?primary_code_literal iao:denotes ?omop_id_uri ;
+    #                                 cmeo:has_value ?code_value;
+    #                                 rdfs:label ?code_label.
+    #                                 ?omop_id_uri rdf:type cmeo:omop_id ;
+    #                                 cmeo:has_value ?omop_id.
+    #                             }}
+    #                     }}
+
+    #                 GROUP BY ?omop_id  ?code_label ?code_value  ?val
+    #             }}
+    #         }}
+    #         GROUP BY ?omop_id ?code_label ?code_value ?val
+    #         #HAVING (COUNT(DISTINCT ?source) < 3)
+    #         ORDER BY ?omop_id
+    # """
+
+
 def _execute_query(query: str) -> Iterable[Dict[str, Any]]:
     sparql = SPARQLWrapper(settings.query_endpoint)
     sparql.setQuery(query)
@@ -759,7 +880,6 @@ def map_source_target(
 )
  
 
-    
     for col in df.columns:
         if df[col].apply(lambda x: isinstance(x, dict)).any():
             df[col] = df[col].apply(json.dumps)
