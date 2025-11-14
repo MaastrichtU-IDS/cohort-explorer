@@ -456,26 +456,27 @@ def add_outcome_specification(g: Graph, row: pd.Series, study_uri: URIRef, proto
     
     
     if row["primary outcome specification"]:
-            pendpoint_values= row["primary outcome specification"].lower().split(';') if pd.notna(row["primary outcome specification"]) else ""
-            for pendpoint_value in pendpoint_values:
-                pendpoint_value = pendpoint_value.strip()
-                primary_outcome_uri = URIRef(study_uri + "/primary_outcome_specification")
-                g.add((primary_outcome_uri, RDFS.label, Literal("primary outcome specification", datatype=XSD.string), metadata_graph))
-                g.add((primary_outcome_uri, RDF.type, OntologyNamespaces.CMEO.value.primary_outcome_specification,metadata_graph))
-                g.add((outcome_specification_uri, OntologyNamespaces.RO.value.has_part, primary_outcome_uri,metadata_graph))
-                g.add((primary_outcome_uri, OntologyNamespaces.CMEO.value.has_value, Literal(pendpoint_value, datatype=XSD.string),metadata_graph))
+            pendpoint_values= row["primary outcome specification"].lower()
+            # .split(';') if pd.notna(row["primary outcome specification"]) else ""
+            # for pendpoint_value in pendpoint_values:
+            # pendpoint_value = pendpoint_value.strip()
+            primary_outcome_uri = URIRef(study_uri + "/primary_outcome_specification")
+            g.add((primary_outcome_uri, RDFS.label, Literal("primary outcome specification", datatype=XSD.string), metadata_graph))
+            g.add((primary_outcome_uri, RDF.type, OntologyNamespaces.CMEO.value.primary_outcome_specification,metadata_graph))
+            g.add((outcome_specification_uri, OntologyNamespaces.RO.value.has_part, primary_outcome_uri,metadata_graph))
+            g.add((primary_outcome_uri, OntologyNamespaces.CMEO.value.has_value, Literal(pendpoint_values, datatype=XSD.string),metadata_graph))
 
     if row["secondary outcome specification"]:
-            secendpoint_values= row["secondary outcome specification"].lower().split(";") if pd.notna(row["secondary outcome specification"]) else ""
-            for secendpoint_value in secendpoint_values:
-                secendpoint_value = secendpoint_value.strip()
-                secondary_outcome_uri = URIRef(study_uri + "/secondary_outcome_specification")
-                g.add((secondary_outcome_uri, RDF.type, OntologyNamespaces.CMEO.value.secondary_outcome_specification,metadata_graph))
-                g.add((primary_outcome_uri, RDFS.label, Literal("secondary outcome specification", datatype=XSD.string), metadata_graph))
-                g.add((outcome_specification_uri, OntologyNamespaces.RO.value.has_part, secondary_outcome_uri,metadata_graph))
-                g.add((secondary_outcome_uri, OntologyNamespaces.CMEO.value.has_value, Literal(secendpoint_value, datatype=XSD.string),metadata_graph))
+            secendpoint_values= row["secondary outcome specification"].lower()
+            # .split(";") if pd.notna(row["secondary outcome specification"]) else ""
+            # for secendpoint_value in secendpoint_values:
+            # secendpoint_value = secendpoint_value.strip()
+            secondary_outcome_uri = URIRef(study_uri + "/secondary_outcome_specification")
+            g.add((secondary_outcome_uri, RDF.type, OntologyNamespaces.CMEO.value.secondary_outcome_specification,metadata_graph))
+            g.add((primary_outcome_uri, RDFS.label, Literal("secondary outcome specification", datatype=XSD.string), metadata_graph))
+            g.add((outcome_specification_uri, OntologyNamespaces.RO.value.has_part, secondary_outcome_uri,metadata_graph))
+            g.add((secondary_outcome_uri, OntologyNamespaces.CMEO.value.has_value, Literal(secendpoint_values, datatype=XSD.string),metadata_graph))
     return g
-
 
 def update_metadata_graph(endpoint_url, cohort_uri, variable_uris, metadata_graph_path):
     """Insert metadata graph data into the Oxigraph triplestore using SPARQL Update."""
