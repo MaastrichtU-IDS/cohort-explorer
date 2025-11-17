@@ -21,7 +21,8 @@ import json
 #     code_label: str
 #     category: str
 
-TIME_HINTS = ["visit date", "6 months prior to baseline", "prior to baseline visit","date of event"]
+BASELINE_TIME_HINTS = ["6 months prior to baseline", "prior to baseline visit"]
+DATE_HINTS = ["visit date", "date of visit","date of event"]
 
 # we may later seperate "6 months prior to baseline", "prior to baseline visit" as a match but not to baseline time
 DERIVED_VARIABLES_LIST= [
@@ -48,8 +49,20 @@ DERIVED_VARIABLES_LIST= [
                 }
 ]
 
-def check_visit_string(visit_str: str) -> str:
-    return "baseline time" if any(h in visit_str.lower() for h in TIME_HINTS) else visit_str
+def check_visit_string(visit_str_src: str, visit_str_tgt:str) -> str:
+    # if src or tgt visit string contains any of the time hints, return the value of the visit that is not in time hint
+    print(f"Checking visit strings: src='{visit_str_src}', tgt='{visit_str_tgt}'")
+    for hint in DATE_HINTS:
+        if hint in visit_str_src.lower():
+            return visit_str_tgt
+        if hint in visit_str_tgt.lower():
+            return visit_str_src
+
+    for hint in BASELINE_TIME_HINTS:
+        if hint in visit_str_src.lower() or hint in visit_str_tgt.lower():
+            return 'baseline time'
+    return visit_str_src
+
 
 
 
@@ -387,9 +400,9 @@ def _exact_match_records(
     res = []
     for s, sv in zip(src_vars, src_visits):
         for t, tv in zip(tgt_vars, tgt_visits):
-            sv = check_visit_string(sv)
-            tv = check_visit_string(tv)
-            if sv == tv:
+            # sv = check_visit_string(sv)
+            # tv = check_visit_string(tv)
+            if check_visit_string(sv, tv) == check_visit_string(tv, sv):
                 res.append(
                     {
                         "source": s,
@@ -539,9 +552,9 @@ def _graph_vector_matches(
                 continue
             for se in s_elems:
                 for te in tgt_map[key]:
-                    tv = check_visit_string(te['visit'])
-                    sv = check_visit_string(se['visit'])
-                    if se["category"] != te["category"] or sv != tv:
+                    tv = te['visit']
+                    sv = se['visit']
+                    if se["category"] != te["category"] or check_visit_string(sv, tv) != check_visit_string(tv, sv):
                         continue
                     final.append(
                         {
@@ -716,19 +729,19 @@ def _cross_category_matches(
     src_index: Dict[tuple, List[Dict[str, Any]]] = defaultdict(list)
 
     for s in source_elements:
-        s['visit'] = check_visit_string(s['visit'])
+        s['visit_'] = check_visit_string(s['visit'], s['visit'])
         src_index[(s["omop_id"], s['visit'])].append(s)
 
     for t in target_elements:
-        t['visit'] = check_visit_string(t['visit'])    
+        t['visit_'] = check_visit_string(t['visit'], s['visit'])    
         key = (t["omop_id"],  t['visit'])
         for s in src_index.get(key, []):
             print(s)
             if s['category'].strip().lower() in ["measurement", "observation", "condition_occurrence", "condition_era", "observation_period"] and t['category'].strip().lower() in ["measurement", "observation", "condition_occurrence", "condition_era","observation_period"]:
                 # tvisit= check_visit_string(t['visit'], visit_constraint)
                 # svisit = check_visit_string(s['visit'], visit_constraint)
-                tvisit = check_visit_string(t['visit'])
-                svisit = check_visit_string(s['visit'])
+                tvisit = check_visit_string(t['visit_'], s['visit_'])
+                svisit = check_visit_string(s['visit_'], t['visit_'])
                 # print(f"source visit: {svisit} and target visit: {tvisit}")
                 # mapping_type = "code match"
                 if svisit == tvisit:
@@ -880,6 +893,7 @@ def map_source_target(
 )
  
 
+    
     for col in df.columns:
         if df[col].apply(lambda x: isinstance(x, dict)).any():
             df[col] = df[col].apply(json.dumps)
