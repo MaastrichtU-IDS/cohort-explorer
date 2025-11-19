@@ -177,8 +177,12 @@ def init_graph(default_graph_identifier: str | None = "https://w3id.org/CMEO/gra
 def run_query(query: str) -> dict[str, Any]:
     """Function to run a SPARQL query against a remote endpoint"""
     import time
+
     start = time.time()
     query_endpoint.setQuery(query)
+
+    # We already configured HTTP method as POST globally; SPARQLWrapper
+    # will detect SELECT vs CONSTRUCT from the query text.
     result = query_endpoint.query().convert()
     duration = time.time() - start
     if duration > 1.0:  # Log queries taking more than 1 second
@@ -458,18 +462,23 @@ def get_studies_metadata_query() -> str:
 
 
 def get_variables_metadata_query() -> str:
-    """Get SPARQL query for retrieving variables metadata (from sparql_queries.txt)."""
-    # Load the second query from CohortVarLinker/queries/sparql_queries.txt (lines 298-542)
+    """Get SPARQL query for retrieving variables metadata (from sparql_queries.txt).
+    
+    The query is extracted from the second query in the file (lines 294-418).
+    Note: Line numbers are 1-indexed in the file, but 0-indexed in the list.
+    """
     import os
     query_file = os.path.join(os.path.dirname(__file__), '..', 'CohortVarLinker', 'queries', 'sparql_queries.txt')
+    
     with open(query_file, 'r') as f:
         lines = f.readlines()
-        # Extract lines 298-542 (variables metadata query including final ORDER BY)
-        # Line 295 says "# Query to Retrieve Variables Metadata from All studies"
-        # Line 296 says "it takes 70 seconds with oxigraph"
-        # Line 297 is blank
-        # Line 298 starts with PREFIX, line 542 ends with ORDER BY
-        query = ''.join(lines[297:543])  # 0-indexed, so lines[297:543] = lines 298-542 (inclusive)
+    
+    # Extract only the SPARQL lines for Query 2 (prefixes + SELECT + WHERE)
+    # Line 295 (index 294): comment "# Query 2"
+    # Line 296 (index 295): first PREFIX (stato)
+    # Line 413 (index 412): closing brace of Query 2
+    # Skip the comment line, start from first PREFIX
+    query = ''.join(lines[295:413]).strip()
     return query
 
 

@@ -7,7 +7,7 @@ import os
 import glob
 import time
 import json
-from CohortVarLinker.src.variables_kg import process_variables_metadata_file, add_raw_data_graph
+from CohortVarLinker.src.variables_kg import process_variables_metadata_file#, add_raw_data_graph
 from CohortVarLinker.src.study_kg import generate_studies_kg
 from CohortVarLinker.src.vector_db import generate_studies_embeddings, search_in_db
 from CohortVarLinker.src.utils import (
@@ -124,7 +124,7 @@ def create_cohort_specific_metadata_graph(dir_path, recreate=False):
 def create_pld_graph(file_path, cohort_name, output_dir=None, recreate=False) -> None:
     if recreate:
         start_time = time.time()
-        g=add_raw_data_graph(file_path, cohort_name)
+        # g=add_raw_data_graph(file_path, cohort_name)
         if len(g) > 0:
             g.serialize(f"{output_dir}/{cohort_name}_pld.trig", format="trig")
             # delete_existing_triples(f"{settings.sparql_endpoint}/rdf-graphs/{cohort_name}_pld")
