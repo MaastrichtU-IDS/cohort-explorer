@@ -11,7 +11,18 @@ from .vector_db import search_in_db
 
 import json
 
-TIME_HINTS = ["visit date", "6 months prior to baseline", "prior to baseline visit"]
+# @dataclass
+# class Element:
+#     role: str
+#     name: str
+#     visit: str
+#     omop_id: int
+#     code: str
+#     code_label: str
+#     category: str
+
+BASELINE_TIME_HINTS = ["6 months prior to baseline", "prior to baseline visit"]
+DATE_HINTS = ["visit date", "date of visit","date of event"]
 
 # we may later seperate "6 months prior to baseline", "prior to baseline visit" as a match but not to baseline time
 DERIVED_VARIABLES_LIST= [
@@ -38,8 +49,20 @@ DERIVED_VARIABLES_LIST= [
                 }
 ]
 
-def check_visit_string(visit_str: str) -> str:
-    return "baseline time" if any(h in visit_str.lower() for h in TIME_HINTS) else visit_str
+def check_visit_string(visit_str_src: str, visit_str_tgt:str) -> str:
+    # if src or tgt visit string contains any of the time hints, return the value of the visit that is not in time hint
+    print(f"Checking visit strings: src='{visit_str_src}', tgt='{visit_str_tgt}'")
+    for hint in DATE_HINTS:
+        if hint in visit_str_src.lower():
+            return visit_str_tgt
+        if hint in visit_str_tgt.lower():
+            return visit_str_src
+
+    for hint in BASELINE_TIME_HINTS:
+        if hint in visit_str_src.lower() or hint in visit_str_tgt.lower():
+            return 'baseline time'
+    return visit_str_src
+
 
 
 
@@ -174,7 +197,118 @@ def _build_alignment_query(
             ORDER BY ?omop_id
 
         """
-    
+    # return f"""
+        
+    #         PREFIX rdf:   <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+    #         PREFIX rdfs:  <http://www.w3.org/2000/01/rdf-schema#>
+    #         PREFIX xsd:   <http://www.w3.org/2001/XMLSchema#>
+    #         PREFIX dc:    <http://purl.org/dc/elements/1.1/>
+    #         PREFIX ro:    <http://purl.obolibrary.org/obo/ro.owl/>
+    #         PREFIX obi:   <http://purl.obolibrary.org/obo/obi.owl/>
+    #         PREFIX iao:   <http://purl.obolibrary.org/obo/iao.owl/>
+    #         PREFIX sio:   <http://semanticscience.org/ontology/sio.owl/>
+    #         PREFIX bfo:   <http://purl.obolibrary.org/obo/bfo.owl/>
+    #         PREFIX ncbi:  <http://purl.bioontology.org/ontology/NCBITAXON/>
+    #         PREFIX cmeo:  <https://w3id.org/CMEO/>
+    #         SELECT
+    #         ?omop_id ?code_label ?code_value ?val
+    #         (GROUP_CONCAT(DISTINCT ?varNameA; SEPARATOR=", ") AS ?source)
+    #         (GROUP_CONCAT(DISTINCT ?varNameB; SEPARATOR=", ") AS ?target)
+    #         (GROUP_CONCAT(DISTINCT STR(?visitsA); SEPARATOR=", ") AS ?source_visit)
+    #         (GROUP_CONCAT(DISTINCT STR(?visitsB); SEPARATOR=", ") AS ?target_visit)
+            
+    #         WHERE 
+    #         {{
+    #          {{
+    #                     SELECT
+    #                     ?omop_id ?code_label ?code_value ?val
+
+    #                     (COUNT(DISTINCT ?primary_code_literal) AS ?codeCountA)
+    #                     (GROUP_CONCAT(DISTINCT STR(?var_nameA); SEPARATOR=", ") AS ?varNameA)
+    #                     (GROUP_CONCAT(CONCAT(STR(?var_nameA), "||", STR(?visitcodelabelA)); SEPARATOR=", ") AS ?visitsA)
+    #                     ("{source}" AS ?source)
+    #                     WHERE {{
+    #                     GRAPH <{graph_repo}/{source}> 
+    #                     {{
+    #                                 ?dataElementA rdf:type cmeo:data_element ;
+    #                                                 dc:identifier ?var_nameA ;
+    #                                                 obi:is_specified_input_of ?catProcessA, ?stdProcessA .
+    #                                  OPTIONAL {{
+    #                                 ?visitdatum  rdf:type cmeo:visit_measurement_datum ;
+    #                                             iao:is_about ?dataElementA ;
+    #                                             obi:is_specified_input_of ?vs_stdProcessA .
+                                    
+                                    
+    #                                 ?vs_stdProcessA obi:has_specified_output ?visit_code.
+    #                                 ?visit_code rdfs:label ?visitcodelabelA.
+    #                                 }}
+    #                                 ?catProcessA rdf:type cmeo:categorization_process ;
+    #                                             obi:has_specified_output ?cat_outputA .
+    #                                 ?cat_outputA cmeo:has_value ?val .
+    #                                 #FILTER(?val IN ("measurement", "drug_exposure"))
+
+    #                                 ?stdProcessA rdf:type cmeo:data_standardization ;
+    #                                             obi:has_specified_output ?codeA .
+    #                                 ?codeA rdf:_1 ?primary_code_literal .
+    #                                 ?primary_code_literal iao:denotes ?omop_id_uri ;
+    #                                         cmeo:has_value ?code_value ;
+    #                                         rdfs:label ?code_label .
+    #                                 ?omop_id_uri rdf:type cmeo:omop_id ;
+    #                                             cmeo:has_value ?omop_id .
+    #                         }}
+    #                     }}
+    #                     GROUP BY ?omop_id ?code_label ?code_value ?val
+    #             }}
+    #         UNION
+    #         {{
+    #                 SELECT
+    #                 ?omop_id ?code_label  ?code_value ?val
+    #                 (COUNT(DISTINCT ?primary_code_literal) AS ?codeCountB)
+    #                 (GROUP_CONCAT(DISTINCT STR(?var_nameB); SEPARATOR=", ") AS ?varNameB)
+    #                  (GROUP_CONCAT(CONCAT(STR(?var_nameB), "||", STR(?visitcodelabelB)); SEPARATOR=", ") AS ?visitsB)
+    #                 ("{target}" AS ?target)
+    #                     WHERE 
+    #                     {{
+    #                             GRAPH <{graph_repo}/{target}> 
+    #                             {{
+    #                                 ?dataElementB rdf:type cmeo:data_element ;
+    #                                 dc:identifier ?var_nameB ;
+    #                                 obi:is_specified_input_of ?catProcessB, ?stdProcessB.
+                                    
+    #                                 OPTIONAL {{
+    #                                 ?visitdatum  rdf:type cmeo:visit_measurement_datum ;
+    #                                             iao:is_about ?dataElementB ;
+    #                                             obi:is_specified_input_of ?vs_stdProcessAB .
+                                    
+    #                                 ?vs_stdProcessAB obi:has_specified_output ?visit_code.
+    #                                 ?visit_code rdfs:label ?visitcodelabelB.
+                                    
+    #                                 }}
+    #                                 ?catProcessB rdf:type cmeo:categorization_process ;
+    #                                 obi:has_specified_output ?cat_outputB .
+    #                                 ?cat_outputB cmeo:has_value ?val .
+    #                                 #FILTER(?val IN ("measurement", "drug_exposure"))
+
+    #                                 ?stdProcessB rdf:type cmeo:data_standardization ;
+    #                                         obi:has_specified_output ?codeB .
+    #                                 ?codeB rdf:_1 ?primary_code_literal .
+    #                                 ?primary_code_literal iao:denotes ?omop_id_uri ;
+    #                                 cmeo:has_value ?code_value;
+    #                                 rdfs:label ?code_label.
+    #                                 ?omop_id_uri rdf:type cmeo:omop_id ;
+    #                                 cmeo:has_value ?omop_id.
+    #                             }}
+    #                     }}
+
+    #                 GROUP BY ?omop_id  ?code_label ?code_value  ?val
+    #             }}
+    #         }}
+    #         GROUP BY ?omop_id ?code_label ?code_value ?val
+    #         #HAVING (COUNT(DISTINCT ?source) < 3)
+    #         ORDER BY ?omop_id
+    # """
+
+
 def _execute_query(query: str) -> Iterable[Dict[str, Any]]:
     sparql = SPARQLWrapper(settings.query_endpoint)
     sparql.setQuery(query)
@@ -266,9 +400,9 @@ def _exact_match_records(
     res = []
     for s, sv in zip(src_vars, src_visits):
         for t, tv in zip(tgt_vars, tgt_visits):
-            sv = check_visit_string(sv)
-            tv = check_visit_string(tv)
-            if sv == tv:
+            # sv = check_visit_string(sv)
+            # tv = check_visit_string(tv)
+            if check_visit_string(sv, tv) == check_visit_string(tv, sv):
                 res.append(
                     {
                         "source": s,
@@ -418,9 +552,9 @@ def _graph_vector_matches(
                 continue
             for se in s_elems:
                 for te in tgt_map[key]:
-                    tv = check_visit_string(te['visit'])
-                    sv = check_visit_string(se['visit'])
-                    if se["category"] != te["category"] or sv != tv:
+                    tv = te['visit']
+                    sv = se['visit']
+                    if se["category"] != te["category"] or check_visit_string(sv, tv) != check_visit_string(tv, sv):
                         continue
                     final.append(
                         {
@@ -595,19 +729,19 @@ def _cross_category_matches(
     src_index: Dict[tuple, List[Dict[str, Any]]] = defaultdict(list)
 
     for s in source_elements:
-        s['visit'] = check_visit_string(s['visit'])
+        s['visit_'] = check_visit_string(s['visit'], s['visit'])
         src_index[(s["omop_id"], s['visit'])].append(s)
 
     for t in target_elements:
-        t['visit'] = check_visit_string(t['visit'])    
+        t['visit_'] = check_visit_string(t['visit'], s['visit'])    
         key = (t["omop_id"],  t['visit'])
         for s in src_index.get(key, []):
             print(s)
             if s['category'].strip().lower() in ["measurement", "observation", "condition_occurrence", "condition_era", "observation_period"] and t['category'].strip().lower() in ["measurement", "observation", "condition_occurrence", "condition_era","observation_period"]:
                 # tvisit= check_visit_string(t['visit'], visit_constraint)
                 # svisit = check_visit_string(s['visit'], visit_constraint)
-                tvisit = check_visit_string(t['visit'])
-                svisit = check_visit_string(s['visit'])
+                tvisit = check_visit_string(t['visit_'], s['visit_'])
+                svisit = check_visit_string(s['visit_'], t['visit_'])
                 # print(f"source visit: {svisit} and target visit: {tvisit}")
                 # mapping_type = "code match"
                 if svisit == tvisit:
