@@ -669,6 +669,7 @@ async def create_live_compute_dcr(
         # Step 3: Upload metadata dictionaries for each cohort
         from src.cohort_cache import get_cohorts_from_cache
         from src.config import settings
+        from src.upload import get_latest_datadictionary
         admin_email = settings.admins_list[0] if settings.admins_list else None
         all_cohorts = get_cohorts_from_cache(admin_email)
         
@@ -685,16 +686,17 @@ async def create_live_compute_dcr(
                 
                 metadata_node_id = f"{cohort_id.replace(' ', '-')}_metadata_dictionary"
                 
-                # Get the metadata file path
-                try:
-                    metadata_file_to_upload = cohort.metadata_filepath
-                except FileNotFoundError:
-                    logging.warning(f"Metadata file not found for cohort {cohort_id}, skipping upload")
+                # Get the latest metadata dictionary file using the utility function
+                cohort_folder_path = os.path.join(settings.data_folder, "cohorts", cohort_id)
+                metadata_file_to_upload = get_latest_datadictionary(cohort_folder_path)
+                
+                if not metadata_file_to_upload:
+                    logging.warning(f"No metadata dictionary file found for cohort {cohort_id} in {cohort_folder_path}")
                     metadata_upload_results[cohort_id] = "file_not_found"
                     continue
                 
-                if not metadata_file_to_upload or not os.path.exists(metadata_file_to_upload):
-                    logging.warning(f"Metadata file does not exist for cohort {cohort_id}, skipping upload")
+                if not os.path.exists(metadata_file_to_upload):
+                    logging.warning(f"Metadata file does not exist for cohort {cohort_id} at {metadata_file_to_upload}")
                     metadata_upload_results[cohort_id] = "file_not_exists"
                     continue
                 
