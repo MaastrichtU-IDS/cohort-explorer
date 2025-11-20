@@ -138,6 +138,19 @@ export function Nav() {
       const result = await response.json();
       
       if (response.ok) {
+        // Categorize cohorts by shuffled sample availability
+        const cohortsWithSamples: string[] = [];
+        const cohortsWithoutSamples: string[] = [];
+        
+        result.cohort_ids.forEach((cohortId: string) => {
+          const status = result.shuffled_upload_results[cohortId];
+          if (status === 'success') {
+            cohortsWithSamples.push(cohortId);
+          } else if (status === 'no_file' || status === 'file_not_exists') {
+            cohortsWithoutSamples.push(cohortId);
+          }
+        });
+        
         setPublishedDCR((
           <div>
             <p className="font-bold mb-2">✅ {result.message}</p>
@@ -146,6 +159,18 @@ export function Nav() {
             <p className="mb-2">Cohorts: {result.num_cohorts}</p>
             <p className="mb-2">Metadata uploads: {result.metadata_uploads_successful}/{result.num_cohorts}</p>
             <p className="mb-2">Shuffled samples: {result.shuffled_uploads_successful}/{result.num_cohorts}</p>
+            
+            {cohortsWithSamples.length > 0 && (
+              <p className="mb-2 text-sm">
+                <span className="font-semibold">Cohorts with shuffled samples available:</span> {cohortsWithSamples.join(', ')}
+              </p>
+            )}
+            {cohortsWithoutSamples.length > 0 && (
+              <p className="mb-2 text-sm">
+                <span className="font-semibold">Cohorts with no shuffled samples:</span> {cohortsWithoutSamples.join(', ')}
+              </p>
+            )}
+            
             <a 
               href={result.dcr_url} 
               target="_blank" 
@@ -268,7 +293,7 @@ export function Nav() {
       {/* Popup to publish a Data Clean Room with selected cohorts */}
       {showModal && (
         <div className="modal modal-open">
-          <div className="modal-box">
+          <div className="modal-box max-w-4xl">
             <h3 className="font-bold text-lg mb-3">Cohorts to load in Decentriq Data Clean Room</h3>
             <ul>
               {Object.entries(dataCleanRoom?.cohorts).map(([cohortId, variables]: any) => (
