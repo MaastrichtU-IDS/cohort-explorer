@@ -18,6 +18,7 @@ export function Nav() {
   const [showModal, setShowModal] = useState(false);
   const [publishedDCR, setPublishedDCR]: any = useState(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [loadingAction, setLoadingAction] = useState<'live' | 'config' | null>(null);
   const [includeShuffledSamples, setIncludeShuffledSamples] = useState(true);
   const [dcrMode, setDcrMode] = useState<'current' | 'future'>('current');
   // const [cleanRoomData, setCleanRoomData]: any = useState(null);
@@ -61,6 +62,7 @@ export function Nav() {
 
   const getDCRDefinitionFile = async () => {
     setIsLoading(true);
+    setLoadingAction('config');
     // Replace with actual API endpoint and required request format
     // console.log('Sending request to Decentriq', dataCleanRoom);
     try {
@@ -113,16 +115,19 @@ export function Nav() {
       }
       
       setIsLoading(false);
+      setLoadingAction(null);
       // Handle response
     } catch (error) {
       console.error('Error getting DCR definition file:', error);
       setIsLoading(false);
+      setLoadingAction(null);
       // Handle error
     }
   };
 
   const createLiveDCR = async () => {
     setIsLoading(true);
+    setLoadingAction('live');
     try {
       const response = await fetch(`${apiUrl}/create-live-compute-dcr`, {
         method: 'POST',
@@ -189,12 +194,14 @@ export function Nav() {
       }
       
       setIsLoading(false);
+      setLoadingAction(null);
     } catch (error) {
       console.error('Error creating live DCR:', error);
       setPublishedDCR((
         <p className="text-error">❌ Error: Failed to create live DCR. Please try again.</p>
       ));
       setIsLoading(false);
+      setLoadingAction(null);
     }
   };
 
@@ -365,7 +372,11 @@ export function Nav() {
             {isLoading && (
               <div className="flex flex-col items-center opacity-70 text-slate-500 mt-5 mb-5">
                 <span className="loading loading-spinner loading-lg mb-4"></span>
-                <p>Creating the file specification for a DCR draft...</p>
+                <p>
+                  {loadingAction === 'live' 
+                    ? 'Creating the Data Clean Room on Decentriq Platform. Will take a few seconds...'
+                    : 'Creating the file specification for a DCR draft...'}
+                </p>
               </div>
             )}
             {publishedDCR && (
