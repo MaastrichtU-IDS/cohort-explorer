@@ -19,6 +19,7 @@ export function Nav() {
   const [publishedDCR, setPublishedDCR]: any = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [includeShuffledSamples, setIncludeShuffledSamples] = useState(true);
+  const [dcrMode, setDcrMode] = useState<'current' | 'future'>('current');
   // const [cleanRoomData, setCleanRoomData]: any = useState(null);
   // const cleanRoomData = JSON.parse(sessionStorage.getItem('dataCleanRoom') || '{"cohorts": []}');
   // const cohortsCount = cleanRoomData.cohorts.length;
@@ -294,6 +295,25 @@ export function Nav() {
       {showModal && (
         <div className="modal modal-open">
           <div className="modal-box max-w-4xl">
+            {/* Toggle switch for Current/Future mode */}
+            <div className="flex items-center gap-3 mb-4">
+              <span className="text-sm font-medium">Mode:</span>
+              <div className="join">
+                <button 
+                  className={`btn btn-sm join-item ${dcrMode === 'current' ? 'btn-active' : ''}`}
+                  onClick={() => setDcrMode('current')}
+                >
+                  Current
+                </button>
+                <button 
+                  className={`btn btn-sm join-item ${dcrMode === 'future' ? 'btn-active' : ''}`}
+                  onClick={() => setDcrMode('future')}
+                >
+                  Future
+                </button>
+              </div>
+            </div>
+            
             <h3 className="font-bold text-lg mb-3">Cohorts to load in Decentriq Data Clean Room</h3>
             <ul>
               {Object.entries(dataCleanRoom?.cohorts).map(([cohortId, variables]: any) => (
@@ -308,24 +328,28 @@ export function Nav() {
             Once the first is selected we only show the cohorts with same number of variables?
             */}
             
-            {/* Checkbox for including shuffled samples */}
-            <div className="form-control mt-4">
-              <label className="label cursor-pointer justify-start gap-3">
-                <input 
-                  type="checkbox" 
-                  checked={includeShuffledSamples}
-                  onChange={(e) => setIncludeShuffledSamples(e.target.checked)}
-                  className="checkbox checkbox-primary" 
-                />
-                <span className="label-text">Incorporate shuffled samples</span>
-              </label>
-            </div>
+            {/* Checkbox for including shuffled samples - only visible in future mode */}
+            {dcrMode === 'future' && (
+              <div className="form-control mt-4">
+                <label className="label cursor-pointer justify-start gap-3">
+                  <input 
+                    type="checkbox" 
+                    checked={includeShuffledSamples}
+                    onChange={(e) => setIncludeShuffledSamples(e.target.checked)}
+                    className="checkbox checkbox-primary" 
+                  />
+                  <span className="label-text">Incorporate shuffled samples</span>
+                </label>
+              </div>
+            )}
             
             <div className="modal-action flex flex-wrap justify-end gap-2 mt-4">
                 {/* <div className="flex flex-wrap space-y-2"> */}
-                <button className="btn btn-primary" onClick={createLiveDCR} disabled={isLoading}>
-                  Create Live DCR
-                </button>
+                {dcrMode === 'future' && (
+                  <button className="btn btn-primary" onClick={createLiveDCR} disabled={isLoading}>
+                    Create Live DCR
+                  </button>
+                )}
                 <button className="btn btn-neutral" onClick={getDCRDefinitionFile} disabled={isLoading}>
                   Download DCR Config
                 </button>
