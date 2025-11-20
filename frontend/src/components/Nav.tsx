@@ -18,6 +18,7 @@ export function Nav() {
   const [showModal, setShowModal] = useState(false);
   const [publishedDCR, setPublishedDCR]: any = useState(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [includeShuffledSamples, setIncludeShuffledSamples] = useState(true);
   // const [cleanRoomData, setCleanRoomData]: any = useState(null);
   // const cleanRoomData = JSON.parse(sessionStorage.getItem('dataCleanRoom') || '{"cohorts": []}');
   // const cohortsCount = cleanRoomData.cohorts.length;
@@ -68,7 +69,10 @@ export function Nav() {
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(dataCleanRoom)
+        body: JSON.stringify({
+          ...dataCleanRoom,
+          include_shuffled_samples: includeShuffledSamples
+        })
       });
       
       // Check content type to determine if it's a ZIP file or JSON
@@ -113,6 +117,58 @@ export function Nav() {
       console.error('Error getting DCR definition file:', error);
       setIsLoading(false);
       // Handle error
+    }
+  };
+
+  const createLiveDCR = async () => {
+    setIsLoading(true);
+    try {
+      const response = await fetch(`${apiUrl}/create-live-compute-dcr`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          ...dataCleanRoom,
+          include_shuffled_samples: includeShuffledSamples
+        })
+      });
+      
+      const result = await response.json();
+      
+      if (response.ok) {
+        setPublishedDCR((
+          <div>
+            <p className="font-bold mb-2">✅ {result.message}</p>
+            <p className="mb-2">DCR ID: <code className="bg-base-200 px-2 py-1 rounded">{result.dcr_id}</code></p>
+            <p className="mb-2">Title: {result.dcr_title}</p>
+            <p className="mb-2">Cohorts: {result.num_cohorts}</p>
+            <p className="mb-2">Metadata uploads: {result.metadata_uploads_successful}/{result.num_cohorts}</p>
+            <p className="mb-2">Shuffled samples: {result.shuffled_uploads_successful}/{result.num_cohorts}</p>
+            <a 
+              href={result.dcr_url} 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="btn btn-sm btn-primary mt-2"
+            >
+              Open DCR in Decentriq →
+            </a>
+          </div>
+        ));
+      } else {
+        setPublishedDCR((
+          <p className="text-error">❌ Error: {result.detail || 'Failed to create live DCR'}</p>
+        ));
+      }
+      
+      setIsLoading(false);
+    } catch (error) {
+      console.error('Error creating live DCR:', error);
+      setPublishedDCR((
+        <p className="text-error">❌ Error: Failed to create live DCR. Please try again.</p>
+      ));
+      setIsLoading(false);
     }
   };
 
@@ -226,10 +282,27 @@ export function Nav() {
             - A list of autocomplete using the dataCleanRoom.cohorts
             Once the first is selected we only show the cohorts with same number of variables?
             */}
+            
+            {/* Checkbox for including shuffled samples */}
+            <div className="form-control mt-4">
+              <label className="label cursor-pointer justify-start gap-3">
+                <input 
+                  type="checkbox" 
+                  checked={includeShuffledSamples}
+                  onChange={(e) => setIncludeShuffledSamples(e.target.checked)}
+                  className="checkbox checkbox-primary" 
+                />
+                <span className="label-text">Incorporate shuffled samples</span>
+              </label>
+            </div>
+            
             <div className="modal-action flex flex-wrap justify-end gap-2 mt-4">
                 {/* <div className="flex flex-wrap space-y-2"> */}
-                <button className="btn btn-neutral" onClick={getDCRDefinitionFile}>
-                  Download DCR definition file
+                <button className="btn btn-primary" onClick={createLiveDCR} disabled={isLoading}>
+                  Create Live DCR
+                </button>
+                <button className="btn btn-neutral" onClick={getDCRDefinitionFile} disabled={isLoading}>
+                  Download DCR Config
                 </button>
                 <button className="btn btn-error" onClick={clearCohortsList}>
                   Clear cohorts

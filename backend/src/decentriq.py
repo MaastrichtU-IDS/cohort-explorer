@@ -440,6 +440,7 @@ async def get_compute_dcr_definition(
     cohorts_request: dict[str, Any],
     user: Any,
     client: Any,
+    include_shuffled_samples: bool = True,
 ) -> Any:
     start_time = datetime.now()
     logging.info(f"Starting DCR definition creation for user {user['email']} at {start_time}")
@@ -513,6 +514,34 @@ async def get_compute_dcr_definition(
         builder.add_node_definition(
             TableDataNodeDefinition(name=metadata_node_id, columns=metadata_cols, is_required=False)
         )
+
+        # Add data node for shuffled sample if it exists and is requested
+        if include_shuffled_samples:
+            storage_dir = os.path.join(settings.data_folder, f"dcr_output_{cohort_id}")
+            shuffled_csv = os.path.join(storage_dir, "shuffled_sample.csv")
+            
+            if os.path.exists(shuffled_csv):
+                shuffled_node_id = f"{cohort_id.replace(' ', '-')}_shuffled_sample"
+                logging.info(f"Found shuffled sample for {cohort_id}, adding data node: {shuffled_node_id}")
+                
+                # Use RawDataNodeDefinition for shuffled samples (no schema needed)
+                builder.add_node_definition(
+                    RawDataNodeDefinition(name=shuffled_node_id, is_required=False)
+                )
+                
+                # Add the requester as data owner of the shuffled sample node
+                participants[user["email"]]["data_owner_of"].add(shuffled_node_id)
+                
+                # In non-dev mode, also add cohort owners as data owners of shuffled sample
+                if not settings.dev_mode:
+                    for owner in cohort.cohort_email:
+                        if owner not in participants:
+                            participants[owner] = {"data_owner_of": set(), "analyst_of": set()}
+                        participants[owner]["data_owner_of"].add(shuffled_node_id)
+            else:
+                logging.info(f"No shuffled sample found for {cohort_id} at {shuffled_csv}")
+        else:
+            logging.info(f"Shuffled samples not requested for {cohort_id}, skipping node creation")
 
         # Add data owners to provision the data (in dev we dont add them to avoid unnecessary emails)
         if not settings.dev_mode:
@@ -600,6 +629,239 @@ async def get_compute_dcr_definition(
 
 
 
+async def create_live_compute_dcr(
+    cohorts_request: dict[str, Any],
+    user: Any,
+    client: Any,
+    include_shuffled_samples: bool = True,
+) -> dict[str, Any]:
+    """Create and publish a live compute DCR that is immediately available for use.
+    
+    This function combines the DCR definition creation from get_compute_dcr_definition
+    with the actual room creation and publishing from create_provision_dcr.
+    
+    Args:
+        cohorts_request: Dictionary with cohort IDs and requested variables
+        user: User information dictionary with email
+        client: Decentriq client instance
+        include_shuffled_samples: Whether to include shuffled sample data nodes (default: True)
+        
+    Returns:
+        Dictionary with DCR information including ID, URL, and title
+    """
+    start_time = datetime.now()
+    logging.info(f"Starting live compute DCR creation for user {user['email']} at {start_time}")
+    
+    # Step 1: Create the DCR definition (reuse existing logic)
+    dcr_definition, dcr_title = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples)
+    
+    # Step 2: Publish the DCR to Decentriq (similar to create_provision_dcr)
+    logging.info(f"Publishing live compute DCR: {dcr_title}")
+    publish_start = datetime.now()
+    
+    try:
+        dcr = client.publish_analytics_dcr(dcr_definition)
+        publish_time = datetime.now() - publish_start
+        logging.info(f"DCR published successfully in {publish_time.total_seconds():.3f}s")
+        
+        dcr_url = f"https://platform.decentriq.com/datarooms/p/{dcr.id}"
+        
+        # Step 3: Upload metadata dictionaries for each cohort
+        from src.cohort_cache import get_cohorts_from_cache
+        from src.config import settings
+        admin_email = settings.admins_list[0] if settings.admins_list else None
+        all_cohorts = get_cohorts_from_cache(admin_email)
+        
+        upload_start = datetime.now()
+        metadata_upload_results = {}
+        
+        for cohort_id in cohorts_request["cohorts"].keys():
+            try:
+                cohort = all_cohorts.get(cohort_id)
+                if not cohort:
+                    logging.warning(f"Cohort {cohort_id} not found in cache, skipping metadata upload")
+                    metadata_upload_results[cohort_id] = "cohort_not_found"
+                    continue
+                
+                metadata_node_id = f"{cohort_id.replace(' ', '-')}_metadata_dictionary"
+                
+                # Get the metadata file path
+                try:
+                    metadata_file_to_upload = cohort.metadata_filepath
+                except FileNotFoundError:
+                    logging.warning(f"Metadata file not found for cohort {cohort_id}, skipping upload")
+                    metadata_upload_results[cohort_id] = "file_not_found"
+                    continue
+                
+                if not metadata_file_to_upload or not os.path.exists(metadata_file_to_upload):
+                    logging.warning(f"Metadata file does not exist for cohort {cohort_id}, skipping upload")
+                    metadata_upload_results[cohort_id] = "file_not_exists"
+                    continue
+                
+                # Get the metadata node from the DCR
+                metadata_node = dcr.get_node(metadata_node_id)
+                
+                # Generate encryption key
+                key = dq.Key()
+                
+                # Remove header from metadata file (same as provision DCR)
+                metadata_noheader_filepath = metadata_file_to_upload.split(".")[0] + "_noHeader.csv"
+                with open(metadata_file_to_upload, "rb") as data:
+                    header = data.readline()
+                    logging.info(f"Removed header from {cohort_id} metadata: {header.decode('utf-8').strip()}")
+                    restfile = data.read()
+                
+                with open(metadata_noheader_filepath, "wb") as data_noheader:
+                    data_noheader.write(restfile)
+                os.sync()
+                
+                # Upload and publish the metadata
+                with open(metadata_noheader_filepath, "rb") as data_noheader:
+                    metadata_node.upload_and_publish_dataset(data_noheader, key, f"{metadata_node_id}.csv")
+                
+                logging.info(f"Successfully uploaded metadata for cohort {cohort_id}")
+                metadata_upload_results[cohort_id] = "success"
+                
+            except Exception as e:
+                logging.error(f"Failed to upload metadata for cohort {cohort_id}: {e}", exc_info=True)
+                metadata_upload_results[cohort_id] = f"error: {str(e)}"
+        
+        upload_time = datetime.now() - upload_start
+        logging.info(f"Metadata upload completed in {upload_time.total_seconds():.3f}s. Results: {metadata_upload_results}")
+        
+        # Step 4: Upload shuffled sample files if they exist and are requested
+        shuffled_upload_start = datetime.now()
+        shuffled_upload_results = {}
+        
+        if include_shuffled_samples:
+            for cohort_id in cohorts_request["cohorts"].keys():
+                try:
+                    storage_dir = os.path.join(settings.data_folder, f"dcr_output_{cohort_id}")
+                    shuffled_csv = os.path.join(storage_dir, "shuffled_sample.csv")
+                    
+                    if not os.path.exists(shuffled_csv):
+                        logging.info(f"No shuffled sample file for cohort {cohort_id}, skipping")
+                        shuffled_upload_results[cohort_id] = "no_file"
+                        continue
+                    
+                    shuffled_node_id = f"{cohort_id.replace(' ', '-')}_shuffled_sample"
+                    
+                    # Get the shuffled sample node from the DCR
+                    try:
+                        shuffled_node = dcr.get_node(shuffled_node_id)
+                    except Exception as node_error:
+                        logging.warning(f"Shuffled sample node not found for {cohort_id}: {node_error}")
+                        shuffled_upload_results[cohort_id] = "node_not_found"
+                        continue
+                    
+                    # Generate encryption key
+                    key = dq.Key()
+                    
+                    # Upload and publish the shuffled sample
+                    with open(shuffled_csv, "rb") as shuffled_data:
+                        shuffled_node.upload_and_publish_dataset(shuffled_data, key, f"{shuffled_node_id}.csv")
+                    
+                    logging.info(f"Successfully uploaded shuffled sample for cohort {cohort_id}")
+                    shuffled_upload_results[cohort_id] = "success"
+                    
+                except Exception as e:
+                    logging.error(f"Failed to upload shuffled sample for cohort {cohort_id}: {e}", exc_info=True)
+                    shuffled_upload_results[cohort_id] = f"error: {str(e)}"
+        else:
+            logging.info("Shuffled samples not requested, skipping upload")
+            for cohort_id in cohorts_request["cohorts"].keys():
+                shuffled_upload_results[cohort_id] = "not_requested"
+        
+        shuffled_upload_time = datetime.now() - shuffled_upload_start
+        logging.info(f"Shuffled sample upload completed in {shuffled_upload_time.total_seconds():.3f}s. Results: {shuffled_upload_results}")
+        
+        # Step 5: Log the DCR creation
+        cohort_ids = list(cohorts_request["cohorts"].keys())
+        log_data = {
+            "DCR_id": dcr.id,
+            "DCR_url": dcr_url,
+            "DCR_type": "live_compute",
+            "cohort_ids": cohort_ids,
+            "user": user["email"],
+            "creation_time": str(datetime.now()),
+            "num_cohorts": len(cohort_ids)
+        }
+        
+        # Log to compute DCR log file
+        compute_dcr_log = "/data/live_compute_dcrs.jsonl"
+        try:
+            with open(compute_dcr_log, "a") as f:
+                f.write(json.dumps(log_data) + "\n")
+            logging.info(f"Logged live compute DCR creation to {compute_dcr_log}")
+        except Exception as log_error:
+            logging.warning(f"Failed to log DCR creation: {log_error}")
+        
+        total_time = datetime.now() - start_time
+        logging.info(f"Live compute DCR creation completed in {total_time.total_seconds():.3f}s")
+        
+        # Count successful uploads
+        successful_metadata_uploads = sum(1 for status in metadata_upload_results.values() if status == "success")
+        successful_shuffled_uploads = sum(1 for status in shuffled_upload_results.values() if status == "success")
+        
+        return {
+            "message": f"Live compute DCR created successfully for {len(cohort_ids)} cohort(s). Metadata uploaded for {successful_metadata_uploads}/{len(cohort_ids)} cohorts. Shuffled samples uploaded for {successful_shuffled_uploads}/{len(cohort_ids)} cohorts.",
+            "dcr_id": dcr.id,
+            "dcr_url": dcr_url,
+            "dcr_title": dcr_title,
+            "cohort_ids": cohort_ids,
+            "num_cohorts": len(cohort_ids),
+            "metadata_upload_results": metadata_upload_results,
+            "metadata_uploads_successful": successful_metadata_uploads,
+            "shuffled_upload_results": shuffled_upload_results,
+            "shuffled_uploads_successful": successful_shuffled_uploads
+        }
+        
+    except Exception as e:
+        logging.error(f"Failed to publish live compute DCR: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create live compute DCR: {str(e)}"
+        )
+
+
+@router.post(
+    "/create-live-compute-dcr",
+    name="Create and publish a live compute DCR",
+    response_description="DCR information with ID and URL",
+)
+async def api_create_live_compute_dcr(
+    cohorts_request: dict[str, Any],
+    user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Create and publish a live compute Data Clean Room that is immediately available.
+    
+    This endpoint creates a DCR with the requested cohorts and publishes it to Decentriq,
+    making it immediately available for data owners to provision data and analysts to run computations.
+    
+    Unlike /get-compute-dcr-definition which only returns the configuration,
+    this endpoint actually creates the room on the Decentriq platform.
+    
+    Args:
+        cohorts_request: Dictionary with structure:
+            {
+                "cohorts": {"cohort_id": ["var1", "var2", ...], ...},
+                "include_shuffled_samples": true/false (optional, defaults to true)
+            }
+        user: Current authenticated user
+        
+    Returns:
+        Dictionary with DCR ID, URL, title, and cohort information
+    """
+    # Establish connection to Decentriq
+    client = dq.create_client(settings.decentriq_email, settings.decentriq_token)
+    
+    # Extract include_shuffled_samples from request, default to True
+    include_shuffled_samples = cohorts_request.get("include_shuffled_samples", True)
+    
+    # Create and publish the live compute DCR
+    return await create_live_compute_dcr(cohorts_request, user, client, include_shuffled_samples)
+
+
 @router.post(
     "/get-compute-dcr-definition",
     name="Get the Data Clean Room definition for computing as JSON or ZIP with shuffled samples",
@@ -617,11 +879,21 @@ async def api_get_compute_dcr_definition(
     - {cohort_id}_shuffle_summary.txt: Shuffle summary for each cohort (if available)
     
     If no shuffled samples exist, returns just the JSON configuration.
+    
+    Args:
+        cohorts_request: Dictionary with structure:
+            {
+                "cohorts": {"cohort_id": ["var1", "var2", ...], ...},
+                "include_shuffled_samples": true/false (optional, defaults to true)
+            }
     """
     # Establish connection to Decentriq
     client = dq.create_client(settings.decentriq_email, settings.decentriq_token)
 
-    dcr_definition, _dcr_title = await get_compute_dcr_definition(cohorts_request, user, client)
+    # Extract include_shuffled_samples from request, default to True
+    include_shuffled_samples = cohorts_request.get("include_shuffled_samples", True)
+
+    dcr_definition, _dcr_title = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples)
 
     # Generate DCR config JSON
     dcr_config_json = { "dataScienceDataRoom": dcr_definition.high_level }
