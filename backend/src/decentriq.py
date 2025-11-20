@@ -741,6 +741,10 @@ async def create_live_compute_dcr(
         admin_email = settings.admins_list[0] if settings.admins_list else None
         all_cohorts = get_cohorts_from_cache(admin_email)
         
+        logging.info(f"Starting metadata upload for {len(cohorts_request['cohorts'])} cohorts")
+        logging.info(f"Cohort folder path: {settings.cohort_folder}")
+        logging.info(f"Cohorts to process: {list(cohorts_request['cohorts'].keys())}")
+        
         upload_start = datetime.now()
         metadata_upload_results = {}
         
@@ -756,12 +760,29 @@ async def create_live_compute_dcr(
                 
                 # Get the latest metadata dictionary file using the utility function
                 cohort_folder_path = os.path.join(settings.cohort_folder, cohort_id)
+                logging.info(f"Looking for metadata dictionary in: {cohort_folder_path}")
+                
+                # Check if folder exists
+                if not os.path.exists(cohort_folder_path):
+                    logging.warning(f"Cohort folder does not exist: {cohort_folder_path}")
+                    metadata_upload_results[cohort_id] = "folder_not_found"
+                    continue
+                
+                # List files in the folder
+                try:
+                    files_in_folder = os.listdir(cohort_folder_path)
+                    logging.info(f"Files in {cohort_id} folder: {files_in_folder}")
+                except Exception as e:
+                    logging.error(f"Error listing files in {cohort_folder_path}: {e}")
+                
                 metadata_file_to_upload = get_latest_datadictionary(cohort_folder_path)
                 
                 if not metadata_file_to_upload:
                     logging.warning(f"No metadata dictionary file found for cohort {cohort_id} in {cohort_folder_path}")
                     metadata_upload_results[cohort_id] = "file_not_found"
                     continue
+                
+                logging.info(f"Found metadata file for {cohort_id}: {metadata_file_to_upload}")
                 
                 if not os.path.exists(metadata_file_to_upload):
                     logging.warning(f"Metadata file does not exist for cohort {cohort_id} at {metadata_file_to_upload}")
