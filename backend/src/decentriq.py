@@ -687,7 +687,7 @@ async def create_live_compute_dcr(
                 metadata_node_id = f"{cohort_id.replace(' ', '-')}_metadata_dictionary"
                 
                 # Get the latest metadata dictionary file using the utility function
-                cohort_folder_path = os.path.join(settings.data_folder, "cohorts", cohort_id)
+                cohort_folder_path = os.path.join(settings.cohort_folder, cohort_id)
                 metadata_file_to_upload = get_latest_datadictionary(cohort_folder_path)
                 
                 if not metadata_file_to_upload:
