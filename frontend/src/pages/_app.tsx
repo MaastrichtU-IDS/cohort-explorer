@@ -2,8 +2,33 @@ import '@/styles/globals.css';
 import type {AppProps} from 'next/app';
 import React, {createContext, useState, useEffect, useContext} from 'react';
 import Head from 'next/head';
+import {useRouter} from 'next/router';
 import {Nav} from '@/components/Nav';
 import {CohortsProvider} from '@/components/CohortsContext';
+
+// Wrapper component to access router and pass useSparql parameter
+function AppWithRouter({Component, pageProps}: {Component: any, pageProps: any}) {
+  const router = useRouter();
+  const useSparql = router.query.mode === 'sparql';
+
+  return (
+    <CohortsProvider useSparql={useSparql}>
+      <Nav />
+      {/* Banner for submitting clinical research questions */}
+      <div className="w-full bg-blue-100 text-blue-900 py-3 px-4 text-center font-semibold text-base shadow-sm" role="region" aria-label="Submit Clinical Research Question" style={{borderBottom: '1px solid #b6d4fe'}}>
+        <a
+          href="https://forms.office.com/Pages/ResponsePage.aspx?id=ZjsnCBAizUCLIFz2zdwnmivGAWehv9FJqQkwLj2vey9UOE5CRUc4MEc5NVRJVkVGVlM5VkdXVjRCNS4u"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline hover:text-blue-700"
+        >
+          Please tell us about the clinical research you are interested in
+        </a>
+      </div>
+      <Component {...pageProps} />
+    </CohortsProvider>
+  );
+}
 
 export default function App({Component, pageProps}: AppProps) {
   return (
@@ -15,10 +40,7 @@ export default function App({Component, pageProps}: AppProps) {
         <meta name="description" content="Explore cohorts for the iCARE4CVD project" />
         <title>Cohort Explorer</title>
       </Head>
-      <CohortsProvider>
-        <Nav />
-        <Component {...pageProps} />
-      </CohortsProvider>
+      <AppWithRouter Component={Component} pageProps={pageProps} />
     </>
   );
 }
