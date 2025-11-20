@@ -557,49 +557,117 @@ async def get_compute_dcr_definition(
             participants[user["email"]]["data_owner_of"].add(metadata_node_id)
         
 
-        # Add pandas preparation script
-        pandas_script = "import pandas as pd\nimport decentriq_util\n\n"
-        df_var = f"df_{cohort_id.replace('-', '_')}"
-        requested_vars = cohorts_request["cohorts"][cohort_id].copy() if isinstance(cohorts_request["cohorts"][cohort_id], list) else cohorts_request["cohorts"][cohort_id]
+        # # Add pandas preparation script - COMMENTED OUT Nov 2025
+        # pandas_script = "import pandas as pd\nimport decentriq_util\n\n"
+        # df_var = f"df_{cohort_id.replace('-', '_')}"
+        # requested_vars = cohorts_request["cohorts"][cohort_id].copy() if isinstance(cohorts_request["cohorts"][cohort_id], list) else cohorts_request["cohorts"][cohort_id]
 
-        cohort_id_var = find_variable_by_omop_id(cohort_id, "4086934")
+        # cohort_id_var = find_variable_by_omop_id(cohort_id, "4086934")
 
-        if cohort_id_var is None:
-            pandas_script += f"#No cohort ID variable (i.e. no variable with OMOP ID 4086934) found for cohort {cohort_id}\n"
-            pandas_script += f"#No modifications will be done on the dataframe\n"
+        # if cohort_id_var is None:
+        #     pandas_script += f"#No cohort ID variable (i.e. no variable with OMOP ID 4086934) found for cohort {cohort_id}\n"
+        #     pandas_script += f"#No modifications will be done on the dataframe\n"
         
-        elif cohort_id_var not in requested_vars:
-            pandas_script += f"#Cohort ID variable ({cohort_id_var}) not in requested variables list for cohort {cohort_id}\n"
-            pandas_script += f"#No modifications will be done on the dataframe\n"
-        else:
-            pandas_script += f"#Cohort ID variable ({cohort_id_var}) in among requested variables list for cohort {cohort_id}\n"
-            pandas_script += f"#The Cohort ID variable will be dropped from the dataframe\n"
-            requested_vars.remove(cohort_id_var)
+        # elif cohort_id_var not in requested_vars:
+        #     pandas_script += f"#Cohort ID variable ({cohort_id_var}) not in requested variables list for cohort {cohort_id}\n"
+        #     pandas_script += f"#No modifications will be done on the dataframe\n"
+        # else:
+        #     pandas_script += f"#Cohort ID variable ({cohort_id_var}) in among requested variables list for cohort {cohort_id}\n"
+        #     pandas_script += f"#The Cohort ID variable will be dropped from the dataframe\n"
+        #     requested_vars.remove(cohort_id_var)
         
-        # Direct cohort variables list
-        if isinstance(requested_vars, list):
-            pandas_script += f'{df_var} = decentriq_util.read_tabular_data("/input/{cohort_id}")\n'
-            if len(requested_vars) <= len(cohort.variables):
-                # Add filter variables to pandas script
-                pandas_script += f"{df_var} = {df_var}[{requested_vars}]\n"
+        # # Direct cohort variables list
+        # if isinstance(requested_vars, list):
+        #     pandas_script += f'{df_var} = decentriq_util.read_tabular_data("/input/{cohort_id}")\n'
+        #     if len(requested_vars) <= len(cohort.variables):
+        #         # Add filter variables to pandas script
+        #         pandas_script += f"{df_var} = {df_var}[{requested_vars}]\n"
 
-        # TODO: Merge operation, need to be implemented on the frontend?
-        elif isinstance(requested_vars, dict):
-            pandas_script += pandas_script_merge_cohorts(requested_vars, all_cohorts)
-            # TODO: add merged cohorts schema to selected_cohorts
-        else:
-            raise HTTPException(status_code=400, detail=f"Invalid structure for cohort {cohort_id}")
-        pandas_script += f'\n#The following line commented out - Sept 2025\n'
-        pandas_script += f'#{df_var}.to_csv("/output/{cohort_id}.csv", index=False, header=True)\n\n'
+        # # TODO: Merge operation, need to be implemented on the frontend?
+        # elif isinstance(requested_vars, dict):
+        #     pandas_script += pandas_script_merge_cohorts(requested_vars, all_cohorts)
+        #     # TODO: add merged cohorts schema to selected_cohorts
+        # else:
+        #     raise HTTPException(status_code=400, detail=f"Invalid structure for cohort {cohort_id}")
+        # pandas_script += f'\n#The following line commented out - Sept 2025\n'
+        # pandas_script += f'#{df_var}.to_csv("/output/{cohort_id}.csv", index=False, header=True)\n\n'
 
-        # Add python data preparation script
-        builder.add_node_definition(
-            PythonComputeNodeDefinition(name=f"prepare-{cohort_id}", script=pandas_script, dependencies=[data_node_id])
+        # # Add python data preparation script
+        # builder.add_node_definition(
+        #     PythonComputeNodeDefinition(name=f"prepare-{cohort_id}", script=pandas_script, dependencies=[data_node_id])
+        # )
+        # # Add the requester as analyst of prepare script
+        # participants[user["email"]]["analyst_of"].add(f"prepare-{cohort_id}")
+
+
+
+    # Add single basic data exploration script for all cohorts (Nov 2025)
+    exploration_script = """import pandas as pd
+import decentriq_util
+import os
+from datetime import datetime
+
+# Get all files in the /input directory
+input_dir = "/input"
+files = os.listdir(input_dir)
+
+print("=" * 80)
+print("BASIC DATA EXPLORATION")
+print("=" * 80)
+print()
+
+for filename in sorted(files):
+    filepath = os.path.join(input_dir, filename)
+    
+    # Skip if not a file
+    if not os.path.isfile(filepath):
+        continue
+    
+    print(f"\\n{'=' * 80}")
+    print(f"FILE: {filename}")
+    print(f"{'=' * 80}")
+    
+    # File size in KB
+    file_size_bytes = os.path.getsize(filepath)
+    file_size_kb = file_size_bytes / 1024
+    print(f"Size: {file_size_kb:.2f} KB ({file_size_bytes:,} bytes)")
+    
+    # Last modified date
+    mod_timestamp = os.path.getmtime(filepath)
+    mod_date = datetime.fromtimestamp(mod_timestamp)
+    print(f"Last Modified: {mod_date.strftime('%Y-%m-%d %H:%M:%S')}")
+    
+    # Try to load as tabular data and display info
+    try:
+        df = decentriq_util.read_tabular_data(filename)
+        print(f"\\nDataFrame Info:")
+        print(f"  Rows: {len(df):,}")
+        print(f"  Columns: {len(df.columns):,}")
+        print(f"  Column names: {list(df.columns)}")
+        
+        print(f"\\nFirst 5 rows:")
+        print(df.head(5).to_string())
+        
+    except Exception as e:
+        print(f"\\nCould not load as tabular data: {e}")
+    
+    print()
+
+print("=" * 80)
+print("EXPLORATION COMPLETE")
+print("=" * 80)
+"""
+    
+    # Add the exploration script with dependencies on all data nodes
+    builder.add_node_definition(
+        PythonComputeNodeDefinition(
+            name="basic-data-exploration",
+            script=exploration_script,
+            dependencies=data_nodes
         )
-        # Add the requester as analyst of prepare script
-        participants[user["email"]]["analyst_of"].add(f"prepare-{cohort_id}")
-
-
+    )
+    # Add the requester as analyst of the exploration script
+    participants[user["email"]]["analyst_of"].add("basic-data-exploration")
 
     builder.add_node_definition(
         RawDataNodeDefinition(name="CrossStudyMappings", is_required=False)
