@@ -523,15 +523,6 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
     success = len(errors) == 0
     graph_triples_count = len(g) if 'g' in locals() else 0
     
-    # Log to existing text file (maintain backward compatibility)
-    if len(errors) > 0:
-        errors_file = os.path.join(settings.data_folder, f"metadata_files_issues.txt")
-        with open(errors_file, "a") as f:
-            f.write(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-            f.write(f"Errors for cohort {cohort_id}:\n")
-            f.write("\n".join(errors))
-            f.write("\n\n\n")
-    
     # Enhanced structured logging for upload dictionary calls
     if source == "upload_dict":
         log_data = {
@@ -578,6 +569,139 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
 
 
 
+
+
+@router.post(
+    "/generate-metadata-issues-report",
+    name="Generate metadata issues report",
+    response_description="Metadata issues report generation result",
+)
+async def generate_metadata_issues_report() -> dict[str, Any]:
+    """Generate a report of all metadata dictionary validation issues across all cohorts.
+    
+    This endpoint can be called without authentication as it's typically used during startup.
+    """
+    from src.cohort_cache import get_cohorts_from_cache
+    
+    # Generate timestamp for filename
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    errors_file = os.path.join(settings.data_folder, f"metadata_files_issues_{timestamp}.txt")
+    
+    # Ensure directory exists
+    os.makedirs(os.path.dirname(errors_file), exist_ok=True)
+    
+    # Initialize the report file
+    with open(errors_file, "w") as f:
+        f.write(f"Metadata Issues Report - Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write("=" * 80 + "\n\n")
+    
+    # Get all cohorts and process their dictionaries
+    admin_email = settings.admins_list[0] if settings.admins_list else "admin@example.com"
+    all_cohorts = get_cohorts_from_cache(admin_email)
+    
+    total_cohorts = 0
+    cohorts_with_errors = 0
+    cohorts_without_dict = 0
+    total_errors = 0
+    
+    for cohort_id in sorted(all_cohorts.keys()):
+        total_cohorts += 1
+        cohort_folder_path = os.path.join(settings.cohort_folder, cohort_id)
+        
+        if not os.path.exists(cohort_folder_path):
+            cohorts_without_dict += 1
+            continue
+        
+        # Get the latest metadata dictionary file
+        latest_dict_file = get_latest_datadictionary(cohort_folder_path)
+        
+        if not latest_dict_file:
+            cohorts_without_dict += 1
+            with open(errors_file, "a") as f:
+                f.write(f"COHORT: {cohort_id}\n")
+                f.write(f"Status: No metadata dictionary file found\n")
+                f.write(f"Folder: {cohort_folder_path}\n")
+                f.write("-" * 80 + "\n\n")
+            continue
+        
+        # Try to validate the dictionary file
+        try:
+            # Read and validate the CSV
+            df = pd.read_csv(latest_dict_file, na_values=[""], keep_default_na=False)
+            df = df.dropna(how="all")
+            df = df.fillna("")
+            
+            # Normalize column names
+            from src.upload import cols_normalized
+            df.columns = [cols_normalized.get(c.upper().strip(), c.upper().strip()) for c in df.columns]
+            
+            # Check for required columns
+            from src.upload import metadatadict_cols_schema1
+            critical_column_names = [c.name.upper().strip() for c in metadatadict_cols_schema1]
+            missing_columns = [col for col in critical_column_names if col not in df.columns]
+            
+            # Collect validation errors
+            errors = []
+            if missing_columns:
+                errors.append(f"Missing required columns: {', '.join(missing_columns)}")
+            
+            # Check for duplicate variables
+            duplicate_variables = df[df.duplicated(subset=["VARIABLENAME"], keep=False)]
+            if not duplicate_variables.empty:
+                errors.append(f"Duplicate VARIABLENAME found: {', '.join(duplicate_variables['VARIABLENAME'].unique())}")
+            
+            # Check for empty required fields
+            req_fields = ["VARIABLENAME", "VARIABLELABEL", "VARTYPE", "DOMAIN"]
+            for i, row in df.iterrows():
+                var_name = row.get("VARIABLENAME", f"UNKNOWN_VAR_ROW_{i+2}")
+                for rf in req_fields:
+                    if rf in row and not str(row[rf]).strip():
+                        errors.append(f"Row {i+2} (Variable: '{var_name}') is missing value for required field: '{rf}'")
+            
+            # Write results
+            if errors:
+                cohorts_with_errors += 1
+                total_errors += len(errors)
+                with open(errors_file, "a") as f:
+                    f.write(f"COHORT: {cohort_id}\n")
+                    f.write(f"File: {os.path.basename(latest_dict_file)}\n")
+                    f.write(f"Modified: {datetime.fromtimestamp(os.path.getmtime(latest_dict_file)).strftime('%Y-%m-%d %H:%M:%S')}\n")
+                    f.write(f"Errors found: {len(errors)}\n\n")
+                    for idx, error in enumerate(errors, 1):
+                        f.write(f"  {idx}. {error}\n")
+                    f.write("-" * 80 + "\n\n")
+            
+        except Exception as e:
+            cohorts_with_errors += 1
+            total_errors += 1
+            with open(errors_file, "a") as f:
+                f.write(f"COHORT: {cohort_id}\n")
+                f.write(f"File: {os.path.basename(latest_dict_file)}\n")
+                f.write(f"Error: Failed to process file - {str(e)}\n")
+                f.write("-" * 80 + "\n\n")
+    
+    # Write summary
+    with open(errors_file, "a") as f:
+        f.write("=" * 80 + "\n")
+        f.write("SUMMARY\n")
+        f.write("=" * 80 + "\n")
+        f.write(f"Total cohorts: {total_cohorts}\n")
+        f.write(f"Cohorts with errors: {cohorts_with_errors}\n")
+        f.write(f"Cohorts without dictionary: {cohorts_without_dict}\n")
+        f.write(f"Total errors: {total_errors}\n")
+        f.write(f"Report generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+    
+    logging.info(f"Generated metadata issues report: {errors_file}")
+    
+    return {
+        "message": "Metadata issues report generated successfully",
+        "filename": os.path.basename(errors_file),
+        "filepath": errors_file,
+        "total_cohorts": total_cohorts,
+        "cohorts_with_errors": cohorts_with_errors,
+        "cohorts_without_dict": cohorts_without_dict,
+        "total_errors": total_errors
+    }
 
 
 @router.post(
@@ -1099,13 +1223,6 @@ def init_triplestore():
             print("Clearing cohort cache before initialization...")
             clear_cache()
             
-            # Create/clear the metadata issues file at the start of initialization
-            errors_file = os.path.join(settings.data_folder, "metadata_files_issues.txt")
-            os.makedirs(os.path.dirname(errors_file), exist_ok=True)
-            with open(errors_file, "w") as f:
-                f.write(f"Metadata Issues Log - Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write("=" * 50 + "\n\n")
-            
             # Continue with the rest of the initialization logic...
             _perform_triplestore_initialization()
             
@@ -1139,6 +1256,29 @@ def _perform_triplestore_initialization():
     admin_email = settings.admins_list[0] if settings.admins_list else "admin@example.com"
     initialize_cache_from_triplestore(admin_email)
     print("✅ Cohort cache initialization complete.")
+    
+    # Generate metadata issues report (runs on every startup)
+    print("Generating metadata issues report...")
+    try:
+        import httpx
+        import asyncio
+        
+        # Call the endpoint to generate the report
+        async def call_report_endpoint():
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"http://localhost:3000/upload/generate-metadata-issues-report",
+                    timeout=60.0
+                )
+                return response.json()
+        
+        result = asyncio.run(call_report_endpoint())
+        print(f"✅ Metadata issues report generated: {result.get('filename', 'N/A')}")
+        print(f"   Total cohorts: {result.get('total_cohorts', 0)}")
+        print(f"   Cohorts with errors: {result.get('cohorts_with_errors', 0)}")
+        print(f"   Cohorts without dictionary: {result.get('cohorts_without_dict', 0)}")
+    except Exception as e:
+        print(f"⚠️  Failed to generate metadata issues report: {e}")
     
     # If triplestore is already initialized, we're done
     if triplestore_initialized:
@@ -1218,5 +1358,3 @@ def _perform_triplestore_initialization():
             print(f"No datadictionary file found for cohort {folder}.")
     
     print("✅ Triplestore initialization complete!")
-    
-    print("✅ Cohort cache initialization complete.")
