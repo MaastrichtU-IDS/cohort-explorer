@@ -292,7 +292,7 @@ GROUP BY ?study ?cohortId ?study_type
 
 
 Query 2: All variables from each study graph 
-REFIX stato: <http://purl.obolibrary.org/obo/stato.owl/>
+PREFIX stato: <http://purl.obolibrary.org/obo/stato.owl/>
 PREFIX ro:   <http://purl.obolibrary.org/obo/ro.owl/>
 PREFIX rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
@@ -322,7 +322,7 @@ SELECT
   ?count_value
   ?formula_value
   ?minimum_value
-?maximum_value
+  ?maximum_value
 WHERE {
   # -------- base: all variables from each study graph (skip studies_metadata) --------
   GRAPH ?g {
@@ -372,7 +372,7 @@ WHERE {
      # ---------------- categorical values (value=label pairs) ----------------
     OPTIONAL {
       SELECT ?g ?var
-             (GROUP_CONCAT(DISTINCT ?pair; SEPARATOR="|") AS ?categorical_value)
+             (GROUP_CONCAT(DISTINCT ?pair; SEPARATOR="|") AS ?categorical_values)
              
 
       WHERE {
@@ -405,18 +405,20 @@ WHERE {
           ?catstandProc a cmeo:data_standardization ;
              obi:has_specified_output ?code .
         
-          ?code a cmeo:code;
+          ?code a cmeo:code ;
               rdfs:label ?cat_lbl ;
                   cmeo:has_value ?cat_code ;
                   iao:denotes ?cat_omopClass .
-        ?cat_omopClass a cmeo:omop_id;
+        ?cat_omopClass a cmeo:omop_id ;
                   cmeo:has_value ?cat_omop .
         BIND( STR(?cat_omop) AS ?omopStr )
           
         }
       } GROUP BY ?g ?var
     }
-Query 3: Cross Mapping 
+}
+
+# Query 3: Cross Mapping 
 
 
           PREFIX rdf:   <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
