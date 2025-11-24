@@ -585,10 +585,11 @@ async def generate_metadata_issues_report() -> dict[str, Any]:
     
     # Generate timestamp for filename
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    errors_file = os.path.join(settings.data_folder, f"metadata_files_issues_{timestamp}.txt")
+    reports_folder = os.path.join(settings.data_folder, "DICTIONARY_ISSUES_REPORTS")
+    errors_file = os.path.join(reports_folder, f"metadata_files_issues_{timestamp}.txt")
     
     # Ensure directory exists
-    os.makedirs(os.path.dirname(errors_file), exist_ok=True)
+    os.makedirs(reports_folder, exist_ok=True)
     
     # Initialize the report file
     with open(errors_file, "w") as f:
@@ -693,6 +694,10 @@ async def generate_metadata_issues_report() -> dict[str, Any]:
     
     logging.info(f"Generated metadata issues report: {errors_file}")
     
+    # Read the report content to return in the response
+    with open(errors_file, "r") as f:
+        report_content = f.read()
+    
     return {
         "message": "Metadata issues report generated successfully",
         "filename": os.path.basename(errors_file),
@@ -700,7 +705,8 @@ async def generate_metadata_issues_report() -> dict[str, Any]:
         "total_cohorts": total_cohorts,
         "cohorts_with_errors": cohorts_with_errors,
         "cohorts_without_dict": cohorts_without_dict,
-        "total_errors": total_errors
+        "total_errors": total_errors,
+        "report_content": report_content
     }
 
 
