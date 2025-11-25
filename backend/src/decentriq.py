@@ -514,6 +514,9 @@ async def get_compute_dcr_definition(
         builder.add_node_definition(
             TableDataNodeDefinition(name=metadata_node_id, columns=metadata_cols, is_required=False)
         )
+        
+        # Add the requester as data owner of the metadata dictionary node
+        participants[user["email"]]["data_owner_of"].add(metadata_node_id)
 
         # Add data node for shuffled sample if it exists and is requested
         if include_shuffled_samples:
