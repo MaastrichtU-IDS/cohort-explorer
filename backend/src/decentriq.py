@@ -483,6 +483,7 @@ async def get_compute_dcr_definition(
     # Creation of a Data Clean Room (DCR)
     dcr_start = datetime.now()
     data_nodes = []
+    metadata_nodes = []
     dcr_count = len(client.get_data_room_descriptions())
     dcr_title = f"iCARE4CVD DCR compute {dcr_count}"
     builder = (
@@ -515,6 +516,7 @@ async def get_compute_dcr_definition(
         builder.add_node_definition(
             TableDataNodeDefinition(name=metadata_node_id, columns=metadata_cols, is_required=True)
         )
+        metadata_nodes.append(metadata_node_id)
         
         # Add the requester as data owner of the metadata dictionary node
         participants[user["email"]]["data_owner_of"].add(metadata_node_id)
@@ -662,12 +664,12 @@ print("EXPLORATION COMPLETE")
 print("=" * 80)
 """
     
-    # Add the exploration script with dependencies on all data nodes
+    # Add the exploration script with dependencies on all metadata nodes
     builder.add_node_definition(
         PythonComputeNodeDefinition(
             name="basic-data-exploration",
             script=exploration_script,
-            dependencies=data_nodes
+            dependencies=metadata_nodes
         )
     )
     # Add the requester as analyst of the exploration script

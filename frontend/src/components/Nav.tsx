@@ -230,6 +230,23 @@ export function Nav() {
     setAdditionalAnalysts(additionalAnalysts.filter(e => e !== email));
   };
 
+  const getDataOwners = () => {
+    const owners = new Set<string>();
+    if (dataCleanRoom?.cohorts && cohortsData) {
+      Object.keys(dataCleanRoom.cohorts).forEach((cohortId) => {
+        const cohort = cohortsData[cohortId];
+        if (cohort?.cohort_email) {
+          cohort.cohort_email.forEach((email: string) => {
+            if (email && email !== userEmail) {
+              owners.add(email);
+            }
+          });
+        }
+      });
+    }
+    return Array.from(owners);
+  };
+
   return (
     <div className="navbar bg-base-300 min-h-0 p-0">
       <div className="navbar-start">
@@ -370,12 +387,15 @@ export function Nav() {
                 </div>
                 
                 <div className="form-control mt-2">
-                  <button 
-                    className="btn btn-sm btn-outline btn-secondary w-fit"
-                    onClick={() => setShowParticipantsModal(true)}
-                  >
-                    Manage DCR Participants ({1 + additionalAnalysts.length} users)
-                  </button>
+                  <label className="label cursor-pointer justify-start gap-3">
+                    <input 
+                      type="checkbox" 
+                      checked={showParticipantsModal}
+                      onChange={(e) => setShowParticipantsModal(e.target.checked)}
+                      className="checkbox checkbox-primary" 
+                    />
+                    <span className="label-text">Add additional participants</span>
+                  </label>
                 </div>
               </>
             )}
@@ -444,11 +464,29 @@ export function Nav() {
                 <div className="flex justify-between items-center">
                   <div>
                     <p className="font-semibold">{userEmail}</p>
-                    <p className="text-sm text-gray-500">You (Creator & Analyst)</p>
+                    <p className="text-sm text-gray-500">Creator & Analyst</p>
                   </div>
                   <span className="badge badge-primary">Owner</span>
                 </div>
               </div>
+              
+              {/* Data owners */}
+              {getDataOwners().length > 0 && (
+                <div>
+                  <h4 className="font-semibold mb-2">Data Owners</h4>
+                  {getDataOwners().map((email) => (
+                    <div key={email} className="bg-base-200 p-3 rounded-lg mb-2">
+                      <div className="flex justify-between items-center">
+                        <div>
+                          <p className="font-semibold">{email}</p>
+                          <p className="text-sm text-gray-500">Data Owner</p>
+                        </div>
+                        <span className="badge badge-info">Data Provider</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
               
               {/* Additional analysts */}
               {additionalAnalysts.length > 0 && (
