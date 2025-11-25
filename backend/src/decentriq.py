@@ -501,7 +501,7 @@ async def get_compute_dcr_definition(
         # Create data node for cohort
         data_node_id = cohort_id.replace(" ", "-")
         builder.add_node_definition(
-            TableDataNodeDefinition(name=data_node_id, columns=get_cohort_schema(cohort), is_required=True)
+            TableDataNodeDefinition(name=data_node_id, columns=get_cohort_schema(cohort), is_required=False)
         )
         data_nodes.append(data_node_id)
 
@@ -512,7 +512,7 @@ async def get_compute_dcr_definition(
         metadata_cols = identify_cohort_meta_schema(cohort)
         
         builder.add_node_definition(
-            TableDataNodeDefinition(name=metadata_node_id, columns=metadata_cols, is_required=False)
+            TableDataNodeDefinition(name=metadata_node_id, columns=metadata_cols, is_required=True)
         )
         
         # Add the requester as data owner of the metadata dictionary node
