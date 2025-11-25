@@ -574,13 +574,15 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
 @router.post(
     "/generate-metadata-issues-report",
     name="Generate metadata issues report",
-    response_description="Metadata issues report generation result",
+    response_description="Metadata issues report file",
 )
-async def generate_metadata_issues_report() -> dict[str, Any]:
+async def generate_metadata_issues_report():
     """Generate a report of all metadata dictionary validation issues across all cohorts.
     
     This endpoint can be called without authentication as it's typically used during startup.
+    Returns the report as a downloadable text file.
     """
+    from fastapi.responses import FileResponse
     from src.cohort_cache import get_cohorts_from_cache
     
     # Generate timestamp for filename
@@ -693,21 +695,20 @@ async def generate_metadata_issues_report() -> dict[str, Any]:
         f.write(f"Report generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
     
     logging.info(f"Generated metadata issues report: {errors_file}")
+    logging.info(f"Report summary - Total: {total_cohorts}, Errors: {cohorts_with_errors}, No dict: {cohorts_without_dict}")
     
-    # Read the report content to return in the response
-    with open(errors_file, "r") as f:
-        report_content = f.read()
-    
-    return {
-        "message": "Metadata issues report generated successfully",
-        "filename": os.path.basename(errors_file),
-        "filepath": errors_file,
-        "total_cohorts": total_cohorts,
-        "cohorts_with_errors": cohorts_with_errors,
-        "cohorts_without_dict": cohorts_without_dict,
-        "total_errors": total_errors,
-        "report_content": report_content
-    }
+    # Return the file as a download
+    return FileResponse(
+        path=errors_file,
+        media_type="text/plain",
+        filename=os.path.basename(errors_file),
+        headers={
+            "X-Total-Cohorts": str(total_cohorts),
+            "X-Cohorts-With-Errors": str(cohorts_with_errors),
+            "X-Cohorts-Without-Dict": str(cohorts_without_dict),
+            "X-Total-Errors": str(total_errors)
+        }
+    )
 
 
 @router.post(
@@ -1276,13 +1277,20 @@ def _perform_triplestore_initialization():
                     f"http://localhost:3000/upload/generate-metadata-issues-report",
                     timeout=60.0
                 )
-                return response.json()
+                return response
         
-        result = asyncio.run(call_report_endpoint())
-        print(f"✅ Metadata issues report generated: {result.get('filename', 'N/A')}")
-        print(f"   Total cohorts: {result.get('total_cohorts', 0)}")
-        print(f"   Cohorts with errors: {result.get('cohorts_with_errors', 0)}")
-        print(f"   Cohorts without dictionary: {result.get('cohorts_without_dict', 0)}")
+        response = asyncio.run(call_report_endpoint())
+        
+        # Extract summary info from response headers
+        filename = response.headers.get('content-disposition', '').split('filename=')[-1].strip('"')
+        total_cohorts = response.headers.get('X-Total-Cohorts', 'N/A')
+        cohorts_with_errors = response.headers.get('X-Cohorts-With-Errors', 'N/A')
+        cohorts_without_dict = response.headers.get('X-Cohorts-Without-Dict', 'N/A')
+        
+        print(f"✅ Metadata issues report generated: {filename}")
+        print(f"   Total cohorts: {total_cohorts}")
+        print(f"   Cohorts with errors: {cohorts_with_errors}")
+        print(f"   Cohorts without dictionary: {cohorts_without_dict}")
     except Exception as e:
         print(f"⚠️  Failed to generate metadata issues report: {e}")
     
