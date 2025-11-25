@@ -441,6 +441,7 @@ async def get_compute_dcr_definition(
     user: Any,
     client: Any,
     include_shuffled_samples: bool = True,
+    additional_analysts: list[str] = None,
 ) -> Any:
     start_time = datetime.now()
     logging.info(f"Starting DCR definition creation for user {user['email']} at {start_time}")
@@ -680,6 +681,16 @@ print("=" * 80)
     # for prev_node in preview_nodes:
     #     participants[user["email"]]["analyst_of"].add(prev_node)
 
+    # Add additional analysts if provided
+    if additional_analysts:
+        for analyst_email in additional_analysts:
+            if analyst_email and analyst_email != user["email"]:
+                if analyst_email not in participants:
+                    participants[analyst_email] = {"data_owner_of": set(), "analyst_of": set()}
+                # Add as analyst of the exploration script
+                participants[analyst_email]["analyst_of"].add("basic-data-exploration")
+                logging.info(f"Added {analyst_email} as additional analyst")
+
     for p_email, p_perm in participants.items():
         builder.add_participant(
             p_email,
@@ -705,6 +716,7 @@ async def create_live_compute_dcr(
     user: Any,
     client: Any,
     include_shuffled_samples: bool = True,
+    additional_analysts: list[str] = None,
 ) -> dict[str, Any]:
     """Create and publish a live compute DCR that is immediately available for use.
     
@@ -715,6 +727,8 @@ async def create_live_compute_dcr(
         cohorts_request: Dictionary with cohort IDs and requested variables
         user: User information dictionary with email
         client: Decentriq client instance
+        include_shuffled_samples: Whether to include shuffled sample data nodes
+        additional_analysts: List of email addresses to add as analysts
         include_shuffled_samples: Whether to include shuffled sample data nodes (default: True)
         
     Returns:
@@ -724,7 +738,7 @@ async def create_live_compute_dcr(
     logging.info(f"Starting live compute DCR creation for user {user['email']} at {start_time}")
     
     # Step 1: Create the DCR definition (reuse existing logic)
-    dcr_definition, dcr_title = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples)
+    dcr_definition, dcr_title = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, additional_analysts)
     
     # Step 2: Publish the DCR to Decentriq (similar to create_provision_dcr)
     logging.info(f"Publishing live compute DCR: {dcr_title}")
@@ -952,8 +966,11 @@ async def api_create_live_compute_dcr(
     # Extract include_shuffled_samples from request, default to True
     include_shuffled_samples = cohorts_request.get("include_shuffled_samples", True)
     
+    # Extract additional_analysts from request, default to empty list
+    additional_analysts = cohorts_request.get("additional_analysts", [])
+    
     # Create and publish the live compute DCR
-    return await create_live_compute_dcr(cohorts_request, user, client, include_shuffled_samples)
+    return await create_live_compute_dcr(cohorts_request, user, client, include_shuffled_samples, additional_analysts)
 
 
 @router.post(
