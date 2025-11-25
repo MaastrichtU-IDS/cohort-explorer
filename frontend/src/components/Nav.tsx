@@ -21,6 +21,9 @@ export function Nav() {
   const [loadingAction, setLoadingAction] = useState<'live' | 'config' | null>(null);
   const [includeShuffledSamples, setIncludeShuffledSamples] = useState(true);
   const [dcrMode, setDcrMode] = useState<'current' | 'future'>('current');
+  const [showParticipantsModal, setShowParticipantsModal] = useState(false);
+  const [additionalAnalysts, setAdditionalAnalysts] = useState<string[]>([]);
+  const [newAnalystEmail, setNewAnalystEmail] = useState('');
   // const [cleanRoomData, setCleanRoomData]: any = useState(null);
   // const cleanRoomData = JSON.parse(sessionStorage.getItem('dataCleanRoom') || '{"cohorts": []}');
   // const cohortsCount = cleanRoomData.cohorts.length;
@@ -137,7 +140,8 @@ export function Nav() {
         },
         body: JSON.stringify({
           ...dataCleanRoom,
-          include_shuffled_samples: includeShuffledSamples
+          include_shuffled_samples: includeShuffledSamples,
+          additional_analysts: additionalAnalysts
         })
       });
       
@@ -188,15 +192,6 @@ export function Nav() {
                 <span className="font-semibold">Cohorts with no shuffled samples:</span> {cohortsWithoutSamples.join(', ')}
               </p>
             )}
-            
-            <a 
-              href={result.dcr_url} 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="btn btn-sm btn-primary mt-2"
-            >
-              Open DCR in Decentriq →
-            </a>
           </div>
         ));
       } else {
@@ -221,6 +216,18 @@ export function Nav() {
     sessionStorage.setItem('dataCleanRoom', JSON.stringify({cohorts: {}}));
     setDataCleanRoom({cohorts: {}});
     setPublishedDCR(null);
+  };
+
+  const addAnalyst = () => {
+    const email = newAnalystEmail.trim();
+    if (email && !additionalAnalysts.includes(email) && email !== userEmail) {
+      setAdditionalAnalysts([...additionalAnalysts, email]);
+      setNewAnalystEmail('');
+    }
+  };
+
+  const removeAnalyst = (email: string) => {
+    setAdditionalAnalysts(additionalAnalysts.filter(e => e !== email));
   };
 
   return (
@@ -349,17 +356,28 @@ export function Nav() {
             
             {/* Checkbox for including shuffled samples - only visible in future mode */}
             {dcrMode === 'future' && (
-              <div className="form-control mt-4">
-                <label className="label cursor-pointer justify-start gap-3">
-                  <input 
-                    type="checkbox" 
-                    checked={includeShuffledSamples}
-                    onChange={(e) => setIncludeShuffledSamples(e.target.checked)}
-                    className="checkbox checkbox-primary" 
-                  />
-                  <span className="label-text">Incorporate shuffled samples</span>
-                </label>
-              </div>
+              <>
+                <div className="form-control mt-4">
+                  <label className="label cursor-pointer justify-start gap-3">
+                    <input 
+                      type="checkbox" 
+                      checked={includeShuffledSamples}
+                      onChange={(e) => setIncludeShuffledSamples(e.target.checked)}
+                      className="checkbox checkbox-primary" 
+                    />
+                    <span className="label-text">Incorporate shuffled samples</span>
+                  </label>
+                </div>
+                
+                <div className="form-control mt-2">
+                  <button 
+                    className="btn btn-sm btn-outline btn-secondary w-fit"
+                    onClick={() => setShowParticipantsModal(true)}
+                  >
+                    Manage DCR Participants ({1 + additionalAnalysts.length} users)
+                  </button>
+                </div>
+              </>
             )}
             
             <div className="modal-action flex flex-wrap justify-end gap-2 mt-4">
@@ -410,6 +428,75 @@ export function Nav() {
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+      
+      {/* Participants Management Modal */}
+      {showParticipantsModal && (
+        <div className="modal modal-open">
+          <div className="modal-box">
+            <h3 className="font-bold text-lg mb-4">DCR Participants</h3>
+            
+            <div className="space-y-4">
+              {/* Current user */}
+              <div className="bg-base-200 p-3 rounded-lg">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <p className="font-semibold">{userEmail}</p>
+                    <p className="text-sm text-gray-500">You (Creator & Analyst)</p>
+                  </div>
+                  <span className="badge badge-primary">Owner</span>
+                </div>
+              </div>
+              
+              {/* Additional analysts */}
+              {additionalAnalysts.length > 0 && (
+                <div>
+                  <h4 className="font-semibold mb-2">Additional Analysts</h4>
+                  {additionalAnalysts.map((email) => (
+                    <div key={email} className="bg-base-200 p-3 rounded-lg mb-2 flex justify-between items-center">
+                      <div>
+                        <p className="font-semibold">{email}</p>
+                        <p className="text-sm text-gray-500">Analyst</p>
+                      </div>
+                      <button 
+                        className="btn btn-sm btn-error btn-outline"
+                        onClick={() => removeAnalyst(email)}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              
+              {/* Add new analyst */}
+              <div className="divider">Add Analyst</div>
+              <div className="flex gap-2">
+                <input 
+                  type="email"
+                  placeholder="Enter email address"
+                  className="input input-bordered flex-1"
+                  value={newAnalystEmail}
+                  onChange={(e) => setNewAnalystEmail(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && addAnalyst()}
+                />
+                <button 
+                  className="btn btn-primary"
+                  onClick={addAnalyst}
+                  disabled={!newAnalystEmail.trim()}
+                >
+                  Invite Analyst
+                </button>
+              </div>
+            </div>
+            
+            <div className="modal-action">
+              <button className="btn" onClick={() => setShowParticipantsModal(false)}>
+                Done
+              </button>
+            </div>
           </div>
         </div>
       )}
