@@ -159,8 +159,20 @@ export function Nav() {
         
         setPublishedDCR((
           <div>
-            <p className="font-bold mb-2">✅ {result.message}</p>
-            <p className="mb-2">DCR ID: <code className="bg-base-200 px-2 py-1 rounded">{result.dcr_id}</code></p>
+            <p className="font-bold mb-4 text-lg">✅ {result.message}</p>
+            <div className="flex justify-center mb-4">
+              <a 
+                href={result.dcr_url} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="btn btn-lg btn-primary gap-2"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                </svg>
+                Go to the DCR on Decentriq's Platform
+              </a>
+            </div>
             <p className="mb-2">Title: {result.dcr_title}</p>
             <p className="mb-2">Cohorts: {result.num_cohorts}</p>
             <p className="mb-2">Metadata uploads: {result.metadata_uploads_successful}/{result.num_cohorts}</p>
@@ -353,14 +365,26 @@ export function Nav() {
             <div className="modal-action flex flex-wrap justify-end gap-2 mt-4">
                 {/* <div className="flex flex-wrap space-y-2"> */}
                 {dcrMode === 'future' && (
-                  <button className="btn btn-primary" onClick={createLiveDCR} disabled={isLoading}>
+                  <button 
+                    className="btn btn-primary" 
+                    onClick={createLiveDCR} 
+                    disabled={isLoading || publishedDCR}
+                  >
                     Create Live DCR
                   </button>
                 )}
-                <button className="btn btn-neutral" onClick={getDCRDefinitionFile} disabled={isLoading}>
+                <button 
+                  className="btn btn-neutral" 
+                  onClick={getDCRDefinitionFile} 
+                  disabled={isLoading || publishedDCR}
+                >
                   Download DCR Config
                 </button>
-                <button className="btn btn-error" onClick={clearCohortsList}>
+                <button 
+                  className="btn btn-error" 
+                  onClick={clearCohortsList}
+                  disabled={publishedDCR}
+                >
                   Clear cohorts
                 </button>
                 <button className="btn" onClick={() => setShowModal(false)}>
