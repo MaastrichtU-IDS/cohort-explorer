@@ -1,6 +1,6 @@
 'use client';
 
-import React, {useState, useEffect} from 'react';
+import React, {useState, useEffect, useMemo} from 'react';
 import Link from 'next/link';
 import {LogIn, LogOut, Compass, Upload, HardDrive, Map} from 'react-feather';
 import {useCohorts} from '@/components/CohortsContext';
@@ -230,7 +230,7 @@ export function Nav() {
     setAdditionalAnalysts(additionalAnalysts.filter(e => e !== email));
   };
 
-  const getDataOwners = () => {
+  const dataOwners = useMemo(() => {
     const owners = new Set<string>();
     if (dataCleanRoom?.cohorts && cohortsData) {
       Object.keys(dataCleanRoom.cohorts).forEach((cohortId) => {
@@ -245,7 +245,7 @@ export function Nav() {
       });
     }
     return Array.from(owners);
-  };
+  }, [dataCleanRoom?.cohorts, cohortsData, userEmail]);
 
   return (
     <div className="navbar bg-base-300 min-h-0 p-0">
@@ -467,10 +467,10 @@ export function Nav() {
             
             <div className="space-y-4">
               {/* Data owners */}
-              {getDataOwners().length > 0 && (
+              {dataOwners.length > 0 && (
                 <div>
                   <h4 className="font-semibold mb-2">Data Owners</h4>
-                  {getDataOwners().map((email) => (
+                  {dataOwners.map((email: string) => (
                     <div key={email} className="bg-base-200 p-3 rounded-lg mb-2">
                       <div>
                         <p className="font-semibold">{email}</p>
@@ -525,7 +525,7 @@ export function Nav() {
                   onClick={addAnalyst}
                   disabled={!newAnalystEmail.trim()}
                 >
-                  Invite Analyst
+                  Add Analyst
                 </button>
               </div>
             </div>

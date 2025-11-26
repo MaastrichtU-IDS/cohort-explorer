@@ -61,11 +61,7 @@ const CohortSummaryGraphs = React.memo(function CohortSummaryGraphs({ variables,
       (entries) => {
         entries.forEach((entry) => {
           if (entry.isIntersecting && !shouldRender) {
-            // Wait 0.5 seconds before rendering
-            const timer = setTimeout(() => {
-              setShouldRender(true);
-            }, 500);
-            return () => clearTimeout(timer);
+            setShouldRender(true);
           }
         });
       },
