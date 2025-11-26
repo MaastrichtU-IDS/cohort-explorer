@@ -390,8 +390,15 @@ export function Nav() {
                   <label className="label cursor-pointer justify-start gap-3">
                     <input 
                       type="checkbox" 
-                      checked={showParticipantsModal}
-                      onChange={(e) => setShowParticipantsModal(e.target.checked)}
+                      checked={showParticipantsModal || additionalAnalysts.length > 0}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setShowParticipantsModal(true);
+                        } else {
+                          setShowParticipantsModal(false);
+                          setAdditionalAnalysts([]);
+                        }
+                      }}
                       className="checkbox checkbox-primary" 
                     />
                     <span className="label-text">Add additional participants</span>
@@ -459,61 +466,54 @@ export function Nav() {
             <h3 className="font-bold text-lg mb-4">DCR Participants</h3>
             
             <div className="space-y-4">
-              {/* Current user */}
-              <div className="bg-base-200 p-3 rounded-lg">
-                <div className="flex justify-between items-center">
-                  <div>
-                    <p className="font-semibold">{userEmail}</p>
-                    <p className="text-sm text-gray-500">Creator & Analyst</p>
-                  </div>
-                  <span className="badge badge-primary">Owner</span>
-                </div>
-              </div>
-              
               {/* Data owners */}
               {getDataOwners().length > 0 && (
                 <div>
                   <h4 className="font-semibold mb-2">Data Owners</h4>
                   {getDataOwners().map((email) => (
                     <div key={email} className="bg-base-200 p-3 rounded-lg mb-2">
-                      <div className="flex justify-between items-center">
-                        <div>
-                          <p className="font-semibold">{email}</p>
-                          <p className="text-sm text-gray-500">Data Owner</p>
-                        </div>
-                        <span className="badge badge-info">Data Provider</span>
+                      <div>
+                        <p className="font-semibold">{email}</p>
+                        <p className="text-sm text-gray-500">Data Owner</p>
                       </div>
                     </div>
                   ))}
                 </div>
               )}
               
-              {/* Additional analysts */}
-              {additionalAnalysts.length > 0 && (
-                <div>
-                  <h4 className="font-semibold mb-2">Additional Analysts</h4>
-                  {additionalAnalysts.map((email) => (
-                    <div key={email} className="bg-base-200 p-3 rounded-lg mb-2 flex justify-between items-center">
-                      <div>
-                        <p className="font-semibold">{email}</p>
-                        <p className="text-sm text-gray-500">Analyst</p>
-                      </div>
-                      <button 
-                        className="btn btn-sm btn-error btn-outline"
-                        onClick={() => removeAnalyst(email)}
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  ))}
+              {/* Analysts */}
+              <div>
+                <h4 className="font-semibold mb-2">Analysts</h4>
+                {/* Current user */}
+                <div className="bg-base-200 p-3 rounded-lg mb-2">
+                  <div>
+                    <p className="font-semibold">{userEmail}</p>
+                    <p className="text-sm text-gray-500">Analyst</p>
+                  </div>
                 </div>
-              )}
+                
+                {/* Additional analysts */}
+                {additionalAnalysts.map((email) => (
+                  <div key={email} className="bg-base-200 p-3 rounded-lg mb-2 flex justify-between items-center">
+                    <div>
+                      <p className="font-semibold">{email}</p>
+                      <p className="text-sm text-gray-500">Analyst</p>
+                    </div>
+                    <button 
+                      className="btn btn-sm btn-error btn-outline"
+                      onClick={() => removeAnalyst(email)}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
               
               {/* Add new analyst */}
               <div className="divider">Add Analyst</div>
               <div className="flex gap-2">
                 <input 
-                  type="email"
+                  type="text"
                   placeholder="Enter email address"
                   className="input input-bordered flex-1"
                   value={newAnalystEmail}

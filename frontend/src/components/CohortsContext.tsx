@@ -203,10 +203,10 @@ export const CohortsProvider = ({children, useSparql = false}: {children: any, u
       const data = event.data;
       if (!data.detail && !data.error) {
         // Extract cohorts data (filter out metadata properties)
-        const { sparqlRows, sparqlMetadata, ...cohortsData } = data;
+        const { sparqlRows, sparqlMetadata, userEmail: fetchedUserEmail, ...cohortsData } = data;
         
         setCohortsData(cohortsData);
-        setUserEmail('loggedIn');
+        setUserEmail(fetchedUserEmail || 'loggedIn');
         setIsLoading(false);
         
         // Calculate metrics using only cohorts data

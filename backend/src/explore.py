@@ -33,10 +33,8 @@ def get_cohorts_metadata(summary: bool = False, user: Any = Depends(get_current_
         logging.info("Retrieving cohorts from cache")
         cohorts = get_cohorts_from_cache(user_email)
         if cohorts:
-            if not summary:
-                return cohorts
-            # Build summary payload (dicts without variables)
-            return {cid: {k: v for k, v in cohort_to_dict(c).items() if k != "variables"} for cid, c in cohorts.items()}
+            result = cohorts if not summary else {cid: {k: v for k, v in cohort_to_dict(c).items() if k != "variables"} for cid, c in cohorts.items()}
+            return {**result, "userEmail": user_email}
         logging.warning("Cache is initialized but empty, falling back to SPARQL queries")
     else:
         logging.info("Cache not initialized, falling back to SPARQL queries")
@@ -44,10 +42,8 @@ def get_cohorts_metadata(summary: bool = False, user: Any = Depends(get_current_
     # Fall back to SPARQL queries if cache is not available or empty
     cohorts = retrieve_cohorts_metadata(user_email)
     
-    if not summary:
-        return cohorts
-    # Build summary from SPARQL result
-    return {cid: {k: v for k, v in cohort_to_dict(c).items() if k != "variables"} for cid, c in cohorts.items()}
+    result = cohorts if not summary else {cid: {k: v for k, v in cohort_to_dict(c).items() if k != "variables"} for cid, c in cohorts.items()}
+    return {**result, "userEmail": user_email}
 
 
 @router.get("/cohort-eda-output/{cohort_name}")
@@ -107,6 +103,9 @@ def get_cohorts_metadata_sparql(summary: bool = False, user: Any = Depends(get_c
     logging.info("Retrieving cohorts using SPARQL queries (bypassing cache)")
     result = retrieve_cohorts_metadata(user_email, include_sparql_metadata=True)
     
+    # Add user email to result
+    result["userEmail"] = user_email
+    
     if not summary:
         return result
     
@@ -118,7 +117,9 @@ def get_cohorts_metadata_sparql(summary: bool = False, user: Any = Depends(get_c
         return result
     else:
         # If result is already a dict[str, Cohort]
-        return {cid: {k: v for k, v in cohort_to_dict(c).items() if k != "variables"} for cid, c in cohorts_full.items()}
+        summary_result = {cid: {k: v for k, v in cohort_to_dict(c).items() if k != "variables"} for cid, c in cohorts_full.items()}
+        summary_result["userEmail"] = user_email
+        return summary_result
 
 
 @router.get("/cohort-spreadsheet/{cohort_id}")
