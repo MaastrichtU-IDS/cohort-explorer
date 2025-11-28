@@ -230,7 +230,7 @@ export function Nav() {
     setAdditionalAnalysts(additionalAnalysts.filter(e => e !== email));
   };
 
-  const dataOwners = useMemo<Array<{email: string, cohorts: string[]}>>(() => {
+  const dataOwners: Array<{email: string, cohorts: string[]}> = useMemo(() => {
     const ownersMap: Map<string, string[]> = new Map();
     if (dataCleanRoom?.cohorts && cohortsData) {
       Object.keys(dataCleanRoom.cohorts).forEach((cohortId) => {
