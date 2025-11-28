@@ -387,6 +387,37 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
                     f'Row {i+2} (Variable: "{var_name_for_error}") has an invalid domain: "{row["DOMAIN"]}". Accepted domains: {", ".join(acc_domains)}.'
                 )
 
+            # Variable Concept Code Validation
+            if "VARIABLE CONCEPT CODE" in df.columns:
+                var_concept_code_str = str(row.get("VARIABLE CONCEPT CODE", "")).strip()
+                if var_concept_code_str and var_concept_code_str.lower() != "na":
+                    # Check for multiple codes separated by "|"
+                    if "|" in var_concept_code_str:
+                        errors.append(
+                            f"Row {i+2} (Variable: '{var_name_for_error}'): Multiple concept codes are not allowed in VARIABLE CONCEPT CODE. Found: '{var_concept_code_str}'. Please provide only one concept code."
+                        )
+                    else:
+                        # Validate the prefix
+                        try:
+                            expanded_uri = curie_converter.expand(var_concept_code_str)
+                            if not expanded_uri:
+                                errors.append(
+                                    f"Row {i+2} (Variable: '{var_name_for_error}'): The variable concept code '{var_concept_code_str}' is not valid or its prefix is not recognized. Valid prefixes: {', '.join([record['prefix'] + ':' for record in prefix_map if record.get('prefix')])}."
+                                )
+                        except Exception as curie_exc:
+                            errors.append(
+                                f"Row {i+2} (Variable: '{var_name_for_error}'): Error expanding CURIE '{var_concept_code_str}': {curie_exc}."
+                            )
+
+            # Additional Context Concept Name requires Variable Concept Name
+            if "ADDITIONAL CONTEXT CONCEPT NAME" in df.columns and "VARIABLE CONCEPT NAME" in df.columns:
+                additional_context_str = str(row.get("ADDITIONAL CONTEXT CONCEPT NAME", "")).strip()
+                var_concept_name_str = str(row.get("VARIABLE CONCEPT NAME", "")).strip()
+                if additional_context_str and additional_context_str.lower() != "na":
+                    if not var_concept_name_str or var_concept_name_str.lower() == "na":
+                        errors.append(
+                            f"Row {i+2} (Variable: '{var_name_for_error}'): ADDITIONAL CONTEXT CONCEPT NAME is provided ('{additional_context_str}'), but VARIABLE CONCEPT NAME is missing. "
+                        )
             # Handle "codes" columns validation (from 'categories' column created by parse_categorical_string)
             # Ensure 'categories' column exists and is a list before checking its length or content
             current_categories = row.get("categories")

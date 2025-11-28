@@ -230,21 +230,24 @@ export function Nav() {
     setAdditionalAnalysts(additionalAnalysts.filter(e => e !== email));
   };
 
-  const dataOwners = useMemo(() => {
-    const owners = new Set<string>();
+  const dataOwners = useMemo<Array<{email: string, cohorts: string[]}>>(() => {
+    const ownersMap: Map<string, string[]> = new Map();
     if (dataCleanRoom?.cohorts && cohortsData) {
       Object.keys(dataCleanRoom.cohorts).forEach((cohortId) => {
         const cohort = cohortsData[cohortId];
         if (cohort?.cohort_email) {
           cohort.cohort_email.forEach((email: string) => {
             if (email && email !== userEmail) {
-              owners.add(email);
+              if (!ownersMap.has(email)) {
+                ownersMap.set(email, []);
+              }
+              ownersMap.get(email)!.push(cohortId);
             }
           });
         }
       });
     }
-    return Array.from(owners);
+    return Array.from(ownersMap.entries()).map(([email, cohorts]) => ({ email, cohorts }));
   }, [dataCleanRoom?.cohorts, cohortsData, userEmail]);
 
   return (
@@ -470,11 +473,11 @@ export function Nav() {
               {dataOwners.length > 0 && (
                 <div>
                   <h4 className="font-semibold mb-2">Data Owners</h4>
-                  {dataOwners.map((email: string) => (
-                    <div key={email} className="bg-base-200 p-3 rounded-lg mb-2">
+                  {dataOwners.map((owner) => (
+                    <div key={owner.email} className="bg-base-200 p-3 rounded-lg mb-2">
                       <div>
-                        <p className="font-semibold">{email}</p>
-                        <p className="text-sm text-gray-500">Data Owner</p>
+                        <p className="font-semibold">{owner.email}</p>
+                        <p className="text-sm text-gray-500">Data Owner - {owner.cohorts.join(', ')}</p>
                       </div>
                     </div>
                   ))}
