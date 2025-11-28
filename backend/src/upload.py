@@ -256,6 +256,114 @@ cols_normalized = {"VARIABLE NAME": "VARIABLENAME",
 
 ACCEPTED_DATATYPES = ["STR", "FLOAT", "INT", "DATETIME"]
 
+def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
+    """Validate a metadata dictionary DataFrame and return a list of error messages.
+    
+    This function contains all validation logic and can be used during upload or report generation.
+    
+    Args:
+        df: DataFrame with normalized column names
+        cohort_id: Cohort identifier for error messages
+        
+    Returns:
+        List of error message strings
+    """
+    errors = []
+    
+    # Check for duplicate variables
+    duplicate_variables = df[df.duplicated(subset=["VARIABLENAME"], keep=False)]
+    if not duplicate_variables.empty:
+        errors.append(f"Duplicate VARIABLENAME found: {', '.join(duplicate_variables['VARIABLENAME'].unique())}")
+    
+    # Row-level validation
+    for i, row in df.iterrows():
+        var_name_for_error = row.get("VARIABLENAME", f"UNKNOWN_VAR_ROW_{i+2}")
+        
+        # Check if required values are present in rows
+        req_fields = ["VARIABLENAME", "VARIABLELABEL", "VARTYPE", "DOMAIN"]
+        for rf in req_fields:
+            if not str(row.get(rf, "")).strip():
+                errors.append(f"Row {i+2} (Variable: '{var_name_for_error}') is missing value for the required field: '{rf}'.")
+        
+        # Validate VARTYPE
+        if row.get("VARTYPE") and str(row["VARTYPE"]).upper() not in ACCEPTED_DATATYPES:
+            errors.append(
+                f"Row {i+2} (Variable: '{var_name_for_error}') has an invalid data type: '{row['VARTYPE']}'. Accepted types: {', '.join(ACCEPTED_DATATYPES)}."
+            )
+        
+        # Validate DOMAIN
+        acc_domains = ["condition_occurrence", "visit_occurrence", "procedure_occurrence", "measurement", "drug_exposure", "device_exposure", "person", "observation", "observation_period", "death", "specimen", "condition_era"]
+        if row.get('DOMAIN') and str(row['DOMAIN']).strip().lower() not in acc_domains:
+            errors.append(
+                f'Row {i+2} (Variable: "{var_name_for_error}") has an invalid domain: "{row["DOMAIN"]}". Accepted domains: {", ".join(acc_domains)}.'
+            )
+        
+        # Variable Concept Code Validation
+        if "VARIABLE CONCEPT CODE" in df.columns:
+            var_concept_code_str = str(row.get("VARIABLE CONCEPT CODE", "")).strip()
+            if var_concept_code_str and var_concept_code_str.lower() != "na":
+                # Check for multiple codes separated by "|"
+                if "|" in var_concept_code_str:
+                    errors.append(
+                        f"Row {i+2} (Variable: '{var_name_for_error}'): Multiple concept codes are not allowed in VARIABLE CONCEPT CODE. Found: '{var_concept_code_str}'. Please provide only one concept code."
+                    )
+                else:
+                    # Validate the prefix
+                    try:
+                        expanded_uri = curie_converter.expand(var_concept_code_str)
+                        if not expanded_uri:
+                            errors.append(
+                                f"Row {i+2} (Variable: '{var_name_for_error}'): The variable concept code '{var_concept_code_str}' is not valid or its prefix is not recognized. Valid prefixes: {', '.join([record['prefix'] + ':' for record in prefix_map if record.get('prefix')])}."
+                            )
+                    except Exception as curie_exc:
+                        errors.append(
+                            f"Row {i+2} (Variable: '{var_name_for_error}'): Error expanding CURIE '{var_concept_code_str}': {curie_exc}."
+                        )
+        
+        # Additional Context Concept Name requires Variable Concept Name
+        if "ADDITIONAL CONTEXT CONCEPT NAME" in df.columns and "VARIABLE CONCEPT NAME" in df.columns:
+            additional_context_str = str(row.get("ADDITIONAL CONTEXT CONCEPT NAME", "")).strip()
+            var_concept_name_str = str(row.get("VARIABLE CONCEPT NAME", "")).strip()
+            if additional_context_str and additional_context_str.lower() != "na":
+                if not var_concept_name_str or var_concept_name_str.lower() == "na":
+                    errors.append(
+                        f"Row {i+2} (Variable: '{var_name_for_error}'): ADDITIONAL CONTEXT CONCEPT NAME is provided ('{additional_context_str}'), but VARIABLE CONCEPT NAME is missing."
+                    )
+        
+        # Category Concept Code Validation
+        current_categories = row.get("categories")
+        if isinstance(current_categories, list):
+            if "CATEGORICAL VALUE CONCEPT CODE" in df.columns:
+                categories_codes_str = str(row.get("CATEGORICAL VALUE CONCEPT CODE", "")).strip()
+                if categories_codes_str:
+                    categories_codes = categories_codes_str.split("|")
+                    if len(categories_codes) != len(current_categories) and current_categories:
+                        errors.append(
+                            f"Row {i+2} (Variable: '{var_name_for_error}'): The number of category concept codes ({len(categories_codes)}) does not match the number of parsed categories ({len(current_categories)})."
+                        )
+                    else:
+                        for idx, category_data in enumerate(current_categories):
+                            if idx < len(categories_codes):
+                                code_to_check = categories_codes[idx].strip()
+                                if code_to_check and code_to_check.lower() != "na":
+                                    try:
+                                        expanded_uri = curie_converter.expand(code_to_check)
+                                        if not expanded_uri:
+                                            errors.append(
+                                                f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_data['value']}'): The category concept code '{code_to_check}' is not valid or its prefix is not recognized. Valid prefixes: {', '.join([record['prefix'] + ':' for record in prefix_map if record.get('prefix')])}."
+                                            )
+                                    except Exception as curie_exc:
+                                        errors.append(
+                                            f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_data['value']}'): Error expanding CURIE '{code_to_check}': {curie_exc}."
+                                        )
+        elif row.get("CATEGORICAL") and not isinstance(current_categories, list):
+            errors.append(
+                f"Row {i+2} (Variable: '{var_name_for_error}') has an invalid category: '{row['CATEGORICAL']}'."
+            )
+    
+    return errors
+
+
 def to_camelcase(s: str) -> str:
     # Special case mappings for variable concept fields
     special_mappings = {
@@ -363,103 +471,9 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
         df["VARTYPE"] = df.apply(lambda row: str(row["VARTYPE"]).upper(), axis=1)
 
         # --- Content Validation: DataFrame-level and Row-level ---
-        duplicate_variables = df[df.duplicated(subset=["VARIABLENAME"], keep=False)]
-        if not duplicate_variables.empty:
-            errors.append(f"Duplicate VARIABLENAME found: {', '.join(duplicate_variables['VARIABLENAME'].unique())}")
-
-        for i, row in df.iterrows():
-            var_name_for_error = row.get("VARIABLENAME", f"UNKNOWN_VAR_ROW_{i+2}")
-
-            # Check if required values are present in rows (for critical columns)
-            req_fields = ["VARIABLENAME", "VARIABLELABEL", "VARTYPE", "DOMAIN"]
-            for rf in req_fields:
-                if not row[rf].strip():
-                    errors.append(f"Row {i+2} (Variable: '{var_name_for_error}') is missing value for the required field: '{rf}'.")
-            
-            if row["VARTYPE"] not in ACCEPTED_DATATYPES:
-                errors.append(
-                    f"Row {i+2} (Variable: '{var_name_for_error}') has an invalid data type: '{row['VARTYPE']}'. Accepted types: {', '.join(ACCEPTED_DATATYPES)}."
-                )
-
-            acc_domains = ["condition_occurrence", "visit_occurrence", "procedure_occurrence", "measurement", "drug_exposure", "device_exposure", "person", "observation", "observation_period", "death", "specimen", "condition_era"]
-            if row['DOMAIN'].strip().lower() not in acc_domains:
-                errors.append(
-                    f'Row {i+2} (Variable: "{var_name_for_error}") has an invalid domain: "{row["DOMAIN"]}". Accepted domains: {", ".join(acc_domains)}.'
-                )
-
-            # Variable Concept Code Validation
-            if "VARIABLE CONCEPT CODE" in df.columns:
-                var_concept_code_str = str(row.get("VARIABLE CONCEPT CODE", "")).strip()
-                if var_concept_code_str and var_concept_code_str.lower() != "na":
-                    # Check for multiple codes separated by "|"
-                    if "|" in var_concept_code_str:
-                        errors.append(
-                            f"Row {i+2} (Variable: '{var_name_for_error}'): Multiple concept codes are not allowed in VARIABLE CONCEPT CODE. Found: '{var_concept_code_str}'. Please provide only one concept code."
-                        )
-                    else:
-                        # Validate the prefix
-                        try:
-                            expanded_uri = curie_converter.expand(var_concept_code_str)
-                            if not expanded_uri:
-                                errors.append(
-                                    f"Row {i+2} (Variable: '{var_name_for_error}'): The variable concept code '{var_concept_code_str}' is not valid or its prefix is not recognized. Valid prefixes: {', '.join([record['prefix'] + ':' for record in prefix_map if record.get('prefix')])}."
-                                )
-                        except Exception as curie_exc:
-                            errors.append(
-                                f"Row {i+2} (Variable: '{var_name_for_error}'): Error expanding CURIE '{var_concept_code_str}': {curie_exc}."
-                            )
-
-            # Additional Context Concept Name requires Variable Concept Name
-            if "ADDITIONAL CONTEXT CONCEPT NAME" in df.columns and "VARIABLE CONCEPT NAME" in df.columns:
-                additional_context_str = str(row.get("ADDITIONAL CONTEXT CONCEPT NAME", "")).strip()
-                var_concept_name_str = str(row.get("VARIABLE CONCEPT NAME", "")).strip()
-                if additional_context_str and additional_context_str.lower() != "na":
-                    if not var_concept_name_str or var_concept_name_str.lower() == "na":
-                        errors.append(
-                            f"Row {i+2} (Variable: '{var_name_for_error}'): ADDITIONAL CONTEXT CONCEPT NAME is provided ('{additional_context_str}'), but VARIABLE CONCEPT NAME is missing. "
-                        )
-            # Handle "codes" columns validation (from 'categories' column created by parse_categorical_string)
-            # Ensure 'categories' column exists and is a list before checking its length or content
-            current_categories = row.get("categories")
-            if isinstance(current_categories, list):
-                #if len(current_categories) == 1:
-                #    errors.append(
-                #        f"Row {i+2} (Variable: '{var_name_for_error}') has only one category defined: '{current_categories[0]['value']}'. Categorical variables should have at least two distinct categories or be left blank if not applicable."
-                #    )
-                
-                # Category Concept Code Validation (if 'Categorical Value Concept Code' column exists)
-                # This column is not in COLUMNS_LIST, so it's optional.
-                if "CATEGORICAL VALUE CONCEPT CODE" in df.columns: # Check against normalized column name
-                    categories_codes_str = str(row.get("CATEGORICAL VALUE CONCEPT CODE", "")).strip()
-                    if categories_codes_str: # Only process if there's content
-                        categories_codes = categories_codes_str.split("|")
-                        if len(categories_codes) != len(current_categories) and current_categories: # check if categories were successfully parsed
-                             errors.append(
-                                 f"Row {i+2} (Variable: '{var_name_for_error}'): The number of category concept codes ({len(categories_codes)}) does not match the number of parsed categories ({len(current_categories)})."
-                             )
-                        else: 
-                            for idx, category_data in enumerate(current_categories):
-                                if idx < len(categories_codes):
-                                    code_to_check = categories_codes[idx].strip()
-                                    if code_to_check and code_to_check.lower() != "na":
-                                        try:
-                                            # Another temp fix just for TIM-HF!!
-                                            #if code_to_check.find(":") == -1:
-                                            #    code_to_check = code_to_check.replace("OMOP", "OMOP:")
-                                            expanded_uri = curie_converter.expand(code_to_check)
-                                            if not expanded_uri:
-                                                errors.append(
-                                                    f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_data['value']}'): The category concept code '{code_to_check}' is not valid or its prefix is not recognized. Valid prefixes: {', '.join([record['prefix'] + ':' for record in prefix_map if record.get('prefix')])}."
-                                                )
-                                        except Exception as curie_exc:
-                                            errors.append(
-                                                f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_data['value']}'): Error expanding CURIE '{code_to_check}': {curie_exc}."
-                                            )
-            elif row.get("CATEGORICAL") and not isinstance(current_categories, list): # If original CATEGORICAL had content but parsing failed (already logged by parse_categorical_string's own exception if it was fatal)
-                 # This case might be covered if parse_categorical_string added its own error to the 'errors' list already
-                 errors.append(
-                     f"Row {i+2} (Variable: '{var_name_for_error}') has an invalid category: '{row['CATEGORICAL']}'."
-                 )
+        # Use centralized validation function
+        validation_errors = validate_metadata_dataframe(df, cohort_id)
+        errors.extend(validation_errors)
 
 
         # --- Final Error Check & Graph Generation ---
@@ -679,18 +693,18 @@ async def generate_metadata_issues_report():
             if missing_columns:
                 errors.append(f"Missing required columns: {', '.join(missing_columns)}")
             
-            # Check for duplicate variables
-            duplicate_variables = df[df.duplicated(subset=["VARIABLENAME"], keep=False)]
-            if not duplicate_variables.empty:
-                errors.append(f"Duplicate VARIABLENAME found: {', '.join(duplicate_variables['VARIABLENAME'].unique())}")
+            # Parse categories for validation
+            try:
+                df["categories"] = df["CATEGORICAL"].apply(parse_categorical_string)
+            except:
+                pass  # If parsing fails, validation will catch it
             
-            # Check for empty required fields
-            req_fields = ["VARIABLENAME", "VARIABLELABEL", "VARTYPE", "DOMAIN"]
-            for i, row in df.iterrows():
-                var_name = row.get("VARIABLENAME", f"UNKNOWN_VAR_ROW_{i+2}")
-                for rf in req_fields:
-                    if rf in row and not str(row[rf]).strip():
-                        errors.append(f"Row {i+2} (Variable: '{var_name}') is missing value for required field: '{rf}'")
+            # Uppercase VARTYPE for validation
+            df["VARTYPE"] = df.apply(lambda row: str(row.get("VARTYPE", "")).upper(), axis=1)
+            
+            # Use centralized validation function
+            validation_errors = validate_metadata_dataframe(df, cohort_id)
+            errors.extend(validation_errors)
             
             # Write results
             if errors:
