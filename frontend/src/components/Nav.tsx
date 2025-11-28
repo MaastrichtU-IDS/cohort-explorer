@@ -230,24 +230,24 @@ export function Nav() {
     setAdditionalAnalysts(additionalAnalysts.filter(e => e !== email));
   };
 
-  const dataOwners: Array<{email: string, cohorts: string[]}> = useMemo(() => {
-    const ownersMap: Map<string, string[]> = new Map();
+  const dataOwners = useMemo(() => {
+    const ownersMap: Record<string, string[]> = {};
     if (dataCleanRoom?.cohorts && cohortsData) {
       Object.keys(dataCleanRoom.cohorts).forEach((cohortId) => {
         const cohort = cohortsData[cohortId];
         if (cohort?.cohort_email) {
           cohort.cohort_email.forEach((email: string) => {
             if (email && email !== userEmail) {
-              if (!ownersMap.has(email)) {
-                ownersMap.set(email, []);
+              if (!ownersMap[email]) {
+                ownersMap[email] = [];
               }
-              ownersMap.get(email)!.push(cohortId);
+              ownersMap[email].push(cohortId);
             }
           });
         }
       });
     }
-    return Array.from(ownersMap.entries()).map(([email, cohorts]) => ({ email, cohorts }));
+    return Object.entries(ownersMap).map(([email, cohorts]) => ({ email, cohorts }));
   }, [dataCleanRoom?.cohorts, cohortsData, userEmail]);
 
   return (
