@@ -308,9 +308,10 @@ def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
                         f"Row {i+2} (Variable: '{var_name_for_error}'): Multiple concept codes are not allowed in VARIABLE CONCEPT CODE. Found: '{var_concept_code_str}'. Please provide only one concept code."
                     )
                 else:
-                    # Validate the prefix
+                    # Validate the prefix (normalize to lowercase)
                     try:
-                        expanded_uri = curie_converter.expand(var_concept_code_str)
+                        normalized_code = var_concept_code_str.lower()
+                        expanded_uri = curie_converter.expand(normalized_code)
                         if not expanded_uri:
                             errors.append(
                                 f"Row {i+2} (Variable: '{var_name_for_error}'): The variable concept code '{var_concept_code_str}' is not valid or its prefix is not recognized. Valid prefixes: {', '.join([record['prefix'] + ':' for record in prefix_map if record.get('prefix')])}."
@@ -347,7 +348,9 @@ def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
                                 code_to_check = categories_codes[idx].strip()
                                 if code_to_check and code_to_check.lower() != "na":
                                     try:
-                                        expanded_uri = curie_converter.expand(code_to_check)
+                                        # Normalize to lowercase before validation
+                                        normalized_code = code_to_check.lower()
+                                        expanded_uri = curie_converter.expand(normalized_code)
                                         if not expanded_uri:
                                             errors.append(
                                                 f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_data['value']}'): The category concept code '{code_to_check}' is not valid or its prefix is not recognized. Valid prefixes: {', '.join([record['prefix'] + ':' for record in prefix_map if record.get('prefix')])}."
