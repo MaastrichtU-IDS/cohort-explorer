@@ -823,6 +823,43 @@ async def clear_cohort_cache(
 
 
 @router.post(
+    "/refresh-cache",
+    name="Refresh the cohort cache from triplestore",
+    response_description="Cache refresh result",
+)
+async def refresh_cohort_cache(
+    user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Regenerate the cohort cache from the triplestore. Admins only.
+    
+    This endpoint forces a complete refresh of the cache by re-reading all cohort
+    metadata from the triplestore. Useful when the cache gets out of sync or after
+    manual changes to the triplestore.
+    """
+    user_email = user["email"]
+    if user_email not in settings.admins_list:
+        raise HTTPException(status_code=403, detail="You need to be admin to perform this action.")
+    
+    from src.cohort_cache import initialize_cache_from_triplestore
+    
+    try:
+        # Force refresh the cache from triplestore
+        initialize_cache_from_triplestore(user_email, force_refresh=True)
+        
+        logging.info(f"Cache refreshed from triplestore by admin user {user_email}")
+        return {
+            "message": "Cache has been successfully refreshed from the triplestore.",
+            "refreshed_by": user_email
+        }
+    except Exception as e:
+        logging.error(f"Error refreshing cache: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to refresh cache: {str(e)}"
+        )
+
+
+@router.post(
     "/delete-cohort",
     name="Delete a cohort from the database",
     response_description="Delete result",
