@@ -622,20 +622,38 @@ def get_cohorts_from_cache(user_email: str) -> Dict[str, Cohort]:
     
     # Create a copy of the cache with updated can_edit fields
     result = {}
+    # Normalize user email to lowercase for case-insensitive comparison
+    user_email_lower = user_email.lower() if user_email else ""
+    
     for cohort_id, cohort in _cohorts_cache.items():
         # Create a copy of the cohort
         cohort_copy = dict_to_cohort(cohort_to_dict(cohort))
         
-        # Debug logging for permission issues
-        is_admin = user_email in settings.admins_list
-        is_cohort_owner = user_email in cohort_copy.cohort_email
-        cohort_copy.can_edit = is_admin or is_cohort_owner
+        # Check permissions - user can edit if they are:
+        # 1. Global admin
+        # 2. In cohort_email list (data owners)
+        # 3. Administrator email
+        # 4. Study contact person email
+        is_admin = user_email_lower in settings.admins_list
+        is_cohort_owner = user_email_lower in cohort_copy.cohort_email
+        is_administrator = cohort_copy.administrator_email and user_email_lower == cohort_copy.administrator_email.lower()
+        is_contact_person = cohort_copy.study_contact_person_email and user_email_lower == cohort_copy.study_contact_person_email.lower()
         
-        if not cohort_copy.can_edit and user_email in [*settings.admins_list, *cohort_copy.cohort_email]:
+        cohort_copy.can_edit = is_admin or is_cohort_owner or is_administrator or is_contact_person
+        
+        # Debug logging if user should have access but doesn't
+        should_have_access = user_email_lower in [*settings.admins_list, *cohort_copy.cohort_email] or \
+                            (cohort_copy.administrator_email and user_email_lower == cohort_copy.administrator_email.lower()) or \
+                            (cohort_copy.study_contact_person_email and user_email_lower == cohort_copy.study_contact_person_email.lower())
+        
+        if not cohort_copy.can_edit and should_have_access:
             logging.warning(
-                f"Permission issue for user {user_email} on cohort {cohort_id}. "
+                f"Permission issue for user {user_email_lower} on cohort {cohort_id}. "
                 f"is_admin: {is_admin}, is_cohort_owner: {is_cohort_owner}, "
-                f"cohort_emails: {cohort_copy.cohort_email}"
+                f"is_administrator: {is_administrator}, is_contact_person: {is_contact_person}, "
+                f"cohort_emails: {cohort_copy.cohort_email}, "
+                f"administrator_email: {cohort_copy.administrator_email}, "
+                f"study_contact_person_email: {cohort_copy.study_contact_person_email}"
             )
         
         result[cohort_id] = cohort_copy
