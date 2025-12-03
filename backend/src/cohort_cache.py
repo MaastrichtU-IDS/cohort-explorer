@@ -533,22 +533,29 @@ def initialize_cache_from_triplestore(admin_email: str | None = None, force_refr
     lock_file = None
     try:
         lock_file = open(lock_file_path, 'w')
-        # Try to acquire exclusive lock with timeout (non-blocking)
-        try:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            logging.info("Acquired cache initialization lock, starting initialization...")
-        except IOError:
-            # Another process is initializing, wait for it to finish
-            logging.info("Another worker is initializing cache, waiting...")
-            max_wait = 600  # Wait up to 10 minutes
-            start_wait = time.time()
-            while time.time() - start_wait < max_wait:
-                time.sleep(2)
-                if _cache_initialized or is_cache_initialized():
-                    logging.info("Cache initialized by another worker")
-                    return
-            logging.warning("Timeout waiting for cache initialization by another worker")
-            return
+        # Try to acquire exclusive lock
+        if force_refresh:
+            # For force refresh, wait for the lock (blocking) to ensure we actually refresh
+            logging.info("Force refresh requested, waiting for lock if needed...")
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            logging.info("Acquired cache initialization lock for force refresh, starting initialization...")
+        else:
+            # For normal initialization, try non-blocking
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                logging.info("Acquired cache initialization lock, starting initialization...")
+            except IOError:
+                # Another process is initializing, wait for it to finish
+                logging.info("Another worker is initializing cache, waiting...")
+                max_wait = 600  # Wait up to 10 minutes
+                start_wait = time.time()
+                while time.time() - start_wait < max_wait:
+                    time.sleep(2)
+                    if _cache_initialized or is_cache_initialized():
+                        logging.info("Cache initialized by another worker")
+                        return
+                logging.warning("Timeout waiting for cache initialization by another worker")
+                return
         
         # Clear the cache before initialization
         clear_cache()
