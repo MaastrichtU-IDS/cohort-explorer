@@ -533,8 +533,8 @@ def _graph_vector_matches(
         if reachable:
             matched = set(reachable)
         else:
-            # score = 0.65 if category in {"drug_exposure", "drug_era"} else 0.7
-            score = 0.65
+            score = 0.65 if category in {"drug_exposure", "drug_era"} else 0.8
+            # score = 0.65
             matched = set(
                 search_in_db(
                     vectordb=vector_db,
@@ -1041,8 +1041,8 @@ def _cross_category_matches(
             matched_omops = embed_cache[cache_key]
         else:
             # You had 0.65 as default score; keep that
-            score = 0.65
-           # score = 0.65 if s_category in {"drug_exposure", "drug_era"} else 0.85
+            score = 0.8
+            # score = 0.65 if s_cat in {"drug_exposure", "drug_era"} else 0.8
 
             # We allow matches to any of the CROSS_CATS in the target
             matched_omops = search_in_db(
