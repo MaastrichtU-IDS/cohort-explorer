@@ -51,7 +51,7 @@ DERIVED_VARIABLES_LIST= [
 
 def check_visit_string(visit_str_src: str, visit_str_tgt:str) -> str:
     # if src or tgt visit string contains any of the time hints, return the value of the visit that is not in time hint
-    print(f"Checking visit strings: src='{visit_str_src}', tgt='{visit_str_tgt}'")
+    # print(f"Checking visit strings: src='{visit_str_src}', tgt='{visit_str_tgt}'")
     for hint in DATE_HINTS:
         if hint in visit_str_src.lower():
             return visit_str_tgt
@@ -523,16 +523,18 @@ def _graph_vector_matches(
         label = s_elems[0]["code_label"]
         reachable = None
         if category in {"drug_exposure", "drug_era"}:
-            reachable = graph.bfs_bidirectional_reachable(sid, tgt_ids, max_depth=3)
+            reachable = graph.bfs_bidirectional_reachable(sid, tgt_ids, max_depth=2, domain ='drug')
+            
         elif category in {"condition_occurrence", "condition_era"}:
-            reachable = graph.bfs_bidirectional_reachable(sid, tgt_ids, max_depth=2)
+            reachable = graph.bfs_bidirectional_reachable(sid, tgt_ids, max_depth=2, domain ='condition')
         elif category in { "measurement", "procedure_occurrence", "observation", "device_exposure", "visit_occurrence", "specimen"}:
             reachable = graph.only_upward_or_downward(sid, tgt_ids, max_depth=1)
 
         if reachable:
             matched = set(reachable)
         else:
-            score = 0.7 if category in {"drug_exposure", "drug_era"} else 0.85
+            # score = 0.65 if category in {"drug_exposure", "drug_era"} else 0.7
+            score = 0.65
             matched = set(
                 search_in_db(
                     vectordb=vector_db,
@@ -575,7 +577,8 @@ def _graph_vector_matches(
     return final
 
 
-def fetch_variables_statistics(var_names_list:list[str], study_name:str) -> pd.DataFrame:
+
+def fetch_variables_statistic_type(var_names_list:list[str], study_name:str) -> pd.DataFrame:
 
     data_dict = []
     # split var_names_list with 
@@ -644,6 +647,94 @@ def fetch_variables_statistics(var_names_list:list[str], study_name:str) -> pd.D
                 ORDER BY ?identifier
 
         """
+        # print(query)
+        sparql = SPARQLWrapper(settings.query_endpoint)
+        sparql.setQuery(query)
+        sparql.setReturnFormat(JSON)
+        results = sparql.query().convert()
+        
+        for result in results["results"]["bindings"]:
+            identifier = result['identifier']['value']
+            if identifier in var_names_list:
+                data_dict.append({
+                    'identifier': identifier,
+                    'stat_label': result['stat_label']['value'] if 'stat_label' in result else None,
+                    'unit_label': result['unit_label']['value'] if 'unit_label' in result else None,
+                    'data_type': result['data_type_val']['value'] if 'data_type_val' in result else None,
+                    "categories_labels": result['all_cat_labels']['value'] if 'all_cat_labels' in result else None,
+                    'original_categories': result['all_original_cat_values']['value'] if 'all_original_cat_values' in result else None
+                })
+    data_dict = pd.DataFrame.from_dict(data_dict)
+    # print(f"head of data dict: {data_dict.head()}")
+    return data_dict
+
+
+
+
+def fetch_variables_eda(var_names_list:list[str], study_name:str) -> pd.DataFrame:
+
+    data_dict = []
+    # split var_names_list with 
+    # make multiple lists by having 30 items in each list
+    var_names_list_ = [var_names_list[i:i + 50] for i in range(0, len(var_names_list), 50)]
+    # print(f"length of var_names_list: {len(var_names_list_)}")
+    for var_list in var_names_list_:
+        values_str = " ".join(f'"{v}"' for v in var_list)
+        query = f"""
+            PREFIX rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+            PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+            PREFIX dc:   <http://purl.org/dc/elements/1.1/>
+            PREFIX obi:  <http://purl.obolibrary.org/obo/obi.owl/>
+            PREFIX cmeo: <https://w3id.org/CMEO/>
+            PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
+            PREFIX iao: <http://purl.obolibrary.org/obo/iao.owl/>
+            PREFIX stato: <http://purl.obolibrary.org/obo/stato.owl/>
+            SELECT DISTINCT
+                ?identifier
+                ?stat_label
+                GROUP_CONCAT(DISTINCT ?statistic_part; separator=";") AS ?all_statistic_parts
+                GROUP_CONCAT(DISTINCT ?stat_value; separator="; ") AS ?all_stat_values
+                
+
+                WHERE {{
+                GRAPH <https://w3id.org/CMEO/graph/{study_name}> {{
+                
+                    # Input: dc:identifier values
+                    VALUES ?identifier {{ {values_str}}}
+
+                    ?dataElement dc:identifier ?identifier .
+
+                    # Optional: Statistical description
+                    OPTIONAL {{
+                    ?dataElement iao:is_denoted_by ?stat .
+                    ?stat cmeo:has_value ?stat_label.
+                    
+                    ?dataset iao:is_about  ?stat.
+                       obi:is_specified_input_of ?eda_process.
+                    ?eda_process a cmeo:exploratory_data_analysis ;
+                        obi:has_specified_output ?eda_output.
+                    
+                    ?eda_output a stato:statistic.
+                    
+                    
+                       OPTIONAL {{
+
+                               ?eda_output  ro:has_part ?statistic_part.
+                                 ?statistic_part cmeo:has_value ?stat_value.
+                           
+                           }}
+                    
+                    
+                      
+                    
+                    }}
+                   
+                }}
+                }}
+                GROUP BY ?identifier ?stat_label
+                ORDER BY ?identifier
+
+        """
         print(query)
         sparql = SPARQLWrapper(settings.query_endpoint)
         sparql.setQuery(query)
@@ -667,11 +758,14 @@ def fetch_variables_statistics(var_names_list:list[str], study_name:str) -> pd.D
 
 
 
+
 def _attach_statistics(
     df: pd.DataFrame, source_vars: List[str], target_vars: List[str], src_study: str, tgt_study: str
 ) -> pd.DataFrame:
-    src_stats = fetch_variables_statistics(source_vars, src_study)
-    tgt_stats = fetch_variables_statistics(target_vars, tgt_study)
+    src_stats = fetch_variables_statistic_type(source_vars, src_study)
+    tgt_stats = fetch_variables_statistic_type(target_vars, tgt_study)
+    # src_eda = fetch_variables_eda(source_vars, src_study)
+    # print(src_eda.head(3))
 
     if not src_stats.empty and "identifier" in src_stats.columns:
         df = df.merge(
@@ -707,11 +801,170 @@ def _attach_statistics(
     )
     return df
 
+# def _cross_category_matches(
+#     source_elements: List[Dict[str, Any]],
+#     target_elements: List[Dict[str, Any]],
+#     target_study: str,
+#     vector_db: Any,
+#     embedding_model: Any,
+#     collection_name: str,
+# ) -> Iterable[Dict[str, Any]]:
+#     """
+#     Generate cross-category pairings that share the same ``omop_id`` and visit
+#     (code match), then additionally semantic label matches across categories
+#     using the embedding search.
+
+#     Much cheaper than the original version:
+#     - Exact matches: uses indexed lookups.
+#     - Embedding stage: at most one search_in_db per (source_label, source_category).
+#     """
+#     # Categories where cross-category makes sense
+#     CROSS_CATS = {
+#         "measurement",
+#         "observation",
+#         "condition_occurrence",
+#         "condition_era",
+#         "observation_period",
+#     }
+
+#     # -----------------------------
+#     # 1. Exact cross-category code matches (same omop_id & visit)
+#     # -----------------------------
+#     src_index: Dict[tuple[int, str], List[Dict[str, Any]]] = defaultdict(list)
+#     tgt_index: Dict[tuple[int, str], List[Dict[str, Any]]] = defaultdict(list)
+
+#     # Index source by (omop_id, normalized_visit)
+#     for s in source_elements:
+#         visit_norm = s["visit"]
+#         key = (s["omop_id"], visit_norm)
+#         src_index[key].append(s)
+
+#     # Index target by (omop_id, normalized_visit)
+#     for t in target_elements:
+#         visit_norm = t["visit"]
+#         key = (t["omop_id"], visit_norm)
+#         tgt_index[key].append(t)
+
+#     # Yield code matches where both categories are in CROSS_CATS
+#     for key, src_list in src_index.items():
+#         if key not in tgt_index:
+#             continue
+#         tgt_list = tgt_index[key]
+#         _, visit_norm = key
+
+#         for s in src_list:
+#             s_cat = s["category"].strip().lower()
+#             if s_cat not in CROSS_CATS:
+#                 continue
+
+#             for t in tgt_list:
+#                 t_cat = t["category"].strip().lower()
+#                 if t_cat not in CROSS_CATS:
+#                     continue
+
+#                 # Same normalized visit already enforced by key, but recheck if you want:
+#                 svisit = check_visit_string(s["visit"], t["visit"])
+#                 tvisit = check_visit_string(t["visit"], s["visit"])
+#                 if svisit != tvisit:
+#                     continue
+
+#                 yield {
+#                     "source": s["source"],
+#                     "target": t["target"],
+#                     "somop_id": s["omop_id"],
+#                     "tomop_id": t["omop_id"],
+#                     "scode": s["code"],
+#                     "slabel": s["code_label"],
+#                     "tcode": t["code"],
+#                     "tlabel": t["code_label"],
+#                     "category": f"{s['category']}|{t['category']}",
+#                     "mapping type": "code match",
+#                     "source_visit": s["visit"],
+#                     "target_visit": t["visit"],
+#                 }
+
+#     # -----------------------------
+#     # 2. Semantic label matches across categories using embeddings
+#     #    (no nested source×target search_in_db)
+#     # -----------------------------
+
+#     # Index targets by omop_id for quick lookup
+#     targets_by_omop: Dict[int, List[Dict[str, Any]]] = defaultdict(list)
+#     for t in target_elements:
+#         targets_by_omop[t["omop_id"]].append(t)
+
+#     # Cache embedding results per (source_label, source_category)
+#     embed_cache: Dict[tuple[str, str], set[int]] = {}
+
+#     for s in source_elements:
+#         s_label = s["code_label"]
+#         s_cat = s["category"].strip().lower()
+
+#         # Only bother for relevant categories
+#         if s_cat not in CROSS_CATS:
+#             continue
+
+#         cache_key = (s_label, s_cat)
+#         if cache_key in embed_cache:
+#             matched_omops = embed_cache[cache_key]
+#         else:
+#             # You had 0.65 as default score; keep that
+#             score = 0.65
+#            # score = 0.65 if s_category in {"drug_exposure", "drug_era"} else 0.85
+
+#             # We allow matches to any of the CROSS_CATS in the target
+#             matched_omops = set(
+#                 search_in_db(
+#                     vectordb=vector_db,
+#                     embedding_model=embedding_model,
+#                     query_text=s_label,
+#                     target_study=target_study,
+#                     limit=100,
+#                     omop_domain=list(CROSS_CATS),
+#                     min_score=score,
+#                     collection_name=collection_name,
+#                 )
+#             )
+#             embed_cache[cache_key] = matched_omops
+
+#         if not matched_omops:
+#             continue
+
+#         for omop_id in matched_omops:
+#             for t in targets_by_omop.get(omop_id, []):
+#                 t_cat = t["category"].strip().lower()
+#                 if t_cat not in CROSS_CATS:
+#                     continue
+
+#                 # Visit constraint
+#                 svisit = check_visit_string(s["visit"], t["visit"])
+#                 tvisit = check_visit_string(t["visit"], s["visit"])
+#                 if svisit != tvisit:
+#                     continue
+
+#                 yield {
+#                     "source": s["source"],
+#                     "target": t["target"],
+#                     "somop_id": s["omop_id"],
+#                     "tomop_id": t["omop_id"],
+#                     "scode": s["code"],
+#                     "slabel": s["code_label"],
+#                     "tcode": t["code"],
+#                     "tlabel": t["code_label"],
+#                     "category": f"{s['category']}|{t['category']}",
+#                     "mapping type": "semantic label match",
+#                     "source_visit": s["visit"],
+#                     "target_visit": t["visit"],
+#                 }
 
 
 def _cross_category_matches(
     source_elements: List[Dict[str, Any]],
-    target_elements: List[Dict[str, Any]]
+    target_elements: List[Dict[str, Any]],
+    target_study: str,
+    vector_db: Any,
+    embedding_model: Any,
+    collection_name: str,
 ) -> Iterable[Dict[str, Any]]:
     """Generate cross‑category pairings that share the same ``omop_id`` **and** visit.
 
@@ -726,6 +979,13 @@ def _cross_category_matches(
         New mapping dictionaries labelled ``cross‑category exact match``.
     """
     # final: List[Dict[str, Any]] = []
+    CROSS_CATS = {
+        "measurement",
+        "observation",
+        "condition_occurrence",
+        "condition_era",
+        "observation_period",
+    }
     src_index: Dict[tuple, List[Dict[str, Any]]] = defaultdict(list)
 
     for s in source_elements:
@@ -760,7 +1020,73 @@ def _cross_category_matches(
                         "target_visit":  t['visit'],
                     }
                     
+    # ALSO CHECK SEMANTIC SIMILARITY ACROSS CATEGORIES IF NO EXACT MATCHES FOUND USING EMBEDDING SEARCH
+    targets_by_omop: Dict[int, List[Dict[str, Any]]] = defaultdict(list)
+    for t in target_elements:
+        targets_by_omop[t["omop_id"]].append(t)
 
+    # Cache embedding results per (source_label, source_category)
+    embed_cache: Dict[tuple[str, str], set[int]] = {}
+
+    for s in source_elements:
+        s_label = s["code_label"]
+        s_cat = s["category"].strip().lower()
+
+        # Only bother for relevant categories
+        if s_cat not in CROSS_CATS:
+            continue
+
+        cache_key = (s_label, s_cat)
+        if cache_key in embed_cache:
+            matched_omops = embed_cache[cache_key]
+        else:
+            # You had 0.65 as default score; keep that
+            score = 0.65
+           # score = 0.65 if s_category in {"drug_exposure", "drug_era"} else 0.85
+
+            # We allow matches to any of the CROSS_CATS in the target
+            matched_omops = search_in_db(
+                    vectordb=vector_db,
+                    embedding_model=embedding_model,
+                    query_text=s_label,
+                    target_study=target_study,
+                    limit=100,
+                    omop_domain=list(CROSS_CATS),
+                    min_score=score,
+                    collection_name=collection_name,
+                )
+            
+            embed_cache[cache_key] = matched_omops
+
+        if not matched_omops:
+            continue
+
+        for omop_id in matched_omops:
+            for t in targets_by_omop.get(omop_id, []):
+                t_cat = t["category"].strip().lower()
+                if t_cat not in CROSS_CATS:
+                    continue
+
+                # Visit constraint
+                svisit = check_visit_string(s["visit"], t["visit"])
+                tvisit = check_visit_string(t["visit"], s["visit"])
+                if svisit != tvisit:
+                    continue
+
+                yield {
+                    "source": s["source"],
+                    "target": t["target"],
+                    "somop_id": s["omop_id"],
+                    "tomop_id": t["omop_id"],
+                    "scode": s["code"],
+                    "slabel": s["code_label"],
+                    "tcode": t["code"],
+                    "tlabel": t["code_label"],
+                    "category": f"{s['category']}|{t['category']}",
+                    "mapping type": "semantic label match",
+                    "source_visit": s["visit"],
+                    "target_visit": t["visit"],
+                }
 
 def map_source_target(
     source_study_name: str,
@@ -824,8 +1150,12 @@ def map_source_target(
             matches.append(derived_row)
             
     cross_category_matches = list(_cross_category_matches(
-        source_elems,
-        target_elems
+        source_elements=source_elems,
+        target_elements=target_elems,
+        target_study=target_study_name,
+        embedding_model=embedding_model,
+        vector_db=vector_db,
+        collection_name=collection_name,
     ))
     if cross_category_matches and len(cross_category_matches) > 0:
         matches.extend(cross_category_matches)

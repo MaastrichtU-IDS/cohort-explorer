@@ -15,6 +15,7 @@ from CohortVarLinker.src.utils import (
         delete_existing_triples,
         publish_graph_to_endpoint,
         OntologyNamespaces,
+        get_member_studies
     
     )
      
@@ -485,7 +486,8 @@ def generate_mapping_csv(
     data_dir=None,
     cohort_file_path=None,
     cohorts_metadata_file=None,
-    output_dir=None
+    output_dir=None,
+    select_relevant_studies =True
 ):
     """
     Generate mapping CSV files for a source study and a list of target studies.
@@ -507,6 +509,8 @@ def generate_mapping_csv(
     # Robust check: ensure all selected cohorts exist
    
     missing_cohorts = []
+    model_name = "biolord"
+    # select_relevant_studies = True
     for cohort_id in [source_study] + [t[0] for t in target_studies]:
         cohort_dir = os.path.join(cohort_file_path, cohort_id)
         if not os.path.exists(cohort_dir):
@@ -532,7 +536,15 @@ def generate_mapping_csv(
 
     source_study = source_study.lower()
     target_studies = [t[0].lower() for t in target_studies]
-
+    
+    # add sub-studies if select_relevant_studies is True
+    new_studies= []
+    if select_relevant_studies:
+        for tstudy in target_studies:
+            member_studies = get_member_studies(tstudy)
+            print(f"Member studies for {tstudy}: {member_studies}")
+            new_studies.extend(member_studies)
+        target_studies.extend(new_studies)
     # Check if all requested mappings already exist... 
     # Komal's comment: i dont think we should have this logic (330-342 please comment it out) here because in case of multiple target studies, we should check in next computations if mapping exist add it in the list and check next. when all available then we group by omop_id
     all_exist = True
@@ -566,7 +578,12 @@ def generate_mapping_csv(
     
     mapping_dict = {}  # {target_study: {source_var: (target_var, target_omop_id)}}
     # Use 'qdrant' as the host when running in Docker Compose
-    vector_db, embedding_model = generate_studies_embeddings(cohort_file_path, "qdrant", "studies_metadata", recreate_db=True)
+    
+ 
+
+    print(f"Final target studies: {target_studies}")
+    # min_score_list = [0.5,0.6,0.65,0.7, 0.75, 0.8, 0.85, 0.9]
+    vector_db, embedding_model = generate_studies_embeddings(cohort_file_path, "qdrant", f"studies_metadata_{model_name}", model_name=model_name, recreate_db=True)
     graph = OmopGraphNX(csv_file_path=settings.concepts_file_path)
     for tstudy in target_studies:
         out_filename = f'{source_study}_{tstudy}_cross_mapping.csv'
