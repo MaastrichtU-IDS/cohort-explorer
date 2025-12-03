@@ -364,7 +364,7 @@ export default function CohortsList() {
     setRefreshMessage(null);
     
     try {
-      const response = await fetch('/api/upload/refresh-cache', {
+      const response = await fetch('/refresh-cache', {
         method: 'POST',
         credentials: 'include',
       });
@@ -456,31 +456,34 @@ export default function CohortsList() {
               </div>
             ) : null}
             
-            <button 
-              onClick={toggleDataSource}
-              className="btn btn-sm btn-outline btn-neutral"
-              disabled={isLoading}
-            >
-              Switch to {useSparqlMode ? 'Cache' : 'SPARQL'}
-            </button>
-            
-            {/* Refresh cache button - only show in cache mode */}
-            {!useSparqlMode && (
+            {/* Buttons row */}
+            <div className="flex gap-2 justify-center">
               <button 
-                onClick={handleRefreshCache}
-                className="btn btn-sm btn-outline btn-info"
-                disabled={isLoading || isRefreshing}
+                onClick={toggleDataSource}
+                className="btn btn-xs btn-outline btn-neutral"
+                disabled={isLoading}
               >
-                {isRefreshing ? (
-                  <>
-                    <span className="loading loading-spinner loading-xs"></span>
-                    Refreshing...
-                  </>
-                ) : (
-                  'Refresh Cache'
-                )}
+                Switch to {useSparqlMode ? 'Cache' : 'SPARQL'}
               </button>
-            )}
+              
+              {/* Refresh cache button - only show in cache mode */}
+              {!useSparqlMode && (
+                <button 
+                  onClick={handleRefreshCache}
+                  className="btn btn-xs btn-outline btn-info"
+                  disabled={isLoading || isRefreshing}
+                >
+                  {isRefreshing ? (
+                    <>
+                      <span className="loading loading-spinner loading-xs"></span>
+                      Refreshing...
+                    </>
+                  ) : (
+                    'Refresh'
+                  )}
+                </button>
+              )}
+            </div>
             
             {/* Refresh message */}
             {refreshMessage && (

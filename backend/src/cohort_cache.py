@@ -537,8 +537,23 @@ def initialize_cache_from_triplestore(admin_email: str | None = None, force_refr
         if force_refresh:
             # For force refresh, wait for the lock (blocking) to ensure we actually refresh
             logging.info("Force refresh requested, waiting for lock if needed...")
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-            logging.info("Acquired cache initialization lock for force refresh, starting initialization...")
+            max_wait = 600  # Wait up to 10 minutes for the lock
+            start_wait = time.time()
+            acquired = False
+            
+            while time.time() - start_wait < max_wait:
+                try:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    acquired = True
+                    logging.info("Acquired cache initialization lock for force refresh, starting initialization...")
+                    break
+                except IOError:
+                    # Lock is held by another process, wait a bit
+                    time.sleep(1)
+            
+            if not acquired:
+                logging.error(f"Timeout waiting for lock after {max_wait}s - another process may be stuck")
+                raise Exception(f"Could not acquire lock for cache refresh after {max_wait} seconds. Another process may be holding the lock.")
         else:
             # For normal initialization, try non-blocking
             try:
