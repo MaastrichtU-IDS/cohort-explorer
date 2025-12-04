@@ -404,21 +404,6 @@ def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
                     f"Row {i+2} (Variable: '{var_name_for_error}'): Unit concept fields are provided, but UNITS field is empty."
                 )
         
-        # Check if UNITS is provided but unit concept fields are missing
-        if units_value and units_value.lower() != "na":
-            if not has_unit_name:
-                errors.append(
-                    f"Row {i+2} (Variable: '{var_name_for_error}'): UNITS field is provided ('{units_value}'), but UNIT CONCEPT NAME is missing."
-                )
-            if not has_unit_code:
-                errors.append(
-                    f"Row {i+2} (Variable: '{var_name_for_error}'): UNITS field is provided ('{units_value}'), but UNIT CONCEPT CODE is missing."
-                )
-            if not has_unit_omop_id:
-                errors.append(
-                    f"Row {i+2} (Variable: '{var_name_for_error}'): UNITS field is provided ('{units_value}'), but UNIT CONCEPT OMOP ID is missing."
-                )
-        
         # Visit concepts validation
         visits_value = str(row.get("VISITS", "")).strip() if "VISITS" in df.columns else ""
         
@@ -448,21 +433,6 @@ def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
             if "VISITS" in df.columns and (not visits_value or visits_value.lower() == "na"):
                 errors.append(
                     f"Row {i+2} (Variable: '{var_name_for_error}'): Visit concept fields are provided, but VISITS field is empty."
-                )
-        
-        # Check if VISITS is provided but visit concept fields are missing
-        if visits_value and visits_value.lower() != "na":
-            if not has_visit_name:
-                errors.append(
-                    f"Row {i+2} (Variable: '{var_name_for_error}'): VISITS field is provided ('{visits_value}'), but VISIT CONCEPT NAME is missing."
-                )
-            if not has_visit_code:
-                errors.append(
-                    f"Row {i+2} (Variable: '{var_name_for_error}'): VISITS field is provided ('{visits_value}'), but VISIT CONCEPT CODE is missing."
-                )
-            if not has_visit_omop_id:
-                errors.append(
-                    f"Row {i+2} (Variable: '{var_name_for_error}'): VISITS field is provided ('{visits_value}'), but VISIT CONCEPT OMOP ID is missing."
                 )
         
         # Category Concept Validation
