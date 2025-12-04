@@ -255,94 +255,6 @@ cols_normalized = {"VARIABLE NAME": "VARIABLENAME",
                    "CATEGORICALVALUECONCEPTCODE": "CATEGORICAL VALUE CONCEPT CODE"}
 
 ACCEPTED_DATATYPES = ["STR", "FLOAT", "INT", "DATETIME"]
-ATHENA_ENDPOINT = "https://athena.ohdsi.org/api/v1/concepts"
-
-def validate_concept_triple_with_athena(concept_name: str, concept_code: str, omop_id: str, 
-                                        context: str = "") -> tuple[bool, str]:
-    """Validate a concept triple (name, code, OMOP ID) using OHDSI Athena API.
-    
-    Args:
-        concept_name: The concept name
-        concept_code: The concept code (must have vocabulary prefix, e.g., 'snomed:39020002')
-        omop_id: The OMOP concept ID
-        context: Context string for error messages (e.g., "Variable", "Category: X")
-        
-    Returns:
-        Tuple of (is_valid, error_message). error_message is empty string if valid.
-    """
-    # Check that concept code has a vocabulary prefix
-    if not concept_code or ':' not in concept_code:
-        return False, f"{context}: Concept code '{concept_code}' must have a vocabulary prefix (e.g., 'snomed:39020002', 'atc:AC902')."
-    
-    # Extract vocabulary and code
-    try:
-        vocabulary_prefix, code_value = concept_code.split(':', 1)
-    except ValueError:
-        return False, f"{context}: Invalid concept code format '{concept_code}'. Expected format: 'vocabulary:code'."
-    
-    # Validate that we have both code and OMOP ID
-    if not omop_id or omop_id.lower() == "na":
-        return False, f"{context}: OMOP ID is required when concept code is provided."
-    
-    if not concept_name or concept_name.lower() == "na":
-        return False, f"{context}: Concept name is required when concept code is provided."
-    
-    # Query Athena API to validate the triple
-    try:
-        # Search by OMOP ID
-        params = {
-            'query': omop_id,
-            'pageSize': 1
-        }
-        
-        response = requests.get(ATHENA_ENDPOINT, params=params, timeout=10)
-        
-        if response.status_code != 200:
-            logging.warning(f"Athena API returned status {response.status_code} for OMOP ID {omop_id}")
-            # Don't fail validation if API is down, just log warning
-            return True, ""
-        
-        data = response.json()
-        
-        if not data.get('content') or len(data['content']) == 0:
-            return False, f"{context}: OMOP ID '{omop_id}' not found in Athena."
-        
-        # Get the first (and should be only) result
-        concept = data['content'][0]
-        
-        # Validate OMOP ID matches
-        if str(concept.get('id')) != str(omop_id):
-            return False, f"{context}: OMOP ID mismatch. Expected '{omop_id}', found '{concept.get('id')}' in Athena."
-        
-        # Validate concept code matches (case-insensitive)
-        athena_code = concept.get('conceptCode', '').lower()
-        if athena_code != code_value.lower():
-            return False, f"{context}: Concept code mismatch. Expected '{code_value}', found '{concept.get('conceptCode')}' in Athena for OMOP ID {omop_id}."
-        
-        # Validate vocabulary matches (case-insensitive)
-        athena_vocabulary = concept.get('vocabularyId', '').lower()
-        if athena_vocabulary != vocabulary_prefix.lower():
-            return False, f"{context}: Vocabulary mismatch. Expected '{vocabulary_prefix}', found '{concept.get('vocabularyId')}' in Athena for OMOP ID {omop_id}."
-        
-        # Validate concept name matches (case-insensitive, allowing partial match)
-        athena_name = concept.get('conceptName', '').lower()
-        if concept_name.lower() not in athena_name and athena_name not in concept_name.lower():
-            logging.warning(f"{context}: Concept name mismatch. Provided: '{concept_name}', Athena: '{concept.get('conceptName')}' for OMOP ID {omop_id}")
-            # This is a warning, not an error, as names can vary slightly
-        
-        return True, ""
-        
-    except requests.exceptions.Timeout:
-        logging.warning(f"Athena API timeout for OMOP ID {omop_id}")
-        # Don't fail validation if API times out
-        return True, ""
-    except requests.exceptions.RequestException as e:
-        logging.warning(f"Athena API request failed for OMOP ID {omop_id}: {e}")
-        # Don't fail validation if API is unreachable
-        return True, ""
-    except Exception as e:
-        logging.error(f"Unexpected error validating concept triple with Athena: {e}")
-        return True, ""
 
 def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
     """Validate a metadata dictionary DataFrame and return a list of error messages.
@@ -418,24 +330,6 @@ def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
                         f"Row {i+2} (Variable: '{var_name_for_error}'): Multiple OMOP IDs are not allowed in VARIABLE CONCEPT OMOP ID. Found: '{var_omop_id_str}'. Please provide only one OMOP ID."
                     )
         
-        # Validate Variable Concept triple with Athena API
-        if "VARIABLE CONCEPT CODE" in df.columns and "VARIABLE CONCEPT NAME" in df.columns and "VARIABLE CONCEPT OMOP ID" in df.columns:
-            var_concept_name = str(row.get("VARIABLE CONCEPT NAME", "")).strip()
-            var_concept_code = str(row.get("VARIABLE CONCEPT CODE", "")).strip()
-            var_concept_omop_id = str(row.get("VARIABLE CONCEPT OMOP ID", "")).strip()
-            
-            # Only validate if all three are provided and not "na"
-            if (var_concept_code and var_concept_code.lower() != "na" and
-                var_concept_omop_id and var_concept_omop_id.lower() != "na" and
-                var_concept_name and var_concept_name.lower() != "na"):
-                
-                is_valid, error_msg = validate_concept_triple_with_athena(
-                    var_concept_name, var_concept_code, var_concept_omop_id,
-                    context=f"Row {i+2} (Variable: '{var_name_for_error}')"
-                )
-                if not is_valid:
-                    errors.append(error_msg)
-        
         # Additional Context Concept Name requires Variable Concept Name
         if "ADDITIONAL CONTEXT CONCEPT NAME" in df.columns and "VARIABLE CONCEPT NAME" in df.columns:
             additional_context_str = str(row.get("ADDITIONAL CONTEXT CONCEPT NAME", "")).strip()
@@ -466,21 +360,6 @@ def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
                     errors.append(
                         f"Row {i+2} (Variable: '{var_name_for_error}'): The number of ADDITIONAL CONTEXT CONCEPT OMOP IDs ({omop_ids_count}) does not match the number of ADDITIONAL CONTEXT CONCEPT NAMEs ({names_count})."
                     )
-                
-                # Validate each Additional Context concept triple with Athena
-                if codes_count > 0 and omop_ids_count > 0 and codes_count == names_count == omop_ids_count:
-                    names_list = [n.strip() for n in additional_names.split("|") if n.strip()]
-                    codes_list = [c.strip() for c in additional_codes.split("|") if c.strip()]
-                    omop_ids_list = [o.strip() for o in additional_omop_ids.split("|") if o.strip()]
-                    
-                    for idx, (name, code, omop_id) in enumerate(zip(names_list, codes_list, omop_ids_list)):
-                        if name.lower() != "na" and code.lower() != "na" and omop_id.lower() != "na":
-                            is_valid, error_msg = validate_concept_triple_with_athena(
-                                name, code, omop_id,
-                                context=f"Row {i+2} (Variable: '{var_name_for_error}', Additional Context {idx+1})"
-                            )
-                            if not is_valid:
-                                errors.append(error_msg)
         
         # Unit concepts validation
         units_value = str(row.get("UNITS", "")).strip() if "UNITS" in df.columns else ""
@@ -522,24 +401,6 @@ def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
                         f"Row {i+2} (Variable: '{var_name_for_error}'): UNIT CONCEPT NAME is provided ('{unit_name_str}'), but UNITS field is empty or missing."
                     )
         
-        # Validate Unit Concept triple with Athena API
-        if "UNIT CONCEPT CODE" in df.columns and "UNIT CONCEPT NAME" in df.columns and "UNIT CONCEPT OMOP ID" in df.columns:
-            unit_concept_name = str(row.get("UNIT CONCEPT NAME", "")).strip()
-            unit_concept_code = str(row.get("UNIT CONCEPT CODE", "")).strip()
-            unit_concept_omop_id = str(row.get("UNIT CONCEPT OMOP ID", "")).strip()
-            
-            # Only validate if all three are provided and not "na"
-            if (unit_concept_code and unit_concept_code.lower() != "na" and
-                unit_concept_omop_id and unit_concept_omop_id.lower() != "na" and
-                unit_concept_name and unit_concept_name.lower() != "na"):
-                
-                is_valid, error_msg = validate_concept_triple_with_athena(
-                    unit_concept_name, unit_concept_code, unit_concept_omop_id,
-                    context=f"Row {i+2} (Variable: '{var_name_for_error}', Unit Concept)"
-                )
-                if not is_valid:
-                    errors.append(error_msg)
-        
         # Visit concepts validation
         visits_value = str(row.get("VISITS", "")).strip() if "VISITS" in df.columns else ""
         
@@ -579,24 +440,6 @@ def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
                     errors.append(
                         f"Row {i+2} (Variable: '{var_name_for_error}'): VISIT CONCEPT NAME is provided ('{visit_name_str}'), but VISITS field is empty or missing."
                     )
-        
-        # Validate Visit Concept triple with Athena API
-        if "VISIT CONCEPT CODE" in df.columns and "VISIT CONCEPT NAME" in df.columns and "VISIT CONCEPT OMOP ID" in df.columns:
-            visit_concept_name = str(row.get("VISIT CONCEPT NAME", "")).strip()
-            visit_concept_code = str(row.get("VISIT CONCEPT CODE", "")).strip()
-            visit_concept_omop_id = str(row.get("VISIT CONCEPT OMOP ID", "")).strip()
-            
-            # Only validate if all three are provided and not "na"
-            if (visit_concept_code and visit_concept_code.lower() != "na" and
-                visit_concept_omop_id and visit_concept_omop_id.lower() != "na" and
-                visit_concept_name and visit_concept_name.lower() != "na"):
-                
-                is_valid, error_msg = validate_concept_triple_with_athena(
-                    visit_concept_name, visit_concept_code, visit_concept_omop_id,
-                    context=f"Row {i+2} (Variable: '{var_name_for_error}', Visit Concept)"
-                )
-                if not is_valid:
-                    errors.append(error_msg)
         
         # Category Concept Validation
         current_categories = row.get("categories")
@@ -662,15 +505,6 @@ def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
                         errors.append(
                             f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_value}'): Error expanding CURIE '{cat_code}': {curie_exc}."
                         )
-                
-                # Validate categorical value concept triple with Athena API
-                if has_name and has_code and has_omop_id:
-                    is_valid, error_msg = validate_concept_triple_with_athena(
-                        cat_name, cat_code, cat_omop_id,
-                        context=f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_value}')"
-                    )
-                    if not is_valid:
-                        errors.append(error_msg)
         elif row.get("CATEGORICAL") and not isinstance(current_categories, list):
             errors.append(
                 f"Row {i+2} (Variable: '{var_name_for_error}') has an invalid category: '{row['CATEGORICAL']}'."
