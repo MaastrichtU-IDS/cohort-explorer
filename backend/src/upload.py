@@ -317,9 +317,21 @@ def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
                                 f"Row {i+2} (Variable: '{var_name_for_error}'): The variable concept code '{var_concept_code_str}' is not valid or its prefix is not recognized. Valid prefixes: {', '.join([record['prefix'] + ':' for record in prefix_map if record.get('prefix')])}."
                             )
                     except Exception as curie_exc:
-                        errors.append(
-                            f"Row {i+2} (Variable: '{var_name_for_error}'): Error expanding CURIE '{var_concept_code_str}': {curie_exc}."
-                        )
+                        error_msg = str(curie_exc)
+                        # Check if it's a missing delimiter error
+                        if "missing a delimiter" in error_msg.lower():
+                            if ":" not in var_concept_code_str:
+                                errors.append(
+                                    f"Row {i+2} (Variable: '{var_name_for_error}'): The variable concept code '{var_concept_code_str}' is missing a colon (:) separator. Expected format: 'prefix:code' (e.g., 'snomed:12345')."
+                                )
+                            else:
+                                errors.append(
+                                    f"Row {i+2} (Variable: '{var_name_for_error}'): The variable concept code '{var_concept_code_str}' is missing a valid prefix before the colon. Expected format: 'prefix:code' (e.g., 'snomed:12345')."
+                                )
+                        else:
+                            errors.append(
+                                f"Row {i+2} (Variable: '{var_name_for_error}'): Error expanding CURIE '{var_concept_code_str}': {curie_exc}."
+                            )
         
         # Variable Concept OMOP ID - must have at most one value (no '|')
         if "VARIABLE CONCEPT OMOP ID" in df.columns:
@@ -364,82 +376,94 @@ def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
         # Unit concepts validation
         units_value = str(row.get("UNITS", "")).strip() if "UNITS" in df.columns else ""
         
+        # Check if any unit concept fields are provided
+        unit_code_str = str(row.get("UNIT CONCEPT CODE", "")).strip() if "UNIT CONCEPT CODE" in df.columns else ""
+        unit_omop_id_str = str(row.get("UNIT CONCEPT OMOP ID", "")).strip() if "UNIT CONCEPT OMOP ID" in df.columns else ""
+        unit_name_str = str(row.get("UNIT CONCEPT NAME", "")).strip() if "UNIT CONCEPT NAME" in df.columns else ""
+        
+        has_unit_code = unit_code_str and unit_code_str.lower() != "na"
+        has_unit_omop_id = unit_omop_id_str and unit_omop_id_str.lower() != "na"
+        has_unit_name = unit_name_str and unit_name_str.lower() != "na"
+        
         # Unit Concept Code - single value only (no '|')
-        if "UNIT CONCEPT CODE" in df.columns:
-            unit_code_str = str(row.get("UNIT CONCEPT CODE", "")).strip()
-            if unit_code_str and unit_code_str.lower() != "na":
-                if "|" in unit_code_str:
-                    errors.append(
-                        f"Row {i+2} (Variable: '{var_name_for_error}'): Multiple concept codes are not allowed in UNIT CONCEPT CODE. Found: '{unit_code_str}'. Please provide only one concept code."
-                    )
-                # Unit concepts only allowed if 'units' is non-empty
-                if not units_value or units_value.lower() == "na":
-                    errors.append(
-                        f"Row {i+2} (Variable: '{var_name_for_error}'): UNIT CONCEPT CODE is provided ('{unit_code_str}'), but UNITS field is empty or missing."
-                    )
+        if has_unit_code and "|" in unit_code_str:
+            errors.append(
+                f"Row {i+2} (Variable: '{var_name_for_error}'): Multiple concept codes are not allowed in UNIT CONCEPT CODE. Found: '{unit_code_str}'. Please provide only one concept code."
+            )
         
         # Unit Concept OMOP ID - single value only (no '|')
-        if "UNIT CONCEPT OMOP ID" in df.columns:
-            unit_omop_id_str = str(row.get("UNIT CONCEPT OMOP ID", "")).strip()
-            if unit_omop_id_str and unit_omop_id_str.lower() != "na":
-                if "|" in unit_omop_id_str:
-                    errors.append(
-                        f"Row {i+2} (Variable: '{var_name_for_error}'): Multiple OMOP IDs are not allowed in UNIT CONCEPT OMOP ID. Found: '{unit_omop_id_str}'. Please provide only one OMOP ID."
-                    )
-                # Unit concepts only allowed if 'units' is non-empty
-                if not units_value or units_value.lower() == "na":
-                    errors.append(
-                        f"Row {i+2} (Variable: '{var_name_for_error}'): UNIT CONCEPT OMOP ID is provided ('{unit_omop_id_str}'), but UNITS field is empty or missing."
-                    )
+        if has_unit_omop_id and "|" in unit_omop_id_str:
+            errors.append(
+                f"Row {i+2} (Variable: '{var_name_for_error}'): Multiple OMOP IDs are not allowed in UNIT CONCEPT OMOP ID. Found: '{unit_omop_id_str}'. Please provide only one OMOP ID."
+            )
         
-        # Unit Concept Name - only allowed if 'units' is non-empty
-        if "UNIT CONCEPT NAME" in df.columns:
-            unit_name_str = str(row.get("UNIT CONCEPT NAME", "")).strip()
-            if unit_name_str and unit_name_str.lower() != "na":
-                if not units_value or units_value.lower() == "na":
-                    errors.append(
-                        f"Row {i+2} (Variable: '{var_name_for_error}'): UNIT CONCEPT NAME is provided ('{unit_name_str}'), but UNITS field is empty or missing."
-                    )
+        # Check if any unit concept is provided but UNITS field is empty (only if UNITS column exists)
+        if (has_unit_code or has_unit_omop_id or has_unit_name):
+            if "UNITS" in df.columns and (not units_value or units_value.lower() == "na"):
+                errors.append(
+                    f"Row {i+2} (Variable: '{var_name_for_error}'): Unit concept fields are provided, but UNITS field is empty."
+                )
+        
+        # Check if UNITS is provided but unit concept fields are missing
+        if units_value and units_value.lower() != "na":
+            if not has_unit_name:
+                errors.append(
+                    f"Row {i+2} (Variable: '{var_name_for_error}'): UNITS field is provided ('{units_value}'), but UNIT CONCEPT NAME is missing."
+                )
+            if not has_unit_code:
+                errors.append(
+                    f"Row {i+2} (Variable: '{var_name_for_error}'): UNITS field is provided ('{units_value}'), but UNIT CONCEPT CODE is missing."
+                )
+            if not has_unit_omop_id:
+                errors.append(
+                    f"Row {i+2} (Variable: '{var_name_for_error}'): UNITS field is provided ('{units_value}'), but UNIT CONCEPT OMOP ID is missing."
+                )
         
         # Visit concepts validation
         visits_value = str(row.get("VISITS", "")).strip() if "VISITS" in df.columns else ""
         
+        # Check if any visit concept fields are provided
+        visit_code_str = str(row.get("VISIT CONCEPT CODE", "")).strip() if "VISIT CONCEPT CODE" in df.columns else ""
+        visit_omop_id_str = str(row.get("VISIT CONCEPT OMOP ID", "")).strip() if "VISIT CONCEPT OMOP ID" in df.columns else ""
+        visit_name_str = str(row.get("VISIT CONCEPT NAME", "")).strip() if "VISIT CONCEPT NAME" in df.columns else ""
+        
+        has_visit_code = visit_code_str and visit_code_str.lower() != "na"
+        has_visit_omop_id = visit_omop_id_str and visit_omop_id_str.lower() != "na"
+        has_visit_name = visit_name_str and visit_name_str.lower() != "na"
+        
         # Visit Concept Code - single value only (no '|')
-        if "VISIT CONCEPT CODE" in df.columns:
-            visit_code_str = str(row.get("VISIT CONCEPT CODE", "")).strip()
-            if visit_code_str and visit_code_str.lower() != "na":
-                if "|" in visit_code_str:
-                    errors.append(
-                        f"Row {i+2} (Variable: '{var_name_for_error}'): Multiple concept codes are not allowed in VISIT CONCEPT CODE. Found: '{visit_code_str}'. Please provide only one concept code."
-                    )
-                # Visit concepts only allowed if 'visits' is non-empty
-                if not visits_value or visits_value.lower() == "na":
-                    errors.append(
-                        f"Row {i+2} (Variable: '{var_name_for_error}'): VISIT CONCEPT CODE is provided ('{visit_code_str}'), but VISITS field is empty or missing."
-                    )
+        if has_visit_code and "|" in visit_code_str:
+            errors.append(
+                f"Row {i+2} (Variable: '{var_name_for_error}'): Multiple concept codes are not allowed in VISIT CONCEPT CODE. Found: '{visit_code_str}'. Please provide only one concept code."
+            )
         
         # Visit Concept OMOP ID - single value only (no '|')
-        if "VISIT CONCEPT OMOP ID" in df.columns:
-            visit_omop_id_str = str(row.get("VISIT CONCEPT OMOP ID", "")).strip()
-            if visit_omop_id_str and visit_omop_id_str.lower() != "na":
-                if "|" in visit_omop_id_str:
-                    errors.append(
-                        f"Row {i+2} (Variable: '{var_name_for_error}'): Multiple OMOP IDs are not allowed in VISIT CONCEPT OMOP ID. Found: '{visit_omop_id_str}'. Please provide only one OMOP ID."
-                    )
-                # Visit concepts only allowed if 'visits' is non-empty
-                if not visits_value or visits_value.lower() == "na":
-                    errors.append(
-                        f"Row {i+2} (Variable: '{var_name_for_error}'): VISIT CONCEPT OMOP ID is provided ('{visit_omop_id_str}'), but VISITS field is empty or missing."
-                    )
+        if has_visit_omop_id and "|" in visit_omop_id_str:
+            errors.append(
+                f"Row {i+2} (Variable: '{var_name_for_error}'): Multiple OMOP IDs are not allowed in VISIT CONCEPT OMOP ID. Found: '{visit_omop_id_str}'. Please provide only one OMOP ID."
+            )
         
-        # Visit Concept Name - only allowed if 'visits' is non-empty
-        if "VISIT CONCEPT NAME" in df.columns:
-            visit_name_str = str(row.get("VISIT CONCEPT NAME", "")).strip()
-            if visit_name_str and visit_name_str.lower() != "na":
-                if not visits_value or visits_value.lower() == "na":
-                    errors.append(
-                        f"Row {i+2} (Variable: '{var_name_for_error}'): VISIT CONCEPT NAME is provided ('{visit_name_str}'), but VISITS field is empty or missing."
-                    )
+        # Check if any visit concept is provided but VISITS field is empty (only if VISITS column exists)
+        if (has_visit_code or has_visit_omop_id or has_visit_name):
+            if "VISITS" in df.columns and (not visits_value or visits_value.lower() == "na"):
+                errors.append(
+                    f"Row {i+2} (Variable: '{var_name_for_error}'): Visit concept fields are provided, but VISITS field is empty."
+                )
+        
+        # Check if VISITS is provided but visit concept fields are missing
+        if visits_value and visits_value.lower() != "na":
+            if not has_visit_name:
+                errors.append(
+                    f"Row {i+2} (Variable: '{var_name_for_error}'): VISITS field is provided ('{visits_value}'), but VISIT CONCEPT NAME is missing."
+                )
+            if not has_visit_code:
+                errors.append(
+                    f"Row {i+2} (Variable: '{var_name_for_error}'): VISITS field is provided ('{visits_value}'), but VISIT CONCEPT CODE is missing."
+                )
+            if not has_visit_omop_id:
+                errors.append(
+                    f"Row {i+2} (Variable: '{var_name_for_error}'): VISITS field is provided ('{visits_value}'), but VISIT CONCEPT OMOP ID is missing."
+                )
         
         # Category Concept Validation
         current_categories = row.get("categories")
@@ -481,14 +505,23 @@ def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
                 cat_code = categories_codes[idx].strip() if idx < len(categories_codes) else ""
                 cat_omop_id = categories_omop_ids[idx].strip() if idx < len(categories_omop_ids) else ""
                 
-                # Check if at least one concept field is present and not "na"
+                # Check if all three concept fields are present and not "na"
                 has_name = cat_name and cat_name.lower() != "na"
                 has_code = cat_code and cat_code.lower() != "na"
                 has_omop_id = cat_omop_id and cat_omop_id.lower() != "na"
                 
-                if not (has_name or has_code or has_omop_id):
+                # Require all three fields to be present
+                if not has_name:
                     errors.append(
-                        f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_value}'): At least one of CATEGORICAL VALUE CONCEPT NAME, CODE, or OMOP ID must be provided for each categorical value."
+                        f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_value}'): CATEGORICAL VALUE CONCEPT NAME is required for each categorical value."
+                    )
+                if not has_code:
+                    errors.append(
+                        f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_value}'): CATEGORICAL VALUE CONCEPT CODE is required for each categorical value."
+                    )
+                if not has_omop_id:
+                    errors.append(
+                        f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_value}'): CATEGORICAL VALUE OMOP ID is required for each categorical value."
                     )
                 
                 # Validate concept code prefix if provided
@@ -502,9 +535,21 @@ def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
                                 f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_value}'): The category concept code '{cat_code}' is not valid or its prefix is not recognized. Valid prefixes: {', '.join([record['prefix'] + ':' for record in prefix_map if record.get('prefix')])}."
                             )
                     except Exception as curie_exc:
-                        errors.append(
-                            f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_value}'): Error expanding CURIE '{cat_code}': {curie_exc}."
-                        )
+                        error_msg = str(curie_exc)
+                        # Check if it's a missing delimiter error
+                        if "missing a delimiter" in error_msg.lower():
+                            if ":" not in cat_code:
+                                errors.append(
+                                    f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_value}'): The category concept code '{cat_code}' is missing a colon (:) separator. Expected format: 'prefix:code' (e.g., 'snomed:12345')."
+                                )
+                            else:
+                                errors.append(
+                                    f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_value}'): The category concept code '{cat_code}' is missing a valid prefix before the colon. Expected format: 'prefix:code' (e.g., 'snomed:12345')."
+                                )
+                        else:
+                            errors.append(
+                                f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_value}'): Error expanding CURIE '{cat_code}': {curie_exc}."
+                            )
         elif row.get("CATEGORICAL") and not isinstance(current_categories, list):
             errors.append(
                 f"Row {i+2} (Variable: '{var_name_for_error}') has an invalid category: '{row['CATEGORICAL']}'."
@@ -687,9 +732,21 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
                                         #print(f"Adding category code {cat_code_uri} for category {category['value']} in cohort {cohort_id}, line {i}, cat_uri: {cat_uri}, conceptId: {ICARE.conceptId}")
                                         g.add((cat_uri, ICARE.conceptId, URIRef(cat_code_uri), cohort_uri))
                                 except Exception as curie_exc:
-                                    errors.append(
-                                        f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_data['value']}'): Error expanding CURIE '{code_to_check}': {curie_exc}."
-                                    )
+                                    error_msg = str(curie_exc)
+                                    # Check if it's a missing delimiter error
+                                    if "missing a delimiter" in error_msg.lower():
+                                        if ":" not in code_to_check:
+                                            errors.append(
+                                                f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_data['value']}'): The category concept code '{code_to_check}' is missing a colon (:) separator. Expected format: 'prefix:code' (e.g., 'snomed:12345')."
+                                            )
+                                        else:
+                                            errors.append(
+                                                f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_data['value']}'): The category concept code '{code_to_check}' is missing a valid prefix before the colon. Expected format: 'prefix:code' (e.g., 'snomed:12345')."
+                                            )
+                                    else:
+                                        errors.append(
+                                            f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_data['value']}'): Error expanding CURIE '{code_to_check}': {curie_exc}."
+                                        )
 
         print(f"Finished processing cohort dictionary: {cohort_id}")
         
