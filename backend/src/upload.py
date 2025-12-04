@@ -353,25 +353,24 @@ def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
                     )
         
         # Additional Context - count matching for names, codes, and OMOP IDs
-        if "ADDITIONAL CONTEXT CONCEPT NAME" in df.columns:
-            additional_names = str(row.get("ADDITIONAL CONTEXT CONCEPT NAME", "")).strip()
-            additional_codes = str(row.get("ADDITIONAL CONTEXT CONCEPT CODE", "")).strip() if "ADDITIONAL CONTEXT CONCEPT CODE" in df.columns else ""
-            additional_omop_ids = str(row.get("ADDITIONAL CONTEXT CONCEPT OMOP ID", "")).strip() if "ADDITIONAL CONTEXT CONCEPT OMOP ID" in df.columns else ""
-            
-            if additional_names and additional_names.lower() != "na":
-                names_count = len([n for n in additional_names.split("|") if n.strip()])
-                codes_count = len([c for c in additional_codes.split("|") if c.strip()]) if additional_codes and additional_codes.lower() != "na" else 0
-                omop_ids_count = len([o for o in additional_omop_ids.split("|") if o.strip()]) if additional_omop_ids and additional_omop_ids.lower() != "na" else 0
-                
-                # Check if codes or OMOP IDs are provided but don't match names count
-                if codes_count > 0 and codes_count != names_count:
-                    errors.append(
-                        f"Row {i+2} (Variable: '{var_name_for_error}'): The number of ADDITIONAL CONTEXT CONCEPT CODEs ({codes_count}) does not match the number of ADDITIONAL CONTEXT CONCEPT NAMEs ({names_count})."
-                    )
-                if omop_ids_count > 0 and omop_ids_count != names_count:
-                    errors.append(
-                        f"Row {i+2} (Variable: '{var_name_for_error}'): The number of ADDITIONAL CONTEXT CONCEPT OMOP IDs ({omop_ids_count}) does not match the number of ADDITIONAL CONTEXT CONCEPT NAMEs ({names_count})."
-                    )
+        # All three fields must have matching counts when provided
+        additional_names = str(row.get("ADDITIONAL CONTEXT CONCEPT NAME", "")).strip() if "ADDITIONAL CONTEXT CONCEPT NAME" in df.columns else ""
+        additional_codes = str(row.get("ADDITIONAL CONTEXT CONCEPT CODE", "")).strip() if "ADDITIONAL CONTEXT CONCEPT CODE" in df.columns else ""
+        additional_omop_ids = str(row.get("ADDITIONAL CONTEXT CONCEPT OMOP ID", "")).strip() if "ADDITIONAL CONTEXT CONCEPT OMOP ID" in df.columns else ""
+        
+        # Count non-empty values in each field
+        names_count = len([n for n in additional_names.split("|") if n.strip()]) if additional_names and additional_names.lower() != "na" else 0
+        codes_count = len([c for c in additional_codes.split("|") if c.strip()]) if additional_codes and additional_codes.lower() != "na" else 0
+        omop_ids_count = len([o for o in additional_omop_ids.split("|") if o.strip()]) if additional_omop_ids and additional_omop_ids.lower() != "na" else 0
+        
+        # Check if any of the fields are provided
+        if names_count > 0 or codes_count > 0 or omop_ids_count > 0:
+            # All provided fields must have the same count
+            counts = [c for c in [names_count, codes_count, omop_ids_count] if c > 0]
+            if len(set(counts)) > 1:
+                errors.append(
+                    f"Row {i+2} (Variable: '{var_name_for_error}'): The number of ADDITIONAL CONTEXT CONCEPT NAMEs ({names_count}), CODEs ({codes_count}), and OMOP IDs ({omop_ids_count}) must all match."
+                )
         
         # Unit concepts validation
         units_value = str(row.get("UNITS", "")).strip() if "UNITS" in df.columns else ""
