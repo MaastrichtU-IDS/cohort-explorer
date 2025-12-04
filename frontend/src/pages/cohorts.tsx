@@ -364,7 +364,7 @@ export default function CohortsList() {
     setRefreshMessage(null);
     
     try {
-      const response = await fetch('/refresh-cache', {
+      const response = await fetch('/api/upload/refresh-cache', {
         method: 'POST',
         credentials: 'include',
       });
