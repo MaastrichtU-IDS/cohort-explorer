@@ -436,6 +436,25 @@ def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
         
         # Category Concept Validation
         current_categories = row.get("categories")
+        
+        # Check if any categorical concept field is provided (can have multiple pipe-separated values)
+        categories_names_str = str(row.get("CATEGORICAL VALUE CONCEPT NAME", "")).strip() if "CATEGORICAL VALUE CONCEPT NAME" in df.columns else ""
+        categories_codes_str = str(row.get("CATEGORICAL VALUE CONCEPT CODE", "")).strip() if "CATEGORICAL VALUE CONCEPT CODE" in df.columns else ""
+        categories_omop_ids_str = str(row.get("CATEGORICAL VALUE OMOP ID", "")).strip() if "CATEGORICAL VALUE OMOP ID" in df.columns else ""
+        
+        has_cat_name = categories_names_str and categories_names_str.lower() != "na"
+        has_cat_code = categories_codes_str and categories_codes_str.lower() != "na"
+        has_cat_omop_id = categories_omop_ids_str and categories_omop_ids_str.lower() != "na"
+        
+        # Check if any categorical concept is provided but CATEGORICAL field is empty or invalid
+        # Note: Unlike UNITS/VISITS, categorical allows multiple values, so we need to ensure
+        # the CATEGORICAL column exists and is properly parsed when concept fields are provided
+        if (has_cat_name or has_cat_code or has_cat_omop_id):
+            if "CATEGORICAL" in df.columns and (not current_categories or not isinstance(current_categories, list)):
+                errors.append(
+                    f"Row {i+2} (Variable: '{var_name_for_error}'): Categorical concept fields are provided, but CATEGORICAL field is empty or invalid."
+                )
+        
         if isinstance(current_categories, list) and current_categories:
             # Get all three categorical concept fields
             categories_names_str = str(row.get("CATEGORICAL VALUE CONCEPT NAME", "")).strip() if "CATEGORICAL VALUE CONCEPT NAME" in df.columns else ""
@@ -465,33 +484,13 @@ def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
                     f"Row {i+2} (Variable: '{var_name_for_error}'): The number of CATEGORICAL VALUE OMOP IDs ({len(categories_omop_ids)}) does not match the number of parsed categories ({num_categories})."
                 )
             
-            # Per-category validation
+            # Per-category validation - only validate CURIE format if concept codes are provided
             for idx, category_data in enumerate(current_categories):
                 category_value = category_data.get('value', f'Category_{idx}')
                 
-                # Get the concept values for this category
-                cat_name = categories_names[idx].strip() if idx < len(categories_names) else ""
+                # Get the concept code for this category (if provided)
                 cat_code = categories_codes[idx].strip() if idx < len(categories_codes) else ""
-                cat_omop_id = categories_omop_ids[idx].strip() if idx < len(categories_omop_ids) else ""
-                
-                # Check if all three concept fields are present and not "na"
-                has_name = cat_name and cat_name.lower() != "na"
                 has_code = cat_code and cat_code.lower() != "na"
-                has_omop_id = cat_omop_id and cat_omop_id.lower() != "na"
-                
-                # Require all three fields to be present
-                if not has_name:
-                    errors.append(
-                        f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_value}'): CATEGORICAL VALUE CONCEPT NAME is required for each categorical value."
-                    )
-                if not has_code:
-                    errors.append(
-                        f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_value}'): CATEGORICAL VALUE CONCEPT CODE is required for each categorical value."
-                    )
-                if not has_omop_id:
-                    errors.append(
-                        f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_value}'): CATEGORICAL VALUE OMOP ID is required for each categorical value."
-                    )
                 
                 # Validate concept code prefix if provided
                 if has_code:
