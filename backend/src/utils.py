@@ -39,6 +39,7 @@ prefix_map = [
     {
         "prefix": "icd10",
         "uri_prefix": "https://icd.who.int/browse10/2019/en#/",
+        "prefix_synonyms": ["icd9proc"]
     },
     {
         "prefix": "atc",
@@ -56,12 +57,22 @@ prefix_map = [
     {
         "prefix": "omop",
         "uri_prefix": "https://athena.ohdsi.org/search-terms/terms/",
-        "prefix_synonyms": ["OMOP", "rxnorm extension", "RXNORM EXTENSION", "RxNorm Extension", "rxnorm_extension"]
+        "prefix_synonyms": ["OMOP", "omopgenomic", "rxnorm extension", "rxnorm_extension", "RXNORM EXTENSION", "RxNorm Extension", "rxnormextension" ]
     },
     {
         "prefix": "ucum",
         "uri_prefix": "http://unitsofmeasure.org/ucum/",
         "prefix_synonyms": ["UCUM"]
+    },
+    {
+        "prefix":"ukbiobank",
+        "uri_prefix": "https://biobank.ndph.ox.ac.uk/showcase/",
+        
+
+    },
+    {
+        "prefix":"mesh",
+        "uri_prefix": "https://id.nlm.nih.gov/mesh/"
     }
 ]
 curie_converter = curies.load_extended_prefix_map(prefix_map)
