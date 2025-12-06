@@ -509,7 +509,7 @@ def generate_mapping_csv(
     # Robust check: ensure all selected cohorts exist
    
     missing_cohorts = []
-    model_name = "biolord"
+    model_name = "sapbert"
     # select_relevant_studies = True
     for cohort_id in [source_study] + [t[0] for t in target_studies]:
         cohort_dir = os.path.join(cohort_file_path, cohort_id)
