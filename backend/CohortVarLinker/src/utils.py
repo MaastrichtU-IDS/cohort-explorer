@@ -298,8 +298,9 @@ def build_label_mapping(src_labels_str,src_codes_str,  tgt_labels_str, tgt_codes
     }
 
 
+
 def apply_rules(domain, src_info, tgt_info):
-    import pandas as pd
+  
 
     def norm_or_none(x):
         return str(x).strip().lower() if (x not in (None, "") and not pd.isna(x)) else None
@@ -310,15 +311,24 @@ def apply_rules(domain, src_info, tgt_info):
     tgt_unit = norm_or_none(tgt_info.get('unit'))
     src_data_type = norm_or_none(src_info.get('data_type'))
     tgt_data_type = norm_or_none(tgt_info.get('data_type'))
+    src_composite_codes = norm_or_none(src_info.get('composite_code')) # all codes for composite variables
+    tgt_composite_codes = norm_or_none(tgt_info.get('composite_code')) # all codes for composite variables
     
     valid_types = {"continuous_variable", "binary_class_variable", "multi_class_variable", "qualitative_variable"}
     if (src_type not in valid_types or tgt_type not in valid_types) or (src_type is None or tgt_type is None):
         return {"description": "Transformation not applicable (invalid or missing statistical type)."}, "Not Applicable"
 
-    # --- same type
+    # --- same type 
+    if src_composite_codes != tgt_composite_codes:
+        return {
+            "description": "Source and target variables have different semantic context; Transformation NA; manual review required."
+        }, "Not Applicable"
+        
     if src_type == tgt_type:
         if src_type == "continuous_variable":
+            
             if src_unit and tgt_unit and src_unit != tgt_unit:
+                
                 return {
                     "description": f"Unit conversion in dataset required from {src_unit} to {tgt_unit} (or vice versa)."
                 }, "Complete Match (Compatible)"

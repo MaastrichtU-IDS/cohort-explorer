@@ -596,7 +596,7 @@ def generate_mapping_csv(
             target_study_name=tstudy,
             embedding_model=embedding_model,
             vector_db=vector_db,
-            collection_name="studies_metadata",
+            collection_name=f"studies_metadata_{model_name}",
             graph=graph,
         ) # if empty it will return empty DataFrame with header not None
     

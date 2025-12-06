@@ -8,14 +8,16 @@ from qdrant_client.http.models import (
     Distance,
     PointStruct,
     VectorParams
+    
+
 )
 from .utils import load_dictionary
 import glob
 import uuid
-
+from .modes import MappingType, EmbeddingType 
 # from kg.utils import BOLD, CYAN, END
 
-# EMBEDDING_MODEL_NAME = "cambridgeltl/SapBERT-from-PubMedBERT-fulltext"
+EMBEDDING_MODEL_NAME = "cambridgeltl/SapBERT-from-PubMedBERT-fulltext"
 # EMBEDDING_MODEL_SIZE = 768
 def get_embedding_model(model_name="biolord"):
     from .lazy_model import get_model
@@ -40,7 +42,7 @@ def load_vectordb(collection_name:str, vectordb_path: str ="komal.qdrant.137.120
     Otherwise, if the collection does not exist, it is created.
     """
     print("📥 Loading embedding model")
-    embedding_model = get_embedding_model(model_name=model_name)
+    embedding_model, embedding_size = get_embedding_model(model_name=model_name)
     
     # TextEmbedding(
     #     model_name=EMBEDDING_MODEL_NAME, 
@@ -59,40 +61,50 @@ def load_vectordb(collection_name:str, vectordb_path: str ="komal.qdrant.137.120
             vectordb.delete_collection(collection_name)
             vectordb.create_collection(
                 collection_name=collection_name,
-                vectors_config=VectorParams(size=EMBEDDING_MODEL_SIZE, distance=Distance.COSINE),
+                vectors_config=VectorParams(size=embedding_size, distance=Distance.COSINE),
             )
     except Exception as e:
         print(f"Collection not found or error occurred: {e}")
         print(f"Creating new collection '{collection_name}' on {vectordb_path}")
         vectordb.create_collection(
             collection_name=collection_name,
-            vectors_config=VectorParams(size=EMBEDDING_MODEL_SIZE, distance=Distance.COSINE),
+            vectors_config=VectorParams(size=embedding_size, distance=Distance.COSINE),
         )
     return vectordb, embedding_model
 
-def get_csv_text(row: Dict[str, Any]) -> str:
+def get_csv_text(row: Dict[str, Any], embedding_mode: str = EmbeddingType.ED.value) -> str:
     parts = []
     row = {k.lower(): v for k, v in row.items()}
 
-    var_label = row.get('variablelabel', row.get('variable label')).strip().lower() 
+    var_label = row.get('variable label', row.get('variable name')).strip().lower() 
     # print(f"var_label={var_label}")
     var_concept = row.get('variable concept name', '').strip().lower() if pd.notna(row.get('variable concept name', '')) else None
     additional_context = row.get('additional context concept name', '').strip().lower() if pd.notna(row.get('additional context concept name', '')) else None
 
+    if embedding_mode == EmbeddingType.EH.value:
+        if var_label and str(var_label).strip():
+            parts.append(var_label.strip())
     # Always use the label as base text if present
-    if var_concept and str(var_concept).strip():
-        # parts.append(str(var_label+":").strip())
+        if var_concept and str(var_concept).strip() and var_concept != var_label:
+            parts.append(var_concept.strip())
 
-        # if var_concept and str(var_concept).strip():
-        #     if var_concept != var_label:
-        parts.append(var_concept.strip())
-
-        if additional_context and str(additional_context).strip():
-            if additional_context != var_label and additional_context != var_concept:
+            if additional_context and str(additional_context).strip() and additional_context != var_label and additional_context != var_concept:
+                if additional_context != var_label and additional_context != var_concept:
+                    parts.append(str(additional_context).strip())
+    elif embedding_mode == EmbeddingType.EC.value:
+        if var_concept and str(var_concept).strip():
+            parts.append(var_concept.strip())
+            if additional_context and str(additional_context).strip() and additional_context != var_concept:
                 parts.append(str(additional_context).strip())
-    elif var_label and str(var_label).strip():
-        parts.append(var_label.strip())
-
+        else:
+            if var_label and str(var_label).strip():
+                parts.append(var_label.strip())
+    elif embedding_mode == EmbeddingType.ED.value:
+           
+        if var_label and str(var_label).strip():
+            parts.append(var_label.strip())
+    # if var_label and str(var_label).strip():
+    #     parts.append(var_label.strip())
     final_text = " ".join(parts).replace("\n", "").strip()
     # print(f"final_text={final_text}")
     return final_text
@@ -100,18 +112,27 @@ def get_csv_text(row: Dict[str, Any]) -> str:
 
 
 
-def load_csv_points(csv_path: str, study_name: str = None) -> List[Dict[str, Any]]:
+def load_csv_points(csv_path: str, study_name: str = None, embedding_mode: str = EmbeddingType.EC.value) -> List[Dict[str, Any]]:
     """
     Reads a CSV file containing your data dictionary and converts each row into a dictionary with an embedding text.
     Optionally includes additional metadata such as a study name if available.
     """
     df = load_dictionary(csv_path)
+    # lowercase all column names
+    df.columns = [col.lower() for col in df.columns]
+    if 'variablename' in df.columns:
+        # replace column name 'variablename' with 'variable name'
+        df = df.rename(columns={col: 'variable name' for col in df.columns if col == 'variablename'})
+    if 'variablelabel' in df.columns:
+        # replace column name 'variablelabel' with 'variable label'
+        df = df.rename(columns={col: 'variable label' for col in df.columns if col == 'variablelabel'})
     # study_name = str(os.path.basename(csv_path).split(".")[0]).lower()
     # print(f"study_name={study_name}")
     points = []
+    print(df.head(2))
     print(f"length of data frame={len(df)}")
     for index, row in df.iterrows():
-        text = get_csv_text(row)
+        text = get_csv_text(row, embedding_mode=embedding_mode)
         if text == "":
             continue
         # Generate a unique id (for example, use the row index or hash of the text)
@@ -123,10 +144,10 @@ def load_csv_points(csv_path: str, study_name: str = None) -> List[Dict[str, Any
         var_data_int = {k.lower().strip().replace(" ", "_"): int(v) for k, v in row.to_dict().items() if isinstance(v, int) or (isinstance(v, float) and v.is_integer())}
         var_data_str = {k.lower().strip().replace(" ", "_"): str(v).lower().strip() for k, v in row.to_dict().items() if isinstance(v, str)}
         # replace key name 'variablelabel' with 'variable_label' in both dicts
-        if 'variablelabel' in var_data_str:
-            var_data_str['variable_label'] = var_data_str.pop('variablelabel')
-        if 'variablename' in var_data_int:
-            var_data_int['variable_name'] = var_data_int.pop('variablename')
+        # if 'variablelabel' in var_data_str:
+        #     var_data_str['variable_label'] = var_data_str.pop('variablelabel')
+        # if 'variablename' in var_data_int:
+        #     var_data_int['variable_name'] = var_data_int.pop('variablename')
         # merge two dicts
         var_data = {**var_data_str, **var_data_int}
         # keep int data types for specific fields
@@ -284,7 +305,7 @@ def search_in_db_group_by(vectordb: QdrantClient, embedding_model: 'ModelEmbeddi
     # print(f"total target ids found via similarity search={len(target_ids)}")
     return list(target_ids)
 
-def generate_studies_embeddings(dir_path:str, vectordb_path:str, collection_name:str, model_name:str, recreate_db=False):
+def generate_studies_embeddings(dir_path:str, vectordb_path:str, collection_name:str, model_name:str, embedding_mode:str=EmbeddingType.EC.value, recreate_db=False):
    
     vectordb, embedding_model = load_vectordb(recreate=recreate_db, collection_name=collection_name, vectordb_path=vectordb_path, model_name=model_name)
     if not recreate_db:
@@ -314,9 +335,14 @@ def generate_studies_embeddings(dir_path:str, vectordb_path:str, collection_name
         print(cohort_metadata_file)
         print(f"Processing cohort: {cohort_folder} at path: {cohort_path} for metadata file: {cohort_metadata_file}")
         if cohort_metadata_file and os.path.exists(cohort_metadata_file):
-            points = load_csv_points(cohort_metadata_file, study_name)
+            points = load_csv_points(cohort_metadata_file, study_name, embedding_mode)
             print(f"Number of points to insert: {len(points)} for {cohort_folder}")
-            insert_in_db(vectordb, embedding_model, points, collection_name)
+            # divide points into batches of 500
+            batch_size = 500
+            for i in range(0, len(points), batch_size):
+                batch_points = points[i:i + batch_size]
+                insert_in_db(vectordb, embedding_model, batch_points, collection_name)
+                # insert_in_db(vectordb, embedding_model, points, collection_name)
             try: 
                 count = vectordb.get_collection(collection_name).points_count
                 print(f"Updated vector count: {count}")

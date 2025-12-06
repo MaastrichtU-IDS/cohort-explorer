@@ -8,18 +8,8 @@ from collections import defaultdict
 from .config import settings
 from .utils import apply_rules
 from .vector_db import search_in_db
-
+from .modes import MappingType 
 import json
-
-# @dataclass
-# class Element:
-#     role: str
-#     name: str
-#     visit: str
-#     omop_id: int
-#     code: str
-#     code_label: str
-#     category: str
 
 BASELINE_TIME_HINTS = ["6 months prior to baseline", "prior to baseline visit"]
 DATE_HINTS = ["visit date", "date of visit","date of event"]
@@ -64,7 +54,163 @@ def check_visit_string(visit_str_src: str, visit_str_tgt:str) -> str:
     return visit_str_src
 
 
+def _build_fetch_query(study: str, graph_repo: str) -> str:
+    query = f"""
+    PREFIX rdf:   <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+    PREFIX rdfs:  <http://www.w3.org/2000/01/rdf-schema#>
+    PREFIX xsd:   <http://www.w3.org/2001/XMLSchema#>
+    PREFIX dc:    <http://purl.org/dc/elements/1.1/>
+    PREFIX ro:    <http://purl.obolibrary.org/obo/ro.owl/>
+    PREFIX obi:   <http://purl.obolibrary.org/obo/obi.owl/>
+    PREFIX iao:   <http://purl.obolibrary.org/obo/iao.owl/>
+    PREFIX bfo:   <http://purl.obolibrary.org/obo/bfo.owl/>
+    PREFIX cmeo:  <https://w3id.org/CMEO/>
 
+    SELECT
+    ?omop_id          # pipe-joined OMOP IDs across all rdf:_n
+    ?code_label       # pipe-joined labels
+    ?code_value       # pipe-joined codes (e.g. loinc:..., snomed:...)
+    ?val              # category value (if any)
+    (GROUP_CONCAT(DISTINCT ?varNameA; SEPARATOR=", ") AS ?source)
+    (GROUP_CONCAT(DISTINCT ?varNameB; SEPARATOR=", ") AS ?target)
+    (GROUP_CONCAT(DISTINCT ?visitsA ; SEPARATOR=", ") AS ?source_visit)
+    (GROUP_CONCAT(DISTINCT ?visitsB ; SEPARATOR=", ") AS ?target_visit)
+    WHERE {{
+    {{
+        # ---------- TIME-CHF (source) ----------
+        SELECT
+        # aggregate across ALL rdf:_n for this code set
+        (GROUP_CONCAT(DISTINCT STR(?omop_id_raw)     ; SEPARATOR="|") AS ?omop_id)
+        (GROUP_CONCAT(DISTINCT ?code_label_raw       ; SEPARATOR="|") AS ?code_label)
+        (GROUP_CONCAT(DISTINCT ?code_value_raw       ; SEPARATOR="|") AS ?code_value)
+        ?val
+        (GROUP_CONCAT(DISTINCT ?var_nameA            ; SEPARATOR=", ") AS ?varNameA)
+        (GROUP_CONCAT(DISTINCT ?pairA                ; SEPARATOR=", ") AS ?visitsA)
+        ("{source}" AS ?source)
+        WHERE {{
+        GRAPH  <{graph_repo}/{source}>   {{
+
+            # 1) Data element -> standardized code set
+            ?stdProcessA a cmeo:data_standardization ;
+                        obi:has_specified_output ?codeSetA ;
+                        obi:has_specified_input  ?dataElementA .
+
+            # 2) All rdf:_n membership positions
+            ?codeSetA ?codePosA ?codeNodeA .
+            FILTER(STRSTARTS(STR(?codePosA),
+                            "http://www.w3.org/1999/02/22-rdf-syntax-ns#_"))
+
+            # 3) Each membership node is a code with a denoted OMOP ID
+            ?codeNodeA a cmeo:code ;
+                    cmeo:has_value ?code_value_raw ;
+                    rdfs:label     ?code_label_raw ;
+                    iao:denotes    ?omopClassA .
+
+            ?omopClassA a cmeo:omop_id ;
+                        cmeo:has_value ?omop_id_raw .
+
+            # 4) Data element identity (per DE)
+            ?dataElementA a cmeo:data_element ;
+                        dc:identifier ?var_nameA .
+
+            # 5) Optional category value
+            OPTIONAL {{
+            ?catProcessA a cmeo:categorization_process ;
+                        obi:has_specified_input  ?dataElementA ;
+                        obi:has_specified_output ?catOutA .
+            ?catOutA cmeo:has_value ?val .
+            }}
+
+            # 6) Visits per data element — pre-aggregate
+            OPTIONAL {{
+            {{
+                SELECT ?dataElementA
+                    (GROUP_CONCAT(DISTINCT ?visitLblA; SEPARATOR="|") AS ?visitStrA)
+                WHERE {{
+                ?visitDatumA a cmeo:visit_measurement_datum ;
+                            iao:is_about ?dataElementA ;
+                            obi:is_specified_input_of ?vsProcA .
+                ?vsProcA obi:has_specified_output ?visitCodeA .
+                ?visitCodeA rdfs:label ?visitLblA .
+                }}
+                GROUP BY ?dataElementA
+            }}
+            }}
+
+            # 7) Build (var || visits) pair
+            BIND(COALESCE(?visitStrA, "") AS ?visA)
+            BIND(CONCAT(STR(?var_nameA), "||", ?visA) AS ?pairA)
+        }}
+        }}
+        # group per code set (+ category value) so all rdf:_n codes collapse into one row
+        GROUP BY ?codeSetA ?val
+    }}
+    UNION
+    {{
+        # ---------- GISSI-HF (target) ----------
+        SELECT
+        (GROUP_CONCAT(DISTINCT STR(?omop_id_raw)     ; SEPARATOR="|") AS ?omop_id)
+        (GROUP_CONCAT(DISTINCT ?code_label_raw       ; SEPARATOR="|") AS ?code_label)
+        (GROUP_CONCAT(DISTINCT ?code_value_raw       ; SEPARATOR="|") AS ?code_value)
+        ?val
+        (GROUP_CONCAT(DISTINCT ?var_nameB            ; SEPARATOR=", ") AS ?varNameB)
+        (GROUP_CONCAT(DISTINCT ?pairB                ; SEPARATOR=", ") AS ?visitsB)
+        ("{target}" AS ?source)
+        WHERE {{
+        GRAPH  <{graph_repo}/{target}>   {{
+
+            ?stdProcessB a cmeo:data_standardization ;
+                        obi:has_specified_output ?codeSetB ;
+                        obi:has_specified_input  ?dataElementB .
+
+            ?codeSetB ?codePosB ?codeNodeB .
+            FILTER(STRSTARTS(STR(?codePosB),
+                            "http://www.w3.org/1999/02/22-rdf-syntax-ns#_"))
+
+            ?codeNodeB a cmeo:code ;
+                    cmeo:has_value ?code_value_raw ;
+                    rdfs:label     ?code_label_raw ;
+                    iao:denotes    ?omopClassB .
+
+            ?omopClassB a cmeo:omop_id ;
+                        cmeo:has_value ?omop_id_raw .
+
+            ?dataElementB a cmeo:data_element ;
+                        dc:identifier ?var_nameB .
+
+            OPTIONAL {{
+            ?catProcessB a cmeo:categorization_process ;
+                        obi:has_specified_input  ?dataElementB ;
+                        obi:has_specified_output ?catOutB .
+            ?catOutB cmeo:has_value ?val .
+            }}
+
+            OPTIONAL {{
+            {{
+                SELECT ?dataElementB
+                    (GROUP_CONCAT(DISTINCT ?visitLblB; SEPARATOR="|") AS ?visitStrB)
+                WHERE {{
+                ?visitDatumB a cmeo:visit_measurement_datum ;
+                            iao:is_about ?dataElementB ;
+                            obi:is_specified_input_of ?vsProcB .
+                ?vsProcB obi:has_specified_output ?visitCodeB .
+                ?visitCodeB rdfs:label ?visitLblB .
+                }}
+                GROUP BY ?dataElementB
+            }}
+            }}
+
+            BIND(COALESCE(?visitStrB, "") AS ?visB)
+            BIND(CONCAT(STR(?var_nameB), "||", ?visB) AS ?pairB)
+        }}
+        }}
+        GROUP BY ?codeSetB ?val
+    }}
+    }}
+    GROUP BY ?omop_id ?code_label ?code_value ?val
+    ORDER BY ?omop_id
+
+    """
 
 def _build_alignment_query(
     source: str, target: str, graph_repo: str
@@ -386,6 +532,15 @@ def _build_elements(
         for el, vis in zip(variables, visits)
     ]
 
+def _combine_composite_fields(omop_id: str, code_label: str, code_value: str) -> str:
+    """Combine composite OMOP fields into a single pipe-separated string.
+    Format: omop_id|code_label|code_value
+    """
+    if not omop_id and not code_label and not code_value:
+        return ""
+    return f"{omop_id}|{code_label}|{code_value}"
+
+
 def _exact_match_records(
     src_vars: List[str],
     tgt_vars: List[str],
@@ -525,9 +680,9 @@ def _graph_vector_matches(
         if category in {"drug_exposure", "drug_era"}:
             reachable = graph.bfs_bidirectional_reachable(sid, tgt_ids, max_depth=2, domain ='drug')
             
-        elif category in {"condition_occurrence", "condition_era"}:
-            reachable = graph.bfs_bidirectional_reachable(sid, tgt_ids, max_depth=2, domain ='condition')
-        elif category in { "measurement", "procedure_occurrence", "observation", "device_exposure", "visit_occurrence", "specimen"}:
+        # elif category in {}:
+        #     reachable = graph.bfs_bidirectional_reachable(sid, tgt_ids, max_depth=2, domain ='condition')
+        elif category in { "condition_occurrence", "condition_era", "measurement", "procedure_occurrence", "observation", "device_exposure", "visit_occurrence", "specimen"}:
             reachable = graph.only_upward_or_downward(sid, tgt_ids, max_depth=1)
 
         if reachable:
@@ -578,23 +733,23 @@ def _graph_vector_matches(
 
 
 
-def fetch_variables_statistic_type(var_names_list:list[str], study_name:str) -> pd.DataFrame:
+def _build_statistic_query(
+    source: str,values_str: str, graph_repo: str
+) -> str:
+    """Return the SPARQL query used to retrieve variables of both studies."""
+    
+    return f""" 
+            
+            PREFIX rdf:   <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+            PREFIX rdfs:  <http://www.w3.org/2000/01/rdf-schema#>
+            PREFIX xsd:   <http://www.w3.org/2001/XMLSchema#>
+            PREFIX dc:    <http://purl.org/dc/elements/1.1/>
+            PREFIX ro:    <http://purl.obolibrary.org/obo/ro.owl/>
+            PREFIX obi:   <http://purl.obolibrary.org/obo/obi.owl/>
+            PREFIX iao:   <http://purl.obolibrary.org/obo/iao.owl/>
+            PREFIX bfo:   <http://purl.obolibrary.org/obo/bfo.owl/>
+            PREFIX cmeo:  <https://w3id.org/CMEO/>
 
-    data_dict = []
-    # split var_names_list with 
-    # make multiple lists by having 30 items in each list
-    var_names_list_ = [var_names_list[i:i + 50] for i in range(0, len(var_names_list), 50)]
-    # print(f"length of var_names_list: {len(var_names_list_)}")
-    for var_list in var_names_list_:
-        values_str = " ".join(f'"{v}"' for v in var_list)
-        query = f"""
-            PREFIX rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-            PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-            PREFIX dc:   <http://purl.org/dc/elements/1.1/>
-            PREFIX obi:  <http://purl.obolibrary.org/obo/obi.owl/>
-            PREFIX cmeo: <https://w3id.org/CMEO/>
-            PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
-            PREFIX iao: <http://purl.obolibrary.org/obo/iao.owl/>
             SELECT DISTINCT
                 ?identifier
                 ?stat_label
@@ -602,15 +757,39 @@ def fetch_variables_statistic_type(var_names_list:list[str], study_name:str) -> 
                 ?data_type_val
                 (GROUP_CONCAT(DISTINCT ?cate_code_label; separator="; ") AS ?all_cat_labels)
                 (GROUP_CONCAT(DISTINCT ?original_cat_val_value; separator="; ") AS ?all_original_cat_values)
-
+                (GROUP_CONCAT(DISTINCT STR(?omop_id_raw);       SEPARATOR="|")  AS ?omop_id)
+                (GROUP_CONCAT(DISTINCT ?code_label_raw;         SEPARATOR="|")  AS ?code_label)
+                (GROUP_CONCAT(DISTINCT ?code_value_raw;         SEPARATOR="|")  AS ?code_value)
                 WHERE {{
-                GRAPH <https://w3id.org/CMEO/graph/{study_name}> {{
+                GRAPH <{graph_repo}/{source}> {{
                 
                     # Input: dc:identifier values
-                    VALUES ?identifier {{ {values_str}
-                    }}
+                   VALUES ?identifier {{ {values_str} }}
 
                     ?dataElement dc:identifier ?identifier .
+    
+                    # Concept codes for variable
+
+                    OPTIONAL {{ 
+                    ?stdProcessA a cmeo:data_standardization ;
+                                obi:has_specified_input  ?dataElement ;
+                                obi:has_specified_output ?codeSetA .
+
+                    # membership positions rdf:_1, rdf:_2,rdf:_3 etc. ...
+                    ?codeSetA ?codePosA ?codeNodeA .
+                    FILTER( STRSTARTS(
+                                STR(?codePosA),
+                                "http://www.w3.org/1999/02/22-rdf-syntax-ns#_"
+                            ))
+
+                    ?codeNodeA a cmeo:code ;
+                                cmeo:has_value ?code_value_raw ;
+                                rdfs:label     ?code_label_raw ;
+                                iao:denotes    ?omopClassA .
+
+                    ?omopClassA a cmeo:omop_id ;
+                                cmeo:has_value ?omop_id_raw .
+                    }}
 
                     # Optional: Statistical description
                     OPTIONAL {{
@@ -620,49 +799,130 @@ def fetch_variables_statistic_type(var_names_list:list[str], study_name:str) -> 
                         iao:is_about ?dataElement;
                         cmeo:has_value ?data_type_val.
                     }}
+
                     # Optional: Measurement unit
                     OPTIONAL {{
+                    ?dataElement obi:has_measurement_unit_label ?unit .
+                    ?unit a obi:measurement_unit_label ;
+                            obi:is_specified_input_of ?mu_standardization_u .
 
-                        ?dataElement obi:has_measurement_unit_label ?unit .
-                        ?unit a obi:measurement_unit_label; obi:is_specified_input_of ?mu_standardization.
-                        
-                        ?mu_standardization obi:has_specified_output ?unit_code_node .
-                        ?unit_code_node a cmeo:code; cmeo:has_value ?unit_label .
-
-                }}
-                # Optional: permissible values
-                    OPTIONAL {{
-
-                    ?cat_val a obi:categorical_value_specification;
-                        obi:specifies_value_of ?dataElement;
-                        obi:is_specified_input_of ?mu_standardization;
-                        cmeo:has_value ?original_cat_val_value .
-                        
-                    ?mu_standardization obi:has_specified_output ?cat_codes .
-                    ?cat_codes rdfs:label  ?cate_code_label
+                    ?mu_standardization_u obi:has_specified_output ?unit_code_node .
+                    ?unit_code_node a cmeo:code ;
+                                    cmeo:has_value ?unit_label .
                     }}
-                }}
+
+                    # Optional: permissible values
+                    OPTIONAL {{
+                    ?cat_val a obi:categorical_value_specification ;
+                            obi:specifies_value_of ?dataElement ;
+                            obi:is_specified_input_of ?mu_standardization_c ;
+                            cmeo:has_value ?original_cat_val_value .
+
+                    ?mu_standardization_c obi:has_specified_output ?cat_codes .
+                    ?cat_codes rdfs:label ?cate_code_label .
+                    }}
+                    }}
                 }}
                 GROUP BY ?identifier ?stat_label ?unit_label ?data_type_val
                 ORDER BY ?identifier
+            """
+                    
+def fetch_variables_statistic_type(var_names_list:list[str], study_name:str, graph_repo: str) -> pd.DataFrame:
 
-        """
+    data_dict = []
+    # split var_names_list with 
+    # make multiple lists by having 30 items in each list
+    var_names_list_ = [var_names_list[i:i + 50] for i in range(0, len(var_names_list), 50)]
+    # print(f"length of var_names_list: {len(var_names_list_)}")
+    for var_list in var_names_list_:
+        values_str = " ".join(f'"{v}"' for v in var_list)
+        # query = f"""
+        #     PREFIX rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+        #     PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+        #     PREFIX dc:   <http://purl.org/dc/elements/1.1/>
+        #     PREFIX obi:  <http://purl.obolibrary.org/obo/obi.owl/>
+        #     PREFIX cmeo: <https://w3id.org/CMEO/>
+        #     PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
+        #     PREFIX iao: <http://purl.obolibrary.org/obo/iao.owl/>
+        #     SELECT DISTINCT
+        #         ?identifier
+        #         ?stat_label
+        #         ?unit_label
+        #         ?data_type_val
+        #         (GROUP_CONCAT(DISTINCT ?cate_code_label; separator="; ") AS ?all_cat_labels)
+        #         (GROUP_CONCAT(DISTINCT ?original_cat_val_value; separator="; ") AS ?all_original_cat_values)
+
+        #         WHERE {{
+        #         GRAPH <https://w3id.org/CMEO/graph/{study_name}> {{
+                
+        #             # Input: dc:identifier values
+        #             VALUES ?identifier {{ {values_str}
+        #             }}
+
+        #             ?dataElement dc:identifier ?identifier .
+
+        #             # Optional: Statistical description
+        #             OPTIONAL {{
+        #             ?dataElement iao:is_denoted_by ?stat .
+        #             ?stat cmeo:has_value ?stat_label.
+        #             ?data_type a cmeo:data_type;
+        #                 iao:is_about ?dataElement;
+        #                 cmeo:has_value ?data_type_val.
+        #             }}
+        #             # Optional: Measurement unit
+        #             OPTIONAL {{
+
+        #                 ?dataElement obi:has_measurement_unit_label ?unit .
+        #                 ?unit a obi:measurement_unit_label; obi:is_specified_input_of ?mu_standardization.
+                        
+        #                 ?mu_standardization obi:has_specified_output ?unit_code_node .
+        #                 ?unit_code_node a cmeo:code; cmeo:has_value ?unit_label .
+
+        #         }}
+        #         # Optional: permissible values
+        #             OPTIONAL {{
+
+        #             ?cat_val a obi:categorical_value_specification;
+        #                 obi:specifies_value_of ?dataElement;
+        #                 obi:is_specified_input_of ?mu_standardization;
+        #                 cmeo:has_value ?original_cat_val_value .
+                        
+        #             ?mu_standardization obi:has_specified_output ?cat_codes .
+        #             ?cat_codes rdfs:label  ?cate_code_label
+        #             }}
+        #         }}
+        #         }}
+        #         GROUP BY ?identifier ?stat_label ?unit_label ?data_type_val
+        #         ORDER BY ?identifier
+
+        # """
         # print(query)
+        query = _build_statistic_query(study_name, values_str, graph_repo)
         sparql = SPARQLWrapper(settings.query_endpoint)
         sparql.setQuery(query)
         sparql.setReturnFormat(JSON)
         results = sparql.query().convert()
-        
+                #      (GROUP_CONCAT(DISTINCT STR(?omop_id_raw);       SEPARATOR="|")  AS ?omop_id)
+                # (GROUP_CONCAT(DISTINCT ?code_label_raw;         SEPARATOR="|")  AS ?code_label)
+                # (GROUP_CONCAT(DISTINCT ?code_value_raw;         SEPARATOR="|")  AS ?code_value)
         for result in results["results"]["bindings"]:
             identifier = result['identifier']['value']
             if identifier in var_names_list:
+                composite_value = _combine_composite_fields(
+                    result['code_value']['value'] if 'code_value' in result else "",
+                    result['code_label']['value'] if 'code_label' in result else "",
+                    result['omop_id']['value'] if 'omop_id' in result else ""
+                    
+                    
+                )
                 data_dict.append({
                     'identifier': identifier,
                     'stat_label': result['stat_label']['value'] if 'stat_label' in result else None,
                     'unit_label': result['unit_label']['value'] if 'unit_label' in result else None,
                     'data_type': result['data_type_val']['value'] if 'data_type_val' in result else None,
                     "categories_labels": result['all_cat_labels']['value'] if 'all_cat_labels' in result else None,
-                    'original_categories': result['all_original_cat_values']['value'] if 'all_original_cat_values' in result else None
+                    'original_categories': result['all_original_cat_values']['value'] if 'all_original_cat_values' in result else None,
+                    'composite': composite_value
                 })
     data_dict = pd.DataFrame.from_dict(data_dict)
     # print(f"head of data dict: {data_dict.head()}")
@@ -760,10 +1020,10 @@ def fetch_variables_eda(var_names_list:list[str], study_name:str) -> pd.DataFram
 
 
 def _attach_statistics(
-    df: pd.DataFrame, source_vars: List[str], target_vars: List[str], src_study: str, tgt_study: str
+    df: pd.DataFrame, source_vars: List[str], target_vars: List[str], src_study: str, tgt_study: str, graph_repo: str
 ) -> pd.DataFrame:
-    src_stats = fetch_variables_statistic_type(source_vars, src_study)
-    tgt_stats = fetch_variables_statistic_type(target_vars, tgt_study)
+    src_stats = fetch_variables_statistic_type(source_vars, src_study, graph_repo)
+    tgt_stats = fetch_variables_statistic_type(target_vars, tgt_study, graph_repo)
     # src_eda = fetch_variables_eda(source_vars, src_study)
     # print(src_eda.head(3))
 
@@ -776,7 +1036,8 @@ def _attach_statistics(
                     "unit_label": "source_unit",
                     "data_type": "source_data_type",
                     "categories_labels": "source_categories_labels",
-                    "original_categories": "source_original_categories"
+                    "original_categories": "source_original_categories",
+                    "composite": "source_composite",
                 }
             ),
             on="source",
@@ -793,7 +1054,8 @@ def _attach_statistics(
                 "unit_label": "target_unit",
                 "data_type": "target_data_type",
                 "categories_labels": "target_categories_labels",
-                "original_categories": "target_original_categories"
+                "original_categories": "target_original_categories",
+                "composite": "target_composite"
             }
         ),
         on="target",
@@ -965,6 +1227,7 @@ def _cross_category_matches(
     vector_db: Any,
     embedding_model: Any,
     collection_name: str,
+    mapping_mode: str,
 ) -> Iterable[Dict[str, Any]]:
     """Generate cross‑category pairings that share the same ``omop_id`` **and** visit.
 
@@ -1019,75 +1282,78 @@ def _cross_category_matches(
                         "source_visit": s['visit'],
                         "target_visit":  t['visit'],
                     }
-                    
+                  
+                  
+    if mapping_mode in {MappingType.OEC.value, MappingType.OED.value, MappingType.OEH.value}:
     # ALSO CHECK SEMANTIC SIMILARITY ACROSS CATEGORIES IF NO EXACT MATCHES FOUND USING EMBEDDING SEARCH
-    targets_by_omop: Dict[int, List[Dict[str, Any]]] = defaultdict(list)
-    for t in target_elements:
-        targets_by_omop[t["omop_id"]].append(t)
+        targets_by_omop: Dict[int, List[Dict[str, Any]]] = defaultdict(list)
+        for t in target_elements:
+            targets_by_omop[t["omop_id"]].append(t)
 
-    # Cache embedding results per (source_label, source_category)
-    embed_cache: Dict[tuple[str, str], set[int]] = {}
+        # Cache embedding results per (source_label, source_category)
+        embed_cache: Dict[tuple[str, str], set[int]] = {}
 
-    for s in source_elements:
-        s_label = s["code_label"]
-        s_cat = s["category"].strip().lower()
+        for s in source_elements:
+            s_label = s["code_label"]
+            s_cat = s["category"].strip().lower()
 
-        # Only bother for relevant categories
-        if s_cat not in CROSS_CATS:
-            continue
+            # Only bother for relevant categories
+            if s_cat not in CROSS_CATS:
+                continue
 
-        cache_key = (s_label, s_cat)
-        if cache_key in embed_cache:
-            matched_omops = embed_cache[cache_key]
-        else:
-            # You had 0.65 as default score; keep that
-            score = 0.8
-            # score = 0.65 if s_cat in {"drug_exposure", "drug_era"} else 0.8
+            cache_key = (s_label, s_cat)
+            if cache_key in embed_cache:
+                matched_omops = embed_cache[cache_key]
+            else:
+                # You had 0.65 as default score; keep that
+                score = 0.8
+            # score = 0.65 if s_category in {"drug_exposure", "drug_era"} else 0.8
 
-            # We allow matches to any of the CROSS_CATS in the target
-            matched_omops = search_in_db(
-                    vectordb=vector_db,
-                    embedding_model=embedding_model,
-                    query_text=s_label,
-                    target_study=target_study,
-                    limit=100,
-                    omop_domain=list(CROSS_CATS),
-                    min_score=score,
-                    collection_name=collection_name,
-                )
-            
-            embed_cache[cache_key] = matched_omops
+                # We allow matches to any of the CROSS_CATS in the target
+                matched_omops = search_in_db(
+                        vectordb=vector_db,
+                        embedding_model=embedding_model,
+                        query_text=s_label,
+                        target_study=target_study,
+                        limit=100,
+                        omop_domain=list(CROSS_CATS),
+                        min_score=score,
+                        collection_name=collection_name,
+                    )
+                
+                embed_cache[cache_key] = matched_omops
 
-        if not matched_omops:
-            continue
+            if not matched_omops:
+                continue
 
-        for omop_id in matched_omops:
-            for t in targets_by_omop.get(omop_id, []):
-                t_cat = t["category"].strip().lower()
-                if t_cat not in CROSS_CATS:
-                    continue
+            for omop_id in matched_omops:
+                for t in targets_by_omop.get(omop_id, []):
+                    t_cat = t["category"].strip().lower()
+                    if t_cat not in CROSS_CATS:
+                        continue
 
-                # Visit constraint
-                svisit = check_visit_string(s["visit"], t["visit"])
-                tvisit = check_visit_string(t["visit"], s["visit"])
-                if svisit != tvisit:
-                    continue
+                    # Visit constraint
+                    svisit = check_visit_string(s["visit"], t["visit"])
+                    tvisit = check_visit_string(t["visit"], s["visit"])
+                    if svisit != tvisit:
+                        continue
 
-                yield {
-                    "source": s["source"],
-                    "target": t["target"],
-                    "somop_id": s["omop_id"],
-                    "tomop_id": t["omop_id"],
-                    "scode": s["code"],
-                    "slabel": s["code_label"],
-                    "tcode": t["code"],
-                    "tlabel": t["code_label"],
-                    "category": f"{s['category']}|{t['category']}",
-                    "mapping type": "semantic label match",
-                    "source_visit": s["visit"],
-                    "target_visit": t["visit"],
-                }
+                    yield {
+                        "source": s["source"],
+                        "target": t["target"],
+                        "somop_id": s["omop_id"],
+                        "tomop_id": t["omop_id"],
+                        "scode": s["code"],
+                        "slabel": s["code_label"],
+                        "tcode": t["code"],
+                        "tlabel": t["code_label"],
+                        "category": f"{s['category']}|{t['category']}",
+                        "mapping type": "semantic label match",
+                        "source_visit": s["visit"],
+                        "target_visit": t["visit"],
+                    }
 
+# we have symbolic baseline which is ontology_only then we have neural baseline which is embedding_only and its subtypes embedding_only(concepts), embedding_only(description), embedding_only(concepts+description) and then we have hybrid model which is ontology+embedding
 def map_source_target(
     source_study_name: str,
     target_study_name: str,
@@ -1096,6 +1362,7 @@ def map_source_target(
     graph_db_repo: str = "https://w3id.org/CMEO/graph",
     collection_name: str = "studies_metadata",
     graph: Any = None,
+    mapping_mode: str = MappingType.OEC.value,
 ) -> pd.DataFrame:
     """
     Align variables between two studies using OMOP graph relations
@@ -1138,6 +1405,17 @@ def map_source_target(
         "target": target_elems,
         "mapped": matches
     }
+    
+    if mapping_mode in [MappingType.OEH.value, MappingType.OED.value, MappingType.OEC.value]:
+        matches.extend(_graph_vector_matches(
+            source_elems,
+            target_elems,
+            graph,
+            vector_db,
+            embedding_model,
+            target_study_name,
+            collection_name,
+        ))
     for derived in DERIVED_VARIABLES_LIST:
         derived_row = extend_with_derived_variables(
             single_source=single_source,
@@ -1156,19 +1434,11 @@ def map_source_target(
         embedding_model=embedding_model,
         vector_db=vector_db,
         collection_name=collection_name,
+        mapping_mode=mapping_mode,
     ))
     if cross_category_matches and len(cross_category_matches) > 0:
         matches.extend(cross_category_matches)
-    
-    matches.extend(_graph_vector_matches(
-        source_elems,
-        target_elems,
-        graph,
-        vector_db,
-        embedding_model,
-        target_study_name,
-        collection_name,
-    ))
+   
 
     print(f"Total matches found: {len(matches)}")
     
@@ -1183,6 +1453,8 @@ def map_source_target(
         df["target"].dropna().unique().tolist(),
         source_study_name,
         target_study_name,
+        graph_db_repo
+        
     )
 
     
@@ -1201,7 +1473,8 @@ def map_source_target(
                 "unit": row.get("source_unit", ""),
                 "data_type": row.get("source_data_type", ""),
                 "categories_labels": row.get("source_categories_labels", ""),
-                "original_categories": row.get("source_original_categories", "")
+                "original_categories": row.get("source_original_categories", ""),
+                "composite_code": row.get("source_composite", "")
             },
             tgt_info={
                 "var_name": row.get("target", ""),
@@ -1210,7 +1483,8 @@ def map_source_target(
                 "unit": row.get("target_unit", ""),
                 "data_type": row.get("target_data_type", ""),
                 "categories_labels": row.get("target_categories_labels", ""),
-                "original_categories": row.get("target_original_categories", "")
+                "original_categories": row.get("target_original_categories", ""),
+                "composite_code": row.get("target_composite", "")
             },
         ),
         axis=1,

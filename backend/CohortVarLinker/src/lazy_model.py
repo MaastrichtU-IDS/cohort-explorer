@@ -9,7 +9,7 @@
 #         print("Model loaded successfully!")
 #     return _model_instance
 
-
+# lazy_model.py
 import os
 from typing import Optional
 
@@ -79,7 +79,19 @@ class BioLORDEmbedding:
         )
         return emb.tolist()
 
+class E5Embedding:
+    def __init__(self, model_name: str = "intfloat/e5-large"):
+        self.model = SentenceTransformer(model_name, cache_folder="/Users/komalgilani/Documents/GitHub/CohortVarLinker/data/models")
 
+    def embed_text(self, text: str):
+        emb = self.model.encode(
+            text,
+            convert_to_numpy=True,
+            normalize_embeddings=False,  # we can normalize later if needed
+        )
+        
+        return emb.tolist()
+    
 _model: Optional[object] = None
 _backend: Optional[str] = None
 
@@ -91,7 +103,7 @@ def get_model(backend: Optional[str] = None):
     If None, uses DEFAULT_BACKEND (env/config).
     """
     global _model, _backend
-
+    embedding_size = 768  # default
     if backend is None:
         backend = DEFAULT_BACKEND
     backend = backend.lower()
@@ -101,6 +113,9 @@ def get_model(backend: Optional[str] = None):
             _model = SapBERTEmbedding()
         elif backend == "biolord":
             _model = BioLORDEmbedding()
+        elif backend == "e5":
+            _model = E5Embedding()
+            embedding_size = 1024  # E5 model embedding size
         else:
             raise ValueError(f"Unknown embedding backend: {backend}")
         _backend = backend
@@ -111,7 +126,7 @@ def get_model(backend: Optional[str] = None):
                 f"Embedding model already initialized with backend '{_backend}'. "
                 f"Restart the process to switch to '{backend}'."
             )
-    return _model
+    return _model, embedding_size
 
 
 def get_backend_name() -> Optional[str]:
