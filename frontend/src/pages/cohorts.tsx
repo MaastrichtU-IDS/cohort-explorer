@@ -179,6 +179,9 @@ export default function CohortsList() {
 
   // Check for analysis folder availability when cohorts data changes
   useEffect(() => {
+    let isMounted = true;
+    const abortController = new AbortController();
+    
     const checkAnalysisAvailability = async () => {
       const availability: Record<string, boolean> = {};
       
@@ -187,20 +190,35 @@ export default function CohortsList() {
       
       // Check each cohort for analysis folder availability
       for (const cohortId of Object.keys(cohortsData)) {
+        if (!isMounted) break; // Stop if component unmounted
+        
         try {
-          const response = await fetch(`/api/check-analysis-folder/${cohortId}`);
+          const response = await fetch(`/api/check-analysis-folder/${cohortId}`, {
+            signal: abortController.signal
+          });
           const data = await response.json();
           availability[cohortId] = data.exists;
-        } catch (error) {
+        } catch (error: any) {
+          if (error.name === 'AbortError') {
+            console.log('Analysis check aborted');
+            break;
+          }
           console.error(`Error checking analysis for cohort ${cohortId}:`, error);
           availability[cohortId] = false;
         }
       }
       
-      setAnalysisAvailability(availability);
+      if (isMounted) {
+        setAnalysisAvailability(availability);
+      }
     };
     
     checkAnalysisAvailability();
+    
+    return () => {
+      isMounted = false;
+      abortController.abort();
+    };
   }, [cohortsData]);
 
   // Parse search query into terms - simple space-separated approach
