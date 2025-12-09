@@ -442,6 +442,7 @@ async def get_compute_dcr_definition(
     client: Any,
     include_shuffled_samples: bool = True,
     additional_analysts: list[str] = None,
+    airlock_settings: dict[str, int] = None,
 ) -> Any:
     start_time = datetime.now()
     logging.info(f"Starting DCR definition creation for user {user['email']} at {start_time}")
@@ -605,6 +606,64 @@ async def get_compute_dcr_definition(
         # # Add the requester as analyst of prepare script
         # participants[user["email"]]["analyst_of"].add(f"prepare-{cohort_id}")
 
+        # Add data fragment script for this cohort (Dec 2025)
+        # This script excludes the ID column and splits the data based on airlock settings
+        id_variable_name = find_variable_by_omop_id(cohort_id, "4086934")
+        
+        # Get the airlock percentage for this cohort (default to 0 if not specified)
+        airlock_percentage = 0
+        if airlock_settings and cohort_id in airlock_settings:
+            airlock_percentage = airlock_settings[cohort_id]
+        
+        data_fragment_script = f"""import pandas as pd
+import decentriq_util
+import os
+
+# Read the cohort data
+df = decentriq_util.read_tabular_data("{cohort_id}")
+
+# Remove ID column if it exists
+id_column = "{id_variable_name if id_variable_name else ''}"
+if id_column and id_column in df.columns:
+    df = df.drop(columns=[id_column])
+    print(f"Removed ID column: {{id_column}}")
+else:
+    print(f"ID column not found or not specified")
+
+# Airlock percentage setting
+airlock_percentage = {airlock_percentage}
+
+if airlock_percentage > 0:
+    # Shuffle the dataframe to ensure random split
+    df = df.sample(frac=1, random_state=42).reset_index(drop=True)
+    
+    # Split based on airlock percentage
+    split_fraction = airlock_percentage / 100.0
+    split_index = int(len(df) * split_fraction)
+    df_fragment = df.iloc[:split_index]
+    
+    # Save the fragment to output
+    output_dir = "/output"
+    os.makedirs(output_dir, exist_ok=True)
+    output_file = os.path.join(output_dir, "{cohort_id}_data_fragment.csv")
+    df_fragment.to_csv(output_file, index=False)
+    
+    print(f"Data fragment saved: {{output_file}}")
+    print(f"Fragment size: {{len(df_fragment)}} rows out of {{len(df)}} total rows ({{len(df_fragment)/len(df)*100:.1f}}%)")
+else:
+    print(f"Airlock percentage is 0%, no data fragment will be created for {cohort_id}")
+"""
+        
+        builder.add_node_definition(
+            PythonComputeNodeDefinition(
+                name=f"data-fragment-{cohort_id}",
+                script=data_fragment_script,
+                dependencies=[data_node_id]
+            )
+        )
+        # Add the requester as analyst of the data fragment script
+        participants[user["email"]]["analyst_of"].add(f"data-fragment-{cohort_id}")
+
 
 
     # Add single basic data exploration script for all cohorts (Nov 2025)
@@ -615,53 +674,62 @@ from datetime import datetime
 
 # Get all files in the /input directory
 input_dir = "/input"
+output_dir = "/output"
 files = os.listdir(input_dir)
 
-print("=" * 80)
-print("BASIC DATA EXPLORATION")
-print("=" * 80)
-print()
+# Create output directory if it doesn't exist
+os.makedirs(output_dir, exist_ok=True)
 
-for filename in sorted(files):
-    filepath = os.path.join(input_dir, filename)
+# Open output file for writing
+output_file = os.path.join(output_dir, "data_exploration_report.txt")
+with open(output_file, "w") as f:
+    f.write("=" * 80 + "\\n")
+    f.write("BASIC DATA EXPLORATION\\n")
+    f.write("=" * 80 + "\\n")
+    f.write("\\n")
     
-    # Skip if not a file
-    if not os.path.isfile(filepath):
-        continue
-    
-    print(f"\\n{'=' * 80}")
-    print(f"FILE: {filename}")
-    print(f"{'=' * 80}")
-    
-    # File size in KB
-    file_size_bytes = os.path.getsize(filepath)
-    file_size_kb = file_size_bytes / 1024
-    print(f"Size: {file_size_kb:.2f} KB ({file_size_bytes:,} bytes)")
-    
-    # Last modified date
-    mod_timestamp = os.path.getmtime(filepath)
-    mod_date = datetime.fromtimestamp(mod_timestamp)
-    print(f"Last Modified: {mod_date.strftime('%Y-%m-%d %H:%M:%S')}")
-    
-    # Try to load as tabular data and display info
-    try:
-        df = decentriq_util.read_tabular_data(filename)
-        print(f"\\nDataFrame Info:")
-        print(f"  Rows: {len(df):,}")
-        print(f"  Columns: {len(df.columns):,}")
-        print(f"  Column names: {list(df.columns)}")
+    for filename in sorted(files):
+        filepath = os.path.join(input_dir, filename)
         
-        print(f"\\nFirst 5 rows:")
-        print(df.head(5).to_string())
+        # Skip if not a file
+        if not os.path.isfile(filepath):
+            continue
         
-    except Exception as e:
-        print(f"\\nCould not load as tabular data: {e}")
+        f.write(f"\\n{'=' * 80}\\n")
+        f.write(f"FILE: {filename}\\n")
+        f.write(f"{'=' * 80}\\n")
+        
+        # File size in KB
+        file_size_bytes = os.path.getsize(filepath)
+        file_size_kb = file_size_bytes / 1024
+        f.write(f"Size: {file_size_kb:.2f} KB ({file_size_bytes:,} bytes)\\n")
+        
+        # Last modified date
+        mod_timestamp = os.path.getmtime(filepath)
+        mod_date = datetime.fromtimestamp(mod_timestamp)
+        f.write(f"Last Modified: {mod_date.strftime('%Y-%m-%d %H:%M:%S')}\\n")
+        
+        # Try to load as tabular data and display info
+        try:
+            df = decentriq_util.read_tabular_data(filename)
+            f.write(f"\\nDataFrame Info:\\n")
+            f.write(f"  Rows: {len(df):,}\\n")
+            f.write(f"  Columns: {len(df.columns):,}\\n")
+            f.write(f"  Column names: {list(df.columns)}\\n")
+            
+            f.write(f"\\nFirst 5 rows:\\n")
+            f.write(df.head(5).to_string() + "\\n")
+            
+        except Exception as e:
+            f.write(f"\\nCould not load as tabular data: {e}\\n")
+        
+        f.write("\\n")
     
-    print()
+    f.write("=" * 80 + "\\n")
+    f.write("EXPLORATION COMPLETE\\n")
+    f.write("=" * 80 + "\\n")
 
-print("=" * 80)
-print("EXPLORATION COMPLETE")
-print("=" * 80)
+print(f"Report written to {output_file}")
 """
     
     # Add the exploration script with dependencies on all metadata nodes
@@ -719,6 +787,7 @@ async def create_live_compute_dcr(
     client: Any,
     include_shuffled_samples: bool = True,
     additional_analysts: list[str] = None,
+    airlock_settings: dict[str, int] = None,
 ) -> dict[str, Any]:
     """Create and publish a live compute DCR that is immediately available for use.
     
@@ -740,7 +809,7 @@ async def create_live_compute_dcr(
     logging.info(f"Starting live compute DCR creation for user {user['email']} at {start_time}")
     
     # Step 1: Create the DCR definition (reuse existing logic)
-    dcr_definition, dcr_title = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, additional_analysts)
+    dcr_definition, dcr_title = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings)
     
     # Step 2: Publish the DCR to Decentriq (similar to create_provision_dcr)
     logging.info(f"Publishing live compute DCR: {dcr_title}")
@@ -971,8 +1040,11 @@ async def api_create_live_compute_dcr(
     # Extract additional_analysts from request, default to empty list
     additional_analysts = cohorts_request.get("additional_analysts", [])
     
+    # Extract airlock_settings from request, default to empty dict
+    airlock_settings = cohorts_request.get("airlock_settings", {})
+    
     # Create and publish the live compute DCR
-    return await create_live_compute_dcr(cohorts_request, user, client, include_shuffled_samples, additional_analysts)
+    return await create_live_compute_dcr(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings)
 
 
 @router.post(

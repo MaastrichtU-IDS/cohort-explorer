@@ -24,6 +24,7 @@ export function Nav() {
   const [showParticipantsModal, setShowParticipantsModal] = useState(false);
   const [additionalAnalysts, setAdditionalAnalysts] = useState<string[]>([]);
   const [newAnalystEmail, setNewAnalystEmail] = useState('');
+  const [airlockSettings, setAirlockSettings] = useState<Record<string, number>>({});
   // const [cleanRoomData, setCleanRoomData]: any = useState(null);
   // const cleanRoomData = JSON.parse(sessionStorage.getItem('dataCleanRoom') || '{"cohorts": []}');
   // const cohortsCount = cleanRoomData.cohorts.length;
@@ -141,7 +142,8 @@ export function Nav() {
         body: JSON.stringify({
           ...dataCleanRoom,
           include_shuffled_samples: includeShuffledSamples,
-          additional_analysts: additionalAnalysts
+          additional_analysts: additionalAnalysts,
+          airlock_settings: airlockSettings
         })
       });
       
@@ -530,6 +532,30 @@ export function Nav() {
                 >
                   Add Analyst
                 </button>
+              </div>
+
+              {/* Airlock Settings */}
+              <div className="divider">Airlock Settings</div>
+              <div className="space-y-3">
+                <p className="text-sm text-base-content/70">Set the percentage of data (0-100) to export as a fragment for each cohort:</p>
+                {dataCleanRoom?.cohorts && Object.keys(dataCleanRoom.cohorts).map((cohortId) => (
+                  <div key={cohortId} className="flex items-center gap-3">
+                    <label className="flex-1 font-medium">{cohortId}</label>
+                    <input 
+                      type="number"
+                      min="0"
+                      max="100"
+                      placeholder="0"
+                      className="input input-bordered w-24 text-center"
+                      value={airlockSettings[cohortId] ?? 0}
+                      onChange={(e) => {
+                        const value = Math.min(100, Math.max(0, parseInt(e.target.value) || 0));
+                        setAirlockSettings({...airlockSettings, [cohortId]: value});
+                      }}
+                    />
+                    <span className="text-sm text-base-content/70 w-8">%</span>
+                  </div>
+                ))}
               </div>
             </div>
             
