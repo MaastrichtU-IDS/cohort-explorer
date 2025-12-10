@@ -159,6 +159,8 @@ export default function CohortsList() {
   const [analysisAvailability, setAnalysisAvailability] = useState<{[key: string]: boolean}>({});
   // State to track which cohorts are expanded
   const [expandedCohorts, setExpandedCohorts] = useState<{[key: string]: boolean}>({});
+  // State to track which cohorts have collapsed metadata
+  const [collapsedMetadata, setCollapsedMetadata] = useState<{[key: string]: boolean}>({});
   // Search configuration states
   const [searchScope, setSearchScope] = useState<'cohorts' | 'variables'>('cohorts');
   const [searchMode, setSearchMode] = useState<'or' | 'and' | 'exact'>('or');
@@ -172,6 +174,14 @@ export default function CohortsList() {
   // Function to toggle the expanded state for a cohort
   const toggleCohortExpanded = (cohortId: string) => {
     setExpandedCohorts((prev: Record<string, boolean>) => ({
+      ...prev,
+      [cohortId]: !prev[cohortId]
+    }));
+  };
+
+  // Function to toggle metadata collapse for a cohort
+  const toggleMetadataCollapsed = (cohortId: string) => {
+    setCollapsedMetadata((prev: Record<string, boolean>) => ({
       ...prev,
       [cohortId]: !prev[cohortId]
     }));
@@ -668,9 +678,9 @@ export default function CohortsList() {
                   {/* Removed contact email tags as they're shown in the More Details section */}
                 </div>
                 
-                {/* Only show Close button when cohort is expanded */}
+                {/* Only show Close and Collapse Metadata buttons when cohort is expanded */}
                 {expandedCohorts[cohortData.cohort_id] && (
-                  <div className="flex justify-center mt-2">
+                  <div className="flex justify-center gap-2 mt-2">
                     <button 
                       onClick={(e: React.MouseEvent) => {
                         e.stopPropagation(); // Prevent event bubbling
@@ -680,10 +690,22 @@ export default function CohortsList() {
                     >
                       Close
                     </button>
+                    <button 
+                      onClick={(e: React.MouseEvent) => {
+                        e.stopPropagation(); // Prevent event bubbling
+                        toggleMetadataCollapsed(cohortData.cohort_id);
+                      }} 
+                      className="btn btn-sm btn-outline btn-primary rounded-full px-4"
+                    >
+                      {collapsedMetadata[cohortData.cohort_id] ? 'Show Metadata' : 'Hide Metadata'}
+                    </button>
                   </div>
                 )}
               </div>
               <div className="collapse-content">
+                {/* Metadata section - collapsible */}
+                {!collapsedMetadata[cohortData.cohort_id] && (
+                  <>
                 {/* Display study objective section */}
                 {cohortData.study_objective && (
                   <div className="mb-4 p-3 bg-base-200 rounded-lg">
@@ -1024,6 +1046,8 @@ export default function CohortsList() {
                     return null;
                   })()}
                 </div>
+                  </>
+                )}
                 
                 {/* Summary Graphs Section */}
                 <CohortSummaryGraphs 
