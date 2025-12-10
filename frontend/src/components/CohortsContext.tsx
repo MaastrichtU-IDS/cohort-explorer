@@ -266,6 +266,7 @@ export const CohortsProvider = ({children, useSparql = false}: {children: any, u
         setUserEmail,
         // Expose the statistics
         cohortStatistics,
+        calculateStatistics,
         // Expose loading metrics and state
         loadingMetrics,
         isLoading

@@ -146,7 +146,7 @@ const formatParticipantsForTag = (value: string | number | null | undefined): st
 
 export default function CohortsList() {
   const router = useRouter();
-  const {cohortsData, userEmail, loadingMetrics, isLoading, fetchCohortsData} = useCohorts();
+  const {cohortsData, userEmail, loadingMetrics, isLoading, fetchCohortsData, calculateStatistics} = useCohorts();
   const [searchQuery, setSearchQuery] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshMessage, setRefreshMessage] = useState<{text: string, type: 'success' | 'error'} | null>(null);
@@ -392,6 +392,10 @@ export default function CohortsList() {
         setRefreshMessage({text: 'Cache refreshed successfully!', type: 'success'});
         // Reload the cohorts data from the refreshed cache
         fetchCohortsData();
+        // Recalculate statistics after refresh
+        if (calculateStatistics) {
+          setTimeout(() => calculateStatistics(), 1000); // Wait for data to load
+        }
       } else {
         const error = await response.json();
         setRefreshMessage({text: error.detail || 'Failed to refresh cache', type: 'error'});
