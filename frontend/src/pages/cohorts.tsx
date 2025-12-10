@@ -1,6 +1,6 @@
 'use client';
 
-import React, {useState, useMemo, useEffect} from 'react';
+import React, {useState, useMemo, useEffect, useCallback} from 'react';
 import {useRouter} from 'next/router';
 import {useCohorts} from '@/components/CohortsContext';
 import FilterByMetadata from '@/components/FilterByMetadata';
@@ -20,103 +20,57 @@ const HighlightedText = ({text, searchTerms, searchMode}: {text: string, searchT
   return <span dangerouslySetInnerHTML={{__html: highlightedHtml}} />;
 };
 
+// Helper function to check if text matches search terms (reusable)
+const matchesSearchTerms = (text: string | null | undefined, searchTerms: string[], searchMode: 'or' | 'and' | 'exact'): boolean => {
+  if (!text || searchTerms.length === 0) return false;
+  const textLower = String(text).toLowerCase();
+  
+  if (searchMode === 'exact') {
+    return textLower.includes(searchTerms.join(' ').toLowerCase());
+  } else if (searchMode === 'and') {
+    return searchTerms.every(term => textLower.includes(term.toLowerCase()));
+  } else { // 'or' mode
+    return searchTerms.some(term => textLower.includes(term.toLowerCase()));
+  }
+};
+
 // Component to count and display variable search results
-const SearchResultsCounter = ({filteredCohorts, searchTerms, searchMode}: {
+const SearchResultsCounter = React.memo(({filteredCohorts, searchTerms, searchMode}: {
   filteredCohorts: Cohort[], 
   searchTerms: string[], 
   searchMode: 'or' | 'and' | 'exact'
 }) => {
   const results = useMemo(() => {
+    if (searchTerms.length === 0) return { totalVariables: 0, cohortsWithMatches: 0 };
+    
     let totalVariables = 0;
     let cohortsWithMatches = 0;
+    
+    const searchableVarFields = ['var_name', 'var_label', 'concept_name', 'mapped_label', 'omop_domain', 'concept_code', 'omop_id'];
+    const searchableCatFields = ['value', 'label', 'mapped_label'];
     
     filteredCohorts.forEach((cohortData) => {
       let cohortMatchingVariables = 0;
       
       Object.entries(cohortData.variables || {}).forEach(([varName, varData]: any) => {
-        // Only count variables if there are actual search terms
-        if (searchTerms.length === 0) {
-          return; // Don't count anything if no search terms
-        }
-        
-        // Only search in fields that contain actual variable content, not metadata
-        const searchableFields = [
-          'var_name', 'var_label', 'concept_name', 'mapped_label', 'omop_domain', 'concept_code', 'omop_id'
-        ];
-        
+        // Check variable fields
         const variableWithName = { ...varData, var_name: varName };
+        const varMatches = searchableVarFields.some(field => 
+          matchesSearchTerms(variableWithName[field], searchTerms, searchMode)
+        );
         
-        // Simple direct search implementation matching VariablesList
-        let variableMatches = false;
+        // Check categories if variable doesn't match
+        const catMatches = !varMatches && varData.categories?.some((cat: any) =>
+          searchableCatFields.some(field => matchesSearchTerms(cat[field], searchTerms, searchMode))
+        );
         
-        // Check each searchable field directly
-        for (const field of searchableFields) {
-          const fieldValue = variableWithName[field];
-          if (fieldValue != null) {
-            const fieldText = String(fieldValue).toLowerCase();
-            
-            if (searchMode === 'exact') {
-              const fullPhrase = searchTerms.join(' ').toLowerCase();
-              if (fieldText.includes(fullPhrase)) {
-                variableMatches = true;
-                break;
-              }
-            } else if (searchMode === 'and') {
-              if (searchTerms.every((term: string) => fieldText.includes(term.toLowerCase()))) {
-                variableMatches = true;
-                break;
-              }
-            } else { // 'or' mode
-              if (searchTerms.some((term: string) => fieldText.includes(term.toLowerCase()))) {
-                variableMatches = true;
-                break;
-              }
-            }
-          }
-        }
-        
-        // Check categories if variable fields don't match
-        if (!variableMatches && varData.categories) {
-          for (const category of varData.categories) {
-            const categoryFields = ['value', 'label', 'mapped_label'];
-            for (const field of categoryFields) {
-              const fieldValue = category[field];
-              if (fieldValue != null) {
-                const fieldText = String(fieldValue).toLowerCase();
-                
-                if (searchMode === 'exact') {
-                  const fullPhrase = searchTerms.join(' ').toLowerCase();
-                  if (fieldText.includes(fullPhrase)) {
-                    variableMatches = true;
-                    break;
-                  }
-                } else if (searchMode === 'and') {
-                  if (searchTerms.every((term: string) => fieldText.includes(term.toLowerCase()))) {
-                    variableMatches = true;
-                    break;
-                  }
-                } else { // 'or' mode
-                  if (searchTerms.some((term: string) => fieldText.includes(term.toLowerCase()))) {
-                    variableMatches = true;
-                    break;
-                  }
-                }
-              }
-            }
-            if (variableMatches) break;
-          }
-        }
-        
-        if (variableMatches) {
+        if (varMatches || catMatches) {
           totalVariables++;
           cohortMatchingVariables++;
         }
       });
       
-      // Only count cohort if it has at least one matching variable
-      if (cohortMatchingVariables > 0) {
-        cohortsWithMatches++;
-      }
+      if (cohortMatchingVariables > 0) cohortsWithMatches++;
     });
     
     return { totalVariables, cohortsWithMatches };
@@ -127,7 +81,7 @@ const SearchResultsCounter = ({filteredCohorts, searchTerms, searchMode}: {
       The search found <strong className="text-primary">{results.totalVariables}</strong> variable{results.totalVariables !== 1 ? 's' : ''} in <strong className="text-primary">{results.cohortsWithMatches}</strong> cohort{results.cohortsWithMatches !== 1 ? 's' : ''}
     </span>
   );
-};
+});
 
 // Helper function to format participants value for display in tags
 const formatParticipantsForTag = (value: string | number | null | undefined): string => {
@@ -166,9 +120,20 @@ export default function CohortsList() {
   const [searchMode, setSearchMode] = useState<'or' | 'and' | 'exact'>('or');
   // selectedMorbidities state removed
 
-  // TODO: debounce search to improve performance
+  // Debounced search for better performance
+  const [searchInput, setSearchInput] = useState('');
+  
+  // Debounce the search query update
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      setSearchQuery(searchInput);
+    }, 300); // 300ms debounce
+    
+    return () => clearTimeout(timeoutId);
+  }, [searchInput]);
+  
   const handleSearchChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchQuery(event.target.value);
+    setSearchInput(event.target.value);
   };
 
   // Function to toggle the expanded state for a cohort
@@ -245,136 +210,49 @@ export default function CohortsList() {
   // TODO: we might want to perform the search and filtering directly with SPARQL queries to the oxigraph endpoint
   // if the data gets too big to be handled in the client.
   const filteredCohorts = useMemo(() => {
+    const searchableVarFields = ['var_name', 'var_label', 'concept_name', 'mapped_label', 'omop_domain', 'concept_code', 'omop_id'];
+    const searchableCatFields = ['value', 'label', 'mapped_label'];
+    const searchableCohortFields = [
+      'cohort_id', 'institution', 'study_type', 'study_objective', 'morbidity',
+      'study_participants', 'study_population', 'administrator', 'population_location',
+      'primary_outcome_spec', 'secondary_outcome_spec'
+    ];
+    
     return Object.entries(cohortsData as Record<string, Cohort>)
       .filter(([key, value]) => {
-        let matchesSearchQuery = true;
+        // Apply metadata filters first (cheaper)
+        if (selectedStudyTypes.size > 0 && !selectedStudyTypes.has(value.study_type)) return false;
+        if (selectedInstitutes.size > 0 && !selectedInstitutes.has(value.institution)) return false;
+        
+        // No search terms - show all
+        if (searchTerms.length === 0) return true;
         
         if (searchScope === 'cohorts') {
-          // Search in cohort metadata only - simple string matching
-          if (searchTerms.length === 0) {
-            matchesSearchQuery = true;
-          } else {
-            const searchableFields = [
-              'cohort_id', 'institution', 'study_type', 'study_objective', 'morbidity',
-              'study_participants', 'study_population', 'administrator', 'population_location',
-              'primary_outcome_spec', 'secondary_outcome_spec'
-            ];
-            
-            const cohortWithId = { ...value, cohort_id: key };
-            let cohortMatches = false;
-            
-            // Check each searchable field directly
-            for (const field of searchableFields) {
-              const fieldValue = (cohortWithId as any)[field];
-              if (fieldValue != null) {
-                const fieldText = String(fieldValue).toLowerCase();
-                
-                if (searchMode === 'exact') {
-                  const fullPhrase = searchTerms.join(' ').toLowerCase();
-                  if (fieldText.includes(fullPhrase)) {
-                    cohortMatches = true;
-                    break;
-                  }
-                } else if (searchMode === 'and') {
-                  if (searchTerms.every(term => fieldText.includes(term.toLowerCase()))) {
-                    cohortMatches = true;
-                    break;
-                  }
-                } else { // 'or' mode
-                  if (searchTerms.some(term => fieldText.includes(term.toLowerCase()))) {
-                    cohortMatches = true;
-                    break;
-                  }
-                }
-              }
-            }
-            matchesSearchQuery = cohortMatches;
-          }
+          // Search in cohort metadata
+          const cohortWithId = { ...value, cohort_id: key };
+          return searchableCohortFields.some(field => 
+            matchesSearchTerms((cohortWithId as any)[field], searchTerms, searchMode)
+          );
         } else {
-          // Search in variables only - simple string matching
-          if (searchTerms.length === 0) {
-            matchesSearchQuery = true;
-          } else {
-            matchesSearchQuery = Object.entries(value.variables || {}).some(([varName, varData]: any) => {
-              // Only search in fields that contain actual variable content, not metadata
-              const searchableFields = [
-                'var_name', 'var_label', 'concept_name', 'mapped_label', 'omop_domain', 'concept_code', 'omop_id'
-              ];
-              
-              const variableWithName = { ...varData, var_name: varName };
-              
-              // Check variable fields
-              let variableMatches = false;
-              for (const field of searchableFields) {
-                const fieldValue = variableWithName[field];
-                if (fieldValue != null) {
-                  const fieldText = String(fieldValue).toLowerCase();
-                  
-                  if (searchMode === 'exact') {
-                    const fullPhrase = searchTerms.join(' ').toLowerCase();
-                    if (fieldText.includes(fullPhrase)) {
-                      variableMatches = true;
-                      break;
-                    }
-                  } else if (searchMode === 'and') {
-                    if (searchTerms.every(term => fieldText.includes(term.toLowerCase()))) {
-                      variableMatches = true;
-                      break;
-                    }
-                  } else { // 'or' mode
-                    if (searchTerms.some(term => fieldText.includes(term.toLowerCase()))) {
-                      variableMatches = true;
-                      break;
-                    }
-                  }
-                }
-              }
-              
-              // Check categories if variable fields don't match
-              if (!variableMatches && varData.categories) {
-                for (const category of varData.categories) {
-                  const categoryFields = ['value', 'label', 'mapped_label'];
-                  for (const field of categoryFields) {
-                    const fieldValue = category[field];
-                    if (fieldValue != null) {
-                      const fieldText = String(fieldValue).toLowerCase();
-                      
-                      if (searchMode === 'exact') {
-                        const fullPhrase = searchTerms.join(' ').toLowerCase();
-                        if (fieldText.includes(fullPhrase)) {
-                          variableMatches = true;
-                          break;
-                        }
-                      } else if (searchMode === 'and') {
-                        if (searchTerms.every(term => fieldText.includes(term.toLowerCase()))) {
-                          variableMatches = true;
-                          break;
-                        }
-                      } else { // 'or' mode
-                        if (searchTerms.some(term => fieldText.includes(term.toLowerCase()))) {
-                          variableMatches = true;
-                          break;
-                        }
-                      }
-                    }
-                  }
-                  if (variableMatches) break;
-                }
-              }
-              
-              return variableMatches;
-            });
-          }
+          // Search in variables
+          return Object.entries(value.variables || {}).some(([varName, varData]: any) => {
+            const variableWithName = { ...varData, var_name: varName };
+            
+            // Check variable fields
+            const varMatches = searchableVarFields.some(field => 
+              matchesSearchTerms(variableWithName[field], searchTerms, searchMode)
+            );
+            
+            // Check categories if variable doesn't match
+            if (varMatches) return true;
+            return varData.categories?.some((cat: any) =>
+              searchableCatFields.some(field => matchesSearchTerms(cat[field], searchTerms, searchMode))
+            );
+          });
         }
-
-        // Apply other filters
-        const matchesStudyType = selectedStudyTypes.size === 0 || selectedStudyTypes.has(value.study_type);
-        const matchesInstitute = selectedInstitutes.size === 0 || selectedInstitutes.has(value.institution);
-        
-        return matchesSearchQuery && matchesStudyType && matchesInstitute;
       })
       .map(([, cohortData]) => cohortData);
-  }, [searchTerms, searchMode, searchScope, selectedStudyTypes, selectedInstitutes, cohortsData, searchQuery]);
+  }, [searchTerms, searchMode, searchScope, selectedStudyTypes, selectedInstitutes, cohortsData]);
   // NOTE: filtering variables is done in VariablesList component
 
   // Function to toggle between cache and SPARQL modes
@@ -533,7 +411,7 @@ export default function CohortsList() {
             type="text"
             placeholder={searchScope === 'cohorts' ? "Search cohorts..." : "Search variables..."}
             className="input input-bordered w-full"
-            value={searchQuery}
+            value={searchInput}
             onChange={handleSearchChange}
           />
           
@@ -593,7 +471,7 @@ export default function CohortsList() {
           </div>
           
           {/* Search Results Counter */}
-          {searchQuery.trim() && (
+          {searchInput.trim() && (
             <div className="mt-2 p-2 bg-base-200 rounded-lg text-sm">
               <div className="flex items-center gap-3">
                 <span className="text-gray-600 dark:text-gray-400">🔍</span>
@@ -612,7 +490,10 @@ export default function CohortsList() {
                   />
                 )}
                 <button
-                  onClick={() => setSearchQuery('')}
+                  onClick={() => {
+                    setSearchInput('');
+                    setSearchQuery('');
+                  }}
                   className="btn btn-sm btn-outline btn-error hover:btn-error"
                   title="Clear search and show all results"
                 >
@@ -678,12 +559,14 @@ export default function CohortsList() {
                   {/* Removed contact email tags as they're shown in the More Details section */}
                 </div>
                 
-                {/* Only show Close and Collapse Metadata buttons when cohort is expanded */}
+              </div>
+              <div className="collapse-content">
+                {/* Control buttons - shown when cohort is expanded */}
                 {expandedCohorts[cohortData.cohort_id] && (
-                  <div className="flex justify-center gap-2 mt-2">
+                  <div className="flex justify-center gap-2 mb-4">
                     <button 
                       onClick={(e: React.MouseEvent) => {
-                        e.stopPropagation(); // Prevent event bubbling
+                        e.stopPropagation();
                         toggleCohortExpanded(cohortData.cohort_id);
                       }} 
                       className="btn btn-sm btn-outline btn-neutral rounded-full px-4"
@@ -692,7 +575,7 @@ export default function CohortsList() {
                     </button>
                     <button 
                       onClick={(e: React.MouseEvent) => {
-                        e.stopPropagation(); // Prevent event bubbling
+                        e.stopPropagation();
                         toggleMetadataCollapsed(cohortData.cohort_id);
                       }} 
                       className="btn btn-sm btn-outline btn-primary rounded-full px-4"
@@ -701,8 +584,7 @@ export default function CohortsList() {
                     </button>
                   </div>
                 )}
-              </div>
-              <div className="collapse-content">
+                
                 {/* Metadata section - collapsible */}
                 {!collapsedMetadata[cohortData.cohort_id] && (
                   <>

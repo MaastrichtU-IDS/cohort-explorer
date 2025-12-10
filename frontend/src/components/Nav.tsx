@@ -1,6 +1,6 @@
 'use client';
 
-import React, {useState, useEffect, useMemo} from 'react';
+import React, {useState, useEffect, useMemo, useCallback} from 'react';
 import Link from 'next/link';
 import {LogIn, LogOut, Compass, Upload, HardDrive, Map} from 'react-feather';
 import {useCohorts} from '@/components/CohortsContext';
@@ -171,7 +171,7 @@ export function Nav() {
                 href={result.dcr_url} 
                 target="_blank" 
                 rel="noopener noreferrer"
-                className="btn btn-lg btn-primary gap-2"
+                className="btn btn-lg gap-2 bg-blue-100 text-blue-900 hover:bg-blue-200 border-blue-300 font-semibold"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
@@ -220,37 +220,45 @@ export function Nav() {
     setPublishedDCR(null);
   };
 
-  const addAnalyst = () => {
+  const addAnalyst = useCallback(() => {
     const email = newAnalystEmail.trim();
     if (email && !additionalAnalysts.includes(email) && email !== userEmail) {
       setAdditionalAnalysts([...additionalAnalysts, email]);
       setNewAnalystEmail('');
     }
-  };
+  }, [newAnalystEmail, additionalAnalysts, userEmail]);
 
-  const removeAnalyst = (email: string) => {
-    setAdditionalAnalysts(additionalAnalysts.filter(e => e !== email));
-  };
+  const removeAnalyst = useCallback((email: string) => {
+    setAdditionalAnalysts(prev => prev.filter(e => e !== email));
+  }, []);
+
+  // Memoize cohort IDs to prevent unnecessary recalculations
+  const dcrCohortIds = useMemo(() => 
+    dataCleanRoom?.cohorts ? Object.keys(dataCleanRoom.cohorts) : [],
+    [dataCleanRoom?.cohorts]
+  );
 
   const dataOwners = useMemo(() => {
     const ownersMap: Record<string, string[]> = {};
-    if (dataCleanRoom?.cohorts && cohortsData) {
-      Object.keys(dataCleanRoom.cohorts).forEach((cohortId) => {
+    if (dcrCohortIds.length > 0 && cohortsData) {
+      dcrCohortIds.forEach((cohortId) => {
         const cohort = cohortsData[cohortId];
-        if (cohort?.cohort_email) {
+        if (cohort?.cohort_email && Array.isArray(cohort.cohort_email)) {
           cohort.cohort_email.forEach((email: string) => {
-            if (email && email !== userEmail) {
-              if (!ownersMap[email]) {
-                ownersMap[email] = [];
+            // Include all data owners, even if they're the current user
+            if (email && email.trim()) {
+              const trimmedEmail = email.trim();
+              if (!ownersMap[trimmedEmail]) {
+                ownersMap[trimmedEmail] = [];
               }
-              ownersMap[email].push(cohortId);
+              ownersMap[trimmedEmail].push(cohortId);
             }
           });
         }
       });
     }
     return Object.entries(ownersMap).map(([email, cohorts]) => ({ email, cohorts }));
-  }, [dataCleanRoom?.cohorts, cohortsData, userEmail]);
+  }, [dcrCohortIds, cohortsData]);
 
   return (
     <div className="navbar bg-base-300 min-h-0 p-0">
@@ -357,7 +365,7 @@ export function Nav() {
                   className={`btn btn-sm join-item ${dcrMode === 'future' ? 'btn-active' : ''}`}
                   onClick={() => setDcrMode('future')}
                 >
-                  Future
+                  Future (Beta)
                 </button>
               </div>
             </div>
@@ -408,6 +416,32 @@ export function Nav() {
                     />
                     <span className="label-text">Add additional participants</span>
                   </label>
+                </div>
+                
+                {/* Airlock Settings */}
+                <div className="mt-4">
+                  <h4 className="font-semibold mb-3">Airlock Settings</h4>
+                  <p className="text-sm text-base-content/70 mb-3">Set the percentage of data (0-100) to export as a fragment for each cohort:</p>
+                  <div className="space-y-3">
+                    {dataCleanRoom?.cohorts && Object.keys(dataCleanRoom.cohorts).map((cohortId) => (
+                      <div key={cohortId} className="flex items-center gap-3">
+                        <label className="flex-1 font-medium">{cohortId}</label>
+                        <input 
+                          type="number"
+                          min="0"
+                          max="100"
+                          placeholder="0"
+                          className="input input-bordered w-24 text-center"
+                          value={airlockSettings[cohortId] ?? 0}
+                          onChange={(e) => {
+                            const value = Math.min(100, Math.max(0, parseInt(e.target.value) || 0));
+                            setAirlockSettings({...airlockSettings, [cohortId]: value});
+                          }}
+                        />
+                        <span className="text-sm text-base-content/70 w-8">%</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </>
             )}
@@ -466,107 +500,127 @@ export function Nav() {
       
       {/* Participants Management Modal */}
       {showParticipantsModal && (
-        <div className="modal modal-open">
-          <div className="modal-box">
-            <h3 className="font-bold text-lg mb-4">DCR Participants</h3>
-            
-            <div className="space-y-4">
-              {/* Data owners */}
-              {dataOwners.length > 0 && (
-                <div>
-                  <h4 className="font-semibold mb-2">Data Owners</h4>
-                  {dataOwners.map((owner) => (
-                    <div key={owner.email} className="bg-base-200 p-3 rounded-lg mb-2">
-                      <div>
-                        <p className="font-semibold">{owner.email}</p>
-                        <p className="text-sm text-gray-500">Data Owner - {owner.cohorts.join(', ')}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              
-              {/* Analysts */}
-              <div>
-                <h4 className="font-semibold mb-2">Analysts</h4>
-                {/* Current user */}
-                <div className="bg-base-200 p-3 rounded-lg mb-2">
-                  <div>
-                    <p className="font-semibold">{userEmail}</p>
-                    <p className="text-sm text-gray-500">Analyst</p>
-                  </div>
-                </div>
-                
-                {/* Additional analysts */}
-                {additionalAnalysts.map((email) => (
-                  <div key={email} className="bg-base-200 p-3 rounded-lg mb-2 flex justify-between items-center">
-                    <div>
-                      <p className="font-semibold">{email}</p>
-                      <p className="text-sm text-gray-500">Analyst</p>
-                    </div>
-                    <button 
-                      className="btn btn-sm btn-error btn-outline"
-                      onClick={() => removeAnalyst(email)}
-                    >
-                      Remove
-                    </button>
-                  </div>
-                ))}
-              </div>
-              
-              {/* Add new analyst */}
-              <div className="divider">Add Analyst</div>
-              <div className="flex gap-2">
-                <input 
-                  type="text"
-                  placeholder="Enter email address"
-                  className="input input-bordered flex-1"
-                  value={newAnalystEmail}
-                  onChange={(e) => setNewAnalystEmail(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && addAnalyst()}
-                />
-                <button 
-                  className="btn btn-primary"
-                  onClick={addAnalyst}
-                  disabled={!newAnalystEmail.trim()}
-                >
-                  Add Analyst
-                </button>
-              </div>
-
-              {/* Airlock Settings */}
-              <div className="divider">Airlock Settings</div>
-              <div className="space-y-3">
-                <p className="text-sm text-base-content/70">Set the percentage of data (0-100) to export as a fragment for each cohort:</p>
-                {dataCleanRoom?.cohorts && Object.keys(dataCleanRoom.cohorts).map((cohortId) => (
-                  <div key={cohortId} className="flex items-center gap-3">
-                    <label className="flex-1 font-medium">{cohortId}</label>
-                    <input 
-                      type="number"
-                      min="0"
-                      max="100"
-                      placeholder="0"
-                      className="input input-bordered w-24 text-center"
-                      value={airlockSettings[cohortId] ?? 0}
-                      onChange={(e) => {
-                        const value = Math.min(100, Math.max(0, parseInt(e.target.value) || 0));
-                        setAirlockSettings({...airlockSettings, [cohortId]: value});
-                      }}
-                    />
-                    <span className="text-sm text-base-content/70 w-8">%</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-            
-            <div className="modal-action">
-              <button className="btn" onClick={() => setShowParticipantsModal(false)}>
-                Done
-              </button>
-            </div>
-          </div>
-        </div>
+        <ParticipantsModal
+          dataOwners={dataOwners}
+          userEmail={userEmail}
+          additionalAnalysts={additionalAnalysts}
+          newAnalystEmail={newAnalystEmail}
+          setNewAnalystEmail={setNewAnalystEmail}
+          addAnalyst={addAnalyst}
+          removeAnalyst={removeAnalyst}
+          onClose={() => setShowParticipantsModal(false)}
+        />
       )}
     </div>
   );
 }
+
+// Memoized Participants Modal to prevent re-renders on every keystroke
+const ParticipantsModal = React.memo(({
+  dataOwners,
+  userEmail,
+  additionalAnalysts,
+  newAnalystEmail,
+  setNewAnalystEmail,
+  addAnalyst,
+  removeAnalyst,
+  onClose
+}: {
+  dataOwners: { email: string; cohorts: string[] }[];
+  userEmail: string | null;
+  additionalAnalysts: string[];
+  newAnalystEmail: string;
+  setNewAnalystEmail: (email: string) => void;
+  addAnalyst: () => void;
+  removeAnalyst: (email: string) => void;
+  onClose: () => void;
+}) => {
+  return (
+    <div className="modal modal-open">
+      <div className="modal-box">
+        <h3 className="font-bold text-lg mb-4">DCR Participants</h3>
+        
+        <div className="space-y-4">
+          {/* Data owners */}
+          {dataOwners.length > 0 && (
+            <div>
+              <h4 className="font-semibold mb-2">Data Owners</h4>
+              {dataOwners.map((owner) => (
+                <div key={owner.email} className="bg-base-200 p-3 rounded-lg mb-2">
+                  <div>
+                    <p className="font-semibold">
+                      {owner.email}
+                      {owner.email === userEmail && <span className="ml-2 text-xs badge badge-primary">You</span>}
+                    </p>
+                    <p className="text-sm text-gray-500">
+                      Data Owner for: {owner.cohorts.join(', ')}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          
+          {/* Analysts */}
+          <div>
+            <h4 className="font-semibold mb-2">Analysts</h4>
+            {/* Current user */}
+            <div className="bg-base-200 p-3 rounded-lg mb-2">
+              <div>
+                <p className="font-semibold">{userEmail}</p>
+                <p className="text-sm text-gray-500">
+                  Analyst (You)
+                  {dataOwners.some(owner => owner.email === userEmail) && ' • Also Data Owner'}
+                </p>
+              </div>
+            </div>
+            
+            {/* Additional analysts */}
+            {additionalAnalysts.map((email) => (
+              <div key={email} className="bg-base-200 p-3 rounded-lg mb-2 flex justify-between items-center">
+                <div>
+                  <p className="font-semibold">{email}</p>
+                  <p className="text-sm text-gray-500">Analyst</p>
+                </div>
+                <button 
+                  className="btn btn-sm btn-error btn-outline"
+                  onClick={() => removeAnalyst(email)}
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+          
+          {/* Add new analyst */}
+          <div className="divider">Add Analyst</div>
+          <div className="flex gap-2">
+            <input 
+              type="text"
+              placeholder="Enter email address"
+              className="input input-bordered flex-1"
+              value={newAnalystEmail}
+              onChange={(e) => setNewAnalystEmail(e.target.value)}
+              onKeyPress={(e) => e.key === 'Enter' && addAnalyst()}
+            />
+            <button 
+              className="btn btn-primary"
+              onClick={addAnalyst}
+              disabled={!newAnalystEmail.trim()}
+            >
+              Add Analyst
+            </button>
+          </div>
+        </div>
+        
+        <div className="modal-action">
+          <button className="btn" onClick={onClose}>
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+ParticipantsModal.displayName = 'ParticipantsModal';

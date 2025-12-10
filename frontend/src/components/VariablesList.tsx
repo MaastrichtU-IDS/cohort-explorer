@@ -309,7 +309,7 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
             <span className="badge badge-ghost">
               {filteredVars.length}/{Object.keys(cohortsData[cohortId]['variables']).length} variables
             </span>
-            {searchFilters.searchQuery && (
+            {searchFilters.searchQuery && searchTerms.length > 0 && (
               <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">
                 {filteredVars.length} variable{filteredVars.length !== 1 ? 's' : ''} match{filteredVars.length === 1 ? 'es' : ''} your search
               </div>
