@@ -273,7 +273,7 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
           dataCleanRoom.cohorts[cohortId].length === Object.keys(cohortsData[cohortId]['variables']).length ? (
             <button
               onClick={() => removeFromDataCleanRoom()}
-              className="btn btn-error btn-sm mb-2 hover:bg-red-700 tooltip tooltip-right"
+              className="btn btn-sm mb-2 bg-gray-200 hover:bg-gray-300 text-gray-700 tooltip tooltip-right"
               data-tip={`Remove all variables of the cohort ${cohortId} from your Data Clean Room`}
             >
               Remove from DCR
@@ -441,7 +441,7 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
                   {dataCleanRoom.cohorts[cohortId]?.includes(variable.var_name) ? (
                     <button
                       onClick={() => removeFromDataCleanRoom(variable.var_name)}
-                      className="btn btn-error btn-sm hover:bg-red-700 tooltip tooltip-left"
+                      className="btn btn-sm bg-gray-200 hover:bg-gray-300 text-gray-700 tooltip tooltip-left"
                       data-tip={`Remove the \`${variable.var_name}\` variable of the ${cohortId} cohort from your Data Clean Room`}
                     >
                       Remove from DCR

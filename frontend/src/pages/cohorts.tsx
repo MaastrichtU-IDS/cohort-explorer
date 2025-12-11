@@ -569,20 +569,20 @@ export default function CohortsList() {
                     <button 
                       onClick={(e: React.MouseEvent) => {
                         e.stopPropagation();
+                        toggleMetadataCollapsed(cohortData.cohort_id);
+                      }} 
+                      className="btn btn-sm btn-outline btn-neutral rounded-full px-4 opacity-80"
+                    >
+                      {collapsedMetadata[cohortData.cohort_id] ? 'Show Metadata' : 'Hide Metadata'}
+                    </button>
+                    <button 
+                      onClick={(e: React.MouseEvent) => {
+                        e.stopPropagation();
                         toggleCohortExpanded(cohortData.cohort_id);
                       }} 
                       className="btn btn-sm btn-outline btn-neutral rounded-full px-4"
                     >
                       Close
-                    </button>
-                    <button 
-                      onClick={(e: React.MouseEvent) => {
-                        e.stopPropagation();
-                        toggleMetadataCollapsed(cohortData.cohort_id);
-                      }} 
-                      className="btn btn-sm btn-outline btn-primary rounded-full px-4"
-                    >
-                      {collapsedMetadata[cohortData.cohort_id] ? 'Show Metadata' : 'Hide Metadata'}
                     </button>
                   </div>
                 )}
