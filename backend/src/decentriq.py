@@ -663,6 +663,19 @@ else:
         )
         # Add the requester as analyst of the data fragment script
         participants[user["email"]]["analyst_of"].add(f"data-fragment-{cohort_id}")
+        
+        # Add a preview (airlock) node for the data fragment
+        preview_node_name = f"preview-fragment-{cohort_id}"
+        builder.add_node_definition(
+            PreviewComputeNodeDefinition(
+                name=preview_node_name,
+                dependency=f"data-fragment-{cohort_id}"
+            )
+        )
+        # Add the requester as analyst of the preview node
+        participants[user["email"]"]["analyst_of"].add(preview_node_name)
+        # Track the preview node for additional analysts
+        preview_nodes.append(preview_node_name)
 
 
 
@@ -760,6 +773,13 @@ print(f"Report written to {output_file}")
                 # Add as analyst of the exploration script
                 participants[analyst_email]["analyst_of"].add("basic-data-exploration")
                 logging.info(f"Added {analyst_email} as additional analyst")
+
+    # Grant all participants (data owners and analysts) access to preview fragment nodes
+    for p_email in participants.keys():
+        for preview_node in preview_nodes:
+            participants[p_email]["analyst_of"].add(preview_node)
+    
+    logging.info(f"Granted all {len(participants)} participants access to {len(preview_nodes)} preview fragment nodes")
 
     for p_email, p_perm in participants.items():
         builder.add_participant(
