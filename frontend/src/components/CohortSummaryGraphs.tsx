@@ -668,16 +668,10 @@ const CohortSummaryGraphs = React.memo(function CohortSummaryGraphs({ variables,
         <h3 className="text-lg font-semibold">Summary Graphs</h3>
       </div>
       
-      {(selectedDomain || selectedType || selectedCategory || selectedVisitType) && (
-        <div className="mb-3 text-sm text-gray-600 bg-blue-50 px-3 py-2 rounded">
-          <strong>💡 NOTE:</strong> All charts are interactive. Click on a value to re-generate the graphs for that value. Click again to deselect, or use the &quot;Reset Filters&quot; button.
-          {selectedDomain && ` Currently filtering by domain: '${selectedDomain}'.`}
-          {selectedType && ` Currently filtering by type: '${selectedType}'.`}
-          {selectedCategory && ` Currently filtering by category: '${selectedCategory}'.`}
-          {selectedVisitType && ` Currently filtering by visit type: '${selectedVisitType}'.`}
-        </div>
-      )}
-      
+      {/* Interactive charts note - always visible */}
+      <div className="mb-3 text-sm text-gray-600 bg-blue-50 px-3 py-2 rounded">
+        <strong>💡 NOTE:</strong> All charts are interactive. Click on a value to re-generate the graphs for that value. Click again to deselect, or use the &quot;Reset Filters&quot; button.
+      </div>
       
       <div className="space-y-6">
         {/* Top row: Pie charts */}
@@ -731,16 +725,17 @@ const CohortSummaryGraphs = React.memo(function CohortSummaryGraphs({ variables,
         </div>
       </div>
       
-      {/* Filter summary and Reset button at bottom */}
-      {(selectedDomain || selectedType || selectedCategory || selectedVisitType) && (
-        <div className="mt-6 pt-4 border-t">
-          <div className="text-sm text-gray-600 mb-3 text-center">
-            <span className="font-semibold">Filters in effect:</span>
-            {selectedDomain && ` OMOP Domain = ${selectedDomain}`}
-            {selectedType && `${selectedDomain ? ',' : ''} Data Type = ${selectedType}`}
-            {selectedCategory && `${selectedDomain || selectedType ? ',' : ''} Category = ${selectedCategory}`}
-            {selectedVisitType && `${selectedDomain || selectedType || selectedCategory ? ',' : ''} Visit Type = ${selectedVisitType}`}
-          </div>
+      {/* Filter summary and Reset button at bottom - always visible */}
+      <div className="mt-6 pt-4 border-t">
+        <div className="text-sm text-gray-600 mb-3 text-center">
+          <span className="font-semibold">Filters in effect:</span>
+          {!(selectedDomain || selectedType || selectedCategory || selectedVisitType) && ' None'}
+          {selectedDomain && ` OMOP Domain = ${selectedDomain}`}
+          {selectedType && `${selectedDomain ? ',' : ''} Data Type = ${selectedType}`}
+          {selectedCategory && `${selectedDomain || selectedType ? ',' : ''} Category = ${selectedCategory}`}
+          {selectedVisitType && `${selectedDomain || selectedType || selectedCategory ? ',' : ''} Visit Type = ${selectedVisitType}`}
+        </div>
+        {(selectedDomain || selectedType || selectedCategory || selectedVisitType) && (
           <div className="flex justify-center">
             <button
               onClick={() => {
@@ -757,8 +752,8 @@ const CohortSummaryGraphs = React.memo(function CohortSummaryGraphs({ variables,
               Reset All Filters
             </button>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 });

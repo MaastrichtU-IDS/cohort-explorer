@@ -283,7 +283,7 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
 
   return (
     <main className="flex w-full space-x-4">
-      <aside className="flex-shrink-0 text-center flex flex-col items-center min-w-fit">
+      <aside className="flex-shrink-0 text-center flex flex-col items-center" style={{width: '280px'}}>
         {Object.keys(cohortsData[cohortId]['variables']).length > 0 && (
           dataCleanRoom.cohorts[cohortId] &&
           dataCleanRoom.cohorts[cohortId].length === Object.keys(cohortsData[cohortId]['variables']).length ? (
@@ -366,7 +366,8 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
         <div className="my-4">
           <button
             onClick={() => setShowOnlyOutcomes(!showOnlyOutcomes)}
-            className="btn btn-sm w-full bg-blue-600 hover:bg-blue-700 text-white border-none"
+            className="btn btn-sm w-full border"
+            style={{ backgroundColor: '#dbeafe', color: '#1e3a8a', borderColor: '#bfdbfe' }}
           >
             {showOnlyOutcomes ? 'Show All Variables' : 'Show Only Outcome Variables'}
           </button>
