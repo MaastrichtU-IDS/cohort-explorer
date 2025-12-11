@@ -669,7 +669,8 @@ else:
         builder.add_node_definition(
             PreviewComputeNodeDefinition(
                 name=preview_node_name,
-                dependency=f"data-fragment-{cohort_id}"
+                dependency=f"data-fragment-{cohort_id}",
+                quota_bytes=10000000  # 10 MB quota
             )
         )
         # Add the requester as analyst of the preview node
