@@ -40,7 +40,7 @@ const FilterByMetadata = ({label, options, onFiltersChange, metadata_id, searchR
               type="checkbox"
               checked={selectedOptions.has(option)}
               onChange={() => handleOptionChange(option)}
-              className="checkbox checkbox-xs"
+              className="checkbox checkbox-xs border-2 border-gray-600 dark:border-gray-300"
             />
           </label>
         </div>

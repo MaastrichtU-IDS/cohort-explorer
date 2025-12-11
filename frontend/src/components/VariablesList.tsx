@@ -295,7 +295,7 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
 
   return (
     <main className="flex w-full space-x-4">
-      <aside className="flex-shrink-0 text-center flex flex-col items-center w-72">
+      <aside className="flex-shrink-0 text-center flex flex-col items-center w-52">
         {Object.keys(cohortsData[cohortId]['variables']).length > 0 && (
           dataCleanRoom.cohorts[cohortId] &&
           dataCleanRoom.cohorts[cohortId].length === Object.keys(cohortsData[cohortId]['variables']).length ? (
@@ -358,12 +358,12 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
           </form>
         </dialog>
         {filteredVars.length == Object.keys(cohortsData[cohortId]['variables']).length ? (
-          <span className="badge badge-ghost mb-2">
+          <span className="badge badge-lg mb-2 font-semibold" style={{ backgroundColor: '#fef08a', color: '#854d0e' }}>
             {Object.keys(cohortsData[cohortId]['variables']).length} variables
           </span>
         ) : (
           <div className="mb-2">
-            <span className="badge badge-ghost">
+            <span className="badge badge-lg font-semibold" style={{ backgroundColor: '#fef08a', color: '#854d0e' }}>
               {filteredVars.length}/{Object.keys(cohortsData[cohortId]['variables']).length} variables
             </span>
             {searchFilters.searchQuery && searchTerms.length > 0 && (
@@ -381,7 +381,7 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
             className="btn btn-sm w-full border"
             style={{ backgroundColor: '#dbeafe', color: '#1e3a8a', borderColor: '#bfdbfe' }}
           >
-            {showOnlyOutcomes ? 'Show All Variables' : 'Show Only Outcome Variables'}
+            {showOnlyOutcomes ? 'Show All Variables' : 'Show Outcome Variables'}
           </button>
         </div>
         
