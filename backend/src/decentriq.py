@@ -500,6 +500,73 @@ async def get_compute_dcr_definition(
     participants = {}
     participants[user["email"]] = {"data_owner_of": set(), "analyst_of": set()}
     preview_nodes = []
+    
+    # Define exploration script (will be added as first computation after metadata nodes)
+    exploration_script = """import pandas as pd
+import decentriq_util
+import os
+from datetime import datetime
+
+# Get all files in the /input directory
+input_dir = "/input"
+output_dir = "/output"
+files = os.listdir(input_dir)
+
+# Create output directory if it doesn't exist
+os.makedirs(output_dir, exist_ok=True)
+
+# Open output file for writing
+output_file = os.path.join(output_dir, "data_exploration_report.txt")
+with open(output_file, "w") as f:
+    f.write("=" * 80 + "\\n")
+    f.write("BASIC DATA EXPLORATION\\n")
+    f.write("=" * 80 + "\\n")
+    f.write("\\n")
+    
+    for filename in sorted(files):
+        filepath = os.path.join(input_dir, filename)
+        
+        # Skip if not a file
+        if not os.path.isfile(filepath):
+            continue
+        
+        f.write(f"\\n{'=' * 80}\\n")
+        f.write(f"FILE: {filename}\\n")
+        f.write(f"{'=' * 80}\\n")
+        
+        # File size in KB
+        file_size_bytes = os.path.getsize(filepath)
+        file_size_kb = file_size_bytes / 1024
+        f.write(f"Size: {file_size_kb:.2f} KB ({file_size_bytes:,} bytes)\\n")
+        
+        # Last modified date
+        mod_timestamp = os.path.getmtime(filepath)
+        mod_date = datetime.fromtimestamp(mod_timestamp)
+        f.write(f"Last Modified: {mod_date.strftime('%Y-%m-%d %H:%M:%S')}\\n")
+        
+        # Try to load as tabular data and display info
+        try:
+            df = decentriq_util.read_tabular_data(filename)
+            f.write(f"\\nDataFrame Info:\\n")
+            f.write(f"  Rows: {len(df):,}\\n")
+            f.write(f"  Columns: {len(df.columns):,}\\n")
+            f.write(f"  Column names: {list(df.columns)}\\n")
+            
+            f.write(f"\\nFirst 5 rows:\\n")
+            f.write(df.head(5).to_string() + "\\n")
+            
+        except Exception as e:
+            f.write(f"\\nCould not load as tabular data: {e}\\n")
+        
+        f.write("\\n")
+    
+    f.write("=" * 80 + "\\n")
+    f.write("EXPLORATION COMPLETE\\n")
+    f.write("=" * 80 + "\\n")
+
+print(f"Report written to {output_file}")
+"""
+    
     # Convert cohort variables to decentriq schema
     for cohort_id, cohort in selected_cohorts.items():
         # Create data node for cohort
@@ -522,6 +589,20 @@ async def get_compute_dcr_definition(
         
         # Add the requester as data owner of the metadata dictionary node
         participants[user["email"]]["data_owner_of"].add(metadata_node_id)
+    
+    # Add the exploration script FIRST (before any other compute nodes)
+    # This runs as the first computation with dependencies on all metadata nodes
+    builder.add_node_definition(
+        PythonComputeNodeDefinition(
+            name="optional-basic-data-exploration",
+            script=exploration_script,
+            dependencies=metadata_nodes
+        )
+    )
+    participants[user["email"]]["analyst_of"].add("optional-basic-data-exploration")
+    
+    # Now continue with per-cohort processing (shuffled samples, fragments, etc.)
+    for cohort_id, cohort in selected_cohorts.items():
 
         # Add data node for shuffled sample if it exists and is requested
         if include_shuffled_samples:
@@ -621,6 +702,7 @@ async def get_compute_dcr_definition(
             data_fragment_script = f"""import pandas as pd
 import decentriq_util
 import os
+from datetime import datetime
 
 # ============================================================================
 # CONFIGURATION: Select which data to fragment and airlock
@@ -632,8 +714,26 @@ import os
 DATA_SOURCE = "{cohort_id}-shuffled-sample"  # CHANGE THIS TO SWITCH DATA SOURCE
 # ============================================================================
 
+# Setup logging to file (no screen output allowed in this environment)
+output_dir = "/output"
+os.makedirs(output_dir, exist_ok=True)
+log_file = os.path.join(output_dir, "{cohort_id}_fragmentation_log.txt")
+
+def log(message):
+    with open(log_file, 'a') as f:
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        f.write(f"[{{timestamp}}] {{message}}\\n")
+
+log("=" * 80)
+log("Data Fragmentation Script Started")
+log(f"Cohort: {cohort_id}")
+log(f"Data Source: {{DATA_SOURCE}}")
+log(f"Airlock Percentage: {airlock_percentage}%")
+log("=" * 80)
+
 # Read the selected data source
 df = decentriq_util.read_tabular_data(DATA_SOURCE)
+log(f"Loaded data: {{len(df)}} rows, {{len(df.columns)}} columns")
 
 # Replace ID column with synthetic IDs if it exists
 id_column = "{id_variable_name if id_variable_name else ''}"
@@ -643,25 +743,28 @@ if id_column and id_column in df.columns:
     
     # Replace original IDs with synthetic ones
     df[id_column] = [f"synthetic-ID-{{i+1}}" for i in range(len(df))]
-    print(f"Replaced ID column '{{id_column}}' with synthetic IDs")
+    log(f"Replaced ID column '{{id_column}}' with synthetic IDs")
 else:
-    print(f"ID column not found or not specified")
+    log(f"ID column not found or not specified (searched for: '{{id_column}}')")
     # Still shuffle if no ID column
     df = df.sample(frac=1, random_state=42).reset_index(drop=True)
+    log("Data shuffled without ID replacement")
 
 # Split based on airlock percentage (data already shuffled above)
 split_fraction = {airlock_percentage} / 100.0
 split_index = int(len(df) * split_fraction)
 df_fragment = df.iloc[:split_index]
 
+log(f"Split fraction: {{split_fraction:.2f}} ({{split_index}} rows)")
+
 # Save the fragment to output
-output_dir = "/output"
-os.makedirs(output_dir, exist_ok=True)
 output_file = os.path.join(output_dir, "{cohort_id}_data_fragment.csv")
 df_fragment.to_csv(output_file, index=False)
 
-print(f"Data fragment saved: {{output_file}}")
-print(f"Fragment size: {{len(df_fragment)}} rows out of {{len(df)}} total rows ({{len(df_fragment)/len(df)*100:.1f}}%)")
+log(f"Data fragment saved: {{output_file}}")
+log(f"Fragment size: {{len(df_fragment)}} rows out of {{len(df)}} total rows ({{len(df_fragment)/len(df)*100:.1f}}%)")
+log("Data Fragmentation Script Completed Successfully")
+log("=" * 80)
 """
             
             builder.add_node_definition(
@@ -687,85 +790,6 @@ print(f"Fragment size: {{len(df_fragment)}} rows out of {{len(df)}} total rows (
             # Track the preview node for additional analysts
             preview_fragment_nodes.append(preview_node_name)
 
-
-
-    # Add single basic data exploration script for all cohorts (Nov 2025)
-    exploration_script = """import pandas as pd
-import decentriq_util
-import os
-from datetime import datetime
-
-# Get all files in the /input directory
-input_dir = "/input"
-output_dir = "/output"
-files = os.listdir(input_dir)
-
-# Create output directory if it doesn't exist
-os.makedirs(output_dir, exist_ok=True)
-
-# Open output file for writing
-output_file = os.path.join(output_dir, "data_exploration_report.txt")
-with open(output_file, "w") as f:
-    f.write("=" * 80 + "\\n")
-    f.write("BASIC DATA EXPLORATION\\n")
-    f.write("=" * 80 + "\\n")
-    f.write("\\n")
-    
-    for filename in sorted(files):
-        filepath = os.path.join(input_dir, filename)
-        
-        # Skip if not a file
-        if not os.path.isfile(filepath):
-            continue
-        
-        f.write(f"\\n{'=' * 80}\\n")
-        f.write(f"FILE: {filename}\\n")
-        f.write(f"{'=' * 80}\\n")
-        
-        # File size in KB
-        file_size_bytes = os.path.getsize(filepath)
-        file_size_kb = file_size_bytes / 1024
-        f.write(f"Size: {file_size_kb:.2f} KB ({file_size_bytes:,} bytes)\\n")
-        
-        # Last modified date
-        mod_timestamp = os.path.getmtime(filepath)
-        mod_date = datetime.fromtimestamp(mod_timestamp)
-        f.write(f"Last Modified: {mod_date.strftime('%Y-%m-%d %H:%M:%S')}\\n")
-        
-        # Try to load as tabular data and display info
-        try:
-            df = decentriq_util.read_tabular_data(filename)
-            f.write(f"\\nDataFrame Info:\\n")
-            f.write(f"  Rows: {len(df):,}\\n")
-            f.write(f"  Columns: {len(df.columns):,}\\n")
-            f.write(f"  Column names: {list(df.columns)}\\n")
-            
-            f.write(f"\\nFirst 5 rows:\\n")
-            f.write(df.head(5).to_string() + "\\n")
-            
-        except Exception as e:
-            f.write(f"\\nCould not load as tabular data: {e}\\n")
-        
-        f.write("\\n")
-    
-    f.write("=" * 80 + "\\n")
-    f.write("EXPLORATION COMPLETE\\n")
-    f.write("=" * 80 + "\\n")
-
-print(f"Report written to {output_file}")
-"""
-    
-    # Add the exploration script with dependencies on all metadata nodes
-    builder.add_node_definition(
-        PythonComputeNodeDefinition(
-            name="basic-data-exploration",
-            script=exploration_script,
-            dependencies=metadata_nodes
-        )
-    )
-    # Add the requester as analyst of the exploration script
-    participants[user["email"]]["analyst_of"].add("basic-data-exploration")
-
     builder.add_node_definition(
         RawDataNodeDefinition(name="CrossStudyMappings", is_required=False)
     )
@@ -781,7 +805,7 @@ print(f"Report written to {output_file}")
                 if analyst_email not in participants:
                     participants[analyst_email] = {"data_owner_of": set(), "analyst_of": set()}
                 # Add as analyst of the exploration script
-                participants[analyst_email]["analyst_of"].add("basic-data-exploration")
+                participants[analyst_email]["analyst_of"].add("optional-basic-data-exploration")
                 # Add as analyst of all preview fragment nodes
                 for preview_node in preview_fragment_nodes:
                     participants[analyst_email]["analyst_of"].add(preview_node)
