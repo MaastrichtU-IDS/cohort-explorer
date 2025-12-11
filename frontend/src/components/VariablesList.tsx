@@ -80,6 +80,28 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
     sessionStorage.setItem('dataCleanRoom', JSON.stringify(updatedDcr));
   };
 
+  // Button to remove cohort or variable from data clean room
+  const removeFromDataCleanRoom = (var_name: string | null = null) => {
+    const updatedDcr = {...dataCleanRoom};
+    if (var_name) {
+      // Remove specific variable
+      if (updatedDcr.cohorts[cohortId]) {
+        updatedDcr.cohorts[cohortId] = updatedDcr.cohorts[cohortId].filter(
+          (v: string) => v !== var_name
+        );
+        // If no variables left, remove the cohort entry
+        if (updatedDcr.cohorts[cohortId].length === 0) {
+          delete updatedDcr.cohorts[cohortId];
+        }
+      }
+    } else {
+      // Remove entire cohort
+      delete updatedDcr.cohorts[cohortId];
+    }
+    setDataCleanRoom(updatedDcr);
+    sessionStorage.setItem('dataCleanRoom', JSON.stringify(updatedDcr));
+  };
+
   // Collect unique OMOP domains and data types from variables for filtering options
   const omopDomains = new Set();
   const dataTypes: any = new Set();
@@ -246,18 +268,25 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
   return (
     <main className="flex w-full space-x-4">
       <aside className="flex-shrink-0 text-center flex flex-col items-center min-w-fit">
-        {Object.keys(cohortsData[cohortId]['variables']).length > 0 &&
-        (!dataCleanRoom.cohorts[cohortId] ||
-          dataCleanRoom.cohorts[cohortId].length !== Object.keys(cohortsData[cohortId]['variables']).length) ? (
-          <button
-            onClick={() => addToDataCleanRoom()}
-            className="btn btn-neutral btn-sm mb-2 hover:bg-slate-600 tooltip tooltip-right"
-            data-tip={`Add all variables of the cohort ${cohortId} to your Data Clean Room`}
-          >
-            Add to DCR
-          </button>
-        ) : (
-          <div />
+        {Object.keys(cohortsData[cohortId]['variables']).length > 0 && (
+          dataCleanRoom.cohorts[cohortId] &&
+          dataCleanRoom.cohorts[cohortId].length === Object.keys(cohortsData[cohortId]['variables']).length ? (
+            <button
+              onClick={() => removeFromDataCleanRoom()}
+              className="btn btn-error btn-sm mb-2 hover:bg-red-700 tooltip tooltip-right"
+              data-tip={`Remove all variables of the cohort ${cohortId} from your Data Clean Room`}
+            >
+              Remove from DCR
+            </button>
+          ) : (
+            <button
+              onClick={() => addToDataCleanRoom()}
+              className="btn btn-neutral btn-sm mb-2 hover:bg-slate-600 tooltip tooltip-right"
+              data-tip={`Add all variables of the cohort ${cohortId} to your Data Clean Room`}
+            >
+              Add to DCR
+            </button>
+          )
         )}
         {filteredVars.length > 0 && (
           <button
@@ -409,7 +438,15 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
                       📊
                     </button>
                   </div>
-                  {!dataCleanRoom.cohorts[cohortId]?.includes(variable.var_name) ? (
+                  {dataCleanRoom.cohorts[cohortId]?.includes(variable.var_name) ? (
+                    <button
+                      onClick={() => removeFromDataCleanRoom(variable.var_name)}
+                      className="btn btn-error btn-sm hover:bg-red-700 tooltip tooltip-left"
+                      data-tip={`Remove the \`${variable.var_name}\` variable of the ${cohortId} cohort from your Data Clean Room`}
+                    >
+                      Remove from DCR
+                    </button>
+                  ) : (
                     <button
                       onClick={() => addToDataCleanRoom(variable.var_name)}
                       className="btn btn-neutral btn-sm hover:bg-slate-600 tooltip tooltip-left"
@@ -417,8 +454,6 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
                     >
                       Add to DCR
                     </button>
-                  ) : (
-                    <div />
                   )}
                 </div>
                 <p>
