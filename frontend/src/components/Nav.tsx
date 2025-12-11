@@ -420,11 +420,12 @@ export function Nav() {
                 
                 {/* Airlock Settings */}
                 <div className="mt-4">
-                  <h4 className="font-semibold mb-3">Airlock Settings</h4>
+                  <div className="divider"></div>
+                  <h3 className="font-bold text-lg mb-3">Airlock Settings</h3>
                   <p className="text-sm text-base-content/70 mb-3">Set the percentage of data (0-100) to export as a fragment for each cohort:</p>
                   <div className="space-y-3">
                     {dataCleanRoom?.cohorts && Object.keys(dataCleanRoom.cohorts).map((cohortId) => (
-                      <div key={cohortId} className="flex items-center gap-3">
+                      <div key={cohortId} className="flex items-center gap-2">
                         <label className="flex-1 font-medium">{cohortId}</label>
                         <input 
                           type="number"
