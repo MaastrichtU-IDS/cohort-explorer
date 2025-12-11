@@ -670,33 +670,14 @@ const CohortSummaryGraphs = React.memo(function CohortSummaryGraphs({ variables,
       
       {(selectedDomain || selectedType || selectedCategory || selectedVisitType) && (
         <div className="mb-3 text-sm text-gray-600 bg-blue-50 px-3 py-2 rounded">
-          <strong>💡 Tip:</strong> All charts are interactive! 
-          {selectedDomain && ` Filtering by domain: "${selectedDomain}".`}
-          {selectedType && ` Filtering by type: "${selectedType}".`}
-          {selectedCategory && ` Filtering by category: "${selectedCategory}".`}
-          {selectedVisitType && ` Filtering by visit type: "${selectedVisitType}".`}
-          {' '}Click again to deselect.
+          <strong>💡 NOTE:</strong> All charts are interactive. Click on a value to re-generate the graphs for that value. Click again to deselect, or use the "Reset Filters" button.
+          {selectedDomain && ` Currently filtering by domain: "${selectedDomain}".`}
+          {selectedType && ` Currently filtering by type: "${selectedType}".`}
+          {selectedCategory && ` Currently filtering by category: "${selectedCategory}".`}
+          {selectedVisitType && ` Currently filtering by visit type: "${selectedVisitType}".`}
         </div>
       )}
       
-      {(selectedDomain || selectedType || selectedCategory || selectedVisitType) && (
-        <div className="mb-4 flex justify-center">
-          <button
-            onClick={() => {
-              setSelectedDomain(null);
-              setSelectedType(null);
-              setSelectedCategory(null);
-              setSelectedVisitType(null);
-            }}
-            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-2.5 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 flex items-center gap-2"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
-            </svg>
-            Reset All Filters
-          </button>
-        </div>
-      )}
       
       <div className="space-y-6">
         {/* Top row: Pie charts */}
@@ -749,6 +730,35 @@ const CohortSummaryGraphs = React.memo(function CohortSummaryGraphs({ variables,
           </div>
         </div>
       </div>
+      
+      {/* Filter summary and Reset button at bottom */}
+      {(selectedDomain || selectedType || selectedCategory || selectedVisitType) && (
+        <div className="mt-6 pt-4 border-t">
+          <div className="text-sm text-gray-600 mb-3 text-center">
+            <span className="font-semibold">Filters in effect:</span>
+            {selectedDomain && ` OMOP Domain = ${selectedDomain}`}
+            {selectedType && `${selectedDomain ? ',' : ''} Data Type = ${selectedType}`}
+            {selectedCategory && `${selectedDomain || selectedType ? ',' : ''} Category = ${selectedCategory}`}
+            {selectedVisitType && `${selectedDomain || selectedType || selectedCategory ? ',' : ''} Visit Type = ${selectedVisitType}`}
+          </div>
+          <div className="flex justify-center">
+            <button
+              onClick={() => {
+                setSelectedDomain(null);
+                setSelectedType(null);
+                setSelectedCategory(null);
+                setSelectedVisitType(null);
+              }}
+              className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-2.5 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 flex items-center gap-2"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
+              </svg>
+              Reset All Filters
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 });
