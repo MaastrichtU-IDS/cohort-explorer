@@ -485,7 +485,6 @@ async def get_compute_dcr_definition(
     dcr_start = datetime.now()
     data_nodes = []
     metadata_nodes = []
-    preview_fragment_nodes = []  # Track preview nodes for data fragments
     dcr_count = len(client.get_data_room_descriptions())
     dcr_title = f"iCARE4CVD DCR compute {dcr_count}"
     builder = (
@@ -519,6 +518,9 @@ async def get_compute_dcr_definition(
             TableDataNodeDefinition(name=metadata_node_id, columns=metadata_cols, is_required=True)
         )
         metadata_nodes.append(metadata_node_id)
+        
+        # Add the requester as data owner of the metadata dictionary node
+        participants[user["email"]]["data_owner_of"].add(metadata_node_id)
 
         # Add data node for shuffled sample if it exists and is requested
         if include_shuffled_samples:
@@ -534,16 +536,15 @@ async def get_compute_dcr_definition(
                     RawDataNodeDefinition(name=shuffled_node_id, is_required=False)
                 )
                 
-                # Set ownership based on mode
+                # Add the requester as data owner of the shuffled sample node
+                participants[user["email"]]["data_owner_of"].add(shuffled_node_id)
+                
+                # In non-dev mode, also add cohort owners as data owners of shuffled sample
                 if not settings.dev_mode:
-                    # In production: cohort owners are data owners of shuffled sample
                     for owner in cohort.cohort_email:
                         if owner not in participants:
                             participants[owner] = {"data_owner_of": set(), "analyst_of": set()}
                         participants[owner]["data_owner_of"].add(shuffled_node_id)
-                else:
-                    # In dev mode: requester is data owner of shuffled sample
-                    participants[user["email"]]["data_owner_of"].add(shuffled_node_id)
             else:
                 logging.info(f"No shuffled sample found for {cohort_id} at {shuffled_csv}")
         else:
@@ -606,112 +607,62 @@ async def get_compute_dcr_definition(
         # participants[user["email"]]["analyst_of"].add(f"prepare-{cohort_id}")
 
         # Add data fragment script for this cohort (Dec 2025)
-        # Only create the script if airlock percentage is greater than 0
+        # This script excludes the ID column and splits the data based on airlock settings
+        id_variable_name = find_variable_by_omop_id(cohort_id, "4086934")
+        
         # Get the airlock percentage for this cohort (default to 0 if not specified)
         airlock_percentage = 0
         if airlock_settings and cohort_id in airlock_settings:
             airlock_percentage = airlock_settings[cohort_id]
         
-        # Only add data fragment script if airlock percentage > 0
-        if airlock_percentage > 0:
-            id_variable_name = find_variable_by_omop_id(cohort_id, "4086934")
-            
-            data_fragment_script = f"""import pandas as pd
+        data_fragment_script = f"""import pandas as pd
 import decentriq_util
 import os
-from datetime import datetime
 
-# ============================================================================
-# CONFIGURATION: Select which data to fragment and airlock
-# ============================================================================
-# Options:
-#   - "{cohort_id}" = Main cohort data
-#   - "{cohort_id}-shuffled-sample" = Shuffled sample data
-# ============================================================================
-DATA_SOURCE = "{cohort_id}-shuffled-sample"  # CHANGE THIS TO SWITCH DATA SOURCE
-# ============================================================================
+# Read the cohort data
+df = decentriq_util.read_tabular_data("{cohort_id}")
 
-# Setup logging to file (no screen output allowed in this environment)
-output_dir = "/output"
-os.makedirs(output_dir, exist_ok=True)
-log_file = os.path.join(output_dir, "{cohort_id}_fragmentation_log.txt")
-
-def log(message):
-    with open(log_file, 'a') as f:
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        f.write(f"[{{timestamp}}] {{message}}\\n")
-
-log("=" * 80)
-log("Data Fragmentation Script Started")
-log(f"Cohort: {cohort_id}")
-log(f"Data Source: {{DATA_SOURCE}}")
-log(f"Airlock Percentage: {airlock_percentage}%")
-log("=" * 80)
-
-# Read the selected data source
-df = decentriq_util.read_tabular_data(DATA_SOURCE)
-log(f"Loaded data: {{len(df)}} rows, {{len(df.columns)}} columns")
-
-# Replace ID column with synthetic IDs if it exists
+# Remove ID column if it exists
 id_column = "{id_variable_name if id_variable_name else ''}"
 if id_column and id_column in df.columns:
-    # Shuffle the dataframe first to break any connection with original IDs
+    df = df.drop(columns=[id_column])
+    print(f"Removed ID column: {{id_column}}")
+else:
+    print(f"ID column not found or not specified")
+
+# Airlock percentage setting
+airlock_percentage = {airlock_percentage}
+
+if airlock_percentage > 0:
+    # Shuffle the dataframe to ensure random split
     df = df.sample(frac=1, random_state=42).reset_index(drop=True)
     
-    # Replace original IDs with synthetic ones
-    df[id_column] = [f"synthetic-ID-{{i+1}}" for i in range(len(df))]
-    log(f"Replaced ID column '{{id_column}}' with synthetic IDs")
+    # Split based on airlock percentage
+    split_fraction = airlock_percentage / 100.0
+    split_index = int(len(df) * split_fraction)
+    df_fragment = df.iloc[:split_index]
+    
+    # Save the fragment to output
+    output_dir = "/output"
+    os.makedirs(output_dir, exist_ok=True)
+    output_file = os.path.join(output_dir, "{cohort_id}_data_fragment.csv")
+    df_fragment.to_csv(output_file, index=False)
+    
+    print(f"Data fragment saved: {{output_file}}")
+    print(f"Fragment size: {{len(df_fragment)}} rows out of {{len(df)}} total rows ({{len(df_fragment)/len(df)*100:.1f}}%)")
 else:
-    log(f"ID column not found or not specified (searched for: '{{id_column}}')")
-    # Still shuffle if no ID column
-    df = df.sample(frac=1, random_state=42).reset_index(drop=True)
-    log("Data shuffled without ID replacement")
-
-# Split based on airlock percentage (data already shuffled above)
-split_fraction = {airlock_percentage} / 100.0
-split_index = int(len(df) * split_fraction)
-df_fragment = df.iloc[:split_index]
-
-log(f"Split fraction: {{split_fraction:.2f}} ({{split_index}} rows)")
-
-# Save the fragment to output
-output_file = os.path.join(output_dir, "{cohort_id}_data_fragment.csv")
-df_fragment.to_csv(output_file, index=False)
-
-log(f"Data fragment saved: {{output_file}}")
-log(f"Fragment size: {{len(df_fragment)}} rows out of {{len(df)}} total rows ({{len(df_fragment)/len(df)*100:.1f}}%)")
-log("Data Fragmentation Script Completed Successfully")
-log("=" * 80)
+    print(f"Airlock percentage is 0%, no data fragment will be created for {cohort_id}")
 """
-            
-            # Determine dependencies based on what data sources are available
-            fragment_dependencies = [data_node_id]  # Always include main data node
-            if include_shuffled_samples:
-                shuffled_node_id = f"{cohort_id.replace(' ', '-')}_shuffled_sample"
-                fragment_dependencies.append(shuffled_node_id)  # Also include shuffled sample if available
-            
-            builder.add_node_definition(
-                PythonComputeNodeDefinition(
-                    name=f"data-fragment-{cohort_id}",
-                    script=data_fragment_script,
-                    dependencies=fragment_dependencies
-                )
+        
+        builder.add_node_definition(
+            PythonComputeNodeDefinition(
+                name=f"data-fragment-{cohort_id}",
+                script=data_fragment_script,
+                dependencies=[data_node_id]
             )
-            # Add the requester as analyst of the data fragment script
-            participants[user["email"]]["analyst_of"].add(f"data-fragment-{cohort_id}")
-            
-            # Add a preview (airlock) node for the data fragment
-            preview_node_name = f"preview-fragment-{cohort_id}"
-            builder.add_node_definition(
-                PreviewComputeNodeDefinition(
-                    name=preview_node_name,
-                    dependency=f"data-fragment-{cohort_id}"
-                )
-            )
-            # Add the requester as analyst of the preview node
-            participants[user["email"]]["analyst_of"].add(preview_node_name)
-            # Track the preview node for additional analysts
-            preview_fragment_nodes.append(preview_node_name)
+        )
+        # Add the requester as analyst of the data fragment script
+        participants[user["email"]]["analyst_of"].add(f"data-fragment-{cohort_id}")
 
 
 
@@ -808,17 +759,7 @@ print(f"Report written to {output_file}")
                     participants[analyst_email] = {"data_owner_of": set(), "analyst_of": set()}
                 # Add as analyst of the exploration script
                 participants[analyst_email]["analyst_of"].add("basic-data-exploration")
-                # Add as analyst of all preview fragment nodes
-                for preview_node in preview_fragment_nodes:
-                    participants[analyst_email]["analyst_of"].add(preview_node)
-                logging.info(f"Added {analyst_email} as additional analyst with access to {len(preview_fragment_nodes)} preview nodes")
-
-    # Grant all participants (data owners and analysts) access to preview fragment nodes
-    for p_email in participants.keys():
-        for preview_node in preview_fragment_nodes:
-            participants[p_email]["analyst_of"].add(preview_node)
-    
-    logging.info(f"Granted all {len(participants)} participants access to {len(preview_fragment_nodes)} preview fragment nodes")
+                logging.info(f"Added {analyst_email} as additional analyst")
 
     for p_email, p_perm in participants.items():
         builder.add_participant(
