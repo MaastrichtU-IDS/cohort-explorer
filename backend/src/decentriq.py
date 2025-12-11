@@ -515,7 +515,7 @@ async def get_compute_dcr_definition(
         metadata_cols = identify_cohort_meta_schema(cohort)
         
         builder.add_node_definition(
-            TableDataNodeDefinition(name=metadata_node_id, columns=metadata_cols, is_required=True)
+            TableDataNodeDefinition(name=metadata_node_id, columns=metadata_cols, is_required=False)
         )
         metadata_nodes.append(metadata_node_id)
         
@@ -619,16 +619,22 @@ async def get_compute_dcr_definition(
 import decentriq_util
 import os
 
+# Create output directory and log file
+output_dir = "/output"
+os.makedirs(output_dir, exist_ok=True)
+log_file = os.path.join(output_dir, "fragmentation_log.txt")
+
 # Read the cohort data
 df = decentriq_util.read_tabular_data("{cohort_id}")
 
 # Remove ID column if it exists
 id_column = "{id_variable_name if id_variable_name else ''}"
-if id_column and id_column in df.columns:
-    df = df.drop(columns=[id_column])
-    print(f"Removed ID column: {{id_column}}")
-else:
-    print(f"ID column not found or not specified")
+with open(log_file, "a") as log:
+    if id_column and id_column in df.columns:
+        df = df.drop(columns=[id_column])
+        log.write(f"Removed ID column: {{id_column}}\\n")
+    else:
+        log.write(f"ID column not found or not specified\\n")
 
 # Airlock percentage setting
 airlock_percentage = {airlock_percentage}
@@ -643,15 +649,15 @@ if airlock_percentage > 0:
     df_fragment = df.iloc[:split_index]
     
     # Save the fragment to output
-    output_dir = "/output"
-    os.makedirs(output_dir, exist_ok=True)
     output_file = os.path.join(output_dir, "{cohort_id}_data_fragment.csv")
     df_fragment.to_csv(output_file, index=False)
     
-    print(f"Data fragment saved: {{output_file}}")
-    print(f"Fragment size: {{len(df_fragment)}} rows out of {{len(df)}} total rows ({{len(df_fragment)/len(df)*100:.1f}}%)")
+    with open(log_file, "a") as log:
+        log.write(f"Data fragment saved: {{output_file}}\\n")
+        log.write(f"Fragment size: {{len(df_fragment)}} rows out of {{len(df)}} total rows ({{len(df_fragment)/len(df)*100:.1f}}%)\\n")
 else:
-    print(f"Airlock percentage is 0%, no data fragment will be created for {cohort_id}")
+    with open(log_file, "a") as log:
+        log.write(f"Airlock percentage is 0%, no data fragment will be created for {cohort_id}\\n")
 """
         
         builder.add_node_definition(
@@ -742,8 +748,7 @@ with open(output_file, "w") as f:
     f.write("=" * 80 + "\\n")
     f.write("EXPLORATION COMPLETE\\n")
     f.write("=" * 80 + "\\n")
-
-print(f"Report written to {output_file}")
+    f.write(f"\\nReport written to {output_file}\\n")
 """
     
     # Add the exploration script FIRST (before other nodes) with dependencies on all metadata nodes
