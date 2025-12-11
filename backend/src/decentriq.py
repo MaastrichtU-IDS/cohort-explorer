@@ -1108,7 +1108,14 @@ async def api_create_live_compute_dcr(
     airlock_settings = cohorts_request.get("airlock_settings", {})
     
     # Create and publish the live compute DCR
-    return await create_live_compute_dcr(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings)
+    try:
+        return await create_live_compute_dcr(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings)
+    except Exception as e:
+        error_msg = f"Failed to create live compute DCR: {str(e)}"
+        logging.error(error_msg)
+        logging.error(f"Error type: {type(e).__name__}")
+        logging.error(f"Full error details: {repr(e)}")
+        raise HTTPException(status_code=500, detail=error_msg)
 
 
 @router.post(

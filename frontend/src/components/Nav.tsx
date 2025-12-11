@@ -197,20 +197,44 @@ export function Nav() {
           </div>
         ));
       } else {
+        // Non-OK response - show detailed error information
+        console.error('DCR creation failed with response:', result);
         setPublishedDCR((
-          <div className="bg-error text-error-content p-4 rounded-lg">
-            <p>❌ Error: {result.detail || 'Failed to create live DCR'}</p>
+          <div className="bg-error text-error-content p-4 rounded-lg space-y-2">
+            <p className="font-bold text-lg">❌ Error: Failed to create live DCR</p>
+            <div className="bg-black bg-opacity-20 p-3 rounded text-xs font-mono overflow-auto max-h-96">
+              <p className="font-bold mb-2">Error Details:</p>
+              <p className="mb-2">Status: {response.status} {response.statusText}</p>
+              <p className="mb-2">Message: {result.detail || 'No error message provided'}</p>
+              <p className="font-bold mt-3 mb-2">Full Response:</p>
+              <pre className="whitespace-pre-wrap break-words">{JSON.stringify(result, null, 2)}</pre>
+            </div>
           </div>
         ));
       }
       
       setIsLoading(false);
       setLoadingAction(null);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error creating live DCR:', error);
+      console.error('Error stack:', error?.stack);
+      
       setPublishedDCR((
-        <div className="bg-error text-error-content p-4 rounded-lg">
-          <p>❌ Error: Failed to create live DCR. Please try again.</p>
+        <div className="bg-error text-error-content p-4 rounded-lg space-y-2">
+          <p className="font-bold text-lg">❌ Error: Failed to create live DCR</p>
+          <div className="bg-black bg-opacity-20 p-3 rounded text-xs font-mono overflow-auto max-h-96">
+            <p className="font-bold mb-2">Exception Details:</p>
+            <p className="mb-2">Type: {error?.name || 'Unknown'}</p>
+            <p className="mb-2">Message: {error?.message || 'No error message'}</p>
+            {error?.stack && (
+              <>
+                <p className="font-bold mt-3 mb-2">Stack Trace:</p>
+                <pre className="whitespace-pre-wrap break-words text-xs">{error.stack}</pre>
+              </>
+            )}
+            <p className="font-bold mt-3 mb-2">Full Error Object:</p>
+            <pre className="whitespace-pre-wrap break-words">{JSON.stringify(error, Object.getOwnPropertyNames(error), 2)}</pre>
+          </div>
         </div>
       ));
       setIsLoading(false);
