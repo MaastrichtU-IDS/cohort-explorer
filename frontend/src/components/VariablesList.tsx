@@ -27,6 +27,7 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
   const [includeNonCategorical, setIncludeNonCategorical] = useState(true);
   const [openedModal, setOpenedModal] = useState('');
   const [openedGraphModal, setOpenedGraphModal] = useState<string | null>(null);
+  const [showOnlyOutcomes, setShowOnlyOutcomes] = useState(false);
 
   // When concept is selected, insert the triples into the database
   const handleConceptSelect = (varId: any, concept: Concept, categoryId: any = null) => {
@@ -213,12 +214,26 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
           return matchesSearch;
         })
         .filter(
-          ([variableName, variableData]: any) =>
-            (selectedOMOPDomains.size === 0 || selectedOMOPDomains.has(variableData.omop_domain)) &&
-            (selectedDataTypes.size === 0 || selectedDataTypes.has(variableData.var_type)) &&
-            ((includeCategorical && variableData.categories.length === 0) ||
-              (includeNonCategorical && variableData.categories.length !== 0) ||
-              (!includeNonCategorical && !includeCategorical))
+          ([variableName, variableData]: any) => {
+            // Filter by outcome keywords if enabled
+            if (showOnlyOutcomes) {
+              const varName = (variableName || '').toLowerCase();
+              const varLabel = (variableData.var_label || '').toLowerCase();
+              const hasOutcomeKeyword = 
+                varName.includes('outcome') || varLabel.includes('outcome') ||
+                varName.includes('endpoint') || varLabel.includes('endpoint') ||
+                varName.includes('end point') || varLabel.includes('end point');
+              
+              if (!hasOutcomeKeyword) return false;
+            }
+            
+            // Apply other filters
+            return (selectedOMOPDomains.size === 0 || selectedOMOPDomains.has(variableData.omop_domain)) &&
+              (selectedDataTypes.size === 0 || selectedDataTypes.has(variableData.var_type)) &&
+              ((includeCategorical && variableData.categories.length === 0) ||
+                (includeNonCategorical && variableData.categories.length !== 0) ||
+                (!includeNonCategorical && !includeCategorical));
+          }
         )
         .map(([variableName, variableData]: any) => ({...variableData, var_name: variableName}));
     } else {
@@ -232,7 +247,8 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
     selectedOMOPDomains,
     selectedDataTypes,
     includeCategorical,
-    includeNonCategorical
+    includeNonCategorical,
+    showOnlyOutcomes
   ]);
 
   // Function to handle downloading the cohort CSV
@@ -345,6 +361,17 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
             )}
           </div>
         )}
+        
+        {/* Outcome Variables Filter Button */}
+        <div className="my-4">
+          <button
+            onClick={() => setShowOnlyOutcomes(!showOnlyOutcomes)}
+            className="btn btn-sm w-full bg-blue-600 hover:bg-blue-700 text-white border-none"
+          >
+            {showOnlyOutcomes ? 'Show All Variables' : 'Show Only Outcome Variables'}
+          </button>
+        </div>
+        
         <FilterByMetadata
           label="OMOP domains"
           metadata_id="omop_domain"
