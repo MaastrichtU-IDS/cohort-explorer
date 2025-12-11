@@ -670,11 +670,11 @@ const CohortSummaryGraphs = React.memo(function CohortSummaryGraphs({ variables,
       
       {(selectedDomain || selectedType || selectedCategory || selectedVisitType) && (
         <div className="mb-3 text-sm text-gray-600 bg-blue-50 px-3 py-2 rounded">
-          <strong>💡 NOTE:</strong> All charts are interactive. Click on a value to re-generate the graphs for that value. Click again to deselect, or use the "Reset Filters" button.
-          {selectedDomain && ` Currently filtering by domain: "${selectedDomain}".`}
-          {selectedType && ` Currently filtering by type: "${selectedType}".`}
-          {selectedCategory && ` Currently filtering by category: "${selectedCategory}".`}
-          {selectedVisitType && ` Currently filtering by visit type: "${selectedVisitType}".`}
+          <strong>💡 NOTE:</strong> All charts are interactive. Click on a value to re-generate the graphs for that value. Click again to deselect, or use the &quot;Reset Filters&quot; button.
+          {selectedDomain && ` Currently filtering by domain: '${selectedDomain}'.`}
+          {selectedType && ` Currently filtering by type: '${selectedType}'.`}
+          {selectedCategory && ` Currently filtering by category: '${selectedCategory}'.`}
+          {selectedVisitType && ` Currently filtering by visit type: '${selectedVisitType}'.`}
         </div>
       )}
       
