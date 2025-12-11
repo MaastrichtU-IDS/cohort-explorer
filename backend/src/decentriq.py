@@ -840,15 +840,45 @@ async def create_live_compute_dcr(
     # Step 1: Create the DCR definition (reuse existing logic)
     dcr_definition, dcr_title = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings)
     
-    # Step 2: Publish the DCR to Decentriq (similar to create_provision_dcr)
+    # Step 2: Publish the DCR to Decentriq with retry logic for race conditions
+    import time
     logging.info(f"Publishing live compute DCR: {dcr_title}")
     publish_start = datetime.now()
     
+    dcr = None
+    max_retries = 5
+    retry_delay_seconds = 2  # Start with a 2-second delay
+    
+    for attempt in range(max_retries):
+        try:
+            # Attempt to publish the DCR
+            dcr = client.publish_analytics_dcr(dcr_definition)
+            # If successful, break the loop
+            logging.info(f"DCR published successfully on attempt {attempt + 1}")
+            break
+        except Exception as e:
+            # Check if the error is the specific race condition we're targeting
+            if "Unable to retrieve data room description for data room with ID" in str(e):
+                logging.warning(
+                    f"Attempt {attempt + 1}/{max_retries} failed due to a known consistency issue. "
+                    f"Retrying in {retry_delay_seconds} seconds..."
+                )
+                time.sleep(retry_delay_seconds)
+                # Increase delay for subsequent retries (exponential backoff)
+                retry_delay_seconds *= 1.5
+            else:
+                # If it's a different, unexpected error, raise it immediately
+                logging.error(f"An unexpected error occurred during DCR publication: {e}")
+                raise e
+    
+    # If the loop completes without success, raise a final error
+    if dcr is None:
+        raise Exception(f"Failed to publish DCR '{dcr_title}' after {max_retries} attempts.")
+    
+    publish_time = datetime.now() - publish_start
+    logging.info(f"DCR published successfully in {publish_time.total_seconds():.3f}s")
+    
     try:
-        dcr = client.publish_analytics_dcr(dcr_definition)
-        publish_time = datetime.now() - publish_start
-        logging.info(f"DCR published successfully in {publish_time.total_seconds():.3f}s")
-        
         dcr_url = f"https://platform.decentriq.com/datarooms/p/{dcr.id}"
         
         # Step 3: Upload metadata dictionaries for each cohort
