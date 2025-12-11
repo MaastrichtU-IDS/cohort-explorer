@@ -75,7 +75,7 @@ export default function Home() {
     };
     
     fetchStatistics();
-  }, []);
+  }, [calculateStatistics, cohortStatistics]);
 
   return (
     <main className={`flex flex-col items-center justify-between p-24 ${inter.className}`}>
