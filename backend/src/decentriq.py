@@ -673,7 +673,7 @@ else:
             )
         )
         # Add the requester as analyst of the preview node
-        participants[user["email"]"]["analyst_of"].add(preview_node_name)
+        participants[user["email"]]["analyst_of"].add(preview_node_name)
         # Track the preview node for additional analysts
         preview_nodes.append(preview_node_name)
 
