@@ -781,12 +781,20 @@ print(f"Report written to {output_file}")
     
     logging.info(f"Granted all {len(participants)} participants access to {len(preview_nodes)} preview fragment nodes")
 
+    # Log detailed participant permissions before adding to builder
+    logging.info("=" * 80)
+    logging.info("PARTICIPANT PERMISSIONS SUMMARY")
+    logging.info("=" * 80)
     for p_email, p_perm in participants.items():
+        logging.info(f"\nParticipant: {p_email}")
+        logging.info(f"  Data Owner Of ({len(p_perm['data_owner_of'])} nodes): {sorted(list(p_perm['data_owner_of']))}")
+        logging.info(f"  Analyst Of ({len(p_perm['analyst_of'])} nodes): {sorted(list(p_perm['analyst_of']))}")
         builder.add_participant(
             p_email,
             data_owner_of=list(p_perm["data_owner_of"]),
             analyst_of=list(p_perm["analyst_of"]),
         )
+    logging.info("=" * 80)
 
     # Build and publish DCR
     build_start = datetime.now()
