@@ -519,9 +519,6 @@ async def get_compute_dcr_definition(
             TableDataNodeDefinition(name=metadata_node_id, columns=metadata_cols, is_required=True)
         )
         metadata_nodes.append(metadata_node_id)
-        
-        # Add the requester as data owner of the metadata dictionary node
-        participants[user["email"]]["data_owner_of"].add(metadata_node_id)
 
         # Add data node for shuffled sample if it exists and is requested
         if include_shuffled_samples:
@@ -537,15 +534,16 @@ async def get_compute_dcr_definition(
                     RawDataNodeDefinition(name=shuffled_node_id, is_required=False)
                 )
                 
-                # Add the requester as data owner of the shuffled sample node
-                participants[user["email"]]["data_owner_of"].add(shuffled_node_id)
-                
-                # In non-dev mode, also add cohort owners as data owners of shuffled sample
+                # Set ownership based on mode
                 if not settings.dev_mode:
+                    # In production: cohort owners are data owners of shuffled sample
                     for owner in cohort.cohort_email:
                         if owner not in participants:
                             participants[owner] = {"data_owner_of": set(), "analyst_of": set()}
                         participants[owner]["data_owner_of"].add(shuffled_node_id)
+                else:
+                    # In dev mode: requester is data owner of shuffled sample
+                    participants[user["email"]]["data_owner_of"].add(shuffled_node_id)
             else:
                 logging.info(f"No shuffled sample found for {cohort_id} at {shuffled_csv}")
         else:
@@ -686,11 +684,17 @@ log("Data Fragmentation Script Completed Successfully")
 log("=" * 80)
 """
             
+            # Determine dependencies based on what data sources are available
+            fragment_dependencies = [data_node_id]  # Always include main data node
+            if include_shuffled_samples:
+                shuffled_node_id = f"{cohort_id.replace(' ', '-')}-shuffled-sample"
+                fragment_dependencies.append(shuffled_node_id)  # Also include shuffled sample if available
+            
             builder.add_node_definition(
                 PythonComputeNodeDefinition(
                     name=f"data-fragment-{cohort_id}",
                     script=data_fragment_script,
-                    dependencies=[data_node_id]
+                    dependencies=fragment_dependencies
                 )
             )
             # Add the requester as analyst of the data fragment script
