@@ -217,12 +217,24 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
           ([variableName, variableData]: any) => {
             // Filter by outcome keywords if enabled
             if (showOnlyOutcomes) {
-              const varName = (variableName || '').toLowerCase();
-              const varLabel = (variableData.var_label || '').toLowerCase();
-              const hasOutcomeKeyword = 
-                varName.includes('outcome') || varLabel.includes('outcome') ||
-                varName.includes('endpoint') || varLabel.includes('endpoint') ||
-                varName.includes('end point') || varLabel.includes('end point');
+              const outcomeKeywords = ['outcome', 'endpoint', 'end point'];
+              const searchableFields = ['var_name', 'var_label', 'concept_name', 'mapped_label', 'omop_domain', 'concept_code', 'omop_id'];
+              
+              // Add variable name to the data for searching
+              const variableWithName = { ...variableData, var_name: variableName };
+              
+              // Check if any searchable field contains any outcome keyword
+              let hasOutcomeKeyword = false;
+              for (const field of searchableFields) {
+                const fieldValue = variableWithName[field];
+                if (fieldValue != null) {
+                  const fieldText = String(fieldValue).toLowerCase();
+                  if (outcomeKeywords.some(keyword => fieldText.includes(keyword))) {
+                    hasOutcomeKeyword = true;
+                    break;
+                  }
+                }
+              }
               
               if (!hasOutcomeKeyword) return false;
             }
@@ -487,6 +499,23 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
                 <p>
                   <HighlightedText text={variable.var_label || ''} searchTerms={searchTerms} searchMode={searchMode} />
                 </p>
+                
+                {/* Display concept_name and mapped_label if they exist */}
+                {(variable.concept_name || variable.mapped_label) && (
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                    {variable.concept_name && (
+                      <span>
+                        <span className="font-semibold">Concept:</span> <HighlightedText text={variable.concept_name} searchTerms={searchTerms} searchMode={searchMode} />
+                      </span>
+                    )}
+                    {variable.concept_name && variable.mapped_label && <span> • </span>}
+                    {variable.mapped_label && (
+                      <span>
+                        <span className="font-semibold">Mapped:</span> <HighlightedText text={variable.mapped_label} searchTerms={searchTerms} searchMode={searchMode} />
+                      </span>
+                    )}
+                  </p>
+                )}
 
                 {/* Popup with additional infos about the variable */}
                 {openedModal === variable.var_name && (
