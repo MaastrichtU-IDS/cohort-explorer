@@ -164,7 +164,7 @@ export function Nav() {
         });
         
         setPublishedDCR((
-          <div>
+          <div className="bg-success text-slate-900 p-4 rounded-lg">
             <p className="font-bold mb-4 text-lg">✅ {result.message}</p>
             <div className="flex justify-center mb-4">
               <a 
@@ -198,7 +198,9 @@ export function Nav() {
         ));
       } else {
         setPublishedDCR((
-          <p className="text-error">❌ Error: {result.detail || 'Failed to create live DCR'}</p>
+          <div className="bg-error text-error-content p-4 rounded-lg">
+            <p>❌ Error: {result.detail || 'Failed to create live DCR'}</p>
+          </div>
         ));
       }
       
@@ -207,7 +209,9 @@ export function Nav() {
     } catch (error) {
       console.error('Error creating live DCR:', error);
       setPublishedDCR((
-        <p className="text-error">❌ Error: Failed to create live DCR. Please try again.</p>
+        <div className="bg-error text-error-content p-4 rounded-lg">
+          <p>❌ Error: Failed to create live DCR. Please try again.</p>
+        </div>
       ));
       setIsLoading(false);
       setLoadingAction(null);
@@ -490,7 +494,7 @@ export function Nav() {
             )}
             {publishedDCR && (
               <div className="card card-compact">
-                <div className="card-body bg-success mt-5 rounded-lg text-slate-900">
+                <div className="card-body mt-5">
                     {publishedDCR}
                 </div>
               </div>
