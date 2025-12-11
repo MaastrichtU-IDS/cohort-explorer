@@ -83,8 +83,6 @@ const SearchResultsCounter = React.memo(({filteredCohorts, searchTerms, searchMo
   );
 });
 
-SearchResultsCounter.displayName = 'SearchResultsCounter';
-
 // Helper function to format participants value for display in tags
 const formatParticipantsForTag = (value: string | number | null | undefined): string => {
   if (!value) return '';
