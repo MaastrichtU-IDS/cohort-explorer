@@ -235,7 +235,7 @@ export const CohortsProvider = ({children, useSparql = false}: {children: any, u
     return () => {
       worker.current?.terminate();
     };
-  }, [useSparql]);
+  }, [useSparql, calculateStatistics]);
 
   // Fetch cohorts data from the API using the web worker
   const fetchCohortsData = () => {
