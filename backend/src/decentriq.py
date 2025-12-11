@@ -687,7 +687,7 @@ log("=" * 80)
             # Determine dependencies based on what data sources are available
             fragment_dependencies = [data_node_id]  # Always include main data node
             if include_shuffled_samples:
-                shuffled_node_id = f"{cohort_id.replace(' ', '-')}-shuffled-sample"
+                shuffled_node_id = f"{cohort_id.replace(' ', '-')}_shuffled_sample"
                 fragment_dependencies.append(shuffled_node_id)  # Also include shuffled sample if available
             
             builder.add_node_definition(
