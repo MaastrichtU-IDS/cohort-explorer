@@ -75,7 +75,8 @@ export default function Home() {
     };
     
     fetchStatistics();
-  }, [calculateStatistics, cohortStatistics]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run once on mount
 
   return (
     <main className={`flex flex-col items-center justify-between p-24 ${inter.className}`}>
