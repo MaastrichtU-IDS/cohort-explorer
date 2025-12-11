@@ -1,6 +1,6 @@
 'use client';
 
-import React, {createContext, useState, useEffect, useContext, useRef, MutableRefObject} from 'react';
+import React, {createContext, useState, useEffect, useContext, useRef, useCallback, MutableRefObject} from 'react';
 import {Cohort} from '@/types';
 import {apiUrl} from '@/utils';
 
@@ -97,7 +97,7 @@ export const CohortsProvider = ({children, useSparql = false}: {children: any, u
   };
 
   // Calculate statistics - extracted as a separate function to be called explicitly
-  const calculateStatistics = async () => {
+  const calculateStatistics = useCallback(async () => {
     if (Object.keys(cohortsData).length === 0) return;
     
     // Convert cohortsData to a typed array for safer operations
@@ -169,7 +169,7 @@ export const CohortsProvider = ({children, useSparql = false}: {children: any, u
     }).catch(error => {
       console.error('Error saving statistics:', error);
     });
-  };
+  }, [cohortsData]);
 
   useEffect(() => {
     setDataCleanRoom(JSON.parse(sessionStorage.getItem('dataCleanRoom') || '{"cohorts": {}}'));
