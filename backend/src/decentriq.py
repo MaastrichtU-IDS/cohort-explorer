@@ -680,7 +680,7 @@ else:
 
 
 
-    # Add single basic data exploration script for all cohorts (Nov 2025)
+    # Define exploration script (will be added to builder first, after cohort loop)
     exploration_script = """import pandas as pd
 import decentriq_util
 import os
@@ -746,16 +746,16 @@ with open(output_file, "w") as f:
 print(f"Report written to {output_file}")
 """
     
-    # Add the exploration script with dependencies on all metadata nodes
+    # Add the exploration script FIRST (before other nodes) with dependencies on all metadata nodes
     builder.add_node_definition(
         PythonComputeNodeDefinition(
-            name="basic-data-exploration",
+            name="optional-basic-data-exploration",
             script=exploration_script,
             dependencies=metadata_nodes
         )
     )
     # Add the requester as analyst of the exploration script
-    participants[user["email"]]["analyst_of"].add("basic-data-exploration")
+    participants[user["email"]]["analyst_of"].add("optional-basic-data-exploration")
 
     builder.add_node_definition(
         RawDataNodeDefinition(name="CrossStudyMappings", is_required=False)
@@ -772,7 +772,7 @@ print(f"Report written to {output_file}")
                 if analyst_email not in participants:
                     participants[analyst_email] = {"data_owner_of": set(), "analyst_of": set()}
                 # Add as analyst of the exploration script
-                participants[analyst_email]["analyst_of"].add("basic-data-exploration")
+                participants[analyst_email]["analyst_of"].add("optional-basic-data-exploration")
                 logging.info(f"Added {analyst_email} as additional analyst")
 
     # Grant all participants (data owners and analysts) access to preview fragment nodes
