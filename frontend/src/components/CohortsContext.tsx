@@ -235,7 +235,8 @@ export const CohortsProvider = ({children, useSparql = false}: {children: any, u
     return () => {
       worker.current?.terminate();
     };
-  }, [useSparql, calculateStatistics]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [useSparql]);
 
   // Fetch cohorts data from the API using the web worker
   const fetchCohortsData = () => {
