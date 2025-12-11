@@ -622,8 +622,18 @@ async def get_compute_dcr_definition(
 import decentriq_util
 import os
 
-# Read the cohort data
-df = decentriq_util.read_tabular_data("{cohort_id}")
+# ============================================================================
+# CONFIGURATION: Select which data to fragment and airlock
+# ============================================================================
+# Options:
+#   - "{cohort_id}" = Main cohort data
+#   - "{cohort_id}-shuffled-sample" = Shuffled sample data
+# ============================================================================
+DATA_SOURCE = "{cohort_id}-shuffled-sample"  # CHANGE THIS TO SWITCH DATA SOURCE
+# ============================================================================
+
+# Read the selected data source
+df = decentriq_util.read_tabular_data(DATA_SOURCE)
 
 # Replace ID column with synthetic IDs if it exists
 id_column = "{id_variable_name if id_variable_name else ''}"
