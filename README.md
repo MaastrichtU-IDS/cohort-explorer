@@ -2,6 +2,7 @@
 
 Webapp enabling the upload, exploration, and mapping of cohort metadata, built for the [iCARE4CVD project](https://icare4cvd.eu).
 
+
 It interacts with a privacy computing platform ([Decentriq](https://www.decentriq.com/)) to create secure Data Clean Rooms (DCRs) where data scientists can run analyses on selected cohorts. The Cohort Explorer handles **only cohort metadata**; the actual sensitive cohort data is uploaded directly to Decentriq DCRs by data custodians after the DCR is configured via the Explorer.
 
 ## ✨ Key Features
