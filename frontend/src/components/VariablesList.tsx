@@ -295,7 +295,7 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
 
   return (
     <main className="flex w-full space-x-4">
-      <aside className="flex-shrink-0 text-center flex flex-col items-center" style={{width: '280px'}}>
+      <aside className="flex-shrink-0 text-center flex flex-col items-center w-72">
         {Object.keys(cohortsData[cohortId]['variables']).length > 0 && (
           dataCleanRoom.cohorts[cohortId] &&
           dataCleanRoom.cohorts[cohortId].length === Object.keys(cohortsData[cohortId]['variables']).length ? (
@@ -502,19 +502,20 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
                 
                 {/* Display concept_name and mapped_label if they exist */}
                 {(variable.concept_name || variable.mapped_label) && (
-                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-600 dark:text-gray-400 mt-1">
                     {variable.concept_name && (
-                      <span>
-                        <span className="font-semibold">Concept:</span> <HighlightedText text={variable.concept_name} searchTerms={searchTerms} searchMode={searchMode} />
+                      <span className="flex-shrink-0">
+                        <span className="font-semibold">Concept:</span>{' '}
+                        <HighlightedText text={variable.concept_name} searchTerms={searchTerms} searchMode={searchMode} />
                       </span>
                     )}
-                    {variable.concept_name && variable.mapped_label && <span> • </span>}
                     {variable.mapped_label && (
-                      <span>
-                        <span className="font-semibold">Mapped:</span> <HighlightedText text={variable.mapped_label} searchTerms={searchTerms} searchMode={searchMode} />
+                      <span className="flex-shrink-0">
+                        <span className="font-semibold">Mapped:</span>{' '}
+                        <HighlightedText text={variable.mapped_label} searchTerms={searchTerms} searchMode={searchMode} />
                       </span>
                     )}
-                  </p>
+                  </div>
                 )}
 
                 {/* Popup with additional infos about the variable */}
