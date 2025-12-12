@@ -804,7 +804,7 @@ with open(output_file, "w") as f:
     logging.info(f"DCR build completed in {build_time.total_seconds():.3f}s")
     logging.info(f"Total DCR definition creation completed in {total_time.total_seconds():.3f}s for {len(cohorts_request['cohorts'])} cohorts")
     
-    return dcr_definition, dcr_title
+    return dcr_definition, dcr_title, participants
 
 
 
@@ -836,7 +836,7 @@ async def create_live_compute_dcr(
     logging.info(f"Starting live compute DCR creation for user {user['email']} at {start_time}")
     
     # Step 1: Create the DCR definition (reuse existing logic)
-    dcr_definition, dcr_title = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings)
+    dcr_definition, dcr_title, participants = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings)
     
     # Step 2: Publish the DCR to Decentriq with retry logic for race conditions
     import time
