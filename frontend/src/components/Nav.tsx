@@ -271,8 +271,13 @@ export function Nav() {
     if (dcrCohortIds.length > 0 && cohortsData) {
       dcrCohortIds.forEach((cohortId) => {
         const cohort = cohortsData[cohortId];
-        if (cohort?.cohort_email && Array.isArray(cohort.cohort_email)) {
-          cohort.cohort_email.forEach((email: string) => {
+        if (cohort?.cohort_email) {
+          // Handle both string and array formats
+          const emails = Array.isArray(cohort.cohort_email) 
+            ? cohort.cohort_email 
+            : [cohort.cohort_email];
+          
+          emails.forEach((email: string) => {
             // Include all data owners, even if they're the current user
             if (email && email.trim()) {
               const trimmedEmail = email.trim();
