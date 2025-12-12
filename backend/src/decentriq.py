@@ -489,7 +489,7 @@ async def get_compute_dcr_definition(
     data_nodes = []
     metadata_nodes = []
     dcr_count = len(client.get_data_room_descriptions())
-    dcr_title = f"iCARE4CVD DCR compute {dcr_count}"
+    dcr_title = f"iCARE4CVD DCR compute {dcr_count+5}" #to avoid issues with duplicate names
     builder = (
         AnalyticsDcrBuilder(client=client)
         .with_name(dcr_title)
@@ -848,6 +848,7 @@ async def create_live_compute_dcr(
     retry_delay_seconds = 3  # Start with a 6-second delay
     error_messages = {}
     for attempt in range(max_retries):
+        time.sleep(retry_delay_seconds)
         try:
             # Attempt to publish the DCR
             dcr = client.publish_analytics_dcr(dcr_definition)
@@ -857,7 +858,7 @@ async def create_live_compute_dcr(
         except Exception as e:
             error_messages[attempt+1] = e
             logging.error(f"Error occurred during DCR publication attempt {attempt + 1}: {e}")
-            time.sleep(retry_delay_seconds)
+            
             retry_delay_seconds *= 1.5
             
     
