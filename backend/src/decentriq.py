@@ -851,9 +851,9 @@ async def create_live_compute_dcr(
     publish_start = datetime.now()
     
     dcr = None
-    max_retries = 5
-    retry_delay_seconds = 10  # Start with a 10-second delay
-    
+    max_retries = 4
+    retry_delay_seconds = 3  # Start with a 6-second delay
+    error_messages = {}
     for attempt in range(max_retries):
         try:
             # Attempt to publish the DCR
@@ -862,6 +862,7 @@ async def create_live_compute_dcr(
             logging.info(f"DCR published successfully on attempt {attempt + 1}")
             break
         except Exception as e:
+            error_messages[attempt+1] = e
             logging.error(f"Error occurred during DCR publication attempt {attempt + 1}: {e}")
             time.sleep(retry_delay_seconds)
             retry_delay_seconds *= 1.5
@@ -869,7 +870,7 @@ async def create_live_compute_dcr(
     
     # If the loop completes without success, raise a final error
     if dcr is None:
-        raise Exception(f"Failed to publish DCR '{dcr_title}' after {max_retries} attempts.")
+        raise Exception(f"Failed to publish DCR '{dcr_title}' after {max_retries} attempts.\nErrors for each attempt: {error_messages}")
     
     publish_time = datetime.now() - publish_start
     logging.info(f"DCR published successfully in {publish_time.total_seconds():.3f}s")
