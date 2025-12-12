@@ -509,10 +509,10 @@ async def get_compute_dcr_definition(
     preview_nodes = []
     # Convert cohort variables to decentriq schema
     for cohort_id, cohort in selected_cohorts.items():
-        # Create data node for cohort
+        # Create data node for cohort (using RawDataNodeDefinition instead of TableDataNodeDefinition)
         data_node_id = cohort_id.replace(" ", "-")
         builder.add_node_definition(
-            TableDataNodeDefinition(name=data_node_id, columns=get_cohort_schema(cohort), is_required=False)
+            RawDataNodeDefinition(name=data_node_id, is_required=False)
         )
         data_nodes.append(data_node_id)
 
