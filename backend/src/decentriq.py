@@ -190,6 +190,9 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
 
     # Add permissions for data owners
     all_participants = set(cohort.cohort_email)
+    # Also include administrator_email if it exists
+    if cohort.administrator_email:
+        all_participants.add(cohort.administrator_email)
     if settings.dev_mode:
         all_participants = set()
         print(f"Dev mode, only adding {user['email']} as data owner")
@@ -496,8 +499,13 @@ async def get_compute_dcr_definition(
     )
     logging.info(f"DCR builder initialized for {len(cohorts_request['cohorts'])} cohorts")
 
-    participants = {}
-    participants[user["email"]] = {"data_owner_of": set(), "analyst_of": set()}
+    # Build participants dictionary using shared function
+    participants = build_dcr_participants(
+        cohorts_request,
+        user["email"],
+        all_cohorts,
+        additional_analysts
+    )
     preview_nodes = []
     # Convert cohort variables to decentriq schema
     for cohort_id, cohort in selected_cohorts.items():
@@ -536,32 +544,19 @@ async def get_compute_dcr_definition(
                     RawDataNodeDefinition(name=shuffled_node_id, is_required=False)
                 )
                 
-                # Add the requester as data owner of the shuffled sample node
+                # Add data owners for shuffled sample node (participants already have base nodes from build_dcr_participants)
+                # Add requester as data owner
                 participants[user["email"]]["data_owner_of"].add(shuffled_node_id)
                 
-                # In non-dev mode, also add cohort owners as data owners of shuffled sample
-                if not settings.dev_mode:
-                    for owner in cohort.cohort_email:
-                        if owner not in participants:
-                            participants[owner] = {"data_owner_of": set(), "analyst_of": set()}
-                        participants[owner]["data_owner_of"].add(shuffled_node_id)
+                # Add existing data owners to shuffled sample
+                for email, roles in participants.items():
+                    if data_node_id in roles["data_owner_of"]:
+                        # If they own the data node, they should also own the shuffled sample
+                        roles["data_owner_of"].add(shuffled_node_id)
             else:
                 logging.info(f"No shuffled sample found for {cohort_id} at {shuffled_csv}")
         else:
             logging.info(f"Shuffled samples not requested for {cohort_id}, skipping node creation")
-
-        # Add data owners to provision the data (in dev we dont add them to avoid unnecessary emails)
-        if not settings.dev_mode:
-            for owner in cohort.cohort_email:
-                if owner not in participants:
-                    participants[owner] = {"data_owner_of": set(), "analyst_of": set()}
-                participants[owner]["data_owner_of"].add(data_node_id)
-                participants[owner]["data_owner_of"].add(metadata_node_id)
-            #participants[user["email"]]["analyst_of"].add(metadata_node_id)
-        else:
-            # In dev_mode the requester is added as data owner instead
-            participants[user["email"]]["data_owner_of"].add(data_node_id)
-            participants[user["email"]]["data_owner_of"].add(metadata_node_id)
         
 
         # # Add pandas preparation script - COMMENTED OUT Nov 2025
@@ -770,12 +765,10 @@ with open(output_file, "w") as f:
     # for prev_node in preview_nodes:
     #     participants[user["email"]]["analyst_of"].add(prev_node)
 
-    # Add additional analysts if provided
+    # Add analyst_of roles for additional analysts (they're already in participants from build_dcr_participants)
     if additional_analysts:
         for analyst_email in additional_analysts:
-            if analyst_email and analyst_email != user["email"]:
-                if analyst_email not in participants:
-                    participants[analyst_email] = {"data_owner_of": set(), "analyst_of": set()}
+            if analyst_email and analyst_email != user["email"] and analyst_email in participants:
                 # Add as analyst of the exploration script
                 participants[analyst_email]["analyst_of"].add("optional-basic-data-exploration")
                 logging.info(f"Added {analyst_email} as additional analyst")
@@ -1038,6 +1031,14 @@ async def create_live_compute_dcr(
         successful_metadata_uploads = sum(1 for status in metadata_upload_results.values() if status == "success")
         successful_shuffled_uploads = sum(1 for status in shuffled_upload_results.values() if status == "success")
         
+        # Convert participants dictionary for JSON serialization
+        participants_json = {}
+        for email, roles in participants.items():
+            participants_json[email] = {
+                "data_owner_of": list(roles["data_owner_of"]),
+                "analyst_of": list(roles["analyst_of"])
+            }
+        
         return {
             "message": f"Live compute DCR created successfully for {len(cohort_ids)} cohort(s). Metadata uploaded for {successful_metadata_uploads}/{len(cohort_ids)} cohorts. Shuffled samples uploaded for {successful_shuffled_uploads}/{len(cohort_ids)} cohorts.",
             "dcr_id": dcr.id,
@@ -1048,7 +1049,8 @@ async def create_live_compute_dcr(
             "metadata_upload_results": metadata_upload_results,
             "metadata_uploads_successful": successful_metadata_uploads,
             "shuffled_upload_results": shuffled_upload_results,
-            "shuffled_uploads_successful": successful_shuffled_uploads
+            "shuffled_uploads_successful": successful_shuffled_uploads,
+            "participants": participants_json
         }
         
     except Exception as e:
@@ -1336,6 +1338,123 @@ def run_shuffle_get_output(dcr_id: str, user: Any = Depends(get_current_user)):
         "script": "shuffle_data",
         "files": ["shuffled_sample.csv", "shuffle_summary.txt"]
     }
+
+
+def build_dcr_participants(
+    cohorts_request: dict[str, Any],
+    user_email: str,
+    all_cohorts: dict[str, Any],
+    additional_analysts: list[str] = None
+) -> dict[str, dict[str, set]]:
+    """Build the participants dictionary for a DCR.
+    
+    This function encapsulates the logic for determining who should be a data owner
+    and/or analyst in the DCR. It can be called before DCR creation to preview
+    participants, or during DCR creation to configure them.
+    
+    Args:
+        cohorts_request: Dictionary with cohort IDs as keys
+        user_email: Email of the user creating the DCR
+        all_cohorts: Dictionary of all available cohorts with metadata
+        additional_analysts: Optional list of additional analyst emails to add
+        
+    Returns:
+        Dictionary mapping email addresses to their roles:
+        {
+            "email@example.com": {
+                "data_owner_of": set([node_ids]),
+                "analyst_of": set([node_ids])
+            }
+        }
+    """
+    participants = {}
+    participants[user_email] = {"data_owner_of": set(), "analyst_of": set()}
+    
+    # Process each cohort to determine data owners
+    for cohort_id in cohorts_request.get('cohorts', {}).keys():
+        if cohort_id not in all_cohorts:
+            continue
+            
+        cohort = all_cohorts[cohort_id]
+        data_node_id = cohort_id.replace(" ", "-")
+        metadata_node_id = f"{cohort_id.replace(' ', '-')}_metadata_dictionary"
+        
+        # Add data owners (in non-dev mode)
+        if not settings.dev_mode:
+            # Add all cohort_email owners
+            for owner in cohort.cohort_email:
+                if owner not in participants:
+                    participants[owner] = {"data_owner_of": set(), "analyst_of": set()}
+                participants[owner]["data_owner_of"].add(data_node_id)
+                participants[owner]["data_owner_of"].add(metadata_node_id)
+            
+            # Also add administrator_email if it exists
+            if cohort.administrator_email:
+                if cohort.administrator_email not in participants:
+                    participants[cohort.administrator_email] = {"data_owner_of": set(), "analyst_of": set()}
+                participants[cohort.administrator_email]["data_owner_of"].add(data_node_id)
+                participants[cohort.administrator_email]["data_owner_of"].add(metadata_node_id)
+        else:
+            # In dev_mode the requester is added as data owner
+            participants[user_email]["data_owner_of"].add(data_node_id)
+            participants[user_email]["data_owner_of"].add(metadata_node_id)
+    
+    # Add additional analysts if provided
+    if additional_analysts:
+        for analyst_email in additional_analysts:
+            if analyst_email and analyst_email != user_email:
+                if analyst_email not in participants:
+                    participants[analyst_email] = {"data_owner_of": set(), "analyst_of": set()}
+                # Note: analyst_of nodes will be added later when nodes are defined
+    
+    return participants
+
+
+@router.post(
+    "/preview-dcr-participants",
+    name="Preview DCR participants",
+    response_description="Participants that would be configured for the DCR",
+)
+async def api_preview_dcr_participants(
+    cohorts_request: dict[str, Any],
+    user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Preview what participants would be configured for a DCR without creating it.
+    
+    This allows the UI to show who will be data owners and analysts before
+    the user decides to add additional participants.
+    """
+    try:
+        # Get cohort metadata
+        from src.cohort_cache import get_cohorts_from_cache
+        all_cohorts = get_cohorts_from_cache(user["email"])
+        
+        # Build participants using the shared function
+        additional_analysts = cohorts_request.get('additional_analysts', [])
+        participants = build_dcr_participants(
+            cohorts_request,
+            user["email"],
+            all_cohorts,
+            additional_analysts
+        )
+        
+        # Convert sets to lists for JSON serialization
+        participants_json = {}
+        for email, roles in participants.items():
+            participants_json[email] = {
+                "data_owner_of": list(roles["data_owner_of"]),
+                "analyst_of": list(roles["analyst_of"]),
+                "is_current_user": email == user["email"]
+            }
+        
+        return {"participants": participants_json}
+        
+    except Exception as e:
+        logging.error(f"Failed to preview DCR participants: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to preview DCR participants: {str(e)}"
+        )
 
 
 def update_provision_log(new_dcr):

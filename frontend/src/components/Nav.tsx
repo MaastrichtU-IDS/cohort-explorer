@@ -25,6 +25,8 @@ export function Nav() {
   const [additionalAnalysts, setAdditionalAnalysts] = useState<string[]>([]);
   const [newAnalystEmail, setNewAnalystEmail] = useState('');
   const [airlockSettings, setAirlockSettings] = useState<Record<string, number>>({});
+  const [participantsPreview, setParticipantsPreview] = useState<any>(null);
+  const [loadingParticipants, setLoadingParticipants] = useState(false);
   // const [cleanRoomData, setCleanRoomData]: any = useState(null);
   // const cleanRoomData = JSON.parse(sessionStorage.getItem('dataCleanRoom') || '{"cohorts": []}');
   // const cohortsCount = cleanRoomData.cohorts.length;
@@ -260,38 +262,57 @@ export function Nav() {
     setAdditionalAnalysts(prev => prev.filter(e => e !== email));
   }, []);
 
+  // Fetch participants preview when modal opens
+  useEffect(() => {
+    if (showParticipantsModal && dataCleanRoom?.cohorts) {
+      const fetchParticipants = async () => {
+        setLoadingParticipants(true);
+        try {
+          const response = await fetch(`${apiUrl}/preview-dcr-participants`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              cohorts: dataCleanRoom.cohorts,
+              additional_analysts: additionalAnalysts
+            })
+          });
+          
+          if (response.ok) {
+            const result = await response.json();
+            setParticipantsPreview(result.participants);
+          }
+        } catch (error) {
+          console.error('Failed to fetch participants preview:', error);
+        } finally {
+          setLoadingParticipants(false);
+        }
+      };
+      
+      fetchParticipants();
+    }
+  }, [showParticipantsModal, dataCleanRoom?.cohorts, additionalAnalysts]);
+
   // Memoize cohort IDs to prevent unnecessary recalculations
   const dcrCohortIds = useMemo(() => 
     dataCleanRoom?.cohorts ? Object.keys(dataCleanRoom.cohorts) : [],
     [dataCleanRoom?.cohorts]
   );
 
+  // Use participants preview from backend when available
   const dataOwners = useMemo(() => {
-    const ownersMap: Record<string, string[]> = {};
-    if (dcrCohortIds.length > 0 && cohortsData) {
-      dcrCohortIds.forEach((cohortId) => {
-        const cohort = cohortsData[cohortId];
-        if (cohort?.cohort_email) {
-          // Handle both string and array formats
-          const emails = Array.isArray(cohort.cohort_email) 
-            ? cohort.cohort_email 
-            : [cohort.cohort_email];
-          
-          emails.forEach((email: string) => {
-            // Include all data owners, even if they're the current user
-            if (email && email.trim()) {
-              const trimmedEmail = email.trim();
-              if (!ownersMap[trimmedEmail]) {
-                ownersMap[trimmedEmail] = [];
-              }
-              ownersMap[trimmedEmail].push(cohortId);
-            }
-          });
-        }
-      });
+    if (participantsPreview) {
+      return Object.entries(participantsPreview)
+        .filter(([email, roles]: [string, any]) => roles.data_owner_of && roles.data_owner_of.length > 0)
+        .map(([email, roles]: [string, any]) => ({ 
+          email, 
+          cohorts: roles.data_owner_of 
+        }));
     }
-    return Object.entries(ownersMap).map(([email, cohorts]) => ({ email, cohorts }));
-  }, [dcrCohortIds, cohortsData]);
+    return [];
+  }, [participantsPreview]);
 
   return (
     <div className="navbar bg-base-300 min-h-0 p-0">
@@ -576,10 +597,10 @@ const ParticipantsModal = React.memo(({
         
         <div className="space-y-4">
           {/* Data owners */}
-          {dataOwners.length > 0 && (
-            <div>
-              <h4 className="font-semibold mb-2">Data Owners</h4>
-              {dataOwners.map((owner) => (
+          <div>
+            <h4 className="font-semibold mb-2">Data Owners</h4>
+            {dataOwners.length > 0 ? (
+              dataOwners.map((owner) => (
                 <div key={owner.email} className="bg-base-200 p-3 rounded-lg mb-2">
                   <div>
                     <p className="font-semibold">
@@ -591,9 +612,15 @@ const ParticipantsModal = React.memo(({
                     </p>
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
+              ))
+            ) : (
+              <div className="bg-warning bg-opacity-20 p-3 rounded-lg mb-2">
+                <p className="text-sm text-gray-700">
+                  ⚠️ No data owner emails found for the selected cohorts. Please ensure the cohort metadata includes data owner contact information.
+                </p>
+              </div>
+            )}
+          </div>
           
           {/* Analysts */}
           <div>
