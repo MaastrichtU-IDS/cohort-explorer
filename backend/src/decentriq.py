@@ -756,6 +756,10 @@ with open(output_file, "w") as f:
     )
     # Add the requester as analyst of the exploration script
     participants[user["email"]]["analyst_of"].add("optional-basic-data-exploration")
+    
+    # Add service account as analyst of the exploration script
+    if settings.decentriq_email and settings.decentriq_email in participants:
+        participants[settings.decentriq_email]["analyst_of"].add("optional-basic-data-exploration")
 
     builder.add_node_definition(
         RawDataNodeDefinition(name="CrossStudyMappings", is_required=False)
@@ -1370,6 +1374,10 @@ def build_dcr_participants(
     """
     participants = {}
     participants[user_email] = {"data_owner_of": set(), "analyst_of": set()}
+    
+    # Always add service account as analyst (will get analyst_of roles later)
+    if settings.decentriq_email and settings.decentriq_email != user_email:
+        participants[settings.decentriq_email] = {"data_owner_of": set(), "analyst_of": set()}
     
     # Process each cohort to determine data owners
     for cohort_id in cohorts_request.get('cohorts', {}).keys():
