@@ -36,10 +36,10 @@ const TYPE_COLORS = [
 
 const CATEGORY_COLORS = [
   '#64748b', // slate - non-categorical
+  '#6366f1', // indigo - all categorical
   '#3b82f6', // blue - 2 categories
   '#10b981', // green - 3 categories  
-  '#f59e0b', // amber - 4 categories
-  '#ef4444', // red - 5+ categories
+  '#f59e0b', // amber - 4+ categories
 ];
 
 const CohortSummaryGraphs = React.memo(function CohortSummaryGraphs({ variables, isExpanded = false }: CohortSummaryGraphsProps) {
@@ -102,10 +102,10 @@ const CohortSummaryGraphs = React.memo(function CohortSummaryGraphs({ variables,
       if (selectedCategory) {
         const numCategories = v.categories?.length || 0;
         if (selectedCategory === 'Non-categorical' && numCategories !== 0) return false;
+        if (selectedCategory === 'All categorical' && numCategories === 0) return false;
         if (selectedCategory === '2 categories' && numCategories !== 2) return false;
         if (selectedCategory === '3 categories' && numCategories !== 3) return false;
-        if (selectedCategory === '4 categories' && numCategories !== 4) return false;
-        if (selectedCategory === '5+ categories' && numCategories < 5) return false;
+        if (selectedCategory === '4+ categories' && numCategories < 4) return false;
       }
       
       // Apply visit type filter
@@ -130,10 +130,10 @@ const CohortSummaryGraphs = React.memo(function CohortSummaryGraphs({ variables,
     
     const categoryCounts: { [key: string]: number } = {
       'Non-categorical': 0,
+      'All categorical': 0,
       '2 categories': 0,
       '3 categories': 0,
-      '4 categories': 0,
-      '5+ categories': 0,
+      '4+ categories': 0,
     };
     
     // Use pre-filtered variables (filter out category filter for this chart)
@@ -156,14 +156,15 @@ const CohortSummaryGraphs = React.memo(function CohortSummaryGraphs({ variables,
       
       if (numCategories === 0) {
         categoryCounts['Non-categorical']++;
-      } else if (numCategories === 2) {
-        categoryCounts['2 categories']++;
-      } else if (numCategories === 3) {
-        categoryCounts['3 categories']++;
-      } else if (numCategories === 4) {
-        categoryCounts['4 categories']++;
-      } else if (numCategories >= 5) {
-        categoryCounts['5+ categories']++;
+      } else {
+        categoryCounts['All categorical']++;
+        if (numCategories === 2) {
+          categoryCounts['2 categories']++;
+        } else if (numCategories === 3) {
+          categoryCounts['3 categories']++;
+        } else if (numCategories >= 4) {
+          categoryCounts['4+ categories']++;
+        }
       }
     });
     
