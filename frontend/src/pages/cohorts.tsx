@@ -120,6 +120,14 @@ export default function CohortsList() {
   // Search configuration states
   const [searchScope, setSearchScope] = useState<'cohorts' | 'variables'>('cohorts');
   const [searchMode, setSearchMode] = useState<'or' | 'and' | 'exact'>('or');
+  
+  // Shared filter state for each cohort (synced between charts and sidebar)
+  const [cohortFilters, setCohortFilters] = useState<{[cohortId: string]: {
+    selectedOMOPDomains: Set<string>;
+    selectedDataTypes: Set<string>;
+    selectedCategoryTypes: Set<string>;
+    selectedVisitTypes: Set<string>;
+  }}>({});
   // selectedMorbidities state removed
 
   // Debounced search for better performance
@@ -136,6 +144,104 @@ export default function CohortsList() {
   
   const handleSearchChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setSearchInput(event.target.value);
+  };
+
+  // Helper function to get filters for a cohort (initialize if doesn't exist)
+  const getFiltersForCohort = (cohortId: string) => {
+    if (!cohortFilters[cohortId]) {
+      return {
+        selectedOMOPDomains: new Set<string>(),
+        selectedDataTypes: new Set<string>(),
+        selectedCategoryTypes: new Set<string>(),
+        selectedVisitTypes: new Set<string>(),
+      };
+    }
+    return cohortFilters[cohortId];
+  };
+
+  // Helper function to update filters for a specific cohort
+  const updateCohortFilters = (cohortId: string, filterType: 'selectedOMOPDomains' | 'selectedDataTypes' | 'selectedCategoryTypes' | 'selectedVisitTypes', value: Set<string>) => {
+    setCohortFilters(prev => ({
+      ...prev,
+      [cohortId]: {
+        ...getFiltersForCohort(cohortId),
+        [filterType]: value
+      }
+    }));
+  };
+
+  // Helper function to reset all filters for a cohort
+  const resetCohortFilters = (cohortId: string) => {
+    setCohortFilters(prev => ({
+      ...prev,
+      [cohortId]: {
+        selectedOMOPDomains: new Set<string>(),
+        selectedDataTypes: new Set<string>(),
+        selectedCategoryTypes: new Set<string>(),
+        selectedVisitTypes: new Set<string>(),
+      }
+    }));
+  };
+
+  // Helper functions to handle chart clicks (toggle values in Sets)
+  const handleDomainClick = (cohortId: string, domain: string | null) => {
+    const currentFilters = getFiltersForCohort(cohortId);
+    const newDomains = new Set(currentFilters.selectedOMOPDomains);
+    
+    if (domain) {
+      if (newDomains.has(domain)) {
+        newDomains.delete(domain);
+      } else {
+        newDomains.add(domain);
+      }
+    }
+    
+    updateCohortFilters(cohortId, 'selectedOMOPDomains', newDomains);
+  };
+
+  const handleTypeClick = (cohortId: string, type: string | null) => {
+    const currentFilters = getFiltersForCohort(cohortId);
+    const newTypes = new Set(currentFilters.selectedDataTypes);
+    
+    if (type) {
+      if (newTypes.has(type)) {
+        newTypes.delete(type);
+      } else {
+        newTypes.add(type);
+      }
+    }
+    
+    updateCohortFilters(cohortId, 'selectedDataTypes', newTypes);
+  };
+
+  const handleCategoryClick = (cohortId: string, category: string | null) => {
+    const currentFilters = getFiltersForCohort(cohortId);
+    const newCategories = new Set(currentFilters.selectedCategoryTypes);
+    
+    if (category) {
+      if (newCategories.has(category)) {
+        newCategories.delete(category);
+      } else {
+        newCategories.add(category);
+      }
+    }
+    
+    updateCohortFilters(cohortId, 'selectedCategoryTypes', newCategories);
+  };
+
+  const handleVisitTypeClick = (cohortId: string, visitType: string | null) => {
+    const currentFilters = getFiltersForCohort(cohortId);
+    const newVisitTypes = new Set(currentFilters.selectedVisitTypes);
+    
+    if (visitType) {
+      if (newVisitTypes.has(visitType)) {
+        newVisitTypes.delete(visitType);
+      } else {
+        newVisitTypes.add(visitType);
+      }
+    }
+    
+    updateCohortFilters(cohortId, 'selectedVisitTypes', newVisitTypes);
   };
 
   // Function to toggle the expanded state for a cohort
@@ -937,6 +1043,16 @@ export default function CohortsList() {
                 <CohortSummaryGraphs 
                   variables={cohortData.variables}
                   isExpanded={expandedCohorts[cohortData.cohort_id] || false}
+                  cohortId={cohortData.cohort_id}
+                  selectedOMOPDomains={getFiltersForCohort(cohortData.cohort_id).selectedOMOPDomains}
+                  selectedDataTypes={getFiltersForCohort(cohortData.cohort_id).selectedDataTypes}
+                  selectedCategoryTypes={getFiltersForCohort(cohortData.cohort_id).selectedCategoryTypes}
+                  selectedVisitTypes={getFiltersForCohort(cohortData.cohort_id).selectedVisitTypes}
+                  onDomainClick={(domain) => handleDomainClick(cohortData.cohort_id, domain)}
+                  onTypeClick={(type) => handleTypeClick(cohortData.cohort_id, type)}
+                  onCategoryClick={(category) => handleCategoryClick(cohortData.cohort_id, category)}
+                  onVisitTypeClick={(visitType) => handleVisitTypeClick(cohortData.cohort_id, visitType)}
+                  onResetFilters={() => resetCohortFilters(cohortData.cohort_id)}
                 />
                 
                 <VariablesList 
@@ -945,7 +1061,16 @@ export default function CohortsList() {
                     searchQuery: searchScope === 'variables' ? searchQuery : '', 
                     searchMode,
                     searchTerms
-                  }} 
+                  }}
+                  selectedOMOPDomains={getFiltersForCohort(cohortData.cohort_id).selectedOMOPDomains}
+                  selectedDataTypes={getFiltersForCohort(cohortData.cohort_id).selectedDataTypes}
+                  selectedCategoryTypes={getFiltersForCohort(cohortData.cohort_id).selectedCategoryTypes}
+                  selectedVisitTypes={getFiltersForCohort(cohortData.cohort_id).selectedVisitTypes}
+                  onOMOPDomainsChange={(domains: Set<string>) => updateCohortFilters(cohortData.cohort_id, 'selectedOMOPDomains', domains)}
+                  onDataTypesChange={(types: Set<string>) => updateCohortFilters(cohortData.cohort_id, 'selectedDataTypes', types)}
+                  onCategoryTypesChange={(categories: Set<string>) => updateCohortFilters(cohortData.cohort_id, 'selectedCategoryTypes', categories)}
+                  onVisitTypesChange={(visitTypes: Set<string>) => updateCohortFilters(cohortData.cohort_id, 'selectedVisitTypes', visitTypes)}
+                  onResetFilters={() => resetCohortFilters(cohortData.cohort_id)}
                 />
               </div>
             </div>

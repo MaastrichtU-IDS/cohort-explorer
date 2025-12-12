@@ -5,6 +5,16 @@ import { Variable } from '@/types';
 interface CohortSummaryGraphsProps {
   variables: { [key: string]: Variable };
   isExpanded?: boolean;
+  cohortId: string;
+  selectedOMOPDomains: Set<string>;
+  selectedDataTypes: Set<string>;
+  selectedCategoryTypes: Set<string>;
+  selectedVisitTypes: Set<string>;
+  onDomainClick: (domain: string | null) => void;
+  onTypeClick: (type: string | null) => void;
+  onCategoryClick: (category: string | null) => void;
+  onVisitTypeClick: (visitType: string | null) => void;
+  onResetFilters: () => void;
 }
 
 // Color palettes for the pie charts
@@ -42,13 +52,28 @@ const CATEGORY_COLORS = [
   '#f59e0b', // amber - 4+ categories
 ];
 
-const CohortSummaryGraphs = React.memo(function CohortSummaryGraphs({ variables, isExpanded = false }: CohortSummaryGraphsProps) {
-  const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
-  const [selectedType, setSelectedType] = useState<string | null>(null);
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-  const [selectedVisitType, setSelectedVisitType] = useState<string | null>(null);
+const CohortSummaryGraphs = React.memo(function CohortSummaryGraphs({ 
+  variables, 
+  isExpanded = false,
+  cohortId,
+  selectedOMOPDomains,
+  selectedDataTypes,
+  selectedCategoryTypes,
+  selectedVisitTypes,
+  onDomainClick,
+  onTypeClick,
+  onCategoryClick,
+  onVisitTypeClick,
+  onResetFilters
+}: CohortSummaryGraphsProps) {
   const [shouldRender, setShouldRender] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  
+  // Convert Sets to single selected values for chart highlighting (use first item or null)
+  const selectedDomain = selectedOMOPDomains.size > 0 ? Array.from(selectedOMOPDomains)[0] : null;
+  const selectedType = selectedDataTypes.size > 0 ? Array.from(selectedDataTypes)[0] : null;
+  const selectedCategory = selectedCategoryTypes.size > 0 ? Array.from(selectedCategoryTypes)[0] : null;
+  const selectedVisitType = selectedVisitTypes.size > 0 ? Array.from(selectedVisitTypes)[0] : null;
 
   // Use Intersection Observer to render only when scrolled into view
   useEffect(() => {
@@ -602,40 +627,21 @@ const CohortSummaryGraphs = React.memo(function CohortSummaryGraphs({ variables,
     }
   };
 
-  // Handle domain chart click
-  const onDomainClick = (params: any) => {
-    if (params.name === selectedDomain) {
-      setSelectedDomain(null); // Deselect if clicking same domain
-    } else {
-      setSelectedDomain(params.name);
-    }
+  // Handle chart clicks - these are internal handlers that call the parent callbacks
+  const handleDomainChartClick = (params: any) => {
+    onDomainClick(params.name);
   };
 
-  // Handle type chart click
-  const onTypeClick = (params: any) => {
-    if (params.name === selectedType) {
-      setSelectedType(null); // Deselect if clicking same type
-    } else {
-      setSelectedType(params.name);
-    }
+  const handleTypeChartClick = (params: any) => {
+    onTypeClick(params.name);
   };
 
-  // Handle category chart click
-  const onCategoryClick = (params: any) => {
-    if (params.name === selectedCategory) {
-      setSelectedCategory(null); // Deselect if clicking same category
-    } else {
-      setSelectedCategory(params.name);
-    }
+  const handleCategoryChartClick = (params: any) => {
+    onCategoryClick(params.name);
   };
 
-  // Handle visit type chart click
-  const onVisitTypeClick = (params: any) => {
-    if (params.name === selectedVisitType) {
-      setSelectedVisitType(null); // Deselect if clicking same visit type
-    } else {
-      setSelectedVisitType(params.name);
-    }
+  const handleVisitTypeChartClick = (params: any) => {
+    onVisitTypeClick(params.name);
   };
 
   if (Object.keys(variables).length === 0) {
@@ -683,7 +689,7 @@ const CohortSummaryGraphs = React.memo(function CohortSummaryGraphs({ variables,
               option={domainChartOptions}
               style={{ height: '350px' }}
               onEvents={{
-                click: onDomainClick
+                click: handleDomainChartClick
               }}
             />
           </div>
@@ -694,7 +700,7 @@ const CohortSummaryGraphs = React.memo(function CohortSummaryGraphs({ variables,
               option={typeChartOptions}
               style={{ height: '350px' }}
               onEvents={{
-                click: onTypeClick
+                click: handleTypeChartClick
               }}
             />
           </div>
@@ -708,7 +714,7 @@ const CohortSummaryGraphs = React.memo(function CohortSummaryGraphs({ variables,
               option={categoryChartOptions}
               style={{ height: '350px' }}
               onEvents={{
-                click: onCategoryClick
+                click: handleCategoryChartClick
               }}
             />
           </div>
@@ -719,7 +725,7 @@ const CohortSummaryGraphs = React.memo(function CohortSummaryGraphs({ variables,
               option={visitTypesChartOptions}
               style={{ height: '350px' }}
               onEvents={{
-                click: onVisitTypeClick
+                click: handleVisitTypeChartClick
               }}
             />
           </div>
@@ -739,12 +745,7 @@ const CohortSummaryGraphs = React.memo(function CohortSummaryGraphs({ variables,
         {(selectedDomain || selectedType || selectedCategory || selectedVisitType) && (
           <div className="flex justify-center">
             <button
-              onClick={() => {
-                setSelectedDomain(null);
-                setSelectedType(null);
-                setSelectedCategory(null);
-                setSelectedVisitType(null);
-              }}
+              onClick={onResetFilters}
               className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-2.5 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 flex items-center gap-2"
             >
               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">

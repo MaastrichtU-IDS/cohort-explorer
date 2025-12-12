@@ -19,12 +19,38 @@ const HighlightedText = ({text, searchTerms, searchMode}: {text: string, searchT
   return <span dangerouslySetInnerHTML={{__html: highlightedHtml}} />;
 };
 
-const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
+interface VariablesListProps {
+  cohortId: string;
+  searchFilters?: {
+    searchQuery?: string;
+    searchMode?: 'or' | 'and' | 'exact';
+    searchTerms?: string[];
+  };
+  selectedOMOPDomains: Set<string>;
+  selectedDataTypes: Set<string>;
+  selectedCategoryTypes: Set<string>;
+  selectedVisitTypes: Set<string>;
+  onOMOPDomainsChange: (domains: Set<string>) => void;
+  onDataTypesChange: (types: Set<string>) => void;
+  onCategoryTypesChange: (categories: Set<string>) => void;
+  onVisitTypesChange: (visitTypes: Set<string>) => void;
+  onResetFilters: () => void;
+}
+
+const VariablesList = ({
+  cohortId, 
+  searchFilters = {searchQuery: ''}, 
+  selectedOMOPDomains,
+  selectedDataTypes,
+  selectedCategoryTypes,
+  selectedVisitTypes,
+  onOMOPDomainsChange,
+  onDataTypesChange,
+  onCategoryTypesChange,
+  onVisitTypesChange,
+  onResetFilters
+}: VariablesListProps) => {
   const {cohortsData, updateCohortData, dataCleanRoom, setDataCleanRoom} = useCohorts();
-  const [selectedOMOPDomains, setSelectedOMOPDomains] = useState(new Set());
-  const [selectedDataTypes, setSelectedDataTypes] = useState(new Set());
-  const [includeCategorical, setIncludeCategorical] = useState(true);
-  const [includeNonCategorical, setIncludeNonCategorical] = useState(true);
   const [openedModal, setOpenedModal] = useState('');
   const [openedGraphModal, setOpenedGraphModal] = useState<string | null>(null);
   const [showOnlyOutcomes, setShowOnlyOutcomes] = useState(false);
@@ -103,12 +129,16 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
     sessionStorage.setItem('dataCleanRoom', JSON.stringify(updatedDcr));
   };
 
-  // Collect unique OMOP domains and data types from variables for filtering options
+  // Collect unique OMOP domains, data types, and visit types from variables for filtering options
   const omopDomains = new Set();
   const dataTypes: any = new Set();
+  const visitTypes: any = new Set();
   Object.values(cohortsData[cohortId]?.variables || {}).forEach((variable: any) => {
     omopDomains.add(variable.omop_domain);
     dataTypes.add(variable.var_type);
+    if (variable.visits) {
+      visitTypes.add(variable.visits);
+    }
   });
 
   // Get search configuration from props - simple space-separated terms
@@ -240,11 +270,23 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
             }
             
             // Apply other filters
-            return (selectedOMOPDomains.size === 0 || selectedOMOPDomains.has(variableData.omop_domain)) &&
-              (selectedDataTypes.size === 0 || selectedDataTypes.has(variableData.var_type)) &&
-              ((includeCategorical && variableData.categories.length === 0) ||
-                (includeNonCategorical && variableData.categories.length !== 0) ||
-                (!includeNonCategorical && !includeCategorical));
+            const passesOMOPFilter = selectedOMOPDomains.size === 0 || selectedOMOPDomains.has(variableData.omop_domain);
+            const passesDataTypeFilter = selectedDataTypes.size === 0 || selectedDataTypes.has(variableData.var_type);
+            const passesVisitTypeFilter = selectedVisitTypes.size === 0 || selectedVisitTypes.has(variableData.visits);
+            
+            // Category filter logic
+            let passesCategoryFilter = true;
+            if (selectedCategoryTypes.size > 0) {
+              const catCount = variableData.categories.length;
+              passesCategoryFilter = false;
+              if (selectedCategoryTypes.has('Non-categorical') && catCount === 0) passesCategoryFilter = true;
+              if (selectedCategoryTypes.has('All categorical') && catCount > 0) passesCategoryFilter = true;
+              if (selectedCategoryTypes.has('2 categories') && catCount === 2) passesCategoryFilter = true;
+              if (selectedCategoryTypes.has('3 categories') && catCount === 3) passesCategoryFilter = true;
+              if (selectedCategoryTypes.has('4+ categories') && catCount >= 4) passesCategoryFilter = true;
+            }
+            
+            return passesOMOPFilter && passesDataTypeFilter && passesCategoryFilter && passesVisitTypeFilter;
           }
         )
         .map(([variableName, variableData]: any) => ({...variableData, var_name: variableName}));
@@ -258,8 +300,8 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
     searchMode,
     selectedOMOPDomains,
     selectedDataTypes,
-    includeCategorical,
-    includeNonCategorical,
+    selectedCategoryTypes,
+    selectedVisitTypes,
     showOnlyOutcomes
   ]);
 
@@ -390,34 +432,31 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
           metadata_id="omop_domain"
           options={[...omopDomains]}
           searchResults={filteredVars}
-          onFiltersChange={(optionsSelected: any) => setSelectedOMOPDomains(optionsSelected)}
+          onFiltersChange={(optionsSelected: any) => onOMOPDomainsChange(optionsSelected)}
         />
         <FilterByMetadata
           label="Data types"
           metadata_id="var_type"
           options={[...dataTypes]}
           searchResults={filteredVars}
-          onFiltersChange={(optionsSelected: any) => setSelectedDataTypes(optionsSelected)}
+          onFiltersChange={(optionsSelected: any) => onDataTypesChange(optionsSelected)}
         />
         <FilterByMetadata
           label="Categorical"
           metadata_id="categorical"
-          options={['Categorical', 'Non-categorical']}
+          options={['Non-categorical', 'All categorical', '2 categories', '3 categories', '4+ categories']}
           searchResults={filteredVars}
-          onFiltersChange={(optionsSelected: any) => {
-            // TODO: this bit could be improved
-            if (optionsSelected.has('Categorical')) {
-              setIncludeCategorical(false);
-            } else {
-              setIncludeCategorical(true);
-            }
-            if (optionsSelected.has('Non-categorical')) {
-              setIncludeNonCategorical(false);
-            } else {
-              setIncludeNonCategorical(true);
-            }
-          }}
+          onFiltersChange={(optionsSelected: any) => onCategoryTypesChange(optionsSelected)}
         />
+        {visitTypes.size > 1 && (
+          <FilterByMetadata
+            label="Visit types"
+            metadata_id="visits"
+            options={[...visitTypes]}
+            searchResults={filteredVars}
+            onFiltersChange={(optionsSelected: any) => onVisitTypesChange(optionsSelected)}
+          />
+        )}
       </aside>
 
       {/* List of variables */}

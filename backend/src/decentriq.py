@@ -852,7 +852,7 @@ async def create_live_compute_dcr(
     
     dcr = None
     max_retries = 5
-    retry_delay_seconds = 2  # Start with a 2-second delay
+    retry_delay_seconds = 10  # Start with a 10-second delay
     
     for attempt in range(max_retries):
         try:
@@ -862,19 +862,10 @@ async def create_live_compute_dcr(
             logging.info(f"DCR published successfully on attempt {attempt + 1}")
             break
         except Exception as e:
-            # Check if the error is the specific race condition we're targeting
-            if "Unable to retrieve data room description for data room with ID" in str(e):
-                logging.warning(
-                    f"Attempt {attempt + 1}/{max_retries} failed due to a known consistency issue. "
-                    f"Retrying in {retry_delay_seconds} seconds..."
-                )
-                time.sleep(retry_delay_seconds)
-                # Increase delay for subsequent retries (exponential backoff)
-                retry_delay_seconds *= 1.5
-            else:
-                # If it's a different, unexpected error, raise it immediately
-                logging.error(f"An unexpected error occurred during DCR publication: {e}")
-                raise e
+            logging.error(f"Error occurred during DCR publication attempt {attempt + 1}: {e}")
+            time.sleep(retry_delay_seconds)
+            retry_delay_seconds *= 1.5
+            
     
     # If the loop completes without success, raise a final error
     if dcr is None:
