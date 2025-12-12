@@ -701,19 +701,20 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
                                         g.add((cat_uri, ICARE.conceptId, URIRef(cat_code_uri), cohort_uri))
                                 except Exception as curie_exc:
                                     error_msg = str(curie_exc)
+                                    var_name = row.get("VARIABLENAME", f"UNKNOWN_VAR_ROW_{i+2}")
                                     # Check if it's a missing delimiter error
                                     if "missing a delimiter" in error_msg.lower():
                                         if ":" not in code_to_check:
                                             errors.append(
-                                                f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_data['value']}'): The category concept code '{code_to_check}' is missing a colon (:) separator. Expected format: 'prefix:code' (e.g., 'snomed:12345')."
+                                                f"Row {i+2} (Variable: '{var_name}', Category: '{category['value']}'): The category concept code '{code_to_check}' is missing a colon (:) separator. Expected format: 'prefix:code' (e.g., 'snomed:12345')."
                                             )
                                         else:
                                             errors.append(
-                                                f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_data['value']}'): The category concept code '{code_to_check}' is missing a valid prefix before the colon. Expected format: 'prefix:code' (e.g., 'snomed:12345')."
+                                                f"Row {i+2} (Variable: '{var_name}', Category: '{category['value']}'): The category concept code '{code_to_check}' is missing a valid prefix before the colon. Expected format: 'prefix:code' (e.g., 'snomed:12345')."
                                             )
                                     else:
                                         errors.append(
-                                            f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_data['value']}'): Error expanding CURIE '{code_to_check}': {curie_exc}."
+                                            f"Row {i+2} (Variable: '{var_name}', Category: '{category['value']}'): Error expanding CURIE '{code_to_check}': {str(curie_exc)}."
                                         )
 
         print(f"Finished processing cohort dictionary: {cohort_id}")
