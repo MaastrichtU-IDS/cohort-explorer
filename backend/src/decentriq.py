@@ -529,6 +529,10 @@ async def get_compute_dcr_definition(
         
         # Add the requester as data owner of the metadata dictionary node
         participants[user["email"]]["data_owner_of"].add(metadata_node_id)
+        
+        # Add service account as data owner of metadata node so it can upload files
+        if settings.decentriq_email and settings.decentriq_email in participants:
+            participants[settings.decentriq_email]["data_owner_of"].add(metadata_node_id)
 
         # Add data node for shuffled sample if it exists and is requested
         if include_shuffled_samples:
@@ -547,6 +551,10 @@ async def get_compute_dcr_definition(
                 # Add data owners for shuffled sample node (participants already have base nodes from build_dcr_participants)
                 # Add requester as data owner
                 participants[user["email"]]["data_owner_of"].add(shuffled_node_id)
+                
+                # Add service account as data owner of shuffled sample node so it can upload files
+                if settings.decentriq_email and settings.decentriq_email in participants:
+                    participants[settings.decentriq_email]["data_owner_of"].add(shuffled_node_id)
                 
                 # Add existing data owners to shuffled sample
                 for email, roles in participants.items():
@@ -765,6 +773,11 @@ with open(output_file, "w") as f:
         RawDataNodeDefinition(name="CrossStudyMappings", is_required=False)
     )
     participants[user["email"]]["data_owner_of"].add("CrossStudyMappings")
+    
+    # Add service account as data owner of CrossStudyMappings so it can upload files
+    if settings.decentriq_email and settings.decentriq_email in participants:
+        participants[settings.decentriq_email]["data_owner_of"].add("CrossStudyMappings")
+    
     # Add users permissions for previews
     # for prev_node in preview_nodes:
     #     participants[user["email"]]["analyst_of"].add(prev_node)

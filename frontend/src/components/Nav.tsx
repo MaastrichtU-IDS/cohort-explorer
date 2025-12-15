@@ -302,14 +302,34 @@ export function Nav() {
   );
 
   // Use participants preview from backend when available
-  const dataOwners = useMemo(() => {
+  const dataOwners = useMemo((): { email: string; cohorts: string[] }[] => {
     if (participantsPreview) {
-      return Object.entries(participantsPreview)
-        .filter(([email, roles]: [string, any]) => roles.data_owner_of && roles.data_owner_of.length > 0)
-        .map(([email, roles]: [string, any]) => ({ 
-          email, 
-          cohorts: roles.data_owner_of 
-        }));
+      // Create an object to deduplicate owners by email
+      const ownersMap: Record<string, Set<string>> = {};
+      
+      Object.entries(participantsPreview).forEach(([email, roles]: [string, any]) => {
+        if (roles.data_owner_of && roles.data_owner_of.length > 0) {
+          // Extract cohort names from node IDs (remove suffixes like _metadata_dictionary, _shuffled_sample)
+          if (!ownersMap[email]) {
+            ownersMap[email] = new Set();
+          }
+          
+          roles.data_owner_of.forEach((nodeId: string) => {
+            // Remove common suffixes to get the base cohort name
+            const cohortName = nodeId
+              .replace(/_metadata_dictionary$/, '')
+              .replace(/_shuffled_sample$/, '')
+              .replace(/-/g, ' '); // Convert hyphens back to spaces for display
+            ownersMap[email].add(cohortName);
+          });
+        }
+      });
+      
+      // Convert object to array format
+      return Object.entries(ownersMap).map(([email, cohortSet]) => ({
+        email,
+        cohorts: Array.from(cohortSet).sort()
+      }));
     }
     return [];
   }, [participantsPreview]);
