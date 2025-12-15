@@ -214,7 +214,7 @@ class OmopGraphNX:
                     else:
                         allowed = max_depth + 1
                 else:
-                    allowed = max_depth + 1
+                    allowed = max_depth + 1 if vocab_start in ("rxnorm", "atc") else max_depth
 
             if dist_edges > allowed:
                 continue
