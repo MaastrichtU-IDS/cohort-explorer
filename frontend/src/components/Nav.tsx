@@ -19,6 +19,8 @@ export function Nav() {
   const [publishedDCR, setPublishedDCR]: any = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingAction, setLoadingAction] = useState<'live' | 'config' | null>(null);
+  const [dcrCreated, setDcrCreated] = useState(false);
+  const [configDownloaded, setConfigDownloaded] = useState(false);
   const [includeShuffledSamples, setIncludeShuffledSamples] = useState(true);
   const [dcrMode, setDcrMode] = useState<'current' | 'future'>('current');
   const [showParticipantsModal, setShowParticipantsModal] = useState(false);
@@ -98,6 +100,7 @@ export function Nav() {
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
+        setConfigDownloaded(true);
         setPublishedDCR((
           <p>✅ Data Clean Room configuration package (with shuffled samples) has been downloaded. <br />
           Please go to <a href="https://platform.decentriq.com/" target="_blank" className="underline text-blue-600 hover:text-blue-800">https://platform.decentriq.com</a> to create a new DCR from the configuration file. </p>
@@ -114,6 +117,7 @@ export function Nav() {
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
+        setConfigDownloaded(true);
         setPublishedDCR((
           <p>✅ Data Clean Room configuration file has been downloaded. <br />
           Please go to <a href="https://platform.decentriq.com/" target="_blank" className="underline text-blue-600 hover:text-blue-800">https://platform.decentriq.com</a> to create a new DCR from the configuration file. </p>
@@ -165,6 +169,7 @@ export function Nav() {
           }
         });
         
+        setDcrCreated(true);
         setPublishedDCR((
           <div className="bg-success text-slate-900 p-4 rounded-lg">
             <p className="font-bold mb-4 text-lg">✅ {result.message}</p>
@@ -248,6 +253,11 @@ export function Nav() {
     sessionStorage.setItem('dataCleanRoom', JSON.stringify({cohorts: {}}));
     setDataCleanRoom({cohorts: {}});
     setPublishedDCR(null);
+    setDcrCreated(false);
+    setConfigDownloaded(false);
+    setIncludeShuffledSamples(true);
+    setAdditionalAnalysts([]);
+    setAirlockSettings({});
   };
 
   const addAnalyst = useCallback(() => {
@@ -527,7 +537,7 @@ export function Nav() {
                   <button 
                     className="btn btn-primary" 
                     onClick={createLiveDCR} 
-                    disabled={isLoading || publishedDCR}
+                    disabled={isLoading || dcrCreated}
                   >
                     Create Live DCR
                   </button>
@@ -535,14 +545,13 @@ export function Nav() {
                 <button 
                   className="btn btn-neutral" 
                   onClick={getDCRDefinitionFile} 
-                  disabled={isLoading || publishedDCR}
+                  disabled={isLoading || configDownloaded}
                 >
                   Download DCR Config
                 </button>
                 <button 
                   className="btn btn-error" 
                   onClick={clearCohortsList}
-                  disabled={publishedDCR}
                 >
                   Clear cohorts
                 </button>

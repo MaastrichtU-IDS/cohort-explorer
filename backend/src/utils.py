@@ -590,13 +590,24 @@ async def replace_graph_pickle_file(
     # Read the uploaded file content
     file_content = await file.read()
     
+    # Check if file is empty
+    if len(file_content) == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Uploaded file is empty"
+        )
+    
     # Validate that it's a valid pickle file
     try:
-        pickle.loads(file_content)
+        # Try to load the pickle to validate it
+        loaded_data = pickle.loads(file_content)
+        # Check if it's a networkx graph (optional validation)
+        if hasattr(loaded_data, 'number_of_nodes'):
+            logging.info(f"Valid networkx graph with {loaded_data.number_of_nodes()} nodes and {loaded_data.number_of_edges()} edges")
     except Exception as e:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid pickle file: {str(e)}"
+            detail=f"Invalid pickle file: {str(e)}. File size: {len(file_content)} bytes"
         )
     
     # Prepare response data

@@ -755,19 +755,20 @@ with open(output_file, "w") as f:
 """
     
     # Add the exploration script FIRST (before other nodes) with dependencies on all metadata nodes
-    builder.add_node_definition(
-        PythonComputeNodeDefinition(
-            name="optional-basic-data-exploration",
-            script=exploration_script,
-            dependencies=metadata_nodes
-        )
-    )
-    # Add the requester as analyst of the exploration script
-    participants[user["email"]]["analyst_of"].add("optional-basic-data-exploration")
-    
-    # Add service account as analyst of the exploration script
-    if settings.decentriq_email and settings.decentriq_email in participants:
-        participants[settings.decentriq_email]["analyst_of"].add("optional-basic-data-exploration")
+    # COMMENTED OUT - Keeping script definition but not adding to DCR
+    # builder.add_node_definition(
+    #     PythonComputeNodeDefinition(
+    #         name="optional-basic-data-exploration",
+    #         script=exploration_script,
+    #         dependencies=metadata_nodes
+    #     )
+    # )
+    # # Add the requester as analyst of the exploration script
+    # participants[user["email"]]["analyst_of"].add("optional-basic-data-exploration")
+    # 
+    # # Add service account as analyst of the exploration script
+    # if settings.decentriq_email and settings.decentriq_email in participants:
+    #     participants[settings.decentriq_email]["analyst_of"].add("optional-basic-data-exploration")
 
     builder.add_node_definition(
         RawDataNodeDefinition(name="CrossStudyMappings", is_required=False)
@@ -778,17 +779,24 @@ with open(output_file, "w") as f:
     if settings.decentriq_email and settings.decentriq_email in participants:
         participants[settings.decentriq_email]["data_owner_of"].add("CrossStudyMappings")
     
+    # Add all data owners as owners of CrossStudyMappings
+    for email, roles in participants.items():
+        if len(roles["data_owner_of"]) > 0:
+            # If they own any data node, they should also own CrossStudyMappings
+            roles["data_owner_of"].add("CrossStudyMappings")
+    
     # Add users permissions for previews
     # for prev_node in preview_nodes:
     #     participants[user["email"]]["analyst_of"].add(prev_node)
 
     # Add analyst_of roles for additional analysts (they're already in participants from build_dcr_participants)
-    if additional_analysts:
-        for analyst_email in additional_analysts:
-            if analyst_email and analyst_email != user["email"] and analyst_email in participants:
-                # Add as analyst of the exploration script
-                participants[analyst_email]["analyst_of"].add("optional-basic-data-exploration")
-                logging.info(f"Added {analyst_email} as additional analyst")
+    # COMMENTED OUT - exploration script permissions
+    # if additional_analysts:
+    #     for analyst_email in additional_analysts:
+    #         if analyst_email and analyst_email != user["email"] and analyst_email in participants:
+    #             # Add as analyst of the exploration script
+    #             participants[analyst_email]["analyst_of"].add("optional-basic-data-exploration")
+    #             logging.info(f"Added {analyst_email} as additional analyst")
 
     # Grant all participants (data owners and analysts) access to preview fragment nodes
     for p_email in participants.keys():
