@@ -1635,7 +1635,7 @@ async def replace_graph_pickle_file(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    Replace the graph_nx.pkl file with a new version.
+    Replace the graph_nx.pkl file with a new version. (Admin only)
     
     - Validates that the uploaded file is named 'graph_nx.pkl' and is a pickle file
     - Backs up the existing file with timestamp
@@ -1644,6 +1644,11 @@ async def replace_graph_pickle_file(
     """
     import pickle
     from datetime import datetime
+    
+    # Check admin authorization
+    user_email = current_user.get("email", "")
+    if user_email not in settings.admins_list:
+        raise HTTPException(status_code=403, detail="You need to be admin to perform this action.")
     
     # Validate filename
     if file.filename != "graph_nx.pkl":
