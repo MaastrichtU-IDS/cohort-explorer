@@ -5,6 +5,54 @@ def c1_data_dict_check(cohort_id: str) -> str:
     raw_script = """
 import pandas as pd
 import decentriq_util
+import zipfile
+import os
+import tempfile
+
+# Helper function to load data from CSV, SPSS, or zipped files
+def load_data(file_path):
+    # Try CSV first
+    try:
+        return pd.read_csv(file_path)
+    except Exception as csv_error:
+        # Try SPSS
+        try:
+            return pd.read_spss(file_path)
+        except Exception as spss_error:
+            # Try as zip file
+            try:
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    with zipfile.ZipFile(file_path, 'r') as zip_ref:
+                        zip_ref.extractall(tmpdir)
+                    
+                    # Find all CSV and SPSS files in the extracted directory
+                    data_files = []
+                    for root, dirs, files in os.walk(tmpdir):
+                        for file in files:
+                            if file.endswith(('.csv', '.sav', '.CSV', '.SAV')):
+                                data_files.append(os.path.join(root, file))
+                    
+                    if not data_files:
+                        raise ValueError("No CSV or SPSS files found in the zip archive")
+                    
+                    # Read and concatenate all files
+                    dfs = []
+                    for data_file in data_files:
+                        try:
+                            if data_file.lower().endswith('.csv'):
+                                dfs.append(pd.read_csv(data_file))
+                            else:
+                                dfs.append(pd.read_spss(data_file))
+                        except Exception as e:
+                            print(f"Warning: Could not read {data_file}: {e}")
+                    
+                    if not dfs:
+                        raise ValueError("Could not read any files from the zip archive")
+                    
+                    # Concatenate all dataframes
+                    return pd.concat(dfs, ignore_index=True)
+            except Exception as zip_error:
+                raise ValueError(f"Could not read file as CSV, SPSS, or ZIP. CSV error: {csv_error}, SPSS error: {spss_error}, ZIP error: {zip_error}")
 
 # Load the metadata dictionary
 dictionary_df = decentriq_util.read_tabular_data("/input/{cohort_id}-metadata")
@@ -15,15 +63,8 @@ except:
 
 print("metadata variable names: ", [v for v in dictionary_df[varname_col]])
 
-# Load the dataset
-try:
-    dataset_df = pd.read_csv("/input/{cohort_id}")
-    #dataset_df = decentriq_util.read_tabular_data("/input/{cohort_id}")
-except Exception as e:
-    try:
-        dataset_df = pd.read_spss("/input/{cohort_id}")
-    except Exception as e2:
-        raise ValueError("The dataset file does appear to be a valid CSV or SPSS file.CSV error: " + str(e) + "SPSS error: " + str(e2))
+# Load the dataset using the helper function
+dataset_df = load_data("/input/{cohort_id}")
     
     
 
@@ -49,7 +90,53 @@ import pandas as pd
 import os
 import json
 from pprint import pprint
+import zipfile
+import tempfile
 
+# Helper function to load data from CSV, SPSS, or zipped files
+def load_data(file_path):
+    # Try CSV first
+    try:
+        return pd.read_csv(file_path, na_values=[''], keep_default_na=False)
+    except Exception as csv_error:
+        # Try SPSS
+        try:
+            return pd.read_spss(file_path)
+        except Exception as spss_error:
+            # Try as zip file
+            try:
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    with zipfile.ZipFile(file_path, 'r') as zip_ref:
+                        zip_ref.extractall(tmpdir)
+                    
+                    # Find all CSV and SPSS files in the extracted directory
+                    data_files = []
+                    for root, dirs, files in os.walk(tmpdir):
+                        for file in files:
+                            if file.endswith(('.csv', '.sav', '.CSV', '.SAV')):
+                                data_files.append(os.path.join(root, file))
+                    
+                    if not data_files:
+                        raise ValueError("No CSV or SPSS files found in the zip archive")
+                    
+                    # Read and concatenate all files
+                    dfs = []
+                    for data_file in data_files:
+                        try:
+                            if data_file.lower().endswith('.csv'):
+                                dfs.append(pd.read_csv(data_file, na_values=[''], keep_default_na=False))
+                            else:
+                                dfs.append(pd.read_spss(data_file))
+                        except Exception as e:
+                            print(f"Warning: Could not read {data_file}: {e}")
+                    
+                    if not dfs:
+                        raise ValueError("Could not read any files from the zip archive")
+                    
+                    # Concatenate all dataframes
+                    return pd.concat(dfs, ignore_index=True)
+            except Exception as zip_error:
+                raise ValueError(f"Could not read file as CSV, SPSS, or ZIP. CSV error: {csv_error}, SPSS error: {spss_error}, ZIP error: {zip_error}")
 
 def _column_is_date(series):
     try:
@@ -105,12 +192,8 @@ varlabel_col = [x for x in ['VARIABLE LABEL', 'VARIABLELABEL', 'VAR LABEL'] if x
 dictionary[varname_col] = dictionary[varname_col].str.strip().str.lower()
 dictionary[vartype_col] = dictionary[vartype_col].str.strip().str.lower()
 
-try:
-    data = pd.read_csv("/input/{cohort_id}", na_values=[''], keep_default_na=False)
-    #data = decentriq_util.read_tabular_data("/input/{cohort_id}")
-except Exception as e:
-    data = pd.read_spss("/input/{cohort_id}")
-
+# Load data using helper function
+data = load_data("/input/{cohort_id}")
 
 #Convert whitespace-only strings to NaN
 for col in data.select_dtypes(include=['object']):
@@ -270,9 +353,55 @@ from datetime import datetime
 import json
 import collections.abc
 from collections import OrderedDict
+import zipfile
+import tempfile
+import os
 warnings.filterwarnings('ignore')
 
-
+# Helper function to load data from CSV, SPSS, or zipped files
+def load_data(file_path):
+    # Try CSV first
+    try:
+        return pd.read_csv(file_path, na_values=[''], keep_default_na=False)
+    except Exception as csv_error:
+        # Try SPSS
+        try:
+            return pd.read_spss(file_path)
+        except Exception as spss_error:
+            # Try as zip file
+            try:
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    with zipfile.ZipFile(file_path, 'r') as zip_ref:
+                        zip_ref.extractall(tmpdir)
+                    
+                    # Find all CSV and SPSS files in the extracted directory
+                    data_files = []
+                    for root, dirs, files in os.walk(tmpdir):
+                        for file in files:
+                            if file.endswith(('.csv', '.sav', '.CSV', '.SAV')):
+                                data_files.append(os.path.join(root, file))
+                    
+                    if not data_files:
+                        raise ValueError("No CSV or SPSS files found in the zip archive")
+                    
+                    # Read and concatenate all files
+                    dfs = []
+                    for data_file in data_files:
+                        try:
+                            if data_file.lower().endswith('.csv'):
+                                dfs.append(pd.read_csv(data_file, na_values=[''], keep_default_na=False))
+                            else:
+                                dfs.append(pd.read_spss(data_file))
+                        except Exception as e:
+                            print(f"Warning: Could not read {data_file}: {e}")
+                    
+                    if not dfs:
+                        raise ValueError("Could not read any files from the zip archive")
+                    
+                    # Concatenate all dataframes
+                    return pd.concat(dfs, ignore_index=True)
+            except Exception as zip_error:
+                raise ValueError(f"Could not read file as CSV, SPSS, or ZIP. CSV error: {csv_error}, SPSS error: {spss_error}, ZIP error: {zip_error}")
 
 # Load the dataset with corrected missing values replaced with NA from previous step
 # data_correct_missing = pd.read_csv("/input/C3_map_missing_do_not_run/data_correct.csv", low_memory=False)
@@ -283,11 +412,8 @@ vars_details = pd.read_json("/input/c2_save_to_json/variable_details.json")
 with open("/input/c2_save_to_json/data_issues.json") as f:
     data_issues = json.load(f)
 
-try:
-    data = pd.read_csv("/input/{cohort_id}", na_values=[''], keep_default_na=False)
-    #data = decentriq_util.read_tabular_data("/input/{cohort_id}")
-except Exception as e:
-    data = pd.read_spss("/input/{cohort_id}")
+# Load data using helper function
+data = load_data("/input/{cohort_id}")
 
 for col in data.select_dtypes(include=['object']):
     data[col] = data[col].apply(lambda x: pd.NA if isinstance(x, str) and x.isspace() else x)
@@ -800,6 +926,54 @@ import pandas as pd
 import numpy as np
 import decentriq_util
 from datetime import datetime
+import zipfile
+import tempfile
+import os
+
+# Helper function to load data from CSV, SPSS, or zipped files
+def load_data(file_path):
+    # Try CSV first
+    try:
+        return pd.read_csv(file_path, na_values=[''], keep_default_na=False)
+    except Exception as csv_error:
+        # Try SPSS
+        try:
+            return pd.read_spss(file_path)
+        except Exception as spss_error:
+            # Try as zip file
+            try:
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    with zipfile.ZipFile(file_path, 'r') as zip_ref:
+                        zip_ref.extractall(tmpdir)
+                    
+                    # Find all CSV and SPSS files in the extracted directory
+                    data_files = []
+                    for root, dirs, files in os.walk(tmpdir):
+                        for file in files:
+                            if file.endswith(('.csv', '.sav', '.CSV', '.SAV')):
+                                data_files.append(os.path.join(root, file))
+                    
+                    if not data_files:
+                        raise ValueError("No CSV or SPSS files found in the zip archive")
+                    
+                    # Read and concatenate all files
+                    dfs = []
+                    for data_file in data_files:
+                        try:
+                            if data_file.lower().endswith('.csv'):
+                                dfs.append(pd.read_csv(data_file, na_values=[''], keep_default_na=False))
+                            else:
+                                dfs.append(pd.read_spss(data_file))
+                        except Exception as e:
+                            print(f"Warning: Could not read {data_file}: {e}")
+                    
+                    if not dfs:
+                        raise ValueError("Could not read any files from the zip archive")
+                    
+                    # Concatenate all dataframes
+                    return pd.concat(dfs, ignore_index=True)
+            except Exception as zip_error:
+                raise ValueError(f"Could not read file as CSV, SPSS, or ZIP. CSV error: {csv_error}, SPSS error: {spss_error}, ZIP error: {zip_error}")
 
 # Configuration
 SAMPLE_SIZE = 500  # Number of rows to output
@@ -838,11 +1012,8 @@ if patient_id_var:
     PII_COLUMNS.append(patient_id_var)
     print(f"Added {patient_id_var} to PII columns to be removed")
 
-# Read the input data
-try:
-    df = pd.read_csv("/input/{cohort_id}", na_values=[''], keep_default_na=False)
-except Exception as e:
-    df = pd.read_spss("/input/{cohort_id}")
+# Read the input data using helper function
+df = load_data("/input/{cohort_id}")
 
 # Store original shape
 original_rows = len(df)
