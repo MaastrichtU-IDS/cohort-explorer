@@ -356,6 +356,8 @@ def adjust_for_additional_context(result_dict, status, src_info, tgt_info, mappi
         if src_visit == tgt_visit:
             return result_dict, status, mapping_relation
         else:
+            if 'event' in src_visit.lower() or 'event' in tgt_visit.lower():
+                status = lower_stat_by_1(status)
             result_dict["description"] = desc + (
                 "Temporal context differs between source and target at metadata level.")
             # status = lower_stat_by_1(status)
@@ -372,6 +374,8 @@ def adjust_for_additional_context(result_dict, status, src_info, tgt_info, mappi
             return result_dict, status, mapping_relation
         else:
             # status = lower_stat_by_1(status)
+            if 'event' in src_visit.lower() or 'event' in tgt_visit.lower():
+                status = lower_stat_by_1(status)
             result_dict["description"] = desc + (
                 "Temporal context differs between source and target at metadata level.")
             return result_dict, status, "skos:relatedMatch"

@@ -11,10 +11,10 @@ from typing import Optional, Dict, Any, List, Tuple
 import re
 from pathlib import Path
 from requests.exceptions import RequestException  # add this import
-from experiment.omop_graph import OmopGraphNX
+from CohortVarLinker.src.omop_graph import OmopGraphNX
 import time
-from experiment.config import settings
-from experiment.utils import load_dictionary
+from CohortVarLinker.src.config import settings
+from CohortVarLinker.src.utils import load_dictionary
 """_summary_
 
 CDE dictionary validator (format, structure, semantics)
@@ -612,7 +612,7 @@ def validate_additional_context(r: pd.Series, omop_graph_obj: OmopGraphNX) -> Va
                             )
                         ac_log_list.append(ac_log)
                     ac_logs_str = "; ".join([f"{ac_log.label}= {ac_log.status}: {ac_log.description} " for ac_log in ac_log_list])
-                    ac_logs = ValidationLog(status="PASS" if all(ac_log.status=="PASS" for ac_log in ac_log_list) else "FAIL", description=ac_logs_str)
+                    ac_logs = ValidationLog(status="PASS" if all(ac_log.status in {"PASS", "N/A"} for ac_log in ac_log_list) else "FAIL", description=ac_logs_str)
                     # print(f"Validated additional context for variable '{r.get('variable name','')}' - Status: {ac_logs_str}")
                     
     # elif  is_missing(r.get("additional context concept name",None)) or is_missing(r.get("additional context concept code",None)) or  is_missing(r.get("additional context omop id",None)):
@@ -670,7 +670,7 @@ def validate_categorical_values(r: pd.Series, omop_graph_obj: OmopGraphNX) -> Va
                         
                         cv_log_list.append(cv_log)
                     cv_logs_str = "; ".join([f"{cv_log.label}= {cv_log.status}: {cv_log.description} " for cv_log in cv_log_list])
-                    cv_logs = ValidationLog(status="PASS" if all(cv_log.status=="PASS" for cv_log in cv_log_list) else "FAIL", description=cv_logs_str)
+                    cv_logs = ValidationLog(status="PASS" if all(cv_log.status in {"PASS", "N/A"} for cv_log in cv_log_list) else "FAIL", description=cv_logs_str)
                     
                     if len(categories_issues) > 0:
                         cv_logs = ValidationLog(status="FAIL", description=f"Invalid categorical format. Expected: <value of vartype>=<label> (e.g., int: 1=Yes|0=No, str: Yes=positive|No=Negative). Additionally {cv_logs_str}")
