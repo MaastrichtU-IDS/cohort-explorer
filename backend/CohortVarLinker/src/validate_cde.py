@@ -11,8 +11,10 @@ from typing import Optional, Dict, Any, List, Tuple
 import re
 from pathlib import Path
 from requests.exceptions import RequestException  # add this import
-from src.omop_graph import OmopGraphNX
+from experiment.omop_graph import OmopGraphNX
 import time
+from experiment.config import settings
+from experiment.utils import load_dictionary
 """_summary_
 
 CDE dictionary validator (format, structure, semantics)
@@ -22,17 +24,19 @@ Checks implemented:
 1.  Check all required columns exist (values can be empty, but columns must be present).
 2.  Normalize column names: 'variablename' → 'variable name', 'variablelabel' → 'variable label'.
 3.  Check 'categorical' column format based on 'vartype' (int/float/str/datetime).
-4.  Additional context concepts are only allowed if the variable concept exists.
-5.  Unit concepts are only allowed if 'units' is non-empty
-6.  Visit concepts are only allowed if 'visits' is non-empty 
-7.  The number of additional context names, codes, and OMOP IDs (joined with '|') must match.
-8.  Variable concept code and OMOP ID must each have at most one value (no '|').
-9. Same single-concept rule as (9) for unit and visit concept code and OMOP ID.
-10. For each categorical value, one concept must be present in
+4. Check the values in OMOP ID column must be Integar (or float if .0 gets added). For all Cocnept Code must have prefix of one of the allowed vocabularies. For all concept name must be non-empty strings. 
+5. Check the allowed values in vartype column (int, float, str, datetime). 
+6.  Additional context concepts are only allowed if the variable concept exists.
+7.  Unit concepts are only allowed if 'units' is non-empty
+8.  Visit concepts are only allowed if 'visits' is non-empty 
+9.  The number of additional context names, codes, and OMOP IDs (joined with '|') must match.
+10.  Variable concept code and OMOP ID must each have at most one value (no '|').
+11.  Same single-concept rule as 10 for unit and visit concept code and OMOP ID.
+12. For each categorical value, one concept must be present in
     - Categorical Value Concept Name
     - Categorical Value Concept Code
     - Categorical Value OMOP ID
-11. For each concept triple the allowed vocabulary prefix and  validate correctness of triple (name, code, OMOP ID), via OHDSI Athena API. 
+13. For each concept triple the allowed vocabulary prefix and  validate correctness of triple (name, code, OMOP ID), via OHDSI Athena API. 
     -  Check all concept code columns have a vocabulary prefix (e.g., 'atc:AC902', 'snomed:39020002').
     -  One code and omop id for each concept name
  """
@@ -89,7 +93,7 @@ _OMOP_GRAPH: Optional[OmopGraphNX] = None
 def get_omop_graph() -> OmopGraphNX:
     global _OMOP_GRAPH
     if _OMOP_GRAPH is None:
-        _OMOP_GRAPH = OmopGraphNX()   # builds/loads the 300MB graph once
+        _OMOP_GRAPH = OmopGraphNX(settings.concepts_file_path)   # builds/loads the 300MB graph once
     return _OMOP_GRAPH
     
 def load_json(filepath: str) -> dict:
@@ -98,23 +102,23 @@ def load_json(filepath: str) -> dict:
         data = json.load(f)
     return data
 
-def load_data( filepath=None) -> pd.DataFrame:
-        """Loads the input dataset."""
-        if filepath.endswith('.sav'):
-            df_input = pd.read_spss(filepath)
-            # Optionally save to Excel if needed
+# def load_data( filepath=None) -> pd.DataFrame:
+#         """Loads the input dataset."""
+#         if filepath.endswith('.sav'):
+#             df_input = pd.read_spss(filepath)
+#             # Optionally save to Excel if needed
          
-        elif filepath.endswith('.csv'):
-            df_input = pd.read_csv(filepath, low_memory=False)
-        elif filepath.endswith('.xlsx'):
-            df_input = pd.read_excel(filepath, sheet_name=0)
-        else:
-            raise ValueError("Unsupported file format.")
-        if not df_input.empty:
-            df_input.columns = [col.lower().strip() for col in df_input.columns]
-            return df_input
-        else:
-            return None
+#         elif filepath.endswith('.csv'):
+#             df_input = pd.read_csv(filepath, low_memory=False)
+#         elif filepath.endswith('.xlsx'):
+#             df_input = pd.read_excel(filepath, sheet_name=0)
+#         else:
+#             raise ValueError("Unsupported file format.")
+#         if not df_input.empty:
+#             df_input.columns = [col.lower().strip() for col in df_input.columns]
+#             return df_input
+#         else:
+#             return None
         
 QUOTE_CHARS = r"'\u2018\u2019\"\u201C\u201D"  # ' ’ “ ” "
 def strip_end_quotes(s):
@@ -315,6 +319,7 @@ def to_int_or_none(x: Optional[str]) -> Optional[int]:
         return None
 
 def athena_headers() -> Dict[str, str]:
+    # Athena-Auth-Token = eyJhbGciOiJIUzI1NiJ9.eyIkaW50X3Blcm1zIjpbXSwic3ViIjoib3JnLnBhYzRqLnNhbWwucHJvZmlsZS5TQU1MMlByb2ZpbGUja29tYWwuZ2lsYW5pQG1hYXN0cmljaHR1bml2ZXJzaXR5Lm5sIiwibGFzdE5hbWUiOlsiR2lsYW5pIl0sImlzRnJvbU5ld0xvZ2luIjpbInRydWUiXSwiYXV0aGVudGljYXRpb25EYXRlIjpbIjIwMjUtMTEtMjVUMTU6MjE6NTQuODE3WltVVENdIl0sInN1Y2Nlc3NmdWxBdXRoZW50aWNhdGlvbkhhbmRsZXJzIjpbIkFyYWNobmUiXSwibm90QmVmb3JlIjp7fSwic2FtbEF1dGhlbnRpY2F0aW9uU3RhdGVtZW50QXV0aE1ldGhvZCI6WyJ1cm46b2FzaXM6bmFtZXM6dGM6U0FNTDoxLjA6YW06cGFzc3dvcmQiXSwiZmlyc3ROYW1lIjpbIktvbWFsIl0sImF1dGhlbnRpY2F0aW9uTWV0aG9kIjpbIkFyYWNobmUiXSwib3JnYW5pemF0aW9uIjpbIk1hYXN0cmljaHQgVW5pdmVyc2l0eSJdLCJub3RPbk9yQWZ0ZXIiOnt9LCIkaW50X3JvbGVzIjpbXSwibG9uZ1Rlcm1BdXRoZW50aWNhdGlvblJlcXVlc3RUb2tlblVzZWQiOlsiZmFsc2UiXSwiaWF0IjoxNzY0MDg0MTE3LCJzZXNzaW9uaW5kZXgiOiJfMjYyMTAyMTIzMTI2NjMxMzU0OCIsImVtYWlsIjoia29tYWwuZ2lsYW5pQG1hYXN0cmljaHR1bml2ZXJzaXR5Lm5sIn0.dA3ee3mxnJqP4bAVxOkpN_oIqhSqAf4hU2q_x2RjJNM
     return {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -322,7 +327,7 @@ def athena_headers() -> Dict[str, str]:
             "Chrome/124.0.0.0 Safari/537.36"
         ),
         "Accept": "application/json",
-        "Referer": "https://athena.ohdsi.org/",
+        "Referer": "https://athena.ohdsi.org/"    
     }
 
 def fetch_athena(label: str, vocabularies: List[str], include_classification: bool = True) -> List[Dict[str, Any]]:
@@ -503,7 +508,7 @@ def overall_status(*components: ValidationLog) -> str:
 def is_missing(x):
     return pd.isna(x) or (isinstance(x, str) and x.strip() == "")   
 
-def mendatory_column_check(df: pd.DataFrame, required_columns: List[str], out_csv: str) -> List[str]:
+def structure_sanity_check(df: pd.DataFrame, required_columns: List[str], out_csv: str) -> List[str]:
     missing = [c for c in required_columns if c not in df.columns]
     if missing:
         #raise ValueError(f"Missing required columns: {missing}")
@@ -514,8 +519,27 @@ def mendatory_column_check(df: pd.DataFrame, required_columns: List[str], out_cs
         out_rows.append({**asdict(v_log)})
         out_df = pd.DataFrame(out_rows)
         out_df.to_csv(out_csv, index=False)
-        return True
-    return False
+        return False
+    # check if vartype has allowed values
+    # allowed_vartypes = {"int", "float", "str", "datetime"}
+    # # invalid_vartypes = df[~df['vartype'].isin(allowed_vartypes)]
+
+    # # check if all concept name columns have  strings or empty
+    # concept_name_columns = [
+    #     "variable concept name", 'additional context concept name', 'unit concept name', 'visit concept name']
+    # for col in concept_name_columns:
+    #     invalid_names = df[~df[col].isna() & (df[col].apply(lambda x: not isinstance(x, str)))]
+    #     if not invalid_names.empty:
+    #         print(f"⚠️ Invalid entries found in column '{col}': Non-string values present.")
+    #         out_rows = []
+    #         for _, r in invalid_names.iterrows():
+    #             v_log = ValidationLog(status="FAIL", description=f"Invalid entry in column '{col}': Non-string value '{r[col]}' present.")
+    #             out_rows.append({**asdict(v_log)})
+    #         out_df = pd.DataFrame(out_rows)
+    #         out_df.to_csv(out_csv, index=False)
+    #         return False
+    # for 
+    return True
 
 def validate_variable(r: pd.Series, omop_graph_obj: OmopGraphNX) -> ValidationLog:
     
@@ -563,6 +587,8 @@ def validate_additional_context(r: pd.Series, omop_graph_obj: OmopGraphNX) -> Va
                 list_ids = str(r.get("additional context omop id")).split("|")
                 if not len(list_names) == len(list_codes) == len(list_ids):
                     ac_logs = ValidationLog(status="FAIL", description=f"Mismatch in number of additional context concept details: names({len(list_names)}), codes({len(list_codes)}), ids({len(list_ids)}).")
+                elif not isinstance(r.get("additional context concept name"), str) or not isinstance(r.get("additional context concept code"), str) or not isinstance(r.get("additional context omop id"), str):
+                    ac_logs = ValidationLog(status="FAIL", description="Additional context concept details must be strings.")
                 else:
                     ac_log_list = []    
                     for idx in range(len(list_names)):
@@ -680,6 +706,20 @@ def validate_unit(r: pd.Series, omop_graph_obj: OmopGraphNX) -> ValidationLog:
     return u_log
 
 
+def validate_var_type(r: pd.Series, omop_graph_obj: OmopGraphNX) -> ValidationLog:
+    vt_log = ValidationLog(status="N/A", description="Variable type not available.")
+    if not is_missing(r.get("vartype")):  
+            var_type = r.get("vartype").strip().lower()
+            allowed_vartypes = {"int", "float", "str", "datetime"}
+            if var_type not in allowed_vartypes:
+                vt_log = ValidationLog(status="FAIL", description=f"Invalid vartype '{var_type}'. Allowed vartypes are: {allowed_vartypes}.")
+            else:
+                vt_log = ValidationLog(status="PASS", description=f"Valid vartype '{var_type}'.")
+    else:
+        vt_log = ValidationLog(status="N/A", description="Vartype is missing.")
+    return vt_log
+
+
 def validate_timepoint(r: pd.Series, omop_graph_obj: OmopGraphNX) -> ValidationLog:  
     vi_log = ValidationLog(status="N/A", description="Visit not available.")
     if not is_missing(r.get("visits")):  
@@ -688,6 +728,8 @@ def validate_timepoint(r: pd.Series, omop_graph_obj: OmopGraphNX) -> ValidationL
             else:
                 if '|' in str(r.get("visit concept code",None)) or '|' in str(r.get("visit omop id",None)):
                     vi_log = ValidationLog(status="FAIL", description="Multiple visit concept codes/ids found for single visit.")
+                elif not isinstance(r.get("visit concept code",None), str) or not isinstance(r.get("visit omop id",None), int|float) or not isinstance(r.get("visit concept name",None), str):
+                    vi_log = ValidationLog(status="FAIL", description="Invalid data type for visit concept columns details.")
                 else:
                     vi_log = validate_component(
                     label=r.get("visit concept name") or r.get("visits"),
@@ -705,9 +747,9 @@ def validate_timepoint(r: pd.Series, omop_graph_obj: OmopGraphNX) -> ValidationL
 
 
 
-def run(in_csv: str, out_csv: str) -> None:
+def validate_dictionary(in_csv: str, out_csv: str=None) -> None:
     start_time = time.time()
-    df = pd.read_csv(in_csv, low_memory=False)
+    df = load_dictionary(in_csv)
     df = df.applymap(lambda x: None if pd.isna(x) or (isinstance(x, str) and x.strip() == "") else x)
     omop_graph_obj = get_omop_graph()  
     # print(df.head(2))
@@ -720,7 +762,7 @@ def run(in_csv: str, out_csv: str) -> None:
         df = df.rename(columns={"variablelabel": "variable label"})
     if "variablename" in df.columns:
         df = df.rename(columns={"variablename": "variable name"})
-    if mendatory_column_check(df, required_columns=COLUMN_CHECK_LIST, out_csv=out_csv):
+    if not structure_sanity_check(df, required_columns=COLUMN_CHECK_LIST, out_csv=out_csv):
         return
     out_rows = []
     for _, r in df.iterrows():
@@ -728,7 +770,7 @@ def run(in_csv: str, out_csv: str) -> None:
             varlabel = r.get("variable label", "")
 
             raw_domain = r.get("domain", "").strip()
-           
+            vt_log = validate_var_type(r, omop_graph_obj)
             v_log = validate_variable(r, omop_graph_obj)
             ac_logs = validate_additional_context(r, omop_graph_obj)
             cv_logs = validate_categorical_values(r, omop_graph_obj)        
@@ -737,7 +779,11 @@ def run(in_csv: str, out_csv: str) -> None:
             out_rows.append({
                 "variable name": r.get("variable name",""),
                 "variable label": varlabel,
+         
                 "domain": raw_domain,
+                "vartype_status": vt_log.status,
+                "vartype_reason": vt_log.description,
+                
                 "categorical_value_status": cv_logs.status,
                 "categorical_value_reason": cv_logs.description,
                 "variable_status": v_log.status, 
@@ -748,21 +794,22 @@ def run(in_csv: str, out_csv: str) -> None:
                 "overall_status": overall_status(cv_logs, v_log, ac_logs, u_log, vi_log),
                 # 'validation_status': 'PASS' if complete_passing else 'CHECK AGAIN'
             })
-
     out_df = pd.DataFrame(out_rows)
-    out_df.to_csv(out_csv, index=False)
+    if out_csv:
+        out_df.to_csv(out_csv, index=False)
     # print(f"Saved results to: {out_csv}")
-    if out_df.empty:
-        return "Validation Successful"
-    else:
-        return "Check the output CSV for errors."
     print(f"Validation completed in {time.time() - start_time:.2f} seconds")
+    if out_df.empty:
+        return True
+    else:
+        return False
+   
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:
         # print("Usage: python validate cde_against athena system, params: input.csv output.csv")
         sys.exit(1)
-    run(sys.argv[1], sys.argv[2])
+    validate_dictionary(sys.argv[1], sys.argv[2])
     # # run the athena api for simple example
 
     # vocab, code = split_code_prefixed("loinc:LP6800-9")

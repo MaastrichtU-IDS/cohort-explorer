@@ -194,39 +194,6 @@ def insert_in_db(vectordb: QdrantClient, embedding_model: 'ModelEmbedding', poin
 
 
 
-# def search_in_db(vectordb: QdrantClient, embedding_model: ModelEmbedding, query_text: str, limit: int = 5, target_study:str="gissi-hf") -> List[Any]:
-#     """
-#     Searches the Qdrant collection for points similar to the provided query text.
-#     Returns the top 'limit' results with payload metadata.
-#     """
-#     query_vector = embedding_model.embed_text(query_text)
-
-#     results = vectordb.query_points(
-#         collection_name=COLLECTION_NAME,
-#         query=query_vector,
-#         limit=limit,
-#         with_payload=True,
-#         with_vectors=False,
-#         score_threshold=0.8,
-#         query_filter=models.Filter(
-#                     must=[
-#                         models.FieldCondition(
-#                             key='study_name',
-#                             match=models.MatchValue(
-#                                 value=target_study
-#                             )
-#                         )
-#                     ]
-#                 )
-#         )
-#     var_labels = []
-#     if results:
-#         for res in results.groups:
-#              for result in res.hits:
-#                 var_labels.append(result.payload['variable_label'])
-#     return var_labels
-
-
 def search_in_db(vectordb: QdrantClient, embedding_model: 'ModelEmbedding', query_text: str, limit: int = 20, target_study:str="gissi-hf", omop_domain:List[str]=["drug_exposure","condition_occurrence","condition_era","observation","observation_era","measurement","visit_occurrence","procedure_occurrence","device_exposure","person"], min_score:int=0.4, collection_name:str="studies_metadata") -> List[Any]:
         query_vector =  embedding_model.embed_text(query_text)
         # print(f"query_vector length={len(query_vector)}")
