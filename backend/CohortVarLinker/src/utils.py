@@ -652,7 +652,7 @@ def apply_rules(domain, mapping_relation, src_info, tgt_info):
         if domain in {"person"} or (not src_unit and not tgt_unit):
             return finalize({"description": "A qualitative variable and a continuous variable can be merged if underlying semantics align."}, "Partial Match (Proximate)", src_info, tgt_info,mapping_relation)
         else:
-            return finalize({"description": "Merging qualitative and continuous variables requires strong justification of information loss."}, "Partial Match (Tentative)", src_info, tgt_info, mapping_relation)
+            return finalize({"description": "Merging qualitative and continuous variables (e.g. without units) requires strong justification of information loss."}, "Partial Match (Tentative)", src_info, tgt_info, mapping_relation)
 
     return finalize({"description": "No specific transformation rule available."}, "Not Applicable", src_info, tgt_info, mapping_relation)
 
