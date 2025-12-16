@@ -9,7 +9,6 @@ from src.explore import router as explore_router
 from src.mapping import router as mapping_router
 from src.upload import init_triplestore
 from src.upload import router as upload_router
-from src.utils import router as utils_router
 from src.monitoring import run_periodic_monitoring
 from src.docs import router as docs_router
 from .mapping import router as mapping_router
@@ -28,7 +27,6 @@ app.include_router(mapping_router, prefix="/api", tags=["mapping"])
 app.include_router(upload_router, tags=["upload"])
 app.include_router(decentriq_router, tags=["upload"])
 app.include_router(auth_router, tags=["authentication"])
-app.include_router(utils_router, tags=["utils"])
 app.include_router(docs_router, prefix="/docs-api", tags=["documents"])
 
 
