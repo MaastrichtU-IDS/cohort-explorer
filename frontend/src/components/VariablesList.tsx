@@ -6,15 +6,54 @@ import VariableGraphModal from '@/components/VariableGraphModal';
 import {InfoIcon} from '@/components/Icons';
 import {Concept, Variable} from '@/types';
 import {apiUrl} from '@/utils';
+import {parseSearchQuery, searchInObject, highlightSearchTerms} from '@/utils/search';
 
-const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
+// Helper component to render highlighted text
+const HighlightedText = ({text, searchTerms, searchMode}: {text: string, searchTerms: string[], searchMode?: 'or' | 'and' | 'exact'}) => {
+  const highlightedHtml = highlightSearchTerms(text, searchTerms, searchMode);
+  
+  if (highlightedHtml === text) {
+    return <span>{text}</span>;
+  }
+  
+  return <span dangerouslySetInnerHTML={{__html: highlightedHtml}} />;
+};
+
+interface VariablesListProps {
+  cohortId: string;
+  searchFilters?: {
+    searchQuery?: string;
+    searchMode?: 'or' | 'and' | 'exact';
+    searchTerms?: string[];
+  };
+  selectedOMOPDomains: Set<string>;
+  selectedDataTypes: Set<string>;
+  selectedCategoryTypes: Set<string>;
+  selectedVisitTypes: Set<string>;
+  onOMOPDomainsChange: (domains: Set<string>) => void;
+  onDataTypesChange: (types: Set<string>) => void;
+  onCategoryTypesChange: (categories: Set<string>) => void;
+  onVisitTypesChange: (visitTypes: Set<string>) => void;
+  onResetFilters: () => void;
+}
+
+const VariablesList = ({
+  cohortId, 
+  searchFilters = {searchQuery: ''}, 
+  selectedOMOPDomains,
+  selectedDataTypes,
+  selectedCategoryTypes,
+  selectedVisitTypes,
+  onOMOPDomainsChange,
+  onDataTypesChange,
+  onCategoryTypesChange,
+  onVisitTypesChange,
+  onResetFilters
+}: VariablesListProps) => {
   const {cohortsData, updateCohortData, dataCleanRoom, setDataCleanRoom} = useCohorts();
-  const [selectedOMOPDomains, setSelectedOMOPDomains] = useState(new Set());
-  const [selectedDataTypes, setSelectedDataTypes] = useState(new Set());
-  const [includeCategorical, setIncludeCategorical] = useState(true);
-  const [includeNonCategorical, setIncludeNonCategorical] = useState(true);
   const [openedModal, setOpenedModal] = useState('');
   const [openedGraphModal, setOpenedGraphModal] = useState<string | null>(null);
+  const [showOnlyOutcomes, setShowOnlyOutcomes] = useState(false);
 
   // When concept is selected, insert the triples into the database
   const handleConceptSelect = (varId: any, concept: Concept, categoryId: any = null) => {
@@ -68,30 +107,187 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
     sessionStorage.setItem('dataCleanRoom', JSON.stringify(updatedDcr));
   };
 
-  // Collect unique OMOP domains and data types from variables for filtering options
+  // Button to remove cohort or variable from data clean room
+  const removeFromDataCleanRoom = (var_name: string | null = null) => {
+    const updatedDcr = {...dataCleanRoom};
+    if (var_name) {
+      // Remove specific variable
+      if (updatedDcr.cohorts[cohortId]) {
+        updatedDcr.cohorts[cohortId] = updatedDcr.cohorts[cohortId].filter(
+          (v: string) => v !== var_name
+        );
+        // If no variables left, remove the cohort entry
+        if (updatedDcr.cohorts[cohortId].length === 0) {
+          delete updatedDcr.cohorts[cohortId];
+        }
+      }
+    } else {
+      // Remove entire cohort
+      delete updatedDcr.cohorts[cohortId];
+    }
+    setDataCleanRoom(updatedDcr);
+    sessionStorage.setItem('dataCleanRoom', JSON.stringify(updatedDcr));
+  };
+
+  // Collect unique OMOP domains, data types, and visit types from variables for filtering options
   const omopDomains = new Set();
   const dataTypes: any = new Set();
+  const visitTypes: any = new Set();
   Object.values(cohortsData[cohortId]?.variables || {}).forEach((variable: any) => {
     omopDomains.add(variable.omop_domain);
     dataTypes.add(variable.var_type);
+    if (variable.visits) {
+      visitTypes.add(variable.visits);
+    }
   });
+
+  // Get search configuration from props - simple space-separated terms
+  const searchTerms = useMemo(() => {
+    if (searchFilters.searchTerms) {
+      return searchFilters.searchTerms;
+    }
+    if (searchFilters.searchQuery) {
+      // Simple split on spaces, trim, and filter out empty strings
+      return searchFilters.searchQuery
+        .split(' ')
+        .map((term: string) => term.trim())
+        .filter((term: string) => term.length > 0);
+    }
+    return [];
+  }, [searchFilters.searchTerms, searchFilters.searchQuery]);
+  
+  const searchMode = searchFilters.searchMode || 'or';
 
   // Filter variables based on search query and selected filters
   const filteredVars = useMemo(() => {
     if (cohortsData && cohortsData[cohortId]) {
       return Object.entries(cohortsData[cohortId]['variables'])
+        .filter(([variableName, variableData]: any) => {
+          // Enhanced search with word boundaries and configurable logic
+          // Only search in fields that contain actual variable content, not metadata
+          const searchableFields = [
+            'var_name', 'var_label', 'concept_name', 'mapped_label', 'omop_domain', 'concept_code', 'omop_id'
+          ];
+          
+          // Add variable name to the data for searching
+          const variableWithName = { ...variableData, var_name: variableName };
+          
+          // Only filter by search if there are actual search terms
+          if (searchTerms.length === 0 || searchTerms.every((term: string) => !term.trim())) {
+            return true; // No search terms, show all variables
+          }
+          
+          // Simple direct search implementation for better control
+          let variableMatches = false;
+          
+          // Check each searchable field directly
+          for (const field of searchableFields) {
+            const fieldValue = variableWithName[field];
+            if (fieldValue != null) {
+              const fieldText = String(fieldValue).toLowerCase();
+              
+              if (searchMode === 'exact') {
+                const fullPhrase = searchTerms.join(' ').toLowerCase();
+                if (fieldText.includes(fullPhrase)) {
+                  variableMatches = true;
+                  break;
+                }
+              } else if (searchMode === 'and') {
+                if (searchTerms.every((term: string) => fieldText.includes(term.toLowerCase()))) {
+                  variableMatches = true;
+                  break;
+                }
+              } else { // 'or' mode
+                if (searchTerms.some((term: string) => fieldText.includes(term.toLowerCase()))) {
+                  variableMatches = true;
+                  break;
+                }
+              }
+            }
+          }
+          
+          // Check categories
+          let categoryMatches = false;
+          if (variableData.categories) {
+            for (const category of variableData.categories) {
+              const categoryFields = ['value', 'label', 'mapped_label'];
+              for (const field of categoryFields) {
+                const fieldValue = category[field];
+                if (fieldValue != null) {
+                  const fieldText = String(fieldValue).toLowerCase();
+                  
+                  if (searchMode === 'exact') {
+                    const fullPhrase = searchTerms.join(' ').toLowerCase();
+                    if (fieldText.includes(fullPhrase)) {
+                      categoryMatches = true;
+                      break;
+                    }
+                  } else if (searchMode === 'and') {
+                    if (searchTerms.every((term: string) => fieldText.includes(term.toLowerCase()))) {
+                      categoryMatches = true;
+                      break;
+                    }
+                  } else { // 'or' mode
+                    if (searchTerms.some((term: string) => fieldText.includes(term.toLowerCase()))) {
+                      categoryMatches = true;
+                      break;
+                    }
+                  }
+                }
+              }
+              if (categoryMatches) break;
+            }
+          }
+          
+          const matchesSearch = variableMatches || categoryMatches;
+          
+          return matchesSearch;
+        })
         .filter(
-          ([variableName, variableData]: any) =>
-            variableName.toLowerCase().includes(searchFilters.searchQuery.toLowerCase()) ||
-            JSON.stringify(variableData).toLowerCase().includes(searchFilters.searchQuery.toLowerCase())
-        )
-        .filter(
-          ([variableName, variableData]: any) =>
-            (selectedOMOPDomains.size === 0 || selectedOMOPDomains.has(variableData.omop_domain)) &&
-            (selectedDataTypes.size === 0 || selectedDataTypes.has(variableData.var_type)) &&
-            ((includeCategorical && variableData.categories.length === 0) ||
-              (includeNonCategorical && variableData.categories.length !== 0) ||
-              (!includeNonCategorical && !includeCategorical))
+          ([variableName, variableData]: any) => {
+            // Filter by outcome keywords if enabled
+            if (showOnlyOutcomes) {
+              const outcomeKeywords = ['outcome', 'endpoint', 'end point'];
+              const searchableFields = ['var_name', 'var_label', 'concept_name', 'mapped_label', 'omop_domain', 'concept_code', 'omop_id'];
+              
+              // Add variable name to the data for searching
+              const variableWithName = { ...variableData, var_name: variableName };
+              
+              // Check if any searchable field contains any outcome keyword
+              let hasOutcomeKeyword = false;
+              for (const field of searchableFields) {
+                const fieldValue = variableWithName[field];
+                if (fieldValue != null) {
+                  const fieldText = String(fieldValue).toLowerCase();
+                  if (outcomeKeywords.some(keyword => fieldText.includes(keyword))) {
+                    hasOutcomeKeyword = true;
+                    break;
+                  }
+                }
+              }
+              
+              if (!hasOutcomeKeyword) return false;
+            }
+            
+            // Apply other filters
+            const passesOMOPFilter = selectedOMOPDomains.size === 0 || selectedOMOPDomains.has(variableData.omop_domain);
+            const passesDataTypeFilter = selectedDataTypes.size === 0 || selectedDataTypes.has(variableData.var_type);
+            const passesVisitTypeFilter = selectedVisitTypes.size === 0 || selectedVisitTypes.has(variableData.visits);
+            
+            // Category filter logic
+            let passesCategoryFilter = true;
+            if (selectedCategoryTypes.size > 0) {
+              const catCount = variableData.categories.length;
+              passesCategoryFilter = false;
+              if (selectedCategoryTypes.has('Non-categorical') && catCount === 0) passesCategoryFilter = true;
+              if (selectedCategoryTypes.has('All categorical') && catCount > 0) passesCategoryFilter = true;
+              if (selectedCategoryTypes.has('2 categories') && catCount === 2) passesCategoryFilter = true;
+              if (selectedCategoryTypes.has('3 categories') && catCount === 3) passesCategoryFilter = true;
+              if (selectedCategoryTypes.has('4+ categories') && catCount >= 4) passesCategoryFilter = true;
+            }
+            
+            return passesOMOPFilter && passesDataTypeFilter && passesCategoryFilter && passesVisitTypeFilter;
+          }
         )
         .map(([variableName, variableData]: any) => ({...variableData, var_name: variableName}));
     } else {
@@ -100,11 +296,13 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
   }, [
     cohortsData,
     cohortId,
-    searchFilters,
+    searchTerms,
+    searchMode,
     selectedOMOPDomains,
     selectedDataTypes,
-    includeCategorical,
-    includeNonCategorical
+    selectedCategoryTypes,
+    selectedVisitTypes,
+    showOnlyOutcomes
   ]);
 
   // Function to handle downloading the cohort CSV
@@ -139,19 +337,26 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
 
   return (
     <main className="flex w-full space-x-4">
-      <aside className="flex-shrink-0 text-center flex flex-col items-center min-w-fit">
-        {Object.keys(cohortsData[cohortId]['variables']).length > 0 &&
-        (!dataCleanRoom.cohorts[cohortId] ||
-          dataCleanRoom.cohorts[cohortId].length !== Object.keys(cohortsData[cohortId]['variables']).length) ? (
-          <button
-            onClick={() => addToDataCleanRoom()}
-            className="btn btn-neutral btn-sm mb-2 hover:bg-slate-600 tooltip tooltip-right"
-            data-tip={`Add all variables of the cohort ${cohortId} to your Data Clean Room`}
-          >
-            Add to DCR
-          </button>
-        ) : (
-          <div />
+      <aside className="flex-shrink-0 text-center flex flex-col items-center w-52">
+        {Object.keys(cohortsData[cohortId]['variables']).length > 0 && (
+          dataCleanRoom.cohorts[cohortId] &&
+          dataCleanRoom.cohorts[cohortId].length === Object.keys(cohortsData[cohortId]['variables']).length ? (
+            <button
+              onClick={() => removeFromDataCleanRoom()}
+              className="btn btn-sm mb-2 bg-gray-200 hover:bg-gray-300 text-gray-700 tooltip tooltip-right"
+              data-tip={`Remove all variables of the cohort ${cohortId} from your Data Clean Room`}
+            >
+              Remove from DCR
+            </button>
+          ) : (
+            <button
+              onClick={() => addToDataCleanRoom()}
+              className="btn btn-neutral btn-sm mb-2 hover:bg-slate-600 tooltip tooltip-right"
+              data-tip={`Add all variables of the cohort ${cohortId} to your Data Clean Room`}
+            >
+              Add to DCR
+            </button>
+          )
         )}
         {filteredVars.length > 0 && (
           <button
@@ -195,61 +400,76 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
           </form>
         </dialog>
         {filteredVars.length == Object.keys(cohortsData[cohortId]['variables']).length ? (
-          <span className="badge badge-ghost mb-2">
+          <span className="badge badge-lg mb-2 font-semibold" style={{ backgroundColor: '#fef08a', color: '#854d0e' }}>
             {Object.keys(cohortsData[cohortId]['variables']).length} variables
           </span>
         ) : (
-          <span className="badge badge-ghost mb-2">
-            {filteredVars.length}/{Object.keys(cohortsData[cohortId]['variables']).length} variables
-          </span>
+          <div className="mb-2">
+            <span className="badge badge-lg font-semibold" style={{ backgroundColor: '#fef08a', color: '#854d0e' }}>
+              {filteredVars.length}/{Object.keys(cohortsData[cohortId]['variables']).length} variables
+            </span>
+            {searchFilters.searchQuery && searchTerms.length > 0 && (
+              <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                {filteredVars.length} variable{filteredVars.length !== 1 ? 's' : ''} match{filteredVars.length === 1 ? 'es' : ''} your search
+              </div>
+            )}
+          </div>
         )}
+        
+        {/* Outcome Variables Filter Button */}
+        <div className="my-4">
+          <button
+            onClick={() => setShowOnlyOutcomes(!showOnlyOutcomes)}
+            className="btn btn-sm w-full border"
+            style={{ backgroundColor: '#dbeafe', color: '#1e3a8a', borderColor: '#bfdbfe' }}
+          >
+            {showOnlyOutcomes ? 'Show All Variables' : 'Show Outcome Variables'}
+          </button>
+        </div>
+        
         <FilterByMetadata
           label="OMOP domains"
           metadata_id="omop_domain"
           options={[...omopDomains]}
           searchResults={filteredVars}
-          onFiltersChange={(optionsSelected: any) => setSelectedOMOPDomains(optionsSelected)}
+          onFiltersChange={(optionsSelected: any) => onOMOPDomainsChange(optionsSelected)}
         />
         <FilterByMetadata
           label="Data types"
           metadata_id="var_type"
           options={[...dataTypes]}
           searchResults={filteredVars}
-          onFiltersChange={(optionsSelected: any) => setSelectedDataTypes(optionsSelected)}
+          onFiltersChange={(optionsSelected: any) => onDataTypesChange(optionsSelected)}
         />
         <FilterByMetadata
           label="Categorical"
           metadata_id="categorical"
-          options={['Categorical', 'Non-categorical']}
+          options={['Non-categorical', 'All categorical', '2 categories', '3 categories', '4+ categories']}
           searchResults={filteredVars}
-          onFiltersChange={(optionsSelected: any) => {
-            // TODO: this bit could be improved
-            if (optionsSelected.has('Categorical')) {
-              setIncludeCategorical(false);
-            } else {
-              setIncludeCategorical(true);
-            }
-            if (optionsSelected.has('Non-categorical')) {
-              setIncludeNonCategorical(false);
-            } else {
-              setIncludeNonCategorical(true);
-            }
-          }}
+          onFiltersChange={(optionsSelected: any) => onCategoryTypesChange(optionsSelected)}
         />
+        {visitTypes.size > 1 && (
+          <FilterByMetadata
+            label="Visit types"
+            metadata_id="visits"
+            options={[...visitTypes]}
+            searchResults={filteredVars}
+            onFiltersChange={(optionsSelected: any) => onVisitTypesChange(optionsSelected)}
+          />
+        )}
       </aside>
 
       {/* List of variables */}
       <div className="flex flex-col">
-        {cohortsData[cohortId].study_objective && (
-          <div className="card p-3 mb-3 bg-base-300">🎯 Study objective: {cohortsData[cohortId].study_objective}</div>
-        )}
         <div className="space-y-2">
           {filteredVars?.map((variable: any) => (
             <div key={variable.var_name} className="card card-compact card-bordered bg-base-100 shadow-xl">
               <div className="card-body">
                 <div className="flex justify-between">
                   <div className="flex flex-wrap items-center space-x-3">
-                    <h2 className="font-bold text-lg">{variable.var_name}</h2>
+                    <h2 className="font-bold text-lg">
+                      <HighlightedText text={variable.var_name} searchTerms={searchTerms} searchMode={searchMode} />
+                    </h2>
                     {/* Badges for units and categorical variable */}
                     <span className="badge badge-ghost">{variable.var_type}</span>
                     {variable.units && <span className="badge badge-ghost">{variable.units}</span>}
@@ -258,6 +478,8 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
                     )}
                     {variable.omop_domain && <span className="badge badge-default">{variable.omop_domain}</span>}
                     {variable.formula && <span className="badge badge-outline">🧪 {variable.formula}</span>}
+                    {variable.concept_code && <span className="badge" style={{ backgroundColor: '#dbeafe', color: '#1e3a8a', border: '1px solid #bfdbfe' }}>{variable.concept_code}</span>}
+                    {variable.omop_id && <span className="badge" style={{ backgroundColor: '#dbeafe', color: '#1e3a8a', border: '1px solid #bfdbfe' }}>OMOP ID: {variable.omop_id}</span>}
                     {/* {(variable.concept_id || variable.mapped_id) && ( */}
                     <AutocompleteConcept
                       query={variable.var_label}
@@ -295,7 +517,15 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
                       📊
                     </button>
                   </div>
-                  {!dataCleanRoom.cohorts[cohortId]?.includes(variable.var_name) ? (
+                  {dataCleanRoom.cohorts[cohortId]?.includes(variable.var_name) ? (
+                    <button
+                      onClick={() => removeFromDataCleanRoom(variable.var_name)}
+                      className="btn btn-sm bg-gray-200 hover:bg-gray-300 text-gray-700 tooltip tooltip-left"
+                      data-tip={`Remove the \`${variable.var_name}\` variable of the ${cohortId} cohort from your Data Clean Room`}
+                    >
+                      Remove from DCR
+                    </button>
+                  ) : (
                     <button
                       onClick={() => addToDataCleanRoom(variable.var_name)}
                       className="btn btn-neutral btn-sm hover:bg-slate-600 tooltip tooltip-left"
@@ -303,11 +533,29 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
                     >
                       Add to DCR
                     </button>
-                  ) : (
-                    <div />
                   )}
                 </div>
-                <p>{variable.var_label}</p>
+                <p>
+                  <HighlightedText text={variable.var_label || ''} searchTerms={searchTerms} searchMode={searchMode} />
+                </p>
+                
+                {/* Display concept_name and mapped_label if they exist */}
+                {(variable.concept_name || variable.mapped_label) && (
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-600 dark:text-gray-400 mt-1">
+                    {variable.concept_name && (
+                      <span className="flex-shrink-0">
+                        <span className="font-semibold">Concept:</span>{' '}
+                        <HighlightedText text={variable.concept_name} searchTerms={searchTerms} searchMode={searchMode} />
+                      </span>
+                    )}
+                    {variable.mapped_label && (
+                      <span className="flex-shrink-0">
+                        <span className="font-semibold">Mapped:</span>{' '}
+                        <HighlightedText text={variable.mapped_label} searchTerms={searchTerms} searchMode={searchMode} />
+                      </span>
+                    )}
+                  </div>
+                )}
 
                 {/* Popup with additional infos about the variable */}
                 {openedModal === variable.var_name && (
@@ -359,8 +607,12 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
                           <tbody>
                             {variable.categories.map((option: any, index: number) => (
                               <tr key={index}>
-                                <td>{option.value}</td>
-                                <td>{option.label}</td>
+                                <td>
+                                  <HighlightedText text={option.value || ''} searchTerms={searchTerms} searchMode={searchMode} />
+                                </td>
+                                <td>
+                                  <HighlightedText text={option.label || ''} searchTerms={searchTerms} searchMode={searchMode} />
+                                </td>
                                 <td>
                                   <AutocompleteConcept
                                     query={option.label}
@@ -382,6 +634,7 @@ const VariablesList = ({cohortId, searchFilters = {searchQuery: ''}}: any) => {
                         </p>
                       )}
                       {variable.definition && <p>Definition: {variable.definition}</p>}
+                      {variable.visit_concept_name && <p>Visit concept name: {variable.visit_concept_name}</p>}
                       {variable.visits && <p>Visit: {variable.visits}</p>}
                       {variable.frequency && <p>Frequency: {variable.frequency}</p>}
                       {variable.duration && <p>Duration: {variable.duration}</p>}

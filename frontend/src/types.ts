@@ -9,6 +9,45 @@ export interface Cohort {
   study_duration: string;
   study_ongoing: string;
   study_objective: string;
+  primary_outcome_spec: string;
+  secondary_outcome_spec: string;
+  morbidity: string;
+  study_start: string;
+  study_end: string;
+  male_percentage: number | null;
+  female_percentage: number | null;
+  // Contact information fields
+  administrator?: string;
+  administrator_email?: string;
+  study_contact_person?: string;
+  study_contact_person_email?: string;
+  references?: string[];
+  // Analysis data availability
+  has_aggregate_analysis?: boolean;
+  
+  // Additional metadata fields
+  population_location?: string;
+  language?: string;
+  data_collection_frequency?: string;
+  interventions?: string;
+  // Inclusion criteria fields
+  sex_inclusion?: string;
+  health_status_inclusion?: string;
+  clinically_relevant_exposure_inclusion?: string;
+  age_group_inclusion?: string;
+  bmi_range_inclusion?: string;
+  ethnicity_inclusion?: string;
+  family_status_inclusion?: string;
+  hospital_patient_inclusion?: string;
+  use_of_medication_inclusion?: string;
+  
+  // Exclusion criteria fields
+  health_status_exclusion?: string;
+  bmi_range_exclusion?: string;
+  limited_life_expectancy_exclusion?: string;
+  need_for_surgery_exclusion?: string;
+  surgical_procedure_history_exclusion?: string;
+  clinically_relevant_exposure_exclusion?: string;
   variables: {[key: string]: Variable};
 }
 
@@ -22,11 +61,15 @@ export interface Variable {
   min: string;
   units: string;
   visits: string;
+  visit_concept_name: string;
   formula: string;
   definition: string;
   omop_domain: string;
   index: number;
   concept_id: string;
+  concept_code?: string;
+  concept_name?: string;
+  omop_id?: string;
   mapped_id: string | null;
   mapped_label: string | null;
   categories: Category[];

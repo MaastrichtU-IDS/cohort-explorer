@@ -1,55 +1,120 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 
-// Helper component for CSV preview
-interface MappingPreviewTableProps {
-  csvText: string;
-  maxRows: number;
+// Define the shape of our row data
+interface RowData {
+  [key: string]: string | number | boolean | null | undefined;
 }
-function MappingPreviewTable({ csvText, maxRows }: MappingPreviewTableProps) {
-  // Basic CSV parsing (does not handle all edge cases, but fine for preview)
-  const rows: string[][] = csvText.trim().split(/\r?\n/).map((line: string) => {
-    const cells: string[] = [];
-    let current = '';
-    let inQuotes = false;
-    for (let i = 0; i < line.length; i++) {
-      const char = line[i];
-      if (char === '"') {
-        inQuotes = !inQuotes;
-      } else if (char === ',' && !inQuotes) {
-        cells.push(current);
-        current = '';
-      } else {
-        current += char;
-      }
+
+// Helper function to extract relevant fields from the mapping JSON
+function transformMappingDataForPreview(jsonData: any): RowData[] {
+  let allMappings: RowData[] = [];
+  if (typeof jsonData !== 'object' || jsonData === null) {
+    return [];
+  }
+
+  Object.values(jsonData).forEach((value: any) => {
+    if (value && Array.isArray(value.mappings)) {
+      const transformed = value.mappings.map((mapping: any) => {
+        const newRow: RowData = {
+          s_source: mapping.s_source,
+          s_label: mapping.s_slabel,
+          target_study: mapping.target_study,
+          harmonization_status: mapping.harmonization_status || 'pending',
+          source_categories_codes: mapping.source_categories_codes,
+          target_categories_codes: mapping.target_categories_codes,
+        };
+
+        // Find wildcard keys
+        Object.keys(mapping).forEach(key => {
+          if (key.endsWith('_target')) {
+            newRow['target'] = mapping[key];
+          } else if (key.endsWith('_tlabel')) {
+            newRow['target_label'] = mapping[key];
+          } else if (key.endsWith('_mapping_type')) {
+            newRow['mapping_type'] = mapping[key];
+          } else if (key === 'harmonization_status') {
+            newRow['harmonization_status'] = mapping[key];
+          }
+        });
+        return newRow;
+      });
+      allMappings = allMappings.concat(transformed);
     }
-    cells.push(current);
-    return cells;
   });
-  if (!rows.length) return null;
-  const header = rows[0];
-  const data = rows.slice(1, maxRows + 1);
+
+  return allMappings;
+}
+
+// Helper component for the mapping preview table
+interface MappingPreviewJsonTableProps {
+  data: RowData[];
+}
+
+function MappingPreviewJsonTable({ data }: MappingPreviewJsonTableProps) {
+  if (!data || !Array.isArray(data) || data.length === 0) return <div className="italic text-slate-400">No mapping data to preview.</div>;
+  
+  // Define columns in a specific order for consistency
+  const columns = ['s_source', 's_label', 'target_study', 'target', 'target_label', 'mapping_type', 'source_categories_codes', 'target_categories_codes', 'harmonization_status'];
+  
+  // Define display names for columns
+  const columnDisplayNames: Record<string, string> = {
+    's_source': 'source variable',
+    'target': 'target variable',
+    's_label': 's_label',
+    'target_study': 'target_study',
+    'target_label': 'target_label',
+    'mapping_type': 'mapping_type',
+    'source_categories_codes': 'source categories codes',
+    'target_categories_codes': 'target categories codes',
+    'harmonization_status': 'harmonization_status'
+  };
+
   return (
     <table className="table table-zebra w-full text-xs">
       <thead>
         <tr>
-          {header.map((cell: string, i: number) => <th key={i} className="font-bold bg-base-300">{cell}</th>)}
+          {columns.map(col => (
+            <th key={col} className="font-bold bg-base-300">{columnDisplayNames[col] || col}</th>
+          ))}
         </tr>
       </thead>
       <tbody>
-        {data.map((row: string[], i: number) => (
+        {data.map((row, i) => (
           <tr key={i}>
-            {row.map((cell: string, j: number) => <td key={j}>{cell}</td>)}
+            {columns.map(col => {
+              const value = row[col] as string | number | boolean | null | undefined;
+              const displayValue = value === null || value === undefined || value === 'null' ? '--' : value.toString();
+              const isLongText = displayValue.length > 30;
+              
+              return (
+                <td 
+                  key={col} 
+                  className={`${
+                    col === 's_source' || col === 'target' ? 'bg-blue-100' : ''
+                  } ${
+                    (col === 'source_categories_codes' || col === 'target_categories_codes') && isLongText 
+                      ? 'max-w-xs break-words' : ''
+                  } ${
+                    col === 's_label' || col === 'target_label' ? 'max-w-32 break-words' : ''
+                  } ${
+                    col === 'target_study' ? 'max-w-24 break-words' : ''
+                  } ${
+                    col === 'mapping_type' || col === 'harmonization_status' ? 'max-w-20 break-words text-xs' : ''
+                  }`}
+                >
+                  {displayValue}
+                </td>
+              );
+            })}
           </tr>
         ))}
-        {rows.length > maxRows + 1 && (
-          <tr><td colSpan={header.length} className="italic text-slate-400">... (truncated)</td></tr>
-        )}
       </tbody>
     </table>
   );
 }
+
 
 import { useCohorts } from '@/components/CohortsContext';
 import {apiUrl} from '@/utils';
@@ -60,14 +125,36 @@ export default function MappingPage() {
   // Allow multiple target cohorts, each listed only once
   // Store selected target cohorts as strings
   const [selectedTargets, setSelectedTargets] = useState<string[]>([]);
-  const [mappingOutput, setMappingOutput] = useState('');
+  const [mappingOutput, setMappingOutput] = useState<RowData[] | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedMappingTypes, setSelectedMappingTypes] = useState<string[]>([]);
+  const [selectedHarmonizationStatuses, setSelectedHarmonizationStatuses] = useState<string[]>([]);
+  const [cacheInfo, setCacheInfo] = useState<{
+    cached_pairs: Array<{source: string, target: string, timestamp: number}>,
+    uncached_pairs: Array<{source: string, target: string}>,
+    outdated_pairs: Array<{source: string, target: string, timestamp: number, outdated_cohort: string}>,
+    dictionary_timestamps: Record<string, number>
+  } | null>(null);
+  
+  // Reference to the mapping output section
+  const mappingOutputRef = useRef<HTMLDivElement>(null);
+  // Reference to the map button section
+  const mapButtonRef = useRef<HTMLDivElement>(null);
 
   // Filtered cohorts for both source and target menus based on search
   const filteredCohorts = Object.entries(cohortsData).filter(([cohortId, cohort]) =>
     cohortId.toLowerCase().includes(searchQuery.toLowerCase()) ||
     JSON.stringify(cohort).toLowerCase().includes(searchQuery.toLowerCase())
   );
+  
+  // Scroll to the map button section when data becomes available
+  useEffect(() => {
+    if (mappingOutput && mapButtonRef.current) {
+      // Scroll to a few pixels above the map button
+      const buttonTop = mapButtonRef.current.offsetTop - 20;
+      window.scrollTo({ top: buttonTop, behavior: 'smooth' });
+    }
+  }, [mappingOutput]);
 
   const handleSearchChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(event.target.value);
@@ -77,6 +164,8 @@ export default function MappingPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // ... inside MappingPage component, replace the existing handleMapConcepts function with this one ...
+
   // Backend integration
   const handleMapConcepts = async () => {
     if (!sourceCohort || selectedTargets.length === 0) {
@@ -85,10 +174,31 @@ export default function MappingPage() {
     }
     setLoading(true);
     setError(null);
-    setMappingOutput('');
+    setMappingOutput(null);
+    setCacheInfo(null);
+    
     try {
       // Send as [cohortId, false] for each selected target
       const target_studies = selectedTargets.map((cohortId: string) => [cohortId, false]);
+      
+      // First, check cache status immediately
+      const cacheResponse = await fetch(`${apiUrl}/api/check-mapping-cache`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          source_study: sourceCohort,
+          target_studies,
+        }),
+      });
+      
+      if (cacheResponse.ok) {
+        const cacheData = await cacheResponse.json();
+        setCacheInfo(cacheData);
+      }
+      
+      // Then proceed with mapping generation
       const response = await fetch(`${apiUrl}/api/generate-mapping`, {
         method: 'POST',
         headers: {
@@ -102,7 +212,6 @@ export default function MappingPage() {
       if (!response.ok) {
         const result = await response.json();
         let errorMsg = result.detail || result.error || 'Failed to generate mapping';
-        // Custom error message for missing cohort metadata
         if (
           response.status === 404 &&
           typeof errorMsg === 'string' &&
@@ -113,19 +222,40 @@ export default function MappingPage() {
         }
         throw new Error(errorMsg);
       }
-      const blob = await response.blob();
+      // Parse the JSON response
+      const responseData = await response.json();
+      
+      // Cache info is already set from the initial cache check
+      // No need to update it again from the response
+
+      // Get file content and filename
+      const fileContent = responseData.file_content;
+      const filename = responseData.filename || `mapping_${sourceCohort}_to_${selectedTargets.join('_')}.json`;
+
+      // The backend may incorrectly return NaN, which is not valid JSON.
+      // Replace all instances of NaN with null before parsing.
+      const cleanedFileContent = fileContent.replace(/NaN/g, 'null');
+
+      // Handle download by creating a blob from the cleaned file content
+      const blob = new Blob([cleanedFileContent], { type: 'application/json' });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      const targetsString = [...selectedTargets].sort().join('__');
-      a.download = `mapping_${sourceCohort}_to_${targetsString}.csv`;
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      // Preview
-      const text = await blob.text();
-      setMappingOutput(text);
       window.URL.revokeObjectURL(url);
+
+      // Handle preview by parsing the cleaned file content
+      try {
+        const jsonData = JSON.parse(cleanedFileContent);
+        const previewData = transformMappingDataForPreview(jsonData);
+        setMappingOutput(previewData);
+      } catch (error) {
+        console.error('Error parsing JSON response for preview:', error);
+        setMappingOutput([]); // Clear the preview on error
+      }
     } catch (err: any) {
       setError(
         typeof err.message === 'string' && err.message.endsWith("metadata has not been added yet!")
@@ -220,25 +350,264 @@ export default function MappingPage() {
           </div>
         </div>
 
-        <div className="flex justify-center mt-6">
-          <button 
+        <div className="text-center" ref={mapButtonRef}>
+          <button
             className="btn btn-primary"
             onClick={handleMapConcepts}
             disabled={!sourceCohort || selectedTargets.length === 0 || loading}
           >
-            {loading ? 'Mapping... (may take several minutes)' : 'Map Concepts & Download File'}
+{loading 
+              ? (cacheInfo && cacheInfo.uncached_pairs.length > 0 
+                  ? 'Mapping... (will take several minutes)' 
+                  : 'Mapping...')
+              : 'Map Concepts & Download File'
+            }
           </button>
         </div>
+
+        {/* Cache Information Display */}
+        {cacheInfo && (
+          <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+            <h4 className="font-semibold mb-2">Cache Status:</h4>
+            
+            
+            {/* Up-to-date cached pairs */}
+            {cacheInfo.cached_pairs.length > 0 && (
+              <div className="mb-2">
+                <span className="text-green-600 font-medium">Cached pairs (up to date):</span>
+                <ul className="ml-4 mt-1">
+                  {cacheInfo.cached_pairs.map((pair, index) => (
+                    <li key={index} className="text-sm">
+                      {pair.source} → {pair.target} 
+                      <span className="text-gray-500 ml-2">
+                        (cached {new Date(pair.timestamp * 1000).toLocaleDateString('de-DE')})
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            
+            {/* Outdated cached pairs */}
+            {cacheInfo.outdated_pairs && cacheInfo.outdated_pairs.length > 0 && (
+              <div className="mb-2">
+                <span className="text-orange-600 font-medium">Outdated cached pairs:</span>
+                <ul className="ml-4 mt-1">
+                  {cacheInfo.outdated_pairs.map((pair, index) => (
+                    <li key={index} className="text-sm">
+                      {pair.source} → {pair.target} 
+                      <span className="text-gray-500 ml-2">
+                        (cached {new Date(pair.timestamp * 1000).toLocaleDateString('de-DE')})
+                      </span>
+                      <br />
+                      <span className="text-orange-600 text-xs ml-2">
+                        ⚠️ Cached mapping is out of date. There is an updated dictionary for cohort {pair.outdated_cohort}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            
+            {/* New mappings */}
+            {cacheInfo.uncached_pairs.length > 0 && (
+              <div className="mb-2">
+                <span className="text-blue-600 font-medium">New mappings:</span>
+                <ul className="ml-4 mt-1">
+                  {cacheInfo.uncached_pairs.map((pair, index) => (
+                    <li key={index} className="text-sm">
+                      {pair.source} → {pair.target}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            
+            {/* Summary message */}
+            {(cacheInfo.uncached_pairs.length > 0 || (cacheInfo.outdated_pairs && cacheInfo.outdated_pairs.length > 0)) ? (
+              <div className="mt-3 p-2 bg-blue-100 rounded text-sm text-blue-800">
+                ⏳ Uncached and outdated mappings will be computed. This may take up to 15 minutes. If this page crashes, please revisit in 15-20 minutes when computed mappings are likely to be ready
+              </div>
+            ) : (
+              cacheInfo.cached_pairs.length > 0 && (
+                <div className="mt-3 p-2 bg-green-100 rounded text-sm text-green-800">
+                  ✅ All cached mappings are up to date with the latest dictionaries
+                </div>
+              )
+            )}
+            
+            {/* Dictionary timestamps at the bottom */}
+            {Object.keys(cacheInfo.dictionary_timestamps).length > 0 && (
+              <div className="mt-3 pt-3 border-t border-gray-200">
+                <span className="text-gray-700 font-medium">Dictionary dates:</span>
+                <ul className="ml-4 mt-1">
+                  {Object.entries(cacheInfo.dictionary_timestamps).map(([cohort, timestamp]) => (
+                    <li key={cohort} className="text-sm">
+                      {cohort}: {new Date(timestamp * 1000).toLocaleDateString('de-DE')}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
 
         {error && (
           <div className="mt-4 text-red-500 text-center">{error}</div>
         )}
 
         {mappingOutput && (
-          <div className="mt-8">
-            <h2 className="text-xl font-semibold mb-4">Mapping Preview</h2>
-            <div className="bg-base-100 p-4 rounded-lg shadow overflow-x-auto">
-              <MappingPreviewTable csvText={mappingOutput} maxRows={10} />
+          <div 
+            ref={mappingOutputRef}
+            className="mt-4 p-4 border rounded-lg bg-base-100 w-full max-w-7xl mx-auto"
+          >
+            <h2 className="text-lg font-bold mb-3">Mapping Preview</h2>
+            
+            {/* Filter Controls - Moved to top */}
+            <div className="flex justify-end mb-4">
+              <div className="bg-gray-50 border rounded-lg p-4 w-full max-w-2xl">
+                <h4 className="font-semibold text-sm mb-3">Filters</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  {/* Mapping Type Filter */}
+                  <div>
+                    <h5 className="font-medium text-xs mb-2">mapping_type</h5>
+                    <div className="space-y-1 max-h-32 overflow-y-auto text-xs">
+                      {(() => {
+                        const mappingTypeCounts = mappingOutput.reduce((acc, row) => {
+                          const value = (row.mapping_type?.toString() || '--');
+                          const currentCount = acc[value] as number || 0;
+                          acc[value] = currentCount + 1;
+                          return acc;
+                        }, {} as Record<string, number>);
+                        
+                        return Object.entries(mappingTypeCounts).map(([value, count]) => (
+                          <div key={value} className="flex items-center gap-2">
+                            <input 
+                              type="checkbox" 
+                              className="checkbox checkbox-xs" 
+                              id={`mapping-${value}`}
+                              checked={selectedMappingTypes.includes(value)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedMappingTypes(prev => [...prev, value]);
+                                } else {
+                                  setSelectedMappingTypes(prev => prev.filter(v => v !== value));
+                                }
+                              }}
+                            />
+                            <label htmlFor={`mapping-${value}`} className="cursor-pointer truncate">
+                              {value} ({count})
+                            </label>
+                          </div>
+                        ));
+                      })()}
+                    </div>
+                  </div>
+
+                  {/* Harmonization Status Filter */}
+                  <div>
+                    <h5 className="font-medium text-xs mb-2">harmonization_status</h5>
+                    <div className="space-y-1 max-h-32 overflow-y-auto text-xs">
+                      {(() => {
+                        const statusCounts = mappingOutput.reduce((acc, row) => {
+                          const value = (row.harmonization_status?.toString() || '--');
+                          const currentCount = acc[value] as number || 0;
+                          acc[value] = currentCount + 1;
+                          return acc;
+                        }, {} as Record<string, number>);
+                        
+                        return Object.entries(statusCounts).map(([value, count]) => (
+                          <div key={value} className="flex items-center gap-2">
+                            <input 
+                              type="checkbox" 
+                              className="checkbox checkbox-xs" 
+                              id={`status-${value}`}
+                              checked={selectedHarmonizationStatuses.includes(value)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedHarmonizationStatuses(prev => [...prev, value]);
+                                } else {
+                                  setSelectedHarmonizationStatuses(prev => prev.filter(v => v !== value));
+                                }
+                              }}
+                            />
+                            <label htmlFor={`status-${value}`} className="cursor-pointer truncate">
+                              {value} ({count})
+                            </label>
+                          </div>
+                        ));
+                      })()}
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Clear Filters Button */}
+                {(selectedMappingTypes.length > 0 || selectedHarmonizationStatuses.length > 0) && (
+                  <button
+                    className="btn btn-xs btn-outline mt-3 w-full"
+                    onClick={() => {
+                      setSelectedMappingTypes([]);
+                      setSelectedHarmonizationStatuses([]);
+                    }}
+                  >
+                    Clear Filters
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Row count and target info */}
+            {(() => {
+              // Filter the data based on selected filters
+              const filteredData = mappingOutput.filter(row => {
+                const mappingType = (row.mapping_type?.toString() || '--');
+                const harmonizationStatus = (row.harmonization_status?.toString() || '--');
+                
+                const mappingTypeMatch = selectedMappingTypes.length === 0 || selectedMappingTypes.includes(mappingType);
+                const harmonizationStatusMatch = selectedHarmonizationStatuses.length === 0 || selectedHarmonizationStatuses.includes(harmonizationStatus);
+                
+                return mappingTypeMatch && harmonizationStatusMatch;
+              });
+
+              return (
+                <div className="text-xs text-gray-500 mb-3">
+                  <p>{filteredData.length} rows {filteredData.length !== mappingOutput.length && `(filtered from ${mappingOutput.length})`}</p>
+                  {(() => {
+                    // Calculate mappings per target cohort for filtered data
+                    const targetCounts: Record<string, number> = {};
+                    filteredData.forEach(row => {
+                      const targetStudy = row.target_study as string;
+                      if (targetStudy) {
+                        targetCounts[targetStudy] = (targetCounts[targetStudy] || 0) + 1;
+                      }
+                    });
+                    return (
+                      <p>
+                        Mappings per target: {Object.entries(targetCounts)
+                          .map(([target, count]) => `${target} (${count})`)
+                          .join(', ')}
+                      </p>
+                    );
+                  })()}
+                </div>
+              );
+            })()}
+
+            <div className="overflow-x-auto">
+              {(() => {
+                // Calculate filtered data for the table
+                const filteredData = mappingOutput.filter(row => {
+                  const mappingType = (row.mapping_type?.toString() || '--');
+                  const harmonizationStatus = (row.harmonization_status?.toString() || '--');
+                  
+                  const mappingTypeMatch = selectedMappingTypes.length === 0 || selectedMappingTypes.includes(mappingType);
+                  const harmonizationStatusMatch = selectedHarmonizationStatuses.length === 0 || selectedHarmonizationStatuses.includes(harmonizationStatus);
+                  
+                  return mappingTypeMatch && harmonizationStatusMatch;
+                });
+                
+                return <MappingPreviewJsonTable data={filteredData} />;
+              })()}
             </div>
           </div>
         )}

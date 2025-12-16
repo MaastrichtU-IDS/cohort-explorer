@@ -229,6 +229,9 @@ def extract_tick_values(texts: str) -> list[float]:
     """
     ticks = []
     # Split the string at the separators used by the user (" - ")
+    if texts is None:
+        return ticks
+        
     for token in texts.split(" - "):
         # Regex captures the *label* part (text between the final pair of quotes)
         m = re.search(r"Text\([^,]+,\s*[^,]+,\s*'([^']+)'\)", token)
@@ -1119,7 +1122,6 @@ def get_member_studies(study_name: str) -> URIRef | None:
 #     #     return "Transform categorical to continuous (acceptable loss, RQ dependent)"
 
 #     return "Transformation rule not defined"
-
 
 
 

@@ -33,6 +33,16 @@ services:
     extends:
       file: docker-compose.base.yml
       service: db
+    ports:
+      - "7878:7878"
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          memory: 2G
+          cpus: '1.0'
 
   qdrant:
     image: qdrant/qdrant:v1.9.1
