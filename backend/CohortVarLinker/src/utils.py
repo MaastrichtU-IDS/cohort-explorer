@@ -643,13 +643,16 @@ def apply_rules(domain, mapping_relation, src_info, tgt_info):
     
     # --- qualitative vs categorical/continuous
     elif (src_type in {"binary_class_variable", "multi_class_variable"} and tgt_type == "qualitative_variable"):
-        return finalize({"description": "Map structured categorical codes to consistent text labels; normalize values."}, "Partial Match (Tentative)", src_info, tgt_info, mapping_relation)
+        return finalize({"description": "Map structured categorical codes to consistent text labels; normalize values."}, "Partial Match (Proximate)", src_info, tgt_info, mapping_relation)
     
     elif (src_type == "qualitative_variable" and tgt_type in {"binary_class_variable", "multi_class_variable"}):
-        return finalize({"description": "Normalize qualitative text to standard categories; encode to labels/codes."}, "Partial Match (Tentative)", src_info, tgt_info, mapping_relation)
+        return finalize({"description": "Normalize qualitative text to standard categories; encode to labels/codes."}, "Partial Match (Proximate)", src_info, tgt_info, mapping_relation)
     
     elif ((src_type == "qualitative_variable" and tgt_type == "continuous_variable") or (src_type == "continuous_variable" and tgt_type == "qualitative_variable")):
-        return finalize({"description": "Map qualitative text to binary indicators only if values are consistently structured."}, "Partial Match (Tentative)", src_info, tgt_info,mapping_relation)
+        if domain in {"person"} or (not src_unit and not tgt_unit):
+            return finalize({"description": "A qualitative variable and a continuous variable can be merged if underlying semantics align."}, "Partial Match (Proximate)", src_info, tgt_info,mapping_relation)
+        else:
+            return finalize({"description": "Merging qualitative and continuous variables requires strong justification of information loss."}, "Partial Match (Tentative)", src_info, tgt_info, mapping_relation)
 
     return finalize({"description": "No specific transformation rule available."}, "Not Applicable", src_info, tgt_info, mapping_relation)
 
