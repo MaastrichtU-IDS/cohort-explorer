@@ -7,7 +7,7 @@ import os
 import glob
 import time
 import json
-from CohortVarLinker.src.variables_kg import process_variables_metadata_file, add_raw_data_graph
+from CohortVarLinker.src.variables_kg import process_variables_metadata_file
 from CohortVarLinker.src.study_kg import generate_studies_kg
 from CohortVarLinker.src.vector_db import generate_studies_embeddings
 from CohortVarLinker.src.utils import (
