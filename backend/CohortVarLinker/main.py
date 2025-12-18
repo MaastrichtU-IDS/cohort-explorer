@@ -7,17 +7,18 @@ import os
 import glob
 import time
 import json
-from CohortVarLinker.src.variables_kg import process_variables_metadata_file, add_raw_data_graph
+from CohortVarLinker.src.variables_kg import process_variables_metadata_file
 from CohortVarLinker.src.study_kg import generate_studies_kg
-from CohortVarLinker.src.vector_db import generate_studies_embeddings, search_in_db
+from CohortVarLinker.src.vector_db import generate_studies_embeddings
 from CohortVarLinker.src.utils import (
         get_cohort_mapping_uri,
         delete_existing_triples,
         publish_graph_to_endpoint,
         OntologyNamespaces,
+        get_member_studies
     
     )
-     
+from CohortVarLinker.src.modes import MappingType, EmbeddingType 
 from CohortVarLinker.src.omop_graph import OmopGraphNX
 
 
@@ -486,7 +487,8 @@ def generate_mapping_csv(
     data_dir=None,
     cohort_file_path=None,
     cohorts_metadata_file=None,
-    output_dir=None
+    output_dir=None,
+    select_relevant_studies =True
 ):
     """
     Generate mapping CSV files for a source study and a list of target studies.
@@ -511,6 +513,10 @@ def generate_mapping_csv(
     # Robust check: ensure all selected cohorts exist
    
     missing_cohorts = []
+    model_name = "sapbert"
+    embedding_mode = EmbeddingType.EC.value  # embedding_concepts
+    mapping_mode = MappingType.OEC.value # ontology + embedding_concepts
+    # select_relevant_studies = True
     for cohort_id in [source_study] + [t[0] for t in target_studies]:
         cohort_dir = os.path.join(cohort_file_path, cohort_id)
         if not os.path.exists(cohort_dir):
@@ -536,6 +542,17 @@ def generate_mapping_csv(
 
     source_study = source_study.lower()
     target_studies = [t[0].lower() for t in target_studies]
+    
+    # add sub-studies if select_relevant_studies is True
+    new_studies= []
+    if select_relevant_studies:
+        for tstudy in target_studies:
+            member_studies = get_member_studies(tstudy)
+            print(f"Member studies for {tstudy}: {member_studies}")
+            new_studies.extend(member_studies)
+        target_studies.extend(new_studies)
+    # Check if all requested mappings already exist... 
+    # Komal's comment: i dont think we should have this logic (330-342 please comment it out) here because in case of multiple target studies, we should check in next computations if mapping exist add it in the list and check next. when all available then we group by omop_id
 
     # Check cache status for each mapping pair and collect info
     cached_pairs = []
@@ -587,7 +604,14 @@ def generate_mapping_csv(
     
     mapping_dict = {}  # {target_study: {source_var: (target_var, target_omop_id)}}
     # Use 'qdrant' as the host when running in Docker Compose
-    vector_db, embedding_model = generate_studies_embeddings(cohort_file_path, "qdrant", "studies_metadata", recreate_db=True)
+    
+ 
+
+    print(f"Final target studies: {target_studies}")
+    # min_score_list = [0.5,0.6,0.65,0.7, 0.75, 0.8, 0.85, 0.9]
+    # vector_db, embedding_model = generate_studies_embeddings(cohort_file_path, "qdrant", f"studies_metadata_{model_name}", model_name=model_name, recreate_db=True)
+    vector_db, embedding_model = generate_studies_embeddings(cohort_file_path, "qdrant", f"studies_metadata_{model_name}_{embedding_mode}", model_name=model_name, embedding_mode=embedding_mode, recreate_db=True)
+
     graph = OmopGraphNX(csv_file_path=settings.concepts_file_path)
     for tstudy in target_studies:
         out_filename = f'{source_study}_{tstudy}_cross_mapping.csv'
@@ -600,7 +624,7 @@ def generate_mapping_csv(
             target_study_name=tstudy,
             embedding_model=embedding_model,
             vector_db=vector_db,
-            collection_name="studies_metadata",
+            collection_name=f"studies_metadata_{model_name}",
             graph=graph,
         ) # if empty it will return empty DataFrame with header not None
     
@@ -618,48 +642,9 @@ def generate_mapping_csv(
     combine_all_mappings_to_json(
         source_study=source_study,
         target_studies=target_studies,
-        output_dir= "/app/CohortVarLinker/mapping_output/",
-        json_path= f"/app/CohortVarLinker/mapping_output/{source_study}_omop_id_grouped_{tstudy_str}.json")
-    
-    return cache_info
-    #         if tstudy not in mapping_dict:
-    #             mapping_dict[tstudy] = {}
-    #         for _, row in mapping_transformed.iterrows():
-    #                 src = str(row["source"]).strip()
-    #                 tgt = str(row["target"]).strip()
-    #                 somop = str(row["somop_id"]).strip()
-    #                 tomop = str(row["tomop_id"]).strip()
-    #                 slabel = str(row.get("slabel", "")).strip()
-    #                 if src not in omop_id_tracker:
-    #                     omop_id_tracker[src] = (somop, slabel)
-    #                 mapping_dict[tstudy][src] = (tgt, tomop)
-
-
-    # # 1. Group TIME-CHF source variables by OMOP ID
-    # omop_to_source_vars = defaultdict(list)
-    # for src_var, (somop_id, slabel) in omop_id_tracker.items():
-    #     omop_to_source_vars[somop_id].append(src_var)
-
-    # matched_rows = []
-
-    # # 2. For each OMOP ID, build a row: all TIME-CHF vars and all target study matches
-    # for _, src_vars in omop_to_source_vars.items():
-    #     row = {}
-    #     row[source_study] = ' | '.join(sorted(set(src_vars)))
-    #     for tstudy in target_studies:
-    #         targets = []
-    #         tdict = mapping_dict.get(tstudy, {})
-    #         for src_var in src_vars:
-    #             tgt_pair = tdict.get(src_var)
-    #             if tgt_pair:
-    #                 targets.append(tgt_pair[0])
-    #         row[tstudy] = ' | '.join(sorted(set(targets))) if targets else ''
-    #     matched_rows.append(row)
-
-    # # 3. Save the DataFrame
-    # final_df = pd.DataFrame(matched_rows)
-    # output_path = f'{data_dir}/output/{source_study}_omop_id_grouped_all_targets.csv'  #anas please update it accordingly
-    # final_df.to_csv(output_path, index=False) # merged output file with all targets where studies names are columns and source variables are grouped by omop_id
-    # print(f"✅ Matched variables (grouped by source OMOP ID) saved to: {output_path}")  
+        output_dir=f"/Users/komalgilani/Documents/GitHub/CohortVarLinker/data/output/cross_mapping/{model_name}",
+        json_path=os.path.join(f"/Users/komalgilani/Documents/GitHub/CohortVarLinker/data/output/cross_mapping/{model_name}", f"{source_study}_{tstudy_str}_{model_name}_{mapping_mode}.json"),
+        model_name=f"{model_name}_{mapping_mode}"
+    )
     
     
