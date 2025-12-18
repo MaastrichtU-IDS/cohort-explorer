@@ -249,11 +249,84 @@ def parse_categorical_string(s: str) -> list[dict[str, str]]:
         )
     return result
 
-cols_normalized = {"VARIABLE NAME": "VARIABLENAME", 
-                   "VARIABLE LABEL": "VARIABLELABEL",
-                   "VAR TYPE": "VARTYPE"}
+cols_normalized = {
+    "variable name": "VARIABLENAME",
+    "variable label": "VARIABLELABEL", 
+    "var type": "VARTYPE",
+    "units": "UNITS",
+    "categorical": "CATEGORICAL",
+    "missing": "MISSING",
+    "count": "COUNT",
+    "na": "NA",
+    "min": "MIN",
+    "max": "MAX",
+    "formula": "Formula",
+    "categoricalvalueconceptcode": "Categorical Value Concept Code",
+    "categorical value concept code": "Categorical Value Concept Code",
+    "categoricalvaluename": "Categorical Value Name",
+    "categorical value name": "Categorical Value Name",
+    "categoricalvalueomopid": "Categorical Value OMOP ID",
+    "categorical value omop id": "Categorical Value OMOP ID",
+    "variableconceptcode": "Variable Concept Code",
+    "variable concept code": "Variable Concept Code",
+    "variableconceptname": "Variable Concept Name",
+    "variable concept name": "Variable Concept Name",
+    "variableomopid": "Variable OMOP ID",
+    "variable omop id": "Variable OMOP ID",
+    "additionalcontextconceptname": "Additional Context Concept Name",
+    "additional context concept name": "Additional Context Concept Name",
+    "additionalcontextconceptcode": "Additional Context Concept Code",
+    "additional context concept code": "Additional Context Concept Code",
+    "additionalcontextomopid": "Additional Context OMOP ID",
+    "additional context omop id": "Additional Context OMOP ID",
+    "unitconceptname": "Unit Concept Name",
+    "unit concept name": "Unit Concept Name",
+    "unitconceptcode": "Unit Concept Code",
+    "unit concept code": "Unit Concept Code",
+    "unitomopid": "Unit OMOP ID",
+    "unit omop id": "Unit OMOP ID",
+    "domain": "Domain",
+    "visits": "Visits",
+    "visitomopid": "Visit OMOP ID",
+    "visit omop id": "Visit OMOP ID",
+    "visitconceptname": "Visit Concept Name",
+    "visit concept name": "Visit Concept Name",
+    "visitconceptcode": "Visit Concept Code",
+    "visit concept code": "Visit Concept Code"
+}
 
 ACCEPTED_DATATYPES = ["STR", "FLOAT", "INT", "DATETIME"]
+
+def normalize_csv_header(file_content: str) -> str:
+    """Normalize CSV header column names using the cols_normalized mapping.
+    
+    Args:
+        file_content: Raw CSV file content as string
+        
+    Returns:
+        CSV content with normalized header line
+    """
+    lines = file_content.splitlines()
+    
+    if not lines:
+        return file_content
+    
+    # Normalize column names in header (first line)
+    header_columns = lines[0].split(',')
+    normalized_columns = []
+    
+    for col in header_columns:
+        # Strip whitespace and convert to lowercase for lookup
+        col_clean = col.strip()
+        col_lower = col_clean.lower()
+        # Look up in normalization dictionary, fallback to original
+        normalized_col = cols_normalized.get(col_lower, col_clean)
+        normalized_columns.append(normalized_col)
+    
+    # Replace header with normalized version
+    lines[0] = ','.join(normalized_columns)
+    
+    return '\n'.join(lines)
 
 def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
     """Validate a metadata dictionary DataFrame and return a list of error messages.
@@ -614,10 +687,19 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
             if required_col_name not in df.columns:
                 missing_columns.append(required_col_name)
         
-        # If critical columns are missing, further processing is unreliable or will cause crashes.
-        # Report all errors found so far (which will include all missing column messages) and stop.
+        # Check for extra columns not in the approved list
+        extra_columns = []
+        for col_name in df.columns:
+            if col_name not in critical_column_names_for_processing:
+                extra_columns.append(col_name)
+        
+        # If critical columns are missing or extra columns exist, reject the upload
         if len(missing_columns) > 0:
             errors.append(f"Missing required columns: {', '.join(missing_columns)}")
+        if len(extra_columns) > 0:
+            errors.append(f"Unexpected columns found (not in approved list): {', '.join(extra_columns)}")
+        
+        if len(missing_columns) > 0 or len(extra_columns) > 0:
             if source == "upload_dict":
                 raise HTTPException(status_code=422, detail="\n\n".join(errors))
 
@@ -791,6 +873,152 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
 
 
 @router.post(
+    "/normalize-all-dictionary-headers",
+    name="Normalize all cohort dictionary headers",
+    response_description="Normalization report file",
+)
+async def normalize_all_dictionary_headers(
+    user: Any = Depends(get_current_user),
+):
+    """Normalize column headers for all existing cohort dictionaries.
+    
+    This endpoint:
+    - Finds the latest dictionary file for each cohort
+    - Records the original header
+    - Applies column name normalization
+    - Saves the normalized CSV
+    - Generates a report of changes made
+    
+    Admins only.
+    """
+    user_email = user["email"]
+    if user_email not in settings.admins_list:
+        raise HTTPException(status_code=403, detail="You need to be admin to perform this action.")
+    
+    from fastapi.responses import FileResponse
+    from src.cohort_cache import get_cohorts_from_cache
+    
+    # Generate timestamp for filename
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    report_file = os.path.join(settings.data_folder, f"header_normalization_report_{timestamp}.txt")
+    
+    # Initialize the report file
+    with open(report_file, "w") as f:
+        f.write(f"Dictionary Header Normalization Report - Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"Performed by: {user_email}\n")
+        f.write("=" * 80 + "\n\n")
+    
+    # Get all cohorts
+    all_cohorts = get_cohorts_from_cache(user_email)
+    
+    total_cohorts = 0
+    cohorts_normalized = 0
+    cohorts_no_change = 0
+    cohorts_without_dict = 0
+    
+    for cohort_id in sorted(all_cohorts.keys()):
+        total_cohorts += 1
+        cohort_folder_path = os.path.join(settings.cohort_folder, cohort_id)
+        
+        if not os.path.exists(cohort_folder_path):
+            cohorts_without_dict += 1
+            continue
+        
+        # Get the latest metadata dictionary file
+        latest_dict_file = get_latest_datadictionary(cohort_folder_path)
+        
+        if not latest_dict_file:
+            cohorts_without_dict += 1
+            with open(report_file, "a") as f:
+                f.write(f"COHORT: {cohort_id}\n")
+                f.write(f"Status: No metadata dictionary file found\n")
+                f.write(f"Folder: {cohort_folder_path}\n")
+                f.write("-" * 80 + "\n\n")
+            continue
+        
+        # Read the file
+        try:
+            with open(latest_dict_file, "r", encoding='utf-8') as f:
+                file_content = f.read()
+            
+            # Record original header
+            original_header = file_content.splitlines()[0] if file_content.splitlines() else ""
+            
+            # Apply normalization
+            normalized_content = normalize_csv_header(file_content)
+            
+            # Get normalized header
+            normalized_header = normalized_content.splitlines()[0] if normalized_content.splitlines() else ""
+            
+            # Check if anything changed
+            if original_header == normalized_header:
+                cohorts_no_change += 1
+                with open(report_file, "a") as f:
+                    f.write(f"COHORT: {cohort_id}\n")
+                    f.write(f"File: {os.path.basename(latest_dict_file)}\n")
+                    f.write(f"Status: No changes needed\n")
+                    f.write(f"Header: {original_header}\n")
+                    f.write("-" * 80 + "\n\n")
+            else:
+                cohorts_normalized += 1
+                
+                # Save the normalized file
+                with open(latest_dict_file, "w", encoding='utf-8') as f:
+                    f.write(normalized_content)
+                
+                # Record changes in report
+                with open(report_file, "a") as f:
+                    f.write(f"COHORT: {cohort_id}\n")
+                    f.write(f"File: {os.path.basename(latest_dict_file)}\n")
+                    f.write(f"Status: Headers normalized\n")
+                    f.write(f"Original header:\n  {original_header}\n")
+                    f.write(f"Normalized header:\n  {normalized_header}\n")
+                    
+                    # Show column-by-column changes
+                    original_cols = [c.strip() for c in original_header.split(',')]
+                    normalized_cols = [c.strip() for c in normalized_header.split(',')]
+                    
+                    changes = []
+                    for i, (orig, norm) in enumerate(zip(original_cols, normalized_cols)):
+                        if orig != norm:
+                            changes.append(f"  Column {i+1}: '{orig}' → '{norm}'")
+                    
+                    if changes:
+                        f.write(f"Changes:\n")
+                        f.write('\n'.join(changes) + '\n')
+                    
+                    f.write("-" * 80 + "\n\n")
+                
+                logging.info(f"Normalized headers for cohort {cohort_id}: {os.path.basename(latest_dict_file)}")
+        
+        except Exception as e:
+            logging.error(f"Error normalizing headers for cohort {cohort_id}: {str(e)}", exc_info=True)
+            with open(report_file, "a") as f:
+                f.write(f"COHORT: {cohort_id}\n")
+                f.write(f"File: {os.path.basename(latest_dict_file)}\n")
+                f.write(f"Status: ERROR - {str(e)}\n")
+                f.write("-" * 80 + "\n\n")
+    
+    # Write summary
+    with open(report_file, "a") as f:
+        f.write("\n" + "=" * 80 + "\n")
+        f.write("SUMMARY\n")
+        f.write("=" * 80 + "\n")
+        f.write(f"Total cohorts processed: {total_cohorts}\n")
+        f.write(f"Cohorts with normalized headers: {cohorts_normalized}\n")
+        f.write(f"Cohorts with no changes needed: {cohorts_no_change}\n")
+        f.write(f"Cohorts without dictionary files: {cohorts_without_dict}\n")
+    
+    logging.info(f"Header normalization completed. Report: {report_file}")
+    
+    return FileResponse(
+        path=report_file,
+        filename=f"header_normalization_report_{timestamp}.txt",
+        media_type="text/plain"
+    )
+
+
+@router.post(
     "/generate-metadata-issues-report",
     name="Generate metadata issues report",
     response_description="Metadata issues report file",
@@ -862,10 +1090,15 @@ async def generate_metadata_issues_report():
             critical_column_names = [c.name.upper().strip() for c in metadatadict_cols_schema1]
             missing_columns = [col for col in critical_column_names if col not in df.columns]
             
+            # Check for extra columns not in the approved list
+            extra_columns = [col for col in df.columns if col not in critical_column_names]
+            
             # Collect validation errors
             errors = []
             if missing_columns:
                 errors.append(f"Missing required columns: {', '.join(missing_columns)}")
+            if extra_columns:
+                errors.append(f"Unexpected columns found (not in approved list): {', '.join(extra_columns)}")
             
             # Parse categories for validation
             try:
@@ -1114,10 +1347,19 @@ async def upload_cohort(
     if not filename.endswith("_datadictionary"):
         filename += "_datadictionary"
 
-    # Store metadata file on disk in the cohorts folder
+    # Store metadata file on disk in the cohorts folder with normalized headers
     metadata_path = os.path.join(cohort_info.folder_path, filename + ext)
-    with open(metadata_path, "wb") as buffer:
-        shutil.copyfileobj(cohort_dictionary.file, buffer)
+    
+    # Read the uploaded file content and normalize just the header line
+    cohort_dictionary.file.seek(0)
+    file_content = cohort_dictionary.file.read().decode('utf-8')
+    
+    # Normalize the header using the isolated function
+    normalized_content = normalize_csv_header(file_content)
+    
+    # Write the file with normalized header
+    with open(metadata_path, "w", encoding='utf-8') as f:
+        f.write(normalized_content)
 
     try:
         g = load_cohort_dict_file(metadata_path, cohort_id, source="upload_dict", user_email=user_email, filename=metadata_filename)
