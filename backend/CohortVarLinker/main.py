@@ -643,8 +643,7 @@ def generate_mapping_csv(
         source_study=source_study,
         target_studies=target_studies,
         output_dir=f"/Users/komalgilani/Documents/GitHub/CohortVarLinker/data/output/cross_mapping/{model_name}",
-        json_path=os.path.join(f"/Users/komalgilani/Documents/GitHub/CohortVarLinker/data/output/cross_mapping/{model_name}", f"{source_study}_{tstudy_str}_{model_name}_{mapping_mode}.json"),
-        model_name=f"{model_name}_{mapping_mode}"
-    )
+        json_path=os.path.join(f"/Users/komalgilani/Documents/GitHub/CohortVarLinker/data/output/cross_mapping/{model_name}", f"{source_study}_{tstudy_str}_{model_name}_{mapping_mode}.json"))
+       # model_name=f"{model_name}_{mapping_mode}"
     
     
