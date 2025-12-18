@@ -590,8 +590,8 @@ def generate_mapping_csv(
         combine_all_mappings_to_json(
                 source_study=source_study,
                 target_studies=target_studies,
-                output_dir= "/app/CohortVarLinker/mapping_output/",
-                json_path= f"/app/CohortVarLinker/mapping_output/{source_study}_omop_id_grouped_{tstudy_str}.json")
+                output_dir=output_dir,
+                json_path=os.path.join(output_dir, f"{source_study}_omop_id_grouped_{tstudy_str}.json"))
         
         return cache_info
             
@@ -642,8 +642,7 @@ def generate_mapping_csv(
     combine_all_mappings_to_json(
         source_study=source_study,
         target_studies=target_studies,
-        output_dir=f"/Users/komalgilani/Documents/GitHub/CohortVarLinker/data/output/cross_mapping/{model_name}",
-        json_path=os.path.join(f"/Users/komalgilani/Documents/GitHub/CohortVarLinker/data/output/cross_mapping/{model_name}", f"{source_study}_{tstudy_str}_{model_name}_{mapping_mode}.json"))
-       # model_name=f"{model_name}_{mapping_mode}"
+        output_dir=output_dir,
+        json_path=os.path.join(output_dir, f"{source_study}_{tstudy_str}_{model_name}_{mapping_mode}.json"))
     
     
