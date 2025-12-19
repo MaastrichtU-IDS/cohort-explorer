@@ -25,6 +25,7 @@ from src.config import settings
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../CohortVarLinker')))
 from CohortVarLinker.main import generate_mapping_csv
 from CohortVarLinker.src.config import settings as cohort_linker_settings
+from CohortVarLinker.src.utils import get_member_studies
 
 def get_latest_dictionary_timestamp(cohort_id: str) -> float | None:
     """Get the timestamp of the latest data dictionary file for a cohort"""
@@ -60,6 +61,14 @@ async def check_mapping_cache(
     
     source_study = source_study.lower()
     target_studies_names = [t[0].lower() for t in target_studies]
+    
+    # Add member studies (replicate the same logic as in generate_mapping_csv)
+    new_studies = []
+    for tstudy in target_studies_names:
+        member_studies = get_member_studies(tstudy)
+        if member_studies:
+            new_studies.extend(member_studies)
+    target_studies_names.extend(new_studies)
     
     # Get dictionary timestamps for all involved cohorts
     all_cohorts = set([source_study] + target_studies_names)
