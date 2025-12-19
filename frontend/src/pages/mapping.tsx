@@ -543,7 +543,7 @@ export default function MappingPage() {
         {mappingOutput && (
           <div 
             ref={mappingOutputRef}
-            className="mt-4 p-4 border rounded-lg bg-base-100 w-full max-w-7xl mx-auto"
+            className="mt-4 p-4 border rounded-lg bg-base-100 w-full max-w-[110rem] mx-auto"
           >
             <h2 className="text-lg font-bold mb-3">Mapping Preview</h2>
             
