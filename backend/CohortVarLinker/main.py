@@ -535,7 +535,7 @@ def generate_mapping_csv(
     if cohorts_metadata_file is None:
         cohorts_metadata_file = f"{data_dir}/queries/cohort_metadata_sheet.csv"
     if output_dir is None:
-        output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'mapping_output')
+        output_dir = settings.output_dir
     os.makedirs(output_dir, exist_ok=True)
 
     print(f"Checking for cached or ready mapping files in directory: {os.path.abspath(output_dir)}")
