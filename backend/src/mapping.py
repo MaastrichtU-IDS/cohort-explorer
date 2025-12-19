@@ -21,9 +21,10 @@ import json
 import glob
 from src.config import settings
 
-# Import the CohortVarLinker function
+# Import the CohortVarLinker function and settings
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../CohortVarLinker')))
 from CohortVarLinker.main import generate_mapping_csv
+from CohortVarLinker.src.config import settings as cohort_linker_settings
 
 def get_latest_dictionary_timestamp(cohort_id: str) -> float | None:
     """Get the timestamp of the latest data dictionary file for a cohort"""
@@ -55,7 +56,7 @@ async def check_mapping_cache(
     Check cache status for mapping pairs without generating mappings.
     Returns cache information immediately with dictionary timestamps.
     """
-    output_dir = "/app/CohortVarLinker/mapping_output"
+    output_dir = cohort_linker_settings.output_dir
     
     source_study = source_study.lower()
     target_studies_names = [t[0].lower() for t in target_studies]
@@ -129,13 +130,12 @@ async def generate_mapping(
     target_studies should be a list of [study_name, visit_constraint_bool]
     """
     # Call the backend function
-    # The function writes CSVs to CohortVarLinker/mapping_output/{source}_{target}_full.csv
-    # We'll return the first mapping file (for now, can be extended)
+    # The function writes CSVs to CohortVarLinker/data/mapping_output/{source}_{target}_cross_mapping.csv
+    # We'll return the combined JSON file
     
     target_studies = sorted(target_studies, key=lambda x: x[0])
     cache_info = generate_mapping_csv(source_study, target_studies)
-    #output_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'CohortVarLinker', 'mapping_output')
-    output_dir = "/app/CohortVarLinker/mapping_output"
+    output_dir = cohort_linker_settings.output_dir
     
      # Find the generated file(s)
     source_study = source_study.lower()

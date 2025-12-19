@@ -499,7 +499,7 @@ def generate_mapping_csv(
         data_dir (str, optional): Directory containing data files. Defaults to the 'data' folder inside CohortVarLinker.
         cohort_file_path (str, optional): Path to the cohorts directory. Defaults to settings.cohort_folder.
         cohorts_metadata_file (str, optional): Path to the cohort metadata file. Defaults to f"{data_dir}/cohort_metadata_sheet_v2.csv".
-        output_dir (str, optional): Directory to store output mapping CSVs. Defaults to 'mapping_output' inside CohortVarLinker.
+        output_dir (str, optional): Directory to store output mapping CSVs. Defaults to settings.output_dir (CohortVarLinker/data/mapping_output).
     
     Returns:
         dict: Cache information with 'cached_pairs' and 'uncached_pairs' lists containing pair info and timestamps.
