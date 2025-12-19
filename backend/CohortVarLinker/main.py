@@ -591,7 +591,7 @@ def generate_mapping_csv(
                 source_study=source_study,
                 target_studies=target_studies,
                 output_dir=output_dir,
-                json_path=os.path.join(output_dir, f"{source_study}_omop_id_grouped_{tstudy_str}.json"))
+                json_path=os.path.join(output_dir, f"{source_study}_{tstudy_str}_{model_name}_{mapping_mode}.json"))
         
         return cache_info
             
