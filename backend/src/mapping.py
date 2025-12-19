@@ -152,7 +152,7 @@ async def generate_mapping(
     
     # Use the same naming convention as generate_mapping_csv: {source}_{targets}_{model}_{mode}.json
     model_name = "sapbert"
-    mapping_mode = "ontology_embedding_concepts"
+    mapping_mode = "ontology+embedding(concept)"
     filename = f"{source_study}_{target_str}_{model_name}_{mapping_mode}.json"
     filepath = os.path.join(output_dir, filename)
     if os.path.exists(filepath):
