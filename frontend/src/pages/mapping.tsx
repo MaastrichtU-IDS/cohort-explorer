@@ -55,6 +55,7 @@ interface MappingPreviewJsonTableProps {
 
 function MappingPreviewJsonTable({ data, sourceCohort }: MappingPreviewJsonTableProps) {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [imageError, setImageError] = useState<string | null>(null);
   
   if (!data || !Array.isArray(data) || data.length === 0) return <div className="italic text-slate-400">No mapping data to preview.</div>;
   
@@ -97,8 +98,13 @@ function MappingPreviewJsonTable({ data, sourceCohort }: MappingPreviewJsonTable
                   
                   const handleCompare = () => {
                     if (sourceCohort && sourceVar && targetStudy && targetVar) {
-                      const imageUrl = `${apiUrl}/api/compare-eda/${sourceCohort}/${sourceVar}/${targetStudy}/${targetVar}`;
+                      // Use Next.js API route instead of direct backend call
+                      const imageUrl = `/api/compare-eda/${encodeURIComponent(sourceCohort)}/${encodeURIComponent(sourceVar)}/${encodeURIComponent(targetStudy)}/${encodeURIComponent(targetVar)}`;
+                      console.log('Compare EDA clicked:', { sourceCohort, sourceVar, targetStudy, targetVar, imageUrl });
+                      setImageError(null);
                       setSelectedImage(imageUrl);
+                    } else {
+                      console.error('Missing required fields:', { sourceCohort, sourceVar, targetStudy, targetVar });
                     }
                   };
                   
@@ -149,12 +155,27 @@ function MappingPreviewJsonTable({ data, sourceCohort }: MappingPreviewJsonTable
         <div className="modal modal-open">
           <div className="modal-box max-w-5xl">
             <h3 className="font-bold text-lg mb-4">EDA Comparison</h3>
-            <img src={selectedImage} alt="Merged EDA comparison" className="w-full" />
+            {imageError ? (
+              <div className="alert alert-error">
+                <span>Failed to load image: {imageError}</span>
+              </div>
+            ) : (
+              <img 
+                src={selectedImage} 
+                alt="Merged EDA comparison" 
+                className="w-full"
+                onError={(e) => {
+                  console.error('Image failed to load:', selectedImage);
+                  setImageError('Image not found or failed to load');
+                }}
+                onLoad={() => console.log('Image loaded successfully')}
+              />
+            )}
             <div className="modal-action">
-              <button className="btn" onClick={() => setSelectedImage(null)}>Close</button>
+              <button className="btn" onClick={() => { setSelectedImage(null); setImageError(null); }}>Close</button>
             </div>
           </div>
-          <div className="modal-backdrop" onClick={() => setSelectedImage(null)}></div>
+          <div className="modal-backdrop" onClick={() => { setSelectedImage(null); setImageError(null); }}></div>
         </div>
       )}
     </>
