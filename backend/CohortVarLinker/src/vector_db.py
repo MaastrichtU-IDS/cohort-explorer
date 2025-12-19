@@ -76,7 +76,7 @@ def get_csv_text(row: Dict[str, Any], embedding_mode: str = EmbeddingType.ED.val
     parts = []
     row = {k.lower(): v for k, v in row.items()}
 
-    var_label = row.get('variable label', row.get('variable name')).strip().lower() 
+    var_label = row.get('variable label', row.get('variable name', '')).strip().lower() 
     # print(f"var_label={var_label}")
     var_concept = row.get('variable concept name', '').strip().lower() if pd.notna(row.get('variable concept name', '')) else None
     additional_context = row.get('additional context concept name', '').strip().lower() if pd.notna(row.get('additional context concept name', '')) else None

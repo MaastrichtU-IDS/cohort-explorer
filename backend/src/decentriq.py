@@ -5,6 +5,7 @@ import os, json
 import logging # Add logging import
 import zipfile
 import tempfile
+from importlib.metadata import version, PackageNotFoundError
 
 import decentriq_platform as dq
 from decentriq_platform.analytics import (
@@ -27,6 +28,12 @@ from src.utils import retrieve_cohorts_metadata
 from datetime import datetime
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
+try:
+    logger.info("decentriq-platform version: %s", version("decentriq-platform"))
+except PackageNotFoundError:
+    logger.warning("decentriq-platform is not installed")
 
 
 def get_cohort_schema(cohort_dict: Cohort) -> list[Column]:

@@ -2,6 +2,8 @@ from typing import Any
 
 import requests
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
+from PIL import Image
 
 from src.auth import get_current_user
 from src.utils import curie_converter, run_query
@@ -19,9 +21,11 @@ import json
 import glob
 from src.config import settings
 
-# Import the CohortVarLinker function
+# Import the CohortVarLinker function and settings
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../CohortVarLinker')))
 from CohortVarLinker.main import generate_mapping_csv
+from CohortVarLinker.src.config import settings as cohort_linker_settings
+from CohortVarLinker.src.utils import get_member_studies
 
 def get_latest_dictionary_timestamp(cohort_id: str) -> float | None:
     """Get the timestamp of the latest data dictionary file for a cohort"""
@@ -53,10 +57,18 @@ async def check_mapping_cache(
     Check cache status for mapping pairs without generating mappings.
     Returns cache information immediately with dictionary timestamps.
     """
-    output_dir = "/app/CohortVarLinker/mapping_output"
+    output_dir = cohort_linker_settings.output_dir
     
     source_study = source_study.lower()
     target_studies_names = [t[0].lower() for t in target_studies]
+    
+    # Add member studies (replicate the same logic as in generate_mapping_csv)
+    new_studies = []
+    for tstudy in target_studies_names:
+        member_studies = get_member_studies(tstudy)
+        if member_studies:
+            new_studies.extend(member_studies)
+    target_studies_names.extend(new_studies)
     
     # Get dictionary timestamps for all involved cohorts
     all_cohorts = set([source_study] + target_studies_names)
@@ -127,19 +139,21 @@ async def generate_mapping(
     target_studies should be a list of [study_name, visit_constraint_bool]
     """
     # Call the backend function
-    # The function writes CSVs to CohortVarLinker/mapping_output/{source}_{target}_full.csv
-    # We'll return the first mapping file (for now, can be extended)
+    # The function writes CSVs to CohortVarLinker/data/mapping_output/{source}_{target}_cross_mapping.csv
+    # We'll return the combined JSON file
     
     target_studies = sorted(target_studies, key=lambda x: x[0])
     cache_info = generate_mapping_csv(source_study, target_studies)
-    #output_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'CohortVarLinker', 'mapping_output')
-    output_dir = "/app/CohortVarLinker/mapping_output"
+    output_dir = cohort_linker_settings.output_dir
     
      # Find the generated file(s)
     source_study = source_study.lower()
     target_str = "_".join([t[0].lower() for t in target_studies])
     
-    filename = f"{source_study}_omop_id_grouped_{target_str}.json"
+    # Use the same naming convention as generate_mapping_csv: {source}_{targets}_{model}_{mode}.json
+    model_name = "sapbert"
+    mapping_mode = "ontology+embedding(concept)"
+    filename = f"{source_study}_{target_str}_{model_name}_{mapping_mode}.json"
     filepath = os.path.join(output_dir, filename)
     if os.path.exists(filepath):
         # Read file content
@@ -263,3 +277,66 @@ async def search_concepts(
                 break
     found_concepts.sort(key=lambda x: len(x["used_by"]), reverse=True)
     return found_concepts
+
+
+@router.get("/compare-eda/{source_cohort}/{source_var}/{target_cohort}/{target_var}")
+async def compare_eda(
+    source_cohort: str,
+    source_var: str,
+    target_cohort: str,
+    target_var: str
+):
+    """
+    Merge two EDA PNG files vertically (source on top, target on bottom) and return the merged image.
+    """
+    import io
+    
+    # Construct paths to the two EDA PNG files
+    source_image_path = os.path.join(settings.data_folder, f"dcr_output_{source_cohort}", f"{source_var.lower()}.png")
+    target_image_path = os.path.join(settings.data_folder, f"dcr_output_{target_cohort}", f"{target_var.lower()}.png")
+    
+    # Check if both files exist
+    if not os.path.exists(source_image_path):
+        raise HTTPException(
+            status_code=404,
+            detail=f"Source EDA image not found: {source_image_path}"
+        )
+    
+    if not os.path.exists(target_image_path):
+        raise HTTPException(
+            status_code=404,
+            detail=f"Target EDA image not found: {target_image_path}"
+        )
+    
+    try:
+        # Load both images
+        source_image = Image.open(source_image_path)
+        target_image = Image.open(target_image_path)
+        
+        # Calculate dimensions for the merged image
+        max_width = max(source_image.width, target_image.width)
+        total_height = source_image.height + target_image.height
+        
+        # Create a new image with white background
+        merged_image = Image.new('RGB', (max_width, total_height), 'white')
+        
+        # Paste source image on top (centered if narrower)
+        source_x = (max_width - source_image.width) // 2
+        merged_image.paste(source_image, (source_x, 0))
+        
+        # Paste target image on bottom (centered if narrower)
+        target_x = (max_width - target_image.width) // 2
+        merged_image.paste(target_image, (target_x, source_image.height))
+        
+        # Convert to bytes
+        img_byte_arr = io.BytesIO()
+        merged_image.save(img_byte_arr, format='PNG')
+        img_byte_arr.seek(0)
+        
+        return Response(content=img_byte_arr.getvalue(), media_type="image/png")
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to merge EDA images: {str(e)}"
+        )

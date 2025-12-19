@@ -173,6 +173,9 @@ class Settings:
         ),
         "cohorts"
     ))
+    output_dir: str = field(default_factory=lambda: os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "../data/mapping_output")
+    ))
     # dev_mode: bool = field(default_factory=lambda: os.getenv("DEV_MODE", "false").lower() == "true")
 
     @property
@@ -227,6 +230,7 @@ settings = Settings()
 
 print("in CohortVarLinker/src/config.py : ", settings.data_folder)
 print("settings Cohort folder: ", settings.cohort_folder)
+print("settings Output directory: ", settings.output_dir)
 print("settings Concepts file path: ", settings.concepts_file_path)
 
 

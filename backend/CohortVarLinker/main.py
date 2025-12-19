@@ -499,7 +499,7 @@ def generate_mapping_csv(
         data_dir (str, optional): Directory containing data files. Defaults to the 'data' folder inside CohortVarLinker.
         cohort_file_path (str, optional): Path to the cohorts directory. Defaults to settings.cohort_folder.
         cohorts_metadata_file (str, optional): Path to the cohort metadata file. Defaults to f"{data_dir}/cohort_metadata_sheet_v2.csv".
-        output_dir (str, optional): Directory to store output mapping CSVs. Defaults to 'mapping_output' inside CohortVarLinker.
+        output_dir (str, optional): Directory to store output mapping CSVs. Defaults to settings.output_dir (CohortVarLinker/data/mapping_output).
     
     Returns:
         dict: Cache information with 'cached_pairs' and 'uncached_pairs' lists containing pair info and timestamps.
@@ -535,7 +535,7 @@ def generate_mapping_csv(
     if cohorts_metadata_file is None:
         cohorts_metadata_file = f"{data_dir}/queries/cohort_metadata_sheet.csv"
     if output_dir is None:
-        output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'mapping_output')
+        output_dir = settings.output_dir
     os.makedirs(output_dir, exist_ok=True)
 
     print(f"Checking for cached or ready mapping files in directory: {os.path.abspath(output_dir)}")
@@ -590,8 +590,8 @@ def generate_mapping_csv(
         combine_all_mappings_to_json(
                 source_study=source_study,
                 target_studies=target_studies,
-                output_dir= "/app/CohortVarLinker/mapping_output/",
-                json_path= f"/app/CohortVarLinker/mapping_output/{source_study}_omop_id_grouped_{tstudy_str}.json")
+                output_dir=output_dir,
+                json_path=os.path.join(output_dir, f"{source_study}_{tstudy_str}_{model_name}_{mapping_mode}.json"))
         
         return cache_info
             
@@ -642,9 +642,7 @@ def generate_mapping_csv(
     combine_all_mappings_to_json(
         source_study=source_study,
         target_studies=target_studies,
-        output_dir=f"/Users/komalgilani/Documents/GitHub/CohortVarLinker/data/output/cross_mapping/{model_name}",
-        json_path=os.path.join(f"/Users/komalgilani/Documents/GitHub/CohortVarLinker/data/output/cross_mapping/{model_name}", f"{source_study}_{tstudy_str}_{model_name}_{mapping_mode}.json"),
-        model_name=f"{model_name}_{mapping_mode}"
-    )
+        output_dir=output_dir,
+        json_path=os.path.join(output_dir, f"{source_study}_{tstudy_str}_{model_name}_{mapping_mode}.json"))
     
     
