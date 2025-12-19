@@ -1119,15 +1119,15 @@ def map_source_target(
     )
 
     
-    # move "mapping_relation" to the end
-    if "mapping_relation" in df.columns:
-        mapping_type = df.pop("mapping_relation")
-        df["mapping_relation_older"] = mapping_type
+    # # move "mapping_relation" to the end
+    # if "mapping_relation" in df.columns:
+    #     mapping_type = df.pop("mapping_relation")
+        # df["mapping_relation_older"] = mapping_type
     
-    df[["transformation_rule", "harmonization_status", "mapping_relation"]]   = df.apply(
+    df[["transformation_rule", "semantic_relation", "harmonization_status"]]   = df.apply(
         lambda row: apply_rules(
             domain=row.get("category", "") if "category" in row and pd.notna(row.get("category")) else "",
-            mapping_relation=row.get("mapping_relation_older", "") if "mapping_relation_older" in row and pd.notna(row.get("mapping_relation_older")) else "",
+            mapping_relation=row.get("mapping_relation", "") if "mapping_relation" in row and pd.notna(row.get("mapping_relation")) else "",
             
             src_info={
                 "var_name": row.get("source") if "source" in row and pd.notna(row.get("source")) else None,

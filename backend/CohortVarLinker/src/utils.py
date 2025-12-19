@@ -357,14 +357,14 @@ def adjust_for_additional_context(result_dict, status, src_info, tgt_info, mappi
     # No context on either side -> nothing to adjust
     if not src_codes and not tgt_codes:
         if src_visit == tgt_visit:
-            return result_dict, status, mapping_relation
+            return result_dict, mapping_relation, status
         else:
             if (('event' in src_visit.lower() and  'baseline' in tgt_visit.lower()) or ('baseline' in src_visit.lower() and  'event' in tgt_visit.lower())):
                 status = lower_stat_by_1(status)
             result_dict["description"] = desc + (
                 "Temporal context differs between source and target at metadata level.")
             # status = lower_stat_by_1(status)
-            return result_dict, status, mapping_relation
+            return result_dict, mapping_relation, status
 
     # Exact match
     elif src_codes == tgt_codes:
@@ -374,14 +374,14 @@ def adjust_for_additional_context(result_dict, status, src_info, tgt_info, mappi
             # result_dict.setdefault("additional_context_source",src_codes)
             # result_dict.setdefault("additional_context_target",tgt_codes)
         if src_visit == tgt_visit:
-            return result_dict, status, mapping_relation
+            return result_dict, mapping_relation, status
         else:
             # status = lower_stat_by_1(status)
             if (('event' in src_visit.lower() and  'baseline' in tgt_visit.lower()) or ('baseline' in src_visit.lower() and  'event' in tgt_visit.lower())):
                 status = lower_stat_by_1(status)
             result_dict["description"] = desc + (
                 "Temporal context differs between source and target at metadata level.")
-            return result_dict, status, "skos:relatedMatch"
+            return result_dict, "skos:relatedMatch", status
     else:
         print(f"Adjusting for additional context: src_codes={src_codes}: {src_info}, tgt_codes={tgt_codes}: {tgt_info}")
         src_codes_lst = src_codes.split("|") if src_codes else []
@@ -415,7 +415,7 @@ def adjust_for_additional_context(result_dict, status, src_info, tgt_info, mappi
             result_dict["description"] += " Temporal context also differs between source and target at metadata level."
             # status = lower_stat_by_1(status)
 
-        return result_dict, status, mapping_relation
+        return result_dict,  mapping_relation, status
 
 
 def execute_query(query: str) -> Iterable[Dict[str, Any]]:

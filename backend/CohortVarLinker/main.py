@@ -642,7 +642,19 @@ def generate_mapping_csv(
     combine_all_mappings_to_json(
         source_study=source_study,
         target_studies=target_studies,
+<<<<<<< Updated upstream
         output_dir=output_dir,
         json_path=os.path.join(output_dir, f"{source_study}_{tstudy_str}_{model_name}_{mapping_mode}.json"))
+=======
+<<<<<<< HEAD
+        output_dir=f"/Users/komalgilani/Documents/GitHub/CohortVarLinker/data/output/cross_mapping/{model_name}",
+        json_path=os.path.join(f"/Users/komalgilani/Documents/GitHub/CohortVarLinker/data/output/cross_mapping/{source_study}_{tstudy_str}.json"),
+        model_name=f"{model_name}_{mapping_mode}"
+    )
+=======
+        output_dir=output_dir,
+        json_path=os.path.join(output_dir, f"{source_study}_{tstudy_str}_{model_name}_{mapping_mode}.json"))
+>>>>>>> f31cc3d2324ebd1622c659b85217fa95235b4bcf
+>>>>>>> Stashed changes
     
     
