@@ -17,27 +17,44 @@ function transformMappingDataForPreview(jsonData: any): RowData[] {
   Object.values(jsonData).forEach((value: any) => {
     if (value && Array.isArray(value.mappings)) {
       const transformed = value.mappings.map((mapping: any) => {
+        // Construct source categories codes/labels
+        const sourceLabels = mapping.s_source_categories_labels || '';
+        const sourceCodes = mapping.s_source_original_categories || '';
+        const sourceCategoriesCodesLabels = sourceLabels && sourceCodes 
+          ? `${sourceCodes} (${sourceLabels})` 
+          : sourceLabels || sourceCodes || '';
+
         const newRow: RowData = {
           s_source: mapping.s_source,
           s_label: mapping.s_slabel,
           target_study: mapping.target_study,
           harmonization_status: mapping.harmonization_status || 'pending',
-          source_categories_codes: mapping.source_categories_codes,
-          target_categories_codes: mapping.target_categories_codes,
+          source_categories_codes_labels: sourceCategoriesCodesLabels,
+          mapping_relation: mapping.mapping_relation || '',
         };
 
-        // Find wildcard keys
+        // Find wildcard keys for target fields
+        let targetLabels = '';
+        let targetCodes = '';
+        
         Object.keys(mapping).forEach(key => {
           if (key.endsWith('_target')) {
             newRow['target'] = mapping[key];
           } else if (key.endsWith('_tlabel')) {
             newRow['target_label'] = mapping[key];
-          } else if (key.endsWith('_mapping_type')) {
-            newRow['mapping_type'] = mapping[key];
-          } else if (key === 'harmonization_status') {
-            newRow['harmonization_status'] = mapping[key];
+          } else if (key.endsWith('_target_categories_labels')) {
+            targetLabels = mapping[key] || '';
+          } else if (key.endsWith('_target_original_categories')) {
+            targetCodes = mapping[key] || '';
           }
         });
+        
+        // Construct target categories codes/labels
+        const targetCategoriesCodesLabels = targetLabels && targetCodes 
+          ? `${targetCodes} (${targetLabels})` 
+          : targetLabels || targetCodes || '';
+        newRow['target_categories_codes_labels'] = targetCategoriesCodesLabels;
+        
         return newRow;
       });
       allMappings = allMappings.concat(transformed);
@@ -60,7 +77,7 @@ function MappingPreviewJsonTable({ data, sourceCohort }: MappingPreviewJsonTable
   if (!data || !Array.isArray(data) || data.length === 0) return <div className="italic text-slate-400">No mapping data to preview.</div>;
   
   // Define columns in a specific order for consistency
-  const columns = ['s_source', 's_label', 'target_study', 'target', 'target_label', 'compare_eda', 'mapping_type', 'source_categories_codes', 'target_categories_codes', 'harmonization_status'];
+  const columns = ['s_source', 's_label', 'target_study', 'target', 'target_label', 'compare_eda', 'mapping_relation', 'source_categories_codes_labels', 'target_categories_codes_labels', 'harmonization_status'];
   
   // Define display names for columns
   const columnDisplayNames: Record<string, string> = {
@@ -70,9 +87,9 @@ function MappingPreviewJsonTable({ data, sourceCohort }: MappingPreviewJsonTable
     'target_study': 'target_study',
     'target_label': 'target_label',
     'compare_eda': 'Compare EDAs',
-    'mapping_type': 'mapping_type',
-    'source_categories_codes': 'source categories codes',
-    'target_categories_codes': 'target categories codes',
+    'mapping_relation': 'mapping_relation',
+    'source_categories_codes_labels': 'source categories codes/labels',
+    'target_categories_codes_labels': 'target categories codes/labels',
     'harmonization_status': 'harmonization_status'
   };
 
@@ -131,14 +148,14 @@ function MappingPreviewJsonTable({ data, sourceCohort }: MappingPreviewJsonTable
                     className={`${
                       col === 's_source' || col === 'target' ? 'bg-blue-100' : ''
                     } ${
-                      (col === 'source_categories_codes' || col === 'target_categories_codes') && isLongText 
+                      (col === 'source_categories_codes_labels' || col === 'target_categories_codes_labels') && isLongText 
                         ? 'max-w-xs break-words' : ''
                     } ${
                       col === 's_label' || col === 'target_label' ? 'max-w-32 break-words' : ''
                     } ${
                       col === 'target_study' ? 'max-w-24 break-words' : ''
                     } ${
-                      col === 'mapping_type' || col === 'harmonization_status' ? 'max-w-20 break-words text-xs' : ''
+                      col === 'mapping_relation' || col === 'harmonization_status' ? 'max-w-20 break-words text-xs' : ''
                     }`}
                   >
                     {displayValue}
@@ -535,19 +552,19 @@ export default function MappingPage() {
               <div className="bg-gray-50 border rounded-lg p-4 w-full max-w-2xl">
                 <h4 className="font-semibold text-sm mb-3">Filters</h4>
                 <div className="grid grid-cols-2 gap-4">
-                  {/* Mapping Type Filter */}
+                  {/* Mapping Relation Filter */}
                   <div>
-                    <h5 className="font-medium text-xs mb-2">mapping_type</h5>
+                    <h5 className="font-medium text-xs mb-2">mapping_relation</h5>
                     <div className="space-y-1 max-h-32 overflow-y-auto text-xs">
                       {(() => {
-                        const mappingTypeCounts = mappingOutput.reduce((acc, row) => {
-                          const value = (row.mapping_type?.toString() || '--');
+                        const mappingRelationCounts = mappingOutput.reduce((acc, row) => {
+                          const value = (row.mapping_relation?.toString() || '--');
                           const currentCount = acc[value] as number || 0;
                           acc[value] = currentCount + 1;
                           return acc;
                         }, {} as Record<string, number>);
                         
-                        return Object.entries(mappingTypeCounts).map(([value, count]) => (
+                        return Object.entries(mappingRelationCounts).map(([value, count]) => (
                           <div key={value} className="flex items-center gap-2">
                             <input 
                               type="checkbox" 
@@ -627,13 +644,13 @@ export default function MappingPage() {
             {(() => {
               // Filter the data based on selected filters
               const filteredData = mappingOutput.filter(row => {
-                const mappingType = (row.mapping_type?.toString() || '--');
+                const mappingRelation = (row.mapping_relation?.toString() || '--');
                 const harmonizationStatus = (row.harmonization_status?.toString() || '--');
                 
-                const mappingTypeMatch = selectedMappingTypes.length === 0 || selectedMappingTypes.includes(mappingType);
+                const mappingRelationMatch = selectedMappingTypes.length === 0 || selectedMappingTypes.includes(mappingRelation);
                 const harmonizationStatusMatch = selectedHarmonizationStatuses.length === 0 || selectedHarmonizationStatuses.includes(harmonizationStatus);
                 
-                return mappingTypeMatch && harmonizationStatusMatch;
+                return mappingRelationMatch && harmonizationStatusMatch;
               });
 
               return (
@@ -664,13 +681,13 @@ export default function MappingPage() {
               {(() => {
                 // Calculate filtered data for the table
                 const filteredData = mappingOutput.filter(row => {
-                  const mappingType = (row.mapping_type?.toString() || '--');
+                  const mappingRelation = (row.mapping_relation?.toString() || '--');
                   const harmonizationStatus = (row.harmonization_status?.toString() || '--');
                   
-                  const mappingTypeMatch = selectedMappingTypes.length === 0 || selectedMappingTypes.includes(mappingType);
+                  const mappingRelationMatch = selectedMappingTypes.length === 0 || selectedMappingTypes.includes(mappingRelation);
                   const harmonizationStatusMatch = selectedHarmonizationStatuses.length === 0 || selectedHarmonizationStatuses.includes(harmonizationStatus);
                   
-                  return mappingTypeMatch && harmonizationStatusMatch;
+                  return mappingRelationMatch && harmonizationStatusMatch;
                 });
                 
                 return <MappingPreviewJsonTable data={filteredData} sourceCohort={sourceCohort} />;
