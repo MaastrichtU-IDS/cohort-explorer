@@ -21,11 +21,8 @@ import json
 import glob
 from src.config import settings
 
-# Import the CohortVarLinker function and settings
+# Add CohortVarLinker to path for lazy imports
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../CohortVarLinker')))
-from CohortVarLinker.main import generate_mapping_csv
-from CohortVarLinker.src.config import settings as cohort_linker_settings
-from CohortVarLinker.src.utils import get_member_studies
 
 def get_latest_dictionary_timestamp(cohort_id: str) -> float | None:
     """Get the timestamp of the latest data dictionary file for a cohort"""
@@ -57,6 +54,10 @@ async def check_mapping_cache(
     Check cache status for mapping pairs without generating mappings.
     Returns cache information immediately with dictionary timestamps.
     """
+    # Lazy import to avoid module-level import errors
+    from CohortVarLinker.src.config import settings as cohort_linker_settings
+    from CohortVarLinker.src.utils import get_member_studies
+    
     output_dir = cohort_linker_settings.output_dir
     
     source_study = source_study.lower()
@@ -138,6 +139,10 @@ async def generate_mapping(
     Generate a mapping CSV for the given source and target studies and return it as a downloadable file.
     target_studies should be a list of [study_name, visit_constraint_bool]
     """
+    # Lazy import to avoid module-level import errors
+    from CohortVarLinker.main import generate_mapping_csv
+    from CohortVarLinker.src.config import settings as cohort_linker_settings
+    
     # Call the backend function
     # The function writes CSVs to CohortVarLinker/data/mapping_output/{source}_{target}_cross_mapping.csv
     # We'll return the combined JSON file
