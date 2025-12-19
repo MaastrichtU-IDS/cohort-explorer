@@ -50,13 +50,16 @@ function transformMappingDataForPreview(jsonData: any): RowData[] {
 // Helper component for the mapping preview table
 interface MappingPreviewJsonTableProps {
   data: RowData[];
+  sourceCohort: string;
 }
 
-function MappingPreviewJsonTable({ data }: MappingPreviewJsonTableProps) {
+function MappingPreviewJsonTable({ data, sourceCohort }: MappingPreviewJsonTableProps) {
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  
   if (!data || !Array.isArray(data) || data.length === 0) return <div className="italic text-slate-400">No mapping data to preview.</div>;
   
   // Define columns in a specific order for consistency
-  const columns = ['s_source', 's_label', 'target_study', 'target', 'target_label', 'mapping_type', 'source_categories_codes', 'target_categories_codes', 'harmonization_status'];
+  const columns = ['s_source', 's_label', 'target_study', 'target', 'target_label', 'compare_eda', 'mapping_type', 'source_categories_codes', 'target_categories_codes', 'harmonization_status'];
   
   // Define display names for columns
   const columnDisplayNames: Record<string, string> = {
@@ -65,6 +68,7 @@ function MappingPreviewJsonTable({ data }: MappingPreviewJsonTableProps) {
     's_label': 's_label',
     'target_study': 'target_study',
     'target_label': 'target_label',
+    'compare_eda': 'Compare EDAs',
     'mapping_type': 'mapping_type',
     'source_categories_codes': 'source categories codes',
     'target_categories_codes': 'target categories codes',
@@ -72,46 +76,88 @@ function MappingPreviewJsonTable({ data }: MappingPreviewJsonTableProps) {
   };
 
   return (
-    <table className="table table-zebra w-full text-xs">
-      <thead>
-        <tr>
-          {columns.map(col => (
-            <th key={col} className="font-bold bg-base-300">{columnDisplayNames[col] || col}</th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {data.map((row, i) => (
-          <tr key={i}>
-            {columns.map(col => {
-              const value = row[col] as string | number | boolean | null | undefined;
-              const displayValue = value === null || value === undefined || value === 'null' ? '--' : value.toString();
-              const isLongText = displayValue.length > 30;
-              
-              return (
-                <td 
-                  key={col} 
-                  className={`${
-                    col === 's_source' || col === 'target' ? 'bg-blue-100' : ''
-                  } ${
-                    (col === 'source_categories_codes' || col === 'target_categories_codes') && isLongText 
-                      ? 'max-w-xs break-words' : ''
-                  } ${
-                    col === 's_label' || col === 'target_label' ? 'max-w-32 break-words' : ''
-                  } ${
-                    col === 'target_study' ? 'max-w-24 break-words' : ''
-                  } ${
-                    col === 'mapping_type' || col === 'harmonization_status' ? 'max-w-20 break-words text-xs' : ''
-                  }`}
-                >
-                  {displayValue}
-                </td>
-              );
-            })}
+    <>
+      <table className="table table-zebra w-full text-xs">
+        <thead>
+          <tr>
+            {columns.map(col => (
+              <th key={col} className="font-bold bg-base-300">{columnDisplayNames[col] || col}</th>
+            ))}
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {data.map((row, i) => (
+            <tr key={i}>
+              {columns.map(col => {
+                // Special handling for compare_eda column
+                if (col === 'compare_eda') {
+                  const sourceVar = row['s_source'] as string;
+                  const targetVar = row['target'] as string;
+                  const targetStudy = row['target_study'] as string;
+                  
+                  const handleCompare = () => {
+                    if (sourceCohort && sourceVar && targetStudy && targetVar) {
+                      const imageUrl = `${apiUrl}/api/compare-eda/${sourceCohort}/${sourceVar}/${targetStudy}/${targetVar}`;
+                      setSelectedImage(imageUrl);
+                    }
+                  };
+                  
+                  return (
+                    <td key={col} className="text-center">
+                      <button 
+                        className="btn btn-xs btn-primary"
+                        onClick={handleCompare}
+                        disabled={!sourceVar || !targetVar || !targetStudy}
+                      >
+                        Compare
+                      </button>
+                    </td>
+                  );
+                }
+                
+                const value = row[col] as string | number | boolean | null | undefined;
+                const displayValue = value === null || value === undefined || value === 'null' ? '--' : value.toString();
+                const isLongText = displayValue.length > 30;
+                
+                return (
+                  <td 
+                    key={col} 
+                    className={`${
+                      col === 's_source' || col === 'target' ? 'bg-blue-100' : ''
+                    } ${
+                      (col === 'source_categories_codes' || col === 'target_categories_codes') && isLongText 
+                        ? 'max-w-xs break-words' : ''
+                    } ${
+                      col === 's_label' || col === 'target_label' ? 'max-w-32 break-words' : ''
+                    } ${
+                      col === 'target_study' ? 'max-w-24 break-words' : ''
+                    } ${
+                      col === 'mapping_type' || col === 'harmonization_status' ? 'max-w-20 break-words text-xs' : ''
+                    }`}
+                  >
+                    {displayValue}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      
+      {/* Modal to display merged EDA image */}
+      {selectedImage && (
+        <div className="modal modal-open">
+          <div className="modal-box max-w-5xl">
+            <h3 className="font-bold text-lg mb-4">EDA Comparison</h3>
+            <img src={selectedImage} alt="Merged EDA comparison" className="w-full" />
+            <div className="modal-action">
+              <button className="btn" onClick={() => setSelectedImage(null)}>Close</button>
+            </div>
+          </div>
+          <div className="modal-backdrop" onClick={() => setSelectedImage(null)}></div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -606,7 +652,7 @@ export default function MappingPage() {
                   return mappingTypeMatch && harmonizationStatusMatch;
                 });
                 
-                return <MappingPreviewJsonTable data={filteredData} />;
+                return <MappingPreviewJsonTable data={filteredData} sourceCohort={sourceCohort} />;
               })()}
             </div>
           </div>

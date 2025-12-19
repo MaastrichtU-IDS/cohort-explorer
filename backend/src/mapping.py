@@ -2,6 +2,8 @@ from typing import Any
 
 import requests
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
+from PIL import Image
 
 from src.auth import get_current_user
 from src.utils import curie_converter, run_query
@@ -263,3 +265,66 @@ async def search_concepts(
                 break
     found_concepts.sort(key=lambda x: len(x["used_by"]), reverse=True)
     return found_concepts
+
+
+@router.get("/compare-eda/{source_cohort}/{source_var}/{target_cohort}/{target_var}")
+async def compare_eda(
+    source_cohort: str,
+    source_var: str,
+    target_cohort: str,
+    target_var: str
+):
+    """
+    Merge two EDA PNG files vertically (source on top, target on bottom) and return the merged image.
+    """
+    import io
+    
+    # Construct paths to the two EDA PNG files
+    source_image_path = os.path.join(settings.data_folder, f"dcr_output_{source_cohort}", f"{source_var.lower()}.png")
+    target_image_path = os.path.join(settings.data_folder, f"dcr_output_{target_cohort}", f"{target_var.lower()}.png")
+    
+    # Check if both files exist
+    if not os.path.exists(source_image_path):
+        raise HTTPException(
+            status_code=404,
+            detail=f"Source EDA image not found: {source_image_path}"
+        )
+    
+    if not os.path.exists(target_image_path):
+        raise HTTPException(
+            status_code=404,
+            detail=f"Target EDA image not found: {target_image_path}"
+        )
+    
+    try:
+        # Load both images
+        source_image = Image.open(source_image_path)
+        target_image = Image.open(target_image_path)
+        
+        # Calculate dimensions for the merged image
+        max_width = max(source_image.width, target_image.width)
+        total_height = source_image.height + target_image.height
+        
+        # Create a new image with white background
+        merged_image = Image.new('RGB', (max_width, total_height), 'white')
+        
+        # Paste source image on top (centered if narrower)
+        source_x = (max_width - source_image.width) // 2
+        merged_image.paste(source_image, (source_x, 0))
+        
+        # Paste target image on bottom (centered if narrower)
+        target_x = (max_width - target_image.width) // 2
+        merged_image.paste(target_image, (target_x, source_image.height))
+        
+        # Convert to bytes
+        img_byte_arr = io.BytesIO()
+        merged_image.save(img_byte_arr, format='PNG')
+        img_byte_arr.seek(0)
+        
+        return Response(content=img_byte_arr.getvalue(), media_type="image/png")
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to merge EDA images: {str(e)}"
+        )
