@@ -322,34 +322,36 @@ async def compare_eda(
     source_folder = find_dcr_output_folder(source_cohort)
     target_folder = find_dcr_output_folder(target_cohort)
     
+    # Collect detailed error messages
+    errors = []
+    
+    # Check source cohort
     if not source_folder:
-        raise HTTPException(
-            status_code=404,
-            detail=f"DCR output folder not found for source cohort: {source_cohort}"
-        )
+        errors.append(f"Source cohort '{source_cohort}': Exploratory Data Analysis has not yet been run on this cohort")
+    else:
+        source_image_path = os.path.join(settings.data_folder, source_folder, f"{source_var.lower()}.png")
+        if not os.path.exists(source_image_path):
+            errors.append(f"Source variable '{source_var}' in cohort '{source_cohort}': This variable was excluded from the EDA analysis")
     
+    # Check target cohort
     if not target_folder:
+        errors.append(f"Target cohort '{target_cohort}': Exploratory Data Analysis has not yet been run on this cohort")
+    else:
+        target_image_path = os.path.join(settings.data_folder, target_folder, f"{target_var.lower()}.png")
+        if not os.path.exists(target_image_path):
+            errors.append(f"Target variable '{target_var}' in cohort '{target_cohort}': This variable was excluded from the EDA analysis")
+    
+    # If any errors, raise with detailed message
+    if errors:
+        error_detail = "Cannot compare EDA images:\n" + "\n".join(f"• {err}" for err in errors)
         raise HTTPException(
             status_code=404,
-            detail=f"DCR output folder not found for target cohort: {target_cohort}"
+            detail=error_detail
         )
     
-    # Construct paths to the two EDA PNG files
+    # Both files exist, construct paths
     source_image_path = os.path.join(settings.data_folder, source_folder, f"{source_var.lower()}.png")
     target_image_path = os.path.join(settings.data_folder, target_folder, f"{target_var.lower()}.png")
-    
-    # Check if both files exist
-    if not os.path.exists(source_image_path):
-        raise HTTPException(
-            status_code=404,
-            detail=f"Source EDA image not found: {source_image_path}"
-        )
-    
-    if not os.path.exists(target_image_path):
-        raise HTTPException(
-            status_code=404,
-            detail=f"Target EDA image not found: {target_image_path}"
-        )
     
     try:
         # Load both images
