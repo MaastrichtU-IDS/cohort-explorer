@@ -284,6 +284,28 @@ async def search_concepts(
     return found_concepts
 
 
+def find_dcr_output_folder(cohort_id: str) -> str | None:
+    """
+    Find the actual dcr_output folder for a cohort, handling case-insensitive matching.
+    Returns the actual folder name if found, None otherwise.
+    """
+    data_folder = settings.data_folder
+    if not os.path.exists(data_folder):
+        return None
+    
+    # Try exact match first
+    exact_folder = f"dcr_output_{cohort_id}"
+    if os.path.exists(os.path.join(data_folder, exact_folder)):
+        return exact_folder
+    
+    # Try case-insensitive search
+    target_prefix = f"dcr_output_{cohort_id.lower()}"
+    for folder in os.listdir(data_folder):
+        if folder.lower() == target_prefix and os.path.isdir(os.path.join(data_folder, folder)):
+            return folder
+    
+    return None
+
 @router.get("/compare-eda/{source_cohort}/{source_var}/{target_cohort}/{target_var}")
 async def compare_eda(
     source_cohort: str,
@@ -296,9 +318,25 @@ async def compare_eda(
     """
     import io
     
-    # Construct paths to the two EDA PNG files (convert cohort names to lowercase)
-    source_image_path = os.path.join(settings.data_folder, f"dcr_output_{source_cohort.lower()}", f"{source_var.lower()}.png")
-    target_image_path = os.path.join(settings.data_folder, f"dcr_output_{target_cohort.lower()}", f"{target_var.lower()}.png")
+    # Find the actual folder names (case-insensitive)
+    source_folder = find_dcr_output_folder(source_cohort)
+    target_folder = find_dcr_output_folder(target_cohort)
+    
+    if not source_folder:
+        raise HTTPException(
+            status_code=404,
+            detail=f"DCR output folder not found for source cohort: {source_cohort}"
+        )
+    
+    if not target_folder:
+        raise HTTPException(
+            status_code=404,
+            detail=f"DCR output folder not found for target cohort: {target_cohort}"
+        )
+    
+    # Construct paths to the two EDA PNG files
+    source_image_path = os.path.join(settings.data_folder, source_folder, f"{source_var.lower()}.png")
+    target_image_path = os.path.join(settings.data_folder, target_folder, f"{target_var.lower()}.png")
     
     # Check if both files exist
     if not os.path.exists(source_image_path):
