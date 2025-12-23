@@ -318,6 +318,25 @@ async def compare_eda(
         source_image = Image.open(source_image_path)
         target_image = Image.open(target_image_path)
         
+        # Convert images to RGB if they have transparency
+        if source_image.mode in ('RGBA', 'LA', 'P'):
+            background = Image.new('RGB', source_image.size, 'white')
+            if source_image.mode == 'P':
+                source_image = source_image.convert('RGBA')
+            background.paste(source_image, mask=source_image.split()[-1] if source_image.mode in ('RGBA', 'LA') else None)
+            source_image = background
+        elif source_image.mode != 'RGB':
+            source_image = source_image.convert('RGB')
+            
+        if target_image.mode in ('RGBA', 'LA', 'P'):
+            background = Image.new('RGB', target_image.size, 'white')
+            if target_image.mode == 'P':
+                target_image = target_image.convert('RGBA')
+            background.paste(target_image, mask=target_image.split()[-1] if target_image.mode in ('RGBA', 'LA') else None)
+            target_image = background
+        elif target_image.mode != 'RGB':
+            target_image = target_image.convert('RGB')
+        
         # Calculate dimensions for the merged image
         max_width = max(source_image.width, target_image.width)
         total_height = source_image.height + target_image.height

@@ -11,7 +11,6 @@ from src.upload import init_triplestore
 from src.upload import router as upload_router
 from src.monitoring import run_periodic_monitoring
 from src.docs import router as docs_router
-from .mapping import router as mapping_router
 import asyncio
 
 init_triplestore()
