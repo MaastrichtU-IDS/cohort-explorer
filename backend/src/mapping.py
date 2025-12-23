@@ -296,9 +296,9 @@ async def compare_eda(
     """
     import io
     
-    # Construct paths to the two EDA PNG files
-    source_image_path = os.path.join(settings.data_folder, f"dcr_output_{source_cohort}", f"{source_var.lower()}.png")
-    target_image_path = os.path.join(settings.data_folder, f"dcr_output_{target_cohort}", f"{target_var.lower()}.png")
+    # Construct paths to the two EDA PNG files (convert cohort names to lowercase)
+    source_image_path = os.path.join(settings.data_folder, f"dcr_output_{source_cohort.lower()}", f"{source_var.lower()}.png")
+    target_image_path = os.path.join(settings.data_folder, f"dcr_output_{target_cohort.lower()}", f"{target_var.lower()}.png")
     
     # Check if both files exist
     if not os.path.exists(source_image_path):
