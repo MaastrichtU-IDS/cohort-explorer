@@ -189,6 +189,15 @@ function MappingPreviewJsonTable({ data, sourceCohort }: MappingPreviewJsonTable
               />
             )}
             <div className="modal-action">
+              {!imageError && (
+                <a 
+                  href={selectedImage} 
+                  download="eda-comparison.png"
+                  className="btn btn-primary"
+                >
+                  Save Image
+                </a>
+              )}
               <button className="btn" onClick={() => { setSelectedImage(null); setImageError(null); }}>Close</button>
             </div>
           </div>
