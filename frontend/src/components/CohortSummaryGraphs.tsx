@@ -85,20 +85,21 @@ const CohortSummaryGraphs = React.memo(function CohortSummaryGraphs({
   useEffect(() => {
     // Only start observing if cohort is expanded
     if (!isExpanded) {
+      setShouldRender(false);
       return;
     }
 
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
-          if (entry.isIntersecting && !shouldRender) {
+          if (entry.isIntersecting) {
             setShouldRender(true);
           }
         });
       },
       {
         rootMargin: '200px', // Start loading before it comes into view
-        threshold: 0.1,
+        threshold: 0.01,
       }
     );
 
@@ -112,7 +113,7 @@ const CohortSummaryGraphs = React.memo(function CohortSummaryGraphs({
         observer.unobserve(currentContainer);
       }
     };
-  }, [isExpanded, shouldRender]);
+  }, [isExpanded]);
 
   // Helper function to apply all filters to variables - create this ONCE and reuse
   const getFilteredVariables = useMemo(() => {
