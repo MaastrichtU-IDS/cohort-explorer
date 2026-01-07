@@ -271,6 +271,7 @@ export default function MappingPage() {
     outdated_pairs: Array<{source: string, target: string, timestamp: number, outdated_cohort: string}>,
     dictionary_timestamps: Record<string, number>
   } | null>(null);
+  const [tableScrollWidth, setTableScrollWidth] = useState(2000);
   
   // Reference to the mapping output section
   const mappingOutputRef = useRef<HTMLDivElement>(null);
@@ -289,6 +290,19 @@ export default function MappingPage() {
       // Scroll to a few pixels above the map button
       const buttonTop = mapButtonRef.current.offsetTop - 20;
       window.scrollTo({ top: buttonTop, behavior: 'smooth' });
+    }
+  }, [mappingOutput]);
+
+  // Update table scroll width when mapping output changes
+  useEffect(() => {
+    if (mappingOutput) {
+      const bottomScroll = document.getElementById('bottom-scroll');
+      if (bottomScroll) {
+        const table = bottomScroll.querySelector('table');
+        if (table) {
+          setTableScrollWidth(table.scrollWidth);
+        }
+      }
     }
   }, [mappingOutput]);
 
@@ -595,7 +609,8 @@ export default function MappingPage() {
         {mappingOutput && (
           <div 
             ref={mappingOutputRef}
-            className="mt-4 p-4 border rounded-lg bg-base-100 w-[85%] mx-auto"
+            className="mt-4 p-4 border rounded-lg bg-base-100"
+            style={{ width: '85vw', marginLeft: 'auto', marginRight: 'auto' }}
           >
             <h2 className="text-lg font-bold mb-3">Mapping Preview</h2>
             
@@ -729,10 +744,42 @@ export default function MappingPage() {
               );
             })()}
 
-            <div className="overflow-x-auto overflow-y-auto max-h-[600px] border border-gray-200 rounded" style={{
-              scrollbarWidth: 'auto',
-              scrollbarColor: '#94a3b8 #e2e8f0'
-            }}>
+            {/* Top horizontal scrollbar */}
+            <div 
+              className="overflow-x-scroll mb-2 border border-gray-200 rounded-t"
+              style={{
+                height: '20px',
+                overflowY: 'hidden',
+                scrollbarWidth: 'auto',
+                scrollbarColor: '#94a3b8 #e2e8f0'
+              }}
+              onScroll={(e) => {
+                const bottomScroll = document.getElementById('bottom-scroll');
+                if (bottomScroll) {
+                  bottomScroll.scrollLeft = e.currentTarget.scrollLeft;
+                }
+              }}
+            >
+              <div style={{ width: `${tableScrollWidth}px`, height: '1px' }}></div>
+            </div>
+            
+            {/* Main table with scrollbars */}
+            <div 
+              id="bottom-scroll"
+              className="overflow-x-scroll overflow-y-scroll max-h-[600px] border border-gray-200 rounded-b" 
+              style={{
+                scrollbarWidth: 'auto',
+                scrollbarColor: '#94a3b8 #e2e8f0',
+                overflowX: 'scroll',
+                overflowY: 'scroll'
+              }}
+              onScroll={(e) => {
+                const topScroll = e.currentTarget.previousElementSibling as HTMLElement;
+                if (topScroll) {
+                  topScroll.scrollLeft = e.currentTarget.scrollLeft;
+                }
+              }}
+            >
               {(() => {
                 // Calculate filtered data for the table
                 const filteredData = mappingOutput.filter(row => {
