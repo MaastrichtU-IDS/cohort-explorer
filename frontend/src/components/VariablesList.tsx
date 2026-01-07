@@ -317,7 +317,7 @@ const VariablesList = ({
       const filteredCount = filteredVars.length;
       onVariableCountsChange(filteredCount, totalCount);
     }
-  }, [filteredVars.length, cohortsData, cohortId, onVariableCountsChange]);
+  }, [filteredVars, cohortsData, cohortId, onVariableCountsChange]);
 
   // Function to handle downloading the cohort CSV
   const downloadMetadataCSV = async () => {
