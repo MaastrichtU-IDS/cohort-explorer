@@ -1,7 +1,14 @@
-import React, {useState} from 'react';
+import React, {useState, useEffect} from 'react';
 
-const FilterByMetadata = ({label, options, onFiltersChange, metadata_id, searchResults = []}: any) => {
+const FilterByMetadata = ({label, options, onFiltersChange, metadata_id, searchResults = [], selectedValues}: any) => {
   const [selectedOptions, setSelectedOptions] = useState(new Set());
+
+  // Sync internal state with parent's selected values
+  useEffect(() => {
+    if (selectedValues) {
+      setSelectedOptions(selectedValues);
+    }
+  }, [selectedValues]);
 
   const handleOptionChange = (option: string) => {
     const newSet = new Set(selectedOptions);
