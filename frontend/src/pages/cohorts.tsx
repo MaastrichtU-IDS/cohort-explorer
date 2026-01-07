@@ -164,20 +164,26 @@ export default function CohortsList() {
   };
 
   // Helper function to toggle showOnlyOutcomes for a cohort
-  const toggleShowOnlyOutcomes = (cohortId: string) => {
+  const toggleShowOnlyOutcomes = useCallback((cohortId: string) => {
     setShowOnlyOutcomes(prev => ({
       ...prev,
       [cohortId]: !prev[cohortId]
     }));
-  };
+  }, []);
 
   // Helper function to update variable counts for a cohort
-  const updateVariableCounts = (cohortId: string, filtered: number, total: number) => {
-    setVariableCounts(prev => ({
-      ...prev,
-      [cohortId]: { filtered, total }
-    }));
-  };
+  const updateVariableCounts = useCallback((cohortId: string, filtered: number, total: number) => {
+    setVariableCounts(prev => {
+      // Only update if values actually changed
+      if (prev[cohortId]?.filtered === filtered && prev[cohortId]?.total === total) {
+        return prev;
+      }
+      return {
+        ...prev,
+        [cohortId]: { filtered, total }
+      };
+    });
+  }, []);
 
   // Helper function to update filters for a specific cohort
   const updateCohortFilters = (cohortId: string, filterType: 'selectedOMOPDomains' | 'selectedDataTypes' | 'selectedCategoryTypes' | 'selectedVisitTypes', value: Set<string>) => {
