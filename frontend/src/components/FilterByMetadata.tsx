@@ -1,23 +1,16 @@
-import React, {useState, useEffect} from 'react';
+import React from 'react';
 
 const FilterByMetadata = ({label, options, onFiltersChange, metadata_id, searchResults = [], selectedValues}: any) => {
-  const [selectedOptions, setSelectedOptions] = useState(new Set());
-
-  // Sync internal state with parent's selected values
-  useEffect(() => {
-    if (selectedValues) {
-      setSelectedOptions(selectedValues);
-    }
-  }, [selectedValues]);
+  // Use selectedValues directly from parent - no local state needed
+  const currentSelection = selectedValues || new Set();
 
   const handleOptionChange = (option: string) => {
-    const newSet = new Set(selectedOptions);
+    const newSet = new Set(currentSelection);
     if (newSet.has(option)) {
       newSet.delete(option);
     } else {
       newSet.add(option);
     }
-    setSelectedOptions(newSet);
     onFiltersChange(newSet); // Callback to inform parent component about the change
   };
 
@@ -49,7 +42,7 @@ const FilterByMetadata = ({label, options, onFiltersChange, metadata_id, searchR
             </span>
             <input
               type="checkbox"
-              checked={selectedOptions.has(option)}
+              checked={currentSelection.has(option)}
               onChange={() => handleOptionChange(option)}
               className="checkbox checkbox-xs"
             />

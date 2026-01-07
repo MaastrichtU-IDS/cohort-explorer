@@ -310,15 +310,14 @@ const VariablesList = ({
     showOnlyOutcomes
   ]);
 
-  // Report variable counts to parent whenever they change
-  const filteredCount = filteredVars.length;
-  const totalCount = cohortsData[cohortId] ? Object.keys(cohortsData[cohortId].variables).length : 0;
-  
+  // Report variable counts to parent - only when they actually change
   useEffect(() => {
-    if (onVariableCountsChange) {
+    if (onVariableCountsChange && cohortsData[cohortId]) {
+      const totalCount = Object.keys(cohortsData[cohortId].variables).length;
+      const filteredCount = filteredVars.length;
       onVariableCountsChange(filteredCount, totalCount);
     }
-  }, [filteredCount, totalCount, onVariableCountsChange]);
+  }, [filteredVars.length, cohortId, onVariableCountsChange]);
 
   // Function to handle downloading the cohort CSV
   const downloadMetadataCSV = async () => {
