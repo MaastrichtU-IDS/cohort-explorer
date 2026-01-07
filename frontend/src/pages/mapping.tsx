@@ -73,6 +73,12 @@ interface MappingPreviewJsonTableProps {
 function MappingPreviewJsonTable({ data, sourceCohort }: MappingPreviewJsonTableProps) {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [imageError, setImageError] = useState<string | null>(null);
+  const [comparisonDetails, setComparisonDetails] = useState<{
+    sourceVar: string;
+    sourceCohort: string;
+    targetVar: string;
+    targetCohort: string;
+  } | null>(null);
   
   if (!data || !Array.isArray(data) || data.length === 0) return <div className="italic text-slate-400">No mapping data to preview.</div>;
   
@@ -113,13 +119,42 @@ function MappingPreviewJsonTable({ data, sourceCohort }: MappingPreviewJsonTable
                   const targetVar = row['target'] as string;
                   const targetStudy = row['target_study'] as string;
                   
-                  const handleCompare = () => {
+                  const handleCompare = async () => {
                     if (sourceCohort && sourceVar && targetStudy && targetVar) {
-                      // Use Next.js API route instead of direct backend call
                       const imageUrl = `/api/compare-eda/${encodeURIComponent(sourceCohort)}/${encodeURIComponent(sourceVar)}/${encodeURIComponent(targetStudy)}/${encodeURIComponent(targetVar)}`;
                       console.log('Compare EDA clicked:', { sourceCohort, sourceVar, targetStudy, targetVar, imageUrl });
+                      
                       setImageError(null);
-                      setSelectedImage(imageUrl);
+                      setComparisonDetails({
+                        sourceVar,
+                        sourceCohort,
+                        targetVar,
+                        targetCohort: targetStudy
+                      });
+                      
+                      // Fetch the image to check for errors before displaying
+                      try {
+                        const response = await fetch(imageUrl);
+                        if (!response.ok) {
+                          // Try to parse error message from JSON response
+                          const contentType = response.headers.get('content-type');
+                          if (contentType && contentType.includes('application/json')) {
+                            const errorData = await response.json();
+                            setImageError(errorData.details || errorData.error || 'Failed to load image');
+                          } else {
+                            const errorText = await response.text();
+                            setImageError(errorText || 'Failed to load image');
+                          }
+                          setSelectedImage(null);
+                        } else {
+                          // Image loaded successfully
+                          setSelectedImage(imageUrl);
+                        }
+                      } catch (error) {
+                        console.error('Error fetching image:', error);
+                        setImageError('Failed to fetch image: ' + (error as Error).message);
+                        setSelectedImage(null);
+                      }
                     } else {
                       console.error('Missing required fields:', { sourceCohort, sourceVar, targetStudy, targetVar });
                     }
@@ -167,16 +202,21 @@ function MappingPreviewJsonTable({ data, sourceCohort }: MappingPreviewJsonTable
         </tbody>
       </table>
       
-      {/* Modal to display merged EDA image */}
-      {selectedImage && (
+      {/* Modal to display merged EDA image or error */}
+      {(selectedImage || imageError) && comparisonDetails && (
         <div className="modal modal-open">
           <div className="modal-box max-w-5xl">
-            <h3 className="font-bold text-lg mb-4">EDA Comparison</h3>
+            <h3 className="font-bold text-lg mb-4">
+              {comparisonDetails 
+                ? `Statistical Comparison: ${comparisonDetails.sourceVar} (${comparisonDetails.sourceCohort}) vs ${comparisonDetails.targetVar} (${comparisonDetails.targetCohort})`
+                : 'EDA Comparison'
+              }
+            </h3>
             {imageError ? (
               <div className="alert alert-error">
-                <span>Failed to load image: {imageError}</span>
+                <div className="whitespace-pre-wrap">{imageError}</div>
               </div>
-            ) : (
+            ) : selectedImage ? (
               <img 
                 src={selectedImage} 
                 alt="Merged EDA comparison" 
@@ -187,21 +227,24 @@ function MappingPreviewJsonTable({ data, sourceCohort }: MappingPreviewJsonTable
                 }}
                 onLoad={() => console.log('Image loaded successfully')}
               />
-            )}
+            ) : null}
             <div className="modal-action">
-              {!imageError && (
+              {!imageError && selectedImage && (
                 <a 
                   href={selectedImage} 
-                  download="eda-comparison.png"
+                  download={comparisonDetails 
+                    ? `comparison_${comparisonDetails.sourceVar}_${comparisonDetails.sourceCohort}_vs_${comparisonDetails.targetVar}_${comparisonDetails.targetCohort}.png`
+                    : "eda-comparison.png"
+                  }
                   className="btn btn-primary"
                 >
                   Save Image
                 </a>
               )}
-              <button className="btn" onClick={() => { setSelectedImage(null); setImageError(null); }}>Close</button>
+              <button className="btn" onClick={() => { setSelectedImage(null); setImageError(null); setComparisonDetails(null); }}>Close</button>
             </div>
           </div>
-          <div className="modal-backdrop" onClick={() => { setSelectedImage(null); setImageError(null); }}></div>
+          <div className="modal-backdrop" onClick={() => { setSelectedImage(null); setImageError(null); setComparisonDetails(null); }}></div>
         </div>
       )}
     </>
@@ -552,7 +595,7 @@ export default function MappingPage() {
         {mappingOutput && (
           <div 
             ref={mappingOutputRef}
-            className="mt-4 p-4 border rounded-lg bg-base-100 w-full max-w-[110rem] mx-auto"
+            className="mt-4 p-4 border rounded-lg bg-base-100 w-[85%] mx-auto"
           >
             <h2 className="text-lg font-bold mb-3">Mapping Preview</h2>
             
@@ -686,7 +729,10 @@ export default function MappingPage() {
               );
             })()}
 
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto overflow-y-auto max-h-[600px] border border-gray-200 rounded" style={{
+              scrollbarWidth: 'auto',
+              scrollbarColor: '#94a3b8 #e2e8f0'
+            }}>
               {(() => {
                 // Calculate filtered data for the table
                 const filteredData = mappingOutput.filter(row => {

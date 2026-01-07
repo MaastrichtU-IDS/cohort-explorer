@@ -377,6 +377,16 @@ async def compare_eda(
         elif target_image.mode != 'RGB':
             target_image = target_image.convert('RGB')
         
+        # Resize images to 75% of original size
+        source_image = source_image.resize(
+            (int(source_image.width * 0.75), int(source_image.height * 0.75)),
+            Image.Resampling.LANCZOS
+        )
+        target_image = target_image.resize(
+            (int(target_image.width * 0.75), int(target_image.height * 0.75)),
+            Image.Resampling.LANCZOS
+        )
+        
         # Calculate dimensions for the merged image
         max_width = max(source_image.width, target_image.width)
         total_height = source_image.height + target_image.height
