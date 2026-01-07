@@ -272,6 +272,8 @@ export default function MappingPage() {
     dictionary_timestamps: Record<string, number>
   } | null>(null);
   const [tableScrollWidth, setTableScrollWidth] = useState(2000);
+  const [mappingStartTime, setMappingStartTime] = useState<number | null>(null);
+  const [computeDuration, setComputeDuration] = useState<{minutes: number, seconds: number} | null>(null);
   
   // Reference to the mapping output section
   const mappingOutputRef = useRef<HTMLDivElement>(null);
@@ -325,6 +327,9 @@ export default function MappingPage() {
     setLoading(true);
     setError(null);
     setMappingOutput(null);
+    setCacheInfo(null);
+    setComputeDuration(null);
+    setMappingStartTime(Date.now());
     setCacheInfo(null);
     
     try {
@@ -402,6 +407,17 @@ export default function MappingPage() {
         const jsonData = JSON.parse(cleanedFileContent);
         const previewData = transformMappingDataForPreview(jsonData);
         setMappingOutput(previewData);
+        
+        // Calculate compute duration
+        if (mappingStartTime) {
+          const durationMs = Date.now() - mappingStartTime;
+          const totalSeconds = Math.floor(durationMs / 1000);
+          const minutes = Math.floor(totalSeconds / 60);
+          const seconds = totalSeconds % 60;
+          setComputeDuration({ minutes, seconds });
+        }
+        
+        setLoading(false);
       } catch (error) {
         console.error('Error parsing JSON response for preview:', error);
         setMappingOutput([]); // Clear the preview on error
@@ -515,8 +531,26 @@ export default function MappingPage() {
           </button>
         </div>
 
-        {/* Cache Information Display */}
-        {cacheInfo && (
+        {/* Success Message - shown after mapping completes */}
+        {mappingOutput && computeDuration && (
+          <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+            <div className="flex items-start gap-2">
+              <span className="text-green-600 text-xl">✓</span>
+              <div>
+                <h4 className="font-semibold text-green-800 mb-1">Mapping Complete!</h4>
+                <p className="text-sm text-green-700">
+                  Variable mapping for <strong>{sourceCohort}</strong> → <strong>{selectedTargets.join(', ')}</strong> has been generated.
+                </p>
+                <p className="text-sm text-green-600 mt-1">
+                  Compute time: {computeDuration.minutes > 0 ? `${computeDuration.minutes} minute${computeDuration.minutes !== 1 ? 's' : ''} ` : ''}{computeDuration.seconds} second{computeDuration.seconds !== 1 ? 's' : ''}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Cache Information Display - only shown before mapping completes */}
+        {cacheInfo && !mappingOutput && (
           <div className="mt-4 p-4 bg-gray-50 rounded-lg">
             <h4 className="font-semibold mb-2">Cache Status:</h4>
             
