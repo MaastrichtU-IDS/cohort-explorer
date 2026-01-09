@@ -407,21 +407,22 @@ export default function MappingPage() {
         const jsonData = JSON.parse(cleanedFileContent);
         const previewData = transformMappingDataForPreview(jsonData);
         setMappingOutput(previewData);
-        
-        // Calculate compute duration
-        if (mappingStartTime) {
-          const durationMs = Date.now() - mappingStartTime;
-          const totalSeconds = Math.floor(durationMs / 1000);
-          const minutes = Math.floor(totalSeconds / 60);
-          const seconds = totalSeconds % 60;
-          setComputeDuration({ minutes, seconds });
-        }
-        
-        setLoading(false);
       } catch (error) {
         console.error('Error parsing JSON response for preview:', error);
         setMappingOutput([]); // Clear the preview on error
       }
+      
+      // Calculate compute duration (do this regardless of parse success)
+      const startTime = mappingStartTime;
+      if (startTime) {
+        const durationMs = Date.now() - startTime;
+        const totalSeconds = Math.floor(durationMs / 1000);
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+        setComputeDuration({ minutes, seconds });
+      }
+      
+      setLoading(false);
     } catch (err: any) {
       setError(
         typeof err.message === 'string' && err.message.endsWith("metadata has not been added yet!")
