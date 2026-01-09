@@ -453,6 +453,7 @@ async def get_compute_dcr_definition(
     include_shuffled_samples: bool = True,
     additional_analysts: list[str] = None,
     airlock_settings: dict[str, int] = None,
+    dcr_name: str = None,
 ) -> Any:
     start_time = datetime.now()
     logging.info(f"Starting DCR definition creation for user {user['email']} at {start_time}")
@@ -496,7 +497,11 @@ async def get_compute_dcr_definition(
     data_nodes = []
     metadata_nodes = []
     dcr_count = len(client.get_data_room_descriptions())
-    dcr_title = f"iCARE4CVD DCR compute {dcr_count+5}" #to avoid issues with duplicate names
+    # Use custom DCR name if provided, otherwise use default naming
+    if dcr_name and dcr_name.strip():
+        dcr_title = dcr_name.strip()
+    else:
+        dcr_title = f"iCARE4CVD DCR compute {dcr_count+5}" #to avoid issues with duplicate names
     builder = (
         AnalyticsDcrBuilder(client=client)
         .with_name(dcr_title)
@@ -847,6 +852,7 @@ async def create_live_compute_dcr(
     include_shuffled_samples: bool = True,
     additional_analysts: list[str] = None,
     airlock_settings: dict[str, int] = None,
+    dcr_name: str = None,
 ) -> dict[str, Any]:
     """Create and publish a live compute DCR that is immediately available for use.
     
@@ -868,7 +874,7 @@ async def create_live_compute_dcr(
     logging.info(f"Starting live compute DCR creation for user {user['email']} at {start_time}")
     
     # Step 1: Create the DCR definition (reuse existing logic)
-    dcr_definition, dcr_title, participants = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings)
+    dcr_definition, dcr_title, participants = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings, dcr_name)
     
     # Step 2: Publish the DCR to Decentriq with retry logic for race conditions
     import time
@@ -1134,9 +1140,12 @@ async def api_create_live_compute_dcr(
     # Extract airlock_settings from request, default to empty dict
     airlock_settings = cohorts_request.get("airlock_settings", {})
     
+    # Extract dcr_name from request, default to None
+    dcr_name = cohorts_request.get("dcr_name", None)
+    
     # Create and publish the live compute DCR
     try:
-        return await create_live_compute_dcr(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings)
+        return await create_live_compute_dcr(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings, dcr_name)
     except Exception as e:
         error_msg = f"Failed to create live compute DCR: {str(e)}"
         logging.error(error_msg)
@@ -1175,8 +1184,10 @@ async def api_get_compute_dcr_definition(
 
     # Extract include_shuffled_samples from request, default to True
     include_shuffled_samples = cohorts_request.get("include_shuffled_samples", True)
+    # Extract dcr_name from request, default to None
+    dcr_name = cohorts_request.get("dcr_name", None)
 
-    dcr_definition, _dcr_title = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples)
+    dcr_definition, _dcr_title = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, dcr_name=dcr_name)
 
     # Generate DCR config JSON
     dcr_config_json = { "dataScienceDataRoom": dcr_definition.high_level }

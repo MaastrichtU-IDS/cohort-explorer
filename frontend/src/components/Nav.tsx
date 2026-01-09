@@ -29,6 +29,7 @@ export function Nav() {
   const [airlockSettings, setAirlockSettings] = useState<Record<string, number>>({});
   const [participantsPreview, setParticipantsPreview] = useState<any>(null);
   const [loadingParticipants, setLoadingParticipants] = useState(false);
+  const [dcrName, setDcrName] = useState('');
   // const [cleanRoomData, setCleanRoomData]: any = useState(null);
   // const cleanRoomData = JSON.parse(sessionStorage.getItem('dataCleanRoom') || '{"cohorts": []}');
   // const cohortsCount = cleanRoomData.cohorts.length;
@@ -82,7 +83,8 @@ export function Nav() {
         },
         body: JSON.stringify({
           ...dataCleanRoom,
-          include_shuffled_samples: includeShuffledSamples
+          include_shuffled_samples: includeShuffledSamples,
+          dcr_name: dcrName
         })
       });
       
@@ -149,7 +151,8 @@ export function Nav() {
           ...dataCleanRoom,
           include_shuffled_samples: includeShuffledSamples,
           additional_analysts: additionalAnalysts,
-          airlock_settings: airlockSettings
+          airlock_settings: airlockSettings,
+          dcr_name: dcrName
         })
       });
       
@@ -258,6 +261,7 @@ export function Nav() {
     setIncludeShuffledSamples(true);
     setAdditionalAnalysts([]);
     setAirlockSettings({});
+    setDcrName('');
   };
 
   const addAnalyst = useCallback(() => {
@@ -468,10 +472,27 @@ export function Nav() {
             Once the first is selected we only show the cohorts with same number of variables?
             */}
             
-            {/* Checkbox for including shuffled samples - only visible in future mode */}
+            {/* DCR Name field and other settings - only visible in future mode */}
             {dcrMode === 'future' && (
               <>
+                {/* DCR Name field - First field */}
                 <div className="form-control mt-4">
+                  <label className="label">
+                    <span className="label-text font-semibold">DCR Name</span>
+                  </label>
+                  <input 
+                    type="text"
+                    placeholder="iCARE4CVD DCR compute XXX"
+                    className="input input-bordered w-full"
+                    value={dcrName}
+                    onChange={(e) => setDcrName(e.target.value)}
+                  />
+                  <label className="label">
+                    <span className="label-text-alt text-base-content/60">Leave empty to use default naming</span>
+                  </label>
+                </div>
+                
+                <div className="form-control mt-2">
                   <label className="label cursor-pointer justify-start gap-3">
                     <input 
                       type="checkbox" 
