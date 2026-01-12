@@ -489,7 +489,7 @@ export function Nav() {
                   />
                   <label className="label">
                     <span className="label-text-alt text-base-content/60">
-                      Leave empty to use default naming. Note: " - created by {userEmail}" will be appended to the name.
+                      Leave empty to use default naming. Note: &quot; - created by {userEmail}&quot; will be appended to the name.
                     </span>
                   </label>
                 </div>
