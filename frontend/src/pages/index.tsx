@@ -23,9 +23,9 @@ export default function Home() {
     totalCohorts: "waiting to refresh...",
     cohortsWithMetadata: "waiting to refresh...",
     cohortsWithAggregateAnalysis: "waiting to refresh...",
-    totalPatients: 0,
-    patientsInCohortsWithMetadata: 0,
-    totalVariables: 0
+    totalPatients: "--",
+    patientsInCohortsWithMetadata: "--",
+    totalVariables: "--"
   });
   
   // State to track if statistics are being recalculated

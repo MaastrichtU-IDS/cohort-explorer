@@ -788,23 +788,56 @@ export default function MappingPage() {
               );
             })()}
 
-            {/* Top horizontal scrollbar */}
-            <div 
-              className="overflow-x-scroll mb-2 border border-gray-200 rounded-t"
-              style={{
-                height: '20px',
-                overflowY: 'hidden',
-                scrollbarWidth: 'auto',
-                scrollbarColor: '#94a3b8 #e2e8f0'
-              }}
-              onScroll={(e) => {
-                const bottomScroll = document.getElementById('bottom-scroll');
-                if (bottomScroll) {
-                  bottomScroll.scrollLeft = e.currentTarget.scrollLeft;
-                }
-              }}
-            >
-              <div style={{ width: `${tableScrollWidth}px`, height: '1px' }}></div>
+            {/* Top horizontal scrollbar with arrow buttons */}
+            <div className="flex items-center gap-1 mb-2">
+              <button
+                className="btn btn-xs btn-square"
+                onClick={() => {
+                  const topScroll = document.getElementById('top-scroll');
+                  const bottomScroll = document.getElementById('bottom-scroll');
+                  if (topScroll && bottomScroll) {
+                    const scrollAmount = 200;
+                    topScroll.scrollLeft -= scrollAmount;
+                    bottomScroll.scrollLeft -= scrollAmount;
+                  }
+                }}
+                title="Scroll left"
+              >
+                ←
+              </button>
+              <div 
+                id="top-scroll"
+                className="overflow-x-scroll flex-1 border border-gray-200 rounded"
+                style={{
+                  height: '20px',
+                  overflowY: 'hidden',
+                  scrollbarWidth: 'auto',
+                  scrollbarColor: '#94a3b8 #e2e8f0'
+                }}
+                onScroll={(e) => {
+                  const bottomScroll = document.getElementById('bottom-scroll');
+                  if (bottomScroll) {
+                    bottomScroll.scrollLeft = e.currentTarget.scrollLeft;
+                  }
+                }}
+              >
+                <div style={{ width: `${tableScrollWidth}px`, height: '1px' }}></div>
+              </div>
+              <button
+                className="btn btn-xs btn-square"
+                onClick={() => {
+                  const topScroll = document.getElementById('top-scroll');
+                  const bottomScroll = document.getElementById('bottom-scroll');
+                  if (topScroll && bottomScroll) {
+                    const scrollAmount = 200;
+                    topScroll.scrollLeft += scrollAmount;
+                    bottomScroll.scrollLeft += scrollAmount;
+                  }
+                }}
+                title="Scroll right"
+              >
+                →
+              </button>
             </div>
             
             {/* Main table with scrollbars */}
