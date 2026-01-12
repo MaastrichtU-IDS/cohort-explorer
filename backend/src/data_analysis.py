@@ -249,16 +249,26 @@ async def compare_cohorts_cache(
     
     Returns a timestamped JSON report file.
     """
+    tmp_path = None
     try:
+        logging.info(f"Starting cache comparison for user {user['email']}")
+        logging.info(f"File A: {cache_file_a.filename}, File B: {cache_file_b.filename}")
+        
         # Read and parse both cache files
         content_a = await cache_file_a.read()
         content_b = await cache_file_b.read()
         
+        logging.info(f"File A size: {len(content_a)} bytes, File B size: {len(content_b)} bytes")
+        
         cache_a = json.loads(content_a)
         cache_b = json.loads(content_b)
         
+        logging.info("JSON parsing successful, starting comparison...")
+        
         # Perform comparison
         comparison_report = compare_cache_objects(cache_a, cache_b)
+        
+        logging.info("Comparison completed, generating report...")
         
         # Add metadata to report
         comparison_report["comparison_metadata"] = {
@@ -277,18 +287,21 @@ async def compare_cohorts_cache(
             json.dump(comparison_report, tmp_file, indent=2)
             tmp_path = tmp_file.name
         
+        logging.info(f"Report written to {tmp_path}, returning file response")
+        
         return FileResponse(
             path=tmp_path,
             filename=report_filename,
             media_type="application/json",
             headers={
                 "Content-Disposition": f'attachment; filename="{report_filename}"'
-            }
+            },
+            background=None  # Don't delete the file immediately
         )
         
     except json.JSONDecodeError as e:
         logging.error(f"Error parsing cache files: {str(e)}")
         raise HTTPException(status_code=400, detail=f"Invalid JSON in cache file: {str(e)}")
     except Exception as e:
-        logging.error(f"Error comparing cache files: {str(e)}")
+        logging.error(f"Error comparing cache files: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error comparing cache files: {str(e)}")
