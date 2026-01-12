@@ -458,6 +458,27 @@ export function Nav() {
               </div>
             </div>
             
+            {/* DCR Name field - only visible in future mode, placed at top */}
+            {dcrMode === 'future' && (
+              <div className="form-control mb-4">
+                <label className="label">
+                  <span className="label-text font-semibold">DCR Name</span>
+                </label>
+                <input 
+                  type="text"
+                  placeholder="iCARE4CVD DCR compute XXX"
+                  className="input input-bordered w-full"
+                  value={dcrName}
+                  onChange={(e) => setDcrName(e.target.value)}
+                />
+                <label className="label">
+                  <span className="label-text-alt text-base-content/60">
+                    Leave empty to use default naming. Note: &quot; - created by {userEmail}&quot; will be appended to the name.
+                  </span>
+                </label>
+              </div>
+            )}
+            
             <h3 className="font-bold text-lg mb-3">Cohorts to load in Decentriq Data Clean Room</h3>
             <ul>
               {Object.entries(dataCleanRoom?.cohorts).map(([cohortId, variables]: any) => (
@@ -472,27 +493,9 @@ export function Nav() {
             Once the first is selected we only show the cohorts with same number of variables?
             */}
             
-            {/* DCR Name field and other settings - only visible in future mode */}
+            {/* Other settings - only visible in future mode */}
             {dcrMode === 'future' && (
               <>
-                {/* DCR Name field - First field */}
-                <div className="form-control mt-4">
-                  <label className="label">
-                    <span className="label-text font-semibold">DCR Name</span>
-                  </label>
-                  <input 
-                    type="text"
-                    placeholder="iCARE4CVD DCR compute XXX"
-                    className="input input-bordered w-full"
-                    value={dcrName}
-                    onChange={(e) => setDcrName(e.target.value)}
-                  />
-                  <label className="label">
-                    <span className="label-text-alt text-base-content/60">
-                      Leave empty to use default naming. Note: &quot; - created by {userEmail}&quot; will be appended to the name.
-                    </span>
-                  </label>
-                </div>
                 
                 <div className="form-control mt-2">
                   <label className="label cursor-pointer justify-start gap-3">
