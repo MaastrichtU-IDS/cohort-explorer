@@ -220,7 +220,8 @@ function MappingPreviewJsonTable({ data, sourceCohort }: MappingPreviewJsonTable
               <img 
                 src={selectedImage} 
                 alt="Merged EDA comparison" 
-                className="w-full"
+                style={{ width: '75%', height: 'auto' }}
+                className="mx-auto"
                 onError={(e) => {
                   console.error('Image failed to load:', selectedImage);
                   setImageError('Image not found or failed to load');
@@ -456,9 +457,13 @@ export default function MappingPage() {
       {error && (
         <span style={{ color: 'red', fontWeight: 500, marginBottom: 16, display: 'block' }}>{error}</span>
       )}
-      <div className="w-full max-w-6xl space-y-8">
-        <h1 className="text-3xl font-bold text-center mb-8">Cohort Mapping</h1>
+      <div className="w-full space-y-8">
+        <div className="max-w-6xl mx-auto">
+          <h1 className="text-3xl font-bold text-center mb-8">Cohort Mapping</h1>
+        </div>
 
+        {/* Search box and form elements - constrained width */}
+        <div className="max-w-6xl mx-auto">
         {/* Search box for filtering target cohorts */}
         <div className="mb-6 flex justify-center">
           <input
@@ -531,8 +536,10 @@ export default function MappingPage() {
             }
           </button>
         </div>
+        </div>
 
         {/* Success Message - shown after mapping completes */}
+        <div className="max-w-6xl mx-auto">
         {mappingOutput && computeDuration && (
           <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
             <div className="flex items-start gap-2">
@@ -640,12 +647,14 @@ export default function MappingPage() {
         {error && (
           <div className="mt-4 text-red-500 text-center">{error}</div>
         )}
+        </div>
 
+        {/* Mapping Preview - wider container */}
         {mappingOutput && (
+          <div className="w-[85vw] mx-auto">
           <div 
             ref={mappingOutputRef}
             className="mt-4 p-4 border rounded-lg bg-base-100"
-            style={{ width: '85vw', marginLeft: 'auto', marginRight: 'auto' }}
           >
             <h2 className="text-lg font-bold mb-3">Mapping Preview</h2>
             
@@ -830,6 +839,7 @@ export default function MappingPage() {
                 return <MappingPreviewJsonTable data={filteredData} sourceCohort={sourceCohort} />;
               })()}
             </div>
+          </div>
           </div>
         )}
       </div>

@@ -488,7 +488,9 @@ export function Nav() {
                     onChange={(e) => setDcrName(e.target.value)}
                   />
                   <label className="label">
-                    <span className="label-text-alt text-base-content/60">Leave empty to use default naming</span>
+                    <span className="label-text-alt text-base-content/60">
+                      Leave empty to use default naming. Note: " - created by {userEmail}" will be appended to the name.
+                    </span>
                   </label>
                 </div>
                 

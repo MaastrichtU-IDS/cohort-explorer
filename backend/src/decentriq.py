@@ -502,6 +502,8 @@ async def get_compute_dcr_definition(
         dcr_title = dcr_name.strip()
     else:
         dcr_title = f"iCARE4CVD DCR compute {dcr_count+5}" #to avoid issues with duplicate names
+    # Append username to DCR title for clarity
+    dcr_title = f"{dcr_title} - created by {user['email']}"
     builder = (
         AnalyticsDcrBuilder(client=client)
         .with_name(dcr_title)
