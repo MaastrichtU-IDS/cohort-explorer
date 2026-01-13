@@ -73,6 +73,11 @@ prefix_map = [
     {
         "prefix":"mesh",
         "uri_prefix": "https://id.nlm.nih.gov/mesh/"
+    },
+    {
+        "prefix": "cpt4",
+        "uri_prefix": "https://www.ama-assn.org/practice-management/cpt/",
+        "prefix_synonyms": ["CPT4", "cpt", "CPT"]
     }
 ]
 curie_converter = curies.load_extended_prefix_map(prefix_map)

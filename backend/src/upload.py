@@ -386,7 +386,7 @@ def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
                         expanded_uri = curie_converter.expand(normalized_code)
                         if not expanded_uri:
                             errors.append(
-                                f"Row {i+2} (Variable: '{var_name_for_error}'): The variable concept code '{var_concept_code_str}' is not valid or its prefix is not recognized. Valid prefixes: {', '.join([record['prefix'] + ':' for record in prefix_map if record.get('prefix')])}."
+                                f"Row {i+2} (Variable: '{var_name_for_error}'): The variable concept code '{var_concept_code_str}' is not valid or its prefix is not recognized. Valid prefixes: {', '.join([record['prefix'] for record in prefix_map if record.get('prefix')])}."
                             )
                     except Exception as curie_exc:
                         error_msg = str(curie_exc)
@@ -572,7 +572,7 @@ def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
                         expanded_uri = curie_converter.expand(normalized_code)
                         if not expanded_uri:
                             errors.append(
-                                f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_value}'): The category concept code '{cat_code}' is not valid or its prefix is not recognized. Valid prefixes: {', '.join([record['prefix'] + ':' for record in prefix_map if record.get('prefix')])}."
+                                f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_value}'): The category concept code '{cat_code}' is not valid or its prefix is not recognized. Valid prefixes: {', '.join([record['prefix'] for record in prefix_map if record.get('prefix')])}."
                             )
                     except Exception as curie_exc:
                         error_msg = str(curie_exc)

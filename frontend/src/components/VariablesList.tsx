@@ -444,6 +444,11 @@ const VariablesList = ({
           >
             {showOnlyOutcomes ? 'Show All Variables' : 'Show Outcome Variables'}
           </button>
+          {showOnlyOutcomes && (
+            <p className="text-xs text-gray-600 mt-2">
+              Note: the list of outcome variables has not been manually reviewed. The list may not be fully accurate.
+            </p>
+          )}
         </div>
         
         <FilterByMetadata
