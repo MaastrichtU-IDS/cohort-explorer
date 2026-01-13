@@ -649,12 +649,11 @@ export default function MappingPage() {
         )}
         </div>
 
-        {/* Mapping Preview - wider container */}
+        {/* Mapping Preview - wider container, breaks out of max-w-6xl constraint */}
         {mappingOutput && (
-          <div className="w-[85vw] mx-auto">
           <div 
             ref={mappingOutputRef}
-            className="mt-4 p-4 border rounded-lg bg-base-100"
+            className="mt-4 p-4 border rounded-lg bg-base-100 w-[85vw] mx-auto"
           >
             <h2 className="text-lg font-bold mb-3">Mapping Preview</h2>
             
@@ -872,7 +871,6 @@ export default function MappingPage() {
                 return <MappingPreviewJsonTable data={filteredData} sourceCohort={sourceCohort} />;
               })()}
             </div>
-          </div>
           </div>
         )}
       </div>
