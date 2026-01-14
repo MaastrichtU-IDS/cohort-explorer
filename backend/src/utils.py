@@ -37,10 +37,8 @@ class OntologyNamespaces(Enum):
 
 query_endpoint = SPARQLWrapper(settings.query_endpoint)
 query_endpoint.setReturnFormat(JSON)
-# Set timeout to 300 seconds (5 minutes) for large queries
-query_endpoint.setTimeout(300)
-# Use POST method for large queries (avoids header size limits)
-query_endpoint.setMethod('POST')
+# Set timeout to 600 seconds (10 minutes) for large queries
+query_endpoint.setTimeout(600)
 # Enable HTTP connection keep-alive for better performance
 query_endpoint.addCustomHttpHeader("Connection", "keep-alive")
 
@@ -64,6 +62,7 @@ prefix_map = [
     {
         "prefix": "icd10",
         "uri_prefix": "https://icd.who.int/browse10/2019/en#/",
+        "prefix_synonyms": ["icd9proc"]
     },
     {
         "prefix": "atc",
@@ -81,12 +80,27 @@ prefix_map = [
     {
         "prefix": "omop",
         "uri_prefix": "https://athena.ohdsi.org/search-terms/terms/",
-        "prefix_synonyms": ["OMOP"]
+        "prefix_synonyms": ["OMOP", "omopgenomic", "rxnorm extension", "rxnorm_extension", "RXNORM EXTENSION", "RxNorm Extension", "rxnormextension" ]
     },
     {
         "prefix": "ucum",
         "uri_prefix": "http://unitsofmeasure.org/ucum/",
         "prefix_synonyms": ["UCUM"]
+    },
+    {
+        "prefix":"ukbiobank",
+        "uri_prefix": "https://biobank.ndph.ox.ac.uk/showcase/",
+        
+
+    },
+    {
+        "prefix":"mesh",
+        "uri_prefix": "https://id.nlm.nih.gov/mesh/"
+    },
+    {
+        "prefix": "cpt4",
+        "uri_prefix": "https://www.ama-assn.org/practice-management/cpt/",
+        "prefix_synonyms": ["CPT4", "cpt", "CPT"]
     }
 ]
 curie_converter = curies.load_extended_prefix_map(prefix_map)
@@ -208,11 +222,27 @@ PREFIX icare: <{ICARE}>
 
 SELECT DISTINCT ?cohortId ?cohortInstitution ?cohortEmail ?study_type ?study_participants ?study_duration ?study_ongoing ?study_population ?study_objective ?primary_outcome_spec ?secondary_outcome_spec ?morbidity ?study_start ?study_end ?male_percentage ?female_percentage ?administrator ?administrator_email ?study_contact_person ?study_contact_person_email ?references ?population_location ?language ?data_collection_frequency ?interventions ?sex_inclusion ?health_status_inclusion ?clinically_relevant_exposure_inclusion ?age_group_inclusion ?bmi_range_inclusion ?ethnicity_inclusion ?family_status_inclusion ?hospital_patient_inclusion ?use_of_medication_inclusion ?health_status_exclusion ?bmi_range_exclusion ?limited_life_expectancy_exclusion ?need_for_surgery_exclusion ?surgical_procedure_history_exclusion ?clinically_relevant_exposure_exclusion
     ?variable ?varName ?varLabel ?varType ?index ?count ?na ?max ?min ?units ?formula ?definition
-    ?omopDomain ?conceptId ?conceptCode ?conceptName ?omopId ?mappedId ?mappedLabel ?visits ?categoryValue ?categoryLabel ?categoryConceptId ?categoryMappedId ?categoryMappedLabel
-WHERE {{
-    GRAPH <https://w3id.org/CMEO/graph/studies_metadata> {{
-        ?study_design_execution a obi:study_design_execution ;
-            dc:identifier ?cohortId .
+    ?omopDomain ?conceptId ?conceptCode ?conceptName ?omopId ?mappedId ?mappedLabel ?visits ?visitConceptName ?categoryValue ?categoryLabel ?categoryConceptId ?categoryMappedId ?categoryMappedLabel
+WHERE {
+    GRAPH ?cohortMetadataGraph {
+        ?cohort a icare:Cohort ;
+            dc:identifier ?cohortId ;
+            icare:institution ?cohortInstitution .
+        OPTIONAL { ?cohort icare:cohortType ?cohortType . }
+        OPTIONAL { ?cohort icare:email ?cohortEmail . }
+        OPTIONAL { ?cohort icare:studyType ?study_type . }
+        OPTIONAL { ?cohort icare:studyParticipants ?study_participants . }
+        OPTIONAL { ?cohort icare:studyDuration ?study_duration . }
+        OPTIONAL { ?cohort icare:studyOngoing ?study_ongoing . }
+        OPTIONAL { ?cohort icare:studyPopulation ?study_population . }
+        OPTIONAL { ?cohort icare:studyObjective ?study_objective . }
+        OPTIONAL { ?cohort icare:primaryOutcomeSpec ?primary_outcome_spec . }
+        OPTIONAL { ?cohort icare:secondaryOutcomeSpec ?secondary_outcome_spec . }
+        OPTIONAL { ?cohort icare:morbidity ?morbidity . }
+        OPTIONAL { ?cohort icare:studyStart ?study_start . }
+        OPTIONAL { ?cohort icare:studyEnd ?study_end . }
+        OPTIONAL { ?cohort icare:malePercentage ?male_percentage . }
+        OPTIONAL { ?cohort icare:femalePercentage ?female_percentage . }
         
         # Get institute/organization information  
         OPTIONAL {{
@@ -343,35 +373,44 @@ WHERE {{
                 rdfs:label ?varLabel ;
                 icare:varType ?varType ;
                 icare:index ?index .
-            OPTIONAL {{ ?variable icare:count ?count . }}
-            OPTIONAL {{ ?variable icare:na ?na . }}
-            OPTIONAL {{ ?variable icare:max ?max . }}
-            OPTIONAL {{ ?variable icare:min ?min . }}
-            OPTIONAL {{ ?variable icare:units ?units . }}
-            OPTIONAL {{ ?variable icare:formula ?formula . }}
-            OPTIONAL {{ ?variable icare:definition ?definition . }}
-            OPTIONAL {{ ?variable icare:omopDomain ?omopDomain . }}
-            OPTIONAL {{ ?variable icare:conceptId ?conceptId . }}
-            OPTIONAL {{ ?variable icare:conceptCode ?conceptCode . }}
-            OPTIONAL {{ ?variable icare:conceptName ?conceptName . }}
-            OPTIONAL {{ ?variable icare:omopId ?omopId . }}
-            OPTIONAL {{ ?variable icare:mappedId ?mappedId . }}
-            OPTIONAL {{ ?variable icare:mappedLabel ?mappedLabel . }}
-            OPTIONAL {{ ?variable icare:visits ?visits . }}
-            
-            OPTIONAL {{
-                ?variable icare:categories ?category .
-                ?category rdf:value ?categoryValue ;
-                    rdfs:label ?categoryLabel .
-                OPTIONAL {{ ?category icare:conceptId ?categoryConceptId . }}
-                OPTIONAL {{ ?category icare:mappedId ?categoryMappedId . }}
-                OPTIONAL {{ ?category icare:mappedLabel ?categoryMappedLabel . }}
-            }}
-        }}
-    }}
-}}
-ORDER BY ?cohortId ?index ?categoryValue"""
-    return query
+            OPTIONAL { ?variable icare:count ?count }
+            OPTIONAL { ?variable icare:na ?na }
+            OPTIONAL { ?variable icare:max ?max }
+            OPTIONAL { ?variable icare:min ?min }
+            OPTIONAL { ?variable icare:units ?units }
+            OPTIONAL { ?variable icare:formula ?formula }
+            OPTIONAL { ?variable icare:definition ?definition }
+            OPTIONAL { ?variable icare:conceptId ?conceptId }
+            OPTIONAL { ?variable icare:conceptCode ?conceptCode }
+            OPTIONAL { ?variable icare:conceptName ?conceptName }
+            OPTIONAL { ?variable icare:omopId ?omopId }
+            OPTIONAL { ?variable icare:domain ?omopDomain }
+            OPTIONAL { ?variable icare:visits ?visits }
+            OPTIONAL { ?variable icare:visitConceptName ?visitConceptName }
+            OPTIONAL {
+                ?variable icare:categories ?category.
+                ?category rdfs:label ?categoryLabel ;
+                    rdf:value ?categoryValue .
+                OPTIONAL { ?category icare:conceptId ?categoryConceptId }
+            }
+        }
+    }
+
+    OPTIONAL {
+        GRAPH ?cohortMappingsGraph {
+            OPTIONAL {
+                ?variable icare:mappedId ?mappedId .
+                OPTIONAL { ?mappedId rdfs:label ?mappedLabel }
+            }
+            OPTIONAL {
+                ?category icare:mappedId ?categoryMappedId .
+                OPTIONAL { ?categoryMappedId rdfs:label ?categoryMappedLabel }
+            }
+            # OPTIONAL { ?cohort icare:previewEnabled ?airlock . }
+        }
+    }
+} ORDER BY ?cohort ?index
+"""
 
 
 # TODO: Utility to get value or None if key is missing or value is empty string
@@ -497,31 +536,61 @@ def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = F
     import time
     start_time = time.time()
     
-    # ===== STEP 1: Execute Studies Metadata Query =====
-    logging.info("🔍 Starting studies metadata query...")
-    studies_query_start = time.time()
-    studies_results = run_query(get_studies_metadata_query())["results"]["bindings"]
-    studies_query_duration = time.time() - studies_query_start
-    logging.info(f"✅ Studies metadata query completed: {studies_query_duration:.2f}s, {len(studies_results)} results")
+    # Execute SPARQL query and measure its execution time
+    logging.info("Executing SPARQL query to retrieve cohorts metadata...")
+    query_start_time = time.time()
     
-    # ===== STEP 2: Execute Variables Metadata Query =====
-    logging.info("🔍 Starting variables metadata query...")
-    variables_query_start = time.time()
-    variables_results = run_query(get_variables_metadata_query())["results"]["bindings"]
-    variables_query_duration = time.time() - variables_query_start
-    logging.info(f"✅ Variables metadata query completed: {variables_query_duration:.2f}s, {len(variables_results)} results")
+    try:
+        results = run_query(get_variables_query)["results"]["bindings"]
+    except Exception as e:
+        logging.error(f"SPARQL query failed: {e}")
+        raise
     
-    total_query_duration = studies_query_duration + variables_query_duration
+    query_end_time = time.time()
+    query_duration = query_end_time - query_start_time
     
-    # ===== STEP 3: Process Studies Metadata =====
-    logging.info(f"📊 Processing {len(studies_results)} study metadata rows...")
-    cohorts = {}
+    cohorts_with_variables = {}
+    cohorts_without_variables = {}
+    total_rows = len(results)
+    logging.info(f"SPARQL query completed in {query_duration:.2f}s, returned {total_rows} rows. Starting processing...")
     
-    for row in studies_results:
+    # Track progress during row processing
+    rows_processed = 0
+    last_progress_log = time.time()
+    progress_interval = 30  # Log progress every 30 seconds
+    
+    for row in results:
+        rows_processed += 1
+        
+        # Log progress every 30 seconds
+        current_time = time.time()
+        if current_time - last_progress_log >= progress_interval:
+            elapsed = current_time - query_end_time
+            progress_pct = (rows_processed / total_rows * 100) if total_rows > 0 else 0
+            logging.info(f"Processing progress: {rows_processed}/{total_rows} rows ({progress_pct:.1f}%) - {elapsed:.1f}s elapsed")
+            last_progress_log = current_time
         try:
             cohort_id = str(row["cohortId"]["value"])
+            var_id = str(row["varName"]["value"]) if "varName" in row else None
             
-            if cohort_id not in cohorts:
+            # Check if cohort exists in EITHER dictionary to avoid duplicates
+            cohort_exists = cohort_id in cohorts_with_variables or cohort_id in cohorts_without_variables
+            
+            # Determine which dictionary to use (prefer cohorts_with_variables if it has variables)
+            if cohort_id in cohorts_with_variables:
+                target_dict = cohorts_with_variables
+            elif cohort_id in cohorts_without_variables and var_id:
+                # Move cohort from without_variables to with_variables if we now have a variable
+                target_dict = cohorts_with_variables
+                cohorts_with_variables[cohort_id] = cohorts_without_variables.pop(cohort_id)
+            elif cohort_id in cohorts_without_variables:
+                target_dict = cohorts_without_variables
+            else:
+                # New cohort: put in appropriate dict based on whether it has variables
+                target_dict = cohorts_with_variables if var_id else cohorts_without_variables
+
+            # Initialize cohort data structure if not exists
+            if cohort_id and not cohort_exists:
                 cohort = Cohort(
                     cohort_id=get_value("cohortId", row),
                     institution=get_value("cohortInstitution", row),
@@ -540,9 +609,9 @@ def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = F
                     female_percentage=None,  # Not in new query structure
                     # Contact information fields
                     administrator=get_value("administrator", row),
-                    administrator_email=get_value("administrator_email", row),
+                    administrator_email=get_value("administrator_email", row).lower() if get_value("administrator_email", row) else "",
                     study_contact_person=get_value("study_contact_person", row),
-                    study_contact_person_email=get_value("study_contact_person_email", row),
+                    study_contact_person_email=get_value("study_contact_person_email", row).lower() if get_value("study_contact_person_email", row) else "",
                     references=[],
                     # Additional metadata fields
                     population_location=get_value("population_location", row),
@@ -567,98 +636,71 @@ def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = F
                     surgical_procedure_history_exclusion="",
                     clinically_relevant_exposure_exclusion="",
                     variables={},
-                    can_edit=user_email in settings.admins_list,
                     physical_dictionary_exists=False
                 )
-                cohorts[cohort_id] = cohort
                 
-                # Check if physical dictionary file exists
+                # Make the cohort accessible via target_dict before any access
+                target_dict[cohort_id] = cohort
+                
+                # Debug logging for cohort creation
+                cohort_email = get_value("cohortEmail", row).lower() if get_value("cohortEmail", row) else ""
+                is_admin = user_email in settings.admins_list
+                is_cohort_owner = user_email == cohort_email
+                can_edit = is_admin or is_cohort_owner
+                
+                logging.debug(
+                    f"Cohort {get_value('cohortId', row)} - "
+                    f"User: {user_email}, "
+                    f"Cohort Email: {cohort_email}, "
+                    f"Is Admin: {is_admin}, "
+                    f"Is Owner: {is_cohort_owner}, "
+                    f"Can Edit: {can_edit}"
+                )
+                
+                # Update the can_edit flag after initialization
+                cohort.can_edit = can_edit
+                
+                # Attempt to determine if a physical dictionary file exists
                 try:
-                    if cohorts[cohort_id].metadata_filepath:
-                        cohorts[cohort_id].physical_dictionary_exists = True
-                except FileNotFoundError:
-                    cohorts[cohort_id].physical_dictionary_exists = False
-                    
-        except Exception as e:
-            logging.warning(f"Error processing study row: {e}")
-    
-    logging.info(f"✅ Studies processing completed: {len(cohorts)} cohorts created")
-    
-    # ===== STEP 4: Process Variables Metadata =====
-    logging.info(f"📊 Processing {len(variables_results)} variable metadata rows...")
-    
-    # Create a mapping for faster lookup (case-insensitive)
-    cohort_id_map = {cid.lower(): cid for cid in cohorts.keys()}
-    
-    variables_processed = 0
-    for row in variables_results:
-        try:
-            # Extract study name from the query result
-            study_name = get_value("study_name", row)
-            var_name = get_value("var_name", row)
+                    meta_path = getattr(target_dict[cohort_id], "metadata_filepath", None)
+                    target_dict[cohort_id].physical_dictionary_exists = bool(meta_path)
+                except Exception as _e:
+                    logging.debug(f"Skipping physical dictionary check for cohort_id={cohort_id}: {_e}")
+                    target_dict[cohort_id].physical_dictionary_exists = False
+
+            elif get_value("cohortEmail", row).lower() not in target_dict[cohort_id].cohort_email:
+                # Handle multiple emails for the same cohort
+                cohort_email = get_value("cohortEmail", row).lower() if get_value("cohortEmail", row) else ""
+                if cohort_email:
+                    target_dict[cohort_id].cohort_email.append(cohort_email)
+                    if user_email == cohort_email:
+                        target_dict[cohort_id].can_edit = True
             
-            # Fast lookup using pre-built map
-            cohort_id = cohort_id_map.get(study_name.lower())
-            
-            if not cohort_id:
-                # Try partial match as fallback
-                for lower_cid, actual_cid in cohort_id_map.items():
-                    if study_name.lower() in lower_cid or lower_cid in study_name.lower():
-                        cohort_id = actual_cid
-                        break
-            
-            if not cohort_id:
-                # If we can't find a match, use study_name as cohort_id
-                cohort_id = study_name
-            if cohort_id not in cohorts:
-                logging.warning(f"Variable for unknown cohort: {cohort_id}")
-                continue
-            
-            # Add variable to cohort
-            if var_name and var_name not in cohorts[cohort_id].variables:
-                # Parse categorical values (format: "value1=label1|value2=label2")
-                categories = []
-                categorical_values_str = get_value("categorical_values", row)
-                if categorical_values_str:
-                    pairs = categorical_values_str.split("|")
-                    category_codes_list = get_value("category_concept_codes", row).split("|") if get_value("category_concept_codes", row) else []
-                    category_labels_list = get_value("category_concept_label", row).split("|") if get_value("category_concept_label", row) else []
-                    category_omop_list = get_value("category_omop_id", row).split("|") if get_value("category_omop_id", row) else []
-                    
-                    for i, pair in enumerate(pairs):
-                        if "=" in pair:
-                            value, label = pair.split("=", 1)
-                            categories.append(VariableCategory(
-                                value=value.strip(),
-                                label=label.strip(),
-                                concept_id=category_codes_list[i] if i < len(category_codes_list) else None,
-                                mapped_id=None,
-                                mapped_label=category_labels_list[i] if i < len(category_labels_list) else None,
-                            ))
-                
-                # Parse concept codes and labels (format: "code1 || code2 || code3")
-                concept_codes_str = get_value("concept_codes", row)
-                concept_labels_str = get_value("concept_labels", row)
-                concept_codes_list = concept_codes_str.split(" || ") if concept_codes_str else []
-                concept_labels_list = concept_labels_str.split(" || ") if concept_labels_str else []
-                
-                cohorts[cohort_id].variables[var_name] = CohortVariable(
-                    var_name=var_name,
-                    var_label=get_value("var_label", row),
-                    var_type=get_value("varType", row),
-                    count=get_int_value("count_value", row) or 0,
-                    max=get_value("maximum_value", row),
-                    min=get_value("minimum_value", row),
-                    units=get_value("unit_value", row),
-                    visits=get_value("visit", row),
-                    formula=get_value("formula_value", row),
-                    definition="",  # Not in new query
-                    concept_id=concept_codes_list[0] if concept_codes_list else None,
-                    concept_code=concept_codes_list[0] if concept_codes_list else None,
-                    concept_name=concept_labels_list[0] if concept_labels_list else None,
-                    omop_id=get_value("concept_omop_id", row),
-                    mapped_id=None,  # Not clear in new query
-                    mapped_label=None,  # Not clear in new query
+            # Handle references - process independently of other conditions
+            if get_value("references", row) and get_value("references", row) not in target_dict[cohort_id].references:
+                # Add reference to the list
+                target_dict[cohort_id].references.append(get_value("references", row))
+
+            # Process variables
+            if "varName" in row and var_id not in target_dict[cohort_id].variables:
+                target_dict[cohort_id].variables[var_id] = CohortVariable(
+                    var_name=row["varName"]["value"],
+                    var_label=row["varLabel"]["value"],
+                    var_type=row["varType"]["value"],
+                    count=get_int_value("count", row) or 0,
+                    max=get_value("max", row),
+                    min=get_value("min", row),
+                    units=get_value("units", row),
+                    visits=get_value("visits", row),
+                    visit_concept_name=get_value("visitConceptName", row),
+                    formula=get_value("formula", row),
+                    definition=get_value("definition", row),
+                    concept_id=get_curie_value("conceptId", row),
+                    concept_code=get_value("conceptCode", row),
+                    concept_name=get_value("conceptName", row),
+                    omop_id=get_value("omopId", row),
+                    mapped_id=get_curie_value("mappedId", row),
+                    mapped_label=get_value("mappedLabel", row),
                     omop_domain=get_value("omopDomain", row),
                     index=None,  # Not in new query
                     na=0,  # Not in new query
@@ -667,22 +709,46 @@ def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = F
                 variables_processed += 1
                 
         except Exception as e:
-            logging.warning(f"Error processing variable row: {e}")
-    
-    logging.info(f"✅ Variables processing completed: {variables_processed} variables added")
-    
-    # ===== STEP 5: Separate cohorts with and without variables =====
-    cohorts_with_variables = {k: v for k, v in cohorts.items() if v.variables}
-    cohorts_without_variables = {k: v for k, v in cohorts.items() if not v.variables}
-    
-    # Merge with variables first (so they appear at top)
+            var_name = None
+            try:
+                var_name = row.get("varName", {}).get("value") if isinstance(row.get("varName"), dict) else None
+            except Exception:
+                pass
+            exc_type = type(e).__name__
+            sig = (str(cohort_id), str(var_name), exc_type)
+            _sig_set = globals().setdefault("_SPARQL_ROW_ERROR_SIGNATURES", set())
+            if len(_sig_set) > 5000:
+                _sig_set.clear()
+            if sig not in _sig_set:
+                _sig_set.add(sig)
+                logging.exception(
+                    f"Error processing SPARQL row for cohort_id={cohort_id}, varName={var_name}, error={exc_type}. Raw row keys={list(row.keys())}"
+                )
+            else:
+                logging.debug(
+                    f"Suppressed duplicate error for cohort_id={cohort_id}, varName={var_name}, error={exc_type}"
+                )
+    # Merge cohorts with and without variables
+    # Put cohorts with variables first so they appear at the top of the list
+    logging.info(f"Merging cohorts: {len(cohorts_with_variables)} with variables, {len(cohorts_without_variables)} without")
     cohorts = {**cohorts_with_variables, **cohorts_without_variables}
     
-    # Log timing information
+    # Count total variables and categories
+    total_variables = sum(len(c.variables) for c in cohorts.values())
+    total_categories = sum(
+        len(var.categories) 
+        for cohort in cohorts.values() 
+        for var in cohort.variables.values()
+    )
+    
+    # Log total function execution time
     end_time = time.time()
     total_duration = end_time - start_time
-    processing_duration = total_duration - total_query_duration
-    logging.info(f"Total retrieval time: {total_duration:.2f}s (Queries: {total_query_duration:.2f}s, Processing: {processing_duration:.2f}s)")
+    processing_duration = total_duration - query_duration
+    logging.info(
+        f"Cohorts metadata retrieval completed: {len(cohorts)} cohorts, {total_variables} variables, {total_categories} categories. "
+        f"Time: {total_duration:.2f}s (Query: {query_duration:.2f}s, Processing: {processing_duration:.2f}s)"
+    )
     
     # Return with metadata if requested
     if include_sparql_metadata:

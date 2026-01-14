@@ -29,47 +29,98 @@ def get_cache_timestamp_file() -> Path:
     return cache_dir / ".cache_timestamp"
 
 def save_cache_to_disk() -> None:
-    """Save the current cache to disk."""
+    """Save the current cache to disk using atomic write with file locking."""
     if not _cohorts_cache:
         logging.warning("Attempted to save empty cache to disk")
         return
     
+    import fcntl
+    import tempfile
+    
     try:
         cache_file = get_cache_file_path()
+        lock_file_path = cache_file.parent / ".cache_write.lock"
         
-        # Convert Cohort objects to serializable dictionaries
-        serializable_cache = {}
-        for cohort_id, cohort_data in _cohorts_cache.items():
-            # Convert each cohort to a serializable dictionary
-            serializable_cache[cohort_id] = cohort_to_dict(cohort_data)
-        
-        with open(cache_file, 'w') as f:
-            json.dump(serializable_cache, f)
-        
-        logging.info(f"Saved cohorts cache to {cache_file}")
+        # Acquire lock to prevent concurrent writes
+        with open(lock_file_path, 'w') as lock_file:
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+                
+                # Convert Cohort objects to serializable dictionaries
+                serializable_cache = {}
+                for cohort_id, cohort_data in _cohorts_cache.items():
+                    # Convert each cohort to a serializable dictionary
+                    serializable_cache[cohort_id] = cohort_to_dict(cohort_data)
+                
+                # Use atomic write: write to temp file then rename
+                temp_fd, temp_path = tempfile.mkstemp(
+                    dir=cache_file.parent,
+                    prefix='.cohorts_cache_',
+                    suffix='.tmp'
+                )
+                
+                try:
+                    with os.fdopen(temp_fd, 'w') as f:
+                        json.dump(serializable_cache, f, indent=2)
+                    
+                    # Atomic rename (overwrites existing file)
+                    os.replace(temp_path, cache_file)
+                    logging.info(f"Saved cohorts cache to {cache_file} ({len(_cohorts_cache)} cohorts)")
+                except Exception as write_error:
+                    # Clean up temp file on error
+                    if os.path.exists(temp_path):
+                        os.remove(temp_path)
+                    raise write_error
+                    
+            finally:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                
     except Exception as e:
         logging.error(f"Error saving cohorts cache to disk: {e}")
 
 def load_cache_from_disk() -> bool:
-    """Load the cache from disk if it exists."""
+    """Load the cache from disk if it exists, with file locking to prevent reading partial writes."""
     global _cohorts_cache, _cache_initialized
+    
+    import fcntl
     
     cache_file = get_cache_file_path()
     if not cache_file.exists():
         logging.info("No cohorts cache file found")
         return False
     
+    lock_file_path = cache_file.parent / ".cache_write.lock"
+    
     try:
-        with open(cache_file, 'r') as f:
-            serialized_cache = json.load(f)
-        
-        # Convert serialized dictionaries back to Cohort objects
-        for cohort_id, cohort_data in serialized_cache.items():
-            _cohorts_cache[cohort_id] = dict_to_cohort(cohort_data)
-        
-        _cache_initialized = True
-        logging.info(f"Loaded cohorts cache from {cache_file} with {len(_cohorts_cache)} cohorts")
-        return True
+        # Try to acquire read lock (will wait if someone is writing)
+        with open(lock_file_path, 'w') as lock_file:
+            try:
+                # Use shared lock for reading (multiple readers OK, blocks if writer active)
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_SH)
+                
+                with open(cache_file, 'r') as f:
+                    serialized_cache = json.load(f)
+                
+                # Convert serialized dictionaries back to Cohort objects
+                for cohort_id, cohort_data in serialized_cache.items():
+                    _cohorts_cache[cohort_id] = dict_to_cohort(cohort_data)
+                
+                _cache_initialized = True
+                logging.info(f"Loaded cohorts cache from {cache_file} with {len(_cohorts_cache)} cohorts")
+                return True
+                
+            finally:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                
+    except json.JSONDecodeError as json_err:
+        logging.error(f"Error loading cohorts cache from disk: Invalid JSON - {json_err}. Cache file may be corrupted, will re-initialize.")
+        # Delete corrupted cache file
+        try:
+            cache_file.unlink()
+            logging.info("Deleted corrupted cache file")
+        except:
+            pass
+        return False
     except Exception as e:
         logging.error(f"Error loading cohorts cache from disk: {e}")
         return False
@@ -134,6 +185,7 @@ def cohort_to_dict(cohort: Cohort) -> Dict[str, Any]:
             "min": variable.min,
             "units": variable.units,
             "visits": variable.visits,
+            "visit_concept_name": variable.visit_concept_name,
             "formula": variable.formula,
             "definition": variable.definition,
             "concept_id": variable.concept_id,
@@ -180,15 +232,22 @@ def dict_to_cohort(cohort_dict: Dict[str, Any]) -> Cohort:
     
     return cohort
 
-def add_cohort_to_cache(cohort: Cohort) -> None:
-    """Add or update a cohort in the cache."""
+def add_cohort_to_cache(cohort: Cohort, save_to_disk: bool = True) -> None:
+    """Add or update a cohort in the cache.
+    
+    Args:
+        cohort: The cohort to add
+        save_to_disk: If True, saves cache to disk after adding. Set to False during
+                     bulk operations to avoid race conditions and improve performance.
+    """
     global _cohorts_cache, _cache_initialized
     
     _cohorts_cache[cohort.cohort_id] = cohort
     _cache_initialized = True
     
-    # Save the updated cache to disk
-    save_cache_to_disk()
+    # Save the updated cache to disk (unless explicitly disabled for bulk operations)
+    if save_to_disk:
+        save_cache_to_disk()
 
 def remove_cohort_from_cache(cohort_id: str) -> None:
     """Remove a cohort from the cache."""
@@ -278,14 +337,15 @@ def create_cohort_from_metadata_graph(cohort_id: str, cohort_uri: URIRef, g: Dat
         
         # Contact information
         cohort.administrator = get_literal_value(ICARE.administrator)
-        cohort.administrator_email = get_literal_value(ICARE.administratorEmail)
+        admin_email = get_literal_value(ICARE.administratorEmail)
+        cohort.administrator_email = admin_email.lower() if admin_email else None
         cohort.study_contact_person = get_literal_value(DC.creator)
         
-        # Get all emails
+        # Get all emails (normalize to lowercase)
         emails = get_literal_values(ICARE.email)
         if emails:
-            cohort.cohort_email = emails
-            cohort.study_contact_person_email = emails[0]  # Use the first email as contact
+            cohort.cohort_email = [email.lower() for email in emails if email]
+            cohort.study_contact_person_email = cohort.cohort_email[0]  # Use the first email as contact
         
         # References
         cohort.references = get_literal_values(ICARE.references)
@@ -457,26 +517,60 @@ def initialize_cache_from_triplestore(admin_email: str | None = None, force_refr
     lock_file_path = os.path.join(settings.data_folder, ".cache_init.lock")
     timestamp_file = get_cache_timestamp_file()
     
+    # Check for and remove stale lock files
+    max_lock_age = 600  # 10 minutes in seconds (same as max_wait)
+    if os.path.exists(lock_file_path):
+        try:
+            lock_age = time.time() - os.path.getmtime(lock_file_path)
+            if lock_age > max_lock_age:
+                logging.warning(f"Found stale lock file (age: {lock_age:.0f}s), removing it...")
+                os.remove(lock_file_path)
+                logging.info("Stale lock file removed successfully")
+        except Exception as e:
+            logging.warning(f"Could not check/remove stale lock file: {e}")
+    
     # Try to acquire lock with timeout
     lock_file = None
     try:
         lock_file = open(lock_file_path, 'w')
-        # Try to acquire exclusive lock with timeout (non-blocking)
-        try:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            logging.info("Acquired cache initialization lock, starting initialization...")
-        except IOError:
-            # Another process is initializing, wait for it to finish
-            logging.info("Another worker is initializing cache, waiting...")
-            max_wait = 120  # Wait up to 2 minutes
+        # Try to acquire exclusive lock
+        if force_refresh:
+            # For force refresh, wait for the lock (blocking) to ensure we actually refresh
+            logging.info("Force refresh requested, waiting for lock if needed...")
+            max_wait = 600  # Wait up to 10 minutes for the lock
             start_wait = time.time()
+            acquired = False
+            
             while time.time() - start_wait < max_wait:
-                time.sleep(2)
-                if _cache_initialized or is_cache_initialized():
-                    logging.info("Cache initialized by another worker")
-                    return
-            logging.warning("Timeout waiting for cache initialization by another worker")
-            return
+                try:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    acquired = True
+                    logging.info("Acquired cache initialization lock for force refresh, starting initialization...")
+                    break
+                except IOError:
+                    # Lock is held by another process, wait a bit
+                    time.sleep(1)
+            
+            if not acquired:
+                logging.error(f"Timeout waiting for lock after {max_wait}s - another process may be stuck")
+                raise Exception(f"Could not acquire lock for cache refresh after {max_wait} seconds. Another process may be holding the lock.")
+        else:
+            # For normal initialization, try non-blocking
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                logging.info("Acquired cache initialization lock, starting initialization...")
+            except IOError:
+                # Another process is initializing, wait for it to finish
+                logging.info("Another worker is initializing cache, waiting...")
+                max_wait = 600  # Wait up to 10 minutes
+                start_wait = time.time()
+                while time.time() - start_wait < max_wait:
+                    time.sleep(2)
+                    if _cache_initialized or is_cache_initialized():
+                        logging.info("Cache initialized by another worker")
+                        return
+                logging.warning("Timeout waiting for cache initialization by another worker")
+                return
         
         # Clear the cache before initialization
         clear_cache()
@@ -487,11 +581,14 @@ def initialize_cache_from_triplestore(admin_email: str | None = None, force_refr
         # Retrieve cohorts from the triplestore
         cohorts = retrieve_cohorts_metadata(admin_email)
         
-        # Add each cohort to the cache
+        # Add each cohort to the cache (without saving to disk after each one)
         for cohort_id, cohort in cohorts.items():
-            add_cohort_to_cache(cohort)
+            add_cohort_to_cache(cohort, save_to_disk=False)
         
         _cache_initialized = True
+        
+        # Save all cohorts to disk at once (prevents race conditions)
+        save_cache_to_disk()
         
         # Write timestamp file to mark this initialization session
         with open(timestamp_file, 'w') as f:
@@ -502,13 +599,17 @@ def initialize_cache_from_triplestore(admin_email: str | None = None, force_refr
     except Exception as e:
         logging.error(f"Error initializing cache from triplestore: {e}")
     finally:
-        # Release lock
+        # Release lock and clean up lock file
         if lock_file:
             try:
                 fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
                 lock_file.close()
-            except:
-                pass
+                # Delete the lock file to prevent stale locks and signal completion
+                if os.path.exists(lock_file_path):
+                    os.remove(lock_file_path)
+                    logging.debug("Lock file removed after releasing lock")
+            except Exception as e:
+                logging.warning(f"Error cleaning up lock file: {e}")
 
 
 def get_cohorts_from_cache(user_email: str) -> Dict[str, Cohort]:
@@ -543,12 +644,39 @@ def get_cohorts_from_cache(user_email: str) -> Dict[str, Cohort]:
     
     # Create a copy of the cache with updated can_edit fields
     result = {}
+    # Normalize user email to lowercase for case-insensitive comparison
+    user_email_lower = user_email.lower() if user_email else ""
+    
     for cohort_id, cohort in _cohorts_cache.items():
         # Create a copy of the cohort
         cohort_copy = dict_to_cohort(cohort_to_dict(cohort))
         
-        # Update can_edit based on user email (admin or cohort owner)
-        cohort_copy.can_edit = user_email in [*settings.admins_list, *cohort_copy.cohort_email]
+        # Check permissions - user can edit if they are:
+        # 1. Global admin
+        # 2. In cohort_email list (data owners)
+        # 3. Administrator email
+        # 4. Study contact person email
+        is_admin = user_email_lower in settings.admins_list
+        is_cohort_owner = user_email_lower in cohort_copy.cohort_email
+        is_administrator = cohort_copy.administrator_email and user_email_lower == cohort_copy.administrator_email.lower()
+        is_contact_person = cohort_copy.study_contact_person_email and user_email_lower == cohort_copy.study_contact_person_email.lower()
+        
+        cohort_copy.can_edit = is_admin or is_cohort_owner or is_administrator or is_contact_person
+        
+        # Debug logging if user should have access but doesn't
+        should_have_access = user_email_lower in [*settings.admins_list, *cohort_copy.cohort_email] or \
+                            (cohort_copy.administrator_email and user_email_lower == cohort_copy.administrator_email.lower()) or \
+                            (cohort_copy.study_contact_person_email and user_email_lower == cohort_copy.study_contact_person_email.lower())
+        
+        if not cohort_copy.can_edit and should_have_access:
+            logging.warning(
+                f"Permission issue for user {user_email_lower} on cohort {cohort_id}. "
+                f"is_admin: {is_admin}, is_cohort_owner: {is_cohort_owner}, "
+                f"is_administrator: {is_administrator}, is_contact_person: {is_contact_person}, "
+                f"cohort_emails: {cohort_copy.cohort_email}, "
+                f"administrator_email: {cohort_copy.administrator_email}, "
+                f"study_contact_person_email: {cohort_copy.study_contact_person_email}"
+            )
         
         result[cohort_id] = cohort_copy
     

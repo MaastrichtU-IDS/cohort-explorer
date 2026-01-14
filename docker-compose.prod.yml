@@ -13,7 +13,8 @@ services:
       VIRTUAL_PORT: 80
     volumes:
       - ./documents_store:/app/documents_store 
-    #   - ./data:/data
+      - ./data:/data
+      - ./backend/CohortVarLinker/data:/app/CohortVarLinker/data
 
   frontend:
     extends:
@@ -33,6 +34,8 @@ services:
     extends:
       file: docker-compose.base.yml
       service: db
+    ports:
+      - "7878:7878"
     deploy:
       resources:
         limits:

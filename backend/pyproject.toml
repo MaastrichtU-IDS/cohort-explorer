@@ -26,7 +26,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "decentriq-platform >=0.35.0",
+    "decentriq-platform ==0.39.1",
     "thefuzz",
     "curies",
     "pandas[excel,spss]",

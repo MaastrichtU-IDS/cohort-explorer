@@ -61,6 +61,7 @@ export interface Variable {
   min: string;
   units: string;
   visits: string;
+  visit_concept_name: string;
   formula: string;
   definition: string;
   omop_domain: string;

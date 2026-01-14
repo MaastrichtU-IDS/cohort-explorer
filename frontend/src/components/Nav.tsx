@@ -1,6 +1,6 @@
 'use client';
 
-import React, {useState, useEffect} from 'react';
+import React, {useState, useEffect, useMemo, useCallback} from 'react';
 import Link from 'next/link';
 import {LogIn, LogOut, Compass, Upload, HardDrive, Map} from 'react-feather';
 import {useCohorts} from '@/components/CohortsContext';
@@ -18,6 +18,18 @@ export function Nav() {
   const [showModal, setShowModal] = useState(false);
   const [publishedDCR, setPublishedDCR]: any = useState(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [loadingAction, setLoadingAction] = useState<'live' | 'config' | null>(null);
+  const [dcrCreated, setDcrCreated] = useState(false);
+  const [configDownloaded, setConfigDownloaded] = useState(false);
+  const [includeShuffledSamples, setIncludeShuffledSamples] = useState(true);
+  const [dcrMode, setDcrMode] = useState<'current' | 'future'>('current');
+  const [showParticipantsModal, setShowParticipantsModal] = useState(false);
+  const [additionalAnalysts, setAdditionalAnalysts] = useState<string[]>([]);
+  const [newAnalystEmail, setNewAnalystEmail] = useState('');
+  const [airlockSettings, setAirlockSettings] = useState<Record<string, number>>({});
+  const [participantsPreview, setParticipantsPreview] = useState<any>(null);
+  const [loadingParticipants, setLoadingParticipants] = useState(false);
+  const [dcrName, setDcrName] = useState('');
   // const [cleanRoomData, setCleanRoomData]: any = useState(null);
   // const cleanRoomData = JSON.parse(sessionStorage.getItem('dataCleanRoom') || '{"cohorts": []}');
   // const cohortsCount = cleanRoomData.cohorts.length;
@@ -59,6 +71,7 @@ export function Nav() {
 
   const getDCRDefinitionFile = async () => {
     setIsLoading(true);
+    setLoadingAction('config');
     // Replace with actual API endpoint and required request format
     // console.log('Sending request to Decentriq', dataCleanRoom);
     try {
@@ -68,28 +81,174 @@ export function Nav() {
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(dataCleanRoom)
+        body: JSON.stringify({
+          ...dataCleanRoom,
+          include_shuffled_samples: includeShuffledSamples,
+          dcr_name: dcrName
+        })
       });
-      const res = await response.json();
-      const blob = new Blob([JSON.stringify(res, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'dcr_definition.json';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      setPublishedDCR((
-        <p>✅ Data Clean Room configuration file has been downloaded. <br />
-        Please go to <a href="https://platform.decentriq.com/" target="_blank" className="underline text-blue-600 hover:text-blue-800">https://platform.decentriq.com</a> to create a new DCR from the configuration file. </p>
-      ))
+      
+      // Check content type to determine if it's a ZIP file or JSON
+      const contentType = response.headers.get('content-type');
+      
+      if (contentType && contentType.includes('application/zip')) {
+        // Handle ZIP file response (with shuffled samples)
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'dcr_config_with_samples.zip';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        setConfigDownloaded(true);
+        setPublishedDCR((
+          <p>✅ Data Clean Room configuration package (with shuffled samples) has been downloaded. <br />
+          Please go to <a href="https://platform.decentriq.com/" target="_blank" className="underline text-blue-600 hover:text-blue-800">https://platform.decentriq.com</a> to create a new DCR from the configuration file. </p>
+        ))
+      } else {
+        // Handle JSON response (no shuffled samples)
+        const res = await response.json();
+        const blob = new Blob([JSON.stringify(res, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'dcr_definition.json';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        setConfigDownloaded(true);
+        setPublishedDCR((
+          <p>✅ Data Clean Room configuration file has been downloaded. <br />
+          Please go to <a href="https://platform.decentriq.com/" target="_blank" className="underline text-blue-600 hover:text-blue-800">https://platform.decentriq.com</a> to create a new DCR from the configuration file. </p>
+        ))
+      }
+      
       setIsLoading(false);
+      setLoadingAction(null);
       // Handle response
     } catch (error) {
       console.error('Error getting DCR definition file:', error);
       setIsLoading(false);
+      setLoadingAction(null);
       // Handle error
+    }
+  };
+
+  const createLiveDCR = async () => {
+    setIsLoading(true);
+    setLoadingAction('live');
+    try {
+      const response = await fetch(`${apiUrl}/create-live-compute-dcr`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          ...dataCleanRoom,
+          include_shuffled_samples: includeShuffledSamples,
+          additional_analysts: additionalAnalysts,
+          airlock_settings: airlockSettings,
+          dcr_name: dcrName
+        })
+      });
+      
+      const result = await response.json();
+      
+      if (response.ok) {
+        // Categorize cohorts by shuffled sample availability
+        const cohortsWithSamples: string[] = [];
+        const cohortsWithoutSamples: string[] = [];
+        
+        result.cohort_ids.forEach((cohortId: string) => {
+          const status = result.shuffled_upload_results[cohortId];
+          if (status === 'success') {
+            cohortsWithSamples.push(cohortId);
+          } else if (status === 'no_file' || status === 'file_not_exists') {
+            cohortsWithoutSamples.push(cohortId);
+          }
+        });
+        
+        setDcrCreated(true);
+        setPublishedDCR((
+          <div className="bg-success text-slate-900 p-4 rounded-lg">
+            <p className="font-bold mb-4 text-lg">✅ {result.message}</p>
+            <div className="flex justify-center mb-4">
+              <a 
+                href={result.dcr_url} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="btn btn-lg gap-2 bg-blue-100 text-blue-900 hover:bg-blue-200 border-blue-300 font-semibold"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                </svg>
+                Go to the created DCR (On The Decentriq Platform)
+              </a>
+            </div>
+            <p className="mb-2">Title: {result.dcr_title}</p>
+            <p className="mb-2">Cohorts: {result.num_cohorts}</p>
+            <p className="mb-2">Metadata uploads: {result.metadata_uploads_successful}/{result.num_cohorts}</p>
+            <p className="mb-2">Shuffled samples: {result.shuffled_uploads_successful}/{result.num_cohorts}</p>
+            
+            {cohortsWithSamples.length > 0 && (
+              <p className="mb-2 text-sm">
+                <span className="font-semibold">Cohorts with shuffled samples available:</span> {cohortsWithSamples.join(', ')}
+              </p>
+            )}
+            {cohortsWithoutSamples.length > 0 && (
+              <p className="mb-2 text-sm">
+                <span className="font-semibold">Cohorts with no shuffled samples:</span> {cohortsWithoutSamples.join(', ')}
+              </p>
+            )}
+          </div>
+        ));
+      } else {
+        // Non-OK response - show detailed error information
+        console.error('DCR creation failed with response:', result);
+        setPublishedDCR((
+          <div className="bg-error text-error-content p-4 rounded-lg space-y-2">
+            <p className="font-bold text-lg">❌ Error: Failed to create live DCR</p>
+            <div className="bg-black bg-opacity-20 p-3 rounded text-xs font-mono overflow-auto max-h-96">
+              <p className="font-bold mb-2">Error Details:</p>
+              <p className="mb-2">Status: {response.status} {response.statusText}</p>
+              <p className="mb-2">Message: {result.detail || 'No error message provided'}</p>
+              <p className="font-bold mt-3 mb-2">Full Response:</p>
+              <pre className="whitespace-pre-wrap break-words">{JSON.stringify(result, null, 2)}</pre>
+            </div>
+          </div>
+        ));
+      }
+      
+      setIsLoading(false);
+      setLoadingAction(null);
+    } catch (error: any) {
+      console.error('Error creating live DCR:', error);
+      console.error('Error stack:', error?.stack);
+      
+      setPublishedDCR((
+        <div className="bg-error text-error-content p-4 rounded-lg space-y-2">
+          <p className="font-bold text-lg">❌ Error: Failed to create live DCR</p>
+          <div className="bg-black bg-opacity-20 p-3 rounded text-xs font-mono overflow-auto max-h-96">
+            <p className="font-bold mb-2">Exception Details:</p>
+            <p className="mb-2">Type: {error?.name || 'Unknown'}</p>
+            <p className="mb-2">Message: {error?.message || 'No error message'}</p>
+            {error?.stack && (
+              <>
+                <p className="font-bold mt-3 mb-2">Stack Trace:</p>
+                <pre className="whitespace-pre-wrap break-words text-xs">{error.stack}</pre>
+              </>
+            )}
+            <p className="font-bold mt-3 mb-2">Full Error Object:</p>
+            <pre className="whitespace-pre-wrap break-words">{JSON.stringify(error, Object.getOwnPropertyNames(error), 2)}</pre>
+          </div>
+        </div>
+      ));
+      setIsLoading(false);
+      setLoadingAction(null);
     }
   };
 
@@ -97,7 +256,97 @@ export function Nav() {
     sessionStorage.setItem('dataCleanRoom', JSON.stringify({cohorts: {}}));
     setDataCleanRoom({cohorts: {}});
     setPublishedDCR(null);
+    setDcrCreated(false);
+    setConfigDownloaded(false);
+    setIncludeShuffledSamples(true);
+    setAdditionalAnalysts([]);
+    setAirlockSettings({});
+    setDcrName('');
   };
+
+  const addAnalyst = useCallback(() => {
+    const email = newAnalystEmail.trim();
+    if (email && !additionalAnalysts.includes(email) && email !== userEmail) {
+      setAdditionalAnalysts([...additionalAnalysts, email]);
+      setNewAnalystEmail('');
+    }
+  }, [newAnalystEmail, additionalAnalysts, userEmail]);
+
+  const removeAnalyst = useCallback((email: string) => {
+    setAdditionalAnalysts(prev => prev.filter(e => e !== email));
+  }, []);
+
+  // Fetch participants preview when modal opens
+  useEffect(() => {
+    if (showParticipantsModal && dataCleanRoom?.cohorts) {
+      const fetchParticipants = async () => {
+        setLoadingParticipants(true);
+        try {
+          const response = await fetch(`${apiUrl}/preview-dcr-participants`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              cohorts: dataCleanRoom.cohorts,
+              additional_analysts: additionalAnalysts
+            })
+          });
+          
+          if (response.ok) {
+            const result = await response.json();
+            setParticipantsPreview(result.participants);
+          }
+        } catch (error) {
+          console.error('Failed to fetch participants preview:', error);
+        } finally {
+          setLoadingParticipants(false);
+        }
+      };
+      
+      fetchParticipants();
+    }
+  }, [showParticipantsModal, dataCleanRoom?.cohorts, additionalAnalysts]);
+
+  // Memoize cohort IDs to prevent unnecessary recalculations
+  const dcrCohortIds = useMemo(() => 
+    dataCleanRoom?.cohorts ? Object.keys(dataCleanRoom.cohorts) : [],
+    [dataCleanRoom?.cohorts]
+  );
+
+  // Use participants preview from backend when available
+  const dataOwners = useMemo((): { email: string; cohorts: string[] }[] => {
+    if (participantsPreview) {
+      // Create an object to deduplicate owners by email
+      const ownersMap: Record<string, Set<string>> = {};
+      
+      Object.entries(participantsPreview).forEach(([email, roles]: [string, any]) => {
+        if (roles.data_owner_of && roles.data_owner_of.length > 0) {
+          // Extract cohort names from node IDs (remove suffixes like _metadata_dictionary, _shuffled_sample)
+          if (!ownersMap[email]) {
+            ownersMap[email] = new Set();
+          }
+          
+          roles.data_owner_of.forEach((nodeId: string) => {
+            // Remove common suffixes to get the base cohort name
+            const cohortName = nodeId
+              .replace(/_metadata_dictionary$/, '')
+              .replace(/_shuffled_sample$/, '')
+              .replace(/-/g, ' '); // Convert hyphens back to spaces for display
+            ownersMap[email].add(cohortName);
+          });
+        }
+      });
+      
+      // Convert object to array format
+      return Object.entries(ownersMap).map(([email, cohortSet]) => ({
+        email,
+        cohorts: Array.from(cohortSet).sort()
+      }));
+    }
+    return [];
+  }, [participantsPreview]);
 
   return (
     <div className="navbar bg-base-300 min-h-0 p-0">
@@ -189,7 +438,47 @@ export function Nav() {
       {/* Popup to publish a Data Clean Room with selected cohorts */}
       {showModal && (
         <div className="modal modal-open">
-          <div className="modal-box">
+          <div className="modal-box max-w-4xl">
+            {/* Toggle switch for Current/Future mode */}
+            <div className="flex items-center gap-3 mb-4">
+              <span className="text-sm font-medium">Mode:</span>
+              <div className="join">
+                <button 
+                  className={`btn btn-sm join-item ${dcrMode === 'current' ? 'btn-active' : ''}`}
+                  onClick={() => setDcrMode('current')}
+                >
+                  Current
+                </button>
+                <button 
+                  className={`btn btn-sm join-item ${dcrMode === 'future' ? 'btn-active' : ''}`}
+                  onClick={() => setDcrMode('future')}
+                >
+                  Future (Beta)
+                </button>
+              </div>
+            </div>
+            
+            {/* DCR Name field - only visible in future mode, placed at top */}
+            {dcrMode === 'future' && (
+              <div className="form-control mb-4">
+                <label className="label">
+                  <span className="label-text font-semibold">DCR Name</span>
+                </label>
+                <input 
+                  type="text"
+                  placeholder="iCARE4CVD DCR compute XXX"
+                  className="input input-bordered w-full"
+                  value={dcrName}
+                  onChange={(e) => setDcrName(e.target.value)}
+                />
+                <label className="label">
+                  <span className="label-text-alt text-base-content/60">
+                    Leave empty to use default naming. Note: &quot; - created by {userEmail}&quot; will be appended to the name.
+                  </span>
+                </label>
+              </div>
+            )}
+            
             <h3 className="font-bold text-lg mb-3">Cohorts to load in Decentriq Data Clean Room</h3>
             <ul>
               {Object.entries(dataCleanRoom?.cohorts).map(([cohortId, variables]: any) => (
@@ -203,12 +492,93 @@ export function Nav() {
             - A list of autocomplete using the dataCleanRoom.cohorts
             Once the first is selected we only show the cohorts with same number of variables?
             */}
+            
+            {/* Other settings - only visible in future mode */}
+            {dcrMode === 'future' && (
+              <>
+                
+                <div className="form-control mt-2">
+                  <label className="label cursor-pointer justify-start gap-3">
+                    <input 
+                      type="checkbox" 
+                      checked={includeShuffledSamples}
+                      onChange={(e) => setIncludeShuffledSamples(e.target.checked)}
+                      className="checkbox checkbox-primary" 
+                    />
+                    <span className="label-text">Incorporate shuffled samples</span>
+                  </label>
+                </div>
+                
+                <div className="form-control mt-2">
+                  <label className="label cursor-pointer justify-start gap-3">
+                    <input 
+                      type="checkbox" 
+                      checked={showParticipantsModal || additionalAnalysts.length > 0}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setShowParticipantsModal(true);
+                        } else {
+                          setShowParticipantsModal(false);
+                          setAdditionalAnalysts([]);
+                        }
+                      }}
+                      className="checkbox checkbox-primary" 
+                    />
+                    <span className="label-text">Add additional participants</span>
+                  </label>
+                </div>
+                
+                {/* Airlock Settings */}
+                <div className="mt-4">
+                  <div className="divider"></div>
+                  <h3 className="font-bold text-lg mb-3">Airlock Settings</h3>
+                  <p className="text-sm text-base-content/70 mb-3">Set the percentage of data (0-100) to export as a fragment for each cohort:</p>
+                  <div className="space-y-3">
+                    {dataCleanRoom?.cohorts && Object.keys(dataCleanRoom.cohorts).map((cohortId) => (
+                      <div key={cohortId} className="flex items-center gap-2">
+                        <label className="flex-1 font-medium">{cohortId}</label>
+                        <input 
+                          type="number"
+                          min="0"
+                          max="100"
+                          placeholder="0"
+                          className="input input-bordered w-24 text-center"
+                          value={airlockSettings[cohortId] ?? 0}
+                          onChange={(e) => {
+                            const value = Math.min(100, Math.max(0, parseInt(e.target.value) || 0));
+                            setAirlockSettings({...airlockSettings, [cohortId]: value});
+                          }}
+                        />
+                        <span className="text-sm text-base-content/70 w-8">%</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+            
             <div className="modal-action flex flex-wrap justify-end gap-2 mt-4">
                 {/* <div className="flex flex-wrap space-y-2"> */}
-                <button className="btn btn-neutral" onClick={getDCRDefinitionFile}>
-                  Download DCR definition file
+                {dcrMode === 'future' && (
+                  <button 
+                    className="btn btn-primary" 
+                    onClick={createLiveDCR} 
+                    disabled={isLoading || dcrCreated}
+                  >
+                    Create Live DCR
+                  </button>
+                )}
+                <button 
+                  className="btn btn-neutral" 
+                  onClick={getDCRDefinitionFile} 
+                  disabled={isLoading || configDownloaded}
+                >
+                  Download DCR Config
                 </button>
-                <button className="btn btn-error" onClick={clearCohortsList}>
+                <button 
+                  className="btn btn-error" 
+                  onClick={clearCohortsList}
+                >
                   Clear cohorts
                 </button>
                 <button className="btn" onClick={() => setShowModal(false)}>
@@ -220,12 +590,16 @@ export function Nav() {
             {isLoading && (
               <div className="flex flex-col items-center opacity-70 text-slate-500 mt-5 mb-5">
                 <span className="loading loading-spinner loading-lg mb-4"></span>
-                <p>Creating the file specification for a DCR draft...</p>
+                <p>
+                  {loadingAction === 'live' 
+                    ? 'Creating the Data Clean Room on Decentriq Platform. Will take a few seconds...'
+                    : 'Creating the file specification for a DCR draft...'}
+                </p>
               </div>
             )}
             {publishedDCR && (
               <div className="card card-compact">
-                <div className="card-body bg-success mt-5 rounded-lg text-slate-900">
+                <div className="card-body mt-5">
                     {publishedDCR}
                 </div>
               </div>
@@ -233,6 +607,136 @@ export function Nav() {
           </div>
         </div>
       )}
+      
+      {/* Participants Management Modal */}
+      {showParticipantsModal && (
+        <ParticipantsModal
+          dataOwners={dataOwners}
+          userEmail={userEmail}
+          additionalAnalysts={additionalAnalysts}
+          newAnalystEmail={newAnalystEmail}
+          setNewAnalystEmail={setNewAnalystEmail}
+          addAnalyst={addAnalyst}
+          removeAnalyst={removeAnalyst}
+          onClose={() => setShowParticipantsModal(false)}
+        />
+      )}
     </div>
   );
 }
+
+// Memoized Participants Modal to prevent re-renders on every keystroke
+const ParticipantsModal = React.memo(({
+  dataOwners,
+  userEmail,
+  additionalAnalysts,
+  newAnalystEmail,
+  setNewAnalystEmail,
+  addAnalyst,
+  removeAnalyst,
+  onClose
+}: {
+  dataOwners: { email: string; cohorts: string[] }[];
+  userEmail: string | null;
+  additionalAnalysts: string[];
+  newAnalystEmail: string;
+  setNewAnalystEmail: (email: string) => void;
+  addAnalyst: () => void;
+  removeAnalyst: (email: string) => void;
+  onClose: () => void;
+}) => {
+  return (
+    <div className="modal modal-open">
+      <div className="modal-box">
+        <h3 className="font-bold text-lg mb-4">DCR Participants</h3>
+        
+        <div className="space-y-4">
+          {/* Data owners */}
+          <div>
+            <h4 className="font-semibold mb-2">Data Owners</h4>
+            {dataOwners.length > 0 ? (
+              dataOwners.map((owner) => (
+                <div key={owner.email} className="bg-base-200 p-3 rounded-lg mb-2">
+                  <div>
+                    <p className="font-semibold">
+                      {owner.email}
+                      {owner.email === userEmail && <span className="ml-2 text-xs badge badge-primary">You</span>}
+                    </p>
+                    <p className="text-sm text-gray-500">
+                      Data Owner for: {owner.cohorts.join(', ')}
+                    </p>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="bg-warning bg-opacity-20 p-3 rounded-lg mb-2">
+                <p className="text-sm text-gray-700">
+                  ⚠️ No data owner emails found for the selected cohorts. Please ensure the cohort metadata includes data owner contact information.
+                </p>
+              </div>
+            )}
+          </div>
+          
+          {/* Analysts */}
+          <div>
+            <h4 className="font-semibold mb-2">Analysts</h4>
+            {/* Current user */}
+            <div className="bg-base-200 p-3 rounded-lg mb-2">
+              <div>
+                <p className="font-semibold">{userEmail}</p>
+                <p className="text-sm text-gray-500">
+                  Analyst (You)
+                  {dataOwners.some(owner => owner.email === userEmail) && ' • Also Data Owner'}
+                </p>
+              </div>
+            </div>
+            
+            {/* Additional analysts */}
+            {additionalAnalysts.map((email) => (
+              <div key={email} className="bg-base-200 p-3 rounded-lg mb-2 flex justify-between items-center">
+                <div>
+                  <p className="font-semibold">{email}</p>
+                  <p className="text-sm text-gray-500">Analyst</p>
+                </div>
+                <button 
+                  className="btn btn-sm btn-error btn-outline"
+                  onClick={() => removeAnalyst(email)}
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+          
+          {/* Add new analyst */}
+          <div className="divider">Add Analyst</div>
+          <div className="flex gap-2">
+            <input 
+              type="text"
+              placeholder="Enter email address"
+              className="input input-bordered flex-1"
+              value={newAnalystEmail}
+              onChange={(e) => setNewAnalystEmail(e.target.value)}
+              onKeyPress={(e) => e.key === 'Enter' && addAnalyst()}
+            />
+            <button 
+              className="btn btn-primary"
+              onClick={addAnalyst}
+              disabled={!newAnalystEmail.trim()}
+            >
+              Add Analyst
+            </button>
+          </div>
+        </div>
+        
+        <div className="modal-action">
+          <button className="btn" onClick={onClose}>
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+ParticipantsModal.displayName = 'ParticipantsModal';

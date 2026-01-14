@@ -1,11 +1,12 @@
 'use client';
 
-import React, {useState, useMemo, useEffect} from 'react';
+import React, {useState, useMemo, useEffect, useCallback} from 'react';
 import {useRouter} from 'next/router';
 import {useCohorts} from '@/components/CohortsContext';
 import FilterByMetadata from '@/components/FilterByMetadata';
 import {Cohort} from '@/types';
 import VariablesList from '@/components/VariablesList';
+import CohortSummaryGraphs from '@/components/CohortSummaryGraphs';
 import {parseSearchQuery, searchInObject, highlightSearchTerms} from '@/utils/search';
 
 // Helper component to render highlighted text
@@ -19,103 +20,57 @@ const HighlightedText = ({text, searchTerms, searchMode}: {text: string, searchT
   return <span dangerouslySetInnerHTML={{__html: highlightedHtml}} />;
 };
 
+// Helper function to check if text matches search terms (reusable)
+const matchesSearchTerms = (text: string | null | undefined, searchTerms: string[], searchMode: 'or' | 'and' | 'exact'): boolean => {
+  if (!text || searchTerms.length === 0) return false;
+  const textLower = String(text).toLowerCase();
+  
+  if (searchMode === 'exact') {
+    return textLower.includes(searchTerms.join(' ').toLowerCase());
+  } else if (searchMode === 'and') {
+    return searchTerms.every(term => textLower.includes(term.toLowerCase()));
+  } else { // 'or' mode
+    return searchTerms.some(term => textLower.includes(term.toLowerCase()));
+  }
+};
+
 // Component to count and display variable search results
-const SearchResultsCounter = ({filteredCohorts, searchTerms, searchMode}: {
+const SearchResultsCounter = React.memo(({filteredCohorts, searchTerms, searchMode}: {
   filteredCohorts: Cohort[], 
   searchTerms: string[], 
   searchMode: 'or' | 'and' | 'exact'
 }) => {
   const results = useMemo(() => {
+    if (searchTerms.length === 0) return { totalVariables: 0, cohortsWithMatches: 0 };
+    
     let totalVariables = 0;
     let cohortsWithMatches = 0;
+    
+    const searchableVarFields = ['var_name', 'var_label', 'concept_name', 'mapped_label', 'omop_domain', 'concept_code', 'omop_id'];
+    const searchableCatFields = ['value', 'label', 'mapped_label'];
     
     filteredCohorts.forEach((cohortData) => {
       let cohortMatchingVariables = 0;
       
       Object.entries(cohortData.variables || {}).forEach(([varName, varData]: any) => {
-        // Only count variables if there are actual search terms
-        if (searchTerms.length === 0) {
-          return; // Don't count anything if no search terms
-        }
-        
-        // Only search in fields that contain actual variable content, not metadata
-        const searchableFields = [
-          'var_name', 'var_label', 'concept_name', 'mapped_label', 'omop_domain', 'concept_code', 'omop_id'
-        ];
-        
+        // Check variable fields
         const variableWithName = { ...varData, var_name: varName };
+        const varMatches = searchableVarFields.some(field => 
+          matchesSearchTerms(variableWithName[field], searchTerms, searchMode)
+        );
         
-        // Simple direct search implementation matching VariablesList
-        let variableMatches = false;
+        // Check categories if variable doesn't match
+        const catMatches = !varMatches && varData.categories?.some((cat: any) =>
+          searchableCatFields.some(field => matchesSearchTerms(cat[field], searchTerms, searchMode))
+        );
         
-        // Check each searchable field directly
-        for (const field of searchableFields) {
-          const fieldValue = variableWithName[field];
-          if (fieldValue != null) {
-            const fieldText = String(fieldValue).toLowerCase();
-            
-            if (searchMode === 'exact') {
-              const fullPhrase = searchTerms.join(' ').toLowerCase();
-              if (fieldText.includes(fullPhrase)) {
-                variableMatches = true;
-                break;
-              }
-            } else if (searchMode === 'and') {
-              if (searchTerms.every((term: string) => fieldText.includes(term.toLowerCase()))) {
-                variableMatches = true;
-                break;
-              }
-            } else { // 'or' mode
-              if (searchTerms.some((term: string) => fieldText.includes(term.toLowerCase()))) {
-                variableMatches = true;
-                break;
-              }
-            }
-          }
-        }
-        
-        // Check categories if variable fields don't match
-        if (!variableMatches && varData.categories) {
-          for (const category of varData.categories) {
-            const categoryFields = ['value', 'label', 'mapped_label'];
-            for (const field of categoryFields) {
-              const fieldValue = category[field];
-              if (fieldValue != null) {
-                const fieldText = String(fieldValue).toLowerCase();
-                
-                if (searchMode === 'exact') {
-                  const fullPhrase = searchTerms.join(' ').toLowerCase();
-                  if (fieldText.includes(fullPhrase)) {
-                    variableMatches = true;
-                    break;
-                  }
-                } else if (searchMode === 'and') {
-                  if (searchTerms.every((term: string) => fieldText.includes(term.toLowerCase()))) {
-                    variableMatches = true;
-                    break;
-                  }
-                } else { // 'or' mode
-                  if (searchTerms.some((term: string) => fieldText.includes(term.toLowerCase()))) {
-                    variableMatches = true;
-                    break;
-                  }
-                }
-              }
-            }
-            if (variableMatches) break;
-          }
-        }
-        
-        if (variableMatches) {
+        if (varMatches || catMatches) {
           totalVariables++;
           cohortMatchingVariables++;
         }
       });
       
-      // Only count cohort if it has at least one matching variable
-      if (cohortMatchingVariables > 0) {
-        cohortsWithMatches++;
-      }
+      if (cohortMatchingVariables > 0) cohortsWithMatches++;
     });
     
     return { totalVariables, cohortsWithMatches };
@@ -126,7 +81,9 @@ const SearchResultsCounter = ({filteredCohorts, searchTerms, searchMode}: {
       The search found <strong className="text-primary">{results.totalVariables}</strong> variable{results.totalVariables !== 1 ? 's' : ''} in <strong className="text-primary">{results.cohortsWithMatches}</strong> cohort{results.cohortsWithMatches !== 1 ? 's' : ''}
     </span>
   );
-};
+});
+
+SearchResultsCounter.displayName = 'SearchResultsCounter';
 
 // Helper function to format participants value for display in tags
 const formatParticipantsForTag = (value: string | number | null | undefined): string => {
@@ -145,8 +102,10 @@ const formatParticipantsForTag = (value: string | number | null | undefined): st
 
 export default function CohortsList() {
   const router = useRouter();
-  const {cohortsData, userEmail, loadingMetrics, isLoading} = useCohorts();
+  const {cohortsData, userEmail, loadingMetrics, isLoading, fetchCohortsData, calculateStatistics} = useCohorts();
   const [searchQuery, setSearchQuery] = useState('');
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshMessage, setRefreshMessage] = useState<{text: string, type: 'success' | 'error'} | null>(null);
   
   // Check if we should use SPARQL mode based on query parameter
   const useSparqlMode = router.query.mode === 'sparql';
@@ -156,14 +115,164 @@ export default function CohortsList() {
   const [analysisAvailability, setAnalysisAvailability] = useState<{[key: string]: boolean}>({});
   // State to track which cohorts are expanded
   const [expandedCohorts, setExpandedCohorts] = useState<{[key: string]: boolean}>({});
+  // State to track which cohorts have collapsed metadata
+  const [collapsedMetadata, setCollapsedMetadata] = useState<{[key: string]: boolean}>({});
   // Search configuration states
   const [searchScope, setSearchScope] = useState<'cohorts' | 'variables'>('cohorts');
   const [searchMode, setSearchMode] = useState<'or' | 'and' | 'exact'>('or');
+  
+  // Shared filter state for each cohort (synced between charts and sidebar)
+  const [cohortFilters, setCohortFilters] = useState<{[cohortId: string]: {
+    selectedOMOPDomains: Set<string>;
+    selectedDataTypes: Set<string>;
+    selectedCategoryTypes: Set<string>;
+    selectedVisitTypes: Set<string>;
+  }}>({});
+  // State to track showOnlyOutcomes per cohort
+  const [showOnlyOutcomes, setShowOnlyOutcomes] = useState<{[cohortId: string]: boolean}>({});
+  // State to track variable counts per cohort
+  const [variableCounts, setVariableCounts] = useState<{[cohortId: string]: {filtered: number, total: number}}>({});
   // selectedMorbidities state removed
 
-  // TODO: debounce search to improve performance
+  // Debounced search for better performance
+  const [searchInput, setSearchInput] = useState('');
+  
+  // Debounce the search query update
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      setSearchQuery(searchInput);
+    }, 300); // 300ms debounce
+    
+    return () => clearTimeout(timeoutId);
+  }, [searchInput]);
+  
   const handleSearchChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchQuery(event.target.value);
+    setSearchInput(event.target.value);
+  };
+
+  // Helper function to get filters for a cohort (initialize if doesn't exist)
+  const getFiltersForCohort = (cohortId: string) => {
+    if (!cohortFilters[cohortId]) {
+      return {
+        selectedOMOPDomains: new Set<string>(),
+        selectedDataTypes: new Set<string>(),
+        selectedCategoryTypes: new Set<string>(),
+        selectedVisitTypes: new Set<string>(),
+      };
+    }
+    return cohortFilters[cohortId];
+  };
+
+  // Helper function to toggle showOnlyOutcomes for a cohort
+  const toggleShowOnlyOutcomes = useCallback((cohortId: string) => {
+    setShowOnlyOutcomes(prev => ({
+      ...prev,
+      [cohortId]: !prev[cohortId]
+    }));
+  }, []);
+
+  // Helper function to update variable counts for a cohort
+  const updateVariableCounts = useCallback((cohortId: string, filtered: number, total: number) => {
+    setVariableCounts(prev => {
+      // Only update if values actually changed
+      if (prev[cohortId]?.filtered === filtered && prev[cohortId]?.total === total) {
+        return prev;
+      }
+      return {
+        ...prev,
+        [cohortId]: { filtered, total }
+      };
+    });
+  }, []);
+
+  // Helper function to update filters for a specific cohort
+  const updateCohortFilters = (cohortId: string, filterType: 'selectedOMOPDomains' | 'selectedDataTypes' | 'selectedCategoryTypes' | 'selectedVisitTypes', value: Set<string>) => {
+    setCohortFilters(prev => ({
+      ...prev,
+      [cohortId]: {
+        ...getFiltersForCohort(cohortId),
+        [filterType]: value
+      }
+    }));
+  };
+
+  // Helper function to reset all filters for a cohort
+  const resetCohortFilters = (cohortId: string) => {
+    setCohortFilters(prev => ({
+      ...prev,
+      [cohortId]: {
+        selectedOMOPDomains: new Set<string>(),
+        selectedDataTypes: new Set<string>(),
+        selectedCategoryTypes: new Set<string>(),
+        selectedVisitTypes: new Set<string>(),
+      }
+    }));
+    // Also reset showOnlyOutcomes for this cohort
+    setShowOnlyOutcomes(prev => ({
+      ...prev,
+      [cohortId]: false
+    }));
+  };
+
+  // Helper functions to handle chart clicks (toggle values in Sets)
+  const handleDomainClick = (cohortId: string, domain: string | null) => {
+    const currentFilters = getFiltersForCohort(cohortId);
+    const newDomains = new Set(currentFilters.selectedOMOPDomains);
+    
+    if (domain) {
+      if (newDomains.has(domain)) {
+        newDomains.delete(domain);
+      } else {
+        newDomains.add(domain);
+      }
+    }
+    
+    updateCohortFilters(cohortId, 'selectedOMOPDomains', newDomains);
+  };
+
+  const handleTypeClick = (cohortId: string, type: string | null) => {
+    const currentFilters = getFiltersForCohort(cohortId);
+    const newTypes = new Set(currentFilters.selectedDataTypes);
+    
+    if (type) {
+      if (newTypes.has(type)) {
+        newTypes.delete(type);
+      } else {
+        newTypes.add(type);
+      }
+    }
+    
+    updateCohortFilters(cohortId, 'selectedDataTypes', newTypes);
+  };
+
+  const handleCategoryClick = (cohortId: string, category: string | null) => {
+    const currentFilters = getFiltersForCohort(cohortId);
+    const newCategories = new Set(currentFilters.selectedCategoryTypes);
+    
+    if (category) {
+      if (newCategories.has(category)) {
+        newCategories.delete(category);
+      } else {
+        newCategories.add(category);
+      }
+    }
+    
+    updateCohortFilters(cohortId, 'selectedCategoryTypes', newCategories);
+  };
+
+  const handleVisitTypeClick = (cohortId: string, visitType: string | null) => {
+    const currentFilters = getFiltersForCohort(cohortId);
+    const newVisitTypes = new Set(currentFilters.selectedVisitTypes);
+    
+    if (visitType) {
+      if (newVisitTypes.has(visitType)) {
+        newVisitTypes.delete(visitType);
+      } else {
+        newVisitTypes.add(visitType);
+      }
+    }
+    
+    updateCohortFilters(cohortId, 'selectedVisitTypes', newVisitTypes);
   };
 
   // Function to toggle the expanded state for a cohort
@@ -174,8 +283,19 @@ export default function CohortsList() {
     }));
   };
 
+  // Function to toggle metadata collapse for a cohort
+  const toggleMetadataCollapsed = (cohortId: string) => {
+    setCollapsedMetadata((prev: Record<string, boolean>) => ({
+      ...prev,
+      [cohortId]: !prev[cohortId]
+    }));
+  };
+
   // Check for analysis folder availability when cohorts data changes
   useEffect(() => {
+    let isMounted = true;
+    const abortController = new AbortController();
+    
     const checkAnalysisAvailability = async () => {
       const availability: Record<string, boolean> = {};
       
@@ -184,20 +304,35 @@ export default function CohortsList() {
       
       // Check each cohort for analysis folder availability
       for (const cohortId of Object.keys(cohortsData)) {
+        if (!isMounted) break; // Stop if component unmounted
+        
         try {
-          const response = await fetch(`/api/check-analysis-folder/${cohortId}`);
+          const response = await fetch(`/api/check-analysis-folder/${cohortId}`, {
+            signal: abortController.signal
+          });
           const data = await response.json();
           availability[cohortId] = data.exists;
-        } catch (error) {
+        } catch (error: any) {
+          if (error.name === 'AbortError') {
+            console.log('Analysis check aborted');
+            break;
+          }
           console.error(`Error checking analysis for cohort ${cohortId}:`, error);
           availability[cohortId] = false;
         }
       }
       
-      setAnalysisAvailability(availability);
+      if (isMounted) {
+        setAnalysisAvailability(availability);
+      }
     };
     
     checkAnalysisAvailability();
+    
+    return () => {
+      isMounted = false;
+      abortController.abort();
+    };
   }, [cohortsData]);
 
   // Parse search query into terms - simple space-separated approach
@@ -214,136 +349,49 @@ export default function CohortsList() {
   // TODO: we might want to perform the search and filtering directly with SPARQL queries to the oxigraph endpoint
   // if the data gets too big to be handled in the client.
   const filteredCohorts = useMemo(() => {
+    const searchableVarFields = ['var_name', 'var_label', 'concept_name', 'mapped_label', 'omop_domain', 'concept_code', 'omop_id'];
+    const searchableCatFields = ['value', 'label', 'mapped_label'];
+    const searchableCohortFields = [
+      'cohort_id', 'institution', 'study_type', 'study_objective', 'morbidity',
+      'study_participants', 'study_population', 'administrator', 'population_location',
+      'primary_outcome_spec', 'secondary_outcome_spec'
+    ];
+    
     return Object.entries(cohortsData as Record<string, Cohort>)
       .filter(([key, value]) => {
-        let matchesSearchQuery = true;
+        // Apply metadata filters first (cheaper)
+        if (selectedStudyTypes.size > 0 && !selectedStudyTypes.has(value.study_type)) return false;
+        if (selectedInstitutes.size > 0 && !selectedInstitutes.has(value.institution)) return false;
+        
+        // No search terms - show all
+        if (searchTerms.length === 0) return true;
         
         if (searchScope === 'cohorts') {
-          // Search in cohort metadata only - simple string matching
-          if (searchTerms.length === 0) {
-            matchesSearchQuery = true;
-          } else {
-            const searchableFields = [
-              'cohort_id', 'institution', 'study_type', 'study_objective', 'morbidity',
-              'study_participants', 'study_population', 'administrator', 'population_location',
-              'primary_outcome_spec', 'secondary_outcome_spec'
-            ];
-            
-            const cohortWithId = { ...value, cohort_id: key };
-            let cohortMatches = false;
-            
-            // Check each searchable field directly
-            for (const field of searchableFields) {
-              const fieldValue = (cohortWithId as any)[field];
-              if (fieldValue != null) {
-                const fieldText = String(fieldValue).toLowerCase();
-                
-                if (searchMode === 'exact') {
-                  const fullPhrase = searchTerms.join(' ').toLowerCase();
-                  if (fieldText.includes(fullPhrase)) {
-                    cohortMatches = true;
-                    break;
-                  }
-                } else if (searchMode === 'and') {
-                  if (searchTerms.every(term => fieldText.includes(term.toLowerCase()))) {
-                    cohortMatches = true;
-                    break;
-                  }
-                } else { // 'or' mode
-                  if (searchTerms.some(term => fieldText.includes(term.toLowerCase()))) {
-                    cohortMatches = true;
-                    break;
-                  }
-                }
-              }
-            }
-            matchesSearchQuery = cohortMatches;
-          }
+          // Search in cohort metadata
+          const cohortWithId = { ...value, cohort_id: key };
+          return searchableCohortFields.some(field => 
+            matchesSearchTerms((cohortWithId as any)[field], searchTerms, searchMode)
+          );
         } else {
-          // Search in variables only - simple string matching
-          if (searchTerms.length === 0) {
-            matchesSearchQuery = true;
-          } else {
-            matchesSearchQuery = Object.entries(value.variables || {}).some(([varName, varData]: any) => {
-              // Only search in fields that contain actual variable content, not metadata
-              const searchableFields = [
-                'var_name', 'var_label', 'concept_name', 'mapped_label', 'omop_domain', 'concept_code', 'omop_id'
-              ];
-              
-              const variableWithName = { ...varData, var_name: varName };
-              
-              // Check variable fields
-              let variableMatches = false;
-              for (const field of searchableFields) {
-                const fieldValue = variableWithName[field];
-                if (fieldValue != null) {
-                  const fieldText = String(fieldValue).toLowerCase();
-                  
-                  if (searchMode === 'exact') {
-                    const fullPhrase = searchTerms.join(' ').toLowerCase();
-                    if (fieldText.includes(fullPhrase)) {
-                      variableMatches = true;
-                      break;
-                    }
-                  } else if (searchMode === 'and') {
-                    if (searchTerms.every(term => fieldText.includes(term.toLowerCase()))) {
-                      variableMatches = true;
-                      break;
-                    }
-                  } else { // 'or' mode
-                    if (searchTerms.some(term => fieldText.includes(term.toLowerCase()))) {
-                      variableMatches = true;
-                      break;
-                    }
-                  }
-                }
-              }
-              
-              // Check categories if variable fields don't match
-              if (!variableMatches && varData.categories) {
-                for (const category of varData.categories) {
-                  const categoryFields = ['value', 'label', 'mapped_label'];
-                  for (const field of categoryFields) {
-                    const fieldValue = category[field];
-                    if (fieldValue != null) {
-                      const fieldText = String(fieldValue).toLowerCase();
-                      
-                      if (searchMode === 'exact') {
-                        const fullPhrase = searchTerms.join(' ').toLowerCase();
-                        if (fieldText.includes(fullPhrase)) {
-                          variableMatches = true;
-                          break;
-                        }
-                      } else if (searchMode === 'and') {
-                        if (searchTerms.every(term => fieldText.includes(term.toLowerCase()))) {
-                          variableMatches = true;
-                          break;
-                        }
-                      } else { // 'or' mode
-                        if (searchTerms.some(term => fieldText.includes(term.toLowerCase()))) {
-                          variableMatches = true;
-                          break;
-                        }
-                      }
-                    }
-                  }
-                  if (variableMatches) break;
-                }
-              }
-              
-              return variableMatches;
-            });
-          }
+          // Search in variables
+          return Object.entries(value.variables || {}).some(([varName, varData]: any) => {
+            const variableWithName = { ...varData, var_name: varName };
+            
+            // Check variable fields
+            const varMatches = searchableVarFields.some(field => 
+              matchesSearchTerms(variableWithName[field], searchTerms, searchMode)
+            );
+            
+            // Check categories if variable doesn't match
+            if (varMatches) return true;
+            return varData.categories?.some((cat: any) =>
+              searchableCatFields.some(field => matchesSearchTerms(cat[field], searchTerms, searchMode))
+            );
+          });
         }
-
-        // Apply other filters
-        const matchesStudyType = selectedStudyTypes.size === 0 || selectedStudyTypes.has(value.study_type);
-        const matchesInstitute = selectedInstitutes.size === 0 || selectedInstitutes.has(value.institution);
-        
-        return matchesSearchQuery && matchesStudyType && matchesInstitute;
       })
       .map(([, cohortData]) => cohortData);
-  }, [searchTerms, searchMode, searchScope, selectedStudyTypes, selectedInstitutes, cohortsData, searchQuery]);
+  }, [searchTerms, searchMode, searchScope, selectedStudyTypes, selectedInstitutes, cohortsData]);
   // NOTE: filtering variables is done in VariablesList component
 
   // Function to toggle between cache and SPARQL modes
@@ -353,6 +401,39 @@ export default function CohortsList() {
       pathname: router.pathname,
       query: newMode ? { mode: newMode } : {}
     });
+  };
+
+  // Function to refresh cache from triplestore
+  const handleRefreshCache = async () => {
+    setIsRefreshing(true);
+    setRefreshMessage(null);
+    
+    try {
+      const response = await fetch('/api/upload/refresh-cache', {
+        method: 'POST',
+        credentials: 'include',
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setRefreshMessage({text: 'Cache refreshed successfully!', type: 'success'});
+        // Reload the cohorts data from the refreshed cache
+        fetchCohortsData();
+        // Recalculate statistics after refresh
+        if (calculateStatistics) {
+          setTimeout(() => calculateStatistics(), 1000); // Wait for data to load
+        }
+      } else {
+        const error = await response.json();
+        setRefreshMessage({text: error.detail || 'Failed to refresh cache', type: 'error'});
+      }
+    } catch (error) {
+      setRefreshMessage({text: 'Error refreshing cache', type: 'error'});
+    } finally {
+      setIsRefreshing(false);
+      // Clear message after 5 seconds
+      setTimeout(() => setRefreshMessage(null), 5000);
+    }
   };
 
   return (
@@ -376,6 +457,7 @@ export default function CohortsList() {
           metadata_id="study_type"
           options={Array.from(new Set(Object.values(cohortsData).map((cohort: any) => cohort.study_type)))}
           searchResults={filteredCohorts}
+          selectedValues={selectedStudyTypes}
           onFiltersChange={(optionsSelected: any) => setSelectedStudyTypes(optionsSelected)}
         />
         {/* Filter by morbidity removed */}
@@ -384,6 +466,7 @@ export default function CohortsList() {
           metadata_id="institution"
           options={Array.from(new Set(Object.values(cohortsData).map((cohort: any) => cohort.institution)))}
           searchResults={filteredCohorts}
+          selectedValues={selectedInstitutes}
           onFiltersChange={(optionsSelected: any) => setSelectedInstitutes(optionsSelected)}
         />
         {/* TODO: add by ongoing? */}
@@ -424,13 +507,41 @@ export default function CohortsList() {
               </div>
             ) : null}
             
-            <button 
-              onClick={toggleDataSource}
-              className="btn btn-sm btn-outline btn-neutral"
-              disabled={isLoading}
-            >
-              Switch to {useSparqlMode ? 'Cache' : 'SPARQL'}
-            </button>
+            {/* Buttons row */}
+            <div className="flex gap-2 justify-center">
+              <button 
+                onClick={toggleDataSource}
+                className="btn btn-xs btn-outline btn-neutral"
+                disabled={isLoading}
+              >
+                Switch to {useSparqlMode ? 'Cache' : 'SPARQL'}
+              </button>
+              
+              {/* Refresh cache button - only show in cache mode */}
+              {!useSparqlMode && (
+                <button 
+                  onClick={handleRefreshCache}
+                  className="btn btn-xs btn-outline btn-info"
+                  disabled={isLoading || isRefreshing}
+                >
+                  {isRefreshing ? (
+                    <>
+                      <span className="loading loading-spinner loading-xs"></span>
+                      Refreshing...
+                    </>
+                  ) : (
+                    'Refresh'
+                  )}
+                </button>
+              )}
+            </div>
+            
+            {/* Refresh message */}
+            {refreshMessage && (
+              <div className={`alert alert-${refreshMessage.type === 'success' ? 'success' : 'error'} alert-sm text-xs py-2`}>
+                {refreshMessage.text}
+              </div>
+            )}
           </div>
         </div>
       </aside>
@@ -441,7 +552,7 @@ export default function CohortsList() {
             type="text"
             placeholder={searchScope === 'cohorts' ? "Search cohorts..." : "Search variables..."}
             className="input input-bordered w-full"
-            value={searchQuery}
+            value={searchInput}
             onChange={handleSearchChange}
           />
           
@@ -501,7 +612,7 @@ export default function CohortsList() {
           </div>
           
           {/* Search Results Counter */}
-          {searchQuery.trim() && (
+          {searchInput.trim() && (
             <div className="mt-2 p-2 bg-base-200 rounded-lg text-sm">
               <div className="flex items-center gap-3">
                 <span className="text-gray-600 dark:text-gray-400">🔍</span>
@@ -520,7 +631,10 @@ export default function CohortsList() {
                   />
                 )}
                 <button
-                  onClick={() => setSearchQuery('')}
+                  onClick={() => {
+                    setSearchInput('');
+                    setSearchQuery('');
+                  }}
                   className="btn btn-sm btn-outline btn-error hover:btn-error"
                   title="Clear search and show all results"
                 >
@@ -586,12 +700,23 @@ export default function CohortsList() {
                   {/* Removed contact email tags as they're shown in the More Details section */}
                 </div>
                 
-                {/* Only show Close button when cohort is expanded */}
+              </div>
+              <div className="collapse-content">
+                {/* Control buttons - shown when cohort is expanded */}
                 {expandedCohorts[cohortData.cohort_id] && (
-                  <div className="flex justify-center mt-2">
+                  <div className="flex justify-center gap-2 mb-4">
                     <button 
                       onClick={(e: React.MouseEvent) => {
-                        e.stopPropagation(); // Prevent event bubbling
+                        e.stopPropagation();
+                        toggleMetadataCollapsed(cohortData.cohort_id);
+                      }} 
+                      className="btn btn-sm btn-outline btn-neutral rounded-full px-4 opacity-80"
+                    >
+                      {collapsedMetadata[cohortData.cohort_id] ? 'Show Metadata' : 'Hide Metadata'}
+                    </button>
+                    <button 
+                      onClick={(e: React.MouseEvent) => {
+                        e.stopPropagation();
                         toggleCohortExpanded(cohortData.cohort_id);
                       }} 
                       className="btn btn-sm btn-outline btn-neutral rounded-full px-4"
@@ -600,8 +725,10 @@ export default function CohortsList() {
                     </button>
                   </div>
                 )}
-              </div>
-              <div className="collapse-content">
+                
+                {/* Metadata section - collapsible */}
+                {!collapsedMetadata[cohortData.cohort_id] && (
+                  <>
                 {/* Display study objective section */}
                 {cohortData.study_objective && (
                   <div className="mb-4 p-3 bg-base-200 rounded-lg">
@@ -896,7 +1023,73 @@ export default function CohortsList() {
                    !cohortData.interventions && (
                     <p className="text-gray-500"><em>No metadata available</em></p>
                   )}
+                  
+                  {/* Visit Distribution Section */}
+                  {(() => {
+                    // Calculate visit distribution from variables
+                    const visitCounts: { [key: string]: number } = {};
+                    let totalWithVisits = 0;
+                    
+                    Object.values(cohortData.variables).forEach((variable) => {
+                      if (variable.visit_concept_name && variable.visit_concept_name.trim()) {
+                        // Capitalize first letter of each word for display
+                        const visitValue = variable.visit_concept_name.trim()
+                          .split(' ')
+                          .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                          .join(' ');
+                        visitCounts[visitValue] = (visitCounts[visitValue] || 0) + 1;
+                        totalWithVisits++;
+                      }
+                    });
+                    
+                    // Sort by count descending
+                    const sortedVisits = Object.entries(visitCounts)
+                      .sort((a, b) => b[1] - a[1]);
+                    
+                    if (sortedVisits.length > 0) {
+                      return (
+                        <div className="mt-4 pt-4 border-t">
+                          <h4 className="font-semibold mb-2">Visit Distribution:</h4>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                            {sortedVisits.map(([visit, count]) => (
+                              <div key={visit} className="flex justify-between items-center bg-gray-50 px-3 py-2 rounded">
+                                <span className="text-sm">{visit}</span>
+                                <span className="badge badge-primary badge-sm">
+                                  {count} {count === 1 ? 'variable' : 'variables'}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                          <p className="text-xs text-gray-500 mt-2">
+                            {totalWithVisits} of {Object.keys(cohortData.variables).length} variables have visit information
+                          </p>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
                 </div>
+                  </>
+                )}
+                
+                {/* Summary Graphs Section */}
+                <CohortSummaryGraphs 
+                  variables={cohortData.variables}
+                  isExpanded={expandedCohorts[cohortData.cohort_id] || false}
+                  cohortId={cohortData.cohort_id}
+                  selectedOMOPDomains={getFiltersForCohort(cohortData.cohort_id).selectedOMOPDomains}
+                  selectedDataTypes={getFiltersForCohort(cohortData.cohort_id).selectedDataTypes}
+                  selectedCategoryTypes={getFiltersForCohort(cohortData.cohort_id).selectedCategoryTypes}
+                  selectedVisitTypes={getFiltersForCohort(cohortData.cohort_id).selectedVisitTypes}
+                  showOnlyOutcomes={showOnlyOutcomes[cohortData.cohort_id] || false}
+                  filteredVariableCount={variableCounts[cohortData.cohort_id]?.filtered}
+                  totalVariableCount={variableCounts[cohortData.cohort_id]?.total}
+                  onDomainClick={(domain) => handleDomainClick(cohortData.cohort_id, domain)}
+                  onTypeClick={(type) => handleTypeClick(cohortData.cohort_id, type)}
+                  onCategoryClick={(category) => handleCategoryClick(cohortData.cohort_id, category)}
+                  onVisitTypeClick={(visitType) => handleVisitTypeClick(cohortData.cohort_id, visitType)}
+                  onResetFilters={() => resetCohortFilters(cohortData.cohort_id)}
+                />
                 
                 <VariablesList 
                   cohortId={cohortData.cohort_id} 
@@ -904,7 +1097,19 @@ export default function CohortsList() {
                     searchQuery: searchScope === 'variables' ? searchQuery : '', 
                     searchMode,
                     searchTerms
-                  }} 
+                  }}
+                  selectedOMOPDomains={getFiltersForCohort(cohortData.cohort_id).selectedOMOPDomains}
+                  selectedDataTypes={getFiltersForCohort(cohortData.cohort_id).selectedDataTypes}
+                  selectedCategoryTypes={getFiltersForCohort(cohortData.cohort_id).selectedCategoryTypes}
+                  selectedVisitTypes={getFiltersForCohort(cohortData.cohort_id).selectedVisitTypes}
+                  showOnlyOutcomes={showOnlyOutcomes[cohortData.cohort_id] || false}
+                  onOMOPDomainsChange={(domains: Set<string>) => updateCohortFilters(cohortData.cohort_id, 'selectedOMOPDomains', domains)}
+                  onDataTypesChange={(types: Set<string>) => updateCohortFilters(cohortData.cohort_id, 'selectedDataTypes', types)}
+                  onCategoryTypesChange={(categories: Set<string>) => updateCohortFilters(cohortData.cohort_id, 'selectedCategoryTypes', categories)}
+                  onVisitTypesChange={(visitTypes: Set<string>) => updateCohortFilters(cohortData.cohort_id, 'selectedVisitTypes', visitTypes)}
+                  onShowOnlyOutcomesChange={(value: boolean) => toggleShowOnlyOutcomes(cohortData.cohort_id)}
+                  onVariableCountsChange={(filtered: number, total: number) => updateVariableCounts(cohortData.cohort_id, filtered, total)}
+                  onResetFilters={() => resetCohortFilters(cohortData.cohort_id)}
                 />
               </div>
             </div>

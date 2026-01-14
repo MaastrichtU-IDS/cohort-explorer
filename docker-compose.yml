@@ -10,7 +10,8 @@ services:
     volumes:
       - ./backend:/app
       - ./data:/data
-      - ./documents_store:/app/documents_store 
+      - ./documents_store:/app/documents_store
+      - ./backend/CohortVarLinker/data:/app/CohortVarLinker/data 
     entrypoint: uv run uvicorn src.main:app --host 0.0.0.0 --port 80 --reload --log-level debug
     environment:
       - DEV_MODE=true

@@ -1,26 +1,30 @@
-import React, {useState} from 'react';
+import React from 'react';
 
-const FilterByMetadata = ({label, options, onFiltersChange, metadata_id, searchResults = []}: any) => {
-  const [selectedOptions, setSelectedOptions] = useState(new Set());
+const FilterByMetadata = ({label, options, onFiltersChange, metadata_id, searchResults = [], selectedValues}: any) => {
+  // Use selectedValues directly from parent - no local state needed
+  const currentSelection = selectedValues || new Set();
 
   const handleOptionChange = (option: string) => {
-    const newSet = new Set(selectedOptions);
+    const newSet = new Set(currentSelection);
     if (newSet.has(option)) {
       newSet.delete(option);
     } else {
       newSet.add(option);
     }
-    setSelectedOptions(newSet);
     onFiltersChange(newSet); // Callback to inform parent component about the change
   };
 
   // Function to count filtered vars based on filter type
   const countMatches = (filterType: string, item: string | null) => {
     return searchResults.filter((variable: any) => {
-      if (filterType === 'categorical' && item === 'Categorical') {
-        return variable.categories.length > 0;
-      } else if (filterType === 'categorical' && item === 'Non-categorical') {
-        return variable.categories.length === 0;
+      if (filterType === 'categorical') {
+        const catCount = variable.categories.length;
+        if (item === 'Non-categorical') return catCount === 0;
+        if (item === 'All categorical') return catCount > 0;
+        if (item === '2 categories') return catCount === 2;
+        if (item === '3 categories') return catCount === 3;
+        if (item === '4+ categories') return catCount >= 4;
+        return false;
       } else {
         return variable[filterType] === item;
       }
@@ -38,7 +42,7 @@ const FilterByMetadata = ({label, options, onFiltersChange, metadata_id, searchR
             </span>
             <input
               type="checkbox"
-              checked={selectedOptions.has(option)}
+              checked={currentSelection.has(option)}
               onChange={() => handleOptionChange(option)}
               className="checkbox checkbox-xs"
             />

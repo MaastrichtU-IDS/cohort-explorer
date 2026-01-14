@@ -103,7 +103,7 @@ def generate_studies_kg(filepath: str) -> Graph:
             g.add((data_format_uri, OntologyNamespaces.CMEO.value.has_value, Literal(data_format, datatype=XSD.string), metadata_graph))
             g.add((study_design_variable_specification_uri, DC.format, data_format_uri, metadata_graph))
                         
-        if pd.notna(row["study type"]):
+        if "study type" in row.index and pd.notna(row["study type"]):
             study_descriptor=row["study type"].lower().strip() if pd.notna(row["study type"]) else ""
             print(f"Study descriptor: {study_descriptor}")
             # g.add((study_design_execution_uri, OntologyNamespaces.CMEO.value.has_value, Literal(process_type, datatype=XSD.string), metadata_graph)) 
@@ -125,13 +125,13 @@ def generate_studies_kg(filepath: str) -> Graph:
 
         
       
-        if pd.notna(row["institute"]):
+        if "institute" in row.index and pd.notna(row["institute"]):
             organization_uri = URIRef(study_uri + "/institute")
             g.add((organization_uri, RDF.type, OntologyNamespaces.OBI.value.organization,metadata_graph))
             g.add((study_design_execution_uri, OntologyNamespaces.RO.value.has_participant, organization_uri,metadata_graph))
             g.add((organization_uri, OntologyNamespaces.CMEO.value.has_value, Literal(row["institute"], datatype=XSD.string),metadata_graph))
         
-            if pd.notna(row["study contact person"]):
+            if "study contact person" in row.index and pd.notna(row["study contact person"]):
                 contact_uri = URIRef(study_uri + "/" + normalize_text(row["study contact person"]))
                  # contact_uri = URIRef(study_uri + "/contact_person")
                 study_contact_person_role_uri = URIRef(study_uri + "/study_contact_person_role")
@@ -148,13 +148,13 @@ def generate_studies_kg(filepath: str) -> Graph:
 
                 g.add((study_contact_person_role_uri, OntologyNamespaces.CMEO.value.has_value, Literal(row["study contact person"], datatype=XSD.string),metadata_graph))
 
-                if pd.notna(row["study contact person email address"]):
+                if "study contact person email address" in row.index and pd.notna(row["study contact person email address"]):
                     email_uri = URIRef(study_contact_person_role_uri + "/email_address")
                     g.add((email_uri, RDF.type, OntologyNamespaces.OBI.value.email_address,metadata_graph))
                     g.add((email_uri, OntologyNamespaces.IAO.value.is_about, contact_uri,metadata_graph))
                     g.add((email_uri, OntologyNamespaces.CMEO.value.has_value, Literal(row["study contact person email address"], datatype=XSD.string),metadata_graph))
             
-            if pd.notna(row["administrator"]):
+            if "administrator" in row.index and pd.notna(row["administrator"]):
                 administrator_person_uri = URIRef(study_uri + "/" + normalize_text(row["administrator"]))
                 g.add((administrator_person_uri, RDF.type, OntologyNamespaces.NCBI.value.homo_sapiens,metadata_graph))
                 g.add((contact_uri, OntologyNamespaces.OBI.value.member_of, organization_uri,metadata_graph))
@@ -166,13 +166,13 @@ def generate_studies_kg(filepath: str) -> Graph:
                 g.add((administrator_role_uri, OntologyNamespaces.RO.value.role_of, administrator_person_uri,metadata_graph))
                 g.add((administrator_role_uri, OntologyNamespaces.CMEO.value.has_value,  Literal(row["administrator"], datatype=XSD.string),metadata_graph))
             
-                if pd.notna(row["administrator email address"]):
+                if "administrator email address" in row.index and pd.notna(row["administrator email address"]):
                     email_uri = URIRef(administrator_person_uri + "/email_address")
                     g.add((email_uri, RDF.type, OntologyNamespaces.OBI.value.email_address,metadata_graph))
                     g.add((email_uri, OntologyNamespaces.IAO.value.is_about, administrator_person_uri,metadata_graph))
                     g.add((email_uri, OntologyNamespaces.CMEO.value.has_value, Literal(row["administrator"], datatype=XSD.string),metadata_graph))
                     
-        if pd.notna(row["number of participants"]):  #number of participants
+        if "number of participants" in row.index and pd.notna(row["number of participants"]):  #number of participants
             try:
                 num_participants = str(row["number of participants"])
                 num_participants_uri = URIRef(study_uri + "/number_of_participants")
@@ -205,14 +205,14 @@ def generate_studies_kg(filepath: str) -> Graph:
 
 def add_study_timing(g: Graph, row: pd.Series, study_design_execution_uri: URIRef, study_uri: URIRef, metadata_graph: URIRef) -> None:
 
-        if pd.notna(row["duration of observation"]):
+        if "duration of observation" in row.index and pd.notna(row["duration of observation"]):
             duration = row["duration of observation"].lower().strip()
             duration_uri = URIRef(study_design_execution_uri + "/duration_of_observation")
             g.add((duration_uri, RDF.type, OntologyNamespaces.CMEO.value.duration_of_observation, metadata_graph))
             g.add((duration_uri, OntologyNamespaces.IAO.value.is_about, study_design_execution_uri, metadata_graph))
             g.add((duration_uri, OntologyNamespaces.CMEO.value.has_value, Literal(duration, datatype=XSD.string), metadata_graph))
             
-        if pd.notna(row["start date"]):
+        if "start date" in row.index and pd.notna(row["start date"]):
             start_time_tuple = day_month_year(row["start date"])
             print(f"Start time tuple: {start_time_tuple}")
             start_date_uri = URIRef(study_design_execution_uri+ "/start_time")
@@ -226,7 +226,7 @@ def add_study_timing(g: Graph, row: pd.Series, study_design_execution_uri: URIRe
             # else:
             g.add((start_date_uri, OntologyNamespaces.CMEO.value.has_value, Literal(row["start date"], datatype=XSD.dateTime), metadata_graph))
 
-        if pd.notna(row["end date"]): #its study completion date
+        if "end date" in row.index and pd.notna(row["end date"]): #its study completion date
 
             study_completion_date_uri = URIRef(study_design_execution_uri + "/end_time")
             g.add((study_completion_date_uri, RDF.type, OntologyNamespaces.CMEO.value.end_time, metadata_graph))
@@ -240,7 +240,7 @@ def add_study_timing(g: Graph, row: pd.Series, study_design_execution_uri: URIRe
             #     g.add((study_completion_date_uri, OntologyNamespaces.TIME.value.year, Literal(year, datatype=XSD.gYear), metadata_graph)) 
             # else:
             g.add((study_completion_date_uri, OntologyNamespaces.CMEO.value.has_value, Literal(row["end date"], datatype=XSD.dateTime), metadata_graph))   
-        if pd.notna(row["ongoing"]):
+        if "ongoing" in row.index and pd.notna(row["ongoing"]):
             ongoing_status = True if row["ongoing"].lower().strip() == "yes" else False
             ongoing_uri = URIRef(study_uri + "/ongoing")
             g.add((ongoing_uri, RDF.type, OntologyNamespaces.SIO.value.ongoing,metadata_graph))
@@ -264,7 +264,7 @@ def part_of_study(g: Graph, row: pd.Series, study_uri: URIRef, study_design_valu
     return g
 
 def add_intervention_comparator(g: Graph, row: pd.Series, study_uri: URIRef, protocol_uri: URIRef, metadata_graph: URIRef) -> None:
-    if pd.notna(row["interventions"]):
+    if "interventions" in row.index and pd.notna(row["interventions"]):
         interventions = row["interventions"].lower().split(";") if pd.notna(row["interventions"]) else []
         for intervention in interventions:
             intervention = intervention.strip()
@@ -274,7 +274,7 @@ def add_intervention_comparator(g: Graph, row: pd.Series, study_uri: URIRef, pro
                 g.add((protocol_uri, OntologyNamespaces.RO.value.has_part, intervention_uri, metadata_graph))
                 g.add((intervention_uri, RDFS.label, Literal("intervention specification", datatype=XSD.string), metadata_graph))
                 g.add((intervention_uri, OntologyNamespaces.CMEO.value.has_value, Literal(row["interventions"], datatype=XSD.string), metadata_graph))
-    if pd.notna(row["comparator"]):
+    if "comparator" in row.index and pd.notna(row["comparator"]):
         comparators = row["comparator"].lower().split(";") if pd.notna(row["comparator"]) else []
         for comparator in comparators:
             comparator = comparator.strip()
@@ -455,7 +455,7 @@ def add_outcome_specification(g: Graph, row: pd.Series, study_uri: URIRef, proto
     g.add((outcome_specification_uri, RDFS.label, Literal("outcome specification", datatype=XSD.string), metadata_graph))
     
     
-    if row["primary outcome specification"]:
+    if "primary outcome specification" in row.index and pd.notna(row["primary outcome specification"]):
             pendpoint_values= row["primary outcome specification"].lower()
             # .split(';') if pd.notna(row["primary outcome specification"]) else ""
             # for pendpoint_value in pendpoint_values:
@@ -466,7 +466,7 @@ def add_outcome_specification(g: Graph, row: pd.Series, study_uri: URIRef, proto
             g.add((outcome_specification_uri, OntologyNamespaces.RO.value.has_part, primary_outcome_uri,metadata_graph))
             g.add((primary_outcome_uri, OntologyNamespaces.CMEO.value.has_value, Literal(pendpoint_values, datatype=XSD.string),metadata_graph))
 
-    if row["secondary outcome specification"]:
+    if "secondary outcome specification" in row.index and pd.notna(row["secondary outcome specification"]):
             secendpoint_values= row["secondary outcome specification"].lower()
             # .split(";") if pd.notna(row["secondary outcome specification"]) else ""
             # for secendpoint_value in secendpoint_values:
@@ -477,6 +477,8 @@ def add_outcome_specification(g: Graph, row: pd.Series, study_uri: URIRef, proto
             g.add((outcome_specification_uri, OntologyNamespaces.RO.value.has_part, secondary_outcome_uri,metadata_graph))
             g.add((secondary_outcome_uri, OntologyNamespaces.CMEO.value.has_value, Literal(secendpoint_values, datatype=XSD.string),metadata_graph))
     return g
+
+
 
 def update_metadata_graph(endpoint_url, cohort_uri, variable_uris, metadata_graph_path):
     """Insert metadata graph data into the Oxigraph triplestore using SPARQL Update."""

@@ -17,27 +17,44 @@ function transformMappingDataForPreview(jsonData: any): RowData[] {
   Object.values(jsonData).forEach((value: any) => {
     if (value && Array.isArray(value.mappings)) {
       const transformed = value.mappings.map((mapping: any) => {
+        // Construct source categories codes/labels
+        const sourceLabels = mapping.s_source_categories_labels || '';
+        const sourceCodes = mapping.s_source_original_categories || '';
+        const sourceCategoriesCodesLabels = sourceLabels && sourceCodes 
+          ? `${sourceCodes} (${sourceLabels})` 
+          : sourceLabels || sourceCodes || '';
+
         const newRow: RowData = {
           s_source: mapping.s_source,
           s_label: mapping.s_slabel,
           target_study: mapping.target_study,
           harmonization_status: mapping.harmonization_status || 'pending',
-          source_categories_codes: mapping.source_categories_codes,
-          target_categories_codes: mapping.target_categories_codes,
+          source_categories_codes_labels: sourceCategoriesCodesLabels,
+          mapping_relation: mapping.mapping_relation || '',
         };
 
-        // Find wildcard keys
+        // Find wildcard keys for target fields
+        let targetLabels = '';
+        let targetCodes = '';
+        
         Object.keys(mapping).forEach(key => {
           if (key.endsWith('_target')) {
             newRow['target'] = mapping[key];
           } else if (key.endsWith('_tlabel')) {
             newRow['target_label'] = mapping[key];
-          } else if (key.endsWith('_mapping_type')) {
-            newRow['mapping_type'] = mapping[key];
-          } else if (key === 'harmonization_status') {
-            newRow['harmonization_status'] = mapping[key];
+          } else if (key.endsWith('_target_categories_labels')) {
+            targetLabels = mapping[key] || '';
+          } else if (key.endsWith('_target_original_categories')) {
+            targetCodes = mapping[key] || '';
           }
         });
+        
+        // Construct target categories codes/labels
+        const targetCategoriesCodesLabels = targetLabels && targetCodes 
+          ? `${targetCodes} (${targetLabels})` 
+          : targetLabels || targetCodes || '';
+        newRow['target_categories_codes_labels'] = targetCategoriesCodesLabels;
+        
         return newRow;
       });
       allMappings = allMappings.concat(transformed);
@@ -50,13 +67,23 @@ function transformMappingDataForPreview(jsonData: any): RowData[] {
 // Helper component for the mapping preview table
 interface MappingPreviewJsonTableProps {
   data: RowData[];
+  sourceCohort: string;
 }
 
-function MappingPreviewJsonTable({ data }: MappingPreviewJsonTableProps) {
+function MappingPreviewJsonTable({ data, sourceCohort }: MappingPreviewJsonTableProps) {
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const [comparisonDetails, setComparisonDetails] = useState<{
+    sourceVar: string;
+    sourceCohort: string;
+    targetVar: string;
+    targetCohort: string;
+  } | null>(null);
+  
   if (!data || !Array.isArray(data) || data.length === 0) return <div className="italic text-slate-400">No mapping data to preview.</div>;
   
   // Define columns in a specific order for consistency
-  const columns = ['s_source', 's_label', 'target_study', 'target', 'target_label', 'mapping_type', 'source_categories_codes', 'target_categories_codes', 'harmonization_status'];
+  const columns = ['s_source', 's_label', 'target_study', 'target', 'target_label', 'compare_eda', 'mapping_relation', 'source_categories_codes_labels', 'target_categories_codes_labels', 'harmonization_status'];
   
   // Define display names for columns
   const columnDisplayNames: Record<string, string> = {
@@ -65,53 +92,163 @@ function MappingPreviewJsonTable({ data }: MappingPreviewJsonTableProps) {
     's_label': 's_label',
     'target_study': 'target_study',
     'target_label': 'target_label',
-    'mapping_type': 'mapping_type',
-    'source_categories_codes': 'source categories codes',
-    'target_categories_codes': 'target categories codes',
+    'compare_eda': 'Compare EDAs',
+    'mapping_relation': 'mapping_relation',
+    'source_categories_codes_labels': 'source categories codes/labels',
+    'target_categories_codes_labels': 'target categories codes/labels',
     'harmonization_status': 'harmonization_status'
   };
 
   return (
-    <table className="table table-zebra w-full text-xs">
-      <thead>
-        <tr>
-          {columns.map(col => (
-            <th key={col} className="font-bold bg-base-300">{columnDisplayNames[col] || col}</th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {data.map((row, i) => (
-          <tr key={i}>
-            {columns.map(col => {
-              const value = row[col] as string | number | boolean | null | undefined;
-              const displayValue = value === null || value === undefined || value === 'null' ? '--' : value.toString();
-              const isLongText = displayValue.length > 30;
-              
-              return (
-                <td 
-                  key={col} 
-                  className={`${
-                    col === 's_source' || col === 'target' ? 'bg-blue-100' : ''
-                  } ${
-                    (col === 'source_categories_codes' || col === 'target_categories_codes') && isLongText 
-                      ? 'max-w-xs break-words' : ''
-                  } ${
-                    col === 's_label' || col === 'target_label' ? 'max-w-32 break-words' : ''
-                  } ${
-                    col === 'target_study' ? 'max-w-24 break-words' : ''
-                  } ${
-                    col === 'mapping_type' || col === 'harmonization_status' ? 'max-w-20 break-words text-xs' : ''
-                  }`}
-                >
-                  {displayValue}
-                </td>
-              );
-            })}
+    <>
+      <table className="table table-zebra w-full text-xs">
+        <thead>
+          <tr>
+            {columns.map(col => (
+              <th key={col} className="font-bold bg-base-300">{columnDisplayNames[col] || col}</th>
+            ))}
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {data.map((row, i) => (
+            <tr key={i}>
+              {columns.map(col => {
+                // Special handling for compare_eda column
+                if (col === 'compare_eda') {
+                  const sourceVar = row['s_source'] as string;
+                  const targetVar = row['target'] as string;
+                  const targetStudy = row['target_study'] as string;
+                  
+                  const handleCompare = async () => {
+                    if (sourceCohort && sourceVar && targetStudy && targetVar) {
+                      const imageUrl = `/api/compare-eda/${encodeURIComponent(sourceCohort)}/${encodeURIComponent(sourceVar)}/${encodeURIComponent(targetStudy)}/${encodeURIComponent(targetVar)}`;
+                      console.log('Compare EDA clicked:', { sourceCohort, sourceVar, targetStudy, targetVar, imageUrl });
+                      
+                      setImageError(null);
+                      setComparisonDetails({
+                        sourceVar,
+                        sourceCohort,
+                        targetVar,
+                        targetCohort: targetStudy
+                      });
+                      
+                      // Fetch the image to check for errors before displaying
+                      try {
+                        const response = await fetch(imageUrl);
+                        if (!response.ok) {
+                          // Try to parse error message from JSON response
+                          const contentType = response.headers.get('content-type');
+                          if (contentType && contentType.includes('application/json')) {
+                            const errorData = await response.json();
+                            setImageError(errorData.details || errorData.error || 'Failed to load image');
+                          } else {
+                            const errorText = await response.text();
+                            setImageError(errorText || 'Failed to load image');
+                          }
+                          setSelectedImage(null);
+                        } else {
+                          // Image loaded successfully
+                          setSelectedImage(imageUrl);
+                        }
+                      } catch (error) {
+                        console.error('Error fetching image:', error);
+                        setImageError('Failed to fetch image: ' + (error as Error).message);
+                        setSelectedImage(null);
+                      }
+                    } else {
+                      console.error('Missing required fields:', { sourceCohort, sourceVar, targetStudy, targetVar });
+                    }
+                  };
+                  
+                  return (
+                    <td key={col} className="text-center">
+                      <button 
+                        className="btn btn-xs btn-primary"
+                        onClick={handleCompare}
+                        disabled={!sourceVar || !targetVar || !targetStudy}
+                      >
+                        Compare
+                      </button>
+                    </td>
+                  );
+                }
+                
+                const value = row[col] as string | number | boolean | null | undefined;
+                const displayValue = value === null || value === undefined || value === 'null' ? '--' : value.toString();
+                const isLongText = displayValue.length > 30;
+                
+                return (
+                  <td 
+                    key={col} 
+                    className={`${
+                      col === 's_source' || col === 'target' ? 'bg-blue-100' : ''
+                    } ${
+                      (col === 'source_categories_codes_labels' || col === 'target_categories_codes_labels') && isLongText 
+                        ? 'max-w-xs break-words' : ''
+                    } ${
+                      col === 's_label' || col === 'target_label' ? 'max-w-32 break-words' : ''
+                    } ${
+                      col === 'target_study' ? 'max-w-24 break-words' : ''
+                    } ${
+                      col === 'mapping_relation' || col === 'harmonization_status' ? 'max-w-20 break-words text-xs' : ''
+                    }`}
+                  >
+                    {displayValue}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      
+      {/* Modal to display merged EDA image or error */}
+      {(selectedImage || imageError) && comparisonDetails && (
+        <div className="modal modal-open">
+          <div className="modal-box max-w-5xl">
+            <h3 className="font-bold text-lg mb-4">
+              {comparisonDetails 
+                ? `Statistical Comparison: ${comparisonDetails.sourceVar} (${comparisonDetails.sourceCohort}) vs ${comparisonDetails.targetVar} (${comparisonDetails.targetCohort})`
+                : 'EDA Comparison'
+              }
+            </h3>
+            {imageError ? (
+              <div className="alert alert-error">
+                <div className="whitespace-pre-wrap">{imageError}</div>
+              </div>
+            ) : selectedImage ? (
+              <img 
+                src={selectedImage} 
+                alt="Merged EDA comparison" 
+                style={{ width: '75%', height: 'auto' }}
+                className="mx-auto"
+                onError={(e) => {
+                  console.error('Image failed to load:', selectedImage);
+                  setImageError('Image not found or failed to load');
+                }}
+                onLoad={() => console.log('Image loaded successfully')}
+              />
+            ) : null}
+            <div className="modal-action">
+              {!imageError && selectedImage && (
+                <a 
+                  href={selectedImage} 
+                  download={comparisonDetails 
+                    ? `comparison_${comparisonDetails.sourceVar}_${comparisonDetails.sourceCohort}_vs_${comparisonDetails.targetVar}_${comparisonDetails.targetCohort}.png`
+                    : "eda-comparison.png"
+                  }
+                  className="btn btn-primary"
+                >
+                  Save Image
+                </a>
+              )}
+              <button className="btn" onClick={() => { setSelectedImage(null); setImageError(null); setComparisonDetails(null); }}>Close</button>
+            </div>
+          </div>
+          <div className="modal-backdrop" onClick={() => { setSelectedImage(null); setImageError(null); setComparisonDetails(null); }}></div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -135,6 +272,9 @@ export default function MappingPage() {
     outdated_pairs: Array<{source: string, target: string, timestamp: number, outdated_cohort: string}>,
     dictionary_timestamps: Record<string, number>
   } | null>(null);
+  const [tableScrollWidth, setTableScrollWidth] = useState(2000);
+  const [mappingStartTime, setMappingStartTime] = useState<number | null>(null);
+  const [computeDuration, setComputeDuration] = useState<{minutes: number, seconds: number} | null>(null);
   
   // Reference to the mapping output section
   const mappingOutputRef = useRef<HTMLDivElement>(null);
@@ -153,6 +293,19 @@ export default function MappingPage() {
       // Scroll to a few pixels above the map button
       const buttonTop = mapButtonRef.current.offsetTop - 20;
       window.scrollTo({ top: buttonTop, behavior: 'smooth' });
+    }
+  }, [mappingOutput]);
+
+  // Update table scroll width when mapping output changes
+  useEffect(() => {
+    if (mappingOutput) {
+      const bottomScroll = document.getElementById('bottom-scroll');
+      if (bottomScroll) {
+        const table = bottomScroll.querySelector('table');
+        if (table) {
+          setTableScrollWidth(table.scrollWidth);
+        }
+      }
     }
   }, [mappingOutput]);
 
@@ -175,6 +328,9 @@ export default function MappingPage() {
     setLoading(true);
     setError(null);
     setMappingOutput(null);
+    setCacheInfo(null);
+    setComputeDuration(null);
+    setMappingStartTime(Date.now());
     setCacheInfo(null);
     
     try {
@@ -256,6 +412,18 @@ export default function MappingPage() {
         console.error('Error parsing JSON response for preview:', error);
         setMappingOutput([]); // Clear the preview on error
       }
+      
+      // Calculate compute duration (do this regardless of parse success)
+      const startTime = mappingStartTime;
+      if (startTime) {
+        const durationMs = Date.now() - startTime;
+        const totalSeconds = Math.floor(durationMs / 1000);
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+        setComputeDuration({ minutes, seconds });
+      }
+      
+      setLoading(false);
     } catch (err: any) {
       setError(
         typeof err.message === 'string' && err.message.endsWith("metadata has not been added yet!")
@@ -289,9 +457,13 @@ export default function MappingPage() {
       {error && (
         <span style={{ color: 'red', fontWeight: 500, marginBottom: 16, display: 'block' }}>{error}</span>
       )}
-      <div className="w-full max-w-6xl space-y-8">
-        <h1 className="text-3xl font-bold text-center mb-8">Cohort Mapping</h1>
+      <div className="w-full space-y-8">
+        <div className="max-w-6xl mx-auto">
+          <h1 className="text-3xl font-bold text-center mb-8">Cohort Mapping</h1>
+        </div>
 
+        {/* Search box and form elements - constrained width */}
+        <div className="max-w-6xl mx-auto">
         {/* Search box for filtering target cohorts */}
         <div className="mb-6 flex justify-center">
           <input
@@ -364,9 +536,29 @@ export default function MappingPage() {
             }
           </button>
         </div>
+        </div>
 
-        {/* Cache Information Display */}
-        {cacheInfo && (
+        {/* Success Message - shown after mapping completes */}
+        <div className="max-w-6xl mx-auto">
+        {mappingOutput && computeDuration && (
+          <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+            <div className="flex items-start gap-2">
+              <span className="text-green-600 text-xl">✓</span>
+              <div>
+                <h4 className="font-semibold text-green-800 mb-1">Mapping Complete!</h4>
+                <p className="text-sm text-green-700">
+                  Variable mapping for <strong>{sourceCohort}</strong> → <strong>{selectedTargets.join(', ')}</strong> has been generated.
+                </p>
+                <p className="text-sm text-green-600 mt-1">
+                  Compute time: {computeDuration.minutes > 0 ? `${computeDuration.minutes} minute${computeDuration.minutes !== 1 ? 's' : ''} ` : ''}{computeDuration.seconds} second{computeDuration.seconds !== 1 ? 's' : ''}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Cache Information Display - only shown before mapping completes */}
+        {cacheInfo && !mappingOutput && (
           <div className="mt-4 p-4 bg-gray-50 rounded-lg">
             <h4 className="font-semibold mb-2">Cache Status:</h4>
             
@@ -426,7 +618,7 @@ export default function MappingPage() {
             {/* Summary message */}
             {(cacheInfo.uncached_pairs.length > 0 || (cacheInfo.outdated_pairs && cacheInfo.outdated_pairs.length > 0)) ? (
               <div className="mt-3 p-2 bg-blue-100 rounded text-sm text-blue-800">
-                ⏳ Uncached and outdated mappings will be computed. This may take up to 15 minutes. If this page crashes, please revisit in 15-20 minutes when computed mappings are likely to be ready
+                ⏳ Uncached and outdated mappings will be computed. This may take up to 15 minutes. If this page times out, please revisit in 15-20 minutes when computed mappings are likely to be ready
               </div>
             ) : (
               cacheInfo.cached_pairs.length > 0 && (
@@ -455,11 +647,13 @@ export default function MappingPage() {
         {error && (
           <div className="mt-4 text-red-500 text-center">{error}</div>
         )}
+        </div>
 
+        {/* Mapping Preview - wider container, breaks out of max-w-6xl constraint */}
         {mappingOutput && (
           <div 
             ref={mappingOutputRef}
-            className="mt-4 p-4 border rounded-lg bg-base-100 w-full max-w-7xl mx-auto"
+            className="mt-4 p-4 border rounded-lg bg-base-100 w-[85vw] mx-auto"
           >
             <h2 className="text-lg font-bold mb-3">Mapping Preview</h2>
             
@@ -468,19 +662,19 @@ export default function MappingPage() {
               <div className="bg-gray-50 border rounded-lg p-4 w-full max-w-2xl">
                 <h4 className="font-semibold text-sm mb-3">Filters</h4>
                 <div className="grid grid-cols-2 gap-4">
-                  {/* Mapping Type Filter */}
+                  {/* Mapping Relation Filter */}
                   <div>
-                    <h5 className="font-medium text-xs mb-2">mapping_type</h5>
+                    <h5 className="font-medium text-xs mb-2">mapping_relation</h5>
                     <div className="space-y-1 max-h-32 overflow-y-auto text-xs">
                       {(() => {
-                        const mappingTypeCounts = mappingOutput.reduce((acc, row) => {
-                          const value = (row.mapping_type?.toString() || '--');
+                        const mappingRelationCounts = mappingOutput.reduce((acc, row) => {
+                          const value = (row.mapping_relation?.toString() || '--');
                           const currentCount = acc[value] as number || 0;
                           acc[value] = currentCount + 1;
                           return acc;
                         }, {} as Record<string, number>);
                         
-                        return Object.entries(mappingTypeCounts).map(([value, count]) => (
+                        return Object.entries(mappingRelationCounts).map(([value, count]) => (
                           <div key={value} className="flex items-center gap-2">
                             <input 
                               type="checkbox" 
@@ -560,13 +754,13 @@ export default function MappingPage() {
             {(() => {
               // Filter the data based on selected filters
               const filteredData = mappingOutput.filter(row => {
-                const mappingType = (row.mapping_type?.toString() || '--');
+                const mappingRelation = (row.mapping_relation?.toString() || '--');
                 const harmonizationStatus = (row.harmonization_status?.toString() || '--');
                 
-                const mappingTypeMatch = selectedMappingTypes.length === 0 || selectedMappingTypes.includes(mappingType);
+                const mappingRelationMatch = selectedMappingTypes.length === 0 || selectedMappingTypes.includes(mappingRelation);
                 const harmonizationStatusMatch = selectedHarmonizationStatuses.length === 0 || selectedHarmonizationStatuses.includes(harmonizationStatus);
                 
-                return mappingTypeMatch && harmonizationStatusMatch;
+                return mappingRelationMatch && harmonizationStatusMatch;
               });
 
               return (
@@ -593,20 +787,88 @@ export default function MappingPage() {
               );
             })()}
 
-            <div className="overflow-x-auto">
+            {/* Top horizontal scrollbar with arrow buttons */}
+            <div className="flex items-center gap-1 mb-2">
+              <button
+                className="btn btn-xs btn-square"
+                onClick={() => {
+                  const topScroll = document.getElementById('top-scroll');
+                  const bottomScroll = document.getElementById('bottom-scroll');
+                  if (topScroll && bottomScroll) {
+                    const scrollAmount = 200;
+                    topScroll.scrollLeft -= scrollAmount;
+                    bottomScroll.scrollLeft -= scrollAmount;
+                  }
+                }}
+                title="Scroll left"
+              >
+                ←
+              </button>
+              <div 
+                id="top-scroll"
+                className="overflow-x-scroll flex-1 border border-gray-200 rounded"
+                style={{
+                  height: '20px',
+                  overflowY: 'hidden',
+                  scrollbarWidth: 'auto',
+                  scrollbarColor: '#94a3b8 #e2e8f0'
+                }}
+                onScroll={(e) => {
+                  const bottomScroll = document.getElementById('bottom-scroll');
+                  if (bottomScroll) {
+                    bottomScroll.scrollLeft = e.currentTarget.scrollLeft;
+                  }
+                }}
+              >
+                <div style={{ width: `${tableScrollWidth}px`, height: '1px' }}></div>
+              </div>
+              <button
+                className="btn btn-xs btn-square"
+                onClick={() => {
+                  const topScroll = document.getElementById('top-scroll');
+                  const bottomScroll = document.getElementById('bottom-scroll');
+                  if (topScroll && bottomScroll) {
+                    const scrollAmount = 200;
+                    topScroll.scrollLeft += scrollAmount;
+                    bottomScroll.scrollLeft += scrollAmount;
+                  }
+                }}
+                title="Scroll right"
+              >
+                →
+              </button>
+            </div>
+            
+            {/* Main table with scrollbars */}
+            <div 
+              id="bottom-scroll"
+              className="overflow-x-scroll overflow-y-scroll max-h-[600px] border border-gray-200 rounded-b" 
+              style={{
+                scrollbarWidth: 'auto',
+                scrollbarColor: '#94a3b8 #e2e8f0',
+                overflowX: 'scroll',
+                overflowY: 'scroll'
+              }}
+              onScroll={(e) => {
+                const topScroll = e.currentTarget.previousElementSibling as HTMLElement;
+                if (topScroll) {
+                  topScroll.scrollLeft = e.currentTarget.scrollLeft;
+                }
+              }}
+            >
               {(() => {
                 // Calculate filtered data for the table
                 const filteredData = mappingOutput.filter(row => {
-                  const mappingType = (row.mapping_type?.toString() || '--');
+                  const mappingRelation = (row.mapping_relation?.toString() || '--');
                   const harmonizationStatus = (row.harmonization_status?.toString() || '--');
                   
-                  const mappingTypeMatch = selectedMappingTypes.length === 0 || selectedMappingTypes.includes(mappingType);
+                  const mappingRelationMatch = selectedMappingTypes.length === 0 || selectedMappingTypes.includes(mappingRelation);
                   const harmonizationStatusMatch = selectedHarmonizationStatuses.length === 0 || selectedHarmonizationStatuses.includes(harmonizationStatus);
                   
-                  return mappingTypeMatch && harmonizationStatusMatch;
+                  return mappingRelationMatch && harmonizationStatusMatch;
                 });
                 
-                return <MappingPreviewJsonTable data={filteredData} />;
+                return <MappingPreviewJsonTable data={filteredData} sourceCohort={sourceCohort} />;
               })()}
             </div>
           </div>

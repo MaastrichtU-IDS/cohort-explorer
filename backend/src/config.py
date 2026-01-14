@@ -63,8 +63,12 @@ class Settings:
 
     @property
     def admins_list(self) -> list[str]:
-        return self.admins.split(",")
+        return [email.strip().lower() for email in self.admins.split(",")]
 
+    @property
+    def cohort_folder(self) -> str:
+        return os.path.join(self.data_folder, "cohorts")
+    
     @property
     def logs_filepath(self) -> str:
         return os.path.join(settings.data_folder, "logs.log")

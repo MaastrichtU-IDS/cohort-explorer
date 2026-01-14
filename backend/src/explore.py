@@ -1,6 +1,8 @@
 import os
 import logging
+import json
 from typing import Any
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
@@ -9,14 +11,17 @@ from src.auth import get_current_user
 from src.config import settings
 from src.models import Cohort
 from src.utils import retrieve_cohorts_metadata
-from src.cohort_cache import get_cohorts_from_cache, is_cache_initialized
+from src.cohort_cache import get_cohorts_from_cache, is_cache_initialized, cohort_to_dict
 
 router = APIRouter()
 
 
 @router.get("/cohorts-metadata")
-def get_cohorts_metadata(user: Any = Depends(get_current_user)) -> dict[str, Cohort]:
-    """Returns data dictionaries of all cohorts
+def get_cohorts_metadata(summary: bool = False, user: Any = Depends(get_current_user)) -> dict:
+    """Returns data dictionaries of all cohorts.
+    
+    - When summary=false (default): return full cohorts including variables.
+    - When summary=true: return cohort headers only (no variables/categories) to keep payload small.
     
     First tries to retrieve cohorts from the cache for fast access.
     Falls back to SPARQL queries if the cache is not initialized or is empty.
@@ -28,7 +33,8 @@ def get_cohorts_metadata(user: Any = Depends(get_current_user)) -> dict[str, Coh
         logging.info("Retrieving cohorts from cache")
         cohorts = get_cohorts_from_cache(user_email)
         if cohorts:
-            return cohorts
+            result = cohorts if not summary else {cid: {k: v for k, v in cohort_to_dict(c).items() if k != "variables"} for cid, c in cohorts.items()}
+            return {**result, "userEmail": user_email}
         logging.warning("Cache is initialized but empty, falling back to SPARQL queries")
     else:
         logging.info("Cache not initialized, falling back to SPARQL queries")
@@ -36,12 +42,57 @@ def get_cohorts_metadata(user: Any = Depends(get_current_user)) -> dict[str, Coh
     # Fall back to SPARQL queries if cache is not available or empty
     cohorts = retrieve_cohorts_metadata(user_email)
     
-    return cohorts
+    result = cohorts if not summary else {cid: {k: v for k, v in cohort_to_dict(c).items() if k != "variables"} for cid, c in cohorts.items()}
+    return {**result, "userEmail": user_email}
+
+
+@router.get("/cohort-eda-output/{cohort_name}")
+async def get_cohort_eda_output(
+    cohort_name: str,
+    user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Retrieve the EDA output JSON file for a given cohort."""
+    # Construct the directory and file paths
+    dcr_output_dir = os.path.join(settings.data_folder, f"dcr_output_{cohort_name}")
+    eda_file_path = os.path.join(dcr_output_dir, f"eda_output_{cohort_name}.json")
+    
+    # Check if directory exists
+    if not os.path.exists(dcr_output_dir):
+        raise HTTPException(
+            status_code=404,
+            detail=f"DCR output directory not found for cohort '{cohort_name}'"
+        )
+    
+    # Check if file exists
+    if not os.path.exists(eda_file_path):
+        raise HTTPException(
+            status_code=404,
+            detail=f"EDA output file not found for cohort '{cohort_name}'"
+        )
+    
+    # Read and return the JSON file
+    try:
+        with open(eda_file_path, 'r') as f:
+            eda_data = json.load(f)
+        return eda_data
+    except json.JSONDecodeError as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error parsing EDA output JSON: {str(e)}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error reading EDA output file: {str(e)}"
+        )
 
 
 @router.get("/cohorts-metadata-sparql")
-def get_cohorts_metadata_sparql(user: Any = Depends(get_current_user)) -> dict:
-    """Returns data dictionaries of all cohorts using SPARQL queries only
+def get_cohorts_metadata_sparql(summary: bool = False, user: Any = Depends(get_current_user)) -> dict:
+    """Returns data dictionaries of all cohorts using SPARQL queries only.
+    
+    - When summary=false: return full cohorts (plus SPARQL execution metadata).
+    - When summary=true: return only cohort headers (no variables) to keep payload small.
     
     Always executes SPARQL queries directly against the triplestore,
     bypassing the cache completely. This provides real-time data but is slower.
@@ -52,13 +103,28 @@ def get_cohorts_metadata_sparql(user: Any = Depends(get_current_user)) -> dict:
     logging.info("Retrieving cohorts using SPARQL queries (bypassing cache)")
     result = retrieve_cohorts_metadata(user_email, include_sparql_metadata=True)
     
-    return result
+    # Add user email to result
+    result["userEmail"] = user_email
+    
+    if not summary:
+        return result
+    
+    # Convert cohorts payload to summary
+    cohorts_full = result.get("cohorts", result)  # support both shapes if changed in future
+    if isinstance(cohorts_full, dict) and all(hasattr(v, "cohort_id") for v in cohorts_full.values()):
+        cohorts_summary = {cid: {k: v for k, v in cohort_to_dict(c).items() if k != "variables"} for cid, c in cohorts_full.items()}
+        result["cohorts"] = cohorts_summary
+        return result
+    else:
+        # If result is already a dict[str, Cohort]
+        summary_result = {cid: {k: v for k, v in cohort_to_dict(c).items() if k != "variables"} for cid, c in cohorts_full.items()}
+        summary_result["userEmail"] = user_email
+        return summary_result
 
 
 @router.get("/cohort-spreadsheet/{cohort_id}")
 async def download_cohort_spreasheet(cohort_id: str, user: Any = Depends(get_current_user)) -> FileResponse:
     """Download the data dictionary of a specified cohort as a spreadsheet."""
-    # cohort_id = urllib.parse.unquote(cohort_id)
     cohorts_folder = os.path.join(settings.data_folder, "cohorts", cohort_id)
 
     # List all CSV files excluding those with 'noHeader' in the name
@@ -74,4 +140,32 @@ async def download_cohort_spreasheet(cohort_id: str, user: Any = Depends(get_cur
     latest_file = max(csv_files_full, key=os.path.getmtime)
     latest_file_name = os.path.basename(latest_file)
     return FileResponse(path=latest_file, filename=latest_file_name, media_type="application/octet-stream")
+
+
+@router.get("/download-cohorts-metadata-spreadsheet")
+async def download_cohorts_metadata_spreadsheet(user: Any = Depends(get_current_user)) -> FileResponse:
+    """Download the central cohorts metadata Excel and include last-modified info in headers."""
+    # Import path constant lazily to avoid any potential circular import
+    try:
+        from src.upload import COHORTS_METADATA_FILEPATH  # type: ignore
+        excel_path = COHORTS_METADATA_FILEPATH
+    except Exception:
+        excel_path = os.path.join(settings.data_folder, "iCARE4CVD_Cohorts.xlsx")
+
+    if not os.path.exists(excel_path) or not os.path.isfile(excel_path):
+        raise HTTPException(status_code=404, detail="Cohorts metadata Excel file not found on server")
+
+    # Compute last modified metadata
+    mtime = os.path.getmtime(excel_path)
+    iso_ts = datetime.fromtimestamp(mtime).isoformat()
+    headers = {
+        "X-File-Last-Modified": iso_ts,
+    }
+
+    return FileResponse(
+        path=excel_path,
+        filename=os.path.basename(excel_path),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers,
+    )
 

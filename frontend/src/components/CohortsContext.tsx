@@ -1,6 +1,6 @@
 'use client';
 
-import React, {createContext, useState, useEffect, useContext, useRef, MutableRefObject} from 'react';
+import React, {createContext, useState, useEffect, useContext, useRef, useCallback, MutableRefObject} from 'react';
 import {Cohort} from '@/types';
 import {apiUrl} from '@/utils';
 
@@ -96,83 +96,79 @@ export const CohortsProvider = ({children, useSparql = false}: {children: any, u
     return isNaN(parsedValue) ? 0 : parsedValue;
   };
 
-  // Calculate statistics whenever cohort data changes
-  useEffect(() => {
-    const calculateStatistics = async () => {
-      if (Object.keys(cohortsData).length === 0) return;
-      
-      // Convert cohortsData to a typed array for safer operations
-      const cohortsList: Cohort[] = Object.values(cohortsData);
-      
-      // Calculate basic statistics
-      const totalCohorts = cohortsList.length;
-      
-      // Cohorts with metadata (has variables)
-      const cohortsWithMetadata = cohortsList.filter(
-        (cohort: Cohort) => Object.keys(cohort.variables || {}).length > 0
-      );
-      const cohortsWithMetadataCount = cohortsWithMetadata.length;
-      
-      // Total patients across all cohorts
-      const totalPatients = cohortsList.reduce(
-        (sum: number, cohort: Cohort) => sum + parseParticipants(cohort.study_participants), 
-        0
-      );
-      
-      // Patients in cohorts with metadata
-      const patientsInCohortsWithMetadata = cohortsWithMetadata.reduce(
-        (sum: number, cohort: Cohort) => sum + parseParticipants(cohort.study_participants),
-        0
-      );
-      
-      // Total unique variables across all cohorts
-      let totalVariables = 0;
-      cohortsList.forEach((cohort: Cohort) => {
-        if (cohort.variables) {
-          totalVariables += Object.keys(cohort.variables).length;
-        }
-      });
-      
-      // Check for cohorts with aggregate analysis
-      let aggregateAnalysisCount = 0;
-      for (const cohort of cohortsList) {
-        try {
-          const response = await fetch(`/api/check-analysis-folder/${cohort.cohort_id}`);
-          const data = await response.json();
-          if (data.exists) {
-            aggregateAnalysisCount++;
-          }
-        } catch (error) {
-          console.error(`Error checking analysis for cohort ${cohort.cohort_id}:`, error);
-        }
+  // Calculate statistics - extracted as a separate function to be called explicitly
+  const calculateStatistics = useCallback(async () => {
+    if (Object.keys(cohortsData).length === 0) return;
+    
+    // Convert cohortsData to a typed array for safer operations
+    const cohortsList: Cohort[] = Object.values(cohortsData);
+    
+    // Calculate basic statistics
+    const totalCohorts = cohortsList.length;
+    
+    // Cohorts with metadata (has variables)
+    const cohortsWithMetadata = cohortsList.filter(
+      (cohort: Cohort) => Object.keys(cohort.variables || {}).length > 0
+    );
+    const cohortsWithMetadataCount = cohortsWithMetadata.length;
+    
+    // Total patients across all cohorts
+    const totalPatients = cohortsList.reduce(
+      (sum: number, cohort: Cohort) => sum + parseParticipants(cohort.study_participants), 
+      0
+    );
+    
+    // Patients in cohorts with metadata
+    const patientsInCohortsWithMetadata = cohortsWithMetadata.reduce(
+      (sum: number, cohort: Cohort) => sum + parseParticipants(cohort.study_participants),
+      0
+    );
+    
+    // Total unique variables across all cohorts
+    let totalVariables = 0;
+    cohortsList.forEach((cohort: Cohort) => {
+      if (cohort.variables) {
+        totalVariables += Object.keys(cohort.variables).length;
       }
-      
-      // Create the statistics object
-      const statistics = {
-        totalCohorts,
-        cohortsWithMetadata: cohortsWithMetadataCount,
-        cohortsWithAggregateAnalysis: aggregateAnalysisCount,
-        totalPatients,
-        patientsInCohortsWithMetadata,
-        totalVariables
-      };
-      
-      // Update statistics state
-      setCohortStatistics(statistics);
-      
-      // Save statistics to JSON file via API
-      fetch('/api/save-statistics', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(statistics)
-      }).catch(error => {
-        console.error('Error saving statistics:', error);
-      });
+    });
+    
+    // Check for cohorts with aggregate analysis
+    let aggregateAnalysisCount = 0;
+    for (const cohort of cohortsList) {
+      try {
+        const response = await fetch(`/api/check-analysis-folder/${cohort.cohort_id}`);
+        const data = await response.json();
+        if (data.exists) {
+          aggregateAnalysisCount++;
+        }
+      } catch (error: any) {
+        console.error(`Error checking analysis for cohort ${cohort.cohort_id}:`, error);
+      }
+    }
+    
+    // Create the statistics object
+    const statistics = {
+      totalCohorts,
+      cohortsWithMetadata: cohortsWithMetadataCount,
+      cohortsWithAggregateAnalysis: aggregateAnalysisCount,
+      totalPatients,
+      patientsInCohortsWithMetadata,
+      totalVariables
     };
     
-    calculateStatistics();
+    // Update statistics state
+    setCohortStatistics(statistics);
+    
+    // Save statistics to JSON file via API
+    fetch('/api/save-statistics', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(statistics)
+    }).catch(error => {
+      console.error('Error saving statistics:', error);
+    });
   }, [cohortsData]);
 
   useEffect(() => {
@@ -203,10 +199,10 @@ export const CohortsProvider = ({children, useSparql = false}: {children: any, u
       const data = event.data;
       if (!data.detail && !data.error) {
         // Extract cohorts data (filter out metadata properties)
-        const { sparqlRows, sparqlMetadata, ...cohortsData } = data;
+        const { sparqlRows, sparqlMetadata, userEmail: fetchedUserEmail, ...cohortsData } = data;
         
         setCohortsData(cohortsData);
-        setUserEmail('loggedIn');
+        setUserEmail(fetchedUserEmail || 'loggedIn');
         setIsLoading(false);
         
         // Calculate metrics using only cohorts data
@@ -224,6 +220,9 @@ export const CohortsProvider = ({children, useSparql = false}: {children: any, u
         
         console.log(`Updated context with data from ${useSparql ? 'SPARQL' : 'cache'}:`, 
           `${metrics.cohortCount} cohorts, ${metrics.variableCount} variables, ${metrics.categoryCount} categories in ${Math.round(loadTime)}ms`);
+        
+        // Calculate statistics only on initial load or manual refresh
+        calculateStatistics();
       } else {
         setUserEmail(null);
         setIsLoading(false);
@@ -236,6 +235,7 @@ export const CohortsProvider = ({children, useSparql = false}: {children: any, u
     return () => {
       worker.current?.terminate();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [useSparql]);
 
   // Fetch cohorts data from the API using the web worker
@@ -267,6 +267,7 @@ export const CohortsProvider = ({children, useSparql = false}: {children: any, u
         setUserEmail,
         // Expose the statistics
         cohortStatistics,
+        calculateStatistics,
         // Expose loading metrics and state
         loadingMetrics,
         isLoading

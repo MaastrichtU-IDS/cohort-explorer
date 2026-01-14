@@ -263,12 +263,354 @@ def parse_categorical_string(s: str) -> list[dict[str, str]]:
         )
     return result
 
-cols_normalized = {"VARIABLE NAME": "VARIABLENAME", 
-                   "VARIABLE LABEL": "VARIABLELABEL",
-                   "VAR TYPE": "VARTYPE",
-                   "CATEGORICALVALUECONCEPTCODE": "CATEGORICAL VALUE CONCEPT CODE"}
+cols_normalized = {
+    "variable name": "VARIABLENAME",
+    "variable label": "VARIABLELABEL", 
+    "var type": "VARTYPE",
+    "units": "UNITS",
+    "categorical": "CATEGORICAL",
+    "missing": "MISSING",
+    "count": "COUNT",
+    "na": "NA",
+    "min": "MIN",
+    "max": "MAX",
+    "formula": "Formula",
+    "categoricalvalueconceptcode": "Categorical Value Concept Code",
+    "categorical value concept code": "Categorical Value Concept Code",
+    "categoricalvaluename": "Categorical Value Name",
+    "categorical value name": "Categorical Value Name",
+    "categoricalvalueomopid": "Categorical Value OMOP ID",
+    "categorical value omop id": "Categorical Value OMOP ID",
+    "variableconceptcode": "Variable Concept Code",
+    "variable concept code": "Variable Concept Code",
+    "variableconceptname": "Variable Concept Name",
+    "variable concept name": "Variable Concept Name",
+    "variableomopid": "Variable OMOP ID",
+    "variable omop id": "Variable OMOP ID",
+    "additionalcontextconceptname": "Additional Context Concept Name",
+    "additional context concept name": "Additional Context Concept Name",
+    "additionalcontextconceptcode": "Additional Context Concept Code",
+    "additional context concept code": "Additional Context Concept Code",
+    "additionalcontextomopid": "Additional Context OMOP ID",
+    "additional context omop id": "Additional Context OMOP ID",
+    "unitconceptname": "Unit Concept Name",
+    "unit concept name": "Unit Concept Name",
+    "unitconceptcode": "Unit Concept Code",
+    "unit concept code": "Unit Concept Code",
+    "unitomopid": "Unit OMOP ID",
+    "unit omop id": "Unit OMOP ID",
+    "domain": "Domain",
+    "visits": "Visits",
+    "visitomopid": "Visit OMOP ID",
+    "visit omop id": "Visit OMOP ID",
+    "visitconceptname": "Visit Concept Name",
+    "visit concept name": "Visit Concept Name",
+    "visitconceptcode": "Visit Concept Code",
+    "visit concept code": "Visit Concept Code"
+}
 
 ACCEPTED_DATATYPES = ["STR", "FLOAT", "INT", "DATETIME"]
+
+def normalize_csv_header(file_content: str) -> str:
+    """Normalize CSV header column names using the cols_normalized mapping.
+    
+    Args:
+        file_content: Raw CSV file content as string
+        
+    Returns:
+        CSV content with normalized header line
+    """
+    lines = file_content.splitlines()
+    
+    if not lines:
+        return file_content
+    
+    # Normalize column names in header (first line)
+    header_columns = lines[0].split(',')
+    normalized_columns = []
+    
+    for col in header_columns:
+        # Strip whitespace and convert to lowercase for lookup
+        col_clean = col.strip()
+        col_lower = col_clean.lower()
+        # Look up in normalization dictionary, fallback to original
+        normalized_col = cols_normalized.get(col_lower, col_clean)
+        normalized_columns.append(normalized_col)
+    
+    # Replace header with normalized version
+    lines[0] = ','.join(normalized_columns)
+    
+    return '\n'.join(lines)
+
+def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
+    """Validate a metadata dictionary DataFrame and return a list of error messages.
+    
+    This function contains all validation logic and can be used during upload or report generation.
+    
+    Args:
+        df: DataFrame with normalized column names
+        cohort_id: Cohort identifier for error messages
+        
+    Returns:
+        List of error message strings
+    """
+    errors = []
+    
+    # Check for duplicate variables
+    duplicate_variables = df[df.duplicated(subset=["VARIABLENAME"], keep=False)]
+    if not duplicate_variables.empty:
+        errors.append(f"Duplicate VARIABLENAME found: {', '.join(duplicate_variables['VARIABLENAME'].unique())}")
+    
+    # Row-level validation
+    for i, row in df.iterrows():
+        var_name_for_error = row.get("VARIABLENAME", f"UNKNOWN_VAR_ROW_{i+2}")
+        
+        # Check if required values are present in rows
+        req_fields = ["VARIABLENAME", "VARIABLELABEL", "VARTYPE", "DOMAIN"]
+        for rf in req_fields:
+            if not str(row.get(rf, "")).strip():
+                errors.append(f"Row {i+2} (Variable: '{var_name_for_error}') is missing value for the required field: '{rf}'.")
+        
+        # Validate VARTYPE
+        if row.get("VARTYPE") and str(row["VARTYPE"]).upper() not in ACCEPTED_DATATYPES:
+            errors.append(
+                f"Row {i+2} (Variable: '{var_name_for_error}') has an invalid data type: '{row['VARTYPE']}'. Accepted types: {', '.join(ACCEPTED_DATATYPES)}."
+            )
+        
+        # Validate DOMAIN
+        acc_domains = ["condition_occurrence", "visit_occurrence", "procedure_occurrence", "measurement", "drug_exposure", "device_exposure", "person", "observation", "observation_period", "death", "specimen", "condition_era"]
+        if row.get('DOMAIN') and str(row['DOMAIN']).strip().lower() not in acc_domains:
+            errors.append(
+                f'Row {i+2} (Variable: "{var_name_for_error}") has an invalid domain: "{row["DOMAIN"]}". Accepted domains: {", ".join(acc_domains)}.'
+            )
+        
+        # Variable Concept Code Validation
+        if "VARIABLE CONCEPT CODE" in df.columns:
+            var_concept_code_str = str(row.get("VARIABLE CONCEPT CODE", "")).strip()
+            if var_concept_code_str and var_concept_code_str.lower() != "na":
+                # Check for multiple codes separated by "|"
+                if "|" in var_concept_code_str:
+                    errors.append(
+                        f"Row {i+2} (Variable: '{var_name_for_error}'): Multiple concept codes are not allowed in VARIABLE CONCEPT CODE. Found: '{var_concept_code_str}'. Please provide only one concept code."
+                    )
+                else:
+                    # Validate the prefix (normalize to lowercase)
+                    try:
+                        normalized_code = var_concept_code_str.lower()
+                        expanded_uri = curie_converter.expand(normalized_code)
+                        if not expanded_uri:
+                            errors.append(
+                                f"Row {i+2} (Variable: '{var_name_for_error}'): The variable concept code '{var_concept_code_str}' is not valid or its prefix is not recognized. Valid prefixes: {', '.join([record['prefix'] for record in prefix_map if record.get('prefix')])}."
+                            )
+                    except Exception as curie_exc:
+                        error_msg = str(curie_exc)
+                        # Check if it's a missing delimiter error
+                        if "missing a delimiter" in error_msg.lower():
+                            if ":" not in var_concept_code_str:
+                                errors.append(
+                                    f"Row {i+2} (Variable: '{var_name_for_error}'): The variable concept code '{var_concept_code_str}' is missing a colon (:) separator. Expected format: 'prefix:code' (e.g., 'snomed:12345')."
+                                )
+                            else:
+                                errors.append(
+                                    f"Row {i+2} (Variable: '{var_name_for_error}'): The variable concept code '{var_concept_code_str}' is missing a valid prefix before the colon. Expected format: 'prefix:code' (e.g., 'snomed:12345')."
+                                )
+                        else:
+                            errors.append(
+                                f"Row {i+2} (Variable: '{var_name_for_error}'): Error expanding CURIE '{var_concept_code_str}': {curie_exc}."
+                            )
+        
+        # Variable Concept OMOP ID - must have at most one value (no '|')
+        if "VARIABLE CONCEPT OMOP ID" in df.columns:
+            var_omop_id_str = str(row.get("VARIABLE CONCEPT OMOP ID", "")).strip()
+            if var_omop_id_str and var_omop_id_str.lower() != "na":
+                if "|" in var_omop_id_str:
+                    errors.append(
+                        f"Row {i+2} (Variable: '{var_name_for_error}'): Multiple OMOP IDs are not allowed in VARIABLE CONCEPT OMOP ID. Found: '{var_omop_id_str}'. Please provide only one OMOP ID."
+                    )
+        
+        # Additional Context Concept Name requires Variable Concept Name
+        if "ADDITIONAL CONTEXT CONCEPT NAME" in df.columns and "VARIABLE CONCEPT NAME" in df.columns:
+            additional_context_str = str(row.get("ADDITIONAL CONTEXT CONCEPT NAME", "")).strip()
+            var_concept_name_str = str(row.get("VARIABLE CONCEPT NAME", "")).strip()
+            if additional_context_str and additional_context_str.lower() != "na":
+                if not var_concept_name_str or var_concept_name_str.lower() == "na":
+                    errors.append(
+                        f"Row {i+2} (Variable: '{var_name_for_error}'): ADDITIONAL CONTEXT CONCEPT NAME is provided ('{additional_context_str}'), but VARIABLE CONCEPT NAME is missing."
+                    )
+        
+        # Additional Context - count matching for names, codes, and OMOP IDs
+        # All three fields must have matching counts when provided
+        additional_names = str(row.get("ADDITIONAL CONTEXT CONCEPT NAME", "")).strip() if "ADDITIONAL CONTEXT CONCEPT NAME" in df.columns else ""
+        additional_codes = str(row.get("ADDITIONAL CONTEXT CONCEPT CODE", "")).strip() if "ADDITIONAL CONTEXT CONCEPT CODE" in df.columns else ""
+        additional_omop_ids = str(row.get("ADDITIONAL CONTEXT CONCEPT OMOP ID", "")).strip() if "ADDITIONAL CONTEXT CONCEPT OMOP ID" in df.columns else ""
+        
+        # Count non-empty values in each field
+        names_count = len([n for n in additional_names.split("|") if n.strip()]) if additional_names and additional_names.lower() != "na" else 0
+        codes_count = len([c for c in additional_codes.split("|") if c.strip()]) if additional_codes and additional_codes.lower() != "na" else 0
+        omop_ids_count = len([o for o in additional_omop_ids.split("|") if o.strip()]) if additional_omop_ids and additional_omop_ids.lower() != "na" else 0
+        
+        # Check if any of the fields are provided
+        if names_count > 0 or codes_count > 0 or omop_ids_count > 0:
+            # All provided fields must have the same count
+            counts = [c for c in [names_count, codes_count, omop_ids_count] if c > 0]
+            if len(set(counts)) > 1:
+                errors.append(
+                    f"Row {i+2} (Variable: '{var_name_for_error}'): The number of ADDITIONAL CONTEXT CONCEPT NAMEs ({names_count}), CODEs ({codes_count}), and OMOP IDs ({omop_ids_count}) must all match."
+                )
+        
+        # Unit concepts validation
+        units_value = str(row.get("UNITS", "")).strip() if "UNITS" in df.columns else ""
+        
+        # Check if any unit concept fields are provided
+        unit_code_str = str(row.get("UNIT CONCEPT CODE", "")).strip() if "UNIT CONCEPT CODE" in df.columns else ""
+        unit_omop_id_str = str(row.get("UNIT CONCEPT OMOP ID", "")).strip() if "UNIT CONCEPT OMOP ID" in df.columns else ""
+        unit_name_str = str(row.get("UNIT CONCEPT NAME", "")).strip() if "UNIT CONCEPT NAME" in df.columns else ""
+        
+        has_unit_code = unit_code_str and unit_code_str.lower() != "na"
+        has_unit_omop_id = unit_omop_id_str and unit_omop_id_str.lower() != "na"
+        has_unit_name = unit_name_str and unit_name_str.lower() != "na"
+        
+        # Unit Concept Code - single value only (no '|')
+        if has_unit_code and "|" in unit_code_str:
+            errors.append(
+                f"Row {i+2} (Variable: '{var_name_for_error}'): Multiple concept codes are not allowed in UNIT CONCEPT CODE. Found: '{unit_code_str}'. Please provide only one concept code."
+            )
+        
+        # Unit Concept OMOP ID - single value only (no '|')
+        if has_unit_omop_id and "|" in unit_omop_id_str:
+            errors.append(
+                f"Row {i+2} (Variable: '{var_name_for_error}'): Multiple OMOP IDs are not allowed in UNIT CONCEPT OMOP ID. Found: '{unit_omop_id_str}'. Please provide only one OMOP ID."
+            )
+        
+        # Check if any unit concept is provided but UNITS field is empty (only if UNITS column exists)
+        if (has_unit_code or has_unit_omop_id or has_unit_name):
+            if "UNITS" in df.columns and (not units_value or units_value.lower() == "na"):
+                errors.append(
+                    f"Row {i+2} (Variable: '{var_name_for_error}'): Unit concept fields are provided, but UNITS field is empty."
+                )
+        
+        # Visit concepts validation
+        visits_value = str(row.get("VISITS", "")).strip() if "VISITS" in df.columns else ""
+        
+        # Check if any visit concept fields are provided
+        visit_code_str = str(row.get("VISIT CONCEPT CODE", "")).strip() if "VISIT CONCEPT CODE" in df.columns else ""
+        visit_omop_id_str = str(row.get("VISIT CONCEPT OMOP ID", "")).strip() if "VISIT CONCEPT OMOP ID" in df.columns else ""
+        visit_name_str = str(row.get("VISIT CONCEPT NAME", "")).strip() if "VISIT CONCEPT NAME" in df.columns else ""
+        
+        has_visit_code = visit_code_str and visit_code_str.lower() != "na"
+        has_visit_omop_id = visit_omop_id_str and visit_omop_id_str.lower() != "na"
+        has_visit_name = visit_name_str and visit_name_str.lower() != "na"
+        
+        # Visit Concept Code - single value only (no '|')
+        if has_visit_code and "|" in visit_code_str:
+            errors.append(
+                f"Row {i+2} (Variable: '{var_name_for_error}'): Multiple concept codes are not allowed in VISIT CONCEPT CODE. Found: '{visit_code_str}'. Please provide only one concept code."
+            )
+        
+        # Visit Concept OMOP ID - single value only (no '|')
+        if has_visit_omop_id and "|" in visit_omop_id_str:
+            errors.append(
+                f"Row {i+2} (Variable: '{var_name_for_error}'): Multiple OMOP IDs are not allowed in VISIT CONCEPT OMOP ID. Found: '{visit_omop_id_str}'. Please provide only one OMOP ID."
+            )
+        
+        # Check if any visit concept is provided but VISITS field is empty (only if VISITS column exists)
+        if (has_visit_code or has_visit_omop_id or has_visit_name):
+            if "VISITS" in df.columns and (not visits_value or visits_value.lower() == "na"):
+                errors.append(
+                    f"Row {i+2} (Variable: '{var_name_for_error}'): Visit concept fields are provided, but VISITS field is empty."
+                )
+        
+        # Category Concept Validation
+        current_categories = row.get("categories")
+        
+        # Check if any categorical concept field is provided (can have multiple pipe-separated values)
+        categories_names_str = str(row.get("CATEGORICAL VALUE CONCEPT NAME", "")).strip() if "CATEGORICAL VALUE CONCEPT NAME" in df.columns else ""
+        categories_codes_str = str(row.get("CATEGORICAL VALUE CONCEPT CODE", "")).strip() if "CATEGORICAL VALUE CONCEPT CODE" in df.columns else ""
+        categories_omop_ids_str = str(row.get("CATEGORICAL VALUE OMOP ID", "")).strip() if "CATEGORICAL VALUE OMOP ID" in df.columns else ""
+        
+        has_cat_name = categories_names_str and categories_names_str.lower() != "na"
+        has_cat_code = categories_codes_str and categories_codes_str.lower() != "na"
+        has_cat_omop_id = categories_omop_ids_str and categories_omop_ids_str.lower() != "na"
+        
+        # Check if any categorical concept is provided but CATEGORICAL field is empty or invalid
+        # Note: Unlike UNITS/VISITS, categorical allows multiple values, so we need to ensure
+        # the CATEGORICAL column exists and is properly parsed when concept fields are provided
+        if (has_cat_name or has_cat_code or has_cat_omop_id):
+            if "CATEGORICAL" in df.columns and (not current_categories or not isinstance(current_categories, list)):
+                errors.append(
+                    f"Row {i+2} (Variable: '{var_name_for_error}'): Categorical concept fields are provided, but CATEGORICAL field is empty or invalid."
+                )
+        
+        if isinstance(current_categories, list) and current_categories:
+            # Get all three categorical concept fields
+            categories_names_str = str(row.get("CATEGORICAL VALUE CONCEPT NAME", "")).strip() if "CATEGORICAL VALUE CONCEPT NAME" in df.columns else ""
+            categories_codes_str = str(row.get("CATEGORICAL VALUE CONCEPT CODE", "")).strip() if "CATEGORICAL VALUE CONCEPT CODE" in df.columns else ""
+            categories_omop_ids_str = str(row.get("CATEGORICAL VALUE OMOP ID", "")).strip() if "CATEGORICAL VALUE OMOP ID" in df.columns else ""
+            
+            # Parse each field into lists
+            categories_names = categories_names_str.split("|") if categories_names_str else []
+            categories_codes = categories_codes_str.split("|") if categories_codes_str else []
+            categories_omop_ids = categories_omop_ids_str.split("|") if categories_omop_ids_str else []
+            
+            # Count matching validation
+            num_categories = len(current_categories)
+            
+            if categories_names and len(categories_names) != num_categories:
+                errors.append(
+                    f"Row {i+2} (Variable: '{var_name_for_error}'): The number of CATEGORICAL VALUE CONCEPT NAMEs ({len(categories_names)}) does not match the number of parsed categories ({num_categories})."
+                )
+            
+            if categories_codes and len(categories_codes) != num_categories:
+                errors.append(
+                    f"Row {i+2} (Variable: '{var_name_for_error}'): The number of CATEGORICAL VALUE CONCEPT CODEs ({len(categories_codes)}) does not match the number of parsed categories ({num_categories})."
+                )
+            
+            if categories_omop_ids and len(categories_omop_ids) != num_categories:
+                errors.append(
+                    f"Row {i+2} (Variable: '{var_name_for_error}'): The number of CATEGORICAL VALUE OMOP IDs ({len(categories_omop_ids)}) does not match the number of parsed categories ({num_categories})."
+                )
+            
+            # Per-category validation - only validate CURIE format if concept codes are provided
+            for idx, category_data in enumerate(current_categories):
+                category_value = category_data.get('value', f'Category_{idx}')
+                
+                # Get the concept code for this category (if provided)
+                cat_code = categories_codes[idx].strip() if idx < len(categories_codes) else ""
+                has_code = cat_code and cat_code.lower() != "na"
+                
+                # Validate concept code prefix if provided
+                if has_code:
+                    try:
+                        # Normalize to lowercase before validation
+                        normalized_code = cat_code.lower()
+                        expanded_uri = curie_converter.expand(normalized_code)
+                        if not expanded_uri:
+                            errors.append(
+                                f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_value}'): The category concept code '{cat_code}' is not valid or its prefix is not recognized. Valid prefixes: {', '.join([record['prefix'] for record in prefix_map if record.get('prefix')])}."
+                            )
+                    except Exception as curie_exc:
+                        error_msg = str(curie_exc)
+                        # Check if it's a missing delimiter error
+                        if "missing a delimiter" in error_msg.lower():
+                            if ":" not in cat_code:
+                                errors.append(
+                                    f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_value}'): The category concept code '{cat_code}' is missing a colon (:) separator. Expected format: 'prefix:code' (e.g., 'snomed:12345')."
+                                )
+                            else:
+                                errors.append(
+                                    f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_value}'): The category concept code '{cat_code}' is missing a valid prefix before the colon. Expected format: 'prefix:code' (e.g., 'snomed:12345')."
+                                )
+                        else:
+                            errors.append(
+                                f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_value}'): Error expanding CURIE '{cat_code}': {curie_exc}."
+                            )
+        elif row.get("CATEGORICAL") and not isinstance(current_categories, list):
+            errors.append(
+                f"Row {i+2} (Variable: '{var_name_for_error}') has an invalid category: '{row['CATEGORICAL']}'."
+            )
+    
+    return errors
+
 
 def to_camelcase(s: str) -> str:
     # Special case mappings for variable concept fields
@@ -359,10 +701,19 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
             if required_col_name not in df.columns:
                 missing_columns.append(required_col_name)
         
-        # If critical columns are missing, further processing is unreliable or will cause crashes.
-        # Report all errors found so far (which will include all missing column messages) and stop.
+        # Check for extra columns not in the approved list
+        extra_columns = []
+        for col_name in df.columns:
+            if col_name not in critical_column_names_for_processing:
+                extra_columns.append(col_name)
+        
+        # If critical columns are missing or extra columns exist, reject the upload
         if len(missing_columns) > 0:
             errors.append(f"Missing required columns: {', '.join(missing_columns)}")
+        if len(extra_columns) > 0:
+            errors.append(f"Unexpected columns found (not in approved list): {', '.join(extra_columns)}")
+        
+        if len(missing_columns) > 0 or len(extra_columns) > 0:
             if source == "upload_dict":
                 raise HTTPException(status_code=422, detail="\n\n".join(errors))
 
@@ -377,72 +728,9 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
         df["VARTYPE"] = df.apply(lambda row: str(row["VARTYPE"]).upper(), axis=1)
 
         # --- Content Validation: DataFrame-level and Row-level ---
-        duplicate_variables = df[df.duplicated(subset=["VARIABLENAME"], keep=False)]
-        if not duplicate_variables.empty:
-            errors.append(f"Duplicate VARIABLENAME found: {', '.join(duplicate_variables['VARIABLENAME'].unique())}")
-
-        for i, row in df.iterrows():
-            var_name_for_error = row.get("VARIABLENAME", f"UNKNOWN_VAR_ROW_{i+2}")
-
-            # Check if required values are present in rows (for critical columns)
-            req_fields = ["VARIABLENAME", "VARIABLELABEL", "VARTYPE", "DOMAIN"]
-            for rf in req_fields:
-                if not row[rf].strip():
-                    errors.append(f"Row {i+2} (Variable: '{var_name_for_error}') is missing value for the required field: '{rf}'.")
-            
-            if row["VARTYPE"] not in ACCEPTED_DATATYPES:
-                errors.append(
-                    f"Row {i+2} (Variable: '{var_name_for_error}') has an invalid data type: '{row['VARTYPE']}'. Accepted types: {', '.join(ACCEPTED_DATATYPES)}."
-                )
-
-            acc_domains = ["condition_occurrence", "visit_occurrence", "procedure_occurrence", "measurement", "drug_exposure", "device_exposure", "person", "observation", "observation_period", "death", "specimen", "condition_era"]
-            if row['DOMAIN'].strip().lower() not in acc_domains:
-                errors.append(
-                    f'Row {i+2} (Variable: "{var_name_for_error}") has an invalid domain: "{row["DOMAIN"]}". Accepted domains: {", ".join(acc_domains)}.'
-                )
-
-            # Handle "codes" columns validation (from 'categories' column created by parse_categorical_string)
-            # Ensure 'categories' column exists and is a list before checking its length or content
-            current_categories = row.get("categories")
-            if isinstance(current_categories, list):
-                #if len(current_categories) == 1:
-                #    errors.append(
-                #        f"Row {i+2} (Variable: '{var_name_for_error}') has only one category defined: '{current_categories[0]['value']}'. Categorical variables should have at least two distinct categories or be left blank if not applicable."
-                #    )
-                
-                # Category Concept Code Validation (if 'Categorical Value Concept Code' column exists)
-                # This column is not in COLUMNS_LIST, so it's optional.
-                if "CATEGORICAL VALUE CONCEPT CODE" in df.columns: # Check against normalized column name
-                    categories_codes_str = str(row.get("CATEGORICAL VALUE CONCEPT CODE", "")).strip()
-                    if categories_codes_str: # Only process if there's content
-                        categories_codes = categories_codes_str.split("|")
-                        if len(categories_codes) != len(current_categories) and current_categories: # check if categories were successfully parsed
-                             errors.append(
-                                 f"Row {i+2} (Variable: '{var_name_for_error}'): The number of category concept codes ({len(categories_codes)}) does not match the number of parsed categories ({len(current_categories)})."
-                             )
-                        else: 
-                            for idx, category_data in enumerate(current_categories):
-                                if idx < len(categories_codes):
-                                    code_to_check = categories_codes[idx].strip()
-                                    if code_to_check and code_to_check.lower() != "na":
-                                        try:
-                                            # Another temp fix just for TIM-HF!!
-                                            #if code_to_check.find(":") == -1:
-                                            #    code_to_check = code_to_check.replace("OMOP", "OMOP:")
-                                            expanded_uri = curie_converter.expand(code_to_check)
-                                            if not expanded_uri:
-                                                errors.append(
-                                                    f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_data['value']}'): The category concept code '{code_to_check}' is not valid or its prefix is not recognized. Valid prefixes: {', '.join([record['prefix'] + ':' for record in prefix_map if record.get('prefix')])}."
-                                                )
-                                        except Exception as curie_exc:
-                                            errors.append(
-                                                f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_data['value']}'): Error expanding CURIE '{code_to_check}': {curie_exc}."
-                                            )
-            elif row.get("CATEGORICAL") and not isinstance(current_categories, list): # If original CATEGORICAL had content but parsing failed (already logged by parse_categorical_string's own exception if it was fatal)
-                 # This case might be covered if parse_categorical_string added its own error to the 'errors' list already
-                 errors.append(
-                     f"Row {i+2} (Variable: '{var_name_for_error}') has an invalid category: '{row['CATEGORICAL']}'."
-                 )
+        # Use centralized validation function
+        validation_errors = validate_metadata_dataframe(df, cohort_id)
+        errors.extend(validation_errors)
 
 
         # --- Final Error Check & Graph Generation ---
@@ -509,9 +797,22 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
                                         #print(f"Adding category code {cat_code_uri} for category {category['value']} in cohort {cohort_id}, line {i}, cat_uri: {cat_uri}, conceptId: {ICARE.conceptId}")
                                         g.add((cat_uri, ICARE.conceptId, URIRef(cat_code_uri), cohort_graph_uri))
                                 except Exception as curie_exc:
-                                    errors.append(
-                                        f"Row {i+2} (Variable: '{var_name_for_error}', Category: '{category_data['value']}'): Error expanding CURIE '{code_to_check}': {curie_exc}."
-                                    )
+                                    error_msg = str(curie_exc)
+                                    var_name = row.get("VARIABLENAME", f"UNKNOWN_VAR_ROW_{i+2}")
+                                    # Check if it's a missing delimiter error
+                                    if "missing a delimiter" in error_msg.lower():
+                                        if ":" not in code_to_check:
+                                            errors.append(
+                                                f"Row {i+2} (Variable: '{var_name}', Category: '{category['value']}'): The category concept code '{code_to_check}' is missing a colon (:) separator. Expected format: 'prefix:code' (e.g., 'snomed:12345')."
+                                            )
+                                        else:
+                                            errors.append(
+                                                f"Row {i+2} (Variable: '{var_name}', Category: '{category['value']}'): The category concept code '{code_to_check}' is missing a valid prefix before the colon. Expected format: 'prefix:code' (e.g., 'snomed:12345')."
+                                            )
+                                    else:
+                                        errors.append(
+                                            f"Row {i+2} (Variable: '{var_name}', Category: '{category['value']}'): Error expanding CURIE '{code_to_check}': {str(curie_exc)}."
+                                        )
 
         print(f"Finished processing cohort dictionary: {cohort_id}")
         
@@ -538,15 +839,6 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
     processing_time = (datetime.now() - start_time).total_seconds()
     success = len(errors) == 0
     graph_triples_count = len(g) if 'g' in locals() else 0
-    
-    # Log to existing text file (maintain backward compatibility)
-    if len(errors) > 0:
-        errors_file = os.path.join(settings.data_folder, f"metadata_files_issues.txt")
-        with open(errors_file, "a") as f:
-            f.write(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-            f.write(f"Errors for cohort {cohort_id}:\n")
-            f.write("\n".join(errors))
-            f.write("\n\n\n")
     
     # Enhanced structured logging for upload dictionary calls
     if source == "upload_dict":
@@ -597,6 +889,297 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
 
 
 @router.post(
+    "/normalize-all-dictionary-headers",
+    name="Normalize all cohort dictionary headers",
+    response_description="Normalization report file",
+)
+async def normalize_all_dictionary_headers(
+    user: Any = Depends(get_current_user),
+):
+    """Normalize column headers for all existing cohort dictionaries.
+    
+    This endpoint:
+    - Finds the latest dictionary file for each cohort
+    - Records the original header
+    - Applies column name normalization
+    - Saves the normalized CSV
+    - Generates a report of changes made
+    
+    Admins only.
+    """
+    user_email = user["email"]
+    if user_email not in settings.admins_list:
+        raise HTTPException(status_code=403, detail="You need to be admin to perform this action.")
+    
+    from fastapi.responses import FileResponse
+    from src.cohort_cache import get_cohorts_from_cache
+    
+    # Generate timestamp for filename
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    report_file = os.path.join(settings.data_folder, f"header_normalization_report_{timestamp}.txt")
+    
+    # Initialize the report file
+    with open(report_file, "w") as f:
+        f.write(f"Dictionary Header Normalization Report - Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"Performed by: {user_email}\n")
+        f.write("=" * 80 + "\n\n")
+    
+    # Get all cohorts
+    all_cohorts = get_cohorts_from_cache(user_email)
+    
+    total_cohorts = 0
+    cohorts_normalized = 0
+    cohorts_no_change = 0
+    cohorts_without_dict = 0
+    
+    for cohort_id in sorted(all_cohorts.keys()):
+        total_cohorts += 1
+        cohort_folder_path = os.path.join(settings.cohort_folder, cohort_id)
+        
+        if not os.path.exists(cohort_folder_path):
+            cohorts_without_dict += 1
+            continue
+        
+        # Get the latest metadata dictionary file
+        latest_dict_file = get_latest_datadictionary(cohort_folder_path)
+        
+        if not latest_dict_file:
+            cohorts_without_dict += 1
+            with open(report_file, "a") as f:
+                f.write(f"COHORT: {cohort_id}\n")
+                f.write(f"Status: No metadata dictionary file found\n")
+                f.write(f"Folder: {cohort_folder_path}\n")
+                f.write("-" * 80 + "\n\n")
+            continue
+        
+        # Read the file
+        try:
+            with open(latest_dict_file, "r", encoding='utf-8') as f:
+                file_content = f.read()
+            
+            # Record original header
+            original_header = file_content.splitlines()[0] if file_content.splitlines() else ""
+            
+            # Apply normalization
+            normalized_content = normalize_csv_header(file_content)
+            
+            # Get normalized header
+            normalized_header = normalized_content.splitlines()[0] if normalized_content.splitlines() else ""
+            
+            # Check if anything changed
+            if original_header == normalized_header:
+                cohorts_no_change += 1
+                with open(report_file, "a") as f:
+                    f.write(f"COHORT: {cohort_id}\n")
+                    f.write(f"File: {os.path.basename(latest_dict_file)}\n")
+                    f.write(f"Status: No changes needed\n")
+                    f.write(f"Header: {original_header}\n")
+                    f.write("-" * 80 + "\n\n")
+            else:
+                cohorts_normalized += 1
+                
+                # Save the normalized file
+                with open(latest_dict_file, "w", encoding='utf-8') as f:
+                    f.write(normalized_content)
+                
+                # Record changes in report
+                with open(report_file, "a") as f:
+                    f.write(f"COHORT: {cohort_id}\n")
+                    f.write(f"File: {os.path.basename(latest_dict_file)}\n")
+                    f.write(f"Status: Headers normalized\n")
+                    f.write(f"Original header:\n  {original_header}\n")
+                    f.write(f"Normalized header:\n  {normalized_header}\n")
+                    
+                    # Show column-by-column changes
+                    original_cols = [c.strip() for c in original_header.split(',')]
+                    normalized_cols = [c.strip() for c in normalized_header.split(',')]
+                    
+                    changes = []
+                    for i, (orig, norm) in enumerate(zip(original_cols, normalized_cols)):
+                        if orig != norm:
+                            changes.append(f"  Column {i+1}: '{orig}' → '{norm}'")
+                    
+                    if changes:
+                        f.write(f"Changes:\n")
+                        f.write('\n'.join(changes) + '\n')
+                    
+                    f.write("-" * 80 + "\n\n")
+                
+                logging.info(f"Normalized headers for cohort {cohort_id}: {os.path.basename(latest_dict_file)}")
+        
+        except Exception as e:
+            logging.error(f"Error normalizing headers for cohort {cohort_id}: {str(e)}", exc_info=True)
+            with open(report_file, "a") as f:
+                f.write(f"COHORT: {cohort_id}\n")
+                f.write(f"File: {os.path.basename(latest_dict_file)}\n")
+                f.write(f"Status: ERROR - {str(e)}\n")
+                f.write("-" * 80 + "\n\n")
+    
+    # Write summary
+    with open(report_file, "a") as f:
+        f.write("\n" + "=" * 80 + "\n")
+        f.write("SUMMARY\n")
+        f.write("=" * 80 + "\n")
+        f.write(f"Total cohorts processed: {total_cohorts}\n")
+        f.write(f"Cohorts with normalized headers: {cohorts_normalized}\n")
+        f.write(f"Cohorts with no changes needed: {cohorts_no_change}\n")
+        f.write(f"Cohorts without dictionary files: {cohorts_without_dict}\n")
+    
+    logging.info(f"Header normalization completed. Report: {report_file}")
+    
+    return FileResponse(
+        path=report_file,
+        filename=f"header_normalization_report_{timestamp}.txt",
+        media_type="text/plain"
+    )
+
+
+@router.post(
+    "/generate-metadata-issues-report",
+    name="Generate metadata issues report",
+    response_description="Metadata issues report file",
+)
+async def generate_metadata_issues_report():
+    """Generate a report of all metadata dictionary validation issues across all cohorts.
+    
+    This endpoint can be called without authentication as it's typically used during startup.
+    Returns the report as a downloadable text file.
+    """
+    from fastapi.responses import FileResponse
+    from src.cohort_cache import get_cohorts_from_cache
+    
+    # Generate timestamp for filename
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    reports_folder = os.path.join(settings.data_folder, "DICTIONARY_ISSUES_REPORTS")
+    errors_file = os.path.join(reports_folder, f"metadata_files_issues_{timestamp}.txt")
+    
+    # Ensure directory exists
+    os.makedirs(reports_folder, exist_ok=True)
+    
+    # Initialize the report file
+    with open(errors_file, "w") as f:
+        f.write(f"Metadata Issues Report - Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write("=" * 80 + "\n\n")
+    
+    # Get all cohorts and process their dictionaries
+    admin_email = settings.admins_list[0] if settings.admins_list else "admin@example.com"
+    all_cohorts = get_cohorts_from_cache(admin_email)
+    
+    total_cohorts = 0
+    cohorts_with_errors = 0
+    cohorts_without_dict = 0
+    total_errors = 0
+    
+    for cohort_id in sorted(all_cohorts.keys()):
+        total_cohorts += 1
+        cohort_folder_path = os.path.join(settings.cohort_folder, cohort_id)
+        
+        if not os.path.exists(cohort_folder_path):
+            cohorts_without_dict += 1
+            continue
+        
+        # Get the latest metadata dictionary file
+        latest_dict_file = get_latest_datadictionary(cohort_folder_path)
+        
+        if not latest_dict_file:
+            cohorts_without_dict += 1
+            with open(errors_file, "a") as f:
+                f.write(f"COHORT: {cohort_id}\n")
+                f.write(f"Status: No metadata dictionary file found\n")
+                f.write(f"Folder: {cohort_folder_path}\n")
+                f.write("-" * 80 + "\n\n")
+            continue
+        
+        # Try to validate the dictionary file
+        try:
+            # Read and validate the CSV
+            df = pd.read_csv(latest_dict_file, na_values=[""], keep_default_na=False)
+            df = df.dropna(how="all")
+            df = df.fillna("")
+            
+            # Normalize column names
+            from src.upload import cols_normalized
+            df.columns = [cols_normalized.get(c.upper().strip(), c.upper().strip()) for c in df.columns]
+            
+            # Check for required columns
+            from src.upload import metadatadict_cols_schema1
+            critical_column_names = [c.name.upper().strip() for c in metadatadict_cols_schema1]
+            missing_columns = [col for col in critical_column_names if col not in df.columns]
+            
+            # Check for extra columns not in the approved list
+            extra_columns = [col for col in df.columns if col not in critical_column_names]
+            
+            # Collect validation errors
+            errors = []
+            if missing_columns:
+                errors.append(f"Missing required columns: {', '.join(missing_columns)}")
+            if extra_columns:
+                errors.append(f"Unexpected columns found (not in approved list): {', '.join(extra_columns)}")
+            
+            # Parse categories for validation
+            try:
+                df["categories"] = df["CATEGORICAL"].apply(parse_categorical_string)
+            except:
+                pass  # If parsing fails, validation will catch it
+            
+            # Uppercase VARTYPE for validation
+            df["VARTYPE"] = df.apply(lambda row: str(row.get("VARTYPE", "")).upper(), axis=1)
+            
+            # Use centralized validation function
+            validation_errors = validate_metadata_dataframe(df, cohort_id)
+            errors.extend(validation_errors)
+            
+            # Write results
+            if errors:
+                cohorts_with_errors += 1
+                total_errors += len(errors)
+                with open(errors_file, "a") as f:
+                    f.write(f"COHORT: {cohort_id}\n")
+                    f.write(f"File: {os.path.basename(latest_dict_file)}\n")
+                    f.write(f"Modified: {datetime.fromtimestamp(os.path.getmtime(latest_dict_file)).strftime('%Y-%m-%d %H:%M:%S')}\n")
+                    f.write(f"Errors found: {len(errors)}\n\n")
+                    for idx, error in enumerate(errors, 1):
+                        f.write(f"  {idx}. {error}\n")
+                    f.write("-" * 80 + "\n\n")
+            
+        except Exception as e:
+            cohorts_with_errors += 1
+            total_errors += 1
+            with open(errors_file, "a") as f:
+                f.write(f"COHORT: {cohort_id}\n")
+                f.write(f"File: {os.path.basename(latest_dict_file)}\n")
+                f.write(f"Error: Failed to process file - {str(e)}\n")
+                f.write("-" * 80 + "\n\n")
+    
+    # Write summary
+    with open(errors_file, "a") as f:
+        f.write("=" * 80 + "\n")
+        f.write("SUMMARY\n")
+        f.write("=" * 80 + "\n")
+        f.write(f"Total cohorts: {total_cohorts}\n")
+        f.write(f"Cohorts with errors: {cohorts_with_errors}\n")
+        f.write(f"Cohorts without dictionary: {cohorts_without_dict}\n")
+        f.write(f"Total errors: {total_errors}\n")
+        f.write(f"Report generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+    
+    logging.info(f"Generated metadata issues report: {errors_file}")
+    logging.info(f"Report summary - Total: {total_cohorts}, Errors: {cohorts_with_errors}, No dict: {cohorts_without_dict}")
+    
+    # Return the file as a download
+    return FileResponse(
+        path=errors_file,
+        media_type="text/plain",
+        filename=os.path.basename(errors_file),
+        headers={
+            "X-Total-Cohorts": str(total_cohorts),
+            "X-Cohorts-With-Errors": str(cohorts_with_errors),
+            "X-Cohorts-Without-Dict": str(cohorts_without_dict),
+            "X-Total-Errors": str(total_errors)
+        }
+    )
+
+
+@router.post(
     "/get-logs",
     name="Get logs",
     response_description="Logs",
@@ -614,6 +1197,86 @@ async def get_logs(
     # return {
     #     "message": f"Cohort {cohort_id} has been successfully deleted.",
     # }
+
+
+@router.post(
+    "/clear-cache",
+    name="Clear the cohort cache",
+    response_description="Cache clear result",
+)
+async def clear_cohort_cache(
+    user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Clear the cohort cache (in-memory, disk files, and timestamps). Admins only."""
+    user_email = user["email"]
+    if user_email not in settings.admins_list:
+        raise HTTPException(status_code=403, detail="You need to be admin to perform this action.")
+    
+    from src.cohort_cache import clear_cache, get_cache_file_path, get_cache_timestamp_file
+    
+    # Clear in-memory cache and remove cache file
+    clear_cache()
+    
+    # Remove timestamp file if it exists
+    timestamp_file = get_cache_timestamp_file()
+    if timestamp_file.exists():
+        os.remove(timestamp_file)
+        logging.info(f"Removed cache timestamp file {timestamp_file}")
+    
+    # Remove any stale lock files
+    lock_file_path = os.path.join(settings.data_folder, ".cache_init.lock")
+    write_lock_path = os.path.join(settings.data_folder, ".cache_write.lock")
+    
+    for lock_path in [lock_file_path, write_lock_path]:
+        if os.path.exists(lock_path):
+            try:
+                os.remove(lock_path)
+                logging.info(f"Removed lock file {lock_path}")
+            except Exception as e:
+                logging.warning(f"Could not remove lock file {lock_path}: {e}")
+    
+    logging.info(f"Cache cleared by admin user {user_email}")
+    return {
+        "message": "Cache has been successfully cleared. It will be re-initialized on the next API request.",
+        "cleared_by": user_email
+    }
+
+
+@router.post(
+    "/refresh-cache",
+    name="Refresh the cohort cache from triplestore",
+    response_description="Cache refresh result",
+)
+async def refresh_cohort_cache(
+    user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Regenerate the cohort cache from the triplestore. Admins only.
+    
+    This endpoint forces a complete refresh of the cache by re-reading all cohort
+    metadata from the triplestore. Useful when the cache gets out of sync or after
+    manual changes to the triplestore.
+    """
+    user_email = user["email"]
+    if user_email not in settings.admins_list:
+        raise HTTPException(status_code=403, detail="You need to be admin to perform this action.")
+    
+    from src.cohort_cache import initialize_cache_from_triplestore
+    
+    try:
+        # Force refresh the cache from triplestore
+        initialize_cache_from_triplestore(user_email, force_refresh=True)
+        
+        logging.info(f"Cache refreshed from triplestore by admin user {user_email}")
+        return {
+            "message": "Cache has been successfully refreshed from the triplestore.",
+            "refreshed_by": user_email
+        }
+    except Exception as e:
+        logging.error(f"Error refreshing cache: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to refresh cache: {str(e)}"
+        )
 
 
 @router.post(
@@ -700,10 +1363,19 @@ async def upload_cohort(
     if not filename.endswith("_datadictionary"):
         filename += "_datadictionary"
 
-    # Store metadata file on disk in the cohorts folder
+    # Store metadata file on disk in the cohorts folder with normalized headers
     metadata_path = os.path.join(cohort_info.folder_path, filename + ext)
-    with open(metadata_path, "wb") as buffer:
-        shutil.copyfileobj(cohort_dictionary.file, buffer)
+    
+    # Read the uploaded file content and normalize just the header line
+    cohort_dictionary.file.seek(0)
+    file_content = cohort_dictionary.file.read().decode('utf-8')
+    
+    # Normalize the header using the isolated function
+    normalized_content = normalize_csv_header(file_content)
+    
+    # Write the file with normalized header
+    with open(metadata_path, "w", encoding='utf-8') as f:
+        f.write(normalized_content)
 
     try:
         g = load_cohort_dict_file(metadata_path, cohort_id, source="upload_dict", user_email=user_email, filename=metadata_filename)
@@ -729,11 +1401,8 @@ async def upload_cohort(
             # )
             delete_existing_triples(get_cohort_graph_uri(cohort_id))
             if publish_graph_to_endpoint(g):
-                # Update the cache with the new cohort data
-                cohorts = retrieve_cohorts_metadata(user_email)
-                if cohort_id in cohorts:
-                    add_cohort_to_cache(cohorts[cohort_id])
-                    logging.info(f"Added cohort {cohort_id} to cache after upload")
+                # Cache was already updated directly from the graph in load_cohort_dict_file
+                logging.info(f"Cohort {cohort_id} published to triplestore and cache updated")
     except Exception as e:
         os.remove(cohort_info.metadata_filepath)
         raise e
@@ -765,6 +1434,7 @@ def generate_mappings(cohort_id: str, metadata_path: str, g: Graph) -> None:
         if cohort_id in cohorts:
             add_cohort_to_cache(cohorts[cohort_id])
             logging.info(f"Added cohort {cohort_id} to cache after generating mappings")
+
 
 @router.post(
     "/create-provision-dcr",
@@ -803,6 +1473,7 @@ async def post_create_provision_dcr(
         )
     return dcr_data
 
+
 COHORTS_METADATA_FILEPATH = os.path.join(settings.data_folder, "iCARE4CVD_Cohorts.xlsx")
 
 
@@ -812,6 +1483,7 @@ COHORTS_METADATA_FILEPATH = os.path.join(settings.data_folder, "iCARE4CVD_Cohort
     response_description="Upload result",
 )
 async def upload_cohorts_metadata(
+    background_tasks: BackgroundTasks,
     user: Any = Depends(get_current_user),
     cohorts_metadata: UploadFile = File(...),
 ) -> dict[str, Any]:
@@ -824,6 +1496,16 @@ async def upload_cohorts_metadata(
     if len(g) > 0:
         delete_existing_triples(ICARE["graph/metadata"])
         publish_graph_to_endpoint(g)
+        
+        # Refresh the cache in background to avoid blocking the response
+        from src.cohort_cache import initialize_cache_from_triplestore
+        background_tasks.add_task(initialize_cache_from_triplestore, user["email"], True)
+        logging.info("Cache refresh scheduled after cohorts metadata update")
+    
+    return {
+        "message": "Cohorts metadata file has been successfully uploaded and processed. The cache will be refreshed in the background and changes will be visible in a few minutes.",
+        "triples_count": len(g)
+    }
 
 
 def is_valid_value(value: Any) -> bool:
@@ -860,13 +1542,76 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
     metadata_graph = URIRef(OntologyNamespaces.CMEO.value + "graph/studies_metadata")
     
     for _i, row in df.iterrows():
-        # Use study name as the main identifier
-        if pd.isna(row.get("study name", "")):
-            print("Study name is missing, skipping this row.")
-            continue
-        
-        # Process row
-        print(f"Processing cohort metadata row {_i}: {row.get('study name')}")
+        print("now processing cohorts' metadata row: ", _i, row)
+        cohort_id = str(row["Study Name"]).strip()
+        # print(cohort_id)
+        cohort_uri = get_cohort_uri(cohort_id)
+        cohorts_graph = ICARE["graph/metadata"]
+
+        g.add((cohort_uri, RDF.type, ICARE.Cohort, cohorts_graph))
+        g.add((cohort_uri, DC.identifier, Literal(cohort_id), cohorts_graph))
+        g.add((cohort_uri, ICARE.institution, Literal(row["Institute"]), cohorts_graph))
+        # Administrator information
+        if is_valid_value(row.get("Administrator", "")):
+            g.add((cohort_uri, ICARE.administrator, Literal(row["Administrator"]), cohorts_graph))
+        if is_valid_value(row.get("Administrator Email Address", "")):
+            # Store as administratorEmail for backward compatibility
+            g.add((cohort_uri, ICARE.administratorEmail, Literal(row["Administrator Email Address"].lower()), cohorts_graph))
+            # Also add to icare:email predicate (split by semicolon) for cohort ownership permissions
+            for email in row["Administrator Email Address"].split(";"):
+                g.add((cohort_uri, ICARE.email, Literal(email.strip().lower()), cohorts_graph))
+        # Study contact person information
+        if is_valid_value(row["Study Contact Person"]):
+            g.add((cohort_uri, DC.creator, Literal(row["Study Contact Person"]), cohorts_graph))
+        if is_valid_value(row["Study Contact Person Email Address"]):
+            for email in row["Study Contact Person Email Address"].split(";"):
+                g.add((cohort_uri, ICARE.email, Literal(email.strip().lower()), cohorts_graph))
+        # References
+        if is_valid_value(row.get("References", "")):
+            for reference in row["References"].split(";"):
+                g.add((cohort_uri, ICARE.references, Literal(reference.strip()), cohorts_graph))
+                
+        # Additional metadata fields
+        if is_valid_value(row.get("Population Location", "")):
+            g.add((cohort_uri, ICARE.populationLocation, Literal(row["Population Location"]), cohorts_graph))
+        if is_valid_value(row.get("Language", "")):
+            g.add((cohort_uri, ICARE.language, Literal(row["Language"]), cohorts_graph))
+        if is_valid_value(row.get("Frequency of data collection", "")):
+            g.add((cohort_uri, ICARE.dataCollectionFrequency, Literal(row["Frequency of data collection"]), cohorts_graph))
+        if is_valid_value(row.get("Interventions", "")):
+            g.add((cohort_uri, ICARE.interventions, Literal(row["Interventions"]), cohorts_graph))
+        if is_valid_value(row["Study Type"]):
+            # Split study types on '/' and add each as a separate triple
+            study_types = [st.strip() for st in row["Study Type"].split("/")]
+            for study_type in study_types:
+                g.add((cohort_uri, ICARE.cohortType, Literal(study_type), cohorts_graph))
+        if is_valid_value(row["Study Design"]):
+            g.add((cohort_uri, ICARE.studyType, Literal(row["Study Design"]), cohorts_graph))
+        #if is_valid_value(row["Study duration"]):
+        #    g.add((cohort_uri, ICARE.studyDuration, Literal(row["Study duration"]), cohorts_graph))
+        if is_valid_value(row["Start date"]) and is_valid_value(row["End date"]):
+            g.add((cohort_uri, ICARE.studyStart, Literal(row["Start date"]), cohorts_graph))
+            g.add((cohort_uri, ICARE.studyEnd, Literal(row["End date"]), cohorts_graph))
+        if is_valid_value(row["Number of Participants"]):
+            g.add((cohort_uri, ICARE.studyParticipants, Literal(row["Number of Participants"]), cohorts_graph))
+        if is_valid_value(row["Ongoing"]):
+            g.add((cohort_uri, ICARE.studyOngoing, Literal(row["Ongoing"]), cohorts_graph))
+        #if is_valid_value(row["Patient population"]):
+        #    g.add((cohort_uri, ICARE.studyPopulation, Literal(row["Patient population"]), cohorts_graph))
+        if is_valid_value(row["Study Objective"]):
+            g.add((cohort_uri, ICARE.studyObjective, Literal(row["Study Objective"]), cohorts_graph))
+            
+        # Handle primary outcome specification
+        if "primary outcome specification" in row and is_valid_value(row["primary outcome specification"]):
+            g.add((cohort_uri, ICARE.primaryOutcomeSpec, Literal(row["primary outcome specification"]), cohorts_graph))
+            
+        # Handle secondary outcome specification
+        if "secondary outcome specification" in row and is_valid_value(row["secondary outcome specification"]):
+            g.add((cohort_uri, ICARE.secondaryOutcomeSpec, Literal(row["secondary outcome specification"]), cohorts_graph))
+            
+        # Handle morbidity
+        if "Morbidity" in row and is_valid_value(row["Morbidity"]):
+            g.add((cohort_uri, ICARE.morbidity, Literal(row["Morbidity"]), cohorts_graph))
             
         # Keep original study name for identifier, normalized for URI
         original_study_name = str(row["study name"]).strip()
@@ -1265,8 +2010,9 @@ def init_triplestore():
     import time
     
     # Use file-based locking to ensure only one worker initializes the triplestore
+    # Ensure data folder exists first
+    os.makedirs(settings.data_folder, exist_ok=True)
     lock_file_path = os.path.join(settings.data_folder, "triplestore_init.lock")
-    os.makedirs(os.path.dirname(lock_file_path), exist_ok=True)
     
     try:
         with open(lock_file_path, "w") as lock_file:
@@ -1288,13 +2034,6 @@ def init_triplestore():
             # If we reach here, we have the lock and should proceed with initialization
             print("Clearing cohort cache before initialization...")
             clear_cache()
-            
-            # Create/clear the metadata issues file at the start of initialization
-            errors_file = os.path.join(settings.data_folder, "metadata_files_issues.txt")
-            os.makedirs(os.path.dirname(errors_file), exist_ok=True)
-            with open(errors_file, "w") as f:
-                f.write(f"Metadata Issues Log - Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write("=" * 50 + "\n\n")
             
             # Continue with the rest of the initialization logic...
             _perform_triplestore_initialization()
@@ -1329,6 +2068,36 @@ def _perform_triplestore_initialization():
     admin_email = settings.admins_list[0] if settings.admins_list else "admin@example.com"
     initialize_cache_from_triplestore(admin_email)
     print("✅ Cohort cache initialization complete.")
+    
+    # Generate metadata issues report (runs on every startup)
+    print("Generating metadata issues report...")
+    try:
+        import httpx
+        import asyncio
+        
+        # Call the endpoint to generate the report
+        async def call_report_endpoint():
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"http://localhost:3000/upload/generate-metadata-issues-report",
+                    timeout=60.0
+                )
+                return response
+        
+        response = asyncio.run(call_report_endpoint())
+        
+        # Extract summary info from response headers
+        filename = response.headers.get('content-disposition', '').split('filename=')[-1].strip('"')
+        total_cohorts = response.headers.get('X-Total-Cohorts', 'N/A')
+        cohorts_with_errors = response.headers.get('X-Cohorts-With-Errors', 'N/A')
+        cohorts_without_dict = response.headers.get('X-Cohorts-Without-Dict', 'N/A')
+        
+        print(f"✅ Metadata issues report generated: {filename}")
+        print(f"   Total cohorts: {total_cohorts}")
+        print(f"   Cohorts with errors: {cohorts_with_errors}")
+        print(f"   Cohorts without dictionary: {cohorts_without_dict}")
+    except Exception as e:
+        print(f"⚠️  Failed to generate metadata issues report: {e}")
     
     # If triplestore is already initialized, we're done
     if triplestore_initialized:
@@ -1408,5 +2177,3 @@ def _perform_triplestore_initialization():
             print(f"No datadictionary file found for cohort {folder}.")
     
     print("✅ Triplestore initialization complete!")
-    
-    print("✅ Cohort cache initialization complete.")

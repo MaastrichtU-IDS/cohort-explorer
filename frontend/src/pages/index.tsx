@@ -8,23 +8,54 @@ import { Cohort } from '@/types';
 const inter = Inter({subsets: ['latin']});
 
 export default function Home() {
-  // Get statistics from context as fallback
-  const { cohortStatistics } = useCohorts();
+  // Get statistics and calculation function from context
+  const { cohortStatistics, calculateStatistics } = useCohorts();
   
   // State to store statistics from API
-  const [stats, setStats] = React.useState({
+  const [stats, setStats] = React.useState<{
+    totalCohorts: number | string;
+    cohortsWithMetadata: number | string;
+    cohortsWithAggregateAnalysis: number | string;
+    totalPatients: number | string;
+    patientsInCohortsWithMetadata: number | string;
+    totalVariables: number | string;
+  }>({
     totalCohorts: "waiting to refresh...",
     cohortsWithMetadata: "waiting to refresh...",
     cohortsWithAggregateAnalysis: "waiting to refresh...",
-    totalPatients: 0,
-    patientsInCohortsWithMetadata: 0,
-    totalVariables: 0
+    totalPatients: "--",
+    patientsInCohortsWithMetadata: "--",
+    totalVariables: "--"
   });
+  
+  // State to track if statistics are being recalculated
+  const [isRecalculating, setIsRecalculating] = React.useState(false);
   
   // Fetch statistics from API on component mount
   React.useEffect(() => {
     const fetchStatistics = async () => {
       try {
+        // Check if the page was reloaded (user hit refresh)
+        const navigationEntries = performance.getEntriesByType('navigation') as PerformanceNavigationTiming[];
+        const isPageRefresh = navigationEntries.length > 0 && navigationEntries[0].type === 'reload';
+        
+        // Only recalculate statistics if user explicitly refreshed the page
+        if (isPageRefresh && calculateStatistics) {
+          console.log('Page refresh detected, recalculating statistics...');
+          setIsRecalculating(true);
+          setStats({
+            totalCohorts: "recalculating...",
+            cohortsWithMetadata: "recalculating...",
+            cohortsWithAggregateAnalysis: "recalculating...",
+            totalPatients: "recalculating...",
+            patientsInCohortsWithMetadata: "recalculating...",
+            totalVariables: "recalculating..."
+          });
+          await calculateStatistics();
+          // Wait a bit for the file to be written
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+        
         // Add cache-busting parameter to prevent browser caching
         const cacheBuster = Date.now();
         const response = await fetch(`/api/get-statistics?_=${cacheBuster}`);
@@ -32,8 +63,10 @@ export default function Home() {
           const data = await response.json();
           setStats(data);
         }
+        setIsRecalculating(false);
       } catch (error) {
         console.error('Error fetching statistics:', error);
+        setIsRecalculating(false);
         // Fallback to context statistics if API fails
         if (cohortStatistics) {
           setStats(cohortStatistics);
@@ -42,7 +75,8 @@ export default function Home() {
     };
     
     fetchStatistics();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run once on mount
 
   return (
     <main className={`flex flex-col items-center justify-between p-24 ${inter.className}`}>
@@ -132,7 +166,7 @@ export default function Home() {
           className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
         >
           <h2 className={`mb-3 text-2xl font-semibold`}>
-            User Manual{' '}
+            Project Documents{' '}
             <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
               -&gt;
             </span>
@@ -153,7 +187,7 @@ export default function Home() {
               -&gt;
             </span>
           </h2>
-          <p className={`m-0 max-w-[30ch] text-sm opacity-50`}>View the documentation and source code on GitHub</p>
+          <p className={`m-0 max-w-[30ch] text-sm opacity-50`}>View the source code on GitHub</p>
         </Link>
       </div>
     </main>

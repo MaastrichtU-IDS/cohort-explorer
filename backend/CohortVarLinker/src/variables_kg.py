@@ -85,6 +85,12 @@ def process_variables_metadata_file(file_path:str, study_metadata_graph_file_pat
         # convert all data into lower case
         
         count = 0
+        data.columns = [
+            'variablename' if col.lower().strip() == 'variable name' else
+            'variablelabel' if col.lower().strip() == 'variable label' else
+            'vartype' if col.lower().strip() in ['variable type', 'var type'] else 
+            col for col in data.columns
+        ]
         binary_categorical, multi_class_categorical = is_categorical_variable(data)
         variables_to_update = {}
         # units_count = 0
@@ -410,13 +416,13 @@ def add_device_senors_for_variable(g: Graph, var_uri:URIRef, data_set_uri: URIRe
             g.add((sensor_uri, OntologyNamespaces.CMEO.value.has_value, Literal(sensor_value, datatype=XSD.string), cohort_uri))
             g.add((device_uri, OntologyNamespaces.RO.value.has_part, sensor_uri, cohort_uri))
             g.add((sensor_uri, OntologyNamespaces.RO.value.is_part_of, device_uri, cohort_uri))
-        if 'wearer location' in row_info and pd.notna(row_info['wearer location']):
-            wearer_location_value = row_info['wearer location'].strip().lower().replace(' ', '_')
-            wearer_location_uri = URIRef(OntologyNamespaces.CMEO.value + f"body_region/{wearer_location_value}")
-            g.add((sensor_uri, OntologyNamespaces.RO.value.is_located_in, wearer_location_uri, cohort_uri))
-            g.add((wearer_location_uri, RDF.type, OntologyNamespaces.CMEO.value.body_region, cohort_uri))
-            g.add((data_collection_process_uri, OntologyNamespaces.RO.value.occurs_in, wearer_location_uri, cohort_uri))
-            g.add((wearer_location_uri, OntologyNamespaces.CMEO.value.has_value, Literal(wearer_location_value, datatype=XSD.string), cohort_uri))
+            if 'wearer location' in row_info and pd.notna(row_info['wearer location']):
+                wearer_location_value = row_info['wearer location'].strip().lower().replace(' ', '_')
+                wearer_location_uri = URIRef(OntologyNamespaces.CMEO.value + f"body_region/{wearer_location_value}")
+                g.add((sensor_uri, OntologyNamespaces.RO.value.is_located_in, wearer_location_uri, cohort_uri))
+                g.add((wearer_location_uri, RDF.type, OntologyNamespaces.CMEO.value.body_region, cohort_uri))
+                g.add((data_collection_process_uri, OntologyNamespaces.RO.value.occurs_in, wearer_location_uri, cohort_uri))
+                g.add((wearer_location_uri, OntologyNamespaces.CMEO.value.has_value, Literal(wearer_location_value, datatype=XSD.string), cohort_uri))
 
     return g
 
