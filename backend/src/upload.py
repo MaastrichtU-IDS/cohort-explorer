@@ -663,7 +663,13 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
             }
             log_upload_event_csv(log_data)
             update_upload_log({**log_data, "errors": [error_msg]})
-        raise HTTPException(status_code=422, detail=error_msg)
+            raise HTTPException(status_code=422, detail=error_msg)
+        else:
+            # During init_triplestore, log and return empty graph
+            print(f"⚠️  SKIPPING cohort {cohort_id}: {error_msg}")
+            logging.warning(f"Skipping cohort {cohort_id}: {error_msg}")
+            from src.utils import init_graph
+            return init_graph()  # Return empty graph
     
     try:
         df = pd.read_csv(dict_path, na_values=[""], keep_default_na=False)
@@ -805,11 +811,21 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
         # Log the collected errors that led to this for server-side records
         logging.warning(f"Validation errors for cohort {cohort_id}:\n{http_exc.detail}")
         if source == "upload_dict":
-            raise http_exc 
+            raise http_exc
+        else:
+            # During init_triplestore, log prominently and return empty graph
+            print(f"⚠️  SKIPPING cohort {cohort_id} due to validation errors:")
+            print(f"    {http_exc.detail}")
+            from src.utils import init_graph
+            return init_graph()  # Return empty graph
     except pd.errors.EmptyDataError:
         logging.warning(f"Uploaded CSV for cohort {cohort_id} is empty or unreadable.")
         if source == "upload_dict":
             raise HTTPException(status_code=422, detail="The uploaded CSV file is empty or could not be read.")
+        else:
+            print(f"⚠️  SKIPPING cohort {cohort_id}: CSV file is empty or unreadable")
+            from src.utils import init_graph
+            return init_graph()  # Return empty graph
     except Exception as e:
         logging.error(f"Unexpected error during dictionary processing for {cohort_id}: {str(e)}", exc_info=True)
         errors.append(f"An unexpected error occurred during file processing: {str(e)}")
@@ -818,6 +834,10 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
                 status_code=500, # Use 500 for truly unexpected server-side issues
                 detail="\n\n".join(errors),
             )
+        else:
+            print(f"⚠️  SKIPPING cohort {cohort_id} due to unexpected error: {str(e)}")
+            from src.utils import init_graph
+            return init_graph()  # Return empty graph
     
     # Calculate final metrics
     processing_time = (datetime.now() - start_time).total_seconds()
@@ -1837,35 +1857,50 @@ def _perform_triplestore_initialization():
     for folder in os.listdir(os.path.join(settings.data_folder, "cohorts")):
         folder_path = os.path.join(settings.data_folder, "cohorts", folder)
         if os.path.isdir(folder_path):
-            #Note (August 2025): we now find the latest version of a data dictionary instead of processing all
-            #for file in glob.glob(os.path.join(folder_path, "*_datadictionary.*")):
-            latest_dict_file = get_latest_datadictionary(folder_path)
-            if latest_dict_file:
-                print(f"Using latest datadictionary file for {folder}: {os.path.basename(latest_dict_file)}, date: {os.path.getmtime(latest_dict_file)}")
-                g = load_cohort_dict_file(latest_dict_file, folder, source="init_triplestore")
-                # Delete existing triples for this cohort before publishing new ones
-                # This ensures we don't have duplicate or conflicting triples
-                delete_existing_triples(get_cohort_uri(folder))
-                # g.serialize(f"{settings.data_folder}/cohort_explorer_triplestore.trig", format="trig")
-                if publish_graph_to_endpoint(g):
-                    print(f"💾 Triplestore initialization: added {len(g)} triples for cohort {folder}.")
-                    # Note: Variables are added to cache via create_cohort_from_dict_file in init_triplestore
-                    from src.cohort_cache import create_cohort_from_dict_file
+            try:
+                #Note (August 2025): we now find the latest version of a data dictionary instead of processing all
+                #for file in glob.glob(os.path.join(folder_path, "*_datadictionary.*")):
+                latest_dict_file = get_latest_datadictionary(folder_path)
+                if latest_dict_file:
+                    print(f"Using latest datadictionary file for {folder}: {os.path.basename(latest_dict_file)}, date: {os.path.getmtime(latest_dict_file)}")
+                    g = load_cohort_dict_file(latest_dict_file, folder, source="init_triplestore")
+                    
+                    # Check if graph is empty (indicates processing failure)
+                    if len(g) == 0:
+                        print(f"❌ Failed to process dictionary for cohort {folder} - graph is empty. Check logs above for details.")
+                        continue
+                    
+                    # Delete existing triples for this cohort before publishing new ones
+                    # This ensures we don't have duplicate or conflicting triples
+                    delete_existing_triples(get_cohort_uri(folder))
+                    # g.serialize(f"{settings.data_folder}/cohort_explorer_triplestore.trig", format="trig")
+                    if publish_graph_to_endpoint(g):
+                        print(f"💾 Triplestore initialization: added {len(g)} triples for cohort {folder}.")
+                        # Note: Variables are added to cache via create_cohort_from_dict_file in init_triplestore
+                        from src.cohort_cache import create_cohort_from_dict_file
+                        cohort_uri = get_cohort_uri(folder)
+                        create_cohort_from_dict_file(folder, cohort_uri, g)
+                    else:
+                        print(f"❌ Failed to publish graph to triplestore for cohort {folder}")
+                else:
+                    print(f"No datadictionary file found for cohort {folder}.")
+                    # Ensure cohorts without dictionaries are still properly cached
+                    # Check if this cohort exists in the metadata and add it to cache if missing
                     cohort_uri = get_cohort_uri(folder)
-                    create_cohort_from_dict_file(folder, cohort_uri, g)
-            else:
-                print(f"No datadictionary file found for cohort {folder}.")
-                # Ensure cohorts without dictionaries are still properly cached
-                # Check if this cohort exists in the metadata and add it to cache if missing
-                cohort_uri = get_cohort_uri(folder)
-                from src.cohort_cache import get_cohorts_from_cache, create_cohort_from_metadata_graph
-                admin_email = settings.admins_list[0] if settings.admins_list else "admin@example.com"
-                current_cache = get_cohorts_from_cache(admin_email)
-                if folder not in current_cache:
-                    print(f"Adding cohort {folder} to cache (metadata only, no dictionary)")
-                    # Get the metadata graph to extract cohort info
-                    metadata_graph = cohorts_metadata_file_to_graph(COHORTS_METADATA_FILEPATH)
-                    create_cohort_from_metadata_graph(folder, cohort_uri, metadata_graph)
+                    from src.cohort_cache import get_cohorts_from_cache, create_cohort_from_metadata_graph
+                    admin_email = settings.admins_list[0] if settings.admins_list else "admin@example.com"
+                    current_cache = get_cohorts_from_cache(admin_email)
+                    if folder not in current_cache:
+                        print(f"Adding cohort {folder} to cache (metadata only, no dictionary)")
+                        # Get the metadata graph to extract cohort info
+                        metadata_graph = cohorts_metadata_file_to_graph(COHORTS_METADATA_FILEPATH)
+                        create_cohort_from_metadata_graph(folder, cohort_uri, metadata_graph)
+            except HTTPException as http_exc:
+                print(f"❌ SKIPPING cohort {folder} - HTTPException: {http_exc.detail}")
+                logging.error(f"Failed to process cohort {folder} during init: {http_exc.detail}")
+            except Exception as e:
+                print(f"❌ SKIPPING cohort {folder} - Unexpected error: {str(e)}")
+                logging.error(f"Failed to process cohort {folder} during init: {str(e)}", exc_info=True)
         else:
             print(f"No datadictionary file found for cohort {folder}.")
     
