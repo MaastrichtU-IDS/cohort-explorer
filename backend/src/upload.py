@@ -668,7 +668,6 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
             # During init_triplestore, log and return empty graph
             print(f"⚠️  SKIPPING cohort {cohort_id}: {error_msg}")
             logging.warning(f"Skipping cohort {cohort_id}: {error_msg}")
-            from src.utils import init_graph
             return init_graph()  # Return empty graph
     
     try:
@@ -816,7 +815,6 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
             # During init_triplestore, log prominently and return empty graph
             print(f"⚠️  SKIPPING cohort {cohort_id} due to validation errors:")
             print(f"    {http_exc.detail}")
-            from src.utils import init_graph
             return init_graph()  # Return empty graph
     except pd.errors.EmptyDataError:
         logging.warning(f"Uploaded CSV for cohort {cohort_id} is empty or unreadable.")
@@ -824,7 +822,6 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
             raise HTTPException(status_code=422, detail="The uploaded CSV file is empty or could not be read.")
         else:
             print(f"⚠️  SKIPPING cohort {cohort_id}: CSV file is empty or unreadable")
-            from src.utils import init_graph
             return init_graph()  # Return empty graph
     except Exception as e:
         logging.error(f"Unexpected error during dictionary processing for {cohort_id}: {str(e)}", exc_info=True)
@@ -836,7 +833,6 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
             )
         else:
             print(f"⚠️  SKIPPING cohort {cohort_id} due to unexpected error: {str(e)}")
-            from src.utils import init_graph
             return init_graph()  # Return empty graph
     
     # Calculate final metrics
