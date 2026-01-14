@@ -679,9 +679,8 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
         total_rows = len(df)
         total_variables = len(df['VARIABLENAME'].unique()) if 'VARIABLENAME' in df.columns else 0
         
-        # Normalize column names (uppercase, specific substitutions)
-        #df.columns = [cols_normalized.get(c.upper().strip(), c.upper().strip().replace("VALUES", "VALUE")) for c in df.columns]
-        df.columns = [cols_normalized.get(c.upper().strip(), c.upper().strip()) for c in df.columns]
+        # Normalize column names (lowercase for lookup, then use normalized value or uppercase original)
+        df.columns = [cols_normalized.get(c.lower().strip(), c.upper().strip()) for c in df.columns]
         # print(f"POST NORMALIZATION -- COHORT {cohort_id} -- Columns: {df.columns}")
         # --- Structural Validation: Check for required columns ---
         # Define columns absolutely essential for the row-processing logic to run without KeyErrors
@@ -1097,9 +1096,9 @@ async def generate_metadata_issues_report():
             df = df.dropna(how="all")
             df = df.fillna("")
             
-            # Normalize column names
+            # Normalize column names (lowercase for lookup, then use normalized value or uppercase original)
             from src.upload import cols_normalized
-            df.columns = [cols_normalized.get(c.upper().strip(), c.upper().strip()) for c in df.columns]
+            df.columns = [cols_normalized.get(c.lower().strip(), c.upper().strip()) for c in df.columns]
             
             # Check for required columns
             from src.upload import metadatadict_cols_schema1
