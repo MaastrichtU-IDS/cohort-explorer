@@ -1769,15 +1769,6 @@ def _perform_triplestore_initialization():
             break
         time.sleep(0.5)  # Small delay between checks
     
-    # Initialize the cache from triplestore
-    # This works whether the triplestore is initialized or not
-    from src.cohort_cache import initialize_cache_from_triplestore
-    print("Initializing cache from triplestore...")
-    # Use the first admin email to ensure we get all cohorts
-    admin_email = settings.admins_list[0] if settings.admins_list else "admin@example.com"
-    initialize_cache_from_triplestore(admin_email)
-    print("✅ Cohort cache initialization complete.")
-    
     # Generate metadata issues report (runs on every startup)
     print("Generating metadata issues report...")
     try:
@@ -1808,8 +1799,13 @@ def _perform_triplestore_initialization():
     except Exception as e:
         print(f"⚠️  Failed to generate metadata issues report: {e}")
     
-    # If triplestore is already initialized, we're done
+    # If triplestore is already initialized, initialize cache from it and return
     if triplestore_initialized:
+        from src.cohort_cache import initialize_cache_from_triplestore
+        print("Initializing cache from existing triplestore...")
+        admin_email = settings.admins_list[0] if settings.admins_list else "admin@example.com"
+        initialize_cache_from_triplestore(admin_email)
+        print("✅ Cohort cache initialization complete.")
         return
     
     # Otherwise, continue with triplestore initialization
@@ -1901,3 +1897,11 @@ def _perform_triplestore_initialization():
             print(f"No datadictionary file found for cohort {folder}.")
     
     print("✅ Triplestore initialization complete!")
+    
+    # Initialize the cache from the now-populated triplestore
+    # This must happen AFTER the triplestore is populated, not before
+    from src.cohort_cache import initialize_cache_from_triplestore
+    print("Initializing cache from triplestore...")
+    admin_email = settings.admins_list[0] if settings.admins_list else "admin@example.com"
+    initialize_cache_from_triplestore(admin_email)
+    print("✅ Cohort cache initialization complete.")
