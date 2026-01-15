@@ -1818,27 +1818,6 @@ def _perform_triplestore_initialization():
 
     if publish_graph_to_endpoint(g):
         print(f"🪪 Triplestore initialization: added {len(g)} triples for the cohorts metadata.")
-        
-        # Add cohort metadata to the cache
-        print("Adding cohort metadata to the cache...")
-        # Extract cohort IDs and URIs from the graph
-        cohort_uris = set()
-        for s, p, o, _ in g.quads((None, RDF.type, ICARE.Cohort, None)):
-            cohort_uris.add(s)
-        
-        # Create cohort objects from metadata and add them to the cache
-        for cohort_uri in cohort_uris:
-            # Extract cohort ID from URI
-            cohort_id = None
-            for _, _, o, _ in g.quads((cohort_uri, DC.identifier, None, None)):
-                cohort_id = str(o)
-                break
-            
-            if cohort_id:
-                from src.cohort_cache import create_cohort_from_metadata_graph
-                create_cohort_from_metadata_graph(cohort_id, cohort_uri, g)
-        
-        print("✅ Cohort metadata added to cache.")
     else:
         print("❌ Failed to publish cohort metadata to triplestore.")
         return
@@ -1867,25 +1846,10 @@ def _perform_triplestore_initialization():
                     # g.serialize(f"{settings.data_folder}/cohort_explorer_triplestore.trig", format="trig")
                     if publish_graph_to_endpoint(g):
                         print(f"💾 Triplestore initialization: added {len(g)} triples for cohort {folder}.")
-                        # Note: Variables are added to cache via create_cohort_from_dict_file in init_triplestore
-                        from src.cohort_cache import create_cohort_from_dict_file
-                        cohort_uri = get_cohort_uri(folder)
-                        create_cohort_from_dict_file(folder, cohort_uri, g)
                     else:
                         print(f"❌ Failed to publish graph to triplestore for cohort {folder}")
                 else:
                     print(f"No datadictionary file found for cohort {folder}.")
-                    # Ensure cohorts without dictionaries are still properly cached
-                    # Check if this cohort exists in the metadata and add it to cache if missing
-                    cohort_uri = get_cohort_uri(folder)
-                    from src.cohort_cache import get_cohorts_from_cache, create_cohort_from_metadata_graph
-                    admin_email = settings.admins_list[0] if settings.admins_list else "admin@example.com"
-                    current_cache = get_cohorts_from_cache(admin_email)
-                    if folder not in current_cache:
-                        print(f"Adding cohort {folder} to cache (metadata only, no dictionary)")
-                        # Get the metadata graph to extract cohort info
-                        metadata_graph = cohorts_metadata_file_to_graph(COHORTS_METADATA_FILEPATH)
-                        create_cohort_from_metadata_graph(folder, cohort_uri, metadata_graph)
             except HTTPException as http_exc:
                 print(f"❌ SKIPPING cohort {folder} - HTTPException: {http_exc.detail}")
                 logging.error(f"Failed to process cohort {folder} during init: {http_exc.detail}")
