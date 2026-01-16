@@ -328,6 +328,13 @@ export default function MappingPage() {
       alert('Please select a source cohort and at least one target cohort');
       return;
     }
+    
+    // Check if source cohort is among target cohorts
+    if (selectedTargets.includes(sourceCohort)) {
+      setError('Source cohort should not be among mapping target cohorts');
+      return;
+    }
+    
     setLoading(true);
     setError(null);
     setMappingOutput(null);
@@ -568,7 +575,7 @@ export default function MappingPage() {
             <div className="flex items-start gap-2">
               <span className="text-green-600 text-xl">✓</span>
               <div>
-                <h4 className="font-semibold text-green-800 mb-1">Mapping Complete!</h4>
+                <h4 className="font-semibold text-green-800 mb-1">Mapping Completed</h4>
                 <p className="text-sm text-green-700">
                   Variable mapping for <strong>{sourceCohort}</strong> → <strong>{selectedTargets.join(', ')}</strong> has been generated.
                 </p>
@@ -615,70 +622,43 @@ export default function MappingPage() {
           <div className="mt-4 p-4 bg-gray-50 rounded-lg">
             <h4 className="font-semibold mb-2">Cache Status:</h4>
             
-            
-            {/* Up-to-date cached pairs */}
-            {cacheInfo.cached_pairs.length > 0 && (
-              <div className="mb-2">
-                <span className="text-green-600 font-medium">Cached pairs (up to date):</span>
-                <ul className="ml-4 mt-1">
-                  {cacheInfo.cached_pairs.map((pair, index) => (
-                    <li key={index} className="text-sm">
-                      {pair.source} → {pair.target} 
-                      <span className="text-gray-500 ml-2">
-                        (cached {new Date(pair.timestamp * 1000).toLocaleDateString('de-DE')})
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            
-            {/* Outdated cached pairs */}
-            {cacheInfo.outdated_pairs && cacheInfo.outdated_pairs.length > 0 && (
-              <div className="mb-2">
-                <span className="text-orange-600 font-medium">Outdated cached pairs:</span>
-                <ul className="ml-4 mt-1">
-                  {cacheInfo.outdated_pairs.map((pair, index) => (
-                    <li key={index} className="text-sm">
-                      {pair.source} → {pair.target} 
-                      <span className="text-gray-500 ml-2">
-                        (cached {new Date(pair.timestamp * 1000).toLocaleDateString('de-DE')})
-                      </span>
-                      <br />
-                      <span className="text-orange-600 text-xs ml-2">
-                        ⚠️ Cached mapping is out of date. There is an updated dictionary for cohort {pair.outdated_cohort}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            
-            {/* New mappings */}
-            {cacheInfo.uncached_pairs.length > 0 && (
-              <div className="mb-2">
-                <span className="text-blue-600 font-medium">New mappings:</span>
-                <ul className="ml-4 mt-1">
-                  {cacheInfo.uncached_pairs.map((pair, index) => (
-                    <li key={index} className="text-sm">
-                      {pair.source} → {pair.target}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
+            <ul className="space-y-1">
+              {/* Cached pairs (up to date) */}
+              {cacheInfo.cached_pairs.map((pair, index) => (
+                <li key={`cached-${index}`} className="text-sm">
+                  {pair.source} → {pair.target} 
+                  <span className="text-green-600 ml-2 font-medium">
+                    — Cached and up-to-date, compute date: {new Date(pair.timestamp * 1000).toLocaleDateString('de-DE')}
+                  </span>
+                </li>
+              ))}
+              
+              {/* Outdated cached pairs */}
+              {cacheInfo.outdated_pairs && cacheInfo.outdated_pairs.map((pair, index) => (
+                <li key={`outdated-${index}`} className="text-sm">
+                  {pair.source} → {pair.target} 
+                  <span className="text-orange-600 ml-2 font-medium">
+                    — Cached but outdated, compute date: {new Date(pair.timestamp * 1000).toLocaleDateString('de-DE')}
+                  </span>
+                </li>
+              ))}
+              
+              {/* Uncached pairs */}
+              {cacheInfo.uncached_pairs.map((pair, index) => (
+                <li key={`uncached-${index}`} className="text-sm">
+                  {pair.source} → {pair.target} 
+                  <span className="text-blue-600 ml-2 font-medium">
+                    — New (uncached)
+                  </span>
+                </li>
+              ))}
+            </ul>
             
             {/* Summary message */}
-            {(cacheInfo.uncached_pairs.length > 0 || (cacheInfo.outdated_pairs && cacheInfo.outdated_pairs.length > 0)) ? (
+            {(cacheInfo.uncached_pairs.length > 0 || (cacheInfo.outdated_pairs && cacheInfo.outdated_pairs.length > 0)) && (
               <div className="mt-3 p-2 bg-blue-100 rounded text-sm text-blue-800">
                 ⏳ Uncached and outdated mappings will be computed. This may take up to 15 minutes. If this page times out, please revisit in 15-20 minutes when computed mappings are likely to be ready
               </div>
-            ) : (
-              cacheInfo.cached_pairs.length > 0 && (
-                <div className="mt-3 p-2 bg-green-100 rounded text-sm text-green-800">
-                  ✅ All cached mappings are up to date with the latest dictionaries
-                </div>
-              )
             )}
             
             {/* Dictionary timestamps at the bottom */}
