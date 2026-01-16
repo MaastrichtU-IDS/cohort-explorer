@@ -645,4 +645,4 @@ def generate_mapping_csv(
         output_dir=output_dir,
         json_path=os.path.join(output_dir, f"{source_study}_{tstudy_str}_{model_name}_{mapping_mode}.json"))
     
-    
+    return cache_info

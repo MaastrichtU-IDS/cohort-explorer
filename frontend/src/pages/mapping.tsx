@@ -275,17 +275,20 @@ export default function MappingPage() {
   const [tableScrollWidth, setTableScrollWidth] = useState(2000);
   const [mappingStartTime, setMappingStartTime] = useState<number | null>(null);
   const [computeDuration, setComputeDuration] = useState<{minutes: number, seconds: number} | null>(null);
+  const [hadUncachedPairs, setHadUncachedPairs] = useState(false);
   
   // Reference to the mapping output section
   const mappingOutputRef = useRef<HTMLDivElement>(null);
   // Reference to the map button section
   const mapButtonRef = useRef<HTMLDivElement>(null);
 
-  // Filtered cohorts for both source and target menus based on search
-  const filteredCohorts = Object.entries(cohortsData).filter(([cohortId, cohort]) =>
-    cohortId.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    JSON.stringify(cohort).toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Filtered cohorts for both source and target menus based on search, sorted alphabetically
+  const filteredCohorts = Object.entries(cohortsData)
+    .filter(([cohortId, cohort]) =>
+      cohortId.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      JSON.stringify(cohort).toLowerCase().includes(searchQuery.toLowerCase())
+    )
+    .sort(([idA], [idB]) => idA.localeCompare(idB));
   
   // Scroll to the map button section when data becomes available
   useEffect(() => {
@@ -332,6 +335,11 @@ export default function MappingPage() {
     setComputeDuration(null);
     setMappingStartTime(Date.now());
     setCacheInfo(null);
+    setHadUncachedPairs(false);
+    
+    // Declare timeout and controller outside try block for cleanup in catch
+    const controller = new AbortController();
+    let timeoutId: NodeJS.Timeout | null = null;
     
     try {
       // Send as [cohortId, false] for each selected target
@@ -352,9 +360,15 @@ export default function MappingPage() {
       if (cacheResponse.ok) {
         const cacheData = await cacheResponse.json();
         setCacheInfo(cacheData);
+        // Track if there are uncached pairs that will need computation
+        setHadUncachedPairs(cacheData.uncached_pairs.length > 0 || (cacheData.outdated_pairs && cacheData.outdated_pairs.length > 0));
       }
       
       // Then proceed with mapping generation
+      // Use AbortController with 20-minute timeout to prevent premature timeout
+      // (new mappings can take up to 15 minutes to compute)
+      timeoutId = setTimeout(() => controller.abort(), 20 * 60 * 1000); // 20 minutes
+      
       const response = await fetch(`${apiUrl}/api/generate-mapping`, {
         method: 'POST',
         headers: {
@@ -364,7 +378,10 @@ export default function MappingPage() {
           source_study: sourceCohort,
           target_studies,
         }),
+        signal: controller.signal,
       });
+      if (timeoutId) clearTimeout(timeoutId);
+      
       if (!response.ok) {
         const result = await response.json();
         let errorMsg = result.detail || result.error || 'Failed to generate mapping';
@@ -425,11 +442,17 @@ export default function MappingPage() {
       
       setLoading(false);
     } catch (err: any) {
-      setError(
-        typeof err.message === 'string' && err.message.endsWith("metadata has not been added yet!")
-          ? `The metadata of ${sourceCohort} has not been added yet!`
-          : (err.message || 'Unknown error')
-      );
+      if (timeoutId) clearTimeout(timeoutId);
+      // Handle abort errors specifically
+      if (err.name === 'AbortError') {
+        setError('Request timed out after 20 minutes. The mapping computation may still be running on the server.');
+      } else {
+        setError(
+          typeof err.message === 'string' && err.message.endsWith("metadata has not been added yet!")
+            ? `The metadata of ${sourceCohort} has not been added yet!`
+            : (err.message || 'Unknown error')
+        );
+      }
     } finally {
       setLoading(false);
     }
@@ -522,7 +545,7 @@ export default function MappingPage() {
           </div>
         </div>
 
-        <div className="text-center" ref={mapButtonRef}>
+        <div className="text-center mt-8" ref={mapButtonRef}>
           <button
             className="btn btn-primary"
             onClick={handleMapConcepts}
@@ -538,9 +561,9 @@ export default function MappingPage() {
         </div>
         </div>
 
-        {/* Success Message - shown after mapping completes */}
+        {/* Success Message - only shown after mapping completes for uncached pairs */}
         <div className="max-w-6xl mx-auto">
-        {mappingOutput && computeDuration && (
+        {mappingOutput && mappingOutput.length > 0 && computeDuration && hadUncachedPairs && (
           <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
             <div className="flex items-start gap-2">
               <span className="text-green-600 text-xl">✓</span>
@@ -554,6 +577,36 @@ export default function MappingPage() {
                 </p>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Cache Information Display - shown after mapping completes for cached pairs */}
+        {cacheInfo && mappingOutput && !hadUncachedPairs && (
+          <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+            <h4 className="font-semibold mb-2">Cache Status:</h4>
+            
+            {/* Up-to-date cached pairs */}
+            {cacheInfo.cached_pairs.length > 0 && (
+              <div className="mb-2">
+                <span className="text-green-600 font-medium">Cached pairs (up to date):</span>
+                <ul className="ml-4 mt-1">
+                  {cacheInfo.cached_pairs.map((pair, index) => (
+                    <li key={index} className="text-sm">
+                      {pair.source} → {pair.target} 
+                      <span className="text-gray-500 ml-2">
+                        (cached {new Date(pair.timestamp * 1000).toLocaleDateString('de-DE')})
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            
+            {cacheInfo.cached_pairs.length > 0 && (
+              <div className="mt-3 p-2 bg-green-100 rounded text-sm text-green-800">
+                ✅ All cached mappings are up to date with the latest dictionaries
+              </div>
+            )}
           </div>
         )}
 
