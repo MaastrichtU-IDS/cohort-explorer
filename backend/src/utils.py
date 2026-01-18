@@ -546,10 +546,10 @@ def get_variables_metadata_query() -> str:
     # Extract only the SPARQL lines for Query 2 (prefixes + SELECT + WHERE)
     # Line 296 (index 295): comment "Query 2: All variables from each study graph"
     # Line 297 (index 296): first PREFIX (stato)
-    # Line 516 (index 515): closing brace of Query 2
-    # Line 518 (index 517): comment "# Query 3: Cross Mapping"
+    # Line 527 (index 526): closing brace of Query 2
+    # Line 529 (index 528): comment "# Query 3: Cross Mapping"
     # Skip the comment line, start from first PREFIX, stop before Query 3
-    query = ''.join(lines[296:516]).strip()
+    query = ''.join(lines[296:527]).strip()
     return query
 
 

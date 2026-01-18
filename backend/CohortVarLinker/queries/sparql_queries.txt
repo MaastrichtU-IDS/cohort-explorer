@@ -345,14 +345,19 @@ WHERE {
   )
 
   # ---------------- data type (one per var; SAMPLE just in case) ----------------
+  # Pattern 1: CohortVarLinker stores as separate entity with iao:is_about
+  # Pattern 2: upload.py stores as direct property cmeo:varType on variable
   OPTIONAL {
     SELECT ?g ?var (SAMPLE(?vt) AS ?varType)
     WHERE {
       GRAPH ?g {
-        ?dt a cmeo:data_type ;
-              iao:is_about ?var ;
-            cmeo:has_value ?vt .
-        # If you require: ?dt a cmeo:data_type .
+        {
+          ?dt a cmeo:data_type ;
+                iao:is_about ?var ;
+              cmeo:has_value ?vt .
+        } UNION {
+          ?var cmeo:varType ?vt .
+        }
       }
     } GROUP BY ?g ?var
   }
@@ -459,13 +464,19 @@ WHERE {
     }
   
     # ---------------- Unit value ----------------
+    # Pattern 1: CohortVarLinker stores as separate entity with iao:is_about
+    # Pattern 2: upload.py stores as direct property cmeo:units on variable
     OPTIONAL {
       SELECT ?g ?var (SAMPLE(?u_val) AS ?unit_value)
       WHERE {
         GRAPH ?g {
-          ?unit_datum a cmeo:unit ;
-                      iao:is_about ?var ;
-                      cmeo:has_value ?u_val .
+          {
+            ?unit_datum a cmeo:unit ;
+                        iao:is_about ?var ;
+                        cmeo:has_value ?u_val .
+          } UNION {
+            ?var cmeo:units ?u_val .
+          }
         }
       } GROUP BY ?g ?var
     }
