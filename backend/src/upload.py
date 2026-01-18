@@ -646,6 +646,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
     errors = []
     success = False
     graph_triples_count = 0
+    g = None  # Initialize graph variable to avoid UnboundLocalError
     
     # Get file information for logging
     if os.path.exists(dict_path):
@@ -853,7 +854,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
     # Calculate final metrics
     processing_time = (datetime.now() - start_time).total_seconds()
     success = len(errors) == 0
-    graph_triples_count = len(g) if 'g' in locals() else 0
+    graph_triples_count = len(g) if g is not None else 0
     
     # Enhanced structured logging for upload dictionary calls
     if source == "upload_dict":
@@ -889,7 +890,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
     # Update the cohort cache directly from the graph data
     # This is more efficient than retrieving it from the triplestore later
     # Only update cache if this is called from upload API, not from init_triplestore
-    if source == "upload_dict":
+    if source == "upload_dict" and g is not None:
         from src.cohort_cache import create_cohort_from_dict_file
         cohort_uri = get_cohort_uri(cohort_id)
         create_cohort_from_dict_file(cohort_id, cohort_uri, g)
@@ -1552,69 +1553,68 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
     df = df.fillna("")
     # Convert column names to lowercase for consistency
     df.columns = df.columns.str.lower()
-    
     g = init_graph()
     metadata_graph = URIRef(OntologyNamespaces.CMEO.value + "graph/studies_metadata")
     
     for _i, row in df.iterrows():
         print("now processing cohorts' metadata row: ", _i, row)
-        cohort_id = str(row["Study Name"]).strip()
+        cohort_id = str(row["study name"]).strip()
         # print(cohort_id)
         cohort_uri = get_cohort_uri(cohort_id)
         cohorts_graph = ICARE["graph/metadata"]
 
         g.add((cohort_uri, RDF.type, ICARE.Cohort, cohorts_graph))
         g.add((cohort_uri, DC.identifier, Literal(cohort_id), cohorts_graph))
-        g.add((cohort_uri, ICARE.institution, Literal(row["Institute"]), cohorts_graph))
+        g.add((cohort_uri, ICARE.institution, Literal(row["institute"]), cohorts_graph))
         # Administrator information
-        if is_valid_value(row.get("Administrator", "")):
-            g.add((cohort_uri, ICARE.administrator, Literal(row["Administrator"]), cohorts_graph))
-        if is_valid_value(row.get("Administrator Email Address", "")):
+        if is_valid_value(row.get("administrator", "")):
+            g.add((cohort_uri, ICARE.administrator, Literal(row["administrator"]), cohorts_graph))
+        if is_valid_value(row.get("administrator email address", "")):
             # Store as administratorEmail for backward compatibility
-            g.add((cohort_uri, ICARE.administratorEmail, Literal(row["Administrator Email Address"].lower()), cohorts_graph))
+            g.add((cohort_uri, ICARE.administratorEmail, Literal(row["administrator email address"].lower()), cohorts_graph))
             # Also add to icare:email predicate (split by semicolon) for cohort ownership permissions
-            for email in row["Administrator Email Address"].split(";"):
+            for email in row["administrator email address"].split(";"):
                 g.add((cohort_uri, ICARE.email, Literal(email.strip().lower()), cohorts_graph))
         # Study contact person information
-        if is_valid_value(row["Study Contact Person"]):
-            g.add((cohort_uri, DC.creator, Literal(row["Study Contact Person"]), cohorts_graph))
-        if is_valid_value(row["Study Contact Person Email Address"]):
-            for email in row["Study Contact Person Email Address"].split(";"):
+        if is_valid_value(row["study contact person"]):
+            g.add((cohort_uri, DC.creator, Literal(row["study contact person"]), cohorts_graph))
+        if is_valid_value(row["study contact person email address"]):
+            for email in row["study contact person email address"].split(";"):
                 g.add((cohort_uri, ICARE.email, Literal(email.strip().lower()), cohorts_graph))
         # References
-        if is_valid_value(row.get("References", "")):
-            for reference in row["References"].split(";"):
+        if is_valid_value(row.get("references", "")):
+            for reference in row["references"].split(";"):
                 g.add((cohort_uri, ICARE.references, Literal(reference.strip()), cohorts_graph))
                 
         # Additional metadata fields
-        if is_valid_value(row.get("Population Location", "")):
-            g.add((cohort_uri, ICARE.populationLocation, Literal(row["Population Location"]), cohorts_graph))
-        if is_valid_value(row.get("Language", "")):
-            g.add((cohort_uri, ICARE.language, Literal(row["Language"]), cohorts_graph))
-        if is_valid_value(row.get("Frequency of data collection", "")):
-            g.add((cohort_uri, ICARE.dataCollectionFrequency, Literal(row["Frequency of data collection"]), cohorts_graph))
-        if is_valid_value(row.get("Interventions", "")):
-            g.add((cohort_uri, ICARE.interventions, Literal(row["Interventions"]), cohorts_graph))
-        if is_valid_value(row["Study Type"]):
+        if is_valid_value(row.get("population location", "")):
+            g.add((cohort_uri, ICARE.populationLocation, Literal(row["population location"]), cohorts_graph))
+        if is_valid_value(row.get("language", "")):
+            g.add((cohort_uri, ICARE.language, Literal(row["language"]), cohorts_graph))
+        if is_valid_value(row.get("frequency of data collection", "")):
+            g.add((cohort_uri, ICARE.dataCollectionFrequency, Literal(row["frequency of data collection"]), cohorts_graph))
+        if is_valid_value(row.get("interventions", "")):
+            g.add((cohort_uri, ICARE.interventions, Literal(row["interventions"]), cohorts_graph))
+        if is_valid_value(row["study type"]):
             # Split study types on '/' and add each as a separate triple
-            study_types = [st.strip() for st in row["Study Type"].split("/")]
+            study_types = [st.strip() for st in row["study type"].split("/")]
             for study_type in study_types:
                 g.add((cohort_uri, ICARE.cohortType, Literal(study_type), cohorts_graph))
-        if is_valid_value(row["Study Design"]):
-            g.add((cohort_uri, ICARE.studyType, Literal(row["Study Design"]), cohorts_graph))
+        if is_valid_value(row["study design"]):
+            g.add((cohort_uri, ICARE.studyType, Literal(row["study design"]), cohorts_graph))
         #if is_valid_value(row["Study duration"]):
         #    g.add((cohort_uri, ICARE.studyDuration, Literal(row["Study duration"]), cohorts_graph))
-        if is_valid_value(row["Start date"]) and is_valid_value(row["End date"]):
-            g.add((cohort_uri, ICARE.studyStart, Literal(row["Start date"]), cohorts_graph))
-            g.add((cohort_uri, ICARE.studyEnd, Literal(row["End date"]), cohorts_graph))
-        if is_valid_value(row["Number of Participants"]):
-            g.add((cohort_uri, ICARE.studyParticipants, Literal(row["Number of Participants"]), cohorts_graph))
-        if is_valid_value(row["Ongoing"]):
-            g.add((cohort_uri, ICARE.studyOngoing, Literal(row["Ongoing"]), cohorts_graph))
+        if is_valid_value(row["start date"]) and is_valid_value(row["end date"]):
+            g.add((cohort_uri, ICARE.studyStart, Literal(row["start date"]), cohorts_graph))
+            g.add((cohort_uri, ICARE.studyEnd, Literal(row["end date"]), cohorts_graph))
+        if is_valid_value(row["number of participants"]):
+            g.add((cohort_uri, ICARE.studyParticipants, Literal(row["number of participants"]), cohorts_graph))
+        if is_valid_value(row["ongoing"]):
+            g.add((cohort_uri, ICARE.studyOngoing, Literal(row["ongoing"]), cohorts_graph))
         #if is_valid_value(row["Patient population"]):
         #    g.add((cohort_uri, ICARE.studyPopulation, Literal(row["Patient population"]), cohorts_graph))
-        if is_valid_value(row["Study Objective"]):
-            g.add((cohort_uri, ICARE.studyObjective, Literal(row["Study Objective"]), cohorts_graph))
+        if is_valid_value(row["study objective"]):
+            g.add((cohort_uri, ICARE.studyObjective, Literal(row["study objective"]), cohorts_graph))
             
         # Handle primary outcome specification
         if "primary outcome specification" in row and is_valid_value(row["primary outcome specification"]):
@@ -1625,8 +1625,8 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
             g.add((cohort_uri, ICARE.secondaryOutcomeSpec, Literal(row["secondary outcome specification"]), cohorts_graph))
             
         # Handle morbidity
-        if "Morbidity" in row and is_valid_value(row["Morbidity"]):
-            g.add((cohort_uri, ICARE.morbidity, Literal(row["Morbidity"]), cohorts_graph))
+        if "morbidity" in row and is_valid_value(row["morbidity"]):
+            g.add((cohort_uri, ICARE.morbidity, Literal(row["morbidity"]), cohorts_graph))
             
         # Keep original study name for identifier, normalized for URI
         original_study_name = str(row["study name"]).strip()
