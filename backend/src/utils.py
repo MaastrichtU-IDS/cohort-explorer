@@ -556,6 +556,7 @@ def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = F
     
     # Track progress during row processing
     rows_processed = 0
+    variables_processed = 0
     last_progress_log = time.time()
     progress_interval = 30  # Log progress every 30 seconds
     
