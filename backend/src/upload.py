@@ -755,69 +755,95 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
 
         i = 0
         for i, row in df.iterrows():
-            variable_uri = get_var_uri(cohort_id, row["VARIABLENAME"])
-            g.add((cohort_uri, ICARE.hasVariable, variable_uri, cohort_graph_uri))
-            g.add((variable_uri, RDF.type, ICARE.Variable, cohort_graph_uri))
-            g.add((variable_uri, DC.identifier, Literal(row["VARIABLENAME"]), cohort_graph_uri))
-            g.add((variable_uri, RDFS.label, Literal(row["VARIABLELABEL"]), cohort_graph_uri))
-            g.add((variable_uri, ICARE["index"], Literal(i, datatype=XSD.integer), cohort_graph_uri))
+            try:
+                variable_uri = get_var_uri(cohort_id, row["VARIABLENAME"])
+                g.add((cohort_uri, ICARE.hasVariable, variable_uri, cohort_graph_uri))
+                g.add((variable_uri, RDF.type, ICARE.Variable, cohort_graph_uri))
+                g.add((variable_uri, DC.identifier, Literal(row["VARIABLENAME"]), cohort_graph_uri))
+                g.add((variable_uri, RDFS.label, Literal(row["VARIABLELABEL"]), cohort_graph_uri))
+                g.add((variable_uri, ICARE["index"], Literal(i, datatype=XSD.integer), cohort_graph_uri))
 
-            # Get categories code if provided (re-fetch for graph generation phase)
-            categories_codes = []
-            if "CATEGORICAL VALUE CONCEPT CODE" in df.columns and str(row.get("CATEGORICAL VALUE CONCEPT CODE","")).strip():
-                 categories_codes = str(row["CATEGORICAL VALUE CONCEPT CODE"]).split("|")
+                # Get categories code if provided (re-fetch for graph generation phase)
+                categories_codes = []
+                if "CATEGORICAL VALUE CONCEPT CODE" in df.columns and str(row.get("CATEGORICAL VALUE CONCEPT CODE","")).strip():
+                     categories_codes = str(row["CATEGORICAL VALUE CONCEPT CODE"]).split("|")
 
-            for column_name_from_df, col_value in row.items():
-                #print("in load_cohort_dict_file -- column_name_from_df value:", column_name_from_df)
-                # Use the already normalized column_name_from_df
-                if column_name_from_df not in ["categories"] and col_value: # Exclude our temporary 'categories' column
-                    property_uri = ICARE[to_camelcase(column_name_from_df)] # to_camelcase expects original-like names
-                    if (
-                        isinstance(col_value, str)
-                        and (col_value.startswith("http://") or col_value.startswith("https://"))
-                        and " " not in col_value
-                    ):
-                        g.add((variable_uri, property_uri, URIRef(col_value), cohort_graph_uri))
-                    else:
-                        g.add((variable_uri, property_uri, Literal(col_value), cohort_graph_uri))
-                
-                if column_name_from_df == "categories" and isinstance(col_value, list): # 'categories' is our parsed list
-                    for index, category in enumerate(col_value):
-                        cat_uri = get_category_uri(variable_uri, index) # Use index for unique category URI part
-                        g.add((variable_uri, ICARE.categories, cat_uri, cohort_graph_uri))
-                        g.add((cat_uri, RDF.type, ICARE.VariableCategory, cohort_graph_uri))
-                        g.add((cat_uri, RDF.value, Literal(category["value"]), cohort_graph_uri))
-                        g.add((cat_uri, RDFS.label, Literal(category["label"]), cohort_graph_uri))
-                        
-                        if index < len(categories_codes):
-                            code_to_check = categories_codes[index].strip()
-                            if code_to_check and code_to_check.lower() != "na":
-                                #code_to_check = code_to_check.lower().replace("ucum:%", "ucum:percent").replace("[", "").replace("]", "")
-                                try:
-                                    cat_code_uri = curie_converter.expand(code_to_check)
-                                    if cat_code_uri: # Only add if valid and expanded
-                                        #print(f"Adding category code {cat_code_uri} for category {category['value']} in cohort {cohort_id}, line {i}")
-                                        # Another temp fix just for TIM-HF!!
-                                        # cat_code_uri = cat_code_uri.lower().replace("ucum/%", "ucum/percent").replace("[", "").replace("]", "")
-                                        #print(f"Adding category code {cat_code_uri} for category {category['value']} in cohort {cohort_id}, line {i}, cat_uri: {cat_uri}, conceptId: {ICARE.conceptId}")
-                                        g.add((cat_uri, ICARE.conceptId, URIRef(cat_code_uri), cohort_graph_uri))
-                                except Exception as curie_exc:
-                                    error_msg = str(curie_exc)
-                                    var_name = row.get("VARIABLENAME", f"UNKNOWN_VAR_ROW_{i+2}")
-                                    # Check if it's a missing delimiter error
-                                    if "missing a delimiter" in error_msg.lower():
-                                        if ":" not in code_to_check:
-                                            errors.append(
-                                                f"Row {i+2} (Variable: '{var_name}', Category: '{category['value']}'): The category concept code '{code_to_check}' is missing a colon (:) separator. Expected format: 'prefix:code' (e.g., 'snomed:12345')."
-                                            )
+                for column_name_from_df, col_value in row.items():
+                    #print("in load_cohort_dict_file -- column_name_from_df value:", column_name_from_df)
+                    # Use the already normalized column_name_from_df
+                    if column_name_from_df not in ["categories"] and col_value: # Exclude our temporary 'categories' column
+                        property_uri = ICARE[to_camelcase(column_name_from_df)] # to_camelcase expects original-like names
+                        if (
+                            isinstance(col_value, str)
+                            and (col_value.startswith("http://") or col_value.startswith("https://"))
+                            and " " not in col_value
+                        ):
+                            g.add((variable_uri, property_uri, URIRef(col_value), cohort_graph_uri))
+                        else:
+                            g.add((variable_uri, property_uri, Literal(col_value), cohort_graph_uri))
+                    
+                    if column_name_from_df == "categories" and isinstance(col_value, list): # 'categories' is our parsed list
+                        for index, category in enumerate(col_value):
+                            cat_uri = get_category_uri(variable_uri, index) # Use index for unique category URI part
+                            g.add((variable_uri, ICARE.categories, cat_uri, cohort_graph_uri))
+                            g.add((cat_uri, RDF.type, ICARE.VariableCategory, cohort_graph_uri))
+                            g.add((cat_uri, RDF.value, Literal(category["value"]), cohort_graph_uri))
+                            g.add((cat_uri, RDFS.label, Literal(category["label"]), cohort_graph_uri))
+                            
+                            if index < len(categories_codes):
+                                code_to_check = categories_codes[index].strip()
+                                if code_to_check and code_to_check.lower() != "na":
+                                    #code_to_check = code_to_check.lower().replace("ucum:%", "ucum:percent").replace("[", "").replace("]", "")
+                                    try:
+                                        cat_code_uri = curie_converter.expand(code_to_check)
+                                        if cat_code_uri: # Only add if valid and expanded
+                                            #print(f"Adding category code {cat_code_uri} for category {category['value']} in cohort {cohort_id}, line {i}")
+                                            # Another temp fix just for TIM-HF!!
+                                            # cat_code_uri = cat_code_uri.lower().replace("ucum/%", "ucum/percent").replace("[", "").replace("]", "")
+                                            #print(f"Adding category code {cat_code_uri} for category {category['value']} in cohort {cohort_id}, line {i}, cat_uri: {cat_uri}, conceptId: {ICARE.conceptId}")
+                                            g.add((cat_uri, ICARE.conceptId, URIRef(cat_code_uri), cohort_graph_uri))
+                                    except Exception as curie_exc:
+                                        error_msg = str(curie_exc)
+                                        var_name = row.get("VARIABLENAME", f"UNKNOWN_VAR_ROW_{i+2}")
+                                        # Check if it's a missing delimiter error
+                                        if "missing a delimiter" in error_msg.lower():
+                                            if ":" not in code_to_check:
+                                                errors.append(
+                                                    f"Row {i+2} (Variable: '{var_name}', Category: '{category['value']}'): The category concept code '{code_to_check}' is missing a colon (:) separator. Expected format: 'prefix:code' (e.g., 'snomed:12345')."
+                                                )
+                                            else:
+                                                errors.append(
+                                                    f"Row {i+2} (Variable: '{var_name}', Category: '{category['value']}'): The category concept code '{code_to_check}' is missing a valid prefix before the colon. Expected format: 'prefix:code' (e.g., 'snomed:12345')."
+                                                )
                                         else:
                                             errors.append(
-                                                f"Row {i+2} (Variable: '{var_name}', Category: '{category['value']}'): The category concept code '{code_to_check}' is missing a valid prefix before the colon. Expected format: 'prefix:code' (e.g., 'snomed:12345')."
+                                                f"Row {i+2} (Variable: '{var_name}', Category: '{category['value']}'): Error expanding CURIE '{code_to_check}': {str(curie_exc)}."
                                             )
-                                    else:
-                                        errors.append(
-                                            f"Row {i+2} (Variable: '{var_name}', Category: '{category['value']}'): Error expanding CURIE '{code_to_check}': {str(curie_exc)}."
-                                        )
+            
+            except Exception as row_exc:
+                # Catch any error during row processing and provide detailed context
+                var_name = row.get("VARIABLENAME", f"UNKNOWN_VAR_ROW_{i+2}")
+                error_msg = str(row_exc)
+                
+                # Try to identify which column/value caused the issue
+                detailed_msg = f"Row {i+2} (Variable: '{var_name}'): Error processing row - {error_msg}"
+                
+                # If it's an IRI error, try to find the problematic value
+                if "Invalid IRI" in error_msg or "code point" in error_msg:
+                    # Log all non-empty values in the row to help identify the issue
+                    problematic_values = []
+                    for col_name, col_val in row.items():
+                        if col_val and str(col_val).strip():
+                            val_str = str(col_val)
+                            # Check if value contains problematic characters
+                            if any(ord(c) < 32 or ord(c) == 127 for c in val_str):
+                                problematic_values.append(f"{col_name}='{val_str}' (contains invalid characters)")
+                    
+                    if problematic_values:
+                        detailed_msg += f"\nProblematic values found: {'; '.join(problematic_values)}"
+                
+                errors.append(detailed_msg)
+                logging.error(f"Error processing row {i+2} for cohort {cohort_id}: {error_msg}", exc_info=True)
 
         print(f"Finished processing cohort dictionary: {cohort_id}")
         
