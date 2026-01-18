@@ -7,7 +7,7 @@ from rdflib import Dataset, Namespace, URIRef
 from rdflib.namespace import RDF, RDFS, DC
 from enum import Enum
 import urllib.parse
-from SPARQLWrapper import JSON, SPARQLWrapper
+from SPARQLWrapper import JSON, POST, SPARQLWrapper
 
 from src.config import settings
 from src.models import Cohort, CohortVariable, VariableCategory
@@ -37,6 +37,8 @@ class OntologyNamespaces(Enum):
 
 query_endpoint = SPARQLWrapper(settings.query_endpoint)
 query_endpoint.setReturnFormat(JSON)
+# Use POST method for large queries (GET has 8KB header limit)
+query_endpoint.setMethod(POST)
 # Set timeout to 600 seconds (10 minutes) for large queries
 query_endpoint.setTimeout(600)
 # Enable HTTP connection keep-alive for better performance
