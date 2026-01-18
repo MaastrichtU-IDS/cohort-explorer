@@ -2150,6 +2150,12 @@ def _perform_triplestore_initialization():
             if latest_dict_file:
                 print(f"Using latest datadictionary file for {folder}: {os.path.basename(latest_dict_file)}, date: {os.path.getmtime(latest_dict_file)}")
                 g = load_cohort_dict_file(latest_dict_file, folder, source="init_triplestore")
+                
+                # Check if graph is empty (indicates processing failure)
+                if g is None or len(g) == 0:
+                    print(f"❌ Failed to process dictionary for cohort {folder} - graph is empty. Check logs above for details.")
+                    continue
+                
                 # Delete existing triples for this cohort before publishing new ones
                 # This ensures we don't have duplicate or conflicting triples
                 delete_existing_triples(get_cohort_graph_uri(folder))
