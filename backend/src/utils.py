@@ -208,7 +208,7 @@ def get_cohorts_metadata_query() -> str:
     """DEPRECATED: This old combined query has been replaced by two separate queries.
     Use get_studies_metadata_query() and get_variables_metadata_query() instead.
     This function is kept for backwards compatibility but may be removed in future versions."""
-    query = f"""
+    query = """
 PREFIX cmeo: <https://w3id.org/CMEO/>
 PREFIX obi: <http://purl.obolibrary.org/obo/obi.owl/>
 PREFIX bfo: <http://purl.obolibrary.org/obo/bfo.owl/>
@@ -245,129 +245,129 @@ WHERE {
         OPTIONAL { ?cohort icare:femalePercentage ?female_percentage . }
         
         # Get institute/organization information  
-        OPTIONAL {{
+        OPTIONAL {
             ?study_design_execution ro:has_participant ?institute_entity .
             ?institute_entity a obi:organization ;
                 cmeo:has_value ?cohortInstitution .
-        }}
+        }
         
         # Get study type from descriptor
-        OPTIONAL {{
+        OPTIONAL {
             ?study_design_execution ro:concretizes ?study_design .
             ?study_design sio:is_described_by ?study_type_entity .
             ?study_type_entity a sio:study_descriptor ;
                 cmeo:has_value ?study_type .
-        }}
+        }
         
         # Get study objective
-        OPTIONAL {{
+        OPTIONAL {
             ?study_design_execution ro:concretizes ?study_design .
             ?study_design ro:has_part ?protocol .
             ?protocol ro:has_part ?study_objective_entity .
             ?study_objective_entity a obi:objective_specification ;
                 cmeo:has_value ?study_objective .
-        }}
+        }
         
         # Get number of participants
-        OPTIONAL {{
+        OPTIONAL {
             ?protocol ro:has_part ?number_of_participants_entity .
             ?number_of_participants_entity a cmeo:number_of_participants ;
                 cmeo:has_value ?study_participants .
-        }}
+        }
         
         # Get timing information
-        OPTIONAL {{
+        OPTIONAL {
             ?study_design_execution iao:has_time_stamp ?start_date_entity .
             ?start_date_entity a cmeo:start_time ;
                 cmeo:has_value ?study_start .
-        }}
+        }
         
-        OPTIONAL {{
+        OPTIONAL {
             ?study_design_execution iao:has_time_stamp ?end_date_entity .
             ?end_date_entity a cmeo:end_time ;
                 cmeo:has_value ?study_end .
-        }}
+        }
         
-        OPTIONAL {{
+        OPTIONAL {
             ?study_design_execution ro:has_characteristic ?ongoing_entity .
             ?ongoing_entity a cmeo:ongoing ;
                 cmeo:has_value ?study_ongoing .
-        }}
+        }
         
         # Get outcome specifications (direct from protocol, not nested)
-        OPTIONAL {{
+        OPTIONAL {
             ?protocol ro:has_part ?primary_outcome_spec_entity .
             ?primary_outcome_spec_entity a cmeo:primary_outcome_specification ;
                 cmeo:has_value ?primary_outcome_spec .
-        }}
+        }
         
-        OPTIONAL {{
+        OPTIONAL {
             ?protocol ro:has_part ?secondary_outcome_spec_entity .
             ?secondary_outcome_spec_entity a cmeo:secondary_outcome_specification ;
                 cmeo:has_value ?secondary_outcome_spec .
-        }}
+        }
         
         # Get morbidity information
-        OPTIONAL {{
+        OPTIONAL {
             ?protocol ro:has_part ?morbidity_entity .
             ?morbidity_entity a obi:morbidity ;
                 cmeo:has_value ?morbidity .
-        }}
+        }
         
         # Get eligibility criteria and demographics
-        OPTIONAL {{
+        OPTIONAL {
             ?protocol ro:has_part ?eligibility .
             ?eligibility a obi:eligibility_criterion .
             
             # Male/female percentages
-            OPTIONAL {{
+            OPTIONAL {
                 ?eligibility ro:has_part ?male_percentage_entity .
                 ?male_percentage_entity a cmeo:male_percentage ;
                     cmeo:has_value ?male_percentage .
-            }}
+            }
             
-            OPTIONAL {{
+            OPTIONAL {
                 ?eligibility ro:has_part ?female_percentage_entity .
                 ?female_percentage_entity a cmeo:female_percentage ;
                     cmeo:has_value ?female_percentage .
-            }}
-        }}
+            }
+        }
         
         # Get age distribution
-        OPTIONAL {{
+        OPTIONAL {
             ?study_design_execution ro:has_characteristic ?age_distribution_entity .
             ?age_distribution_entity a obi:age_distribution ;
                 cmeo:has_value ?age_distribution .
-        }}
+        }
         
         # Get population location
-        OPTIONAL {{
+        OPTIONAL {
             ?study_design_execution ro:has_characteristic ?population_location_entity .
             ?population_location_entity a bfo:site ;
                 cmeo:has_value ?population_location .
-        }}
+        }
         
         # Get language (direct property)
-        OPTIONAL {{
+        OPTIONAL {
             ?study_design_execution dc:language ?language .
-        }}
+        }
         
         # Get contact information (simplified - direct participants)
-        OPTIONAL {{
+        OPTIONAL {
             ?study_design_execution ro:has_participant ?study_contact_person_entity .
             ?study_contact_person_entity a cmeo:homo_sapiens ;
                 cmeo:has_value ?study_contact_person .
-        }}
+        }
         
-        OPTIONAL {{
+        OPTIONAL {
             ?study_design_execution ro:has_participant ?administrator_entity .
             ?administrator_entity a cmeo:homo_sapiens ;
                 cmeo:has_value ?administrator .
-        }}
-    }}
+        }
+    }
     
-    OPTIONAL {{
-        GRAPH ?cohortGraph {{
+    OPTIONAL {
+        GRAPH ?cohortGraph {
             ?cohort icare:hasVariable ?variable .
             ?variable dc:identifier ?varName ;
                 rdfs:label ?varLabel ;
@@ -406,7 +406,6 @@ WHERE {
                 ?category icare:mappedId ?categoryMappedId .
                 OPTIONAL { ?categoryMappedId rdfs:label ?categoryMappedLabel }
             }
-            # OPTIONAL { ?cohort icare:previewEnabled ?airlock . }
         }
     }
 } ORDER BY ?cohort ?index
