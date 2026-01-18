@@ -1614,7 +1614,7 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
             g.add((cohort_uri, ICARE.morbidity, Literal(row["Morbidity"]), cohorts_graph))
             
         # Keep original study name for identifier, normalized for URI
-        original_study_name = str(row["study name"]).strip()
+        original_study_name = str(row["Study Name"]).strip()
         study_name = normalize_text(original_study_name)
         study_uri = URIRef(OntologyNamespaces.CMEO.value + study_name)
         study_design_execution_uri = URIRef(study_uri + "/study_design_execution")
@@ -1830,7 +1830,7 @@ def handle_special_fields(g: Graph, row: pd.Series, study_design_execution_uri: 
             g.add((eligibility_criterion_uri, OntologyNamespaces.RO.value.has_part, female_percentage_uri, metadata_graph))
             g.add((female_percentage_uri, OntologyNamespaces.CMEO.value.has_value, Literal(female_percentage, datatype=XSD.float), metadata_graph))
         
-        print(f"Mixed Sex parsing for {row.get('study name', 'unknown')}: '{mixed_sex_value}' → Male: {male_percentage}, Female: {female_percentage}")
+        print(f"Mixed Sex parsing for {row.get('Study Name', 'unknown')}: '{mixed_sex_value}' → Male: {male_percentage}, Female: {female_percentage}")
     
     # Handle morbidity as characteristic of output population (matches query expectations)
     if pd.notna(row.get("morbidity", "")):
