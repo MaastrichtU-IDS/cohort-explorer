@@ -27,15 +27,15 @@ SELECT
   (SAMPLE(?population_location) AS ?population_location)
   (SAMPLE(?language) AS ?language)
 	(SAMPLE(?duration) AS ?duration) 
-  (SAMPLE(?data_collection_frequency) AS ?data_collection_frequency)   # ⟵ NEW
+  (SAMPLE(?data_collection_frequency) AS ?data_collection_frequency)   #  NEW
   (SAMPLE(?interventions) AS ?interventions)
-  (SAMPLE(?inclusion_labels)   AS ?inclusion_labels)   # ⟵ NEW
-  (SAMPLE(?inclusion_values)   AS ?inclusion_values)   # ⟵ NEW
-  (SAMPLE(?exclusion_labels)   AS ?exclusion_labels)   # ⟵ NEW
-  (SAMPLE(?exclusion_values)   AS ?exclusion_values)   # ⟵ NEW
-  (SAMPLE(?variable_uris) AS ?variable_uris)  # ⟵ NEW
-  (SAMPLE(?primary_outcome_spec) AS ?primary_outcome_spec)   # ⟵ NEW
-  (SAMPLE(?secondary_outcome_spec) AS ?secondary_outcome_spec)   # ⟵ NEW
+  (SAMPLE(?inclusion_labels)   AS ?inclusion_labels)   #  NEW
+  (SAMPLE(?inclusion_values)   AS ?inclusion_values)   #  NEW
+  (SAMPLE(?exclusion_labels)   AS ?exclusion_labels)   #  NEW
+  (SAMPLE(?exclusion_values)   AS ?exclusion_values)   #  NEW
+  (SAMPLE(?variable_uris) AS ?variable_uris)  #  NEW
+  (SAMPLE(?primary_outcome_spec) AS ?primary_outcome_spec)   #  NEW
+  (SAMPLE(?secondary_outcome_spec) AS ?secondary_outcome_spec)   #  NEW
   (SAMPLE(?morbidity) AS ?morbidity)
 WHERE {
   GRAPH <https://w3id.org/CMEO/graph/studies_metadata> {
