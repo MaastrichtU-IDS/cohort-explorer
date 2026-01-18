@@ -120,9 +120,17 @@ curie_converter = curies.load_extended_prefix_map(prefix_map)
 #     return g
 
 def normalize_text(text: str) -> str:
-    if text is None or text == "nan" or text == "":
+    if text is None:
         return None
-    text = str(text).lower().strip().replace(" ", "_").replace("/", "_").replace(":", "_").replace('[','').replace(']','')
+    # Convert to string and strip whitespace first
+    text = str(text).strip()
+    # Check for empty or nan after stripping
+    if text == "" or text.lower() == "nan":
+        return None
+    text = text.lower().replace(" ", "_").replace("/", "_").replace(":", "_").replace('[','').replace(']','')
+    # Final check - if after all replacements we have empty string, return None
+    if not text:
+        return None
     return urllib.parse.quote(text, safe='_-')
 
 

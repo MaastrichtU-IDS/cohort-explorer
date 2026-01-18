@@ -787,8 +787,12 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
                     
                     if column_name_from_df == "categories" and isinstance(col_value, list): # 'categories' is our parsed list
                         for index, category in enumerate(col_value):
+                            # Skip categories with empty labels to prevent Invalid IRI errors
+                            normalized_label = normalize_text(category['label'])
+                            if not normalized_label:
+                                continue
                             # Use CMEO model: obi:categorical_value_specification
-                            cat_uri = URIRef(f"{variable_uri}/categorical_value_specification/{normalize_text(category['label'])}")
+                            cat_uri = URIRef(f"{variable_uri}/categorical_value_specification/{normalized_label}")
                             g.add((cat_uri, RDF.type, OntologyNamespaces.OBI.value.categorical_value_specification, cohort_graph_uri))
                             g.add((cat_uri, OntologyNamespaces.OBI.value.specifies_value_of, variable_uri, cohort_graph_uri))
                             g.add((cat_uri, OntologyNamespaces.CMEO.value.has_value, Literal(category["value"]), cohort_graph_uri))
