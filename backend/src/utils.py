@@ -208,7 +208,7 @@ def get_cohorts_metadata_query() -> str:
     """DEPRECATED: This old combined query has been replaced by two separate queries.
     Use get_studies_metadata_query() and get_variables_metadata_query() instead.
     This function is kept for backwards compatibility but may be removed in future versions."""
-    query = f"""
+    query = """
 PREFIX cmeo: <https://w3id.org/CMEO/>
 PREFIX obi: <http://purl.obolibrary.org/obo/obi.owl/>
 PREFIX bfo: <http://purl.obolibrary.org/obo/bfo.owl/>
@@ -224,7 +224,7 @@ SELECT DISTINCT ?cohortId ?cohortInstitution ?cohortEmail ?study_type ?study_par
     ?variable ?varName ?varLabel ?varType ?index ?count ?na ?max ?min ?units ?formula ?definition
     ?omopDomain ?conceptId ?conceptCode ?conceptName ?omopId ?mappedId ?mappedLabel ?visits ?visitConceptName ?categoryValue ?categoryLabel ?categoryConceptId ?categoryMappedId ?categoryMappedLabel
 WHERE {
-    GRAPH ?cohortMetadataGraph {
+    GRAPH ?cohortMetadatXaGraph {
         ?cohort a icare:Cohort ;
             dc:identifier ?cohortId ;
             icare:institution ?cohortInstitution .
@@ -409,7 +409,8 @@ WHERE {
         }
     }
 } ORDER BY ?cohort ?index
-"""
+""".format(ICARE=str(ICARE))
+    return query
 
 
 # TODO: Utility to get value or None if key is missing or value is empty string
