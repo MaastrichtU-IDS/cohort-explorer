@@ -755,10 +755,8 @@ def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = F
         return {
             "cohorts": cohorts,
             "sparql_metadata": {
-                "row_count": len(studies_results) + len(variables_results),
-                "studies_count": len(studies_results),
-                "variables_count": len(variables_results),
-                "query_duration_ms": round(total_query_duration * 1000),
+                "row_count": len(results),
+                "query_duration_ms": round(query_duration * 1000),
                 "processing_duration_ms": round(processing_duration * 1000),
                 "total_duration_ms": round(total_duration * 1000)
             }
