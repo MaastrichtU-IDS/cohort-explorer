@@ -750,18 +750,20 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
         cohort_uri = get_cohort_uri(cohort_id)
         cohort_graph_uri = get_cohort_graph_uri(cohort_id)
         g = init_graph()
-        g.add((cohort_uri, RDF.type, ICARE.Cohort, cohort_graph_uri))
+        # Use CMEO ontology: cmeo:study instead of icare:Cohort
+        g.add((cohort_uri, RDF.type, OntologyNamespaces.CMEO.value.study, cohort_graph_uri))
         g.add((cohort_uri, DC.identifier, Literal(cohort_id), cohort_graph_uri))
+        g.add((cohort_uri, RDFS.label, Literal(cohort_id), cohort_graph_uri))
 
         i = 0
         for i, row in df.iterrows():
             try:
                 variable_uri = get_var_uri(cohort_id, row["VARIABLENAME"])
-                g.add((cohort_uri, ICARE.hasVariable, variable_uri, cohort_graph_uri))
-                g.add((variable_uri, RDF.type, ICARE.Variable, cohort_graph_uri))
+                # Use CMEO ontology: cmeo:data_element instead of icare:Variable
+                # Note: CMEO model doesn't use hasVariable relationship, variables are just in the same graph
+                g.add((variable_uri, RDF.type, OntologyNamespaces.CMEO.value.data_element, cohort_graph_uri))
                 g.add((variable_uri, DC.identifier, Literal(row["VARIABLENAME"]), cohort_graph_uri))
                 g.add((variable_uri, RDFS.label, Literal(row["VARIABLELABEL"]), cohort_graph_uri))
-                g.add((variable_uri, ICARE["index"], Literal(i, datatype=XSD.integer), cohort_graph_uri))
 
                 # Get categories code if provided (re-fetch for graph generation phase)
                 categories_codes = []
@@ -772,7 +774,8 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
                     #print("in load_cohort_dict_file -- column_name_from_df value:", column_name_from_df)
                     # Use the already normalized column_name_from_df
                     if column_name_from_df not in ["categories"] and col_value: # Exclude our temporary 'categories' column
-                        property_uri = ICARE[to_camelcase(column_name_from_df)] # to_camelcase expects original-like names
+                        # Use CMEO namespace for properties
+                        property_uri = OntologyNamespaces.CMEO.value[to_camelcase(column_name_from_df)]
                         if (
                             isinstance(col_value, str)
                             and (col_value.startswith("http://") or col_value.startswith("https://"))
@@ -784,10 +787,11 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
                     
                     if column_name_from_df == "categories" and isinstance(col_value, list): # 'categories' is our parsed list
                         for index, category in enumerate(col_value):
-                            cat_uri = get_category_uri(variable_uri, index) # Use index for unique category URI part
-                            g.add((variable_uri, ICARE.categories, cat_uri, cohort_graph_uri))
-                            g.add((cat_uri, RDF.type, ICARE.VariableCategory, cohort_graph_uri))
-                            g.add((cat_uri, RDF.value, Literal(category["value"]), cohort_graph_uri))
+                            # Use CMEO model: obi:categorical_value_specification
+                            cat_uri = URIRef(f"{variable_uri}/categorical_value_specification/{normalize_text(category['label'])}")
+                            g.add((cat_uri, RDF.type, OntologyNamespaces.OBI.value.categorical_value_specification, cohort_graph_uri))
+                            g.add((cat_uri, OntologyNamespaces.OBI.value.specifies_value_of, variable_uri, cohort_graph_uri))
+                            g.add((cat_uri, OntologyNamespaces.CMEO.value.has_value, Literal(category["value"]), cohort_graph_uri))
                             g.add((cat_uri, RDFS.label, Literal(category["label"]), cohort_graph_uri))
                             
                             if index < len(categories_codes):
@@ -800,8 +804,9 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
                                             #print(f"Adding category code {cat_code_uri} for category {category['value']} in cohort {cohort_id}, line {i}")
                                             # Another temp fix just for TIM-HF!!
                                             # cat_code_uri = cat_code_uri.lower().replace("ucum/%", "ucum/percent").replace("[", "").replace("]", "")
-                                            #print(f"Adding category code {cat_code_uri} for category {category['value']} in cohort {cohort_id}, line {i}, cat_uri: {cat_uri}, conceptId: {ICARE.conceptId}")
-                                            g.add((cat_uri, ICARE.conceptId, URIRef(cat_code_uri), cohort_graph_uri))
+                                            #print(f"Adding category code {cat_code_uri} for category {category['value']} in cohort {cohort_id}, line {i}, cat_uri: {cat_uri}")
+                                            # Store concept code using CMEO model (will be added via standardization process)
+                                            g.add((cat_uri, OntologyNamespaces.CMEO.value.conceptId, URIRef(cat_code_uri), cohort_graph_uri))
                                     except Exception as curie_exc:
                                         error_msg = str(curie_exc)
                                         var_name = row.get("VARIABLENAME", f"UNKNOWN_VAR_ROW_{i+2}")
@@ -1587,72 +1592,71 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
         cohort_id = str(row["study name"]).strip()
         # print(cohort_id)
         cohort_uri = get_cohort_uri(cohort_id)
-        cohorts_graph = ICARE["graph/metadata"]
-
-        g.add((cohort_uri, RDF.type, ICARE.Cohort, cohorts_graph))
-        g.add((cohort_uri, DC.identifier, Literal(cohort_id), cohorts_graph))
-        g.add((cohort_uri, ICARE.institution, Literal(row["institute"]), cohorts_graph))
+        # Use CMEO ontology: cmeo:study instead of icare:Cohort
+        g.add((cohort_uri, RDF.type, OntologyNamespaces.CMEO.value.study, metadata_graph))
+        g.add((cohort_uri, DC.identifier, Literal(cohort_id), metadata_graph))
+        g.add((cohort_uri, RDFS.label, Literal(cohort_id), metadata_graph))
+        g.add((cohort_uri, OntologyNamespaces.CMEO.value.institution, Literal(row["institute"]), metadata_graph))
         # Administrator information
         if is_valid_value(row.get("administrator", "")):
-            g.add((cohort_uri, ICARE.administrator, Literal(row["administrator"]), cohorts_graph))
+            g.add((cohort_uri, OntologyNamespaces.CMEO.value.administrator, Literal(row["administrator"]), metadata_graph))
         if is_valid_value(row.get("administrator email address", "")):
-            # Store as administratorEmail for backward compatibility
-            g.add((cohort_uri, ICARE.administratorEmail, Literal(row["administrator email address"].lower()), cohorts_graph))
-            # Also add to icare:email predicate (split by semicolon) for cohort ownership permissions
+            g.add((cohort_uri, OntologyNamespaces.CMEO.value.administratorEmail, Literal(row["administrator email address"].lower()), metadata_graph))
+            # Also add to cmeo:email predicate (split by semicolon) for cohort ownership permissions
             for email in row["administrator email address"].split(";"):
-                g.add((cohort_uri, ICARE.email, Literal(email.strip().lower()), cohorts_graph))
+                g.add((cohort_uri, OntologyNamespaces.CMEO.value.email, Literal(email.strip().lower()), metadata_graph))
         # Study contact person information
         if is_valid_value(row["study contact person"]):
-            g.add((cohort_uri, DC.creator, Literal(row["study contact person"]), cohorts_graph))
+            g.add((cohort_uri, DC.creator, Literal(row["study contact person"]), metadata_graph))
         if is_valid_value(row["study contact person email address"]):
             for email in row["study contact person email address"].split(";"):
-                g.add((cohort_uri, ICARE.email, Literal(email.strip().lower()), cohorts_graph))
+                g.add((cohort_uri, OntologyNamespaces.CMEO.value.email, Literal(email.strip().lower()), metadata_graph))
         # References
         if is_valid_value(row.get("references", "")):
             for reference in row["references"].split(";"):
-                g.add((cohort_uri, ICARE.references, Literal(reference.strip()), cohorts_graph))
+                g.add((cohort_uri, OntologyNamespaces.CMEO.value.references, Literal(reference.strip()), metadata_graph))
                 
         # Additional metadata fields
         if is_valid_value(row.get("population location", "")):
-            g.add((cohort_uri, ICARE.populationLocation, Literal(row["population location"]), cohorts_graph))
+            g.add((cohort_uri, OntologyNamespaces.CMEO.value.populationLocation, Literal(row["population location"]), metadata_graph))
         if is_valid_value(row.get("language", "")):
-            g.add((cohort_uri, ICARE.language, Literal(row["language"]), cohorts_graph))
+            g.add((cohort_uri, OntologyNamespaces.CMEO.value.language, Literal(row["language"]), metadata_graph))
         if is_valid_value(row.get("frequency of data collection", "")):
-            g.add((cohort_uri, ICARE.dataCollectionFrequency, Literal(row["frequency of data collection"]), cohorts_graph))
+            g.add((cohort_uri, OntologyNamespaces.CMEO.value.dataCollectionFrequency, Literal(row["frequency of data collection"]), metadata_graph))
         if is_valid_value(row.get("interventions", "")):
-            g.add((cohort_uri, ICARE.interventions, Literal(row["interventions"]), cohorts_graph))
+            g.add((cohort_uri, OntologyNamespaces.CMEO.value.interventions, Literal(row["interventions"]), metadata_graph))
         if is_valid_value(row["study type"]):
             # Split study types on '/' and add each as a separate triple
             study_types = [st.strip() for st in row["study type"].split("/")]
             for study_type in study_types:
-                g.add((cohort_uri, ICARE.cohortType, Literal(study_type), cohorts_graph))
+                g.add((cohort_uri, OntologyNamespaces.CMEO.value.cohortType, Literal(study_type), metadata_graph))
         if is_valid_value(row["study design"]):
-            g.add((cohort_uri, ICARE.studyType, Literal(row["study design"]), cohorts_graph))
+            g.add((cohort_uri, OntologyNamespaces.CMEO.value.studyType, Literal(row["study design"]), metadata_graph))
         #if is_valid_value(row["Study duration"]):
         #    g.add((cohort_uri, ICARE.studyDuration, Literal(row["Study duration"]), cohorts_graph))
         if is_valid_value(row["start date"]) and is_valid_value(row["end date"]):
-            g.add((cohort_uri, ICARE.studyStart, Literal(row["start date"]), cohorts_graph))
-            g.add((cohort_uri, ICARE.studyEnd, Literal(row["end date"]), cohorts_graph))
+            g.add((cohort_uri, OntologyNamespaces.CMEO.value.studyStart, Literal(row["start date"]), metadata_graph))
+            g.add((cohort_uri, OntologyNamespaces.CMEO.value.studyEnd, Literal(row["end date"]), metadata_graph))
         if is_valid_value(row["number of participants"]):
-            g.add((cohort_uri, ICARE.studyParticipants, Literal(row["number of participants"]), cohorts_graph))
+            g.add((cohort_uri, OntologyNamespaces.CMEO.value.studyParticipants, Literal(row["number of participants"]), metadata_graph))
         if is_valid_value(row["ongoing"]):
-            g.add((cohort_uri, ICARE.studyOngoing, Literal(row["ongoing"]), cohorts_graph))
+            g.add((cohort_uri, OntologyNamespaces.CMEO.value.studyOngoing, Literal(row["ongoing"]), metadata_graph))
         #if is_valid_value(row["Patient population"]):
-        #    g.add((cohort_uri, ICARE.studyPopulation, Literal(row["Patient population"]), cohorts_graph))
+        #    g.add((cohort_uri, OntologyNamespaces.CMEO.value.studyPopulation, Literal(row["Patient population"]), metadata_graph))
         if is_valid_value(row["study objective"]):
-            g.add((cohort_uri, ICARE.studyObjective, Literal(row["study objective"]), cohorts_graph))
+            g.add((cohort_uri, OntologyNamespaces.CMEO.value.studyObjective, Literal(row["study objective"]), metadata_graph))
             
         # Handle primary outcome specification
         if "primary outcome specification" in row and is_valid_value(row["primary outcome specification"]):
-            g.add((cohort_uri, ICARE.primaryOutcomeSpec, Literal(row["primary outcome specification"]), cohorts_graph))
+            g.add((cohort_uri, OntologyNamespaces.CMEO.value.primaryOutcomeSpec, Literal(row["primary outcome specification"]), metadata_graph))
             
         # Handle secondary outcome specification
         if "secondary outcome specification" in row and is_valid_value(row["secondary outcome specification"]):
-            g.add((cohort_uri, ICARE.secondaryOutcomeSpec, Literal(row["secondary outcome specification"]), cohorts_graph))
+            g.add((cohort_uri, OntologyNamespaces.CMEO.value.secondaryOutcomeSpec, Literal(row["secondary outcome specification"]), metadata_graph))
             
         # Handle morbidity
         if "morbidity" in row and is_valid_value(row["morbidity"]):
-            g.add((cohort_uri, ICARE.morbidity, Literal(row["morbidity"]), cohorts_graph))
+            g.add((cohort_uri, OntologyNamespaces.CMEO.value.morbidity, Literal(row["morbidity"]), metadata_graph))
             
         # Keep original study name for identifier, normalized for URI
         original_study_name = str(row["study name"]).strip()
