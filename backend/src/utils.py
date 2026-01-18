@@ -501,107 +501,23 @@ def get_studies_metadata_query() -> str:
 
 
 def get_variables_metadata_query() -> str:
-    """Get SPARQL query for retrieving variables metadata using ICARE ontology.
+    """Get SPARQL query for retrieving variables metadata (from sparql_queries.txt).
     
-    This query retrieves all cohort and variable metadata from the triplestore.
+    The query is extracted from the second query in the file (lines 294-418).
+    Note: Line numbers are 1-indexed in the file, but 0-indexed in the list.
     """
-    query = """PREFIX icare: <https://w3id.org/icare4cvd/>
-PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-PREFIX dc: <http://purl.org/dc/elements/1.1/>
-PREFIX dcterms: <http://purl.org/dc/terms/>
-
-SELECT DISTINCT ?cohortId ?institution ?study_type ?study_participants ?study_duration ?study_ongoing ?study_population ?study_objective ?primary_outcome_spec ?secondary_outcome_spec ?morbidity ?study_start ?study_end ?male_percentage ?female_percentage ?administrator ?administrator_email ?study_contact_person ?study_contact_person_email ?references ?population_location ?language ?data_collection_frequency ?interventions ?sex_inclusion ?health_status_inclusion ?clinically_relevant_exposure_inclusion ?age_group_inclusion ?bmi_range_inclusion ?ethnicity_inclusion ?family_status_inclusion ?hospital_patient_inclusion ?use_of_medication_inclusion ?health_status_exclusion ?bmi_range_exclusion ?limited_life_expectancy_exclusion ?need_for_surgery_exclusion ?surgical_procedure_history_exclusion ?clinically_relevant_exposure_exclusion ?varName ?varLabel ?varType ?index ?count ?na ?max ?min ?units ?formula ?definition ?conceptId ?conceptCode ?conceptName ?omopId ?omopDomain ?visits ?visitConceptName ?categoryValue ?categoryLabel ?categoryConceptId ?mappedId ?mappedLabel ?categoryMappedId ?categoryMappedLabel
-WHERE {
-    GRAPH ?cohortMetadataGraph {
-        ?cohort a icare:Cohort ;
-            dc:identifier ?cohortId .
-        OPTIONAL { ?cohort icare:institution ?institution . }
-        OPTIONAL { ?cohort icare:studyType ?study_type . }
-        OPTIONAL { ?cohort icare:studyParticipants ?study_participants . }
-        OPTIONAL { ?cohort icare:studyDuration ?study_duration . }
-        OPTIONAL { ?cohort icare:studyOngoing ?study_ongoing . }
-        OPTIONAL { ?cohort icare:studyPopulation ?study_population . }
-        OPTIONAL { ?cohort icare:studyObjective ?study_objective . }
-        OPTIONAL { ?cohort icare:primaryOutcomeSpec ?primary_outcome_spec . }
-        OPTIONAL { ?cohort icare:secondaryOutcomeSpec ?secondary_outcome_spec . }
-        OPTIONAL { ?cohort icare:morbidity ?morbidity . }
-        OPTIONAL { ?cohort icare:studyStart ?study_start . }
-        OPTIONAL { ?cohort icare:studyEnd ?study_end . }
-        OPTIONAL { ?cohort icare:malePercentage ?male_percentage . }
-        OPTIONAL { ?cohort icare:femalePercentage ?female_percentage . }
-        OPTIONAL { ?cohort icare:administrator ?administrator . }
-        OPTIONAL { ?cohort icare:administratorEmail ?administrator_email . }
-        OPTIONAL { ?cohort dc:creator ?study_contact_person . }
-        OPTIONAL { ?cohort icare:email ?study_contact_person_email . }
-        OPTIONAL { ?cohort icare:references ?references . }
-        OPTIONAL { ?cohort icare:populationLocation ?population_location . }
-        OPTIONAL { ?cohort icare:language ?language . }
-        OPTIONAL { ?cohort icare:dataCollectionFrequency ?data_collection_frequency . }
-        OPTIONAL { ?cohort icare:interventions ?interventions . }
-        OPTIONAL { ?cohort icare:sexInclusion ?sex_inclusion . }
-        OPTIONAL { ?cohort icare:healthStatusInclusion ?health_status_inclusion . }
-        OPTIONAL { ?cohort icare:clinicallyRelevantExposureInclusion ?clinically_relevant_exposure_inclusion . }
-        OPTIONAL { ?cohort icare:ageGroupInclusion ?age_group_inclusion . }
-        OPTIONAL { ?cohort icare:bmiRangeInclusion ?bmi_range_inclusion . }
-        OPTIONAL { ?cohort icare:ethnicityInclusion ?ethnicity_inclusion . }
-        OPTIONAL { ?cohort icare:familyStatusInclusion ?family_status_inclusion . }
-        OPTIONAL { ?cohort icare:hospitalPatientInclusion ?hospital_patient_inclusion . }
-        OPTIONAL { ?cohort icare:useOfMedicationInclusion ?use_of_medication_inclusion . }
-        OPTIONAL { ?cohort icare:healthStatusExclusion ?health_status_exclusion . }
-        OPTIONAL { ?cohort icare:bmiRangeExclusion ?bmi_range_exclusion . }
-        OPTIONAL { ?cohort icare:limitedLifeExpectancyExclusion ?limited_life_expectancy_exclusion . }
-        OPTIONAL { ?cohort icare:needForSurgeryExclusion ?need_for_surgery_exclusion . }
-        OPTIONAL { ?cohort icare:surgicalProcedureHistoryExclusion ?surgical_procedure_history_exclusion . }
-        OPTIONAL { ?cohort icare:clinicallyRelevantExposureExclusion ?clinically_relevant_exposure_exclusion . }
-    }
-
-    OPTIONAL {
-        BIND(?cohort AS ?cohortVarGraph)
-        GRAPH ?cohortVarGraph {
-            ?cohort icare:hasVariable ?variable .
-            ?variable a icare:Variable ;
-                dc:identifier ?varName ;
-                rdfs:label ?varLabel ;
-                icare:varType ?varType ;
-                icare:index ?index .
-            OPTIONAL { ?variable icare:count ?count }
-            OPTIONAL { ?variable icare:na ?na }
-            OPTIONAL { ?variable icare:max ?max }
-            OPTIONAL { ?variable icare:min ?min }
-            OPTIONAL { ?variable icare:units ?units }
-            OPTIONAL { ?variable icare:formula ?formula }
-            OPTIONAL { ?variable icare:definition ?definition }
-            OPTIONAL { ?variable icare:conceptId ?conceptId }
-            OPTIONAL { ?variable icare:conceptCode ?conceptCode }
-            OPTIONAL { ?variable icare:conceptName ?conceptName }
-            OPTIONAL { ?variable icare:omopId ?omopId }
-            OPTIONAL { ?variable icare:domain ?omopDomain }
-            OPTIONAL { ?variable icare:visits ?visits }
-            OPTIONAL { ?variable icare:visitConceptName ?visitConceptName }
-            OPTIONAL {
-                ?variable icare:categories ?category.
-                ?category rdfs:label ?categoryLabel ;
-                    rdf:value ?categoryValue .
-                OPTIONAL { ?category icare:conceptId ?categoryConceptId }
-            }
-        }
-    }
-
-    OPTIONAL {
-        GRAPH ?cohortMappingsGraph {
-            OPTIONAL {
-                ?variable icare:mappedId ?mappedId .
-                OPTIONAL { ?mappedId rdfs:label ?mappedLabel }
-            }
-            OPTIONAL {
-                ?category icare:mappedId ?categoryMappedId .
-                OPTIONAL { ?categoryMappedId rdfs:label ?categoryMappedLabel }
-            }
-        }
-    }
-} ORDER BY ?cohort ?index
-"""
+    import os
+    query_file = os.path.join(os.path.dirname(__file__), '..', 'CohortVarLinker', 'queries', 'sparql_queries.txt')
+    
+    with open(query_file, 'r') as f:
+        lines = f.readlines()
+    
+    # Extract only the SPARQL lines for Query 2 (prefixes + SELECT + WHERE)
+    # Line 294 (index 293): comment "Query 2: All variables from each study graph"
+    # Line 295 (index 294): first PREFIX (stato)
+    # Line 419 (index 418): closing brace of Query 2
+    # Skip the comment line, start from first PREFIX
+    query = ''.join(lines[294:419]).strip()
     return query
 
 
