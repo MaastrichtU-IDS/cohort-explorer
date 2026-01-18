@@ -432,6 +432,87 @@ WHERE {
         }
       } GROUP BY ?g ?var
     }
+  
+    # ---------------- Variable concept info (codes, labels, omop_id) ----------------
+    OPTIONAL {
+      SELECT ?g ?var 
+             (GROUP_CONCAT(DISTINCT ?code_val; SEPARATOR="|") AS ?concept_codes)
+             (GROUP_CONCAT(DISTINCT ?code_lbl; SEPARATOR="|") AS ?concept_labels)
+             (GROUP_CONCAT(DISTINCT ?omop_val; SEPARATOR="|") AS ?concept_omop_id)
+      WHERE {
+        GRAPH ?g {
+          ?var obi:is_specified_input_of ?data_std .
+          ?data_std a cmeo:data_standardization ;
+                    obi:has_specified_output ?code_set .
+          ?code_set a cmeo:code ;
+                    ro:has_part ?code .
+          ?code a cmeo:code ;
+                rdfs:label ?code_lbl ;
+                cmeo:has_value ?code_val .
+          OPTIONAL {
+            ?code iao:denotes ?omop_class .
+            ?omop_class a cmeo:omop_id ;
+                        cmeo:has_value ?omop_val .
+          }
+        }
+      } GROUP BY ?g ?var
+    }
+  
+    # ---------------- Unit value ----------------
+    OPTIONAL {
+      SELECT ?g ?var (SAMPLE(?u_val) AS ?unit_value)
+      WHERE {
+        GRAPH ?g {
+          ?unit_datum a cmeo:unit ;
+                      iao:is_about ?var ;
+                      cmeo:has_value ?u_val .
+        }
+      } GROUP BY ?g ?var
+    }
+  
+    # ---------------- Visit info ----------------
+    OPTIONAL {
+      SELECT ?g ?var (GROUP_CONCAT(DISTINCT ?visit_lbl; SEPARATOR="|") AS ?visit)
+      WHERE {
+        GRAPH ?g {
+          ?visit_datum a cmeo:visit_measurement_datum ;
+                       iao:is_about ?var ;
+                       obi:is_specified_input_of ?vs_proc .
+          ?vs_proc obi:has_specified_output ?visit_code .
+          ?visit_code rdfs:label ?visit_lbl .
+        }
+      } GROUP BY ?g ?var
+    }
+  
+    # ---------------- Statistics (count, min, max) ----------------
+    OPTIONAL {
+      SELECT ?g ?var 
+             (SAMPLE(?cnt) AS ?count_value)
+             (SAMPLE(?min_val) AS ?minimum_value)
+             (SAMPLE(?max_val) AS ?maximum_value)
+      WHERE {
+        GRAPH ?g {
+          ?transformed_data iao:is_about ?var ;
+                            obi:has_specified_output ?statistic .
+          ?statistic a stato:statistic .
+          OPTIONAL {
+            ?statistic ro:has_part ?count_node .
+            ?count_node a stato:count_ ;
+                        cmeo:has_value ?cnt .
+          }
+          OPTIONAL {
+            ?statistic ro:has_part ?min_node .
+            ?min_node a stato:minimum_value ;
+                      cmeo:has_value ?min_val .
+          }
+          OPTIONAL {
+            ?statistic ro:has_part ?max_node .
+            ?max_node a stato:maximum_value ;
+                      cmeo:has_value ?max_val .
+          }
+        }
+      } GROUP BY ?g ?var
+    }
 }
 
 # Query 3: Cross Mapping 
