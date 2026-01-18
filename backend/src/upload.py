@@ -646,6 +646,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
     errors = []
     success = False
     graph_triples_count = 0
+    g = None  # Initialize graph variable to avoid UnboundLocalError
     
     # Get file information for logging
     if os.path.exists(dict_path):
@@ -874,7 +875,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
     # Update the cohort cache directly from the graph data
     # This is more efficient than retrieving it from the triplestore later
     # Only update cache if this is called from upload API, not from init_triplestore
-    if source == "upload_dict":
+    if source == "upload_dict" and g is not None:
         from src.cohort_cache import create_cohort_from_dict_file
         cohort_uri = get_cohort_uri(cohort_id)
         create_cohort_from_dict_file(cohort_id, cohort_uri, g)
