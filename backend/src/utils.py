@@ -570,8 +570,13 @@ def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = F
             logging.info(f"Processing progress: {rows_processed}/{total_rows} rows ({progress_pct:.1f}%) - {elapsed:.1f}s elapsed")
             last_progress_log = current_time
         try:
-            cohort_id = str(row["cohortId"]["value"])
-            var_id = str(row["varName"]["value"]) if "varName" in row else None
+            # CMEO query returns 'study_name' and 'var_name' instead of 'cohortId' and 'varName'
+            cohort_id = str(row["study_name"]["value"]) if "study_name" in row else None
+            var_id = str(row["var_name"]["value"]) if "var_name" in row else None
+            
+            if not cohort_id:
+                logging.warning(f"Skipping row with missing study_name: {list(row.keys())}")
+                continue
             
             # Check if cohort exists in EITHER dictionary to avoid duplicates
             cohort_exists = cohort_id in cohorts_with_variables or cohort_id in cohorts_without_variables
@@ -592,8 +597,8 @@ def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = F
             # Initialize cohort data structure if not exists
             if cohort_id and not cohort_exists:
                 cohort = Cohort(
-                    cohort_id=get_value("cohortId", row),
-                    institution=get_value("cohortInstitution", row),
+                    cohort_id=cohort_id,
+                    institution=get_value("institution", row),
                     study_type=get_value("study_type", row),
                     study_participants=get_value("study_participants", row),
                     study_duration=get_value("duration", row),  # Note: new query uses "duration" not "study_duration"
@@ -643,13 +648,13 @@ def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = F
                 target_dict[cohort_id] = cohort
                 
                 # Debug logging for cohort creation
-                cohort_email = get_value("cohortEmail", row).lower() if get_value("cohortEmail", row) else ""
+                cohort_email = get_value("cohort_email", row).lower() if get_value("cohort_email", row) else ""
                 is_admin = user_email in settings.admins_list
                 is_cohort_owner = user_email == cohort_email
                 can_edit = is_admin or is_cohort_owner
                 
                 logging.debug(
-                    f"Cohort {get_value('cohortId', row)} - "
+                    f"Cohort {cohort_id} - "
                     f"User: {user_email}, "
                     f"Cohort Email: {cohort_email}, "
                     f"Is Admin: {is_admin}, "
@@ -668,9 +673,9 @@ def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = F
                     logging.debug(f"Skipping physical dictionary check for cohort_id={cohort_id}: {_e}")
                     target_dict[cohort_id].physical_dictionary_exists = False
 
-            elif get_value("cohortEmail", row).lower() not in target_dict[cohort_id].cohort_email:
+            elif get_value("cohort_email", row) and get_value("cohort_email", row).lower() not in target_dict[cohort_id].cohort_email:
                 # Handle multiple emails for the same cohort
-                cohort_email = get_value("cohortEmail", row).lower() if get_value("cohortEmail", row) else ""
+                cohort_email = get_value("cohort_email", row).lower()
                 if cohort_email:
                     target_dict[cohort_id].cohort_email.append(cohort_email)
                     if user_email == cohort_email:
@@ -682,25 +687,50 @@ def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = F
                 target_dict[cohort_id].references.append(get_value("references", row))
 
             # Process variables
-            if "varName" in row and var_id not in target_dict[cohort_id].variables:
+            if "var_name" in row and var_id and var_id not in target_dict[cohort_id].variables:
+                # Parse categories from CMEO query format
+                categories = []
+                categorical_values_str = get_value("categorical_values", row)
+                if categorical_values_str:
+                    # CMEO query returns "value=label|value=label" format
+                    cat_pairs = categorical_values_str.split("|")
+                    category_codes_str = get_value("category_concept_codes", row) or ""
+                    category_labels_str = get_value("category_concept_label", row) or ""
+                    category_omop_str = get_value("category_omop_id", row) or ""
+                    
+                    cat_codes = category_codes_str.split("|") if category_codes_str else []
+                    cat_labels = category_labels_str.split("|") if category_labels_str else []
+                    cat_omops = category_omop_str.split("|") if category_omop_str else []
+                    
+                    for idx, pair in enumerate(cat_pairs):
+                        if "=" in pair:
+                            value, label = pair.split("=", 1)
+                            categories.append({
+                                "value": value.strip(),
+                                "label": label.strip(),
+                                "concept_id": cat_codes[idx].strip() if idx < len(cat_codes) else "",
+                                "mapped_label": cat_labels[idx].strip() if idx < len(cat_labels) else "",
+                                "mapped_id": cat_omops[idx].strip() if idx < len(cat_omops) else ""
+                            })
+                
+
                 target_dict[cohort_id].variables[var_id] = CohortVariable(
-                    var_name=row["varName"]["value"],
-                    var_label=row["varLabel"]["value"],
-                    var_type=row["varType"]["value"],
-                    count=get_int_value("count", row) or 0,
-                    max=get_value("max", row),
-                    min=get_value("min", row),
-                    units=get_value("units", row),
-                    visits=get_value("visits", row),
-                    visit_concept_name=get_value("visitConceptName", row),
-                    formula=get_value("formula", row),
+                    var_name=row["var_name"]["value"],
+                    var_label=row["var_label"]["value"] if "var_label" in row else "",
+                    var_type=row["varType"]["value"] if "varType" in row else "",
+                    count=get_int_value("count_value", row) or 0,
+                    max=get_value("maximum_value", row),
+                    min=get_value("minimum_value", row),
+                    units=get_value("unit_value", row),
+                    visits=get_value("visit", row),
+                    visit_concept_name=get_value("visit", row),
+                    formula=get_value("formula_value", row),
                     definition=get_value("definition", row),
-                    concept_id=get_curie_value("conceptId", row),
-                    concept_code=get_value("conceptCode", row),
-                    concept_name=get_value("conceptName", row),
-                    omop_id=get_value("omopId", row),
-                    mapped_id=get_curie_value("mappedId", row),
-                    mapped_label=get_value("mappedLabel", row),
+                    concept_id=get_curie_value("concept_codes", row),
+                    concept_code=get_value("concept_codes", row),
+                    concept_name=get_value("concept_labels", row),
+                    mapped_id=get_curie_value("concept_omop_id", row),
+                    mapped_label=get_value("concept_labels", row),
                     omop_domain=get_value("omopDomain", row),
                     index=None,  # Not in new query
                     na=0,  # Not in new query
@@ -711,22 +741,26 @@ def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = F
         except Exception as e:
             var_name = None
             try:
-                var_name = row.get("varName", {}).get("value") if isinstance(row.get("varName"), dict) else None
+                var_name = row.get("var_name", {}).get("value") if isinstance(row.get("var_name"), dict) else None
             except Exception:
                 pass
             exc_type = type(e).__name__
-            sig = (str(cohort_id), str(var_name), exc_type)
+            # Avoid logging duplicate errors for the same cohort/var/error combo
+            # (since we process many rows per cohort)
+            cohort_id_str = str(cohort_id) if cohort_id else "UNKNOWN"
+            var_name_str = str(var_name) if var_name else "UNKNOWN"
+            sig = (cohort_id_str, var_name_str, exc_type)
             _sig_set = globals().setdefault("_SPARQL_ROW_ERROR_SIGNATURES", set())
             if len(_sig_set) > 5000:
                 _sig_set.clear()
             if sig not in _sig_set:
                 _sig_set.add(sig)
                 logging.exception(
-                    f"Error processing SPARQL row for cohort_id={cohort_id}, varName={var_name}, error={exc_type}. Raw row keys={list(row.keys())}"
+                    f"Error processing SPARQL row for cohort_id={cohort_id}, var_name={var_name}, error={exc_type}. Raw row keys={list(row.keys())}"
                 )
             else:
                 logging.debug(
-                    f"Suppressed duplicate error for cohort_id={cohort_id}, varName={var_name}, error={exc_type}"
+                    f"Suppressed duplicate error for cohort_id={cohort_id}, var_name={var_name}, error={exc_type}"
                 )
     # Merge cohorts with and without variables
     # Put cohorts with variables first so they appear at the top of the list
