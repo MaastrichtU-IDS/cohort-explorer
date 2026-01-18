@@ -151,7 +151,12 @@ def get_cohort_mapping_uri(cohort_id: str) -> URIRef:
 
 
 def get_var_uri(cohort_id: str | URIRef, var_id: str) -> URIRef:
-    return ICARE[f"cohort/{cohort_id.replace(' ', '_')}/{var_id.replace(' ', '_')}"]
+    # Strip and validate inputs to prevent Invalid IRI errors
+    cohort_id_clean = str(cohort_id).strip().replace(' ', '_')
+    var_id_clean = str(var_id).strip().replace(' ', '_')
+    if not var_id_clean:
+        raise ValueError(f"Variable ID cannot be empty or whitespace-only for cohort {cohort_id}")
+    return ICARE[f"cohort/{cohort_id_clean}/{var_id_clean}"]
 
 
 def get_category_uri(var_uri: str | URIRef, category_id: str) -> URIRef:
@@ -758,12 +763,19 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
         i = 0
         for i, row in df.iterrows():
             try:
-                variable_uri = get_var_uri(cohort_id, row["VARIABLENAME"])
+                # Skip rows with empty/whitespace variable names
+                var_name = str(row["VARIABLENAME"]).strip() if pd.notna(row["VARIABLENAME"]) else ""
+                if not var_name:
+                    logging.warning(f"Skipping row {i+2} in cohort {cohort_id}: empty or whitespace-only variable name")
+                    continue
+                
+                variable_uri = get_var_uri(cohort_id, var_name)
                 # Use CMEO ontology: cmeo:data_element instead of icare:Variable
                 # Note: CMEO model doesn't use hasVariable relationship, variables are just in the same graph
                 g.add((variable_uri, RDF.type, OntologyNamespaces.CMEO.value.data_element, cohort_graph_uri))
-                g.add((variable_uri, DC.identifier, Literal(row["VARIABLENAME"]), cohort_graph_uri))
-                g.add((variable_uri, RDFS.label, Literal(row["VARIABLELABEL"]), cohort_graph_uri))
+                g.add((variable_uri, DC.identifier, Literal(var_name), cohort_graph_uri))
+                var_label = str(row["VARIABLELABEL"]).strip() if pd.notna(row["VARIABLELABEL"]) else var_name
+                g.add((variable_uri, RDFS.label, Literal(var_label), cohort_graph_uri))
 
                 # Get categories code if provided (re-fetch for graph generation phase)
                 categories_codes = []
