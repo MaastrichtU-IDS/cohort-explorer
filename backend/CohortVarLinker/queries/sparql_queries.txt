@@ -418,6 +418,20 @@ WHERE {
         }
       } GROUP BY ?g ?var
     }
+  
+    # ---------------- OMOP domain (from categorization_process -> category) ----------------
+    OPTIONAL {
+      SELECT ?g ?var (SAMPLE(?domain_val) AS ?omopDomain)
+      WHERE {
+        GRAPH ?g {
+          ?var obi:is_specified_input_of ?cat_proc .
+          ?cat_proc a cmeo:categorization_process ;
+                    obi:has_specified_output ?category .
+          ?category a cmeo:category ;
+                    cmeo:has_value ?domain_val .
+        }
+      } GROUP BY ?g ?var
+    }
 }
 
 # Query 3: Cross Mapping 
