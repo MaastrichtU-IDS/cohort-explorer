@@ -500,6 +500,27 @@ def get_studies_metadata_query() -> str:
     return query
 
 
+def get_cohorts_metadata_query() -> str:
+    """Get SPARQL query for retrieving cohort metadata from studies_metadata graph (Query 1).
+    
+    The query is extracted from the first query in the file (lines 1-292).
+    Note: Line numbers are 1-indexed in the file, but 0-indexed in the list.
+    """
+    import os
+    query_file = os.path.join(os.path.dirname(__file__), '..', 'CohortVarLinker', 'queries', 'sparql_queries.txt')
+    
+    with open(query_file, 'r') as f:
+        lines = f.readlines()
+    
+    # Extract Query 1 (cohort metadata from studies_metadata graph)
+    # Line 1 (index 0): comment "# Query to Retrieve Studies Metadata"
+    # Line 2 (index 1): first PREFIX
+    # Line 292 (index 291): last line before Query 2 comment
+    # Skip the comment line, start from first PREFIX
+    query = ''.join(lines[1:292]).strip()
+    return query
+
+
 def get_variables_metadata_query() -> str:
     """Get SPARQL query for retrieving variables metadata (from sparql_queries.txt).
     
@@ -536,23 +557,93 @@ def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = F
     import time
     start_time = time.time()
     
-    # Execute SPARQL query and measure its execution time
-    logging.info("Executing SPARQL query to retrieve cohorts metadata...")
-    query_start_time = time.time()
+    # ========== STEP 1: Get cohort metadata from studies_metadata graph ==========
+    logging.info("Step 1: Executing SPARQL query to retrieve cohort metadata from studies_metadata graph...")
+    metadata_query_start = time.time()
+    
+    try:
+        metadata_results = run_query(get_cohorts_metadata_query())["results"]["bindings"]
+    except Exception as e:
+        logging.error(f"Cohort metadata query failed: {e}")
+        raise
+    
+    metadata_query_end = time.time()
+    metadata_duration = metadata_query_end - metadata_query_start
+    logging.info(f"Cohort metadata query completed in {metadata_duration:.2f}s, returned {len(metadata_results)} cohorts")
+    
+    # Create cohorts dictionary with metadata
+    cohorts_with_variables = {}
+    cohorts_without_variables = {}
+    
+    for row in metadata_results:
+        cohort_id = get_value("cohortId", row)
+        if not cohort_id:
+            continue
+            
+        cohort = Cohort(
+            cohort_id=cohort_id,
+            institution=get_value("cohortInstitution", row),
+            study_type=get_value("study_type", row),
+            study_participants=get_value("study_participants", row),
+            study_duration=get_value("duration", row),
+            study_ongoing=get_value("study_ongoing", row),
+            study_population=get_value("study_population", row),
+            study_objective=get_value("study_objective", row),
+            primary_outcome_spec=get_value("primary_outcome_spec", row),
+            secondary_outcome_spec=get_value("secondary_outcome_spec", row),
+            morbidity=get_value("morbidity", row),
+            study_start=get_value("study_start", row),
+            study_end=get_value("study_end", row),
+            male_percentage=None,
+            female_percentage=None,
+            administrator=get_value("administrator", row),
+            administrator_email=get_value("administrator_email", row).lower() if get_value("administrator_email", row) else "",
+            study_contact_person=get_value("study_contact_person", row),
+            study_contact_person_email=get_value("study_contact_person_email", row).lower() if get_value("study_contact_person_email", row) else "",
+            references=[],
+            population_location=get_value("population_location", row),
+            language=get_value("language", row),
+            data_collection_frequency=get_value("data_collection_frequency", row),
+            interventions=get_value("interventions", row),
+            sex_inclusion=get_value("inclusion_labels", row),
+            health_status_inclusion=get_value("inclusion_values", row),
+            clinically_relevant_exposure_inclusion="",
+            age_group_inclusion="",
+            bmi_range_inclusion="",
+            ethnicity_inclusion="",
+            family_status_inclusion="",
+            hospital_patient_inclusion="",
+            use_of_medication_inclusion="",
+            health_status_exclusion=get_value("exclusion_labels", row),
+            bmi_range_exclusion=get_value("exclusion_values", row),
+            limited_life_expectancy_exclusion="",
+            need_for_surgery_exclusion="",
+            surgical_procedure_history_exclusion="",
+            clinically_relevant_exposure_exclusion="",
+            variables={},
+            physical_dictionary_exists=False
+        )
+        
+        # Store in cohorts_without_variables initially (will move to with_variables if variables found)
+        cohorts_without_variables[cohort_id] = cohort
+    
+    logging.info(f"Created {len(cohorts_without_variables)} cohort objects with metadata")
+    
+    # ========== STEP 2: Get variables metadata from individual study graphs ==========
+    logging.info("Step 2: Executing SPARQL query to retrieve variables metadata...")
+    variables_query_start = time.time()
     
     try:
         results = run_query(get_variables_metadata_query())["results"]["bindings"]
     except Exception as e:
-        logging.error(f"SPARQL query failed: {e}")
+        logging.error(f"Variables query failed: {e}")
         raise
     
     query_end_time = time.time()
-    query_duration = query_end_time - query_start_time
+    query_duration = query_end_time - variables_query_start
     
-    cohorts_with_variables = {}
-    cohorts_without_variables = {}
     total_rows = len(results)
-    logging.info(f"SPARQL query completed in {query_duration:.2f}s, returned {total_rows} rows. Starting processing...")
+    logging.info(f"Variables query completed in {query_duration:.2f}s, returned {total_rows} rows. Starting processing...")
     
     # Track progress during row processing
     rows_processed = 0
@@ -579,10 +670,12 @@ def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = F
                 logging.warning(f"Skipping row with missing study_name: {list(row.keys())}")
                 continue
             
-            # Check if cohort exists in EITHER dictionary to avoid duplicates
-            cohort_exists = cohort_id in cohorts_with_variables or cohort_id in cohorts_without_variables
+            # Check if cohort exists (should exist from Query 1 metadata)
+            if cohort_id not in cohorts_with_variables and cohort_id not in cohorts_without_variables:
+                logging.warning(f"Cohort {cohort_id} found in variables query but not in metadata query, skipping")
+                continue
             
-            # Determine which dictionary to use (prefer cohorts_with_variables if it has variables)
+            # Determine which dictionary the cohort is in
             if cohort_id in cohorts_with_variables:
                 target_dict = cohorts_with_variables
             elif cohort_id in cohorts_without_variables and var_id:
@@ -592,100 +685,7 @@ def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = F
             elif cohort_id in cohorts_without_variables:
                 target_dict = cohorts_without_variables
             else:
-                # New cohort: put in appropriate dict based on whether it has variables
-                target_dict = cohorts_with_variables if var_id else cohorts_without_variables
-
-            # Initialize cohort data structure if not exists
-            if cohort_id and not cohort_exists:
-                cohort = Cohort(
-                    cohort_id=cohort_id,
-                    institution=get_value("institution", row),
-                    study_type=get_value("study_type", row),
-                    study_participants=get_value("study_participants", row),
-                    study_duration=get_value("duration", row),  # Note: new query uses "duration" not "study_duration"
-                    study_ongoing=get_value("study_ongoing", row),
-                    study_population=get_value("study_population", row),  # May not be in new query
-                    study_objective=get_value("study_objective", row),
-                    primary_outcome_spec=get_value("primary_outcome_spec", row),
-                    secondary_outcome_spec=get_value("secondary_outcome_spec", row),
-                    morbidity=get_value("morbidity", row),
-                    study_start=get_value("study_start", row),
-                    study_end=get_value("study_end", row),
-                    male_percentage=None,  # Not in new query structure
-                    female_percentage=None,  # Not in new query structure
-                    # Contact information fields
-                    administrator=get_value("administrator", row),
-                    administrator_email=get_value("administrator_email", row).lower() if get_value("administrator_email", row) else "",
-                    study_contact_person=get_value("study_contact_person", row),
-                    study_contact_person_email=get_value("study_contact_person_email", row).lower() if get_value("study_contact_person_email", row) else "",
-                    references=[],
-                    # Additional metadata fields
-                    population_location=get_value("population_location", row),
-                    language=get_value("language", row),
-                    data_collection_frequency=get_value("data_collection_frequency", row),
-                    interventions=get_value("interventions", row),
-                    # Inclusion/Exclusion criteria - new query structure
-                    sex_inclusion=get_value("inclusion_labels", row),  # Aggregated in new query
-                    health_status_inclusion=get_value("inclusion_values", row),  # Aggregated
-                    clinically_relevant_exposure_inclusion="",
-                    age_group_inclusion="",
-                    bmi_range_inclusion="",
-                    ethnicity_inclusion="",
-                    family_status_inclusion="",
-                    hospital_patient_inclusion="",
-                    use_of_medication_inclusion="",
-                    # Exclusion criteria fields
-                    health_status_exclusion=get_value("exclusion_labels", row),  # Aggregated
-                    bmi_range_exclusion=get_value("exclusion_values", row),  # Aggregated
-                    limited_life_expectancy_exclusion="",
-                    need_for_surgery_exclusion="",
-                    surgical_procedure_history_exclusion="",
-                    clinically_relevant_exposure_exclusion="",
-                    variables={},
-                    physical_dictionary_exists=False
-                )
-                
-                # Make the cohort accessible via target_dict before any access
-                target_dict[cohort_id] = cohort
-                
-                # Debug logging for cohort creation
-                cohort_email = get_value("cohort_email", row).lower() if get_value("cohort_email", row) else ""
-                is_admin = user_email in settings.admins_list
-                is_cohort_owner = user_email == cohort_email
-                can_edit = is_admin or is_cohort_owner
-                
-                logging.debug(
-                    f"Cohort {cohort_id} - "
-                    f"User: {user_email}, "
-                    f"Cohort Email: {cohort_email}, "
-                    f"Is Admin: {is_admin}, "
-                    f"Is Owner: {is_cohort_owner}, "
-                    f"Can Edit: {can_edit}"
-                )
-                
-                # Update the can_edit flag after initialization
-                cohort.can_edit = can_edit
-                
-                # Attempt to determine if a physical dictionary file exists
-                try:
-                    meta_path = getattr(target_dict[cohort_id], "metadata_filepath", None)
-                    target_dict[cohort_id].physical_dictionary_exists = bool(meta_path)
-                except Exception as _e:
-                    logging.debug(f"Skipping physical dictionary check for cohort_id={cohort_id}: {_e}")
-                    target_dict[cohort_id].physical_dictionary_exists = False
-
-            elif get_value("cohort_email", row) and get_value("cohort_email", row).lower() not in target_dict[cohort_id].cohort_email:
-                # Handle multiple emails for the same cohort
-                cohort_email = get_value("cohort_email", row).lower()
-                if cohort_email:
-                    target_dict[cohort_id].cohort_email.append(cohort_email)
-                    if user_email == cohort_email:
-                        target_dict[cohort_id].can_edit = True
-            
-            # Handle references - process independently of other conditions
-            if get_value("references", row) and get_value("references", row) not in target_dict[cohort_id].references:
-                # Add reference to the list
-                target_dict[cohort_id].references.append(get_value("references", row))
+                continue  # Should not reach here
 
             # Process variables
             if "var_name" in row and var_id and var_id not in target_dict[cohort_id].variables:
