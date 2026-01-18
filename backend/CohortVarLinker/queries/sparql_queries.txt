@@ -191,7 +191,7 @@ WHERE {
             ?study ro:has_part ?p .
             ?p a obi:protocol;
              ro:has_part ?variable_spec.
-			OPTIONAL{
+			OPTIONAL {
               
       			?variable_spec a cmeo:study_design_variable_specification ;
                      ro:has_part ?variable_uri .
@@ -225,7 +225,7 @@ WHERE {
             ?selection_criterion a obi:eligibility_criterion ;
                                  ro:has_part ?criterion .
 			
-            OPTIONAL{
+            OPTIONAL {
                     ?selection_criterion ro:is_concretized_by ?enrollment .
                     ?enrollment a cmeo:human_subject_enrollment;
                                          ro:has_output ?output_population .
@@ -240,7 +240,7 @@ WHERE {
               
             }
             # criterion type (any subclass)
-           OPTIONAL{ ?criterion a obi:inclusion_criterion;
+           OPTIONAL { ?criterion a obi:inclusion_criterion;
                 ro:has_part  ?inclusion_criterion_sub.
                
 
@@ -261,7 +261,7 @@ WHERE {
             # keep only rows that actually have a value
             FILTER(BOUND(?val) && ?val != "")
             }
-            OPTIONAL{
+            OPTIONAL {
             
             ?criterion a obi:exclusion_criterion;
                 ro:has_part  ?exclusion_criterion_sub.
