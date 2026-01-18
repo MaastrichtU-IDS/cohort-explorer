@@ -208,7 +208,7 @@ def get_cohorts_metadata_query() -> str:
     """DEPRECATED: This old combined query has been replaced by two separate queries.
     Use get_studies_metadata_query() and get_variables_metadata_query() instead.
     This function is kept for backwards compatibility but may be removed in future versions."""
-    query = """
+    query = f"""
 PREFIX cmeo: <https://w3id.org/CMEO/>
 PREFIX obi: <http://purl.obolibrary.org/obo/obi.owl/>
 PREFIX bfo: <http://purl.obolibrary.org/obo/bfo.owl/>
@@ -540,7 +540,7 @@ def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = F
     query_start_time = time.time()
     
     try:
-        results = run_query(get_variables_query)["results"]["bindings"]
+        results = run_query(get_variables_metadata_query())["results"]["bindings"]
     except Exception as e:
         logging.error(f"SPARQL query failed: {e}")
         raise
