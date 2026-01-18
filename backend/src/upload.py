@@ -678,7 +678,12 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
             }
             log_upload_event_csv(log_data)
             update_upload_log({**log_data, "errors": [error_msg]})
-        raise HTTPException(status_code=422, detail=error_msg)
+            raise HTTPException(status_code=422, detail=error_msg)
+        else:
+            # During init_triplestore, log and return empty graph
+            print(f"⚠️  SKIPPING cohort {cohort_id}: {error_msg}")
+            logging.warning(f"Skipping cohort {cohort_id}: {error_msg}")
+            return init_graph()  # Return empty graph
     
     try:
         df = pd.read_csv(dict_path, na_values=[""], keep_default_na=False)
@@ -689,9 +694,8 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
         total_rows = len(df)
         total_variables = len(df['VARIABLENAME'].unique()) if 'VARIABLENAME' in df.columns else 0
         
-        # Normalize column names (uppercase, specific substitutions)
-        #df.columns = [cols_normalized.get(c.upper().strip(), c.upper().strip().replace("VALUES", "VALUE")) for c in df.columns]
-        df.columns = [cols_normalized.get(c.upper().strip(), c.upper().strip()) for c in df.columns]
+        # Normalize column names (lowercase for lookup, then use normalized value or uppercase original)
+        df.columns = [cols_normalized.get(c.lower().strip(), c.upper().strip()) for c in df.columns]
         # print(f"POST NORMALIZATION -- COHORT {cohort_id} -- Columns: {df.columns}")
         # --- Structural Validation: Check for required columns ---
         # Define columns absolutely essential for the row-processing logic to run without KeyErrors
@@ -822,11 +826,19 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
         # Log the collected errors that led to this for server-side records
         logging.warning(f"Validation errors for cohort {cohort_id}:\n{http_exc.detail}")
         if source == "upload_dict":
-            raise http_exc 
+            raise http_exc
+        else:
+            # During init_triplestore, log prominently and return empty graph
+            print(f"⚠️  SKIPPING cohort {cohort_id} due to validation errors:")
+            print(f"    {http_exc.detail}")
+            return init_graph()  # Return empty graph
     except pd.errors.EmptyDataError:
         logging.warning(f"Uploaded CSV for cohort {cohort_id} is empty or unreadable.")
         if source == "upload_dict":
             raise HTTPException(status_code=422, detail="The uploaded CSV file is empty or could not be read.")
+        else:
+            print(f"⚠️  SKIPPING cohort {cohort_id}: CSV file is empty or unreadable")
+            return init_graph()  # Return empty graph
     except Exception as e:
         logging.error(f"Unexpected error during dictionary processing for {cohort_id}: {str(e)}", exc_info=True)
         errors.append(f"An unexpected error occurred during file processing: {str(e)}")
@@ -835,6 +847,9 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
                 status_code=500, # Use 500 for truly unexpected server-side issues
                 detail="\n\n".join(errors),
             )
+        else:
+            print(f"⚠️  SKIPPING cohort {cohort_id} due to unexpected error: {str(e)}")
+            return init_graph()  # Return empty graph
     
     # Calculate final metrics
     processing_time = (datetime.now() - start_time).total_seconds()
@@ -1098,9 +1113,9 @@ async def generate_metadata_issues_report():
             df = df.dropna(how="all")
             df = df.fillna("")
             
-            # Normalize column names
+            # Normalize column names (lowercase for lookup, then use normalized value or uppercase original)
             from src.upload import cols_normalized
-            df.columns = [cols_normalized.get(c.upper().strip(), c.upper().strip()) for c in df.columns]
+            df.columns = [cols_normalized.get(c.lower().strip(), c.upper().strip()) for c in df.columns]
             
             # Check for required columns
             from src.upload import metadatadict_cols_schema1
@@ -2060,15 +2075,6 @@ def _perform_triplestore_initialization():
             break
         time.sleep(0.5)  # Small delay between checks
     
-    # Initialize the cache from triplestore
-    # This works whether the triplestore is initialized or not
-    from src.cohort_cache import initialize_cache_from_triplestore
-    print("Initializing cache from triplestore...")
-    # Use the first admin email to ensure we get all cohorts
-    admin_email = settings.admins_list[0] if settings.admins_list else "admin@example.com"
-    initialize_cache_from_triplestore(admin_email)
-    print("✅ Cohort cache initialization complete.")
-    
     # Generate metadata issues report (runs on every startup)
     print("Generating metadata issues report...")
     try:
@@ -2099,8 +2105,13 @@ def _perform_triplestore_initialization():
     except Exception as e:
         print(f"⚠️  Failed to generate metadata issues report: {e}")
     
-    # If triplestore is already initialized, we're done
+    # If triplestore is already initialized, initialize cache from it and return
     if triplestore_initialized:
+        from src.cohort_cache import initialize_cache_from_triplestore
+        print("Initializing cache from existing triplestore...")
+        admin_email = settings.admins_list[0] if settings.admins_list else "admin@example.com"
+        initialize_cache_from_triplestore(admin_email)
+        print("✅ Cohort cache initialization complete.")
         return
     
     # Otherwise, continue with triplestore initialization
@@ -2114,27 +2125,6 @@ def _perform_triplestore_initialization():
 
     if publish_graph_to_endpoint(g):
         print(f"🪪 Triplestore initialization: added {len(g)} triples for the cohorts metadata.")
-        
-        # Add cohort metadata to the cache
-        print("Adding cohort metadata to the cache...")
-        # Extract cohort IDs and URIs from the graph
-        cohort_uris = set()
-        for s, p, o, _ in g.quads((None, RDF.type, ICARE.Cohort, None)):
-            cohort_uris.add(s)
-        
-        # Create cohort objects from metadata and add them to the cache
-        for cohort_uri in cohort_uris:
-            # Extract cohort ID from URI
-            cohort_id = None
-            for _, _, o, _ in g.quads((cohort_uri, DC.identifier, None, None)):
-                cohort_id = str(o)
-                break
-            
-            if cohort_id:
-                from src.cohort_cache import create_cohort_from_metadata_graph
-                create_cohort_from_metadata_graph(cohort_id, cohort_uri, g)
-        
-        print("✅ Cohort metadata added to cache.")
     else:
         print("❌ Failed to publish cohort metadata to triplestore.")
         return
@@ -2144,42 +2134,44 @@ def _perform_triplestore_initialization():
     for folder in os.listdir(os.path.join(settings.data_folder, "cohorts")):
         folder_path = os.path.join(settings.data_folder, "cohorts", folder)
         if os.path.isdir(folder_path):
-            #Note (August 2025): we now find the latest version of a data dictionary instead of processing all
-            #for file in glob.glob(os.path.join(folder_path, "*_datadictionary.*")):
-            latest_dict_file = get_latest_datadictionary(folder_path)
-            if latest_dict_file:
-                print(f"Using latest datadictionary file for {folder}: {os.path.basename(latest_dict_file)}, date: {os.path.getmtime(latest_dict_file)}")
-                g = load_cohort_dict_file(latest_dict_file, folder, source="init_triplestore")
-                
-                # Check if graph is empty (indicates processing failure)
-                if g is None or len(g) == 0:
-                    print(f"❌ Failed to process dictionary for cohort {folder} - graph is empty. Check logs above for details.")
-                    continue
-                
-                # Delete existing triples for this cohort before publishing new ones
-                # This ensures we don't have duplicate or conflicting triples
-                delete_existing_triples(get_cohort_graph_uri(folder))
-                # g.serialize(f"{settings.data_folder}/cohort_explorer_triplestore.trig", format="trig")
-                if publish_graph_to_endpoint(g):
-                    print(f"💾 Triplestore initialization: added {len(g)} triples for cohort {folder}.")
-                    # Note: Variables are added to cache via create_cohort_from_dict_file in init_triplestore
-                    from src.cohort_cache import create_cohort_from_dict_file
-                    cohort_uri = get_cohort_uri(folder)
-                    create_cohort_from_dict_file(folder, cohort_uri, g)
-            else:
-                print(f"No datadictionary file found for cohort {folder}.")
-                # Ensure cohorts without dictionaries are still properly cached
-                # Check if this cohort exists in the metadata and add it to cache if missing
-                cohort_uri = get_cohort_uri(folder)
-                from src.cohort_cache import get_cohorts_from_cache, create_cohort_from_metadata_graph
-                admin_email = settings.admins_list[0] if settings.admins_list else "admin@example.com"
-                current_cache = get_cohorts_from_cache(admin_email)
-                if folder not in current_cache:
-                    print(f"Adding cohort {folder} to cache (metadata only, no dictionary)")
-                    # Get the metadata graph to extract cohort info
-                    metadata_graph = cohorts_metadata_file_to_graph(COHORTS_METADATA_FILEPATH)
-                    create_cohort_from_metadata_graph(folder, cohort_uri, metadata_graph)
+            try:
+                #Note (August 2025): we now find the latest version of a data dictionary instead of processing all
+                #for file in glob.glob(os.path.join(folder_path, "*_datadictionary.*")):
+                latest_dict_file = get_latest_datadictionary(folder_path)
+                if latest_dict_file:
+                    print(f"Using latest datadictionary file for {folder}: {os.path.basename(latest_dict_file)}, date: {os.path.getmtime(latest_dict_file)}")
+                    g = load_cohort_dict_file(latest_dict_file, folder, source="init_triplestore")
+                    
+                    # Check if graph is empty (indicates processing failure)
+                    if len(g) == 0:
+                        print(f"❌ Failed to process dictionary for cohort {folder} - graph is empty. Check logs above for details.")
+                        continue
+                    
+                    # Delete existing triples for this cohort before publishing new ones
+                    # This ensures we don't have duplicate or conflicting triples
+                    delete_existing_triples(get_cohort_uri(folder))
+                    # g.serialize(f"{settings.data_folder}/cohort_explorer_triplestore.trig", format="trig")
+                    if publish_graph_to_endpoint(g):
+                        print(f"💾 Triplestore initialization: added {len(g)} triples for cohort {folder}.")
+                    else:
+                        print(f"❌ Failed to publish graph to triplestore for cohort {folder}")
+                else:
+                    print(f"No datadictionary file found for cohort {folder}.")
+            except HTTPException as http_exc:
+                print(f"❌ SKIPPING cohort {folder} - HTTPException: {http_exc.detail}")
+                logging.error(f"Failed to process cohort {folder} during init: {http_exc.detail}")
+            except Exception as e:
+                print(f"❌ SKIPPING cohort {folder} - Unexpected error: {str(e)}")
+                logging.error(f"Failed to process cohort {folder} during init: {str(e)}", exc_info=True)
         else:
             print(f"No datadictionary file found for cohort {folder}.")
     
     print("✅ Triplestore initialization complete!")
+    
+    # Initialize the cache from the now-populated triplestore
+    # This must happen AFTER the triplestore is populated, not before
+    from src.cohort_cache import initialize_cache_from_triplestore
+    print("Initializing cache from triplestore...")
+    admin_email = settings.admins_list[0] if settings.admins_list else "admin@example.com"
+    initialize_cache_from_triplestore(admin_email)
+    print("✅ Cohort cache initialization complete.")
