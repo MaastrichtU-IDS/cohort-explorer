@@ -839,7 +839,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
     # Calculate final metrics
     processing_time = (datetime.now() - start_time).total_seconds()
     success = len(errors) == 0
-    graph_triples_count = len(g) if 'g' in locals() else 0
+    graph_triples_count = len(g) if g is not None else 0
     
     # Enhanced structured logging for upload dictionary calls
     if source == "upload_dict":
