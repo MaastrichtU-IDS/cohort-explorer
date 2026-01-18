@@ -14,17 +14,26 @@ from re import sub
 import pandas as pd
 import requests
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
-from rdflib import XSD, Dataset, Graph, Literal, URIRef
-from rdflib.namespace import DC, RDF, RDFS
+from rdflib import Graph, Literal, URIRef, Dataset
+from rdflib.namespace import DC, RDF, RDFS, XSD
 from SPARQLWrapper import SPARQLWrapper
 
 from src.config import settings
 from src.auth import get_current_user
-from src.utils import run_query, retrieve_cohorts_metadata
+from src.utils import (
+    ICARE,
+    curie_converter,
+    extract_age_range,
+    get_cohorts_metadata_query,
+    init_graph,
+    OntologyNamespaces,
+    normalize_text,
+    retrieve_cohorts_metadata,
+    run_query
+)
 from src.cohort_cache import add_cohort_to_cache, clear_cache, create_cohort_from_dict_file, create_cohort_from_metadata_graph
 from src.decentriq import create_provision_dcr, metadatadict_cols_schema1
 from src.mapping_generation.retriever import map_csv_to_standard_codes
-from src.utils import ICARE, curie_converter, init_graph, prefix_map, retrieve_cohorts_metadata, run_query
 
 router = APIRouter()
 
@@ -130,6 +139,11 @@ def delete_existing_triples(graph_uri: str | URIRef, subject="?s", predicate="?p
 
 def get_cohort_uri(cohort_id: str) -> URIRef:
     return ICARE[f"cohort/{cohort_id.replace(' ', '_')}"]
+
+
+def get_cohort_graph_uri(cohort_id: str) -> URIRef:
+    """Get the graph URI for a cohort in CMEO namespace (matches query expectations)"""
+    return URIRef(OntologyNamespaces.CMEO.value + f"graph/{cohort_id}")
 
 
 def get_cohort_mapping_uri(cohort_id: str) -> URIRef:
@@ -731,19 +745,21 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
             )
 
         # If no errors, proceed to create the graph (RDF triples)
+        # CRITICAL: Use CMEO graph namespace to match query expectations
         cohort_uri = get_cohort_uri(cohort_id)
+        cohort_graph_uri = get_cohort_graph_uri(cohort_id)
         g = init_graph()
-        g.add((cohort_uri, RDF.type, ICARE.Cohort, cohort_uri))
-        g.add((cohort_uri, DC.identifier, Literal(cohort_id), cohort_uri))
+        g.add((cohort_uri, RDF.type, ICARE.Cohort, cohort_graph_uri))
+        g.add((cohort_uri, DC.identifier, Literal(cohort_id), cohort_graph_uri))
 
         i = 0
         for i, row in df.iterrows():
             variable_uri = get_var_uri(cohort_id, row["VARIABLENAME"])
-            g.add((cohort_uri, ICARE.hasVariable, variable_uri, cohort_uri))
-            g.add((variable_uri, RDF.type, ICARE.Variable, cohort_uri))
-            g.add((variable_uri, DC.identifier, Literal(row["VARIABLENAME"]), cohort_uri))
-            g.add((variable_uri, RDFS.label, Literal(row["VARIABLELABEL"]), cohort_uri))
-            g.add((variable_uri, ICARE["index"], Literal(i, datatype=XSD.integer), cohort_uri))
+            g.add((cohort_uri, ICARE.hasVariable, variable_uri, cohort_graph_uri))
+            g.add((variable_uri, RDF.type, ICARE.Variable, cohort_graph_uri))
+            g.add((variable_uri, DC.identifier, Literal(row["VARIABLENAME"]), cohort_graph_uri))
+            g.add((variable_uri, RDFS.label, Literal(row["VARIABLELABEL"]), cohort_graph_uri))
+            g.add((variable_uri, ICARE["index"], Literal(i, datatype=XSD.integer), cohort_graph_uri))
 
             # Get categories code if provided (re-fetch for graph generation phase)
             categories_codes = []
@@ -760,17 +776,17 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
                         and (col_value.startswith("http://") or col_value.startswith("https://"))
                         and " " not in col_value
                     ):
-                        g.add((variable_uri, property_uri, URIRef(col_value), cohort_uri))
+                        g.add((variable_uri, property_uri, URIRef(col_value), cohort_graph_uri))
                     else:
-                        g.add((variable_uri, property_uri, Literal(col_value), cohort_uri))
+                        g.add((variable_uri, property_uri, Literal(col_value), cohort_graph_uri))
                 
                 if column_name_from_df == "categories" and isinstance(col_value, list): # 'categories' is our parsed list
                     for index, category in enumerate(col_value):
                         cat_uri = get_category_uri(variable_uri, index) # Use index for unique category URI part
-                        g.add((variable_uri, ICARE.categories, cat_uri, cohort_uri))
-                        g.add((cat_uri, RDF.type, ICARE.VariableCategory, cohort_uri))
-                        g.add((cat_uri, RDF.value, Literal(category["value"]), cohort_uri))
-                        g.add((cat_uri, RDFS.label, Literal(category["label"]), cohort_uri))
+                        g.add((variable_uri, ICARE.categories, cat_uri, cohort_graph_uri))
+                        g.add((cat_uri, RDF.type, ICARE.VariableCategory, cohort_graph_uri))
+                        g.add((cat_uri, RDF.value, Literal(category["value"]), cohort_graph_uri))
+                        g.add((cat_uri, RDFS.label, Literal(category["label"]), cohort_graph_uri))
                         
                         if index < len(categories_codes):
                             code_to_check = categories_codes[index].strip()
@@ -783,7 +799,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
                                         # Another temp fix just for TIM-HF!!
                                         # cat_code_uri = cat_code_uri.lower().replace("ucum/%", "ucum/percent").replace("[", "").replace("]", "")
                                         #print(f"Adding category code {cat_code_uri} for category {category['value']} in cohort {cohort_id}, line {i}, cat_uri: {cat_uri}, conceptId: {ICARE.conceptId}")
-                                        g.add((cat_uri, ICARE.conceptId, URIRef(cat_code_uri), cohort_uri))
+                                        g.add((cat_uri, ICARE.conceptId, URIRef(cat_code_uri), cohort_graph_uri))
                                 except Exception as curie_exc:
                                     error_msg = str(curie_exc)
                                     var_name = row.get("VARIABLENAME", f"UNKNOWN_VAR_ROW_{i+2}")
@@ -1294,7 +1310,7 @@ async def delete_cohort(
     delete_existing_triples(
         get_cohort_mapping_uri(cohort_id), f"<{get_cohort_uri(cohort_id)!s}>", "icare:previewEnabled"
     )
-    delete_existing_triples(get_cohort_uri(cohort_id))
+    delete_existing_triples(get_cohort_graph_uri(cohort_id))
     # Delete folder
     cohort_folder_path = os.path.join(settings.data_folder, "cohorts", cohort_id)
     if os.path.exists(cohort_folder_path) and os.path.isdir(cohort_folder_path):
@@ -1398,7 +1414,7 @@ async def upload_cohort(
             # delete_existing_triples(
             #     get_cohort_mapping_uri(cohort_id), f"<{get_cohort_uri(cohort_id)!s}>", "icare:previewEnabled"
             # )
-            delete_existing_triples(get_cohort_uri(cohort_id))
+            delete_existing_triples(get_cohort_graph_uri(cohort_id))
             if publish_graph_to_endpoint(g):
                 # Cache was already updated directly from the graph in load_cohort_dict_file
                 logging.info(f"Cohort {cohort_id} published to triplestore and cache updated")
@@ -1425,7 +1441,7 @@ def generate_mappings(cohort_id: str, metadata_path: str, g: Graph) -> None:
     # delete_existing_triples(
     #     get_cohort_mapping_uri(cohort_id), f"<{get_cohort_uri(cohort_id)!s}>", "icare:previewEnabled"
     # )
-    delete_existing_triples(get_cohort_uri(cohort_id))
+    delete_existing_triples(get_cohort_graph_uri(cohort_id))
     if publish_graph_to_endpoint(g):
         # Update the cache with the new cohort data
         # Use admin email to ensure we can access all cohorts
@@ -1534,7 +1550,12 @@ def is_valid_value(value: Any) -> bool:
 def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
     df = pd.read_excel(filepath, sheet_name="Descriptions")
     df = df.fillna("")
+    # Convert column names to lowercase for consistency
+    df.columns = df.columns.str.lower()
+    
     g = init_graph()
+    metadata_graph = URIRef(OntologyNamespaces.CMEO.value + "graph/studies_metadata")
+    
     for _i, row in df.iterrows():
         print("now processing cohorts' metadata row: ", _i, row)
         cohort_id = str(row["Study Name"]).strip()
@@ -1607,108 +1628,394 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
         if "Morbidity" in row and is_valid_value(row["Morbidity"]):
             g.add((cohort_uri, ICARE.morbidity, Literal(row["Morbidity"]), cohorts_graph))
             
-        # Handle inclusion criteria fields using exact field names
-        # Sex inclusion
-        if "Sex inclusion criterion" in row and is_valid_value(row["Sex inclusion criterion"]):
-            g.add((cohort_uri, ICARE["sexInclusion"], Literal(row["Sex inclusion criterion"]), cohorts_graph))
+        # Keep original study name for identifier, normalized for URI
+        original_study_name = str(row["study name"]).strip()
+        study_name = normalize_text(original_study_name)
+        study_uri = URIRef(OntologyNamespaces.CMEO.value + study_name)
+        study_design_execution_uri = URIRef(study_uri + "/study_design_execution")
         
-        # Health status inclusion
-        if "Health status inclusion criterion" in row and is_valid_value(row["Health status inclusion criterion"]):
-            g.add((cohort_uri, ICARE["healthStatusInclusion"], Literal(row["Health status inclusion criterion"]), cohorts_graph))
+        # Create study design execution entity (without dc:identifier - it goes on study_design per query expectations)
+        g.add((study_design_execution_uri, RDF.type, OntologyNamespaces.OBI.value.study_design_execution, metadata_graph))
         
-        # Clinically relevant exposure inclusion
-        if "clinically relevant exposure inclusion criterion" in row and is_valid_value(row["clinically relevant exposure inclusion criterion"]):
-            g.add((cohort_uri, ICARE["clinicallyRelevantExposureInclusion"], Literal(row["clinically relevant exposure inclusion criterion"]), cohorts_graph))
+        # Create study design and protocol structure
+        study_design_value = row.get("study design", "").lower().strip() if pd.notna(row.get("study design", "")) else None
+        if study_design_value:
+            study_design_value = normalize_text(study_design_value)
+            study_design_uri = URIRef(study_uri + "/" + study_design_value)
+            g.add((study_design_uri, OntologyNamespaces.CMEO.value.has_value, Literal(study_design_value, datatype=XSD.string), metadata_graph))
+            g.add((study_design_uri, DC.identifier, Literal(original_study_name, datatype=XSD.string), metadata_graph))
+            dynamic_class_uri = URIRef(OntologyNamespaces.OBI.value + study_design_value)
+            g.add((study_design_uri, RDF.type, dynamic_class_uri, metadata_graph))
+            protocol_uri = URIRef(study_uri + "/" + study_design_value + "/protocol")
+            g.add((protocol_uri, RDF.type, OntologyNamespaces.OBI.value.protocol, metadata_graph))
+            g.add((study_design_uri, OntologyNamespaces.RO.value.has_part, protocol_uri, metadata_graph))
+        else:
+            study_design_uri = URIRef(study_uri + "/study_design")
+            protocol_uri = URIRef(study_uri + "/protocol")
+            g.add((protocol_uri, RDF.type, OntologyNamespaces.OBI.value.protocol, metadata_graph))
+            g.add((study_design_uri, RDF.type, OntologyNamespaces.OBI.value.study_design, metadata_graph))
+            g.add((study_design_uri, OntologyNamespaces.RO.value.has_part, protocol_uri, metadata_graph))
+            g.add((study_design_uri, DC.identifier, Literal(original_study_name, datatype=XSD.string), metadata_graph))
+            
+        g.add((study_design_execution_uri, OntologyNamespaces.RO.value.concretizes, study_design_uri, metadata_graph))
+        g.add((study_design_uri, OntologyNamespaces.RO.value.is_concretized_by, study_design_execution_uri, metadata_graph))
         
-        # Age group inclusion
-        if "age group inclusion criterion" in row and is_valid_value(row["age group inclusion criterion"]):
-            g.add((cohort_uri, ICARE["ageGroupInclusion"], Literal(row["age group inclusion criterion"]), cohorts_graph))
+        # Create study design variable specification
+        study_design_variable_specification_uri = URIRef(study_uri + "/study_design_variable_specification")
+        g.add((study_design_variable_specification_uri, RDFS.label, Literal("study design variable specification", datatype=XSD.string), metadata_graph))
+        g.add((study_design_variable_specification_uri, RDF.type, OntologyNamespaces.CMEO.value.study_design_variable_specification, metadata_graph))
+        g.add((protocol_uri, OntologyNamespaces.RO.value.has_part, study_design_variable_specification_uri, metadata_graph))
         
-        # BMI range inclusion
-        if "BMI range inclusion criterion" in row and is_valid_value(row["BMI range inclusion criterion"]):
-            g.add((cohort_uri, ICARE["bmiRangeInclusion"], Literal(row["BMI range inclusion criterion"]), cohorts_graph))
+        # Process all metadata fields using unified mapping
+        g = process_all_metadata_fields(g, row, study_design_execution_uri, study_design_uri, study_uri, protocol_uri, metadata_graph)
         
-        # Ethnicity inclusion
-        if "ethnicity inclusion criterion" in row and is_valid_value(row["ethnicity inclusion criterion"]):
-            g.add((cohort_uri, ICARE["ethnicityInclusion"], Literal(row["ethnicity inclusion criterion"]), cohorts_graph))
-        
-        # Family status inclusion
-        if "family status inclusion criterion" in row and is_valid_value(row["family status inclusion criterion"]):
-            g.add((cohort_uri, ICARE["familyStatusInclusion"], Literal(row["family status inclusion criterion"]), cohorts_graph))
-        
-        # Hospital patient inclusion
-        if "hospital patient inclusion criterion" in row and is_valid_value(row["hospital patient inclusion criterion"]):
-            g.add((cohort_uri, ICARE["hospitalPatientInclusion"], Literal(row["hospital patient inclusion criterion"]), cohorts_graph))
-        
-        # Use of medication inclusion
-        if "use of medication inclusion criterion" in row and is_valid_value(row["use of medication inclusion criterion"]):
-            g.add((cohort_uri, ICARE["useOfMedicationInclusion"], Literal(row["use of medication inclusion criterion"]), cohorts_graph))
-        
-        # Handle exclusion criteria fields using exact field names
-        # Health status exclusion
-        if "health status exclusion criterion" in row and is_valid_value(row["health status exclusion criterion"]):
-            g.add((cohort_uri, ICARE["healthStatusExclusion"], Literal(row["health status exclusion criterion"]), cohorts_graph))
-        
-        # BMI range exclusion
-        if "bmi range exclusion criterion" in row and is_valid_value(row["bmi range exclusion criterion"]):
-            g.add((cohort_uri, ICARE["bmiRangeExclusion"], Literal(row["bmi range exclusion criterion"]), cohorts_graph))
-        
-        # Limited life expectancy exclusion
-        if "limited life expectancy exclusion criterion" in row and is_valid_value(row["limited life expectancy exclusion criterion"]):
-            g.add((cohort_uri, ICARE["limitedLifeExpectancyExclusion"], Literal(row["limited life expectancy exclusion criterion"]), cohorts_graph))
-        
-        # Need for surgery exclusion
-        if "need for surgery exclusion criterion" in row and is_valid_value(row["need for surgery exclusion criterion"]):
-            g.add((cohort_uri, ICARE["needForSurgeryExclusion"], Literal(row["need for surgery exclusion criterion"]), cohorts_graph))
-        
-        # Surgical procedure history exclusion
-        if "surgical procedure history exclusion criterion" in row and is_valid_value(row["surgical procedure history exclusion criterion"]):
-            g.add((cohort_uri, ICARE["surgicalProcedureHistoryExclusion"], Literal(row["surgical procedure history exclusion criterion"]), cohorts_graph))
-        
-        # Clinically relevant exposure exclusion
-        if "clinically relevant exposure exclusion criterion" in row and is_valid_value(row["clinically relevant exposure exclusion criterion"]):
-            g.add((cohort_uri, ICARE["clinicallyRelevantExposureExclusion"], Literal(row["clinically relevant exposure exclusion criterion"]), cohorts_graph))
+    print(f"✅ Cohorts metadata graph created with {len(g)} triples")
+    return g
 
-        # Handle Mixed Sex field
-        if "Mixed Sex" in row and is_valid_value(row["Mixed Sex"]):
-            mixed_sex_value = row["Mixed Sex"]
-            male_percentage = None
-            female_percentage = None
+
+def process_all_metadata_fields(g: Graph, row: pd.Series, study_design_execution_uri: URIRef, 
+                               study_design_uri: URIRef, study_uri: URIRef, protocol_uri: URIRef, 
+                               metadata_graph: URIRef) -> Graph:
+    """Process ALL metadata fields using unified mapping to eliminate code repetition"""
+    
+    # Simplified field mapping - only essential info, rest is derived
+    # Using OntologyNamespaces enum consistently with study_kg.py
+    field_config = {
+        # Direct properties (no entity creation)
+        "language": "direct_property",
+        
+        # Entity fields - minimal config, smart defaults
+        "study type": {"ns": "SIO", "type": "descriptor", "target": "study_design", "rel": "is_about", "rel_ns": "IAO", "use_rdfs_label": True},
+        "study objective": {"ns": "OBI", "type": "objective_specification", "target": "protocol"},
+        "number of participants": {"ns": "CMEO", "type": "number_of_participants", "target": "protocol", "label": True},
+        "start date": {"ns": "CMEO", "type": "start_time", "target": "execution", "rel": "has_time_stamp", "rel_ns": "IAO"},
+        "end date": {"ns": "CMEO", "type": "end_time", "target": "execution", "rel": "has_time_stamp", "rel_ns": "IAO"},
+        "ongoing": {"ns": "SIO", "type": "ongoing", "target": "execution", "rel": "is_about", "rel_ns": "IAO", "datatype": "boolean"},
+        # NOTE: age distribution, population location, and morbidity handled in handle_special_fields (need output_population structure)
+        # "age distribution": {"ns": "OBI", "type": "age_distribution", "target": "execution", "label": True},
+        # "population location": {"ns": "BFO", "type": "site", "target": "execution"},
+        "institute": {"ns": "OBI", "type": "organization", "target": "execution", "rel": "has_participant"},
+        # Note: primary/secondary outcome specifications, morbidity, age distribution, population location handled in handle_special_fields (need nested structure)
+        # "morbidity": {"ns": "OBI", "type": "morbidity", "target": "protocol"},
+        "administrator": {"ns": "NCBI", "type": "homo_sapiens", "target": "execution", "rel": "has_participant"},
+        "study contact person": {"ns": "NCBI", "type": "homo_sapiens", "target": "execution", "rel": "has_participant"},
+        # Additional fields to match CohortVarLinker
+        "frequency of data collection": {"ns": "CMEO", "type": "timeline_specification", "target": "protocol"},
+        "interventions": {"ns": "CMEO", "type": "intervention_specification", "target": "protocol", "label": True},
+    }
+    
+    # Smart defaults and derivation logic
+    def get_namespace(ns_key):
+        ns_map = {"DC": DC, "SIO": OntologyNamespaces.SIO.value, "OBI": OntologyNamespaces.OBI.value, 
+                  "CMEO": OntologyNamespaces.CMEO.value, "BFO": OntologyNamespaces.BFO.value, 
+                  "IAO": OntologyNamespaces.IAO.value, "NCBI": OntologyNamespaces.NCBI.value}
+        return ns_map[ns_key]
+    
+    def get_subject_uri(target):
+        targets = {"execution": study_design_execution_uri, "protocol": protocol_uri, "study_design": study_design_uri}
+        return targets[target]
+    
+    def get_uri_suffix(field_name):
+        # Special case mappings to match CohortVarLinker URIs
+        uri_mappings = {
+            "study type": "/descriptor",  # Must match CohortVarLinker
+            "frequency of data collection": "/timeline_specification",  # Must match CohortVarLinker
+            "interventions": "/intervention",  # Must match CohortVarLinker (singular!)
+        }
+        if field_name in uri_mappings:
+            return uri_mappings[field_name]
+        return "/" + field_name.replace(" ", "_")
+    
+    def get_default_relationship(rdf_type):
+        return "has_part"  # Most common default
+    
+    # Process all fields using simplified mapping with smart defaults
+    for excel_field, config in field_config.items():
+        if pd.notna(row.get(excel_field, "")):
             
-            # Split the string by common separators
-            parts = []
-            if ";" in mixed_sex_value:
-                parts = mixed_sex_value.split(";")
-            elif "and" in mixed_sex_value:
-                parts = mixed_sex_value.split("and")
+            # Handle direct properties
+            if config == "direct_property":
+                if excel_field == "language":
+                    value = str(row[excel_field]).lower().strip()
+                    g.add((study_design_execution_uri, DC.language, Literal(value, datatype=XSD.string), metadata_graph))
+                continue
+            
+            # Process value with smart defaults
+            if config.get("datatype") == "boolean":
+                value = True if str(row[excel_field]).lower().strip() == "yes" else False
+                datatype = XSD.boolean
             else:
-                parts = [mixed_sex_value]
+                value = str(row[excel_field]).strip()
+                datatype = XSD.string
             
-            # Process each part to find male and female percentages
-            for part in parts:
-                part = part.strip().lower().replace(",", ".")
-                if "male" in part and "female" not in part:  # Ensure we're not catching 'female' in 'male'
-                    # Extract only digits and period for the percentage
-                    digits_only = ''.join(c for c in part if c.isdigit() or c == '.')
-                    if digits_only:
-                        try:
-                            male_percentage = float(digits_only)
-                            g.add((cohort_uri, ICARE.malePercentage, Literal(male_percentage), cohorts_graph))
-                        except ValueError:
-                            print(f"Could not convert '{digits_only}' to float for male percentage")
+            # Create entity with derived properties
+            namespace = get_namespace(config["ns"])
+            rdf_type = config["type"]
+            subject_uri = get_subject_uri(config["target"])
+            uri_suffix = get_uri_suffix(excel_field)
+            relationship = config.get("rel", get_default_relationship(rdf_type))
+            rel_namespace = get_namespace(config.get("rel_ns", "RO")) if config.get("rel_ns") else OntologyNamespaces.RO.value
+            
+            # Add RDF triples
+            entity_uri = URIRef(study_uri + uri_suffix)
+            rdf_type_uri = URIRef(namespace + rdf_type)
+            g.add((entity_uri, RDF.type, rdf_type_uri, metadata_graph))
+            
+            # Add relationship
+            relationship_uri = URIRef(rel_namespace + relationship)
+            g.add((subject_uri, relationship_uri, entity_uri, metadata_graph))
+            
+            # Add label if specified
+            if config.get("label"):
+                g.add((entity_uri, RDFS.label, Literal(excel_field, datatype=XSD.string), metadata_graph))
+            
+            # Add rdfs:label with the value itself (for query compatibility)
+            if config.get("use_rdfs_label"):
+                g.add((entity_uri, RDFS.label, Literal(value, datatype=XSD.string), metadata_graph))
+            
+            # Add value
+            g.add((entity_uri, OntologyNamespaces.CMEO.value.has_value, Literal(value, datatype=datatype), metadata_graph))
+    
+    # Handle special cases that need custom logic
+    g = handle_special_fields(g, row, study_design_execution_uri, study_uri, protocol_uri, metadata_graph)
+    return g
+
+
+def handle_special_fields(g: Graph, row: pd.Series, study_design_execution_uri: URIRef,
+                         study_uri: URIRef, protocol_uri: URIRef, metadata_graph: URIRef) -> Graph:
+    """Handle only the truly special cases that can't be mapped generically"""
+    
+    # Create eligibility criterion container (matches study_kg.py structure)
+    eligibility_criterion_uri = URIRef(study_uri + "/eligibility_criterion")
+    g.add((eligibility_criterion_uri, RDF.type, OntologyNamespaces.OBI.value.eligibility_criterion, metadata_graph))
+    g.add((protocol_uri, OntologyNamespaces.RO.value.has_part, eligibility_criterion_uri, metadata_graph))
+    
+    # Create enrollment and population entities (matches study_kg.py and query expectations)
+    human_subject_enrollment = URIRef(study_uri + "/human_subject_enrollment")
+    g.add((human_subject_enrollment, RDF.type, OntologyNamespaces.CMEO.value.human_subject_enrollment, metadata_graph))
+    g.add((eligibility_criterion_uri, OntologyNamespaces.RO.value.is_concretized_by, human_subject_enrollment, metadata_graph))
+    
+    input_population_uri = URIRef(study_uri + "/input_population")
+    g.add((input_population_uri, RDF.type, OntologyNamespaces.OBI.value.population, metadata_graph))
+    g.add((human_subject_enrollment, OntologyNamespaces.RO.value.has_input, input_population_uri, metadata_graph))
+    
+    output_population_uri = URIRef(study_uri + "/output_population")
+    g.add((output_population_uri, RDF.type, OntologyNamespaces.OBI.value.population, metadata_graph))
+    g.add((human_subject_enrollment, OntologyNamespaces.RO.value.has_output, output_population_uri, metadata_graph))
+    
+    # Handle Mixed Sex field with male/female percentage parsing and as characteristic of output population
+    if pd.notna(row.get("mixed sex", "")):
+        mixed_sex_value = str(row["mixed sex"])
+        male_percentage = None
+        female_percentage = None
+        
+        # Add mixed sex quality of output population (matches study_kg.py)
+        mixed_sex_quality = URIRef(study_uri + "/mixed_sex")
+        g.add((mixed_sex_quality, RDF.type, OntologyNamespaces.OBI.value.mixed_sex, metadata_graph))
+        g.add((output_population_uri, OntologyNamespaces.RO.value.has_characteristic, mixed_sex_quality, metadata_graph))
+        g.add((mixed_sex_quality, RDFS.label, Literal("mixed sex", datatype=XSD.string), metadata_graph))
+        g.add((mixed_sex_quality, OntologyNamespaces.CMEO.value.has_value, Literal(mixed_sex_value, datatype=XSD.string), metadata_graph))
+        
+        # Parse percentages from mixed sex field
+        parts = mixed_sex_value.split(";") if ";" in mixed_sex_value else mixed_sex_value.split("and") if "and" in mixed_sex_value else [mixed_sex_value]
+        
+        for part in parts:
+            part = part.strip().lower().replace(",", ".")
+            digits_only = ''.join(c for c in part if c.isdigit() or c == '.')
+            if digits_only:
+                try:
+                    percentage = float(digits_only)
+                    if "male" in part and "female" not in part:
+                        male_percentage = percentage
+                    elif "female" in part:
+                        female_percentage = percentage
+                except ValueError:
+                    continue
+        
+        # Add parsed percentages to graph (for frontend display)
+        if male_percentage is not None:
+            male_percentage_uri = URIRef(study_uri + "/male_percentage")
+            g.add((male_percentage_uri, RDF.type, OntologyNamespaces.CMEO.value.male_percentage, metadata_graph))
+            g.add((eligibility_criterion_uri, OntologyNamespaces.RO.value.has_part, male_percentage_uri, metadata_graph))
+            g.add((male_percentage_uri, OntologyNamespaces.CMEO.value.has_value, Literal(male_percentage, datatype=XSD.float), metadata_graph))
+            
+        if female_percentage is not None:
+            female_percentage_uri = URIRef(study_uri + "/female_percentage")
+            g.add((female_percentage_uri, RDF.type, OntologyNamespaces.CMEO.value.female_percentage, metadata_graph))
+            g.add((eligibility_criterion_uri, OntologyNamespaces.RO.value.has_part, female_percentage_uri, metadata_graph))
+            g.add((female_percentage_uri, OntologyNamespaces.CMEO.value.has_value, Literal(female_percentage, datatype=XSD.float), metadata_graph))
+        
+        print(f"Mixed Sex parsing for {row.get('study name', 'unknown')}: '{mixed_sex_value}' → Male: {male_percentage}, Female: {female_percentage}")
+    
+    # Handle morbidity as characteristic of output population (matches query expectations)
+    if pd.notna(row.get("morbidity", "")):
+        morbidities = str(row["morbidity"]).lower().split(";") if ";" in str(row["morbidity"]) else [str(row["morbidity"]).lower()]
+        for morbidity in morbidities:
+            morbidity = morbidity.strip()
+            if morbidity:
+                dynamic_morbidity_uri = URIRef(OntologyNamespaces.OBI.value + normalize_text(morbidity))
+                g.add((output_population_uri, OntologyNamespaces.RO.value.has_characteristic, dynamic_morbidity_uri, metadata_graph))
+                g.add((dynamic_morbidity_uri, OntologyNamespaces.RO.value.is_characteristic_of, output_population_uri, metadata_graph))
+                g.add((dynamic_morbidity_uri, RDF.type, OntologyNamespaces.OBI.value.morbidity, metadata_graph))
+                g.add((dynamic_morbidity_uri, RDFS.label, Literal(morbidity, datatype=XSD.string), metadata_graph))
+                g.add((dynamic_morbidity_uri, OntologyNamespaces.CMEO.value.has_value, Literal(morbidity, datatype=XSD.string), metadata_graph))
+    
+    # Handle age distribution as characteristic of output population (matches query expectations)
+    if pd.notna(row.get("age distribution", "")):
+        age_quality = URIRef(study_uri + "/age_distribution")
+        g.add((age_quality, RDF.type, OntologyNamespaces.OBI.value.age_distribution, metadata_graph))
+        g.add((output_population_uri, OntologyNamespaces.RO.value.has_characteristic, age_quality, metadata_graph))
+        g.add((age_quality, RDFS.label, Literal("age distribution", datatype=XSD.string), metadata_graph))
+        g.add((age_quality, OntologyNamespaces.CMEO.value.has_value, Literal(str(row["age distribution"]), datatype=XSD.string), metadata_graph))
+    
+    # Handle population location with site pointing to output population (matches query expectations)
+    if pd.notna(row.get("population location", "")):
+        site_uri = URIRef(output_population_uri + "/site")
+        g.add((site_uri, RDF.type, OntologyNamespaces.BFO.value.site, metadata_graph))
+        g.add((site_uri, OntologyNamespaces.IAO.value.is_about, output_population_uri, metadata_graph))
+        g.add((site_uri, OntologyNamespaces.CMEO.value.has_value, Literal(str(row["population location"]), datatype=XSD.string), metadata_graph))
+    
+    # Handle outcome specifications with nested structure required by SPARQL query
+    # Query expects: protocol -> outcome_specification -> primary/secondary_outcome_specification
+    # URIs must match CohortVarLinker: /primary_outcome_specification (not /primary_outcome_spec)
+    has_primary = pd.notna(row.get("primary outcome specification", ""))
+    has_secondary = pd.notna(row.get("secondary outcome specification", ""))
+    
+    if has_primary or has_secondary:
+        # Create the parent outcome_specification entity
+        outcome_spec_uri = URIRef(study_uri + "/outcome_specification")
+        g.add((outcome_spec_uri, RDF.type, OntologyNamespaces.CMEO.value.outcome_specification, metadata_graph))
+        g.add((protocol_uri, OntologyNamespaces.RO.value.has_part, outcome_spec_uri, metadata_graph))
+        g.add((outcome_spec_uri, RDFS.label, Literal("outcome specification", datatype=XSD.string), metadata_graph))
+        
+        # Add primary outcome specification - split by semicolon like CohortVarLinker
+        if has_primary:
+            primary_values = str(row["primary outcome specification"]).lower().split(';') if pd.notna(row["primary outcome specification"]) else []
+            for primary_value in primary_values:
+                primary_value = primary_value.strip()
+                if primary_value:  # Skip empty values
+                    # URI matches CohortVarLinker: /primary_outcome_specification
+                    primary_uri = URIRef(study_uri + "/primary_outcome_specification")
+                    g.add((primary_uri, RDF.type, OntologyNamespaces.CMEO.value.primary_outcome_specification, metadata_graph))
+                    g.add((primary_uri, RDFS.label, Literal("primary outcome specification", datatype=XSD.string), metadata_graph))
+                    g.add((outcome_spec_uri, OntologyNamespaces.RO.value.has_part, primary_uri, metadata_graph))
+                    g.add((primary_uri, OntologyNamespaces.CMEO.value.has_value, Literal(primary_value, datatype=XSD.string), metadata_graph))
+        
+        # Add secondary outcome specification - split by semicolon like CohortVarLinker
+        if has_secondary:
+            secondary_values = str(row["secondary outcome specification"]).lower().split(';') if pd.notna(row["secondary outcome specification"]) else []
+            for secondary_value in secondary_values:
+                secondary_value = secondary_value.strip()
+                if secondary_value:  # Skip empty values
+                    # URI matches CohortVarLinker: /secondary_outcome_specification
+                    secondary_uri = URIRef(study_uri + "/secondary_outcome_specification")
+                    g.add((secondary_uri, RDF.type, OntologyNamespaces.CMEO.value.secondary_outcome_specification, metadata_graph))
+                    g.add((secondary_uri, RDFS.label, Literal("secondary outcome specification", datatype=XSD.string), metadata_graph))
+                    g.add((outcome_spec_uri, OntologyNamespaces.RO.value.has_part, secondary_uri, metadata_graph))
+                    g.add((secondary_uri, OntologyNamespaces.CMEO.value.has_value, Literal(secondary_value, datatype=XSD.string), metadata_graph))
+    
+    # Handle inclusion criteria - matches CohortVarLinker implementation
+    inclusion_criteria_columns = [col for col in row.index if "inclusion criterion" in col.lower()]
+    if inclusion_criteria_columns:
+        # Create inclusion criterion container
+        inclusion_criterion_uri = URIRef(study_uri + "/inclusion_criterion")
+        g.add((inclusion_criterion_uri, RDF.type, OntologyNamespaces.OBI.value.inclusion_criterion, metadata_graph))
+        g.add((inclusion_criterion_uri, OntologyNamespaces.RO.value.part_of, eligibility_criterion_uri, metadata_graph))
+        g.add((eligibility_criterion_uri, OntologyNamespaces.RO.value.has_part, inclusion_criterion_uri, metadata_graph))
+        
+        for col in inclusion_criteria_columns:
+            inclusion_criterion_name = normalize_text(col)
+            row_value = str(row[col]).lower().strip() if pd.notna(row[col]) else ""
+            if row_value == "not applicable" or row_value == "" or row_value is None:
+                continue
+            
+            # Special handling for age-related inclusion criteria (matches study_kg.py)
+            if "age" in inclusion_criterion_name:
+                g = add_age_group_inclusion_criterion(g, study_uri, inclusion_criterion_uri, metadata_graph, row[col])
+            else:
+                # Create dynamic type for this specific inclusion criterion
+                dynamic_inclusion_criterion_type = URIRef(OntologyNamespaces.CMEO.value + inclusion_criterion_name)
                 
-                if "female" in part:
-                    # Extract only digits and period for the percentage
-                    digits_only = ''.join(c for c in part if c.isdigit() or c == '.')
-                    if digits_only:
-                        try:
-                            female_percentage = float(digits_only)
-                            g.add((cohort_uri, ICARE.femalePercentage, Literal(female_percentage), cohorts_graph))
-                        except ValueError:
-                            print(f"Could not convert '{digits_only}' to float for female percentage")
-                
-            # Debug output to help diagnose parsing issues
-            print(f"Mixed Sex parsing for {cohort_id}: '{mixed_sex_value}' → Male: {male_percentage}, Female: {female_percentage}")
+                # Split by semicolon for multiple values
+                inc_all_values = row_value.split(";") if row_value else []
+                for inclusion_criteria_value in inc_all_values:
+                    inclusion_criteria_value = inclusion_criteria_value.strip()
+                    if inclusion_criteria_value:
+                        col_inclusion_criteria_uri = URIRef(study_uri + "/" + inclusion_criterion_name)
+                        g.add((col_inclusion_criteria_uri, RDF.type, dynamic_inclusion_criterion_type, metadata_graph))
+                        g.add((col_inclusion_criteria_uri, OntologyNamespaces.RO.value.part_of, inclusion_criterion_uri, metadata_graph))
+                        g.add((inclusion_criterion_uri, OntologyNamespaces.RO.value.has_part, col_inclusion_criteria_uri, metadata_graph))
+                        g.add((col_inclusion_criteria_uri, RDFS.label, Literal(col, datatype=XSD.string), metadata_graph))
+                        g.add((col_inclusion_criteria_uri, OntologyNamespaces.CMEO.value.has_value, Literal(inclusion_criteria_value, datatype=XSD.string), metadata_graph))
+    
+    # Handle exclusion criteria - matches CohortVarLinker implementation
+    exclusion_criteria_columns = [col for col in row.index if "exclusion criterion" in col.lower()]
+    if exclusion_criteria_columns:
+        # Create exclusion criterion container
+        exclusion_criterion_uri = URIRef(study_uri + "/exclusion_criterion")
+        g.add((exclusion_criterion_uri, RDF.type, OntologyNamespaces.OBI.value.exclusion_criterion, metadata_graph))
+        g.add((exclusion_criterion_uri, OntologyNamespaces.RO.value.part_of, eligibility_criterion_uri, metadata_graph))
+        g.add((eligibility_criterion_uri, OntologyNamespaces.RO.value.has_part, exclusion_criterion_uri, metadata_graph))
+        
+        for col in exclusion_criteria_columns:
+            exclusion_criterion_name = normalize_text(col)
+            row_value = str(row[col]).lower().strip() if pd.notna(row[col]) else ""
+            if row_value == "not applicable" or row_value == "" or row_value is None:
+                continue
+            
+            # Create dynamic type for this specific exclusion criterion
+            dynamic_exclusion_criterion_type = URIRef(OntologyNamespaces.CMEO.value + exclusion_criterion_name)
+            
+            # Split by semicolon for multiple values
+            exc_all_values = row_value.split(";") if row_value else []
+            for exclusion_criteria_value in exc_all_values:
+                exclusion_criteria_value = exclusion_criteria_value.strip()
+                if exclusion_criteria_value:
+                    col_exclusion_criteria_uri = URIRef(study_uri + "/" + exclusion_criterion_name)
+                    g.add((col_exclusion_criteria_uri, RDF.type, dynamic_exclusion_criterion_type, metadata_graph))
+                    g.add((col_exclusion_criteria_uri, OntologyNamespaces.RO.value.part_of, exclusion_criterion_uri, metadata_graph))
+                    g.add((exclusion_criterion_uri, OntologyNamespaces.RO.value.has_part, col_exclusion_criteria_uri, metadata_graph))
+                    g.add((col_exclusion_criteria_uri, RDFS.label, Literal(col, datatype=XSD.string), metadata_graph))
+                    g.add((col_exclusion_criteria_uri, OntologyNamespaces.CMEO.value.has_value, Literal(exclusion_criteria_value, datatype=XSD.string), metadata_graph))
+    
+    return g
+
+
+def add_age_group_inclusion_criterion(g: Graph, study_uri: URIRef, inclusion_criterion_uri: URIRef, 
+                                      metadata_graph: URIRef, inclusion_criteria_value: str) -> Graph:
+    """
+    Add age group inclusion criterion with min/max age value specifications.
+    Matches study_kg.py implementation.
+    """
+    if pd.isna(inclusion_criteria_value):
+        return g
+    
+    age_group_inclusion_criterion_uri = URIRef(study_uri + "/age_group_inclusion_criterion")
+    g.add((age_group_inclusion_criterion_uri, RDF.type, OntologyNamespaces.CMEO.value.age_group_inclusion_criterion, metadata_graph))
+    g.add((inclusion_criterion_uri, OntologyNamespaces.RO.value.has_part, age_group_inclusion_criterion_uri, metadata_graph))
+    g.add((age_group_inclusion_criterion_uri, OntologyNamespaces.RO.value.part_of, inclusion_criterion_uri, metadata_graph))
+    g.add((age_group_inclusion_criterion_uri, RDFS.label, Literal("age group inclusion criterion", datatype=XSD.string), metadata_graph))
+    g.add((age_group_inclusion_criterion_uri, OntologyNamespaces.CMEO.value.has_value, Literal(inclusion_criteria_value, datatype=XSD.string), metadata_graph))
+    
+    # Extract age range using the utility function
+    agic_value_ranges = extract_age_range(inclusion_criteria_value)
+    if agic_value_ranges:
+        min_age, max_age = agic_value_ranges
+        
+        if min_age is not None:
+            min_age = float(min_age)
+            min_age_value_specification = URIRef(age_group_inclusion_criterion_uri + "/minimum_age_value_specification")
+            g.add((min_age_value_specification, RDF.type, OntologyNamespaces.OBI.value.minimum_age_value_specification, metadata_graph))
+            g.add((min_age_value_specification, OntologyNamespaces.CMEO.value.has_value, Literal(min_age, datatype=XSD.float), metadata_graph))
+            g.add((age_group_inclusion_criterion_uri, OntologyNamespaces.RO.value.has_part, min_age_value_specification, metadata_graph))
+        
+        if max_age is not None:
+            max_age = float(max_age)
+            max_age_value_specification = URIRef(age_group_inclusion_criterion_uri + "/maximum_age_value_specification")
+            g.add((max_age_value_specification, RDF.type, OntologyNamespaces.OBI.value.maximum_age_value_specification, metadata_graph))
+            g.add((age_group_inclusion_criterion_uri, OntologyNamespaces.RO.value.has_part, max_age_value_specification, metadata_graph))
+            g.add((max_age_value_specification, OntologyNamespaces.CMEO.value.has_value, Literal(max_age, datatype=XSD.float), metadata_graph))
+    
     return g
 
 

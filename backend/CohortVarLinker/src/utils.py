@@ -14,6 +14,7 @@ from typing import Dict, Any
 
 
 
+
 from datetime import datetime
 
 def day_month_year(date_str: str) -> tuple:
@@ -229,9 +230,6 @@ def extract_tick_values(texts: str) -> list[float]:
     """
     ticks = []
     # Split the string at the separators used by the user (" - ")
-    if texts is None:
-        return ticks
-        
     for token in texts.split(" - "):
         # Regex captures the *label* part (text between the final pair of quotes)
         m = re.search(r"Text\([^,]+,\s*[^,]+,\s*'([^']+)'\)", token)
