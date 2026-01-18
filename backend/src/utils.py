@@ -503,7 +503,7 @@ def get_studies_metadata_query() -> str:
 def get_cohorts_metadata_query() -> str:
     """Get SPARQL query for retrieving cohort metadata from studies_metadata graph (Query 1).
     
-    The query is extracted from the first query in the file (lines 1-292).
+    The query is extracted from the first query in the file (lines 1-293).
     Note: Line numbers are 1-indexed in the file, but 0-indexed in the list.
     """
     import os
@@ -515,16 +515,16 @@ def get_cohorts_metadata_query() -> str:
     # Extract Query 1 (cohort metadata from studies_metadata graph)
     # Line 1 (index 0): comment "# Query to Retrieve Studies Metadata"
     # Line 2 (index 1): first PREFIX
-    # Line 292 (index 291): last line before Query 2 comment
+    # Line 293 (index 292): GROUP BY ?study ?cohortId ?study_type (last line of Query 1)
     # Skip the comment line, start from first PREFIX
-    query = ''.join(lines[1:292]).strip()
+    query = ''.join(lines[1:293]).strip()
     return query
 
 
 def get_variables_metadata_query() -> str:
     """Get SPARQL query for retrieving variables metadata (from sparql_queries.txt).
     
-    The query is extracted from the second query in the file (lines 294-418).
+    The query is extracted from the second query in the file (lines 296+).
     Note: Line numbers are 1-indexed in the file, but 0-indexed in the list.
     """
     import os
@@ -534,11 +534,10 @@ def get_variables_metadata_query() -> str:
         lines = f.readlines()
     
     # Extract only the SPARQL lines for Query 2 (prefixes + SELECT + WHERE)
-    # Line 294 (index 293): comment "Query 2: All variables from each study graph"
-    # Line 295 (index 294): first PREFIX (stato)
-    # Line 419 (index 418): closing brace of Query 2
-    # Skip the comment line, start from first PREFIX
-    query = ''.join(lines[294:419]).strip()
+    # Line 296 (index 295): comment "Query 2: All variables from each study graph"
+    # Line 297 (index 296): first PREFIX (stato)
+    # Skip the comment line, start from first PREFIX, go to end of file
+    query = ''.join(lines[296:]).strip()
     return query
 
 

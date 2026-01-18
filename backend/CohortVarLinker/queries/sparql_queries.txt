@@ -214,6 +214,7 @@ WHERE {
              (GROUP_CONCAT(?ex_val; SEPARATOR=" || ") AS ?exclusion_values)
              (GROUP_CONCAT(DISTINCT ?m; separator="; ") AS ?morbidity)
       WHERE {
+        {
         # Order the rows by a stable key (?k) so labels and values line up positionally
         SELECT ?study ?k ?lbl ?val ?ex_lbl ?ex_val ?population_location ?m
         WHERE {
@@ -283,6 +284,7 @@ WHERE {
           }
         }
         ORDER BY ?study ?population_location ?k ?exc_k ?m
+        }
       }
       GROUP BY ?study  ?population_location
     }
