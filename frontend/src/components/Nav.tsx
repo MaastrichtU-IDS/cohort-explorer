@@ -26,9 +26,10 @@ export function Nav() {
   const [showParticipantsModal, setShowParticipantsModal] = useState(false);
   const [additionalAnalysts, setAdditionalAnalysts] = useState<string[]>([]);
   const [newAnalystEmail, setNewAnalystEmail] = useState('');
-  const [airlockSettings, setAirlockSettings] = useState<Record<string, number>>({});
+  const [airlockSettings, setAirlockSettings] = useState<Record<string, boolean>>({});
   const [participantsPreview, setParticipantsPreview] = useState<any>(null);
   const [loadingParticipants, setLoadingParticipants] = useState(false);
+  const [dcrName, setDcrName] = useState('');
   // const [cleanRoomData, setCleanRoomData]: any = useState(null);
   // const cleanRoomData = JSON.parse(sessionStorage.getItem('dataCleanRoom') || '{"cohorts": []}');
   // const cohortsCount = cleanRoomData.cohorts.length;
@@ -82,7 +83,8 @@ export function Nav() {
         },
         body: JSON.stringify({
           ...dataCleanRoom,
-          include_shuffled_samples: includeShuffledSamples
+          include_shuffled_samples: includeShuffledSamples,
+          dcr_name: dcrName
         })
       });
       
@@ -149,7 +151,13 @@ export function Nav() {
           ...dataCleanRoom,
           include_shuffled_samples: includeShuffledSamples,
           additional_analysts: additionalAnalysts,
-          airlock_settings: airlockSettings
+          airlock_settings: Object.fromEntries(
+            Object.entries(airlockSettings).map(([cohortId, isEnabled]) => [
+              cohortId,
+              isEnabled ? 20 : 0
+            ])
+          ),
+          dcr_name: dcrName
         })
       });
       
@@ -258,6 +266,7 @@ export function Nav() {
     setIncludeShuffledSamples(true);
     setAdditionalAnalysts([]);
     setAirlockSettings({});
+    setDcrName('');
   };
 
   const addAnalyst = useCallback(() => {
@@ -454,6 +463,27 @@ export function Nav() {
               </div>
             </div>
             
+            {/* DCR Name field - only visible in future mode, placed at top */}
+            {dcrMode === 'future' && (
+              <div className="form-control mb-4">
+                <label className="label">
+                  <span className="label-text font-semibold">DCR Name</span>
+                </label>
+                <input 
+                  type="text"
+                  placeholder="iCARE4CVD DCR compute XXX"
+                  className="input input-bordered w-full"
+                  value={dcrName}
+                  onChange={(e) => setDcrName(e.target.value)}
+                />
+                <label className="label">
+                  <span className="label-text-alt text-base-content/60">
+                    Leave empty to use default naming. Note: &quot; - created by {userEmail}&quot; will be appended to the name.
+                  </span>
+                </label>
+              </div>
+            )}
+            
             <h3 className="font-bold text-lg mb-3">Cohorts to load in Decentriq Data Clean Room</h3>
             <ul>
               {Object.entries(dataCleanRoom?.cohorts).map(([cohortId, variables]: any) => (
@@ -468,10 +498,11 @@ export function Nav() {
             Once the first is selected we only show the cohorts with same number of variables?
             */}
             
-            {/* Checkbox for including shuffled samples - only visible in future mode */}
+            {/* Other settings - only visible in future mode */}
             {dcrMode === 'future' && (
               <>
-                <div className="form-control mt-4">
+                
+                <div className="form-control mt-2">
                   <label className="label cursor-pointer justify-start gap-3">
                     <input 
                       type="checkbox" 
@@ -506,24 +537,21 @@ export function Nav() {
                 <div className="mt-4">
                   <div className="divider"></div>
                   <h3 className="font-bold text-lg mb-3">Airlock Settings</h3>
-                  <p className="text-sm text-base-content/70 mb-3">Set the percentage of data (0-100) to export as a fragment for each cohort:</p>
-                  <div className="space-y-3">
+                  <p className="text-sm text-base-content/70 mb-3">Select cohorts to include in the airlock (20% data export per cohort):</p>
+                  <div className="space-y-2">
                     {dataCleanRoom?.cohorts && Object.keys(dataCleanRoom.cohorts).map((cohortId) => (
-                      <div key={cohortId} className="flex items-center gap-2">
-                        <label className="flex-1 font-medium">{cohortId}</label>
-                        <input 
-                          type="number"
-                          min="0"
-                          max="100"
-                          placeholder="0"
-                          className="input input-bordered w-24 text-center"
-                          value={airlockSettings[cohortId] ?? 0}
-                          onChange={(e) => {
-                            const value = Math.min(100, Math.max(0, parseInt(e.target.value) || 0));
-                            setAirlockSettings({...airlockSettings, [cohortId]: value});
-                          }}
-                        />
-                        <span className="text-sm text-base-content/70 w-8">%</span>
+                      <div key={cohortId} className="form-control">
+                        <label className="label cursor-pointer justify-start gap-3">
+                          <input 
+                            type="checkbox"
+                            checked={airlockSettings[cohortId] ?? true}
+                            onChange={(e) => {
+                              setAirlockSettings({...airlockSettings, [cohortId]: e.target.checked});
+                            }}
+                            className="checkbox checkbox-primary"
+                          />
+                          <span className="label-text">{cohortId}</span>
+                        </label>
                       </div>
                     ))}
                   </div>

@@ -128,6 +128,10 @@ export default function CohortsList() {
     selectedCategoryTypes: Set<string>;
     selectedVisitTypes: Set<string>;
   }}>({});
+  // State to track showOnlyOutcomes per cohort
+  const [showOnlyOutcomes, setShowOnlyOutcomes] = useState<{[cohortId: string]: boolean}>({});
+  // State to track variable counts per cohort
+  const [variableCounts, setVariableCounts] = useState<{[cohortId: string]: {filtered: number, total: number}}>({});
   // selectedMorbidities state removed
 
   // Debounced search for better performance
@@ -159,6 +163,28 @@ export default function CohortsList() {
     return cohortFilters[cohortId];
   };
 
+  // Helper function to toggle showOnlyOutcomes for a cohort
+  const toggleShowOnlyOutcomes = useCallback((cohortId: string) => {
+    setShowOnlyOutcomes(prev => ({
+      ...prev,
+      [cohortId]: !prev[cohortId]
+    }));
+  }, []);
+
+  // Helper function to update variable counts for a cohort
+  const updateVariableCounts = useCallback((cohortId: string, filtered: number, total: number) => {
+    setVariableCounts(prev => {
+      // Only update if values actually changed
+      if (prev[cohortId]?.filtered === filtered && prev[cohortId]?.total === total) {
+        return prev;
+      }
+      return {
+        ...prev,
+        [cohortId]: { filtered, total }
+      };
+    });
+  }, []);
+
   // Helper function to update filters for a specific cohort
   const updateCohortFilters = (cohortId: string, filterType: 'selectedOMOPDomains' | 'selectedDataTypes' | 'selectedCategoryTypes' | 'selectedVisitTypes', value: Set<string>) => {
     setCohortFilters(prev => ({
@@ -180,6 +206,11 @@ export default function CohortsList() {
         selectedCategoryTypes: new Set<string>(),
         selectedVisitTypes: new Set<string>(),
       }
+    }));
+    // Also reset showOnlyOutcomes for this cohort
+    setShowOnlyOutcomes(prev => ({
+      ...prev,
+      [cohortId]: false
     }));
   };
 
@@ -426,6 +457,7 @@ export default function CohortsList() {
           metadata_id="study_type"
           options={Array.from(new Set(Object.values(cohortsData).map((cohort: any) => cohort.study_type)))}
           searchResults={filteredCohorts}
+          selectedValues={selectedStudyTypes}
           onFiltersChange={(optionsSelected: any) => setSelectedStudyTypes(optionsSelected)}
         />
         {/* Filter by morbidity removed */}
@@ -434,6 +466,7 @@ export default function CohortsList() {
           metadata_id="institution"
           options={Array.from(new Set(Object.values(cohortsData).map((cohort: any) => cohort.institution)))}
           searchResults={filteredCohorts}
+          selectedValues={selectedInstitutes}
           onFiltersChange={(optionsSelected: any) => setSelectedInstitutes(optionsSelected)}
         />
         {/* TODO: add by ongoing? */}
@@ -1048,6 +1081,9 @@ export default function CohortsList() {
                   selectedDataTypes={getFiltersForCohort(cohortData.cohort_id).selectedDataTypes}
                   selectedCategoryTypes={getFiltersForCohort(cohortData.cohort_id).selectedCategoryTypes}
                   selectedVisitTypes={getFiltersForCohort(cohortData.cohort_id).selectedVisitTypes}
+                  showOnlyOutcomes={showOnlyOutcomes[cohortData.cohort_id] || false}
+                  filteredVariableCount={variableCounts[cohortData.cohort_id]?.filtered}
+                  totalVariableCount={variableCounts[cohortData.cohort_id]?.total}
                   onDomainClick={(domain) => handleDomainClick(cohortData.cohort_id, domain)}
                   onTypeClick={(type) => handleTypeClick(cohortData.cohort_id, type)}
                   onCategoryClick={(category) => handleCategoryClick(cohortData.cohort_id, category)}
@@ -1066,10 +1102,13 @@ export default function CohortsList() {
                   selectedDataTypes={getFiltersForCohort(cohortData.cohort_id).selectedDataTypes}
                   selectedCategoryTypes={getFiltersForCohort(cohortData.cohort_id).selectedCategoryTypes}
                   selectedVisitTypes={getFiltersForCohort(cohortData.cohort_id).selectedVisitTypes}
+                  showOnlyOutcomes={showOnlyOutcomes[cohortData.cohort_id] || false}
                   onOMOPDomainsChange={(domains: Set<string>) => updateCohortFilters(cohortData.cohort_id, 'selectedOMOPDomains', domains)}
                   onDataTypesChange={(types: Set<string>) => updateCohortFilters(cohortData.cohort_id, 'selectedDataTypes', types)}
                   onCategoryTypesChange={(categories: Set<string>) => updateCohortFilters(cohortData.cohort_id, 'selectedCategoryTypes', categories)}
                   onVisitTypesChange={(visitTypes: Set<string>) => updateCohortFilters(cohortData.cohort_id, 'selectedVisitTypes', visitTypes)}
+                  onShowOnlyOutcomesChange={(value: boolean) => toggleShowOnlyOutcomes(cohortData.cohort_id)}
+                  onVariableCountsChange={(filtered: number, total: number) => updateVariableCounts(cohortData.cohort_id, filtered, total)}
                   onResetFilters={() => resetCohortFilters(cohortData.cohort_id)}
                 />
               </div>

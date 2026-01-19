@@ -21,11 +21,8 @@ import json
 import glob
 from src.config import settings
 
-# Import the CohortVarLinker function and settings
+# Add CohortVarLinker to path for lazy imports
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../CohortVarLinker')))
-from CohortVarLinker.main import generate_mapping_csv
-from CohortVarLinker.src.config import settings as cohort_linker_settings
-from CohortVarLinker.src.utils import get_member_studies
 
 def get_latest_dictionary_timestamp(cohort_id: str) -> float | None:
     """Get the timestamp of the latest data dictionary file for a cohort"""
@@ -57,6 +54,10 @@ async def check_mapping_cache(
     Check cache status for mapping pairs without generating mappings.
     Returns cache information immediately with dictionary timestamps.
     """
+    # Lazy import to avoid module-level import errors
+    from CohortVarLinker.src.config import settings as cohort_linker_settings
+    from CohortVarLinker.src.utils import get_member_studies
+    
     output_dir = cohort_linker_settings.output_dir
     
     source_study = source_study.lower()
@@ -138,6 +139,10 @@ async def generate_mapping(
     Generate a mapping CSV for the given source and target studies and return it as a downloadable file.
     target_studies should be a list of [study_name, visit_constraint_bool]
     """
+    # Lazy import to avoid module-level import errors
+    from CohortVarLinker.main import generate_mapping_csv
+    from CohortVarLinker.src.config import settings as cohort_linker_settings
+    
     # Call the backend function
     # The function writes CSVs to CohortVarLinker/data/mapping_output/{source}_{target}_cross_mapping.csv
     # We'll return the combined JSON file
@@ -279,6 +284,28 @@ async def search_concepts(
     return found_concepts
 
 
+def find_dcr_output_folder(cohort_id: str) -> str | None:
+    """
+    Find the actual dcr_output folder for a cohort, handling case-insensitive matching.
+    Returns the actual folder name if found, None otherwise.
+    """
+    data_folder = settings.data_folder
+    if not os.path.exists(data_folder):
+        return None
+    
+    # Try exact match first
+    exact_folder = f"dcr_output_{cohort_id}"
+    if os.path.exists(os.path.join(data_folder, exact_folder)):
+        return exact_folder
+    
+    # Try case-insensitive search
+    target_prefix = f"dcr_output_{cohort_id.lower()}"
+    for folder in os.listdir(data_folder):
+        if folder.lower() == target_prefix and os.path.isdir(os.path.join(data_folder, folder)):
+            return folder
+    
+    return None
+
 @router.get("/compare-eda/{source_cohort}/{source_var}/{target_cohort}/{target_var}")
 async def compare_eda(
     source_cohort: str,
@@ -291,27 +318,74 @@ async def compare_eda(
     """
     import io
     
-    # Construct paths to the two EDA PNG files
-    source_image_path = os.path.join(settings.data_folder, f"dcr_output_{source_cohort}", f"{source_var.lower()}.png")
-    target_image_path = os.path.join(settings.data_folder, f"dcr_output_{target_cohort}", f"{target_var.lower()}.png")
+    # Find the actual folder names (case-insensitive)
+    source_folder = find_dcr_output_folder(source_cohort)
+    target_folder = find_dcr_output_folder(target_cohort)
     
-    # Check if both files exist
-    if not os.path.exists(source_image_path):
+    # Collect detailed error messages
+    errors = []
+    
+    # Check source cohort
+    if not source_folder:
+        errors.append(f"Source cohort '{source_cohort}': Exploratory Data Analysis has not yet been run on this cohort")
+    else:
+        source_image_path = os.path.join(settings.data_folder, source_folder, f"{source_var.lower()}.png")
+        if not os.path.exists(source_image_path):
+            errors.append(f"Source variable '{source_var}' in cohort '{source_cohort}': This variable was excluded from the EDA analysis")
+    
+    # Check target cohort
+    if not target_folder:
+        errors.append(f"Target cohort '{target_cohort}': Exploratory Data Analysis has not yet been run on this cohort")
+    else:
+        target_image_path = os.path.join(settings.data_folder, target_folder, f"{target_var.lower()}.png")
+        if not os.path.exists(target_image_path):
+            errors.append(f"Target variable '{target_var}' in cohort '{target_cohort}': This variable was excluded from the EDA analysis")
+    
+    # If any errors, raise with detailed message
+    if errors:
+        error_detail = "Cannot compare EDA images:\n" + "\n".join(f"• {err}" for err in errors)
         raise HTTPException(
             status_code=404,
-            detail=f"Source EDA image not found: {source_image_path}"
+            detail=error_detail
         )
     
-    if not os.path.exists(target_image_path):
-        raise HTTPException(
-            status_code=404,
-            detail=f"Target EDA image not found: {target_image_path}"
-        )
+    # Both files exist, construct paths
+    source_image_path = os.path.join(settings.data_folder, source_folder, f"{source_var.lower()}.png")
+    target_image_path = os.path.join(settings.data_folder, target_folder, f"{target_var.lower()}.png")
     
     try:
         # Load both images
         source_image = Image.open(source_image_path)
         target_image = Image.open(target_image_path)
+        
+        # Convert images to RGB if they have transparency
+        if source_image.mode in ('RGBA', 'LA', 'P'):
+            background = Image.new('RGB', source_image.size, 'white')
+            if source_image.mode == 'P':
+                source_image = source_image.convert('RGBA')
+            background.paste(source_image, mask=source_image.split()[-1] if source_image.mode in ('RGBA', 'LA') else None)
+            source_image = background
+        elif source_image.mode != 'RGB':
+            source_image = source_image.convert('RGB')
+            
+        if target_image.mode in ('RGBA', 'LA', 'P'):
+            background = Image.new('RGB', target_image.size, 'white')
+            if target_image.mode == 'P':
+                target_image = target_image.convert('RGBA')
+            background.paste(target_image, mask=target_image.split()[-1] if target_image.mode in ('RGBA', 'LA') else None)
+            target_image = background
+        elif target_image.mode != 'RGB':
+            target_image = target_image.convert('RGB')
+        
+        # Resize images to 75% of original size
+        source_image = source_image.resize(
+            (int(source_image.width * 0.75), int(source_image.height * 0.75)),
+            Image.Resampling.LANCZOS
+        )
+        target_image = target_image.resize(
+            (int(target_image.width * 0.75), int(target_image.height * 0.75)),
+            Image.Resampling.LANCZOS
+        )
         
         # Calculate dimensions for the merged image
         max_width = max(source_image.width, target_image.width)

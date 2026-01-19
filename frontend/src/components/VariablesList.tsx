@@ -1,4 +1,4 @@
-import React, {useState, useMemo} from 'react';
+import React, {useState, useMemo, useEffect} from 'react';
 import {useCohorts} from '@/components/CohortsContext';
 import AutocompleteConcept from '@/components/AutocompleteConcept';
 import FilterByMetadata from '@/components/FilterByMetadata';
@@ -30,10 +30,13 @@ interface VariablesListProps {
   selectedDataTypes: Set<string>;
   selectedCategoryTypes: Set<string>;
   selectedVisitTypes: Set<string>;
+  showOnlyOutcomes?: boolean;
   onOMOPDomainsChange: (domains: Set<string>) => void;
   onDataTypesChange: (types: Set<string>) => void;
   onCategoryTypesChange: (categories: Set<string>) => void;
   onVisitTypesChange: (visitTypes: Set<string>) => void;
+  onShowOnlyOutcomesChange?: (value: boolean) => void;
+  onVariableCountsChange?: (filtered: number, total: number) => void;
   onResetFilters: () => void;
 }
 
@@ -44,16 +47,18 @@ const VariablesList = ({
   selectedDataTypes,
   selectedCategoryTypes,
   selectedVisitTypes,
+  showOnlyOutcomes = false,
   onOMOPDomainsChange,
   onDataTypesChange,
   onCategoryTypesChange,
   onVisitTypesChange,
+  onShowOnlyOutcomesChange,
+  onVariableCountsChange,
   onResetFilters
 }: VariablesListProps) => {
   const {cohortsData, updateCohortData, dataCleanRoom, setDataCleanRoom} = useCohorts();
   const [openedModal, setOpenedModal] = useState('');
   const [openedGraphModal, setOpenedGraphModal] = useState<string | null>(null);
-  const [showOnlyOutcomes, setShowOnlyOutcomes] = useState(false);
 
   // When concept is selected, insert the triples into the database
   const handleConceptSelect = (varId: any, concept: Concept, categoryId: any = null) => {
@@ -305,6 +310,15 @@ const VariablesList = ({
     showOnlyOutcomes
   ]);
 
+  // Report variable counts to parent - only when they actually change
+  useEffect(() => {
+    if (onVariableCountsChange && cohortsData[cohortId]) {
+      const totalCount = Object.keys(cohortsData[cohortId].variables).length;
+      const filteredCount = filteredVars.length;
+      onVariableCountsChange(filteredCount, totalCount);
+    }
+  }, [filteredVars.length, cohortId, onVariableCountsChange]);
+
   // Function to handle downloading the cohort CSV
   const downloadMetadataCSV = async () => {
     const downloadUrl = `${apiUrl}/cohort-spreadsheet/${encodeURIComponent(cohortId)}`;
@@ -419,12 +433,22 @@ const VariablesList = ({
         {/* Outcome Variables Filter Button */}
         <div className="my-4">
           <button
-            onClick={() => setShowOnlyOutcomes(!showOnlyOutcomes)}
+            onClick={() => {
+              const newValue = !showOnlyOutcomes;
+              if (onShowOnlyOutcomesChange) {
+                onShowOnlyOutcomesChange(newValue);
+              }
+            }}
             className="btn btn-sm w-full border"
             style={{ backgroundColor: '#dbeafe', color: '#1e3a8a', borderColor: '#bfdbfe' }}
           >
             {showOnlyOutcomes ? 'Show All Variables' : 'Show Outcome Variables'}
           </button>
+          {showOnlyOutcomes && (
+            <p className="text-xs text-gray-600 mt-2">
+              Note: the list of outcome variables has not been manually reviewed. The list may not be fully accurate.
+            </p>
+          )}
         </div>
         
         <FilterByMetadata
@@ -432,6 +456,7 @@ const VariablesList = ({
           metadata_id="omop_domain"
           options={[...omopDomains]}
           searchResults={filteredVars}
+          selectedValues={selectedOMOPDomains}
           onFiltersChange={(optionsSelected: any) => onOMOPDomainsChange(optionsSelected)}
         />
         <FilterByMetadata
@@ -439,6 +464,7 @@ const VariablesList = ({
           metadata_id="var_type"
           options={[...dataTypes]}
           searchResults={filteredVars}
+          selectedValues={selectedDataTypes}
           onFiltersChange={(optionsSelected: any) => onDataTypesChange(optionsSelected)}
         />
         <FilterByMetadata
@@ -446,6 +472,7 @@ const VariablesList = ({
           metadata_id="categorical"
           options={['Non-categorical', 'All categorical', '2 categories', '3 categories', '4+ categories']}
           searchResults={filteredVars}
+          selectedValues={selectedCategoryTypes}
           onFiltersChange={(optionsSelected: any) => onCategoryTypesChange(optionsSelected)}
         />
         {visitTypes.size > 1 && (
@@ -454,6 +481,7 @@ const VariablesList = ({
             metadata_id="visits"
             options={[...visitTypes]}
             searchResults={filteredVars}
+            selectedValues={selectedVisitTypes}
             onFiltersChange={(optionsSelected: any) => onVisitTypesChange(optionsSelected)}
           />
         )}

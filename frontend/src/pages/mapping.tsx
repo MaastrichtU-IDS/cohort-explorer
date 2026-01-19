@@ -73,6 +73,12 @@ interface MappingPreviewJsonTableProps {
 function MappingPreviewJsonTable({ data, sourceCohort }: MappingPreviewJsonTableProps) {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [imageError, setImageError] = useState<string | null>(null);
+  const [comparisonDetails, setComparisonDetails] = useState<{
+    sourceVar: string;
+    sourceCohort: string;
+    targetVar: string;
+    targetCohort: string;
+  } | null>(null);
   
   if (!data || !Array.isArray(data) || data.length === 0) return <div className="italic text-slate-400">No mapping data to preview.</div>;
   
@@ -113,13 +119,42 @@ function MappingPreviewJsonTable({ data, sourceCohort }: MappingPreviewJsonTable
                   const targetVar = row['target'] as string;
                   const targetStudy = row['target_study'] as string;
                   
-                  const handleCompare = () => {
+                  const handleCompare = async () => {
                     if (sourceCohort && sourceVar && targetStudy && targetVar) {
-                      // Use Next.js API route instead of direct backend call
                       const imageUrl = `/api/compare-eda/${encodeURIComponent(sourceCohort)}/${encodeURIComponent(sourceVar)}/${encodeURIComponent(targetStudy)}/${encodeURIComponent(targetVar)}`;
                       console.log('Compare EDA clicked:', { sourceCohort, sourceVar, targetStudy, targetVar, imageUrl });
+                      
                       setImageError(null);
-                      setSelectedImage(imageUrl);
+                      setComparisonDetails({
+                        sourceVar,
+                        sourceCohort,
+                        targetVar,
+                        targetCohort: targetStudy
+                      });
+                      
+                      // Fetch the image to check for errors before displaying
+                      try {
+                        const response = await fetch(imageUrl);
+                        if (!response.ok) {
+                          // Try to parse error message from JSON response
+                          const contentType = response.headers.get('content-type');
+                          if (contentType && contentType.includes('application/json')) {
+                            const errorData = await response.json();
+                            setImageError(errorData.details || errorData.error || 'Failed to load image');
+                          } else {
+                            const errorText = await response.text();
+                            setImageError(errorText || 'Failed to load image');
+                          }
+                          setSelectedImage(null);
+                        } else {
+                          // Image loaded successfully
+                          setSelectedImage(imageUrl);
+                        }
+                      } catch (error) {
+                        console.error('Error fetching image:', error);
+                        setImageError('Failed to fetch image: ' + (error as Error).message);
+                        setSelectedImage(null);
+                      }
                     } else {
                       console.error('Missing required fields:', { sourceCohort, sourceVar, targetStudy, targetVar });
                     }
@@ -167,32 +202,50 @@ function MappingPreviewJsonTable({ data, sourceCohort }: MappingPreviewJsonTable
         </tbody>
       </table>
       
-      {/* Modal to display merged EDA image */}
-      {selectedImage && (
+      {/* Modal to display merged EDA image or error */}
+      {(selectedImage || imageError) && comparisonDetails && (
         <div className="modal modal-open">
           <div className="modal-box max-w-5xl">
-            <h3 className="font-bold text-lg mb-4">EDA Comparison</h3>
+            <h3 className="font-bold text-lg mb-4">
+              {comparisonDetails 
+                ? `Statistical Comparison: ${comparisonDetails.sourceVar} (${comparisonDetails.sourceCohort}) vs ${comparisonDetails.targetVar} (${comparisonDetails.targetCohort})`
+                : 'EDA Comparison'
+              }
+            </h3>
             {imageError ? (
               <div className="alert alert-error">
-                <span>Failed to load image: {imageError}</span>
+                <div className="whitespace-pre-wrap">{imageError}</div>
               </div>
-            ) : (
+            ) : selectedImage ? (
               <img 
                 src={selectedImage} 
                 alt="Merged EDA comparison" 
-                className="w-full"
+                style={{ width: '75%', height: 'auto' }}
+                className="mx-auto"
                 onError={(e) => {
                   console.error('Image failed to load:', selectedImage);
                   setImageError('Image not found or failed to load');
                 }}
                 onLoad={() => console.log('Image loaded successfully')}
               />
-            )}
+            ) : null}
             <div className="modal-action">
-              <button className="btn" onClick={() => { setSelectedImage(null); setImageError(null); }}>Close</button>
+              {!imageError && selectedImage && (
+                <a 
+                  href={selectedImage} 
+                  download={comparisonDetails 
+                    ? `comparison_${comparisonDetails.sourceVar}_${comparisonDetails.sourceCohort}_vs_${comparisonDetails.targetVar}_${comparisonDetails.targetCohort}.png`
+                    : "eda-comparison.png"
+                  }
+                  className="btn btn-primary"
+                >
+                  Save Image
+                </a>
+              )}
+              <button className="btn" onClick={() => { setSelectedImage(null); setImageError(null); setComparisonDetails(null); }}>Close</button>
             </div>
           </div>
-          <div className="modal-backdrop" onClick={() => { setSelectedImage(null); setImageError(null); }}></div>
+          <div className="modal-backdrop" onClick={() => { setSelectedImage(null); setImageError(null); setComparisonDetails(null); }}></div>
         </div>
       )}
     </>
@@ -219,17 +272,23 @@ export default function MappingPage() {
     outdated_pairs: Array<{source: string, target: string, timestamp: number, outdated_cohort: string}>,
     dictionary_timestamps: Record<string, number>
   } | null>(null);
+  const [tableScrollWidth, setTableScrollWidth] = useState(2000);
+  const [mappingStartTime, setMappingStartTime] = useState<number | null>(null);
+  const [computeDuration, setComputeDuration] = useState<{minutes: number, seconds: number} | null>(null);
+  const [hadUncachedPairs, setHadUncachedPairs] = useState(false);
   
   // Reference to the mapping output section
   const mappingOutputRef = useRef<HTMLDivElement>(null);
   // Reference to the map button section
   const mapButtonRef = useRef<HTMLDivElement>(null);
 
-  // Filtered cohorts for both source and target menus based on search
-  const filteredCohorts = Object.entries(cohortsData).filter(([cohortId, cohort]) =>
-    cohortId.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    JSON.stringify(cohort).toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Filtered cohorts for both source and target menus based on search, sorted alphabetically
+  const filteredCohorts = Object.entries(cohortsData)
+    .filter(([cohortId, cohort]) =>
+      cohortId.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      JSON.stringify(cohort).toLowerCase().includes(searchQuery.toLowerCase())
+    )
+    .sort(([idA], [idB]) => idA.localeCompare(idB));
   
   // Scroll to the map button section when data becomes available
   useEffect(() => {
@@ -237,6 +296,19 @@ export default function MappingPage() {
       // Scroll to a few pixels above the map button
       const buttonTop = mapButtonRef.current.offsetTop - 20;
       window.scrollTo({ top: buttonTop, behavior: 'smooth' });
+    }
+  }, [mappingOutput]);
+
+  // Update table scroll width when mapping output changes
+  useEffect(() => {
+    if (mappingOutput) {
+      const bottomScroll = document.getElementById('bottom-scroll');
+      if (bottomScroll) {
+        const table = bottomScroll.querySelector('table');
+        if (table) {
+          setTableScrollWidth(table.scrollWidth);
+        }
+      }
     }
   }, [mappingOutput]);
 
@@ -256,10 +328,25 @@ export default function MappingPage() {
       alert('Please select a source cohort and at least one target cohort');
       return;
     }
+    
+    // Check if source cohort is among target cohorts
+    if (selectedTargets.includes(sourceCohort)) {
+      setError('Source cohort should not be among mapping target cohorts');
+      return;
+    }
+    
     setLoading(true);
     setError(null);
     setMappingOutput(null);
     setCacheInfo(null);
+    setComputeDuration(null);
+    setMappingStartTime(Date.now());
+    setCacheInfo(null);
+    setHadUncachedPairs(false);
+    
+    // Declare timeout and controller outside try block for cleanup in catch
+    const controller = new AbortController();
+    let timeoutId: NodeJS.Timeout | null = null;
     
     try {
       // Send as [cohortId, false] for each selected target
@@ -280,9 +367,15 @@ export default function MappingPage() {
       if (cacheResponse.ok) {
         const cacheData = await cacheResponse.json();
         setCacheInfo(cacheData);
+        // Track if there are uncached pairs that will need computation
+        setHadUncachedPairs(cacheData.uncached_pairs.length > 0 || (cacheData.outdated_pairs && cacheData.outdated_pairs.length > 0));
       }
       
       // Then proceed with mapping generation
+      // Use AbortController with 20-minute timeout to prevent premature timeout
+      // (new mappings can take up to 15 minutes to compute)
+      timeoutId = setTimeout(() => controller.abort(), 20 * 60 * 1000); // 20 minutes
+      
       const response = await fetch(`${apiUrl}/api/generate-mapping`, {
         method: 'POST',
         headers: {
@@ -292,7 +385,10 @@ export default function MappingPage() {
           source_study: sourceCohort,
           target_studies,
         }),
+        signal: controller.signal,
       });
+      if (timeoutId) clearTimeout(timeoutId);
+      
       if (!response.ok) {
         const result = await response.json();
         let errorMsg = result.detail || result.error || 'Failed to generate mapping';
@@ -340,12 +436,30 @@ export default function MappingPage() {
         console.error('Error parsing JSON response for preview:', error);
         setMappingOutput([]); // Clear the preview on error
       }
+      
+      // Calculate compute duration (do this regardless of parse success)
+      const startTime = mappingStartTime;
+      if (startTime) {
+        const durationMs = Date.now() - startTime;
+        const totalSeconds = Math.floor(durationMs / 1000);
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+        setComputeDuration({ minutes, seconds });
+      }
+      
+      setLoading(false);
     } catch (err: any) {
-      setError(
-        typeof err.message === 'string' && err.message.endsWith("metadata has not been added yet!")
-          ? `The metadata of ${sourceCohort} has not been added yet!`
-          : (err.message || 'Unknown error')
-      );
+      if (timeoutId) clearTimeout(timeoutId);
+      // Handle abort errors specifically
+      if (err.name === 'AbortError') {
+        setError('Request timed out after 20 minutes. The mapping computation may still be running on the server.');
+      } else {
+        setError(
+          typeof err.message === 'string' && err.message.endsWith("metadata has not been added yet!")
+            ? `The metadata of ${sourceCohort} has not been added yet!`
+            : (err.message || 'Unknown error')
+        );
+      }
     } finally {
       setLoading(false);
     }
@@ -373,9 +487,13 @@ export default function MappingPage() {
       {error && (
         <span style={{ color: 'red', fontWeight: 500, marginBottom: 16, display: 'block' }}>{error}</span>
       )}
-      <div className="w-full max-w-6xl space-y-8">
-        <h1 className="text-3xl font-bold text-center mb-8">Cohort Mapping</h1>
+      <div className="w-full space-y-8">
+        <div className="max-w-6xl mx-auto">
+          <h1 className="text-3xl font-bold text-center mb-8">Cohort Mapping</h1>
+        </div>
 
+        {/* Search box and form elements - constrained width */}
+        <div className="max-w-6xl mx-auto">
         {/* Search box for filtering target cohorts */}
         <div className="mb-6 flex justify-center">
           <input
@@ -434,7 +552,7 @@ export default function MappingPage() {
           </div>
         </div>
 
-        <div className="text-center" ref={mapButtonRef}>
+        <div className="text-center mt-8" ref={mapButtonRef}>
           <button
             className="btn btn-primary"
             onClick={handleMapConcepts}
@@ -448,12 +566,31 @@ export default function MappingPage() {
             }
           </button>
         </div>
+        </div>
 
-        {/* Cache Information Display */}
-        {cacheInfo && (
+        {/* Success Message - only shown after mapping completes for uncached pairs */}
+        <div className="max-w-6xl mx-auto">
+        {mappingOutput && mappingOutput.length > 0 && computeDuration && hadUncachedPairs && (
+          <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+            <div className="flex items-start gap-2">
+              <span className="text-green-600 text-xl">✓</span>
+              <div>
+                <h4 className="font-semibold text-green-800 mb-1">Mapping Completed</h4>
+                <p className="text-sm text-green-700">
+                  Variable mapping for <strong>{sourceCohort}</strong> → <strong>{selectedTargets.join(', ')}</strong> has been generated.
+                </p>
+                <p className="text-sm text-green-600 mt-1">
+                  Compute time: {computeDuration.minutes > 0 ? `${computeDuration.minutes} minute${computeDuration.minutes !== 1 ? 's' : ''} ` : ''}{computeDuration.seconds} second{computeDuration.seconds !== 1 ? 's' : ''}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Cache Information Display - shown after mapping completes for cached pairs */}
+        {cacheInfo && mappingOutput && !hadUncachedPairs && (
           <div className="mt-4 p-4 bg-gray-50 rounded-lg">
             <h4 className="font-semibold mb-2">Cache Status:</h4>
-            
             
             {/* Up-to-date cached pairs */}
             {cacheInfo.cached_pairs.length > 0 && (
@@ -472,52 +609,56 @@ export default function MappingPage() {
               </div>
             )}
             
-            {/* Outdated cached pairs */}
-            {cacheInfo.outdated_pairs && cacheInfo.outdated_pairs.length > 0 && (
-              <div className="mb-2">
-                <span className="text-orange-600 font-medium">Outdated cached pairs:</span>
-                <ul className="ml-4 mt-1">
-                  {cacheInfo.outdated_pairs.map((pair, index) => (
-                    <li key={index} className="text-sm">
-                      {pair.source} → {pair.target} 
-                      <span className="text-gray-500 ml-2">
-                        (cached {new Date(pair.timestamp * 1000).toLocaleDateString('de-DE')})
-                      </span>
-                      <br />
-                      <span className="text-orange-600 text-xs ml-2">
-                        ⚠️ Cached mapping is out of date. There is an updated dictionary for cohort {pair.outdated_cohort}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
+            {cacheInfo.cached_pairs.length > 0 && (
+              <div className="mt-3 p-2 bg-green-100 rounded text-sm text-green-800">
+                ✅ All cached mappings are up to date with the latest dictionaries
               </div>
             )}
+          </div>
+        )}
+
+        {/* Cache Information Display - only shown before mapping completes */}
+        {cacheInfo && !mappingOutput && (
+          <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+            <h4 className="font-semibold mb-2">Cache Status:</h4>
             
-            {/* New mappings */}
-            {cacheInfo.uncached_pairs.length > 0 && (
-              <div className="mb-2">
-                <span className="text-blue-600 font-medium">New mappings:</span>
-                <ul className="ml-4 mt-1">
-                  {cacheInfo.uncached_pairs.map((pair, index) => (
-                    <li key={index} className="text-sm">
-                      {pair.source} → {pair.target}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
+            <ul className="space-y-1">
+              {/* Cached pairs (up to date) */}
+              {cacheInfo.cached_pairs.map((pair, index) => (
+                <li key={`cached-${index}`} className="text-sm">
+                  {pair.source} → {pair.target} 
+                  <span className="text-green-600 ml-2 font-medium">
+                    — Cached and up-to-date, compute date: {new Date(pair.timestamp * 1000).toLocaleDateString('de-DE')}
+                  </span>
+                </li>
+              ))}
+              
+              {/* Outdated cached pairs */}
+              {cacheInfo.outdated_pairs && cacheInfo.outdated_pairs.map((pair, index) => (
+                <li key={`outdated-${index}`} className="text-sm">
+                  {pair.source} → {pair.target} 
+                  <span className="text-orange-600 ml-2 font-medium">
+                    — Cached but outdated, compute date: {new Date(pair.timestamp * 1000).toLocaleDateString('de-DE')}
+                  </span>
+                </li>
+              ))}
+              
+              {/* Uncached pairs */}
+              {cacheInfo.uncached_pairs.map((pair, index) => (
+                <li key={`uncached-${index}`} className="text-sm">
+                  {pair.source} → {pair.target} 
+                  <span className="text-blue-600 ml-2 font-medium">
+                    — New (uncached)
+                  </span>
+                </li>
+              ))}
+            </ul>
             
             {/* Summary message */}
-            {(cacheInfo.uncached_pairs.length > 0 || (cacheInfo.outdated_pairs && cacheInfo.outdated_pairs.length > 0)) ? (
+            {(cacheInfo.uncached_pairs.length > 0 || (cacheInfo.outdated_pairs && cacheInfo.outdated_pairs.length > 0)) && (
               <div className="mt-3 p-2 bg-blue-100 rounded text-sm text-blue-800">
                 ⏳ Uncached and outdated mappings will be computed. This may take up to 15 minutes. If this page times out, please revisit in 15-20 minutes when computed mappings are likely to be ready
               </div>
-            ) : (
-              cacheInfo.cached_pairs.length > 0 && (
-                <div className="mt-3 p-2 bg-green-100 rounded text-sm text-green-800">
-                  ✅ All cached mappings are up to date with the latest dictionaries
-                </div>
-              )
             )}
             
             {/* Dictionary timestamps at the bottom */}
@@ -539,11 +680,13 @@ export default function MappingPage() {
         {error && (
           <div className="mt-4 text-red-500 text-center">{error}</div>
         )}
+        </div>
 
+        {/* Mapping Preview - wider container, breaks out of max-w-6xl constraint */}
         {mappingOutput && (
           <div 
             ref={mappingOutputRef}
-            className="mt-4 p-4 border rounded-lg bg-base-100 w-full max-w-[110rem] mx-auto"
+            className="mt-4 p-4 border rounded-lg bg-base-100 w-[85vw] mx-auto"
           >
             <h2 className="text-lg font-bold mb-3">Mapping Preview</h2>
             
@@ -677,7 +820,75 @@ export default function MappingPage() {
               );
             })()}
 
-            <div className="overflow-x-auto">
+            {/* Top horizontal scrollbar with arrow buttons */}
+            <div className="flex items-center gap-1 mb-2">
+              <button
+                className="btn btn-xs btn-square"
+                onClick={() => {
+                  const topScroll = document.getElementById('top-scroll');
+                  const bottomScroll = document.getElementById('bottom-scroll');
+                  if (topScroll && bottomScroll) {
+                    const scrollAmount = 200;
+                    topScroll.scrollLeft -= scrollAmount;
+                    bottomScroll.scrollLeft -= scrollAmount;
+                  }
+                }}
+                title="Scroll left"
+              >
+                ←
+              </button>
+              <div 
+                id="top-scroll"
+                className="overflow-x-scroll flex-1 border border-gray-200 rounded"
+                style={{
+                  height: '20px',
+                  overflowY: 'hidden',
+                  scrollbarWidth: 'auto',
+                  scrollbarColor: '#94a3b8 #e2e8f0'
+                }}
+                onScroll={(e) => {
+                  const bottomScroll = document.getElementById('bottom-scroll');
+                  if (bottomScroll) {
+                    bottomScroll.scrollLeft = e.currentTarget.scrollLeft;
+                  }
+                }}
+              >
+                <div style={{ width: `${tableScrollWidth}px`, height: '1px' }}></div>
+              </div>
+              <button
+                className="btn btn-xs btn-square"
+                onClick={() => {
+                  const topScroll = document.getElementById('top-scroll');
+                  const bottomScroll = document.getElementById('bottom-scroll');
+                  if (topScroll && bottomScroll) {
+                    const scrollAmount = 200;
+                    topScroll.scrollLeft += scrollAmount;
+                    bottomScroll.scrollLeft += scrollAmount;
+                  }
+                }}
+                title="Scroll right"
+              >
+                →
+              </button>
+            </div>
+            
+            {/* Main table with scrollbars */}
+            <div 
+              id="bottom-scroll"
+              className="overflow-x-scroll overflow-y-scroll max-h-[600px] border border-gray-200 rounded-b" 
+              style={{
+                scrollbarWidth: 'auto',
+                scrollbarColor: '#94a3b8 #e2e8f0',
+                overflowX: 'scroll',
+                overflowY: 'scroll'
+              }}
+              onScroll={(e) => {
+                const topScroll = e.currentTarget.previousElementSibling as HTMLElement;
+                if (topScroll) {
+                  topScroll.scrollLeft = e.currentTarget.scrollLeft;
+                }
+              }}
+            >
               {(() => {
                 // Calculate filtered data for the table
                 const filteredData = mappingOutput.filter(row => {

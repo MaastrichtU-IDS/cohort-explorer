@@ -10,6 +10,9 @@ interface CohortSummaryGraphsProps {
   selectedDataTypes: Set<string>;
   selectedCategoryTypes: Set<string>;
   selectedVisitTypes: Set<string>;
+  showOnlyOutcomes?: boolean;
+  filteredVariableCount?: number;
+  totalVariableCount?: number;
   onDomainClick: (domain: string | null) => void;
   onTypeClick: (type: string | null) => void;
   onCategoryClick: (category: string | null) => void;
@@ -60,6 +63,9 @@ const CohortSummaryGraphs = React.memo(function CohortSummaryGraphs({
   selectedDataTypes,
   selectedCategoryTypes,
   selectedVisitTypes,
+  showOnlyOutcomes = false,
+  filteredVariableCount,
+  totalVariableCount,
   onDomainClick,
   onTypeClick,
   onCategoryClick,
@@ -79,20 +85,21 @@ const CohortSummaryGraphs = React.memo(function CohortSummaryGraphs({
   useEffect(() => {
     // Only start observing if cohort is expanded
     if (!isExpanded) {
+      setShouldRender(false);
       return;
     }
 
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
-          if (entry.isIntersecting && !shouldRender) {
+          if (entry.isIntersecting) {
             setShouldRender(true);
           }
         });
       },
       {
         rootMargin: '200px', // Start loading before it comes into view
-        threshold: 0.1,
+        threshold: 0.01,
       }
     );
 
@@ -106,7 +113,7 @@ const CohortSummaryGraphs = React.memo(function CohortSummaryGraphs({
         observer.unobserve(currentContainer);
       }
     };
-  }, [isExpanded, shouldRender]);
+  }, [isExpanded]);
 
   // Helper function to apply all filters to variables - create this ONCE and reuse
   const getFilteredVariables = useMemo(() => {
@@ -736,11 +743,17 @@ const CohortSummaryGraphs = React.memo(function CohortSummaryGraphs({
       <div className="mt-6 pt-4 border-t">
         <div className="text-sm text-gray-600 mb-3 text-center">
           <span className="font-semibold">Filters in effect:</span>
-          {!(selectedDomain || selectedType || selectedCategory || selectedVisitType) && ' None'}
+          {!(selectedDomain || selectedType || selectedCategory || selectedVisitType || showOnlyOutcomes) && ' None'}
           {selectedDomain && ` OMOP Domain = ${selectedDomain}`}
           {selectedType && `${selectedDomain ? ',' : ''} Data Type = ${selectedType}`}
           {selectedCategory && `${selectedDomain || selectedType ? ',' : ''} Category = ${selectedCategory}`}
           {selectedVisitType && `${selectedDomain || selectedType || selectedCategory ? ',' : ''} Visit Type = ${selectedVisitType}`}
+          {showOnlyOutcomes && `${selectedDomain || selectedType || selectedCategory || selectedVisitType ? ',' : ''} Likely Outcomes`}
+          {filteredVariableCount !== undefined && totalVariableCount !== undefined && (
+            <div className="mt-2 text-gray-500">
+              {filteredVariableCount} variable{filteredVariableCount !== 1 ? 's' : ''} out of {totalVariableCount} total
+            </div>
+          )}
         </div>
         {(selectedDomain || selectedType || selectedCategory || selectedVisitType) && (
           <div className="flex justify-center">
