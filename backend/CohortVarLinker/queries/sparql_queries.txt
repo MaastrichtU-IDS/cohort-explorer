@@ -340,7 +340,7 @@ WHERE {
 
   BIND(?g AS ?study_graph)
   BIND(
-    COALESCE(?_study_label, REPLACE(STRAFTER(STR(?g), "/graph/"), "-", "_"))
+    COALESCE(?_study_label, STRAFTER(STR(?g), "/graph/"))
     AS ?study_name
   )
 
