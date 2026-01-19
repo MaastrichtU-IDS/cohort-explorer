@@ -546,10 +546,10 @@ def get_variables_metadata_query() -> str:
     # Extract only the SPARQL lines for Query 2 (prefixes + SELECT + WHERE)
     # Line 296 (index 295): comment "Query 2: All variables from each study graph"
     # Line 297 (index 296): first PREFIX (stato)
-    # Line 547 (index 546): closing brace of Query 2
-    # Line 549 (index 548): comment "# Query 3: Cross Mapping"
+    # Line 544 (index 543): closing brace of Query 2
+    # Line 546 (index 545): comment "# Query 3: Cross Mapping"
     # Skip the comment line, start from first PREFIX, stop before Query 3
-    query = ''.join(lines[296:547]).strip()
+    query = ''.join(lines[296:544]).strip()
     return query
 
 
@@ -741,8 +741,9 @@ def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = F
                     concept_id=get_curie_value("concept_codes", row),
                     concept_code=get_value("concept_codes", row),
                     concept_name=get_value("concept_labels", row),
-                    mapped_id=get_curie_value("concept_omop_id", row),
-                    mapped_label=get_value("concept_labels", row),
+                    omop_id=get_value("concept_omop_id", row),
+                    mapped_id=None,  # Only set when user manually maps a concept
+                    mapped_label=None,  # Only set when user manually maps a concept
                     omop_domain=get_value("omopDomain", row),
                     index=None,  # Not in new query
                     na=0,  # Not in new query

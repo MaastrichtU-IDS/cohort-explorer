@@ -377,21 +377,18 @@ WHERE {
   }
     
      # ---------------- categorical values (value=label pairs) ----------------
+    # Pattern 1: CohortVarLinker stores with obi:is_specified_input_of catstandProc
+    # Pattern 2: upload.py stores without catstandProc (just has_value and label)
     OPTIONAL {
       SELECT ?g ?var
              (GROUP_CONCAT(DISTINCT ?pair; SEPARATOR="|") AS ?categorical_values)
-             
-
       WHERE {
         GRAPH ?g {
           ?cat_values a obi:categorical_value_specification ;
-                      obi:specifies_value_of ?var ;         # <— was obi:..., should be iao:
+                      obi:specifies_value_of ?var ;
                       cmeo:has_value ?f_val ;
-                      rdfs:label ?f_label ;
-        			 obi:is_specified_input_of ?catstandProc .
+                      rdfs:label ?f_label .
           BIND(CONCAT(STR(?f_val), "=", STR(?f_label)) AS ?pair)
-    
-          
         }
       } GROUP BY ?g ?var
     }
