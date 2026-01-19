@@ -27,15 +27,15 @@ SELECT
   (SAMPLE(?population_location) AS ?population_location)
   (SAMPLE(?language) AS ?language)
 	(SAMPLE(?duration) AS ?duration) 
-  (SAMPLE(?data_collection_frequency) AS ?data_collection_frequency)   # ⟵ NEW
+  (SAMPLE(?data_collection_frequency) AS ?data_collection_frequency)   #  NEW
   (SAMPLE(?interventions) AS ?interventions)
-  (SAMPLE(?inclusion_labels)   AS ?inclusion_labels)   # ⟵ NEW
-  (SAMPLE(?inclusion_values)   AS ?inclusion_values)   # ⟵ NEW
-  (SAMPLE(?exclusion_labels)   AS ?exclusion_labels)   # ⟵ NEW
-  (SAMPLE(?exclusion_values)   AS ?exclusion_values)   # ⟵ NEW
-  (SAMPLE(?variable_uris) AS ?variable_uris)  # ⟵ NEW
-  (SAMPLE(?primary_outcome_spec) AS ?primary_outcome_spec)   # ⟵ NEW
-  (SAMPLE(?secondary_outcome_spec) AS ?secondary_outcome_spec)   # ⟵ NEW
+  (SAMPLE(?inclusion_labels)   AS ?inclusion_labels)   #  NEW
+  (SAMPLE(?inclusion_values)   AS ?inclusion_values)   #  NEW
+  (SAMPLE(?exclusion_labels)   AS ?exclusion_labels)   #  NEW
+  (SAMPLE(?exclusion_values)   AS ?exclusion_values)   #  NEW
+  (SAMPLE(?variable_uris) AS ?variable_uris)  #  NEW
+  (SAMPLE(?primary_outcome_spec) AS ?primary_outcome_spec)   #  NEW
+  (SAMPLE(?secondary_outcome_spec) AS ?secondary_outcome_spec)   #  NEW
   (SAMPLE(?morbidity) AS ?morbidity)
 WHERE {
   GRAPH <https://w3id.org/CMEO/graph/studies_metadata> {
@@ -191,7 +191,7 @@ WHERE {
             ?study ro:has_part ?p .
             ?p a obi:protocol;
              ro:has_part ?variable_spec.
-			OPTIONAL{
+			OPTIONAL {
               
       			?variable_spec a cmeo:study_design_variable_specification ;
                      ro:has_part ?variable_uri .
@@ -214,6 +214,7 @@ WHERE {
              (GROUP_CONCAT(?ex_val; SEPARATOR=" || ") AS ?exclusion_values)
              (GROUP_CONCAT(DISTINCT ?m; separator="; ") AS ?morbidity)
       WHERE {
+        {
         # Order the rows by a stable key (?k) so labels and values line up positionally
         SELECT ?study ?k ?lbl ?val ?ex_lbl ?ex_val ?population_location ?m
         WHERE {
@@ -224,7 +225,7 @@ WHERE {
             ?selection_criterion a obi:eligibility_criterion ;
                                  ro:has_part ?criterion .
 			
-            OPTIONAL{
+            OPTIONAL {
                     ?selection_criterion ro:is_concretized_by ?enrollment .
                     ?enrollment a cmeo:human_subject_enrollment;
                                          ro:has_output ?output_population .
@@ -239,7 +240,7 @@ WHERE {
               
             }
             # criterion type (any subclass)
-           OPTIONAL{ ?criterion a obi:inclusion_criterion;
+           OPTIONAL { ?criterion a obi:inclusion_criterion;
                 ro:has_part  ?inclusion_criterion_sub.
                
 
@@ -260,7 +261,7 @@ WHERE {
             # keep only rows that actually have a value
             FILTER(BOUND(?val) && ?val != "")
             }
-            OPTIONAL{
+            OPTIONAL {
             
             ?criterion a obi:exclusion_criterion;
                 ro:has_part  ?exclusion_criterion_sub.
@@ -283,6 +284,7 @@ WHERE {
           }
         }
         ORDER BY ?study ?population_location ?k ?exc_k ?m
+        }
       }
       GROUP BY ?study  ?population_location
     }
@@ -343,14 +345,19 @@ WHERE {
   )
 
   # ---------------- data type (one per var; SAMPLE just in case) ----------------
+  # Pattern 1: CohortVarLinker stores as separate entity with iao:is_about
+  # Pattern 2: upload.py stores as direct property cmeo:varType on variable
   OPTIONAL {
     SELECT ?g ?var (SAMPLE(?vt) AS ?varType)
     WHERE {
       GRAPH ?g {
-        ?dt a cmeo:data_type ;
-              iao:is_about ?var ;
-            cmeo:has_value ?vt .
-        # If you require: ?dt a cmeo:data_type .
+        {
+          ?dt a cmeo:data_type ;
+                iao:is_about ?var ;
+              cmeo:has_value ?vt .
+        } UNION {
+          ?var cmeo:varType ?vt .
+        }
       }
     } GROUP BY ?g ?var
   }
@@ -370,21 +377,18 @@ WHERE {
   }
     
      # ---------------- categorical values (value=label pairs) ----------------
+    # Pattern 1: CohortVarLinker stores with obi:is_specified_input_of catstandProc
+    # Pattern 2: upload.py stores without catstandProc (just has_value and label)
     OPTIONAL {
       SELECT ?g ?var
              (GROUP_CONCAT(DISTINCT ?pair; SEPARATOR="|") AS ?categorical_values)
-             
-
       WHERE {
         GRAPH ?g {
           ?cat_values a obi:categorical_value_specification ;
-                      obi:specifies_value_of ?var ;         # <— was obi:..., should be iao:
+                      obi:specifies_value_of ?var ;
                       cmeo:has_value ?f_val ;
-                      rdfs:label ?f_label ;
-        			 obi:is_specified_input_of ?catstandProc .
+                      rdfs:label ?f_label .
           BIND(CONCAT(STR(?f_val), "=", STR(?f_label)) AS ?pair)
-    
-          
         }
       } GROUP BY ?g ?var
     }
@@ -413,6 +417,127 @@ WHERE {
                   cmeo:has_value ?cat_omop .
         BIND( STR(?cat_omop) AS ?omopStr )
           
+        }
+      } GROUP BY ?g ?var
+    }
+  
+    # ---------------- OMOP domain (from categorization_process -> category) ----------------
+    # Pattern 1: CohortVarLinker stores via categorization_process
+    # Pattern 2: upload.py stores as direct property cmeo:domain
+    OPTIONAL {
+      SELECT ?g ?var (SAMPLE(?domain_val) AS ?omopDomain)
+      WHERE {
+        GRAPH ?g {
+          {
+            ?var obi:is_specified_input_of ?cat_proc .
+            ?cat_proc a cmeo:categorization_process ;
+                      obi:has_specified_output ?category .
+            ?category a cmeo:category ;
+                      cmeo:has_value ?domain_val .
+          } UNION {
+            ?var cmeo:domain ?domain_val .
+          }
+        }
+      } GROUP BY ?g ?var
+    }
+  
+    # ---------------- Variable concept info (codes, labels, omop_id) ----------------
+    # Pattern 1: CohortVarLinker stores via data_standardization process
+    # Pattern 2: upload.py stores as direct properties cmeo:conceptCode, cmeo:conceptName, cmeo:omopId
+    OPTIONAL {
+      SELECT ?g ?var 
+             (GROUP_CONCAT(DISTINCT ?code_val; SEPARATOR="|") AS ?concept_codes)
+             (GROUP_CONCAT(DISTINCT ?code_lbl; SEPARATOR="|") AS ?concept_labels)
+             (GROUP_CONCAT(DISTINCT ?omop_val; SEPARATOR="|") AS ?concept_omop_id)
+      WHERE {
+        GRAPH ?g {
+          {
+            ?var obi:is_specified_input_of ?data_std .
+            ?data_std a cmeo:data_standardization ;
+                      obi:has_specified_output ?code_set .
+            ?code_set a cmeo:code ;
+                      ro:has_part ?code .
+            ?code a cmeo:code ;
+                  rdfs:label ?code_lbl ;
+                  cmeo:has_value ?code_val .
+            OPTIONAL {
+              ?code iao:denotes ?omop_class .
+              ?omop_class a cmeo:omop_id ;
+                          cmeo:has_value ?omop_val .
+            }
+          } UNION {
+            ?var cmeo:conceptCode ?code_val .
+            OPTIONAL { ?var cmeo:conceptName ?code_lbl . }
+            OPTIONAL { ?var cmeo:omopId ?omop_val . }
+          }
+        }
+      } GROUP BY ?g ?var
+    }
+  
+    # ---------------- Unit value ----------------
+    # Pattern 1: CohortVarLinker stores as separate entity with iao:is_about
+    # Pattern 2: upload.py stores as direct property cmeo:units on variable
+    OPTIONAL {
+      SELECT ?g ?var (SAMPLE(?u_val) AS ?unit_value)
+      WHERE {
+        GRAPH ?g {
+          {
+            ?unit_datum a cmeo:unit ;
+                        iao:is_about ?var ;
+                        cmeo:has_value ?u_val .
+          } UNION {
+            ?var cmeo:units ?u_val .
+          }
+        }
+      } GROUP BY ?g ?var
+    }
+  
+    # ---------------- Visit info ----------------
+    # Pattern 1: CohortVarLinker stores via visit_measurement_datum
+    # Pattern 2: upload.py stores as direct property cmeo:visits
+    OPTIONAL {
+      SELECT ?g ?var (GROUP_CONCAT(DISTINCT ?visit_lbl; SEPARATOR="|") AS ?visit)
+      WHERE {
+        GRAPH ?g {
+          {
+            ?visit_datum a cmeo:visit_measurement_datum ;
+                         iao:is_about ?var ;
+                         obi:is_specified_input_of ?vs_proc .
+            ?vs_proc obi:has_specified_output ?visit_code .
+            ?visit_code rdfs:label ?visit_lbl .
+          } UNION {
+            ?var cmeo:visits ?visit_lbl .
+          }
+        }
+      } GROUP BY ?g ?var
+    }
+  
+    # ---------------- Statistics (count, min, max) ----------------
+    OPTIONAL {
+      SELECT ?g ?var 
+             (SAMPLE(?cnt) AS ?count_value)
+             (SAMPLE(?min_val) AS ?minimum_value)
+             (SAMPLE(?max_val) AS ?maximum_value)
+      WHERE {
+        GRAPH ?g {
+          ?transformed_data iao:is_about ?var ;
+                            obi:has_specified_output ?statistic .
+          ?statistic a stato:statistic .
+          OPTIONAL {
+            ?statistic ro:has_part ?count_node .
+            ?count_node a stato:count_ ;
+                        cmeo:has_value ?cnt .
+          }
+          OPTIONAL {
+            ?statistic ro:has_part ?min_node .
+            ?min_node a stato:minimum_value ;
+                      cmeo:has_value ?min_val .
+          }
+          OPTIONAL {
+            ?statistic ro:has_part ?max_node .
+            ?max_node a stato:maximum_value ;
+                      cmeo:has_value ?max_val .
+          }
         }
       } GROUP BY ?g ?var
     }
