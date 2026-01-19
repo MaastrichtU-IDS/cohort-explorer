@@ -11,14 +11,14 @@ type CohortStatistics = {
   totalVariables: number;
 };
 
-// Default statistics to return if file doesn't exist
-const defaultStatistics: CohortStatistics = {
-  totalCohorts: 0,
-  cohortsWithMetadata: 0,
-  cohortsWithAggregateAnalysis: 0,
-  totalPatients: 0,
-  patientsInCohortsWithMetadata: 0,
-  totalVariables: 0
+// Default statistics to return if file doesn't exist (show loading indicator)
+const defaultStatistics = {
+  totalCohorts: "--",
+  cohortsWithMetadata: "--",
+  cohortsWithAggregateAnalysis: "--",
+  totalPatients: "--",
+  patientsInCohortsWithMetadata: "--",
+  totalVariables: "--"
 };
 
 export default async function handler(
