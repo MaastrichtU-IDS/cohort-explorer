@@ -717,13 +717,13 @@ def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = F
                     for idx, pair in enumerate(cat_pairs):
                         if "=" in pair:
                             value, label = pair.split("=", 1)
-                            categories.append({
-                                "value": value.strip(),
-                                "label": label.strip(),
-                                "concept_id": cat_codes[idx].strip() if idx < len(cat_codes) else "",
-                                "mapped_label": cat_labels[idx].strip() if idx < len(cat_labels) else "",
-                                "mapped_id": cat_omops[idx].strip() if idx < len(cat_omops) else ""
-                            })
+                            categories.append(VariableCategory(
+                                value=value.strip(),
+                                label=label.strip(),
+                                concept_id=cat_codes[idx].strip() if idx < len(cat_codes) else "",
+                                mapped_label=cat_labels[idx].strip() if idx < len(cat_labels) else "",
+                                mapped_id=cat_omops[idx].strip() if idx < len(cat_omops) else ""
+                            ))
                 
 
                 target_dict[cohort_id].variables[var_id] = CohortVariable(
