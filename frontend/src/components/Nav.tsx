@@ -621,6 +621,7 @@ export function Nav() {
           addAnalyst={addAnalyst}
           removeAnalyst={removeAnalyst}
           onClose={() => setShowParticipantsModal(false)}
+          isLoading={loadingParticipants}
         />
       )}
     </div>
@@ -636,7 +637,8 @@ const ParticipantsModal = React.memo(({
   setNewAnalystEmail,
   addAnalyst,
   removeAnalyst,
-  onClose
+  onClose,
+  isLoading
 }: {
   dataOwners: { email: string; cohorts: string[] }[];
   userEmail: string | null;
@@ -646,6 +648,7 @@ const ParticipantsModal = React.memo(({
   addAnalyst: () => void;
   removeAnalyst: (email: string) => void;
   onClose: () => void;
+  isLoading: boolean;
 }) => {
   return (
     <div className="modal modal-open">
@@ -656,7 +659,13 @@ const ParticipantsModal = React.memo(({
           {/* Data owners */}
           <div>
             <h4 className="font-semibold mb-2">Data Owners</h4>
-            {dataOwners.length > 0 ? (
+            {isLoading ? (
+              <div className="bg-base-200 p-3 rounded-lg mb-2">
+                <p className="text-sm text-gray-500">
+                  Retrieving list of data owners for selected cohorts...
+                </p>
+              </div>
+            ) : dataOwners.length > 0 ? (
               dataOwners.map((owner) => (
                 <div key={owner.email} className="bg-base-200 p-3 rounded-lg mb-2">
                   <div>
