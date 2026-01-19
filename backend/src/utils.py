@@ -591,8 +591,20 @@ def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = F
         if not cohort_id:
             continue
             
+        # Get both email fields for data owners
+        admin_email = get_value("administrator_email", row).lower() if get_value("administrator_email", row) else ""
+        contact_email = get_value("study_contact_person_email", row).lower() if get_value("study_contact_person_email", row) else ""
+        
+        # Build list of data owner emails (both administrator and study contact person)
+        data_owner_emails = []
+        if admin_email:
+            data_owner_emails.append(admin_email)
+        if contact_email and contact_email not in data_owner_emails:
+            data_owner_emails.append(contact_email)
+        
         cohort = Cohort(
             cohort_id=cohort_id,
+            cohort_email=data_owner_emails,  # Both emails are data owners
             institution=get_value("cohortInstitution", row),
             study_type=get_value("study_type", row),
             study_participants=get_value("study_participants", row),
@@ -608,7 +620,7 @@ def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = F
             male_percentage=None,
             female_percentage=None,
             administrator=get_value("administrator", row),
-            administrator_email=get_value("administrator_email", row).lower() if get_value("administrator_email", row) else "",
+            administrator_email=admin_email,
             study_contact_person=get_value("study_contact_person", row),
             study_contact_person_email=get_value("study_contact_person_email", row).lower() if get_value("study_contact_person_email", row) else "",
             references=[],
