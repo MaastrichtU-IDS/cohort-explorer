@@ -1612,21 +1612,75 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
         g.add((cohort_uri, RDF.type, OntologyNamespaces.CMEO.value.study, metadata_graph))
         g.add((cohort_uri, DC.identifier, Literal(cohort_id), metadata_graph))
         g.add((cohort_uri, RDFS.label, Literal(cohort_id), metadata_graph))
-        g.add((cohort_uri, OntologyNamespaces.CMEO.value.institution, Literal(row["institute"]), metadata_graph))
-        # Administrator information
-        if is_valid_value(row.get("administrator", "")):
-            g.add((cohort_uri, OntologyNamespaces.CMEO.value.administrator, Literal(row["administrator"]), metadata_graph))
-        if is_valid_value(row.get("administrator email address", "")):
-            g.add((cohort_uri, OntologyNamespaces.CMEO.value.administratorEmail, Literal(row["administrator email address"].lower()), metadata_graph))
-            # Also add to cmeo:email predicate (split by semicolon) for cohort ownership permissions
-            for email in row["administrator email address"].split(";"):
-                g.add((cohort_uri, OntologyNamespaces.CMEO.value.email, Literal(email.strip().lower()), metadata_graph))
-        # Study contact person information
-        if is_valid_value(row["study contact person"]):
-            g.add((cohort_uri, DC.creator, Literal(row["study contact person"]), metadata_graph))
-        if is_valid_value(row["study contact person email address"]):
-            for email in row["study contact person email address"].split(";"):
-                g.add((cohort_uri, OntologyNamespaces.CMEO.value.email, Literal(email.strip().lower()), metadata_graph))
+        # Study design execution - needed for SPARQL query to find organization
+        study_design_execution_uri = URIRef(cohort_uri + "/study_design_execution")
+        g.add((study_design_execution_uri, RDF.type, OntologyNamespaces.OBI.value.study_design_execution, metadata_graph))
+        
+        # Institute/Organization - create OBI structure matching study_kg.py
+        if is_valid_value(row.get("institute", "")):
+            organization_uri = URIRef(cohort_uri + "/institute")
+            g.add((organization_uri, RDF.type, OntologyNamespaces.OBI.value.organization, metadata_graph))
+            g.add((study_design_execution_uri, OntologyNamespaces.RO.value.has_participant, organization_uri, metadata_graph))
+            g.add((organization_uri, OntologyNamespaces.CMEO.value.has_value, Literal(row["institute"], datatype=XSD.string), metadata_graph))
+            # Also keep the simple predicate for backward compatibility
+            g.add((cohort_uri, OntologyNamespaces.CMEO.value.institution, Literal(row["institute"]), metadata_graph))
+            
+            # Study contact person - create OBI structure matching study_kg.py
+            if is_valid_value(row.get("study contact person", "")):
+                contact_person_name = row["study contact person"]
+                contact_uri = URIRef(cohort_uri + "/" + normalize_text(contact_person_name))
+                study_contact_person_role_uri = URIRef(cohort_uri + "/study_contact_person_role")
+                
+                # Person entity
+                g.add((contact_uri, RDF.type, OntologyNamespaces.NCBI.value.homo_sapiens, metadata_graph))
+                g.add((organization_uri, OntologyNamespaces.OBI.value.has_member, contact_uri, metadata_graph))
+                g.add((contact_uri, OntologyNamespaces.OBI.value.member_of, organization_uri, metadata_graph))
+                g.add((contact_uri, OntologyNamespaces.CMEO.value.has_value, Literal(contact_person_name, datatype=XSD.string), metadata_graph))
+                
+                # Role entity
+                g.add((study_contact_person_role_uri, RDF.type, OntologyNamespaces.CMEO.value.study_contact_person_role, metadata_graph))
+                g.add((contact_uri, OntologyNamespaces.RO.value.has_role, study_contact_person_role_uri, metadata_graph))
+                g.add((study_contact_person_role_uri, OntologyNamespaces.RO.value.role_of, contact_uri, metadata_graph))
+                g.add((study_contact_person_role_uri, OntologyNamespaces.CMEO.value.has_value, Literal(contact_person_name, datatype=XSD.string), metadata_graph))
+                
+                # Email entity for contact person
+                if is_valid_value(row.get("study contact person email address", "")):
+                    contact_email = row["study contact person email address"].strip()
+                    email_uri = URIRef(study_contact_person_role_uri + "/email_address")
+                    g.add((email_uri, RDF.type, OntologyNamespaces.OBI.value.email_address, metadata_graph))
+                    g.add((email_uri, OntologyNamespaces.IAO.value.is_about, contact_uri, metadata_graph))
+                    g.add((email_uri, OntologyNamespaces.CMEO.value.has_value, Literal(contact_email, datatype=XSD.string), metadata_graph))
+                    # Also add to cmeo:email for permissions
+                    for email in contact_email.split(";"):
+                        g.add((cohort_uri, OntologyNamespaces.CMEO.value.email, Literal(email.strip().lower()), metadata_graph))
+            
+            # Administrator - create OBI structure matching study_kg.py
+            if is_valid_value(row.get("administrator", "")):
+                admin_name = row["administrator"]
+                administrator_person_uri = URIRef(cohort_uri + "/" + normalize_text(admin_name))
+                
+                # Person entity
+                g.add((administrator_person_uri, RDF.type, OntologyNamespaces.NCBI.value.homo_sapiens, metadata_graph))
+                g.add((administrator_person_uri, OntologyNamespaces.OBI.value.member_of, organization_uri, metadata_graph))
+                g.add((administrator_person_uri, OntologyNamespaces.CMEO.value.has_value, Literal(admin_name, datatype=XSD.string), metadata_graph))
+                
+                # Role entity
+                administrator_role_uri = URIRef(cohort_uri + "/administrator_role")
+                g.add((administrator_role_uri, RDF.type, OntologyNamespaces.CMEO.value.administrator_role, metadata_graph))
+                g.add((administrator_person_uri, OntologyNamespaces.RO.value.has_role, administrator_role_uri, metadata_graph))
+                g.add((administrator_role_uri, OntologyNamespaces.RO.value.role_of, administrator_person_uri, metadata_graph))
+                g.add((administrator_role_uri, OntologyNamespaces.CMEO.value.has_value, Literal(admin_name, datatype=XSD.string), metadata_graph))
+                
+                # Email entity for administrator
+                if is_valid_value(row.get("administrator email address", "")):
+                    admin_email = row["administrator email address"].strip()
+                    email_uri = URIRef(administrator_person_uri + "/email_address")
+                    g.add((email_uri, RDF.type, OntologyNamespaces.OBI.value.email_address, metadata_graph))
+                    g.add((email_uri, OntologyNamespaces.IAO.value.is_about, administrator_person_uri, metadata_graph))
+                    g.add((email_uri, OntologyNamespaces.CMEO.value.has_value, Literal(admin_email, datatype=XSD.string), metadata_graph))
+                    # Also add to cmeo:email for permissions
+                    for email in admin_email.split(";"):
+                        g.add((cohort_uri, OntologyNamespaces.CMEO.value.email, Literal(email.strip().lower()), metadata_graph))
         # References
         if is_valid_value(row.get("references", "")):
             for reference in row["references"].split(";"):
