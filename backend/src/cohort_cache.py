@@ -295,35 +295,36 @@ def create_cohort_from_metadata_graph(cohort_id: str, cohort_uri: URIRef, g: Dat
             return values
         
         # Extract basic cohort metadata
-        from src.utils import ICARE, DC
+        from src.utils import ICARE, DC, OntologyNamespaces
+        CMEO = OntologyNamespaces.CMEO.value
         
-        # Institution
-        cohort.institution = get_literal_value(ICARE.institution) or ""
+        # Institution - try CMEO first, then ICARE
+        cohort.institution = get_literal_value(CMEO.institution) or get_literal_value(ICARE.institution) or ""
         
-        # Study type and cohort type
-        cohort.study_type = get_literal_value(ICARE.studyType)
-        cohort_types = get_literal_values(ICARE.cohortType)
+        # Study type and cohort type - try CMEO first, then ICARE
+        cohort.study_type = get_literal_value(CMEO.studyType) or get_literal_value(ICARE.studyType)
+        cohort_types = get_literal_values(CMEO.cohortType) or get_literal_values(ICARE.cohortType)
         if cohort_types:
             cohort.cohort_type = cohort_types[0]  # Take the first one if multiple
         
-        # Study details
-        cohort.study_participants = get_literal_value(ICARE.studyParticipants)
-        cohort.study_duration = get_literal_value(ICARE.studyDuration)
-        cohort.study_ongoing = get_literal_value(ICARE.studyOngoing)
-        cohort.study_population = get_literal_value(ICARE.studyPopulation)
-        cohort.study_objective = get_literal_value(ICARE.studyObjective)
-        cohort.primary_outcome_spec = get_literal_value(ICARE.primaryOutcomeSpec)
-        cohort.secondary_outcome_spec = get_literal_value(ICARE.secondaryOutcomeSpec)
-        cohort.morbidity = get_literal_value(ICARE.morbidity)
+        # Study details - try CMEO first, then ICARE
+        cohort.study_participants = get_literal_value(CMEO.studyParticipants) or get_literal_value(ICARE.studyParticipants)
+        cohort.study_duration = get_literal_value(CMEO.studyDuration) or get_literal_value(ICARE.studyDuration)
+        cohort.study_ongoing = get_literal_value(CMEO.studyOngoing) or get_literal_value(ICARE.studyOngoing)
+        cohort.study_population = get_literal_value(CMEO.studyPopulation) or get_literal_value(ICARE.studyPopulation)
+        cohort.study_objective = get_literal_value(CMEO.studyObjective) or get_literal_value(ICARE.studyObjective)
+        cohort.primary_outcome_spec = get_literal_value(CMEO.primaryOutcomeSpec) or get_literal_value(ICARE.primaryOutcomeSpec)
+        cohort.secondary_outcome_spec = get_literal_value(CMEO.secondaryOutcomeSpec) or get_literal_value(ICARE.secondaryOutcomeSpec)
+        cohort.morbidity = get_literal_value(CMEO.morbidity) or get_literal_value(ICARE.morbidity)
         
-        # Study dates
-        cohort.study_start = get_literal_value(ICARE.studyStart)
-        cohort.study_end = get_literal_value(ICARE.studyEnd)
+        # Study dates - try CMEO first, then ICARE
+        cohort.study_start = get_literal_value(CMEO.studyStart) or get_literal_value(ICARE.studyStart)
+        cohort.study_end = get_literal_value(CMEO.studyEnd) or get_literal_value(ICARE.studyEnd)
         
-        # Sex distribution (added in memory 75cce55b-6774-4556-82cf-41522282e61f)
+        # Sex distribution
         cohort.male_percentage = None
         cohort.female_percentage = None
-        mixed_sex = get_literal_value(ICARE.mixedSex)
+        mixed_sex = get_literal_value(CMEO.mixedSex) or get_literal_value(ICARE.mixedSex)
         if mixed_sex:
             import re
             # Try to extract male and female percentages
@@ -335,45 +336,53 @@ def create_cohort_from_metadata_graph(cohort_id: str, cohort_uri: URIRef, g: Dat
             if female_match:
                 cohort.female_percentage = float(female_match.group(1))
         
-        # Contact information
-        cohort.administrator = get_literal_value(ICARE.administrator)
-        admin_email = get_literal_value(ICARE.administratorEmail)
+        # Contact information - try CMEO first, then ICARE
+        cohort.administrator = get_literal_value(CMEO.administrator) or get_literal_value(ICARE.administrator)
+        admin_email = get_literal_value(CMEO.administratorEmail) or get_literal_value(ICARE.administratorEmail)
         cohort.administrator_email = admin_email.lower() if admin_email else None
         cohort.study_contact_person = get_literal_value(DC.creator)
         
         # Get all emails (normalize to lowercase)
-        emails = get_literal_values(ICARE.email)
+        # Try CMEO.email first (new data model), then ICARE.email (old data model)
+        emails = get_literal_values(CMEO.email) or get_literal_values(ICARE.email)
         if emails:
             cohort.cohort_email = [email.lower() for email in emails if email]
-            cohort.study_contact_person_email = cohort.cohort_email[0]  # Use the first email as contact
+            cohort.study_contact_person_email = cohort.cohort_email[0] if cohort.cohort_email else None
+        else:
+            # Fallback: build cohort_email from administrator_email
+            data_owner_emails = []
+            if cohort.administrator_email:
+                data_owner_emails.append(cohort.administrator_email.lower())
+            cohort.cohort_email = data_owner_emails
+            cohort.study_contact_person_email = data_owner_emails[0] if data_owner_emails else None
         
-        # References
-        cohort.references = get_literal_values(ICARE.references)
+        # References - try CMEO first, then ICARE
+        cohort.references = get_literal_values(CMEO.references) or get_literal_values(ICARE.references)
         
-        # Additional metadata
-        cohort.population_location = get_literal_value(ICARE.populationLocation)
-        cohort.language = get_literal_value(ICARE.language)
-        cohort.data_collection_frequency = get_literal_value(ICARE.dataCollectionFrequency)
-        cohort.interventions = get_literal_value(ICARE.interventions)
+        # Additional metadata - try CMEO first, then ICARE
+        cohort.population_location = get_literal_value(CMEO.populationLocation) or get_literal_value(ICARE.populationLocation)
+        cohort.language = get_literal_value(CMEO.language) or get_literal_value(ICARE.language)
+        cohort.data_collection_frequency = get_literal_value(CMEO.dataCollectionFrequency) or get_literal_value(ICARE.dataCollectionFrequency)
+        cohort.interventions = get_literal_value(CMEO.interventions) or get_literal_value(ICARE.interventions)
         
-        # Inclusion criteria
-        cohort.sex_inclusion = get_literal_value(ICARE.sexInclusion)
-        cohort.health_status_inclusion = get_literal_value(ICARE.healthStatusInclusion)
-        cohort.clinically_relevant_exposure_inclusion = get_literal_value(ICARE.clinicallyRelevantExposureInclusion)
-        cohort.age_group_inclusion = get_literal_value(ICARE.ageGroupInclusion)
-        cohort.bmi_range_inclusion = get_literal_value(ICARE.bmiRangeInclusion)
-        cohort.ethnicity_inclusion = get_literal_value(ICARE.ethnicityInclusion)
-        cohort.family_status_inclusion = get_literal_value(ICARE.familyStatusInclusion)
-        cohort.hospital_patient_inclusion = get_literal_value(ICARE.hospitalPatientInclusion)
-        cohort.use_of_medication_inclusion = get_literal_value(ICARE.useOfMedicationInclusion)
+        # Inclusion criteria - try CMEO first, then ICARE
+        cohort.sex_inclusion = get_literal_value(CMEO.sexInclusion) or get_literal_value(ICARE.sexInclusion)
+        cohort.health_status_inclusion = get_literal_value(CMEO.healthStatusInclusion) or get_literal_value(ICARE.healthStatusInclusion)
+        cohort.clinically_relevant_exposure_inclusion = get_literal_value(CMEO.clinicallyRelevantExposureInclusion) or get_literal_value(ICARE.clinicallyRelevantExposureInclusion)
+        cohort.age_group_inclusion = get_literal_value(CMEO.ageGroupInclusion) or get_literal_value(ICARE.ageGroupInclusion)
+        cohort.bmi_range_inclusion = get_literal_value(CMEO.bmiRangeInclusion) or get_literal_value(ICARE.bmiRangeInclusion)
+        cohort.ethnicity_inclusion = get_literal_value(CMEO.ethnicityInclusion) or get_literal_value(ICARE.ethnicityInclusion)
+        cohort.family_status_inclusion = get_literal_value(CMEO.familyStatusInclusion) or get_literal_value(ICARE.familyStatusInclusion)
+        cohort.hospital_patient_inclusion = get_literal_value(CMEO.hospitalPatientInclusion) or get_literal_value(ICARE.hospitalPatientInclusion)
+        cohort.use_of_medication_inclusion = get_literal_value(CMEO.useOfMedicationInclusion) or get_literal_value(ICARE.useOfMedicationInclusion)
         
-        # Exclusion criteria
-        cohort.health_status_exclusion = get_literal_value(ICARE.healthStatusExclusion)
-        cohort.bmi_range_exclusion = get_literal_value(ICARE.bmiRangeExclusion)
-        cohort.limited_life_expectancy_exclusion = get_literal_value(ICARE.limitedLifeExpectancyExclusion)
-        cohort.need_for_surgery_exclusion = get_literal_value(ICARE.needForSurgeryExclusion)
-        cohort.surgical_procedure_history_exclusion = get_literal_value(ICARE.surgicalProcedureHistoryExclusion)
-        cohort.clinically_relevant_exposure_exclusion = get_literal_value(ICARE.clinicallyRelevantExposureExclusion)
+        # Exclusion criteria - try CMEO first, then ICARE
+        cohort.health_status_exclusion = get_literal_value(CMEO.healthStatusExclusion) or get_literal_value(ICARE.healthStatusExclusion)
+        cohort.bmi_range_exclusion = get_literal_value(CMEO.bmiRangeExclusion) or get_literal_value(ICARE.bmiRangeExclusion)
+        cohort.limited_life_expectancy_exclusion = get_literal_value(CMEO.limitedLifeExpectancyExclusion) or get_literal_value(ICARE.limitedLifeExpectancyExclusion)
+        cohort.need_for_surgery_exclusion = get_literal_value(CMEO.needForSurgeryExclusion) or get_literal_value(ICARE.needForSurgeryExclusion)
+        cohort.surgical_procedure_history_exclusion = get_literal_value(CMEO.surgicalProcedureHistoryExclusion) or get_literal_value(ICARE.surgicalProcedureHistoryExclusion)
+        cohort.clinically_relevant_exposure_exclusion = get_literal_value(CMEO.clinicallyRelevantExposureExclusion) or get_literal_value(ICARE.clinicallyRelevantExposureExclusion)
         
         # Set folder path and check if physical dictionary exists
         cohort_folder_path = os.path.join(settings.data_folder, "cohorts", cohort_id)
@@ -430,23 +439,45 @@ def create_cohort_from_dict_file(cohort_id: str, cohort_uri: URIRef, g: Dataset)
         # Extract variables from the graph
         variables = {}
         
-        # Find all variables for this cohort
-        for s, p, o, _ in g.quads((cohort_uri, URIRef("https://w3id.org/icare4cvd/hasVariable"), None, None)):
-            var_uri = o
+        # Define URIs for both CMEO and ICARE namespaces
+        from src.utils import OntologyNamespaces
+        CMEO_NS = "https://w3id.org/CMEO/"
+        ICARE_NS = "https://w3id.org/icare4cvd/"
+        DC_NS = "http://purl.org/dc/elements/1.1/"
+        RDFS_NS = "http://www.w3.org/2000/01/rdf-schema#"
+        RDF_NS = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+        OBI_NS = "http://purl.obolibrary.org/obo/obi.owl/"
+        
+        # Find all variables for this cohort - try CMEO data_element first, then ICARE hasVariable
+        # CMEO model: variables are cmeo:data_element in the same graph, not linked via hasVariable
+        # We need to find all data_element types in the cohort's graph
+        cohort_graph_uri = URIRef(CMEO_NS + f"graph/{cohort_id}")
+        
+        # Try to find variables by type (CMEO model)
+        found_vars = set()
+        for s, p, o, graph in g.quads((None, URIRef(RDF_NS + "type"), URIRef(CMEO_NS + "data_element"), None)):
+            var_uri = s
+            if var_uri in found_vars:
+                continue
+            found_vars.add(var_uri)
+            
             var_name = None
             var_label = None
             var_type = None
             
             # Get variable properties
             for vs, vp, vo, _ in g.quads((var_uri, None, None, None)):
-                if vp == URIRef("http://purl.org/dc/elements/1.1/identifier"):
+                if vp == URIRef(DC_NS + "identifier"):
                     var_name = str(vo)
-                elif vp == URIRef("http://www.w3.org/2000/01/rdf-schema#label"):
+                elif vp == URIRef(RDFS_NS + "label"):
                     var_label = str(vo)
-                elif vp == URIRef("https://w3id.org/icare4cvd/varType"):
+                elif vp == URIRef(CMEO_NS + "varType"):
                     var_type = str(vo)
             
-            if var_name and var_label and var_type:
+            if var_name:
+                var_label = var_label or var_name
+                var_type = var_type or "unknown"
+                
                 # Create a variable with required fields
                 variable = CohortVariable(
                     var_name=var_name,
@@ -458,23 +489,71 @@ def create_cohort_from_dict_file(cohort_id: str, cohort_uri: URIRef, g: Dataset)
                 # Add variable to the cohort
                 variables[var_name] = variable
                 
-                # Get categories for this variable
-                for cs, cp, co, _ in g.quads((var_uri, URIRef("https://w3id.org/icare4cvd/categories"), None, None)):
-                    cat_uri = co
+                # Get categories for this variable (CMEO model uses OBI categorical_value_specification)
+                for cs, cp, co, _ in g.quads((None, URIRef(OBI_NS + "specifies_value_of"), var_uri, None)):
+                    cat_uri = cs
                     cat_value = None
                     cat_label = None
                     
                     # Get category properties
                     for cats, catp, cato, _ in g.quads((cat_uri, None, None, None)):
-                        if catp == URIRef("http://www.w3.org/1999/02/22-rdf-syntax-ns#value"):
+                        if catp == URIRef(CMEO_NS + "has_value"):
                             cat_value = str(cato)
-                        elif catp == URIRef("http://www.w3.org/2000/01/rdf-schema#label"):
+                        elif catp == URIRef(RDFS_NS + "label"):
                             cat_label = str(cato)
                     
-                    if cat_value and cat_label:
+                    if cat_value:
+                        cat_label = cat_label or cat_value
                         # Create a category
                         category = VariableCategory(value=cat_value, label=cat_label)
                         variable.categories.append(category)
+        
+        # Fallback: try old ICARE model if no CMEO variables found
+        if not variables:
+            for s, p, o, _ in g.quads((cohort_uri, URIRef(ICARE_NS + "hasVariable"), None, None)):
+                var_uri = o
+                var_name = None
+                var_label = None
+                var_type = None
+                
+                # Get variable properties
+                for vs, vp, vo, _ in g.quads((var_uri, None, None, None)):
+                    if vp == URIRef(DC_NS + "identifier"):
+                        var_name = str(vo)
+                    elif vp == URIRef(RDFS_NS + "label"):
+                        var_label = str(vo)
+                    elif vp == URIRef(ICARE_NS + "varType"):
+                        var_type = str(vo)
+                
+                if var_name and var_label and var_type:
+                    # Create a variable with required fields
+                    variable = CohortVariable(
+                        var_name=var_name,
+                        var_label=var_label,
+                        var_type=var_type,
+                        count=0  # Default count, will be updated if available
+                    )
+                    
+                    # Add variable to the cohort
+                    variables[var_name] = variable
+                    
+                    # Get categories for this variable (ICARE model)
+                    for cs, cp, co, _ in g.quads((var_uri, URIRef(ICARE_NS + "categories"), None, None)):
+                        cat_uri = co
+                        cat_value = None
+                        cat_label = None
+                        
+                        # Get category properties
+                        for cats, catp, cato, _ in g.quads((cat_uri, None, None, None)):
+                            if catp == URIRef(RDF_NS + "value"):
+                                cat_value = str(cato)
+                            elif catp == URIRef(RDFS_NS + "label"):
+                                cat_label = str(cato)
+                        
+                        if cat_value and cat_label:
+                            # Create a category
+                            category = VariableCategory(value=cat_value, label=cat_label)
+                            variable.categories.append(category)
         
         # Update the cohort's variables (preserve existing metadata)
         cohort.variables = variables
