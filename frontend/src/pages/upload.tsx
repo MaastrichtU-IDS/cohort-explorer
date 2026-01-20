@@ -21,7 +21,7 @@ const WizardSteps = ({currentStep}: {currentStep: number}) => {
 };
 
 export default function UploadPage() {
-  const {cohortsData, fetchCohortsData, calculateStatistics, userEmail} = useCohorts();
+  const {cohortsData, fetchCohortsData, calculateStatistics, userEmail, isLoading: isLoadingCohorts} = useCohorts();
   const [cohortId, setCohortId] = useState('');
   const [uploadedCohort, setUploadedCohort]: any = useState(null);
   const [metadataFile, setMetadataFile]: any = useState(null);
@@ -349,7 +349,11 @@ export default function UploadPage() {
                         {cohortsData?.[id]?.label || id} ({id})
                       </option>
                     ))}
-                    {cohortsUserCanEdit.length === 0 && <option value="" disabled>No editable cohorts available</option>}
+                    {cohortsUserCanEdit.length === 0 && (
+                      <option value="" disabled>
+                        {isLoadingCohorts ? "Retrieving list of cohorts..." : "No editable cohorts available"}
+                      </option>
+                    )}
                   </select>
                 </div>
 
