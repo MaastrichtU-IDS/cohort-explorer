@@ -450,7 +450,7 @@ async def get_compute_dcr_definition(
     cohorts_request: dict[str, Any],
     user: Any,
     client: Any,
-    include_shuffled_samples: bool = True,
+    include_shuffled_samples: bool | dict[str, bool] = True,
     additional_analysts: list[str] = None,
     airlock_settings: dict[str, int] = None,
     dcr_name: str = None,
@@ -549,7 +549,14 @@ async def get_compute_dcr_definition(
             participants[settings.decentriq_email]["data_owner_of"].add(metadata_node_id)
 
         # Add data node for shuffled sample if it exists and is requested
-        if include_shuffled_samples:
+        # include_shuffled_samples can be a boolean (legacy) or a dict of cohort_id -> boolean
+        should_include_shuffled = False
+        if isinstance(include_shuffled_samples, dict):
+            should_include_shuffled = include_shuffled_samples.get(cohort_id, False)
+        elif include_shuffled_samples:
+            should_include_shuffled = True
+            
+        if should_include_shuffled:
             storage_dir = os.path.join(settings.data_folder, f"dcr_output_{cohort_id}")
             shuffled_csv = os.path.join(storage_dir, "shuffled_sample.csv")
             
@@ -851,7 +858,7 @@ async def create_live_compute_dcr(
     cohorts_request: dict[str, Any],
     user: Any,
     client: Any,
-    include_shuffled_samples: bool = True,
+    include_shuffled_samples: bool | dict[str, bool] = True,
     additional_analysts: list[str] = None,
     airlock_settings: dict[str, int] = None,
     dcr_name: str = None,
@@ -865,9 +872,8 @@ async def create_live_compute_dcr(
         cohorts_request: Dictionary with cohort IDs and requested variables
         user: User information dictionary with email
         client: Decentriq client instance
-        include_shuffled_samples: Whether to include shuffled sample data nodes
+        include_shuffled_samples: Whether to include shuffled sample data nodes (bool or dict of cohort_id -> bool)
         additional_analysts: List of email addresses to add as analysts
-        include_shuffled_samples: Whether to include shuffled sample data nodes (default: True)
         
     Returns:
         Dictionary with DCR information including ID, URL, and title
@@ -1002,44 +1008,51 @@ async def create_live_compute_dcr(
         shuffled_upload_start = datetime.now()
         shuffled_upload_results = {}
         
-        if include_shuffled_samples:
-            for cohort_id in cohorts_request["cohorts"].keys():
-                try:
-                    storage_dir = os.path.join(settings.data_folder, f"dcr_output_{cohort_id}")
-                    shuffled_csv = os.path.join(storage_dir, "shuffled_sample.csv")
-                    
-                    if not os.path.exists(shuffled_csv):
-                        logging.info(f"No shuffled sample file for cohort {cohort_id}, skipping")
-                        shuffled_upload_results[cohort_id] = "no_file"
-                        continue
-                    
-                    shuffled_node_id = f"{cohort_id.replace(' ', '-')}_shuffled_sample"
-                    
-                    # Get the shuffled sample node from the DCR
-                    try:
-                        shuffled_node = dcr.get_node(shuffled_node_id)
-                    except Exception as node_error:
-                        logging.warning(f"Shuffled sample node not found for {cohort_id}: {node_error}")
-                        shuffled_upload_results[cohort_id] = "node_not_found"
-                        continue
-                    
-                    # Generate encryption key
-                    key = dq.Key()
-                    
-                    # Upload and publish the shuffled sample
-                    with open(shuffled_csv, "rb") as shuffled_data:
-                        shuffled_node.upload_and_publish_dataset(shuffled_data, key, f"{shuffled_node_id}.csv")
-                    
-                    logging.info(f"Successfully uploaded shuffled sample for cohort {cohort_id}")
-                    shuffled_upload_results[cohort_id] = "success"
-                    
-                except Exception as e:
-                    logging.error(f"Failed to upload shuffled sample for cohort {cohort_id}: {e}", exc_info=True)
-                    shuffled_upload_results[cohort_id] = f"error: {str(e)}"
-        else:
-            logging.info("Shuffled samples not requested, skipping upload")
-            for cohort_id in cohorts_request["cohorts"].keys():
+        for cohort_id in cohorts_request["cohorts"].keys():
+            # Check if shuffled samples should be included for this cohort
+            # include_shuffled_samples can be a boolean (legacy) or a dict of cohort_id -> boolean
+            should_include_shuffled = False
+            if isinstance(include_shuffled_samples, dict):
+                should_include_shuffled = include_shuffled_samples.get(cohort_id, False)
+            elif include_shuffled_samples:
+                should_include_shuffled = True
+            
+            if not should_include_shuffled:
                 shuffled_upload_results[cohort_id] = "not_requested"
+                continue
+                
+            try:
+                storage_dir = os.path.join(settings.data_folder, f"dcr_output_{cohort_id}")
+                shuffled_csv = os.path.join(storage_dir, "shuffled_sample.csv")
+                
+                if not os.path.exists(shuffled_csv):
+                    logging.info(f"No shuffled sample file for cohort {cohort_id}, skipping")
+                    shuffled_upload_results[cohort_id] = "no_file"
+                    continue
+                
+                shuffled_node_id = f"{cohort_id.replace(' ', '-')}_shuffled_sample"
+                
+                # Get the shuffled sample node from the DCR
+                try:
+                    shuffled_node = dcr.get_node(shuffled_node_id)
+                except Exception as node_error:
+                    logging.warning(f"Shuffled sample node not found for {cohort_id}: {node_error}")
+                    shuffled_upload_results[cohort_id] = "node_not_found"
+                    continue
+                
+                # Generate encryption key
+                key = dq.Key()
+                
+                # Upload and publish the shuffled sample
+                with open(shuffled_csv, "rb") as shuffled_data:
+                    shuffled_node.upload_and_publish_dataset(shuffled_data, key, f"{shuffled_node_id}.csv")
+                
+                logging.info(f"Successfully uploaded shuffled sample for cohort {cohort_id}")
+                shuffled_upload_results[cohort_id] = "success"
+                
+            except Exception as e:
+                logging.error(f"Failed to upload shuffled sample for cohort {cohort_id}: {e}", exc_info=True)
+                shuffled_upload_results[cohort_id] = f"error: {str(e)}"
         
         shuffled_upload_time = datetime.now() - shuffled_upload_start
         logging.info(f"Shuffled sample upload completed in {shuffled_upload_time.total_seconds():.3f}s. Results: {shuffled_upload_results}")
@@ -1504,6 +1517,44 @@ async def api_preview_dcr_participants(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to preview DCR participants: {str(e)}"
+        )
+
+
+@router.post("/check-shuffled-samples")
+async def check_shuffled_samples(
+    cohorts_request: dict[str, Any],
+    user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
+    """
+    Check which cohorts have shuffled sample files available.
+    
+    Returns a dictionary with:
+    - cohorts_with_samples: list of cohort IDs that have shuffled samples
+    - cohorts_without_samples: list of cohort IDs that don't have shuffled samples
+    """
+    try:
+        cohorts_with_samples = []
+        cohorts_without_samples = []
+        
+        for cohort_id in cohorts_request.get("cohorts", {}).keys():
+            storage_dir = os.path.join(settings.data_folder, f"dcr_output_{cohort_id}")
+            shuffled_csv = os.path.join(storage_dir, "shuffled_sample.csv")
+            
+            if os.path.exists(shuffled_csv):
+                cohorts_with_samples.append(cohort_id)
+            else:
+                cohorts_without_samples.append(cohort_id)
+        
+        return {
+            "cohorts_with_samples": cohorts_with_samples,
+            "cohorts_without_samples": cohorts_without_samples
+        }
+        
+    except Exception as e:
+        logging.error(f"Failed to check shuffled samples: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to check shuffled samples: {str(e)}"
         )
 
 

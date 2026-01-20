@@ -21,7 +21,10 @@ export function Nav() {
   const [loadingAction, setLoadingAction] = useState<'live' | 'config' | null>(null);
   const [dcrCreated, setDcrCreated] = useState(false);
   const [configDownloaded, setConfigDownloaded] = useState(false);
-  const [includeShuffledSamples, setIncludeShuffledSamples] = useState(true);
+  const [shuffledSampleSettings, setShuffledSampleSettings] = useState<Record<string, boolean>>({});
+  const [cohortsWithShuffledSamples, setCohortsWithShuffledSamples] = useState<string[]>([]);
+  const [cohortsWithoutShuffledSamples, setCohortsWithoutShuffledSamples] = useState<string[]>([]);
+  const [loadingShuffledSamples, setLoadingShuffledSamples] = useState(false);
   const [dcrMode, setDcrMode] = useState<'current' | 'future'>('current');
   const [showParticipantsModal, setShowParticipantsModal] = useState(false);
   const [additionalAnalysts, setAdditionalAnalysts] = useState<string[]>([]);
@@ -83,7 +86,7 @@ export function Nav() {
         },
         body: JSON.stringify({
           ...dataCleanRoom,
-          include_shuffled_samples: includeShuffledSamples,
+          include_shuffled_samples: shuffledSampleSettings,
           dcr_name: dcrName
         })
       });
@@ -149,7 +152,7 @@ export function Nav() {
         },
         body: JSON.stringify({
           ...dataCleanRoom,
-          include_shuffled_samples: includeShuffledSamples,
+          include_shuffled_samples: shuffledSampleSettings,
           additional_analysts: additionalAnalysts,
           airlock_settings: Object.fromEntries(
             Object.entries(airlockSettings).map(([cohortId, isEnabled]) => [
@@ -263,7 +266,9 @@ export function Nav() {
     setPublishedDCR(null);
     setDcrCreated(false);
     setConfigDownloaded(false);
-    setIncludeShuffledSamples(true);
+    setShuffledSampleSettings({});
+    setCohortsWithShuffledSamples([]);
+    setCohortsWithoutShuffledSamples([]);
     setAdditionalAnalysts([]);
     setAirlockSettings({});
     setDcrName('');
@@ -280,6 +285,45 @@ export function Nav() {
   const removeAnalyst = useCallback((email: string) => {
     setAdditionalAnalysts(prev => prev.filter(e => e !== email));
   }, []);
+
+  // Fetch shuffled sample availability when modal opens
+  useEffect(() => {
+    if (showModal && dataCleanRoom?.cohorts && Object.keys(dataCleanRoom.cohorts).length > 0) {
+      const fetchShuffledSamples = async () => {
+        setLoadingShuffledSamples(true);
+        try {
+          const response = await fetch(`${apiUrl}/check-shuffled-samples`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              cohorts: dataCleanRoom.cohorts
+            })
+          });
+          
+          if (response.ok) {
+            const result = await response.json();
+            setCohortsWithShuffledSamples(result.cohorts_with_samples);
+            setCohortsWithoutShuffledSamples(result.cohorts_without_samples);
+            // Initialize shuffled sample settings - default to true for cohorts that have samples
+            const initialSettings: Record<string, boolean> = {};
+            result.cohorts_with_samples.forEach((cohortId: string) => {
+              initialSettings[cohortId] = shuffledSampleSettings[cohortId] ?? true;
+            });
+            setShuffledSampleSettings(prev => ({...prev, ...initialSettings}));
+          }
+        } catch (error) {
+          console.error('Failed to fetch shuffled samples availability:', error);
+        } finally {
+          setLoadingShuffledSamples(false);
+        }
+      };
+      
+      fetchShuffledSamples();
+    }
+  }, [showModal, dataCleanRoom?.cohorts]);
 
   // Fetch participants preview when modal opens
   useEffect(() => {
@@ -502,16 +546,46 @@ export function Nav() {
             {dcrMode === 'future' && (
               <>
                 
-                <div className="form-control mt-2">
-                  <label className="label cursor-pointer justify-start gap-3">
-                    <input 
-                      type="checkbox" 
-                      checked={includeShuffledSamples}
-                      onChange={(e) => setIncludeShuffledSamples(e.target.checked)}
-                      className="checkbox checkbox-primary" 
-                    />
-                    <span className="label-text">Incorporate shuffled samples</span>
-                  </label>
+                {/* Shuffled Samples Settings */}
+                <div className="mt-4">
+                  <div className="divider"></div>
+                  <h3 className="font-bold text-lg mb-3">Shuffled Samples Settings</h3>
+                  {loadingShuffledSamples ? (
+                    <p className="text-sm text-base-content/70">Checking shuffled sample availability...</p>
+                  ) : (
+                    <>
+                      {cohortsWithShuffledSamples.length > 0 && (
+                        <>
+                          <p className="text-sm text-base-content/70 mb-3">Select cohorts to include shuffled samples:</p>
+                          <div className="space-y-2">
+                            {cohortsWithShuffledSamples.map((cohortId) => (
+                              <div key={cohortId} className="form-control">
+                                <label className="label cursor-pointer justify-start gap-3">
+                                  <input 
+                                    type="checkbox"
+                                    checked={shuffledSampleSettings[cohortId] ?? true}
+                                    onChange={(e) => {
+                                      setShuffledSampleSettings({...shuffledSampleSettings, [cohortId]: e.target.checked});
+                                    }}
+                                    className="checkbox checkbox-primary"
+                                  />
+                                  <span className="label-text">{cohortId}</span>
+                                </label>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                      {cohortsWithoutShuffledSamples.length > 0 && (
+                        <p className="text-sm text-base-content/50 mt-3 italic">
+                          Cohorts without shuffled samples: {cohortsWithoutShuffledSamples.join(', ')}
+                        </p>
+                      )}
+                      {cohortsWithShuffledSamples.length === 0 && cohortsWithoutShuffledSamples.length === 0 && (
+                        <p className="text-sm text-base-content/50 italic">No cohorts selected</p>
+                      )}
+                    </>
+                  )}
                 </div>
                 
                 <div className="form-control mt-2">
@@ -662,7 +736,7 @@ const ParticipantsModal = React.memo(({
             {isLoading ? (
               <div className="bg-base-200 p-3 rounded-lg mb-2">
                 <p className="text-sm text-gray-500">
-                  Retrieving list of data owners for selected cohorts...
+                  Retrieving list of data owners for the selected cohorts...
                 </p>
               </div>
             ) : dataOwners.length > 0 ? (
