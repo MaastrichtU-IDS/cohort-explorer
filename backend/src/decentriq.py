@@ -1189,7 +1189,7 @@ async def api_get_compute_dcr_definition(
     # Extract dcr_name from request, default to None
     dcr_name = cohorts_request.get("dcr_name", None)
 
-    dcr_definition, _dcr_title = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, dcr_name=dcr_name)
+    dcr_definition, _dcr_title, _participants = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, dcr_name=dcr_name)
 
     # Generate DCR config JSON
     dcr_config_json = { "dataScienceDataRoom": dcr_definition.high_level }
