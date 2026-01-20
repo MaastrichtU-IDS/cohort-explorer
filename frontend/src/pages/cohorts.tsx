@@ -104,8 +104,6 @@ export default function CohortsList() {
   const router = useRouter();
   const {cohortsData, userEmail, loadingMetrics, isLoading, fetchCohortsData, calculateStatistics} = useCohorts();
   const [searchQuery, setSearchQuery] = useState('');
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [refreshMessage, setRefreshMessage] = useState<{text: string, type: 'success' | 'error'} | null>(null);
   
   // Check if we should use SPARQL mode based on query parameter
   const useSparqlMode = router.query.mode === 'sparql';
@@ -397,43 +395,9 @@ export default function CohortsList() {
   // Function to toggle between cache and SPARQL modes
   const toggleDataSource = () => {
     const newMode = useSparqlMode ? undefined : 'sparql';
-    router.push({
-      pathname: router.pathname,
-      query: newMode ? { mode: newMode } : {}
-    });
-  };
-
-  // Function to refresh cache from triplestore
-  const handleRefreshCache = async () => {
-    setIsRefreshing(true);
-    setRefreshMessage(null);
-    
-    try {
-      const response = await fetch('/api/upload/refresh-cache', {
-        method: 'POST',
-        credentials: 'include',
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        setRefreshMessage({text: 'Cache refreshed successfully!', type: 'success'});
-        // Reload the cohorts data from the refreshed cache
-        fetchCohortsData();
-        // Recalculate statistics after refresh
-        if (calculateStatistics) {
-          setTimeout(() => calculateStatistics(), 1000); // Wait for data to load
-        }
-      } else {
-        const error = await response.json();
-        setRefreshMessage({text: error.detail || 'Failed to refresh cache', type: 'error'});
-      }
-    } catch (error) {
-      setRefreshMessage({text: 'Error refreshing cache', type: 'error'});
-    } finally {
-      setIsRefreshing(false);
-      // Clear message after 5 seconds
-      setTimeout(() => setRefreshMessage(null), 5000);
-    }
+    // Trigger loading state by refreshing the page with new mode
+    // This will cause CohortsContext to refetch data
+    window.location.href = newMode ? `${router.pathname}?mode=${newMode}` : router.pathname;
   };
 
   return (
@@ -516,32 +480,7 @@ export default function CohortsList() {
               >
                 Switch to {useSparqlMode ? 'Cache' : 'SPARQL'}
               </button>
-              
-              {/* Refresh cache button - only show in cache mode */}
-              {!useSparqlMode && (
-                <button 
-                  onClick={handleRefreshCache}
-                  className="btn btn-xs btn-outline btn-info"
-                  disabled={isLoading || isRefreshing}
-                >
-                  {isRefreshing ? (
-                    <>
-                      <span className="loading loading-spinner loading-xs"></span>
-                      Refreshing...
-                    </>
-                  ) : (
-                    'Refresh'
-                  )}
-                </button>
-              )}
             </div>
-            
-            {/* Refresh message */}
-            {refreshMessage && (
-              <div className={`alert alert-${refreshMessage.type === 'success' ? 'success' : 'error'} alert-sm text-xs py-2`}>
-                {refreshMessage.text}
-              </div>
-            )}
           </div>
         </div>
       </aside>
