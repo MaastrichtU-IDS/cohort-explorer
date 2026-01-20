@@ -655,10 +655,49 @@ def initialize_cache_from_triplestore(admin_email: str | None = None, force_refr
         clear_cache()
         
         # Import here to avoid circular imports
-        from src.utils import retrieve_cohorts_metadata
+        from src.utils import retrieve_cohorts_metadata, run_query
         
         # Retrieve cohorts from the triplestore
         cohorts = retrieve_cohorts_metadata(admin_email)
+        
+        # Supplement with direct query for cmeo:email to get all data owner emails
+        # This is needed because the main SPARQL query uses a complex OBI structure
+        # but upload.py stores emails directly on the study entity
+        try:
+            email_query = """
+            PREFIX cmeo: <https://w3id.org/CMEO/>
+            PREFIX dc: <http://purl.org/dc/elements/1.1/>
+            SELECT ?cohortId ?email
+            WHERE {
+                GRAPH <https://w3id.org/CMEO/graph/studies_metadata> {
+                    ?study dc:identifier ?cohortId .
+                    ?study cmeo:email ?email .
+                }
+            }
+            """
+            email_results = run_query(email_query)["results"]["bindings"]
+            
+            # Build a map of cohort_id -> list of emails
+            cohort_emails_map = {}
+            for row in email_results:
+                cohort_id = row.get("cohortId", {}).get("value", "")
+                email = row.get("email", {}).get("value", "")
+                if cohort_id and email:
+                    if cohort_id not in cohort_emails_map:
+                        cohort_emails_map[cohort_id] = []
+                    email_lower = email.lower()
+                    if email_lower not in cohort_emails_map[cohort_id]:
+                        cohort_emails_map[cohort_id].append(email_lower)
+            
+            # Update cohorts with the email data
+            for cohort_id, emails in cohort_emails_map.items():
+                if cohort_id in cohorts:
+                    cohorts[cohort_id].cohort_email = emails
+                    logging.debug(f"Updated cohort {cohort_id} with {len(emails)} data owner emails")
+            
+            logging.info(f"Supplemented {len(cohort_emails_map)} cohorts with data owner emails from cmeo:email")
+        except Exception as e:
+            logging.warning(f"Failed to fetch data owner emails from cmeo:email: {e}")
         
         # Add each cohort to the cache (without saving to disk after each one)
         for cohort_id, cohort in cohorts.items():
