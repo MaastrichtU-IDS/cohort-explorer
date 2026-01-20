@@ -660,44 +660,100 @@ def initialize_cache_from_triplestore(admin_email: str | None = None, force_refr
         # Retrieve cohorts from the triplestore
         cohorts = retrieve_cohorts_metadata(admin_email)
         
-        # Supplement with direct query for cmeo:email to get all data owner emails
+        # Supplement with direct query for email fields
         # This is needed because the main SPARQL query uses a complex OBI structure
         # but upload.py stores emails directly on the study entity
         try:
             email_query = """
             PREFIX cmeo: <https://w3id.org/CMEO/>
             PREFIX dc: <http://purl.org/dc/elements/1.1/>
-            SELECT ?cohortId ?email
+            SELECT ?cohortId ?email ?administratorEmail ?administrator ?studyContactPerson
             WHERE {
                 GRAPH <https://w3id.org/CMEO/graph/studies_metadata> {
                     ?study dc:identifier ?cohortId .
-                    ?study cmeo:email ?email .
+                    OPTIONAL { ?study cmeo:email ?email . }
+                    OPTIONAL { ?study cmeo:administratorEmail ?administratorEmail . }
+                    OPTIONAL { ?study cmeo:administrator ?administrator . }
+                    OPTIONAL { ?study dc:creator ?studyContactPerson . }
                 }
             }
             """
             email_results = run_query(email_query)["results"]["bindings"]
             
-            # Build a map of cohort_id -> list of emails
-            cohort_emails_map = {}
+            # Build maps for each field
+            cohort_emails_map = {}  # cohort_id -> list of emails
+            cohort_admin_email_map = {}  # cohort_id -> administrator_email
+            cohort_admin_map = {}  # cohort_id -> administrator
+            cohort_contact_map = {}  # cohort_id -> study_contact_person
+            
             for row in email_results:
                 cohort_id = row.get("cohortId", {}).get("value", "")
+                if not cohort_id:
+                    continue
+                    
+                # Collect all emails (cmeo:email)
                 email = row.get("email", {}).get("value", "")
-                if cohort_id and email:
+                if email:
                     if cohort_id not in cohort_emails_map:
                         cohort_emails_map[cohort_id] = []
                     email_lower = email.lower()
                     if email_lower not in cohort_emails_map[cohort_id]:
                         cohort_emails_map[cohort_id].append(email_lower)
+                
+                # Get administrator email (cmeo:administratorEmail)
+                admin_email = row.get("administratorEmail", {}).get("value", "")
+                if admin_email and cohort_id not in cohort_admin_email_map:
+                    cohort_admin_email_map[cohort_id] = admin_email.lower()
+                
+                # Get administrator name (cmeo:administrator)
+                admin = row.get("administrator", {}).get("value", "")
+                if admin and cohort_id not in cohort_admin_map:
+                    cohort_admin_map[cohort_id] = admin
+                
+                # Get study contact person (dc:creator)
+                contact = row.get("studyContactPerson", {}).get("value", "")
+                if contact and cohort_id not in cohort_contact_map:
+                    cohort_contact_map[cohort_id] = contact
             
-            # Update cohorts with the email data
-            for cohort_id, emails in cohort_emails_map.items():
-                if cohort_id in cohorts:
-                    cohorts[cohort_id].cohort_email = emails
-                    logging.debug(f"Updated cohort {cohort_id} with {len(emails)} data owner emails")
+            # Update cohorts with the supplementary data
+            updated_count = 0
+            for cohort_id in cohorts:
+                updated = False
+                
+                # Update cohort_email (all data owner emails)
+                if cohort_id in cohort_emails_map:
+                    cohorts[cohort_id].cohort_email = cohort_emails_map[cohort_id]
+                    updated = True
+                
+                # Update administrator_email
+                if cohort_id in cohort_admin_email_map:
+                    cohorts[cohort_id].administrator_email = cohort_admin_email_map[cohort_id]
+                    updated = True
+                
+                # Update administrator
+                if cohort_id in cohort_admin_map:
+                    cohorts[cohort_id].administrator = cohort_admin_map[cohort_id]
+                    updated = True
+                
+                # Update study_contact_person
+                if cohort_id in cohort_contact_map:
+                    cohorts[cohort_id].study_contact_person = cohort_contact_map[cohort_id]
+                    updated = True
+                
+                # Set study_contact_person_email from cohort_email (excluding admin email)
+                if cohort_id in cohort_emails_map:
+                    admin_email = cohort_admin_email_map.get(cohort_id, "")
+                    contact_emails = [e for e in cohort_emails_map[cohort_id] if e != admin_email]
+                    if contact_emails:
+                        cohorts[cohort_id].study_contact_person_email = contact_emails[0]
+                        updated = True
+                
+                if updated:
+                    updated_count += 1
             
-            logging.info(f"Supplemented {len(cohort_emails_map)} cohorts with data owner emails from cmeo:email")
+            logging.info(f"Supplemented {updated_count} cohorts with email/contact fields from direct graph query")
         except Exception as e:
-            logging.warning(f"Failed to fetch data owner emails from cmeo:email: {e}")
+            logging.warning(f"Failed to fetch supplementary email fields: {e}")
         
         # Add each cohort to the cache (without saving to disk after each one)
         for cohort_id, cohort in cohorts.items():
