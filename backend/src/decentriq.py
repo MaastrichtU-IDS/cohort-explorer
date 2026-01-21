@@ -856,6 +856,100 @@ else:
         participants[user["email"]]["analyst_of"].add(preview_node_name)
         # Track the preview node for additional analysts
         preview_nodes.append(preview_node_name)
+        
+        # Add a visualization script that reads the airlock and visualizes 5 random columns
+        visualization_script = f"""import pandas as pd
+import decentriq_util
+import matplotlib.pyplot as plt
+import numpy as np
+import os
+import random
+
+# Create output directory
+output_dir = "/output"
+os.makedirs(output_dir, exist_ok=True)
+
+# Read the airlock data using decentriq_util
+preview_node = "{preview_node_name}"
+df = decentriq_util.read_tabular_data(preview_node)
+
+# Log basic info
+log_file = os.path.join(output_dir, "visualization_log.txt")
+with open(log_file, "w") as log:
+    log.write(f"Loaded airlock data: {{len(df)}} rows, {{len(df.columns)}} columns\\n")
+    log.write(f"Columns: {{list(df.columns)}}\\n\\n")
+
+# Select 5 random columns (or all if less than 5)
+num_cols_to_visualize = min(5, len(df.columns))
+random.seed(42)  # For reproducibility
+selected_columns = random.sample(list(df.columns), num_cols_to_visualize)
+
+with open(log_file, "a") as log:
+    log.write(f"Selected {{num_cols_to_visualize}} columns for visualization: {{selected_columns}}\\n\\n")
+
+# Create visualizations
+fig, axes = plt.subplots(num_cols_to_visualize, 1, figsize=(10, 4 * num_cols_to_visualize))
+if num_cols_to_visualize == 1:
+    axes = [axes]
+
+for idx, col in enumerate(selected_columns):
+    ax = axes[idx]
+    col_data = df[col].dropna()
+    
+    with open(log_file, "a") as log:
+        log.write(f"Column: {{col}}\\n")
+        log.write(f"  Non-null values: {{len(col_data)}}\\n")
+        log.write(f"  Data type: {{df[col].dtype}}\\n")
+    
+    # Check if numeric or categorical
+    if pd.api.types.is_numeric_dtype(col_data):
+        # Histogram for numeric data
+        ax.hist(col_data, bins=30, edgecolor='black', alpha=0.7)
+        ax.set_xlabel(col)
+        ax.set_ylabel('Frequency')
+        ax.set_title(f'Distribution of {{col}} (Numeric)')
+        
+        # Add statistics
+        mean_val = col_data.mean()
+        median_val = col_data.median()
+        std_val = col_data.std()
+        ax.axvline(mean_val, color='red', linestyle='--', label=f'Mean: {{mean_val:.2f}}')
+        ax.axvline(median_val, color='green', linestyle='--', label=f'Median: {{median_val:.2f}}')
+        ax.legend()
+        
+        with open(log_file, "a") as log:
+            log.write(f"  Mean: {{mean_val:.4f}}, Median: {{median_val:.4f}}, Std: {{std_val:.4f}}\\n\\n")
+    else:
+        # Bar chart for categorical data
+        value_counts = col_data.value_counts().head(20)  # Top 20 categories
+        ax.barh(range(len(value_counts)), value_counts.values)
+        ax.set_yticks(range(len(value_counts)))
+        ax.set_yticklabels([str(v)[:30] for v in value_counts.index])  # Truncate long labels
+        ax.set_xlabel('Count')
+        ax.set_title(f'Distribution of {{col}} (Categorical, top 20)')
+        
+        with open(log_file, "a") as log:
+            log.write(f"  Unique values: {{df[col].nunique()}}\\n")
+            log.write(f"  Top 5 values: {{dict(value_counts.head(5))}}\\n\\n")
+
+plt.tight_layout()
+plt.savefig(os.path.join(output_dir, "airlock_visualization.png"), dpi=150, bbox_inches='tight')
+plt.close()
+
+with open(log_file, "a") as log:
+    log.write("Visualization saved to airlock_visualization.png\\n")
+"""
+        
+        visualization_node_name = f"visualize-airlock-{cohort_id}"
+        builder.add_node_definition(
+            PythonComputeNodeDefinition(
+                name=visualization_node_name,
+                script=visualization_script,
+                dependencies=[preview_node_name]
+            )
+        )
+        # Add the requester as analyst of the visualization script
+        participants[user["email"]]["analyst_of"].add(visualization_node_name)
 
 
 
