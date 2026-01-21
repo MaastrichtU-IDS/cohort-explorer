@@ -39,28 +39,41 @@ export default function Home() {
         const navigationEntries = performance.getEntriesByType('navigation') as PerformanceNavigationTiming[];
         const isPageRefresh = navigationEntries.length > 0 && navigationEntries[0].type === 'reload';
         
-        // Only recalculate statistics if user explicitly refreshed the page
-        if (isPageRefresh && calculateStatistics) {
-          console.log('Page refresh detected, recalculating statistics...');
+        // First, try to fetch existing statistics
+        const cacheBuster = Date.now();
+        const response = await fetch(`/api/get-statistics?_=${cacheBuster}`);
+        let data = null;
+        if (response.ok) {
+          data = await response.json();
+        }
+        
+        // Check if statistics are missing (file doesn't exist or has default values)
+        const statsAreMissing = !data || data.totalCohorts === "--" || data.totalCohorts === "waiting to refresh...";
+        
+        // Recalculate if page refresh OR if statistics file doesn't exist
+        if ((isPageRefresh || statsAreMissing) && calculateStatistics) {
+          console.log(statsAreMissing ? 'Statistics missing, calculating...' : 'Page refresh detected, recalculating statistics...');
           setIsRecalculating(true);
           setStats({
-            totalCohorts: "recalculating...",
-            cohortsWithMetadata: "recalculating...",
-            cohortsWithAggregateAnalysis: "recalculating...",
-            totalPatients: "recalculating...",
-            patientsInCohortsWithMetadata: "recalculating...",
-            totalVariables: "recalculating..."
+            totalCohorts: "calculating...",
+            cohortsWithMetadata: "calculating...",
+            cohortsWithAggregateAnalysis: "calculating...",
+            totalPatients: "calculating...",
+            patientsInCohortsWithMetadata: "calculating...",
+            totalVariables: "calculating..."
           });
           await calculateStatistics();
           // Wait a bit for the file to be written
           await new Promise(resolve => setTimeout(resolve, 500));
+          
+          // Fetch the newly calculated statistics
+          const newResponse = await fetch(`/api/get-statistics?_=${Date.now()}`);
+          if (newResponse.ok) {
+            data = await newResponse.json();
+          }
         }
         
-        // Add cache-busting parameter to prevent browser caching
-        const cacheBuster = Date.now();
-        const response = await fetch(`/api/get-statistics?_=${cacheBuster}`);
-        if (response.ok) {
-          const data = await response.json();
+        if (data) {
           setStats(data);
         }
         setIsRecalculating(false);
@@ -77,6 +90,13 @@ export default function Home() {
     fetchStatistics();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run once on mount
+  
+  // Update stats when cohortStatistics from context changes (after cohorts load)
+  React.useEffect(() => {
+    if (cohortStatistics && cohortStatistics.totalCohorts !== undefined) {
+      setStats(cohortStatistics);
+    }
+  }, [cohortStatistics]);
 
   return (
     <main className={`flex flex-col items-center justify-between p-24 ${inter.className}`}>
