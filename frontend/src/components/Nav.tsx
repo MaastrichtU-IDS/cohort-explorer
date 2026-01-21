@@ -557,10 +557,10 @@ export function Nav() {
                       {cohortsWithShuffledSamples.length > 0 && (
                         <>
                           <p className="text-sm text-base-content/70 mb-3">Select cohorts to include shuffled samples:</p>
-                          <div className="space-y-2">
+                          <div className="flex flex-wrap gap-x-4 gap-y-1">
                             {cohortsWithShuffledSamples.map((cohortId) => (
                               <div key={cohortId} className="form-control">
-                                <label className="label cursor-pointer justify-start gap-3">
+                                <label className="label cursor-pointer justify-start gap-2 py-1">
                                   <input 
                                     type="checkbox"
                                     checked={shuffledSampleSettings[cohortId] ?? true}
@@ -612,10 +612,10 @@ export function Nav() {
                   <div className="divider"></div>
                   <h3 className="font-bold text-lg mb-3">Airlock Settings</h3>
                   <p className="text-sm text-base-content/70 mb-3">Select cohorts to include in the airlock (20% data export per cohort):</p>
-                  <div className="space-y-2">
+                  <div className="flex flex-wrap gap-x-4 gap-y-1">
                     {dataCleanRoom?.cohorts && Object.keys(dataCleanRoom.cohorts).map((cohortId) => (
                       <div key={cohortId} className="form-control">
-                        <label className="label cursor-pointer justify-start gap-3">
+                        <label className="label cursor-pointer justify-start gap-2 py-1">
                           <input 
                             type="checkbox"
                             checked={airlockSettings[cohortId] ?? true}
@@ -652,7 +652,7 @@ export function Nav() {
                   Download DCR Config
                 </button>
                 <button 
-                  className="btn btn-error" 
+                  className="btn" 
                   onClick={clearCohortsList}
                 >
                   Clear cohorts
