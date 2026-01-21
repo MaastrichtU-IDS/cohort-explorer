@@ -542,17 +542,13 @@ export function Nav() {
             )}
             
             <h3 className="font-bold text-lg mb-3">Cohorts to load in Decentriq Data Clean Room</h3>
-            <div className="flex flex-wrap gap-2">
-              {Object.entries(dataCleanRoom?.cohorts).map(([cohortId, variables]: any) => {
-                const cohort = cohortsData[cohortId];
-                const patientCount = cohort?.study_participants || '--';
-                return (
-                  <span key={cohortId} className="badge badge-lg badge-outline">
-                    {cohortId} ({variables.length} vars, {patientCount} patients)
-                  </span>
-                );
-              })}
-            </div>
+            <p className="flex flex-wrap gap-x-1">
+              {Object.entries(dataCleanRoom?.cohorts).map(([cohortId, variables]: any, index, arr) => (
+                <span key={cohortId}>
+                  {cohortId} ({variables.length} variables){index < arr.length - 1 ? ',' : ''}
+                </span>
+              ))}
+            </p>
             {/* TODO: add a section to merge added cohorts? (merge automatically on variables using mapped_id)
             - An id for the new generated dataframe
             - A list of autocomplete using the dataCleanRoom.cohorts
@@ -586,7 +582,7 @@ export function Nav() {
                 <div className="mt-4">
                   <div className="divider"></div>
                   <h3 className="font-bold text-lg mb-3">Airlock Settings</h3>
-                  <p className="text-sm text-base-content/70 mb-3">Select cohorts to include in the airlock (20% data export per cohort):</p>
+                  <p className="text-sm text-base-content/70 mb-3">Select the cohorts to include in the airlock (20% data export per cohort):</p>
                   <div className="flex flex-wrap gap-x-4 gap-y-1">
                     {dataCleanRoom?.cohorts && Object.keys(dataCleanRoom.cohorts).map((cohortId) => (
                       <div key={cohortId} className="form-control">
@@ -616,7 +612,7 @@ export function Nav() {
                     <>
                       {cohortsWithShuffledSamples.length > 0 && (
                         <>
-                          <p className="text-sm text-base-content/70 mb-3">Select cohorts to include shuffled samples:</p>
+                          <p className="text-sm text-base-content/70 mb-3">Select the shuffled samples to include:</p>
                           <div className="flex flex-wrap gap-x-4 gap-y-1">
                             {cohortsWithShuffledSamples.map((cohortId) => (
                               <div key={cohortId} className="form-control">
