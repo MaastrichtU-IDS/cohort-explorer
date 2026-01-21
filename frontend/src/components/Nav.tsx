@@ -33,6 +33,14 @@ export function Nav() {
   const [participantsPreview, setParticipantsPreview] = useState<any>(null);
   const [loadingParticipants, setLoadingParticipants] = useState(false);
   const [dcrName, setDcrName] = useState('');
+  const notificationRef = React.useRef<HTMLDivElement>(null);
+  
+  // Helper function to scroll to notification box
+  const scrollToNotification = () => {
+    setTimeout(() => {
+      notificationRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }, 100);
+  };
   // const [cleanRoomData, setCleanRoomData]: any = useState(null);
   // const cleanRoomData = JSON.parse(sessionStorage.getItem('dataCleanRoom') || '{"cohorts": []}');
   // const cohortsCount = cleanRoomData.cohorts.length;
@@ -109,7 +117,8 @@ export function Nav() {
         setPublishedDCR((
           <p>✅ Data Clean Room configuration package (with shuffled samples) has been downloaded. <br />
           Please go to <a href="https://platform.decentriq.com/" target="_blank" className="underline text-blue-600 hover:text-blue-800">https://platform.decentriq.com</a> to create a new DCR from the configuration file. </p>
-        ))
+        ));
+        scrollToNotification();
       } else {
         // Handle JSON response (no shuffled samples)
         const res = await response.json();
@@ -126,7 +135,8 @@ export function Nav() {
         setPublishedDCR((
           <p>✅ Data Clean Room configuration file has been downloaded. <br />
           Please go to <a href="https://platform.decentriq.com/" target="_blank" className="underline text-blue-600 hover:text-blue-800">https://platform.decentriq.com</a> to create a new DCR from the configuration file. </p>
-        ))
+        ));
+        scrollToNotification();
       }
       
       setIsLoading(false);
@@ -214,6 +224,7 @@ export function Nav() {
             )}
           </div>
         ));
+        scrollToNotification();
       } else {
         // Non-OK response - show detailed error information
         console.error('DCR creation failed with response:', result);
@@ -229,6 +240,7 @@ export function Nav() {
             </div>
           </div>
         ));
+        scrollToNotification();
       }
       
       setIsLoading(false);
@@ -255,6 +267,7 @@ export function Nav() {
           </div>
         </div>
       ));
+      scrollToNotification();
       setIsLoading(false);
       setLoadingAction(null);
     }
@@ -529,13 +542,17 @@ export function Nav() {
             )}
             
             <h3 className="font-bold text-lg mb-3">Cohorts to load in Decentriq Data Clean Room</h3>
-            <ul>
-              {Object.entries(dataCleanRoom?.cohorts).map(([cohortId, variables]: any) => (
-                <li key={cohortId}>
-                  {cohortId} ({variables.length} variables)
-                </li>
-              ))}
-            </ul>
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(dataCleanRoom?.cohorts).map(([cohortId, variables]: any) => {
+                const cohort = cohortsData[cohortId];
+                const patientCount = cohort?.study_participants || '--';
+                return (
+                  <span key={cohortId} className="badge badge-lg badge-outline">
+                    {cohortId} ({variables.length} vars, {patientCount} patients)
+                  </span>
+                );
+              })}
+            </div>
             {/* TODO: add a section to merge added cohorts? (merge automatically on variables using mapped_id)
             - An id for the new generated dataframe
             - A list of autocomplete using the dataCleanRoom.cohorts
@@ -545,48 +562,6 @@ export function Nav() {
             {/* Other settings - only visible in future mode */}
             {dcrMode === 'future' && (
               <>
-                
-                {/* Shuffled Samples Settings */}
-                <div className="mt-4">
-                  <div className="divider"></div>
-                  <h3 className="font-bold text-lg mb-3">Shuffled Samples Settings</h3>
-                  {loadingShuffledSamples ? (
-                    <p className="text-sm text-base-content/70">Checking shuffled sample availability...</p>
-                  ) : (
-                    <>
-                      {cohortsWithShuffledSamples.length > 0 && (
-                        <>
-                          <p className="text-sm text-base-content/70 mb-3">Select cohorts to include shuffled samples:</p>
-                          <div className="flex flex-wrap gap-x-4 gap-y-1">
-                            {cohortsWithShuffledSamples.map((cohortId) => (
-                              <div key={cohortId} className="form-control">
-                                <label className="label cursor-pointer justify-start gap-2 py-1">
-                                  <input 
-                                    type="checkbox"
-                                    checked={shuffledSampleSettings[cohortId] ?? true}
-                                    onChange={(e) => {
-                                      setShuffledSampleSettings({...shuffledSampleSettings, [cohortId]: e.target.checked});
-                                    }}
-                                    className="checkbox checkbox-primary"
-                                  />
-                                  <span className="label-text">{cohortId}</span>
-                                </label>
-                              </div>
-                            ))}
-                          </div>
-                        </>
-                      )}
-                      {cohortsWithoutShuffledSamples.length > 0 && (
-                        <p className="text-sm text-base-content/50 mt-3 italic">
-                          Cohorts without shuffled samples: {cohortsWithoutShuffledSamples.join(', ')}
-                        </p>
-                      )}
-                      {cohortsWithShuffledSamples.length === 0 && cohortsWithoutShuffledSamples.length === 0 && (
-                        <p className="text-sm text-base-content/50 italic">No cohorts selected</p>
-                      )}
-                    </>
-                  )}
-                </div>
                 
                 <div className="form-control mt-2">
                   <label className="label cursor-pointer justify-start gap-3">
@@ -629,6 +604,48 @@ export function Nav() {
                       </div>
                     ))}
                   </div>
+                </div>
+                
+                {/* Shuffled Samples Settings */}
+                <div className="mt-4">
+                  <div className="divider"></div>
+                  <h3 className="font-bold text-lg mb-3">Shuffled Samples Settings</h3>
+                  {loadingShuffledSamples ? (
+                    <p className="text-sm text-base-content/70">Checking shuffled sample availability...</p>
+                  ) : (
+                    <>
+                      {cohortsWithShuffledSamples.length > 0 && (
+                        <>
+                          <p className="text-sm text-base-content/70 mb-3">Select cohorts to include shuffled samples:</p>
+                          <div className="flex flex-wrap gap-x-4 gap-y-1">
+                            {cohortsWithShuffledSamples.map((cohortId) => (
+                              <div key={cohortId} className="form-control">
+                                <label className="label cursor-pointer justify-start gap-2 py-1">
+                                  <input 
+                                    type="checkbox"
+                                    checked={shuffledSampleSettings[cohortId] ?? true}
+                                    onChange={(e) => {
+                                      setShuffledSampleSettings({...shuffledSampleSettings, [cohortId]: e.target.checked});
+                                    }}
+                                    className="checkbox checkbox-primary"
+                                  />
+                                  <span className="label-text">{cohortId}</span>
+                                </label>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                      {cohortsWithoutShuffledSamples.length > 0 && (
+                        <p className="text-sm text-base-content/50 mt-3 italic">
+                          Cohorts without shuffled samples: {cohortsWithoutShuffledSamples.join(', ')}
+                        </p>
+                      )}
+                      {cohortsWithShuffledSamples.length === 0 && cohortsWithoutShuffledSamples.length === 0 && (
+                        <p className="text-sm text-base-content/50 italic">No cohorts selected</p>
+                      )}
+                    </>
+                  )}
                 </div>
               </>
             )}
@@ -673,13 +690,15 @@ export function Nav() {
                 </p>
               </div>
             )}
-            {publishedDCR && (
-              <div className="card card-compact">
-                <div className="card-body mt-5">
-                    {publishedDCR}
+            <div ref={notificationRef}>
+              {publishedDCR && (
+                <div className="card card-compact">
+                  <div className="card-body mt-5">
+                      {publishedDCR}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
       )}
