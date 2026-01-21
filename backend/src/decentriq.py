@@ -643,16 +643,57 @@ async def get_compute_dcr_definition(
 import numpy as np
 import decentriq_util
 import os
+import zipfile
+import tempfile
 
 # Create output directory and log file
 output_dir = "/output"
 os.makedirs(output_dir, exist_ok=True)
 log_file = os.path.join(output_dir, "fragmentation_log.txt")
 
-# Read the cohort data
-df = decentriq_util.read_tabular_data("{cohort_id}")
+# Helper function to load data from CSV, SPSS, or zipped files (for RawDataNodeDefinition)
+def load_data(file_path):
+    # Try CSV first
+    try:
+        return pd.read_csv(file_path)
+    except Exception as csv_error:
+        # Try SPSS
+        try:
+            return pd.read_spss(file_path)
+        except Exception as spss_error:
+            # Try as zip file
+            try:
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    with zipfile.ZipFile(file_path, 'r') as zip_ref:
+                        zip_ref.extractall(tmpdir)
+                    
+                    # Find all CSV and SPSS files in the extracted directory
+                    data_files = []
+                    for root, dirs, files in os.walk(tmpdir):
+                        for file in files:
+                            if file.endswith(('.csv', '.sav', '.CSV', '.SAV')):
+                                data_files.append(os.path.join(root, file))
+                    
+                    if not data_files:
+                        raise ValueError("No CSV or SPSS files found in the zip archive")
+                    
+                    # Read the first data file found
+                    data_file = data_files[0]
+                    if data_file.lower().endswith('.csv'):
+                        return pd.read_csv(data_file)
+                    else:
+                        return pd.read_spss(data_file)
+            except Exception as zip_error:
+                raise ValueError(f"Could not read file as CSV, SPSS, or ZIP. CSV error: {{csv_error}}, SPSS error: {{spss_error}}, ZIP error: {{zip_error}}")
 
-# Read the metadata dictionary to identify numeric variables
+# Read the cohort data (RawDataNodeDefinition - use file path)
+data_node_id = "{cohort_id.replace(' ', '-')}"
+df = load_data(f"/input/{{data_node_id}}")
+
+with open(log_file, "a") as log:
+    log.write(f"Loaded cohort data with {{len(df)}} rows and {{len(df.columns)}} columns\\n")
+
+# Read the metadata dictionary to identify numeric variables (TableDataNodeDefinition - use decentriq_util)
 metadata_node_id = "{cohort_id.replace(' ', '-')}_metadata_dictionary"
 try:
     metadata_df = decentriq_util.read_tabular_data(metadata_node_id)
