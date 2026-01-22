@@ -637,8 +637,8 @@ async def get_compute_dcr_definition(
         # This script excludes the ID column and splits the data based on airlock settings
         id_variable_name = find_variable_by_omop_id(cohort_id, "4086934")
         
-        # Get the airlock percentage for this cohort (default to 0 if not specified)
-        airlock_percentage = 0
+        # Get the airlock percentage for this cohort (default to 20 if not specified)
+        airlock_percentage = 20
         if airlock_settings and cohort_id in airlock_settings:
             airlock_percentage = airlock_settings[cohort_id]
         
@@ -696,10 +696,10 @@ df = load_data(f"/input/{{data_node_id}}")
 with open(log_file, "a") as log:
     log.write(f"Loaded cohort data with {{len(df)}} rows and {{len(df.columns)}} columns\\n")
 
-# Read the metadata dictionary to identify numeric variables (TableDataNodeDefinition - use decentriq_util)
+# Read the metadata dictionary to identify numeric variables (use load_data like data file)
 metadata_node_id = "{cohort_id.replace(' ', '-')}_metadata_dictionary"
 try:
-    metadata_df = decentriq_util.read_tabular_data(metadata_node_id)
+    metadata_df = load_data(f"/input/{{metadata_node_id}}")
     with open(log_file, "a") as log:
         log.write(f"Loaded metadata dictionary with {{len(metadata_df)}} variables\\n")
 except Exception as e:
