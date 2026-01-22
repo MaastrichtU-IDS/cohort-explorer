@@ -1497,9 +1497,21 @@ async def api_get_compute_dcr_definition(
     # Generate DCR config JSON
     dcr_config_json = { "dataScienceDataRoom": dcr_definition.high_level }
     
-    # Check for shuffled sample files for each selected cohort
+    # Check for shuffled sample files for each selected cohort (respecting settings)
     shuffled_files = {}
     for cohort_id in cohorts_request["cohorts"].keys():
+        # Check if shuffled samples are enabled for this cohort
+        # include_shuffled_samples can be a boolean (legacy) or a dict of cohort_id -> boolean
+        should_include = False
+        if isinstance(include_shuffled_samples, dict):
+            should_include = include_shuffled_samples.get(cohort_id, False)
+        elif include_shuffled_samples:
+            should_include = True
+        
+        if not should_include:
+            logging.info(f"Shuffled samples disabled for cohort {cohort_id}, skipping")
+            continue
+        
         storage_dir = os.path.join(settings.data_folder, f"dcr_output_{cohort_id}")
         shuffled_csv = os.path.join(storage_dir, "shuffled_sample.csv")
         shuffled_summary = os.path.join(storage_dir, "shuffle_summary.txt")
