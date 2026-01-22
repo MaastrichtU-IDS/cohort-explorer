@@ -32,7 +32,11 @@ export function Nav() {
   const [airlockSettings, setAirlockSettings] = useState<Record<string, boolean>>({});
   const [participantsPreview, setParticipantsPreview] = useState<any>(null);
   const [loadingParticipants, setLoadingParticipants] = useState(false);
+  const [excludedDataOwners, setExcludedDataOwners] = useState<string[]>([]);
   const [dcrName, setDcrName] = useState('');
+  const [availableMappingFiles, setAvailableMappingFiles] = useState<any[]>([]);
+  const [selectedMappingFiles, setSelectedMappingFiles] = useState<Record<string, boolean>>({});
+  const [loadingMappingFiles, setLoadingMappingFiles] = useState(false);
   const notificationRef = React.useRef<HTMLDivElement>(null);
   
   // Helper function to scroll to notification box
@@ -164,13 +168,17 @@ export function Nav() {
           ...dataCleanRoom,
           include_shuffled_samples: shuffledSampleSettings,
           additional_analysts: additionalAnalysts,
+          excluded_data_owners: excludedDataOwners,
           airlock_settings: Object.fromEntries(
             Object.entries(airlockSettings).map(([cohortId, isEnabled]) => [
               cohortId,
               isEnabled ? 20 : 0
             ])
           ),
-          dcr_name: dcrName
+          dcr_name: dcrName,
+          selected_mapping_files: availableMappingFiles
+            .filter(m => selectedMappingFiles[m.filename] !== false)
+            .map(m => ({ filename: m.filename, filepath: m.filepath, display_name: m.display_name }))
         })
       });
       
@@ -285,6 +293,9 @@ export function Nav() {
     setAdditionalAnalysts([]);
     setAirlockSettings({});
     setDcrName('');
+    setExcludedDataOwners([]);
+    setAvailableMappingFiles([]);
+    setSelectedMappingFiles({});
   };
 
   const addAnalyst = useCallback(() => {
@@ -337,6 +348,43 @@ export function Nav() {
       fetchShuffledSamples();
     }
   }, [showModal, dataCleanRoom?.cohorts]);
+
+  // Fetch available mapping files when modal opens
+  useEffect(() => {
+    if (showModal && dcrMode === 'future' && dataCleanRoom?.cohorts && Object.keys(dataCleanRoom.cohorts).length > 1) {
+      const fetchMappingFiles = async () => {
+        setLoadingMappingFiles(true);
+        try {
+          const cohortIds = Object.keys(dataCleanRoom.cohorts);
+          const response = await fetch(`${apiUrl}/get-available-mapping-files`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(cohortIds)
+          });
+          
+          if (response.ok) {
+            const result = await response.json();
+            setAvailableMappingFiles(result.available_mappings);
+            // Initialize selection - default to true for all available mappings
+            const initialSettings: Record<string, boolean> = {};
+            result.available_mappings.forEach((mapping: any) => {
+              initialSettings[mapping.filename] = selectedMappingFiles[mapping.filename] ?? true;
+            });
+            setSelectedMappingFiles(prev => ({...prev, ...initialSettings}));
+          }
+        } catch (error) {
+          console.error('Failed to fetch available mapping files:', error);
+        } finally {
+          setLoadingMappingFiles(false);
+        }
+      };
+      
+      fetchMappingFiles();
+    }
+  }, [showModal, dcrMode, dataCleanRoom?.cohorts]);
 
   // Fetch participants preview when modal opens
   useEffect(() => {
@@ -559,23 +607,20 @@ export function Nav() {
             {dcrMode === 'future' && (
               <>
                 
-                <div className="form-control mt-2">
-                  <label className="label cursor-pointer justify-start gap-3">
-                    <input 
-                      type="checkbox" 
-                      checked={showParticipantsModal || additionalAnalysts.length > 0}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setShowParticipantsModal(true);
-                        } else {
-                          setShowParticipantsModal(false);
-                          setAdditionalAnalysts([]);
-                        }
-                      }}
-                      className="checkbox checkbox-primary" 
-                    />
-                    <span className="label-text">Add additional participants</span>
-                  </label>
+                <div className="mt-2">
+                  <button 
+                    className="btn btn-sm btn-outline"
+                    onClick={() => setShowParticipantsModal(true)}
+                  >
+                    Manage Participants
+                  </button>
+                  {(additionalAnalysts.length > 0 || excludedDataOwners.length > 0) && (
+                    <span className="ml-2 text-sm text-base-content/70">
+                      {additionalAnalysts.length > 0 && `+${additionalAnalysts.length} analyst${additionalAnalysts.length > 1 ? 's' : ''}`}
+                      {additionalAnalysts.length > 0 && excludedDataOwners.length > 0 && ', '}
+                      {excludedDataOwners.length > 0 && `${excludedDataOwners.length} data owner${excludedDataOwners.length > 1 ? 's' : ''} excluded`}
+                    </span>
+                  )}
                 </div>
                 
                 {/* Airlock Settings */}
@@ -641,6 +686,40 @@ export function Nav() {
                         <p className="text-sm text-base-content/50 italic">No cohorts selected</p>
                       )}
                     </>
+                  )}
+                </div>
+                
+                {/* Mapping File Settings */}
+                <div className="mt-4">
+                  <div className="divider"></div>
+                  <h3 className="font-bold text-lg mb-3">Mapping File Settings</h3>
+                  {loadingMappingFiles ? (
+                    <p className="text-sm text-base-content/70">Checking for available mapping files...</p>
+                  ) : availableMappingFiles.length > 0 ? (
+                    <>
+                      <p className="text-sm text-base-content/70 mb-3">Select mapping files to include in the DCR:</p>
+                      <div className="flex flex-wrap gap-x-4 gap-y-1">
+                        {availableMappingFiles.map((mapping) => (
+                          <div key={mapping.filename} className="form-control">
+                            <label className="label cursor-pointer justify-start gap-2 py-1">
+                              <input 
+                                type="checkbox"
+                                checked={selectedMappingFiles[mapping.filename] ?? true}
+                                onChange={(e) => {
+                                  setSelectedMappingFiles({...selectedMappingFiles, [mapping.filename]: e.target.checked});
+                                }}
+                                className="checkbox checkbox-primary"
+                              />
+                              <span className="label-text">{mapping.display_name}</span>
+                            </label>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  ) : Object.keys(dataCleanRoom?.cohorts || {}).length < 2 ? (
+                    <p className="text-sm text-base-content/50 italic">Select at least 2 cohorts to see available mapping files</p>
+                  ) : (
+                    <p className="text-sm text-base-content/50 italic">No mapping files available for the selected cohorts</p>
                   )}
                 </div>
               </>
@@ -709,6 +788,8 @@ export function Nav() {
           setNewAnalystEmail={setNewAnalystEmail}
           addAnalyst={addAnalyst}
           removeAnalyst={removeAnalyst}
+          excludedDataOwners={excludedDataOwners}
+          setExcludedDataOwners={setExcludedDataOwners}
           onClose={() => setShowParticipantsModal(false)}
           isLoading={loadingParticipants}
         />
@@ -726,6 +807,8 @@ const ParticipantsModal = React.memo(({
   setNewAnalystEmail,
   addAnalyst,
   removeAnalyst,
+  excludedDataOwners,
+  setExcludedDataOwners,
   onClose,
   isLoading
 }: {
@@ -736,9 +819,18 @@ const ParticipantsModal = React.memo(({
   setNewAnalystEmail: (email: string) => void;
   addAnalyst: () => void;
   removeAnalyst: (email: string) => void;
+  excludedDataOwners: string[];
+  setExcludedDataOwners: (emails: string[]) => void;
   onClose: () => void;
   isLoading: boolean;
 }) => {
+  const toggleDataOwner = (email: string) => {
+    if (excludedDataOwners.includes(email)) {
+      setExcludedDataOwners(excludedDataOwners.filter(e => e !== email));
+    } else {
+      setExcludedDataOwners([...excludedDataOwners, email]);
+    }
+  };
   return (
     <div className="modal modal-open">
       <div className="modal-box">
@@ -756,9 +848,15 @@ const ParticipantsModal = React.memo(({
               </div>
             ) : dataOwners.length > 0 ? (
               dataOwners.map((owner) => (
-                <div key={owner.email} className="bg-base-200 p-3 rounded-lg mb-2">
-                  <div>
-                    <p className="font-semibold">
+                <div key={owner.email} className={`p-3 rounded-lg mb-2 flex items-start gap-3 ${excludedDataOwners.includes(owner.email) ? 'bg-base-200 opacity-50' : 'bg-base-200'}`}>
+                  <input
+                    type="checkbox"
+                    checked={!excludedDataOwners.includes(owner.email)}
+                    onChange={() => toggleDataOwner(owner.email)}
+                    className="checkbox checkbox-primary mt-1"
+                  />
+                  <div className="flex-1">
+                    <p className={`font-semibold ${excludedDataOwners.includes(owner.email) ? 'line-through' : ''}`}>
                       {owner.email}
                       {owner.email === userEmail && <span className="ml-2 text-xs badge badge-primary">You</span>}
                     </p>

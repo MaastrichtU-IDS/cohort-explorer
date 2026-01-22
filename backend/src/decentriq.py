@@ -454,6 +454,8 @@ async def get_compute_dcr_definition(
     additional_analysts: list[str] = None,
     airlock_settings: dict[str, int] = None,
     dcr_name: str = None,
+    excluded_data_owners: list[str] = None,
+    selected_mapping_files: list[dict] = None,
 ) -> Any:
     start_time = datetime.now()
     logging.info(f"Starting DCR definition creation for user {user['email']} at {start_time}")
@@ -518,7 +520,8 @@ async def get_compute_dcr_definition(
         cohorts_request,
         user["email"],
         all_cohorts,
-        additional_analysts
+        additional_analysts,
+        excluded_data_owners
     )
     preview_nodes = []
     # Convert cohort variables to decentriq schema
@@ -1034,20 +1037,54 @@ with open(output_file, "w") as f:
     # if settings.decentriq_email and settings.decentriq_email in participants:
     #     participants[settings.decentriq_email]["analyst_of"].add("optional-basic-data-exploration")
 
-    builder.add_node_definition(
-        RawDataNodeDefinition(name="CrossStudyMappings", is_required=False)
-    )
-    participants[user["email"]]["data_owner_of"].add("CrossStudyMappings")
+    # Add mapping file nodes if any are selected
+    mapping_nodes = []
+    selected_mapping_files = selected_mapping_files or []
     
-    # Add service account as data owner of CrossStudyMappings so it can upload files
-    if settings.decentriq_email and settings.decentriq_email in participants:
-        participants[settings.decentriq_email]["data_owner_of"].add("CrossStudyMappings")
-    
-    # Add all data owners as owners of CrossStudyMappings
-    for email, roles in participants.items():
-        if len(roles["data_owner_of"]) > 0:
-            # If they own any data node, they should also own CrossStudyMappings
-            roles["data_owner_of"].add("CrossStudyMappings")
+    if selected_mapping_files:
+        logging.info(f"Adding {len(selected_mapping_files)} mapping file nodes to DCR")
+        for mapping_file in selected_mapping_files:
+            # Create a node name from the filename (remove extension and sanitize)
+            base_name = mapping_file['filename'].replace('.json', '').replace('.csv', '').replace(' ', '-')
+            node_name = f"mapping_{base_name}"
+            
+            builder.add_node_definition(
+                RawDataNodeDefinition(name=node_name, is_required=False)
+            )
+            mapping_nodes.append({
+                'node_name': node_name,
+                'filepath': mapping_file['filepath'],
+                'display_name': mapping_file.get('display_name', mapping_file['filename'])
+            })
+            
+            # Add requester as data owner
+            participants[user["email"]]["data_owner_of"].add(node_name)
+            
+            # Add service account as data owner so it can upload files
+            if settings.decentriq_email and settings.decentriq_email in participants:
+                participants[settings.decentriq_email]["data_owner_of"].add(node_name)
+            
+            # Add all existing data owners as owners of mapping nodes
+            for email, roles in participants.items():
+                if len(roles["data_owner_of"]) > 0:
+                    roles["data_owner_of"].add(node_name)
+            
+            logging.info(f"Added mapping node: {node_name} for file: {mapping_file['filepath']}")
+    else:
+        # Fallback: add a single CrossStudyMappings node for backwards compatibility
+        builder.add_node_definition(
+            RawDataNodeDefinition(name="CrossStudyMappings", is_required=False)
+        )
+        participants[user["email"]]["data_owner_of"].add("CrossStudyMappings")
+        
+        # Add service account as data owner of CrossStudyMappings so it can upload files
+        if settings.decentriq_email and settings.decentriq_email in participants:
+            participants[settings.decentriq_email]["data_owner_of"].add("CrossStudyMappings")
+        
+        # Add all data owners as owners of CrossStudyMappings
+        for email, roles in participants.items():
+            if len(roles["data_owner_of"]) > 0:
+                roles["data_owner_of"].add("CrossStudyMappings")
     
     # Add users permissions for previews
     # for prev_node in preview_nodes:
@@ -1105,6 +1142,8 @@ async def create_live_compute_dcr(
     additional_analysts: list[str] = None,
     airlock_settings: dict[str, int] = None,
     dcr_name: str = None,
+    excluded_data_owners: list[str] = None,
+    selected_mapping_files: list[dict] = None,
 ) -> dict[str, Any]:
     """Create and publish a live compute DCR that is immediately available for use.
     
@@ -1117,6 +1156,8 @@ async def create_live_compute_dcr(
         client: Decentriq client instance
         include_shuffled_samples: Whether to include shuffled sample data nodes (bool or dict of cohort_id -> bool)
         additional_analysts: List of email addresses to add as analysts
+        excluded_data_owners: List of data owner emails to exclude from the DCR
+        selected_mapping_files: List of mapping files to include in the DCR
         
     Returns:
         Dictionary with DCR information including ID, URL, and title
@@ -1125,7 +1166,7 @@ async def create_live_compute_dcr(
     logging.info(f"Starting live compute DCR creation for user {user['email']} at {start_time}")
     
     # Step 1: Create the DCR definition (reuse existing logic)
-    dcr_definition, dcr_title, participants = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings, dcr_name)
+    dcr_definition, dcr_title, participants = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings, dcr_name, excluded_data_owners, selected_mapping_files)
     
     # Step 2: Publish the DCR to Decentriq with retry logic for race conditions
     import time
@@ -1401,9 +1442,15 @@ async def api_create_live_compute_dcr(
     # Extract dcr_name from request, default to None
     dcr_name = cohorts_request.get("dcr_name", None)
     
+    # Extract excluded_data_owners from request, default to empty list
+    excluded_data_owners = cohorts_request.get("excluded_data_owners", [])
+    
+    # Extract selected_mapping_files from request, default to empty list
+    selected_mapping_files = cohorts_request.get("selected_mapping_files", [])
+    
     # Create and publish the live compute DCR
     try:
-        return await create_live_compute_dcr(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings, dcr_name)
+        return await create_live_compute_dcr(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings, dcr_name, excluded_data_owners, selected_mapping_files)
     except Exception as e:
         error_msg = f"Failed to create live compute DCR: {str(e)}"
         logging.error(error_msg)
@@ -1646,7 +1693,8 @@ def build_dcr_participants(
     cohorts_request: dict[str, Any],
     user_email: str,
     all_cohorts: dict[str, Any],
-    additional_analysts: list[str] = None
+    additional_analysts: list[str] = None,
+    excluded_data_owners: list[str] = None
 ) -> dict[str, dict[str, set]]:
     """Build the participants dictionary for a DCR.
     
@@ -1659,6 +1707,7 @@ def build_dcr_participants(
         user_email: Email of the user creating the DCR
         all_cohorts: Dictionary of all available cohorts with metadata
         additional_analysts: Optional list of additional analyst emails to add
+        excluded_data_owners: Optional list of data owner emails to exclude from the DCR
         
     Returns:
         Dictionary mapping email addresses to their roles:
@@ -1669,6 +1718,7 @@ def build_dcr_participants(
             }
         }
     """
+    excluded_data_owners = excluded_data_owners or []
     participants = {}
     participants[user_email] = {"data_owner_of": set(), "analyst_of": set()}
     
@@ -1687,15 +1737,17 @@ def build_dcr_participants(
         
         # Add data owners (in non-dev mode)
         if not settings.dev_mode:
-            # Add all cohort_email owners
+            # Add all cohort_email owners (unless excluded)
             for owner in cohort.cohort_email:
+                if owner in excluded_data_owners:
+                    continue
                 if owner not in participants:
                     participants[owner] = {"data_owner_of": set(), "analyst_of": set()}
                 participants[owner]["data_owner_of"].add(data_node_id)
                 participants[owner]["data_owner_of"].add(metadata_node_id)
             
-            # Also add administrator_email if it exists
-            if cohort.administrator_email:
+            # Also add administrator_email if it exists (unless excluded)
+            if cohort.administrator_email and cohort.administrator_email not in excluded_data_owners:
                 if cohort.administrator_email not in participants:
                     participants[cohort.administrator_email] = {"data_owner_of": set(), "analyst_of": set()}
                 participants[cohort.administrator_email]["data_owner_of"].add(data_node_id)
@@ -1737,11 +1789,13 @@ async def api_preview_dcr_participants(
         
         # Build participants using the shared function
         additional_analysts = cohorts_request.get('additional_analysts', [])
+        excluded_data_owners = cohorts_request.get('excluded_data_owners', [])
         participants = build_dcr_participants(
             cohorts_request,
             user["email"],
             all_cohorts,
-            additional_analysts
+            additional_analysts,
+            excluded_data_owners
         )
         
         # Convert sets to lists for JSON serialization

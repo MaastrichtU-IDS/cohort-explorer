@@ -130,6 +130,78 @@ async def check_mapping_cache(
         'dictionary_timestamps': dictionary_timestamps
     })
 
+
+@router.post("/get-available-mapping-files")
+async def get_available_mapping_files(
+    cohort_ids: list[str] = Body(...),
+    user: Any = Depends(get_current_user)
+):
+    """
+    Get all available mapping files for the given cohort IDs.
+    
+    Mapping files are .json files with naming pattern:
+    {cohort1}_{cohort2}_{cohortN}_sapbert_ontology+embedding(concept).json
+    
+    All parts before 'sapbert' are cohort names. A file is only included
+    if ALL cohorts in its filename are among the selected cohorts.
+    """
+    from CohortVarLinker.src.config import settings as cohort_linker_settings
+    
+    output_dir = cohort_linker_settings.output_dir
+    
+    # Normalize cohort IDs to lowercase for matching
+    cohort_ids_lower = set(c.lower() for c in cohort_ids)
+    
+    available_mappings = []
+    
+    # Scan directory for .json mapping files
+    if os.path.exists(output_dir):
+        for filename in os.listdir(output_dir):
+            if not filename.endswith('.json'):
+                continue
+            
+            # Parse cohort names from filename (parts before 'sapbert')
+            # Example: "aachen-hf_bigfoot_believe_sapbert_ontology+embedding(concept).json"
+            parts = filename.replace('.json', '').split('_')
+            
+            # Find the index of 'sapbert' to know where cohort names end
+            try:
+                sapbert_idx = parts.index('sapbert')
+            except ValueError:
+                # 'sapbert' not found, skip this file
+                continue
+            
+            # Extract cohort names (all parts before 'sapbert')
+            file_cohorts = [p.lower() for p in parts[:sapbert_idx]]
+            
+            if len(file_cohorts) < 2:
+                # Need at least 2 cohorts for a mapping file
+                continue
+            
+            # Check if ALL cohorts in the filename are among selected cohorts
+            if all(cohort in cohort_ids_lower for cohort in file_cohorts):
+                filepath = os.path.join(output_dir, filename)
+                file_size = os.path.getsize(filepath)
+                mtime = os.path.getmtime(filepath)
+                
+                # Create display name showing all cohorts
+                display_name = ' ↔ '.join(file_cohorts)
+                
+                available_mappings.append({
+                    'cohorts': file_cohorts,
+                    'filename': filename,
+                    'filepath': filepath,
+                    'file_size': file_size,
+                    'timestamp': mtime,
+                    'display_name': display_name
+                })
+    
+    return JSONResponse(content={
+        'available_mappings': available_mappings,
+        'cohort_count': len(cohort_ids)
+    })
+
+
 @router.post("/generate-mapping")
 async def generate_mapping(
     source_study: str = Body(...),
