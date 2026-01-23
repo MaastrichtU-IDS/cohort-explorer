@@ -456,6 +456,7 @@ async def get_compute_dcr_definition(
     dcr_name: str = None,
     excluded_data_owners: list[str] = None,
     selected_mapping_files: list[dict] = None,
+    include_mapping_upload_slot: bool = False,
 ) -> Any:
     start_time = datetime.now()
     logging.info(f"Starting DCR definition creation for user {user['email']} at {start_time}")
@@ -1070,8 +1071,10 @@ with open(output_file, "w") as f:
                     roles["data_owner_of"].add(node_name)
             
             logging.info(f"Added mapping node: {node_name} for file: {mapping_file['filepath']}")
-    else:
-        # Fallback: add a single CrossStudyMappings node for backwards compatibility
+    
+    # Add CrossStudyMappings upload slot if requested or as fallback when no mapping files selected
+    if include_mapping_upload_slot or not selected_mapping_files:
+        logging.info(f"Adding CrossStudyMappings upload slot (requested: {include_mapping_upload_slot}, fallback: {not selected_mapping_files})")
         builder.add_node_definition(
             RawDataNodeDefinition(name="CrossStudyMappings", is_required=False)
         )
@@ -1144,6 +1147,7 @@ async def create_live_compute_dcr(
     dcr_name: str = None,
     excluded_data_owners: list[str] = None,
     selected_mapping_files: list[dict] = None,
+    include_mapping_upload_slot: bool = False,
 ) -> dict[str, Any]:
     """Create and publish a live compute DCR that is immediately available for use.
     
@@ -1158,6 +1162,7 @@ async def create_live_compute_dcr(
         additional_analysts: List of email addresses to add as analysts
         excluded_data_owners: List of data owner emails to exclude from the DCR
         selected_mapping_files: List of mapping files to include in the DCR
+        include_mapping_upload_slot: Whether to include a CrossStudyMappings upload slot
         
     Returns:
         Dictionary with DCR information including ID, URL, and title
@@ -1166,7 +1171,7 @@ async def create_live_compute_dcr(
     logging.info(f"Starting live compute DCR creation for user {user['email']} at {start_time}")
     
     # Step 1: Create the DCR definition (reuse existing logic)
-    dcr_definition, dcr_title, participants = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings, dcr_name, excluded_data_owners, selected_mapping_files)
+    dcr_definition, dcr_title, participants = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings, dcr_name, excluded_data_owners, selected_mapping_files, include_mapping_upload_slot)
     
     # Step 2: Publish the DCR to Decentriq with retry logic for race conditions
     import time
@@ -1448,9 +1453,12 @@ async def api_create_live_compute_dcr(
     # Extract selected_mapping_files from request, default to empty list
     selected_mapping_files = cohorts_request.get("selected_mapping_files", [])
     
+    # Extract include_mapping_upload_slot from request, default to False
+    include_mapping_upload_slot = cohorts_request.get("include_mapping_upload_slot", False)
+    
     # Create and publish the live compute DCR
     try:
-        return await create_live_compute_dcr(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings, dcr_name, excluded_data_owners, selected_mapping_files)
+        return await create_live_compute_dcr(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings, dcr_name, excluded_data_owners, selected_mapping_files, include_mapping_upload_slot)
     except Exception as e:
         error_msg = f"Failed to create live compute DCR: {str(e)}"
         logging.error(error_msg)

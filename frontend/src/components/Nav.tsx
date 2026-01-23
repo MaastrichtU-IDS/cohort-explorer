@@ -37,6 +37,7 @@ export function Nav() {
   const [availableMappingFiles, setAvailableMappingFiles] = useState<any[]>([]);
   const [selectedMappingFiles, setSelectedMappingFiles] = useState<Record<string, boolean>>({});
   const [loadingMappingFiles, setLoadingMappingFiles] = useState(false);
+  const [includeMappingUploadSlot, setIncludeMappingUploadSlot] = useState(false);
   const notificationRef = React.useRef<HTMLDivElement>(null);
   
   // Helper function to scroll to notification box
@@ -178,7 +179,8 @@ export function Nav() {
           dcr_name: dcrName,
           selected_mapping_files: availableMappingFiles
             .filter(m => selectedMappingFiles[m.filename] !== false)
-            .map(m => ({ filename: m.filename, filepath: m.filepath, display_name: m.display_name }))
+            .map(m => ({ filename: m.filename, filepath: m.filepath, display_name: m.display_name })),
+          include_mapping_upload_slot: includeMappingUploadSlot
         })
       });
       
@@ -296,6 +298,7 @@ export function Nav() {
     setExcludedDataOwners([]);
     setAvailableMappingFiles([]);
     setSelectedMappingFiles({});
+    setIncludeMappingUploadSlot(false);
   };
 
   const addAnalyst = useCallback(() => {
@@ -721,6 +724,19 @@ export function Nav() {
                   ) : (
                     <p className="text-sm text-base-content/50 italic">No mapping files available for the selected cohorts</p>
                   )}
+                  
+                  {/* Option to include upload slot for mapping file */}
+                  <div className="form-control mt-4">
+                    <label className="label cursor-pointer justify-start gap-2">
+                      <input 
+                        type="checkbox"
+                        checked={includeMappingUploadSlot}
+                        onChange={(e) => setIncludeMappingUploadSlot(e.target.checked)}
+                        className="checkbox checkbox-primary"
+                      />
+                      <span className="label-text">Include file upload slot for cross-study mapping</span>
+                    </label>
+                  </div>
                 </div>
               </>
             )}
