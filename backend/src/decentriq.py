@@ -690,6 +690,10 @@ def load_data(file_path):
             except Exception as zip_error:
                 raise ValueError(f"Could not read file as CSV, SPSS, or ZIP. CSV error: {{csv_error}}, SPSS error: {{spss_error}}, ZIP error: {{zip_error}}")
 
+# Helper function to load metadata dictionary (CSV only)
+def load_metadata(file_path):
+    return pd.read_csv(file_path)
+
 # Read the cohort data (RawDataNodeDefinition - use file path)
 data_node_id = "{cohort_id.replace(' ', '-')}"
 df = load_data(f"/input/{{data_node_id}}")
@@ -697,10 +701,10 @@ df = load_data(f"/input/{{data_node_id}}")
 with open(log_file, "a") as log:
     log.write(f"Loaded cohort data with {{len(df)}} rows and {{len(df.columns)}} columns\\n")
 
-# Read the metadata dictionary to identify numeric variables (use load_data like data file)
+# Read the metadata dictionary (CSV only)
 metadata_node_id = "{cohort_id.replace(' ', '-')}_metadata_dictionary"
 try:
-    metadata_df = load_data(f"/input/{{metadata_node_id}}")
+    metadata_df = load_metadata(f"/input/{{metadata_node_id}}")
     with open(log_file, "a") as log:
         log.write(f"Loaded metadata dictionary with {{len(metadata_df)}} variables\\n")
 except Exception as e:
@@ -720,121 +724,117 @@ with open(log_file, "a") as log:
 # Airlock percentage setting
 airlock_percentage = {airlock_percentage}
 
-if airlock_percentage > 0:
-    # Shuffle the dataframe to ensure random split
-    df_full = df.sample(frac=1, random_state=42).reset_index(drop=True)
+# Shuffle the dataframe to ensure random split
+df_full = df.sample(frac=1, random_state=42).reset_index(drop=True)
+
+# Split based on airlock percentage
+split_fraction = airlock_percentage / 100.0
+split_index = int(len(df_full) * split_fraction)
+df_fragment = df_full.iloc[:split_index].copy()
+
+# Identify numeric variables from metadata dictionary
+# Numeric variables: VARTYPE in ['FLOAT', 'INT'] AND CATEGORICAL is empty
+numeric_vars = []
+if metadata_df is not None:
+    # Find the column names (case-insensitive matching)
+    varname_col = None
+    vartype_col = None
+    categorical_col = None
     
-    # Split based on airlock percentage
-    split_fraction = airlock_percentage / 100.0
-    split_index = int(len(df_full) * split_fraction)
-    df_fragment = df_full.iloc[:split_index].copy()
+    for col in metadata_df.columns:
+        col_lower = col.lower()
+        if col_lower == 'var_name' or col_lower == 'varname':
+            varname_col = col
+        elif col_lower == 'var_type' or col_lower == 'vartype':
+            vartype_col = col
+        elif col_lower == 'categorical':
+            categorical_col = col
     
-    # Identify numeric variables from metadata dictionary
-    # Numeric variables: VARTYPE in ['FLOAT', 'INT'] AND CATEGORICAL is empty
-    numeric_vars = []
-    if metadata_df is not None:
-        # Find the column names (case-insensitive matching)
-        varname_col = None
-        vartype_col = None
-        categorical_col = None
+    if varname_col and vartype_col:
+        for _, row in metadata_df.iterrows():
+            var_name = str(row[varname_col]).strip()
+            var_type = str(row[vartype_col]).strip().upper() if pd.notna(row[vartype_col]) else ''
+            categorical = str(row[categorical_col]).strip() if categorical_col and pd.notna(row[categorical_col]) else ''
+            
+            # Check if numeric: VARTYPE in ['FLOAT', 'INT'] and CATEGORICAL is empty
+            if var_type in ['FLOAT', 'INT'] and (categorical == '' or categorical.lower() == 'nan'):
+                if var_name in df_fragment.columns:
+                    numeric_vars.append(var_name)
+
+with open(log_file, "a") as log:
+    log.write(f"\\nIdentified {{len(numeric_vars)}} numeric variables for outlier capping\\n")
+
+# Outlier capping using z-scores (2 standard deviations)
+# Calculate statistics on FULL dataset, cap on fragment only
+Z_THRESHOLD = 2.0
+outlier_stats = []
+
+for var in numeric_vars:
+    try:
+        # Convert to numeric, coercing errors to NaN
+        full_values = pd.to_numeric(df_full[var], errors='coerce')
+        fragment_values = pd.to_numeric(df_fragment[var], errors='coerce')
         
-        for col in metadata_df.columns:
-            col_lower = col.lower()
-            if col_lower == 'var_name' or col_lower == 'varname':
-                varname_col = col
-            elif col_lower == 'var_type' or col_lower == 'vartype':
-                vartype_col = col
-            elif col_lower == 'categorical':
-                categorical_col = col
+        # Calculate statistics on full dataset (excluding NaN)
+        mean_val = full_values.mean()
+        median_val = full_values.median()
+        std_val = full_values.std()
         
-        if varname_col and vartype_col:
-            for _, row in metadata_df.iterrows():
-                var_name = str(row[varname_col]).strip()
-                var_type = str(row[vartype_col]).strip().upper() if pd.notna(row[vartype_col]) else ''
-                categorical = str(row[categorical_col]).strip() if categorical_col and pd.notna(row[categorical_col]) else ''
-                
-                # Check if numeric: VARTYPE in ['FLOAT', 'INT'] and CATEGORICAL is empty
-                if var_type in ['FLOAT', 'INT'] and (categorical == '' or categorical.lower() == 'nan'):
-                    if var_name in df_fragment.columns:
-                        numeric_vars.append(var_name)
-    
-    with open(log_file, "a") as log:
-        log.write(f"\\nIdentified {{len(numeric_vars)}} numeric variables for outlier capping\\n")
-    
-    # Outlier capping using z-scores (2 standard deviations)
-    # Calculate statistics on FULL dataset, cap on fragment only
-    Z_THRESHOLD = 2.0
-    outlier_stats = []
-    
-    for var in numeric_vars:
-        try:
-            # Convert to numeric, coercing errors to NaN
-            full_values = pd.to_numeric(df_full[var], errors='coerce')
-            fragment_values = pd.to_numeric(df_fragment[var], errors='coerce')
-            
-            # Calculate statistics on full dataset (excluding NaN)
-            mean_val = full_values.mean()
-            median_val = full_values.median()
-            std_val = full_values.std()
-            
-            if pd.isna(std_val) or std_val == 0:
-                # Skip if no variation
-                continue
-            
-            # Calculate z-score cutoffs
-            lower_limit = mean_val - (Z_THRESHOLD * std_val)
-            upper_limit = mean_val + (Z_THRESHOLD * std_val)
-            
-            # Count outliers in fragment before capping
-            outliers_below = (fragment_values < lower_limit).sum()
-            outliers_above = (fragment_values > upper_limit).sum()
-            total_capped = outliers_below + outliers_above
-            
-            # Cap outliers in the fragment
-            df_fragment[var] = fragment_values.clip(lower=lower_limit, upper=upper_limit)
-            
-            # Log statistics
-            outlier_stats.append({{
-                'variable': var,
-                'mean': mean_val,
-                'median': median_val,
-                'std': std_val,
-                'lower_limit': lower_limit,
-                'upper_limit': upper_limit,
-                'capped_below': outliers_below,
-                'capped_above': outliers_above,
-                'total_capped': total_capped
-            }})
-        except Exception as e:
-            with open(log_file, "a") as log:
-                log.write(f"Error processing variable {{var}}: {{e}}\\n")
-    
-    # Write outlier capping summary to log
-    with open(log_file, "a") as log:
-        log.write(f"\\n=== Outlier Capping Summary (Z-score threshold: {{Z_THRESHOLD}}) ===\\n")
-        total_vars_capped = 0
-        total_values_capped = 0
-        for stat in outlier_stats:
-            if stat['total_capped'] > 0:
-                total_vars_capped += 1
-                total_values_capped += stat['total_capped']
-            log.write(f"\\nVariable: {{stat['variable']}}\\n")
-            log.write(f"  Mean: {{stat['mean']:.4f}}, Median: {{stat['median']:.4f}}, Std: {{stat['std']:.4f}}\\n")
-            log.write(f"  Lower limit (mean - 2*std): {{stat['lower_limit']:.4f}}\\n")
-            log.write(f"  Upper limit (mean + 2*std): {{stat['upper_limit']:.4f}}\\n")
-            log.write(f"  Values capped below: {{stat['capped_below']}}, above: {{stat['capped_above']}}, total: {{stat['total_capped']}}\\n")
-        log.write(f"\\nTotal: {{total_values_capped}} values capped across {{total_vars_capped}} variables\\n")
-    
-    # Save the fragment to output
-    output_file = os.path.join(output_dir, "{cohort_id}_data_fragment.csv")
-    df_fragment.to_csv(output_file, index=False)
-    
-    with open(log_file, "a") as log:
-        log.write(f"\\nData fragment saved: {{output_file}}\\n")
-        log.write(f"Fragment size: {{len(df_fragment)}} rows out of {{len(df_full)}} total rows ({{len(df_fragment)/len(df_full)*100:.1f}}%)\\n")
-else:
-    with open(log_file, "a") as log:
-        log.write(f"Airlock percentage is 0%, no data fragment will be created for {cohort_id}\\n")
+        if pd.isna(std_val) or std_val == 0:
+            # Skip if no variation
+            continue
+        
+        # Calculate z-score cutoffs
+        lower_limit = mean_val - (Z_THRESHOLD * std_val)
+        upper_limit = mean_val + (Z_THRESHOLD * std_val)
+        
+        # Count outliers in fragment before capping
+        outliers_below = (fragment_values < lower_limit).sum()
+        outliers_above = (fragment_values > upper_limit).sum()
+        total_capped = outliers_below + outliers_above
+        
+        # Cap outliers in the fragment
+        df_fragment[var] = fragment_values.clip(lower=lower_limit, upper=upper_limit)
+        
+        # Log statistics
+        outlier_stats.append({{
+            'variable': var,
+            'mean': mean_val,
+            'median': median_val,
+            'std': std_val,
+            'lower_limit': lower_limit,
+            'upper_limit': upper_limit,
+            'capped_below': outliers_below,
+            'capped_above': outliers_above,
+            'total_capped': total_capped
+        }})
+    except Exception as e:
+        with open(log_file, "a") as log:
+            log.write(f"Error processing variable {{var}}: {{e}}\\n")
+
+# Write outlier capping summary to log
+with open(log_file, "a") as log:
+    log.write(f"\\n=== Outlier Capping Summary (Z-score threshold: {{Z_THRESHOLD}}) ===\\n")
+    total_vars_capped = 0
+    total_values_capped = 0
+    for stat in outlier_stats:
+        if stat['total_capped'] > 0:
+            total_vars_capped += 1
+            total_values_capped += stat['total_capped']
+        log.write(f"\\nVariable: {{stat['variable']}}\\n")
+        log.write(f"  Mean: {{stat['mean']:.4f}}, Median: {{stat['median']:.4f}}, Std: {{stat['std']:.4f}}\\n")
+        log.write(f"  Lower limit (mean - 2*std): {{stat['lower_limit']:.4f}}\\n")
+        log.write(f"  Upper limit (mean + 2*std): {{stat['upper_limit']:.4f}}\\n")
+        log.write(f"  Values capped below: {{stat['capped_below']}}, above: {{stat['capped_above']}}, total: {{stat['total_capped']}}\\n")
+    log.write(f"\\nTotal: {{total_values_capped}} values capped across {{total_vars_capped}} variables\\n")
+
+# Save the fragment to output
+output_file = os.path.join(output_dir, "{cohort_id}_data_fragment.csv")
+df_fragment.to_csv(output_file, index=False)
+
+with open(log_file, "a") as log:
+    log.write(f"\\nData fragment saved: {{output_file}}\\n")
+    log.write(f"Fragment size: {{len(df_fragment)}} rows out of {{len(df_full)}} total rows ({{len(df_fragment)/len(df_full)*100:.1f}}%)\\n")
 """
         
         builder.add_node_definition(
