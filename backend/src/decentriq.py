@@ -1072,9 +1072,9 @@ with open(output_file, "w") as f:
             
             logging.info(f"Added mapping node: {node_name} for file: {mapping_file['filepath']}")
     
-    # Add CrossStudyMappings upload slot if requested or as fallback when no mapping files selected
-    if include_mapping_upload_slot or not selected_mapping_files:
-        logging.info(f"Adding CrossStudyMappings upload slot (requested: {include_mapping_upload_slot}, fallback: {not selected_mapping_files})")
+    # Add CrossStudyMappings upload slot only if explicitly requested
+    if include_mapping_upload_slot:
+        logging.info("Adding CrossStudyMappings upload slot (explicitly requested)")
         builder.add_node_definition(
             RawDataNodeDefinition(name="CrossStudyMappings", is_required=False)
         )
