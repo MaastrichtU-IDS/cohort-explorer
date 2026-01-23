@@ -704,17 +704,21 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
         # print(f"POST NORMALIZATION -- COHORT {cohort_id} -- Columns: {df.columns}")
         # --- Structural Validation: Check for required columns ---
         # Define columns absolutely essential for the row-processing logic to run without KeyErrors
-        #critical_column_names_for_processing = [c.name.upper().strip() for c in metadatadict_cols_schema1 if c.name.upper().strip() != "VISITS"]
-        critical_column_names_for_processing = [c.name.upper().strip() for c in metadatadict_cols_schema1]
+        # Use actual schema column names (not uppercased) since cols_normalized maps to mixed case
+        critical_column_names_for_processing = [c.name for c in metadatadict_cols_schema1]
+        # Create lowercase lookup sets for case-insensitive comparison
+        critical_cols_lower = {c.lower() for c in critical_column_names_for_processing}
+        df_cols_lower = {c.lower() for c in df.columns}
+        
         missing_columns = []
         for required_col_name in critical_column_names_for_processing:
-            if required_col_name not in df.columns:
+            if required_col_name.lower() not in df_cols_lower:
                 missing_columns.append(required_col_name)
         
         # Check for extra columns not in the approved list
         extra_columns = []
         for col_name in df.columns:
-            if col_name not in critical_column_names_for_processing:
+            if col_name.lower() not in critical_cols_lower:
                 extra_columns.append(col_name)
         
         # If critical columns are missing or extra columns exist, reject the upload
@@ -1164,13 +1168,15 @@ async def generate_metadata_issues_report():
             from src.upload import cols_normalized
             df.columns = [cols_normalized.get(c.lower().strip(), c.upper().strip()) for c in df.columns]
             
-            # Check for required columns
+            # Check for required columns (case-insensitive)
             from src.upload import metadatadict_cols_schema1
-            critical_column_names = [c.name.upper().strip() for c in metadatadict_cols_schema1]
-            missing_columns = [col for col in critical_column_names if col not in df.columns]
+            critical_column_names = [c.name for c in metadatadict_cols_schema1]
+            critical_cols_lower = {c.lower() for c in critical_column_names}
+            df_cols_lower = {c.lower() for c in df.columns}
+            missing_columns = [col for col in critical_column_names if col.lower() not in df_cols_lower]
             
-            # Check for extra columns not in the approved list
-            extra_columns = [col for col in df.columns if col not in critical_column_names]
+            # Check for extra columns not in the approved list (case-insensitive)
+            extra_columns = [col for col in df.columns if col.lower() not in critical_cols_lower]
             
             # Collect validation errors
             errors = []
