@@ -27,9 +27,8 @@ import os
 import zipfile
 import tempfile
 
-# Create output directory and log file
+# Output directory (always exists in Decentriq environment)
 output_dir = "/output"
-os.makedirs(output_dir, exist_ok=True)
 log_file = os.path.join(output_dir, "fragmentation_log.txt")
 
 # Helper function to load data from CSV, SPSS, or zipped files (for RawDataNodeDefinition)
@@ -215,40 +214,39 @@ with open(log_file, "a") as log:
 """
 
 
-def visualization_script(preview_node_name: str) -> str:
-    """Generate the airlock visualization script.
+def visualization_script(fragment_node_name: str, cohort_id: str) -> str:
+    """Generate the data visualization script.
     
     This script:
-    - Reads the airlock data
+    - Reads the full data fragment (not the airlock)
     - Selects 5 random columns
     - Creates histograms for numeric data and bar charts for categorical data
     - Saves visualization to PNG
     
     Args:
-        preview_node_name: Name of the preview node to read data from
+        fragment_node_name: Name of the data fragment node to read data from
+        cohort_id: The cohort identifier (used to locate the fragment CSV file)
         
     Returns:
         The Python script as a string
     """
     return f"""import pandas as pd
-import decentriq_util
 import matplotlib.pyplot as plt
 import numpy as np
 import os
 import random
 
-# Create output directory
+# Output directory (always exists in Decentriq environment)
 output_dir = "/output"
-os.makedirs(output_dir, exist_ok=True)
 
-# Read the airlock data using decentriq_util
-preview_node = "{preview_node_name}"
-df = decentriq_util.read_tabular_data(preview_node)
+# Read the full data fragment from the fragmentation script output
+fragment_file = "/input/{fragment_node_name}/{cohort_id}_data_fragment.csv"
+df = pd.read_csv(fragment_file)
 
 # Log basic info
 log_file = os.path.join(output_dir, "visualization_log.txt")
 with open(log_file, "w") as log:
-    log.write(f"Loaded airlock data: {{len(df)}} rows, {{len(df.columns)}} columns\\n")
+    log.write(f"Loaded full data fragment: {{len(df)}} rows, {{len(df.columns)}} columns\\n")
     log.write(f"Columns: {{list(df.columns)}}\\n\\n")
 
 # Select 5 random columns (or all if less than 5)
@@ -305,11 +303,11 @@ for idx, col in enumerate(selected_columns):
             log.write(f"  Top 5 values: {{dict(value_counts.head(5))}}\\n\\n")
 
 plt.tight_layout()
-plt.savefig(os.path.join(output_dir, "airlock_visualization.png"), dpi=150, bbox_inches='tight')
+plt.savefig(os.path.join(output_dir, "data_visualization.png"), dpi=150, bbox_inches='tight')
 plt.close()
 
 with open(log_file, "a") as log:
-    log.write("Visualization saved to airlock_visualization.png\\n")
+    log.write("Visualization saved to data_visualization.png\\n")
 """
 
 
@@ -334,8 +332,7 @@ input_dir = "/input"
 output_dir = "/output"
 files = os.listdir(input_dir)
 
-# Create output directory if it doesn't exist
-os.makedirs(output_dir, exist_ok=True)
+# Output directory (always exists in Decentriq environment)
 
 # Open output file for writing
 output_file = os.path.join(output_dir, "data_exploration_report.txt")

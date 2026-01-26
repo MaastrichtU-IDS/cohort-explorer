@@ -646,16 +646,20 @@ async def get_compute_dcr_definition(
         
         # Get the data fragment script from the analysisDCR_scripts module
         fragment_script = data_fragment_script(cohort_id, id_variable_name, airlock_percentage)
+        fragment_node_name = f"data-fragment-{cohort_id}"
         
         builder.add_node_definition(
             PythonComputeNodeDefinition(
-                name=f"data-fragment-{cohort_id}",
+                name=fragment_node_name,
                 script=fragment_script,
                 dependencies=[data_node_id, metadata_node_id]
             )
         )
-        # Add the requester as analyst of the data fragment script
-        participants[user["email"]]["analyst_of"].add(f"data-fragment-{cohort_id}")
+        # Add data owners of this cohort's data node as analysts of the fragmentation script
+        # (not the requester or other analysts - only data owners can run the fragmentation)
+        for p_email, p_roles in participants.items():
+            if data_node_id in p_roles["data_owner_of"]:
+                participants[p_email]["analyst_of"].add(fragment_node_name)
         
         # Add a preview (airlock) node for the data fragment
         preview_node_name = f"preview-fragment-{cohort_id}"
@@ -671,14 +675,15 @@ async def get_compute_dcr_definition(
         # Track the preview node for additional analysts
         preview_nodes.append(preview_node_name)
         
-        # Add a visualization script that reads the airlock and visualizes 5 random columns
-        visualization_node_name = f"visualize-airlock-{cohort_id}"
-        viz_script = visualization_script(preview_node_name)
+        # Add a visualization script that reads the full data fragment and visualizes 5 random columns
+        visualization_node_name = f"visualize-data-{cohort_id}"
+        fragment_node_name = f"data-fragment-{cohort_id}"
+        viz_script = visualization_script(fragment_node_name, cohort_id)
         builder.add_node_definition(
             PythonComputeNodeDefinition(
                 name=visualization_node_name,
                 script=viz_script,
-                dependencies=[preview_node_name]
+                dependencies=[fragment_node_name]
             )
         )
         # Add the requester as analyst of the visualization script

@@ -147,6 +147,30 @@ from dotenv import load_dotenv
 load_dotenv(".env")
 
 
+def _get_output_dir():
+    """
+    Determine the correct output directory for mapping files.
+    Checks multiple possible locations to handle different deployment scenarios.
+    """
+    # First check environment variable
+    env_dir = os.getenv("MAPPING_OUTPUT_DIR")
+    if env_dir and os.path.exists(env_dir):
+        return env_dir
+    
+    # Docker production path (volume mounted at /app/CohortVarLinker/data)
+    docker_path = "/app/CohortVarLinker/data/mapping_output"
+    if os.path.exists(docker_path):
+        return docker_path
+    
+    # Relative path from this file (for local development)
+    relative_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../data/mapping_output"))
+    if os.path.exists(relative_path):
+        return relative_path
+    
+    # Default to relative path even if it doesn't exist yet
+    return relative_path
+
+
 # NOTE: using dataclass instead of pydantic due to dependency conflict with decentriq_platform preventing to use pydantic v2
 @dataclass
 class Settings:
@@ -173,9 +197,7 @@ class Settings:
         ),
         "cohorts"
     ))
-    output_dir: str = field(default_factory=lambda: os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "../data/mapping_output")
-    ))
+    output_dir: str = field(default_factory=lambda: _get_output_dir())
     # dev_mode: bool = field(default_factory=lambda: os.getenv("DEV_MODE", "false").lower() == "true")
 
     @property

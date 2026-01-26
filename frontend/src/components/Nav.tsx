@@ -88,6 +88,7 @@ export function Nav() {
   const getDCRDefinitionFile = async () => {
     setIsLoading(true);
     setLoadingAction('config');
+    scrollToNotification();
     // Replace with actual API endpoint and required request format
     // console.log('Sending request to Decentriq', dataCleanRoom);
     try {
@@ -158,6 +159,7 @@ export function Nav() {
   const createLiveDCR = async () => {
     setIsLoading(true);
     setLoadingAction('live');
+    scrollToNotification();
     try {
       const response = await fetch(`${apiUrl}/create-live-compute-dcr`, {
         method: 'POST',
@@ -551,7 +553,7 @@ export function Nav() {
       {/* Popup to publish a Data Clean Room with selected cohorts */}
       {showModal && (
         <div className="modal modal-open">
-          <div className="modal-box max-w-4xl">
+          <div className="modal-box max-w-4xl max-h-[85vh]">
             {/* Toggle switch for Current/Future mode */}
             <div className="flex items-center gap-3 mb-4">
               <span className="text-sm font-medium">Mode:</span>
@@ -573,22 +575,20 @@ export function Nav() {
             
             {/* DCR Name field - only visible in future mode, placed at top */}
             {dcrMode === 'future' && (
-              <div className="form-control mb-4">
-                <label className="label">
-                  <span className="label-text font-semibold">DCR Name</span>
-                </label>
-                <input 
-                  type="text"
-                  placeholder="iCARE4CVD DCR compute XXX"
-                  className="input input-bordered w-full"
-                  value={dcrName}
-                  onChange={(e) => setDcrName(e.target.value)}
-                />
-                <label className="label">
-                  <span className="label-text-alt text-base-content/60">
-                    Leave empty to use default naming. Note: &quot; - created by {userEmail}&quot; will be appended to the name.
-                  </span>
-                </label>
+              <div className="form-control mb-3">
+                <div className="flex items-center gap-3">
+                  <span className="label-text font-semibold whitespace-nowrap">DCR Name</span>
+                  <input 
+                    type="text"
+                    placeholder="iCARE4CVD DCR compute XXX"
+                    className="input input-bordered w-full input-sm"
+                    value={dcrName}
+                    onChange={(e) => setDcrName(e.target.value)}
+                  />
+                </div>
+                <span className="text-xs text-base-content/60 mt-1">
+                  Leave empty to use default naming. Note: &quot; - created by {userEmail}&quot; will be appended to the name.
+                </span>
               </div>
             )}
             
@@ -627,10 +627,10 @@ export function Nav() {
                 </div>
                 
                 {/* Airlock Settings */}
-                <div className="mt-4">
-                  <div className="divider"></div>
-                  <h3 className="font-bold text-lg mb-3">Airlock Settings</h3>
-                  <p className="text-sm text-base-content/70 mb-3">Select the cohorts to include in the airlock (20% data export per cohort):</p>
+                <div className="mt-2">
+                  <div className="divider my-2"></div>
+                  <h3 className="font-bold text-lg mb-1">Airlock Settings</h3>
+                  <p className="text-sm text-base-content/70 mb-2">Select the cohorts to include in the airlock (20% data export per cohort):</p>
                   <div className="flex flex-wrap gap-x-4 gap-y-1">
                     {dataCleanRoom?.cohorts && Object.keys(dataCleanRoom.cohorts).map((cohortId) => (
                       <div key={cohortId} className="form-control">
@@ -651,16 +651,16 @@ export function Nav() {
                 </div>
                 
                 {/* Shuffled Samples Settings */}
-                <div className="mt-4">
-                  <div className="divider"></div>
-                  <h3 className="font-bold text-lg mb-3">Shuffled Samples Settings</h3>
+                <div className="mt-2">
+                  <div className="divider my-2"></div>
+                  <h3 className="font-bold text-lg mb-1">Shuffled Samples Settings</h3>
                   {loadingShuffledSamples ? (
                     <p className="text-sm text-base-content/70">Checking shuffled sample availability...</p>
                   ) : (
                     <>
                       {cohortsWithShuffledSamples.length > 0 && (
                         <>
-                          <p className="text-sm text-base-content/70 mb-3">Select the shuffled samples to include:</p>
+                          <p className="text-sm text-base-content/70 mb-2">Select the shuffled samples to include:</p>
                           <div className="flex flex-wrap gap-x-4 gap-y-1">
                             {cohortsWithShuffledSamples.map((cohortId) => (
                               <div key={cohortId} className="form-control">
@@ -693,14 +693,14 @@ export function Nav() {
                 </div>
                 
                 {/* Mapping File Settings */}
-                <div className="mt-4">
-                  <div className="divider"></div>
-                  <h3 className="font-bold text-lg mb-3">Mapping File Settings</h3>
+                <div className="mt-2">
+                  <div className="divider my-2"></div>
+                  <h3 className="font-bold text-lg mb-1">Mapping File Settings</h3>
                   {loadingMappingFiles ? (
                     <p className="text-sm text-base-content/70">Checking for available mapping files...</p>
                   ) : availableMappingFiles.length > 0 ? (
                     <>
-                      <p className="text-sm text-base-content/70 mb-3">Select mapping files to include in the DCR:</p>
+                      <p className="text-sm text-base-content/70 mb-2">Select mapping files to include in the DCR:</p>
                       <div className="flex flex-wrap gap-x-4 gap-y-1">
                         {availableMappingFiles.map((mapping) => (
                           <div key={mapping.filename} className="form-control">
@@ -737,6 +737,10 @@ export function Nav() {
                       <span className="label-text">Include file upload slot for cross-study mapping</span>
                     </label>
                   </div>
+                  
+                  <p className="text-xs text-base-content/50 mt-3 italic">
+                    Missing a mapping file? Generate it from the <a href="/mapping" className="underline hover:text-primary">Mapping page</a> to add it to the cache.
+                  </p>
                 </div>
               </>
             )}
