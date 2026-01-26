@@ -739,7 +739,7 @@ export function Nav() {
                   </div>
                   
                   <p className="text-xs text-base-content/50 mt-3 italic">
-                    Missing a mapping file? Generate it from the <a href="/mapping" className="underline hover:text-primary">Mapping page</a> to add it to the cache.
+                    Missing a mapping file? Generate it from the <Link href="/mapping" className="underline hover:text-primary">Mapping page</Link> to add it to the cache.
                   </p>
                 </div>
               </>
