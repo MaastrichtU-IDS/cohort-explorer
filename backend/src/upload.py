@@ -268,51 +268,33 @@ def parse_categorical_string(s: str) -> list[dict[str, str]]:
         )
     return result
 
+# Column name mappings for non-trivial normalizations only
+# (e.g., removing spaces, joining words). After applying these mappings,
+# all column names are uppercased.
 cols_normalized = {
+    # Core fields - space removal / word joining
     "variable name": "VARIABLENAME",
-    "variable label": "VARIABLELABEL", 
+    "variable label": "VARIABLELABEL",
     "var type": "VARTYPE",
-    "units": "UNITS",
-    "categorical": "CATEGORICAL",
-    "missing": "MISSING",
-    "count": "COUNT",
-    "na": "NA",
-    "min": "MIN",
-    "max": "MAX",
-    "formula": "Formula",
-    "categoricalvalueconceptcode": "Categorical Value Concept Code",
-    "categorical value concept code": "Categorical Value Concept Code",
-    "categoricalvaluename": "Categorical Value Name",
-    "categorical value name": "Categorical Value Name",
-    "categoricalvalueomopid": "Categorical Value OMOP ID",
-    "categorical value omop id": "Categorical Value OMOP ID",
-    "variableconceptcode": "Variable Concept Code",
-    "variable concept code": "Variable Concept Code",
-    "variableconceptname": "Variable Concept Name",
-    "variable concept name": "Variable Concept Name",
-    "variableomopid": "Variable OMOP ID",
-    "variable omop id": "Variable OMOP ID",
-    "additionalcontextconceptname": "Additional Context Concept Name",
-    "additional context concept name": "Additional Context Concept Name",
-    "additionalcontextconceptcode": "Additional Context Concept Code",
-    "additional context concept code": "Additional Context Concept Code",
-    "additionalcontextomopid": "Additional Context OMOP ID",
-    "additional context omop id": "Additional Context OMOP ID",
-    "unitconceptname": "Unit Concept Name",
-    "unit concept name": "Unit Concept Name",
-    "unitconceptcode": "Unit Concept Code",
-    "unit concept code": "Unit Concept Code",
-    "unitomopid": "Unit OMOP ID",
-    "unit omop id": "Unit OMOP ID",
-    "domain": "Domain",
-    "visits": "Visits",
-    "visitomopid": "Visit OMOP ID",
-    "visit omop id": "Visit OMOP ID",
-    "visitconceptname": "Visit Concept Name",
-    "visit concept name": "Visit Concept Name",
-    "visitconceptcode": "Visit Concept Code",
-    "visit concept code": "Visit Concept Code"
 }
+
+
+def normalize_column_name(col: str) -> str:
+    """Normalize a column name: apply explicit mappings first, then uppercase.
+    
+    Args:
+        col: Original column name
+        
+    Returns:
+        Normalized column name (uppercase)
+    """
+    col_clean = col.strip()
+    col_lower = col_clean.lower()
+    # First check if there's an explicit mapping
+    if col_lower in cols_normalized:
+        return cols_normalized[col_lower]
+    # Otherwise just uppercase
+    return col_clean.upper()
 
 ACCEPTED_DATATYPES = ["STR", "FLOAT", "INT", "DATETIME"]
 
@@ -332,15 +314,7 @@ def normalize_csv_header(file_content: str) -> str:
     
     # Normalize column names in header (first line)
     header_columns = lines[0].split(',')
-    normalized_columns = []
-    
-    for col in header_columns:
-        # Strip whitespace and convert to lowercase for lookup
-        col_clean = col.strip()
-        col_lower = col_clean.lower()
-        # Look up in normalization dictionary, fallback to original
-        normalized_col = cols_normalized.get(col_lower, col_clean)
-        normalized_columns.append(normalized_col)
+    normalized_columns = [normalize_column_name(col) for col in header_columns]
     
     # Replace header with normalized version
     lines[0] = ','.join(normalized_columns)
@@ -699,8 +673,8 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
         total_rows = len(df)
         total_variables = len(df['VARIABLENAME'].unique()) if 'VARIABLENAME' in df.columns else 0
         
-        # Normalize column names (lowercase for lookup, then use normalized value or uppercase original)
-        df.columns = [cols_normalized.get(c.lower().strip(), c.upper().strip()) for c in df.columns]
+        # Normalize column names using the normalize_column_name function
+        df.columns = [normalize_column_name(c) for c in df.columns]
         # print(f"POST NORMALIZATION -- COHORT {cohort_id} -- Columns: {df.columns}")
         # --- Structural Validation: Check for required columns ---
         # Define columns absolutely essential for the row-processing logic to run without KeyErrors
@@ -1164,9 +1138,9 @@ async def generate_metadata_issues_report():
             df = df.dropna(how="all")
             df = df.fillna("")
             
-            # Normalize column names (lowercase for lookup, then use normalized value or uppercase original)
-            from src.upload import cols_normalized
-            df.columns = [cols_normalized.get(c.lower().strip(), c.upper().strip()) for c in df.columns]
+            # Normalize column names using the normalize_column_name function
+            from src.upload import normalize_column_name
+            df.columns = [normalize_column_name(c) for c in df.columns]
             
             # Check for required columns (case-insensitive)
             from src.upload import metadatadict_cols_schema1
