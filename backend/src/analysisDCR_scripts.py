@@ -214,52 +214,121 @@ with open(log_file, "a") as log:
 """
 
 
-def visualization_script(fragment_node_name: str, cohort_id: str) -> str:
+def visualization_script(fragment_node_name: str, cohort_id: str, variable_names: list[str] = None) -> str:
     """Generate the data visualization script.
     
     This script:
-    - Reads the full data fragment (not the airlock)
-    - Selects 5 random columns
+    - Reads the full cohort data (or preview/shuffled sample)
+    - Selects 5 random columns (or user-specified columns)
     - Creates histograms for numeric data and bar charts for categorical data
     - Saves visualization to PNG
     
     Args:
         fragment_node_name: Name of the data fragment node to read data from
-        cohort_id: The cohort identifier (used to locate the fragment CSV file)
+        cohort_id: The cohort identifier (used to locate the data CSV file)
+        variable_names: Optional list of variable names from the cohort (for documentation)
         
     Returns:
         The Python script as a string
     """
+    # Generate the list of available variables (first 20, one per line for easy editing)
+    if variable_names:
+        vars_sample = variable_names[:20]
+        vars_list = ",\n    ".join(f'"{v}"' for v in vars_sample)
+    else:
+        vars_list = '"var1", "var2", "var3"  # (variable list not available)'
     return f"""import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 import os
 import random
 
+###############################################################################
+# USER-CONFIGURABLE SECTION
+# Modify the settings below to customize the visualization
+###############################################################################
+
+# DATA SOURCE
+# -----------
+# Choose which data source to visualize by uncommenting ONE of the options below:
+#
+# Option 1: Raw cohort data (default) - the original unprocessed dataset
+DATA_FILE = "/input/{cohort_id}"
+#
+# Option 2: Preview/Airlock sample - only the airlocked subset (e.g., 20%) of the processed data
+# DATA_FILE = "/input/preview-fragment-{cohort_id}/{cohort_id}_data_fragment.csv"
+#
+# Option 3: Shuffled sample - synthetic/shuffled data for testing
+# DATA_FILE = "/input/{cohort_id}_shuffled_sample/{cohort_id}_shuffled_sample.csv"
+
+# VARIABLE SELECTION
+# ------------------
+# Edit the list below to select which variables to visualize.
+# Remove variables you don't want, or set to None for random selection.
+SELECTED_VARIABLES = [
+    {vars_list}
+]
+
+# NUMBER OF RANDOM COLUMNS
+# ------------------------
+# If SELECTED_VARIABLES is None, this controls how many random columns to visualize
+NUM_RANDOM_COLUMNS = 5
+
+# VISUALIZATION SETTINGS
+# ----------------------
+# Number of histogram bins for numeric data
+HISTOGRAM_BINS = 30
+
+# Maximum number of categories to show for categorical data
+MAX_CATEGORIES = 20
+
+# Figure DPI (dots per inch) for output image quality
+OUTPUT_DPI = 150
+
+# OUTPUT FILENAME
+# ---------------
+# Name of the output visualization file
+OUTPUT_FILENAME = "sample_dataViz_{cohort_id}.png"
+
+###############################################################################
+# END OF USER-CONFIGURABLE SECTION
+###############################################################################
+
 # Output directory (always exists in Decentriq environment)
 output_dir = "/output"
 
-# Read the full data fragment from the fragmentation script output
-fragment_file = "/input/{fragment_node_name}/{cohort_id}_data_fragment.csv"
-df = pd.read_csv(fragment_file)
+# Read the data from the selected source
+df = pd.read_csv(DATA_FILE)
 
 # Log basic info
 log_file = os.path.join(output_dir, "visualization_log.txt")
 with open(log_file, "w") as log:
-    log.write(f"Loaded full data fragment: {{len(df)}} rows, {{len(df.columns)}} columns\\n")
+    log.write(f"Data source: {{DATA_FILE}}\\n")
+    log.write(f"Loaded data: {{len(df)}} rows, {{len(df.columns)}} columns\\n")
     log.write(f"Columns: {{list(df.columns)}}\\n\\n")
 
-# Select 5 random columns (or all if less than 5)
-num_cols_to_visualize = min(5, len(df.columns))
-random.seed(42)  # For reproducibility
-selected_columns = random.sample(list(df.columns), num_cols_to_visualize)
+# Determine which columns to visualize
+if SELECTED_VARIABLES is not None:
+    # Use user-specified variables (filter to only those that exist in the data)
+    selected_columns = [col for col in SELECTED_VARIABLES if col in df.columns]
+    missing_cols = [col for col in SELECTED_VARIABLES if col not in df.columns]
+    if missing_cols:
+        with open(log_file, "a") as log:
+            log.write(f"WARNING: The following requested columns were not found: {{missing_cols}}\\n")
+    if not selected_columns:
+        raise ValueError(f"None of the specified columns exist in the data. Available columns: {{list(df.columns)}}")
+else:
+    # Select random columns
+    num_cols_to_visualize = min(NUM_RANDOM_COLUMNS, len(df.columns))
+    selected_columns = random.sample(list(df.columns), num_cols_to_visualize)
 
 with open(log_file, "a") as log:
-    log.write(f"Selected {{num_cols_to_visualize}} columns for visualization: {{selected_columns}}\\n\\n")
+    log.write(f"Selected {{len(selected_columns)}} columns for visualization: {{selected_columns}}\\n\\n")
 
 # Create visualizations
-fig, axes = plt.subplots(num_cols_to_visualize, 1, figsize=(10, 4 * num_cols_to_visualize))
-if num_cols_to_visualize == 1:
+num_cols = len(selected_columns)
+fig, axes = plt.subplots(num_cols, 1, figsize=(10, 4 * num_cols))
+if num_cols == 1:
     axes = [axes]
 
 for idx, col in enumerate(selected_columns):
@@ -274,7 +343,7 @@ for idx, col in enumerate(selected_columns):
     # Check if numeric or categorical
     if pd.api.types.is_numeric_dtype(col_data):
         # Histogram for numeric data
-        ax.hist(col_data, bins=30, edgecolor='black', alpha=0.7)
+        ax.hist(col_data, bins=HISTOGRAM_BINS, edgecolor='black', alpha=0.7)
         ax.set_xlabel(col)
         ax.set_ylabel('Frequency')
         ax.set_title(f'Distribution of {{col}} (Numeric)')
@@ -291,23 +360,24 @@ for idx, col in enumerate(selected_columns):
             log.write(f"  Mean: {{mean_val:.4f}}, Median: {{median_val:.4f}}, Std: {{std_val:.4f}}\\n\\n")
     else:
         # Bar chart for categorical data
-        value_counts = col_data.value_counts().head(20)  # Top 20 categories
+        value_counts = col_data.value_counts().head(MAX_CATEGORIES)
         ax.barh(range(len(value_counts)), value_counts.values)
         ax.set_yticks(range(len(value_counts)))
         ax.set_yticklabels([str(v)[:30] for v in value_counts.index])  # Truncate long labels
         ax.set_xlabel('Count')
-        ax.set_title(f'Distribution of {{col}} (Categorical, top 20)')
+        ax.set_title(f'Distribution of {{col}} (Categorical, top {{MAX_CATEGORIES}})')
         
         with open(log_file, "a") as log:
             log.write(f"  Unique values: {{df[col].nunique()}}\\n")
             log.write(f"  Top 5 values: {{dict(value_counts.head(5))}}\\n\\n")
 
 plt.tight_layout()
-plt.savefig(os.path.join(output_dir, "data_visualization.png"), dpi=150, bbox_inches='tight')
+output_path = os.path.join(output_dir, OUTPUT_FILENAME)
+plt.savefig(output_path, dpi=OUTPUT_DPI, bbox_inches='tight')
 plt.close()
 
 with open(log_file, "a") as log:
-    log.write("Visualization saved to data_visualization.png\\n")
+    log.write(f"Visualization saved to {{OUTPUT_FILENAME}}\\n")
 """
 
 

@@ -675,10 +675,12 @@ async def get_compute_dcr_definition(
         # Track the preview node for additional analysts
         preview_nodes.append(preview_node_name)
         
-        # Add a visualization script that reads the full data fragment and visualizes 5 random columns
+        # Add a visualization script that reads the full data and visualizes 5 random columns
         visualization_node_name = f"visualize-data-{cohort_id}"
         fragment_node_name = f"data-fragment-{cohort_id}"
-        viz_script = visualization_script(fragment_node_name, cohort_id)
+        # Get variable names from the cohort for documentation in the script
+        cohort_var_names = list(cohort.variables.keys()) if hasattr(cohort, 'variables') and cohort.variables else None
+        viz_script = visualization_script(fragment_node_name, cohort_id, cohort_var_names)
         builder.add_node_definition(
             PythonComputeNodeDefinition(
                 name=visualization_node_name,
