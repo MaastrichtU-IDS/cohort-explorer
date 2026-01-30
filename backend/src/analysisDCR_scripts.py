@@ -269,26 +269,6 @@ SELECTED_VARIABLES = [
     {vars_list}
 ]
 
-# NUMBER OF RANDOM COLUMNS
-# ------------------------
-# If SELECTED_VARIABLES is None, this controls how many random columns to visualize
-NUM_RANDOM_COLUMNS = 5
-
-# VISUALIZATION SETTINGS
-# ----------------------
-# Number of histogram bins for numeric data
-HISTOGRAM_BINS = 30
-
-# Maximum number of categories to show for categorical data
-MAX_CATEGORIES = 20
-
-# Figure DPI (dots per inch) for output image quality
-OUTPUT_DPI = 150
-
-# OUTPUT FILENAME
-# ---------------
-# Name of the output visualization file
-OUTPUT_FILENAME = "sample_dataViz_{cohort_id}.png"
 
 ###############################################################################
 # END OF USER-CONFIGURABLE SECTION
@@ -296,6 +276,13 @@ OUTPUT_FILENAME = "sample_dataViz_{cohort_id}.png"
 
 # Output directory (always exists in Decentriq environment)
 output_dir = "/output"
+OUTPUT_FILENAME = "sample_dataViz_{cohort_id}.png"
+
+HISTOGRAM_BINS = 30
+MAX_CATEGORIES = 20
+OUTPUT_DPI = 150
+NUM_RANDOM_COLUMNS = 5
+
 
 # Read the data from the selected source
 df = pd.read_csv(DATA_FILE)
