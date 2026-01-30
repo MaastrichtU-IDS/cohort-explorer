@@ -365,7 +365,9 @@ const CohortSummaryGraphs = React.memo(function CohortSummaryGraphs({
       type: 'scroll',
       formatter: (name: string) => {
         const item = domainData.find(d => d.name === name);
-        return `${name} (${item?.value || 0})`;
+        const total = domainData.reduce((sum, d) => sum + d.value, 0);
+        const percentage = total > 0 ? Math.round((item?.value || 0) / total * 100) : 0;
+        return `${name} (${percentage}%)`;
       }
     },
     series: [
@@ -380,7 +382,7 @@ const CohortSummaryGraphs = React.memo(function CohortSummaryGraphs({
         },
         label: {
           show: true,
-          formatter: '{b}\n{d}%',
+          formatter: '{b}\n{c}',
           fontSize: 10,
           fontWeight: 'bold'
         },
@@ -432,7 +434,9 @@ const CohortSummaryGraphs = React.memo(function CohortSummaryGraphs({
       type: 'scroll',
       formatter: (name: string) => {
         const item = typeData.find(d => d.name === name);
-        return `${name} (${item?.value || 0})`;
+        const total = typeData.reduce((sum, d) => sum + d.value, 0);
+        const percentage = total > 0 ? Math.round((item?.value || 0) / total * 100) : 0;
+        return `${name} (${percentage}%)`;
       }
     },
     series: [
@@ -447,7 +451,7 @@ const CohortSummaryGraphs = React.memo(function CohortSummaryGraphs({
         },
         label: {
           show: true,
-          formatter: '{b}\n{d}%',
+          formatter: '{b}\n{c}',
           fontSize: 10,
           fontWeight: 'bold'
         },

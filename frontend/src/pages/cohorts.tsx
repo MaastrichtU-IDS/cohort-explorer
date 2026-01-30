@@ -435,8 +435,8 @@ export default function CohortsList() {
         />
         {/* TODO: add by ongoing? */}
         
-        {/* Data source indicator and toggle */}
-        <div className="mt-6 pt-4 border-t border-base-300">
+        {/* Data source indicator and toggle - hidden for now */}
+        <div className="mt-6 pt-4 border-t border-base-300 hidden">
           <div className="text-sm font-medium mb-3 text-center">Data Source</div>
           <div className="flex flex-col items-center gap-3">
             <span className={`badge badge-sm ${useSparqlMode ? 'badge-warning' : 'badge-success'}`}>
