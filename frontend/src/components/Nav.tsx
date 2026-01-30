@@ -514,7 +514,7 @@ export function Nav() {
       <div className="navbar-end">
         {/* Desktop */}
         <div className="menu menu-horizontal my-0 py-0 space-x-6 pr-6 items-center">
-          <button onClick={() => setShowModal(true)} className="btn">
+          <button id="dcr-button" onClick={() => setShowModal(true)} className="btn transition-all duration-300">
             Data Clean Room <div className="badge badge-neutral">{Object.keys(dataCleanRoom?.cohorts).length || 0}</div>
           </button>
 

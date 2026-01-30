@@ -13,3 +13,28 @@ a {
 a.link {
   @apply no-underline text-blue-600 hover:text-blue-800 visited:text-blue-700;
 }
+
+/* DCR Button Highlight Effect - Pulse glow + background flash */
+@keyframes dcr-pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+    background-color: inherit;
+  }
+  25% {
+    box-shadow: 0 0 20px 8px rgba(59, 130, 246, 0.6);
+    background-color: rgba(59, 130, 246, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+    background-color: inherit;
+  }
+  75% {
+    box-shadow: 0 0 20px 8px rgba(59, 130, 246, 0.6);
+    background-color: rgba(59, 130, 246, 0.2);
+  }
+}
+
+.dcr-highlight-effect {
+  animation: dcr-pulse-glow 2s ease-in-out;
+  transform: scale(1.05);
+}

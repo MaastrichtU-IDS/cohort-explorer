@@ -110,6 +110,25 @@ const VariablesList = ({
     }
     setDataCleanRoom(updatedDcr);
     sessionStorage.setItem('dataCleanRoom', JSON.stringify(updatedDcr));
+    
+    // After 1 second, scroll to top and highlight the DCR button
+    setTimeout(() => {
+      // Smooth scroll to top
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      
+      // After scroll completes (approx 500ms), highlight the DCR button
+      setTimeout(() => {
+        const dcrButton = document.getElementById('dcr-button');
+        if (dcrButton) {
+          // Add pulse glow + background flash effect
+          dcrButton.classList.add('dcr-highlight-effect');
+          // Remove the effect after animation completes
+          setTimeout(() => {
+            dcrButton.classList.remove('dcr-highlight-effect');
+          }, 2000);
+        }
+      }, 500);
+    }, 1000);
   };
 
   // Button to remove cohort or variable from data clean room
