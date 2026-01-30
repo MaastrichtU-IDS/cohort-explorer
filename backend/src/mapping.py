@@ -145,11 +145,13 @@ async def get_available_mapping_files(
     All parts before 'sapbert' are cohort names. A file is only included
     if ALL cohorts in its filename are among the selected cohorts.
     """
+    print(f"[DEBUG] get_available_mapping_files called with cohort_ids = {cohort_ids}", flush=True)
+    
     from CohortVarLinker.src.config import settings as cohort_linker_settings
     
     output_dir = cohort_linker_settings.output_dir
-    print(f"[DEBUG] get_available_mapping_files: output_dir = {output_dir}")
-    print(f"[DEBUG] get_available_mapping_files: os.path.exists(output_dir) = {os.path.exists(output_dir)}")
+    print(f"[DEBUG] get_available_mapping_files: output_dir = {output_dir}", flush=True)
+    print(f"[DEBUG] get_available_mapping_files: os.path.exists(output_dir) = {os.path.exists(output_dir)}", flush=True)
     
     # Normalize cohort IDs to lowercase for matching
     cohort_ids_lower = set(c.lower() for c in cohort_ids)
