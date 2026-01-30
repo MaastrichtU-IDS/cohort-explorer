@@ -545,23 +545,6 @@ const VariablesList = ({
                       📊
                     </button>
                   </div>
-                  {dataCleanRoom.cohorts[cohortId]?.includes(variable.var_name) ? (
-                    <button
-                      onClick={() => removeFromDataCleanRoom(variable.var_name)}
-                      className="btn btn-sm bg-gray-200 hover:bg-gray-300 text-gray-700 tooltip tooltip-left"
-                      data-tip={`Remove the \`${variable.var_name}\` variable of the ${cohortId} cohort from your Data Clean Room`}
-                    >
-                      Remove from DCR
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => addToDataCleanRoom(variable.var_name)}
-                      className="btn btn-neutral btn-sm hover:bg-slate-600 tooltip tooltip-left"
-                      data-tip={`Add the \`${variable.var_name}\` variable of the ${cohortId} cohort to your Data Clean Room`}
-                    >
-                      Add to DCR
-                    </button>
-                  )}
                 </div>
                 <p>
                   <HighlightedText text={variable.var_label || ''} searchTerms={searchTerms} searchMode={searchMode} />
