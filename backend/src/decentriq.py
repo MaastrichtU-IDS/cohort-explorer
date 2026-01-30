@@ -688,8 +688,9 @@ async def get_compute_dcr_definition(
                 dependencies=[data_node_id, metadata_node_id, fragment_node_name]
             )
         )
-        # Add the requester as analyst of the visualization script
-        participants[user["email"]]["analyst_of"].add(visualization_node_name)
+        # Add all participants as analysts of the visualization script
+        for p_email in participants:
+            participants[p_email]["analyst_of"].add(visualization_node_name)
 
 
 
