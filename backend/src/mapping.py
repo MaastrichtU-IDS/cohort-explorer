@@ -1,4 +1,5 @@
 from typing import Any
+import logging
 
 import requests
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -7,6 +8,9 @@ from PIL import Image
 
 from src.auth import get_current_user
 from src.utils import curie_converter, run_query
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -145,26 +149,26 @@ async def get_available_mapping_files(
     All parts before 'sapbert' are cohort names. A file is only included
     if ALL cohorts in its filename are among the selected cohorts.
     """
-    print(f"[DEBUG] get_available_mapping_files called with cohort_ids = {cohort_ids}", flush=True)
+    logger.info(f"[DEBUG] get_available_mapping_files called with cohort_ids = {cohort_ids}")
     
     from CohortVarLinker.src.config import settings as cohort_linker_settings
     
     output_dir = cohort_linker_settings.output_dir
-    print(f"[DEBUG] get_available_mapping_files: output_dir = {output_dir}", flush=True)
-    print(f"[DEBUG] get_available_mapping_files: os.path.exists(output_dir) = {os.path.exists(output_dir)}", flush=True)
+    logger.info(f"[DEBUG] get_available_mapping_files: output_dir = {output_dir}")
+    logger.info(f"[DEBUG] get_available_mapping_files: os.path.exists(output_dir) = {os.path.exists(output_dir)}")
     
     # Normalize cohort IDs to lowercase for matching
     cohort_ids_lower = set(c.lower() for c in cohort_ids)
-    print(f"[DEBUG] get_available_mapping_files: cohort_ids_lower = {cohort_ids_lower}")
+    logger.info(f"[DEBUG] get_available_mapping_files: cohort_ids_lower = {cohort_ids_lower}")
     
     available_mappings = []
     
     # Scan directory for .json mapping files
     if os.path.exists(output_dir):
         all_files = os.listdir(output_dir)
-        print(f"[DEBUG] get_available_mapping_files: all files in output_dir = {all_files}")
+        logger.info(f"[DEBUG] get_available_mapping_files: all files in output_dir = {all_files}")
         json_files = [f for f in all_files if f.endswith('.json')]
-        print(f"[DEBUG] get_available_mapping_files: json files = {json_files}")
+        logger.info(f"[DEBUG] get_available_mapping_files: json files = {json_files}")
         for filename in all_files:
             if not filename.endswith('.json'):
                 continue
@@ -182,16 +186,16 @@ async def get_available_mapping_files(
             
             # Extract cohort names (all parts before 'sapbert')
             file_cohorts = [p.lower() for p in parts[:sapbert_idx]]
-            print(f"[DEBUG] Parsed file '{filename}': cohorts = {file_cohorts}")
+            logger.info(f"[DEBUG] Parsed file '{filename}': cohorts = {file_cohorts}")
             
             if len(file_cohorts) < 2:
                 # Need at least 2 cohorts for a mapping file
-                print(f"[DEBUG] Skipping '{filename}': less than 2 cohorts")
+                logger.info(f"[DEBUG] Skipping '{filename}': less than 2 cohorts")
                 continue
             
             # Check if ALL cohorts in the filename are among selected cohorts
             matches = [cohort in cohort_ids_lower for cohort in file_cohorts]
-            print(f"[DEBUG] Matching '{filename}': file_cohorts={file_cohorts}, matches={matches}, all_match={all(matches)}")
+            logger.info(f"[DEBUG] Matching '{filename}': file_cohorts={file_cohorts}, matches={matches}, all_match={all(matches)}")
             if all(matches):
                 filepath = os.path.join(output_dir, filename)
                 file_size = os.path.getsize(filepath)
