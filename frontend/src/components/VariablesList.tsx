@@ -163,91 +163,12 @@ const VariablesList = ({
   
   const searchMode = searchFilters.searchMode || 'or';
 
-  // Filter variables based on search query and selected filters
+  // Filter variables based on filters only (OMOP domain, data type, etc.)
+  // Search is used for highlighting, not filtering - search determines which COHORTS to show,
+  // but within a cohort, all variables are shown and filters work independently
   const filteredVars = useMemo(() => {
     if (cohortsData && cohortsData[cohortId]) {
       return Object.entries(cohortsData[cohortId]['variables'])
-        .filter(([variableName, variableData]: any) => {
-          // Enhanced search with word boundaries and configurable logic
-          // Only search in fields that contain actual variable content, not metadata
-          const searchableFields = [
-            'var_name', 'var_label', 'concept_name', 'mapped_label', 'omop_domain', 'concept_code', 'omop_id'
-          ];
-          
-          // Add variable name to the data for searching
-          const variableWithName = { ...variableData, var_name: variableName };
-          
-          // Only filter by search if there are actual search terms
-          if (searchTerms.length === 0 || searchTerms.every((term: string) => !term.trim())) {
-            return true; // No search terms, show all variables
-          }
-          
-          // Simple direct search implementation for better control
-          let variableMatches = false;
-          
-          // Check each searchable field directly
-          for (const field of searchableFields) {
-            const fieldValue = variableWithName[field];
-            if (fieldValue != null) {
-              const fieldText = String(fieldValue).toLowerCase();
-              
-              if (searchMode === 'exact') {
-                const fullPhrase = searchTerms.join(' ').toLowerCase();
-                if (fieldText.includes(fullPhrase)) {
-                  variableMatches = true;
-                  break;
-                }
-              } else if (searchMode === 'and') {
-                if (searchTerms.every((term: string) => fieldText.includes(term.toLowerCase()))) {
-                  variableMatches = true;
-                  break;
-                }
-              } else { // 'or' mode
-                if (searchTerms.some((term: string) => fieldText.includes(term.toLowerCase()))) {
-                  variableMatches = true;
-                  break;
-                }
-              }
-            }
-          }
-          
-          // Check categories
-          let categoryMatches = false;
-          if (variableData.categories) {
-            for (const category of variableData.categories) {
-              const categoryFields = ['value', 'label', 'mapped_label'];
-              for (const field of categoryFields) {
-                const fieldValue = category[field];
-                if (fieldValue != null) {
-                  const fieldText = String(fieldValue).toLowerCase();
-                  
-                  if (searchMode === 'exact') {
-                    const fullPhrase = searchTerms.join(' ').toLowerCase();
-                    if (fieldText.includes(fullPhrase)) {
-                      categoryMatches = true;
-                      break;
-                    }
-                  } else if (searchMode === 'and') {
-                    if (searchTerms.every((term: string) => fieldText.includes(term.toLowerCase()))) {
-                      categoryMatches = true;
-                      break;
-                    }
-                  } else { // 'or' mode
-                    if (searchTerms.some((term: string) => fieldText.includes(term.toLowerCase()))) {
-                      categoryMatches = true;
-                      break;
-                    }
-                  }
-                }
-              }
-              if (categoryMatches) break;
-            }
-          }
-          
-          const matchesSearch = variableMatches || categoryMatches;
-          
-          return matchesSearch;
-        })
         .filter(
           ([variableName, variableData]: any) => {
             // Filter by outcome keywords if enabled
@@ -301,8 +222,6 @@ const VariablesList = ({
   }, [
     cohortsData,
     cohortId,
-    searchTerms,
-    searchMode,
     selectedOMOPDomains,
     selectedDataTypes,
     selectedCategoryTypes,

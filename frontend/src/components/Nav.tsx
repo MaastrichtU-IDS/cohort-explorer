@@ -630,7 +630,7 @@ export function Nav() {
                 <div className="mt-2">
                   <div className="divider my-2"></div>
                   <h3 className="font-bold text-lg mb-1">Airlock Settings</h3>
-                  <p className="text-sm text-base-content/70 mb-2">Select the cohorts to include in the airlock (20% data export per cohort):</p>
+                  <p className="text-sm text-base-content/70 mb-2">Select the cohorts to include in the airlock (20% of the data will be visible to analysts inside the DCR):</p>
                   <div className="flex flex-wrap gap-x-4 gap-y-1">
                     {dataCleanRoom?.cohorts && Object.keys(dataCleanRoom.cohorts).map((cohortId) => (
                       <div key={cohortId} className="form-control">

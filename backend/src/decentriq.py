@@ -1448,20 +1448,6 @@ def build_dcr_participants(
                     participants[cohort.administrator_email] = {"data_owner_of": set(), "analyst_of": set()}
                 participants[cohort.administrator_email]["data_owner_of"].add(data_node_id)
                 participants[cohort.administrator_email]["data_owner_of"].add(metadata_node_id)
-            
-            # ============================================================
-            # TEMPORARY TESTING CODE - REMOVE AFTER TESTING
-            # Add wei.wei@maastrichtuniversity.nl as data owner for TIME-CHF
-            # ============================================================
-            if cohort_id == "TIME-CHF":
-                test_email = "wei.wei@maastrichtuniversity.nl"
-                if test_email not in participants:
-                    participants[test_email] = {"data_owner_of": set(), "analyst_of": set()}
-                participants[test_email]["data_owner_of"].add(data_node_id)
-                participants[test_email]["data_owner_of"].add(metadata_node_id)
-            # ============================================================
-            # END TEMPORARY TESTING CODE
-            # ============================================================
         else:
             # In dev_mode the requester is added as data owner
             participants[user_email]["data_owner_of"].add(data_node_id)

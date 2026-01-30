@@ -343,25 +343,25 @@ export default function CohortsList() {
       .filter(term => term.length > 0);
   }, [searchQuery]);
 
-  // Filter cohorts based on search query and selected filters
-  // TODO: we might want to perform the search and filtering directly with SPARQL queries to the oxigraph endpoint
-  // if the data gets too big to be handled in the client.
+  // Filter cohorts based on metadata filters and search
+  // - When searchScope='cohorts': filter by cohort metadata, show all variables
+  // - When searchScope='variables': filter by variable matches, but filters work on ALL variables (not just matched ones)
   const filteredCohorts = useMemo(() => {
-    const searchableVarFields = ['var_name', 'var_label', 'concept_name', 'mapped_label', 'omop_domain', 'concept_code', 'omop_id'];
-    const searchableCatFields = ['value', 'label', 'mapped_label'];
     const searchableCohortFields = [
       'cohort_id', 'institution', 'study_type', 'study_objective', 'morbidity',
       'study_participants', 'study_population', 'administrator', 'population_location',
       'primary_outcome_spec', 'secondary_outcome_spec'
     ];
+    const searchableVarFields = ['var_name', 'var_label', 'concept_name', 'mapped_label', 'omop_domain', 'concept_code', 'omop_id'];
+    const searchableCatFields = ['value', 'label', 'mapped_label'];
     
     return Object.entries(cohortsData as Record<string, Cohort>)
       .filter(([key, value]) => {
-        // Apply metadata filters first (cheaper)
+        // Apply metadata filters (study type, institution)
         if (selectedStudyTypes.size > 0 && !selectedStudyTypes.has(value.study_type)) return false;
         if (selectedInstitutes.size > 0 && !selectedInstitutes.has(value.institution)) return false;
         
-        // No search terms - show all
+        // No search terms - show all cohorts
         if (searchTerms.length === 0) return true;
         
         if (searchScope === 'cohorts') {
@@ -371,7 +371,7 @@ export default function CohortsList() {
             matchesSearchTerms((cohortWithId as any)[field], searchTerms, searchMode)
           );
         } else {
-          // Search in variables
+          // Search in variables - show cohort if ANY variable matches
           return Object.entries(value.variables || {}).some(([varName, varData]: any) => {
             const variableWithName = { ...varData, var_name: varName };
             
@@ -389,8 +389,9 @@ export default function CohortsList() {
         }
       })
       .map(([, cohortData]) => cohortData);
-  }, [searchTerms, searchMode, searchScope, selectedStudyTypes, selectedInstitutes, cohortsData]);
-  // NOTE: filtering variables is done in VariablesList component
+  }, [selectedStudyTypes, selectedInstitutes, cohortsData, searchScope, searchTerms, searchMode]);
+  // NOTE: When searchScope='variables', VariablesList filters work on ALL variables in the cohort,
+  // not just the search-matched ones. This allows filters and search to work independently.
 
   // Function to toggle between cache and SPARQL modes
   const toggleDataSource = () => {
