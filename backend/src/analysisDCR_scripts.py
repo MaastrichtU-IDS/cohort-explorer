@@ -240,6 +240,43 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 import random
+import tempfile
+import zipfile
+
+# Helper function to load data from CSV, SPSS, or zipped files
+def load_data(file_path):
+    # Try CSV first
+    try:
+        return pd.read_csv(file_path)
+    except Exception as csv_error:
+        # Try SPSS
+        try:
+            return pd.read_spss(file_path)
+        except Exception as spss_error:
+            # Try as zip file
+            try:
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    with zipfile.ZipFile(file_path, 'r') as zip_ref:
+                        zip_ref.extractall(tmpdir)
+                    
+                    # Find all CSV and SPSS files in the extracted directory
+                    data_files = []
+                    for root, dirs, files in os.walk(tmpdir):
+                        for file in files:
+                            if file.endswith(('.csv', '.sav', '.CSV', '.SAV')):
+                                data_files.append(os.path.join(root, file))
+                    
+                    if not data_files:
+                        raise ValueError("No CSV or SPSS files found in the zip archive")
+                    
+                    # Read the first data file found
+                    data_file = data_files[0]
+                    if data_file.lower().endswith('.csv'):
+                        return pd.read_csv(data_file)
+                    else:
+                        return pd.read_spss(data_file)
+            except Exception as zip_error:
+                raise ValueError(f"Could not read file as CSV, SPSS, or ZIP. CSV error: {{csv_error}}, SPSS error: {{spss_error}}, ZIP error: {{zip_error}}")
 
 ###############################################################################
 # USER-CONFIGURABLE SECTION
@@ -289,7 +326,7 @@ NUM_RANDOM_COLUMNS = 5
 
 
 # Read the data from the selected source
-df = pd.read_csv(DATA_FILE)
+df = load_data(DATA_FILE)
 
 # Log basic info
 log_file = os.path.join(output_dir, "visualization_log.txt")
@@ -321,9 +358,19 @@ except Exception as e:
 
 # Determine which columns to visualize
 if SELECTED_VARIABLES is not None:
-    # Use user-specified variables (filter to only those that exist in the data)
-    selected_columns = [col for col in SELECTED_VARIABLES if col in df.columns]
-    missing_cols = [col for col in SELECTED_VARIABLES if col not in df.columns]
+    # Build a case-insensitive mapping from data columns
+    df_cols_lower = {{col.lower().strip(): col for col in df.columns}}
+    
+    # Match selected variables to actual column names (case-insensitive)
+    selected_columns = []
+    missing_cols = []
+    for var in SELECTED_VARIABLES:
+        var_lower = var.lower().strip()
+        if var_lower in df_cols_lower:
+            selected_columns.append(df_cols_lower[var_lower])
+        else:
+            missing_cols.append(var)
+    
     if missing_cols:
         with open(log_file, "a") as log:
             log.write(f"WARNING: The following requested columns were not found: {{missing_cols}}\\n")
@@ -356,7 +403,7 @@ for idx, col in enumerate(selected_columns):
     # Treat as categorical if: (1) metadata says it's categorical, (2) it's binary (0/1), or (3) pandas says it's not numeric
     unique_vals = col_data.unique()
     is_binary = len(unique_vals) <= 2 and set(unique_vals).issubset({{0, 1, 0.0, 1.0}})
-    is_categorical_in_metadata = col in categorical_vars
+    is_categorical_in_metadata = col.lower().strip() in {{v.lower().strip() for v in categorical_vars}}
     
     if pd.api.types.is_numeric_dtype(col_data) and not is_binary and not is_categorical_in_metadata:
         # Histogram for numeric data
