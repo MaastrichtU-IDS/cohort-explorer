@@ -587,7 +587,7 @@ export function Nav() {
                   />
                 </div>
                 <span className="text-xs text-base-content/60 mt-1">
-                  Leave empty to use default naming. Note: &quot; - created by {userEmail}&quot; will be appended to the name.
+                  Leave empty to use the default naming. Note: your email address, &quot; - created by {userEmail}&quot;, will be appended to the name.
                 </span>
               </div>
             )}
@@ -686,7 +686,7 @@ export function Nav() {
                         </p>
                       )}
                       {cohortsWithShuffledSamples.length === 0 && cohortsWithoutShuffledSamples.length === 0 && (
-                        <p className="text-sm text-base-content/50 italic">No cohorts selected</p>
+                        <p className="text-sm text-base-content/50 italic">None of the selected cohorts have a shuffled sample</p>
                       )}
                     </>
                   )}

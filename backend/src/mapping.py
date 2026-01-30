@@ -148,15 +148,22 @@ async def get_available_mapping_files(
     from CohortVarLinker.src.config import settings as cohort_linker_settings
     
     output_dir = cohort_linker_settings.output_dir
+    print(f"[DEBUG] get_available_mapping_files: output_dir = {output_dir}")
+    print(f"[DEBUG] get_available_mapping_files: os.path.exists(output_dir) = {os.path.exists(output_dir)}")
     
     # Normalize cohort IDs to lowercase for matching
     cohort_ids_lower = set(c.lower() for c in cohort_ids)
+    print(f"[DEBUG] get_available_mapping_files: cohort_ids_lower = {cohort_ids_lower}")
     
     available_mappings = []
     
     # Scan directory for .json mapping files
     if os.path.exists(output_dir):
-        for filename in os.listdir(output_dir):
+        all_files = os.listdir(output_dir)
+        print(f"[DEBUG] get_available_mapping_files: all files in output_dir = {all_files}")
+        json_files = [f for f in all_files if f.endswith('.json')]
+        print(f"[DEBUG] get_available_mapping_files: json files = {json_files}")
+        for filename in all_files:
             if not filename.endswith('.json'):
                 continue
             
@@ -173,13 +180,17 @@ async def get_available_mapping_files(
             
             # Extract cohort names (all parts before 'sapbert')
             file_cohorts = [p.lower() for p in parts[:sapbert_idx]]
+            print(f"[DEBUG] Parsed file '{filename}': cohorts = {file_cohorts}")
             
             if len(file_cohorts) < 2:
                 # Need at least 2 cohorts for a mapping file
+                print(f"[DEBUG] Skipping '{filename}': less than 2 cohorts")
                 continue
             
             # Check if ALL cohorts in the filename are among selected cohorts
-            if all(cohort in cohort_ids_lower for cohort in file_cohorts):
+            matches = [cohort in cohort_ids_lower for cohort in file_cohorts]
+            print(f"[DEBUG] Matching '{filename}': file_cohorts={file_cohorts}, matches={matches}, all_match={all(matches)}")
+            if all(matches):
                 filepath = os.path.join(output_dir, filename)
                 file_size = os.path.getsize(filepath)
                 mtime = os.path.getmtime(filepath)
