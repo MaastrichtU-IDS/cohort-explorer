@@ -71,16 +71,14 @@ def load_metadata(file_path):
     return pd.read_csv(file_path)
 
 # Read the cohort data (RawDataNodeDefinition - use file path)
-data_node_id = "{cohort_id.replace(' ', '-')}"
-df = load_data(f"/input/{{data_node_id}}")
+df = load_data("/input/{cohort_id}")
 
 with open(log_file, "a") as log:
     log.write(f"Loaded cohort data with {{len(df)}} rows and {{len(df.columns)}} columns\\n")
 
 # Read the metadata dictionary (CSV only)
-metadata_node_id = "{cohort_id.replace(' ', '-')}_metadata_dictionary"
 try:
-    metadata_df = load_metadata(f"/input/{{metadata_node_id}}")
+    metadata_df = load_metadata("/input/{cohort_id}_metadata_dictionary")
     with open(log_file, "a") as log:
         log.write(f"Loaded metadata dictionary with {{len(metadata_df)}} variables\\n")
 except Exception as e:
@@ -256,10 +254,10 @@ import random
 DATA_FILE = "/input/{cohort_id}"
 #
 # Option 2: Preview/Airlock sample - only the airlocked subset (e.g., 20%) of the processed data
-# DATA_FILE = "/input/preview-fragment-{cohort_id}/{cohort_id}_data_fragment.csv"
+# DATA_FILE = "/input/preview-fragment-{cohort_id}"
 #
 # Option 3: Shuffled sample - synthetic/shuffled data for testing
-# DATA_FILE = "/input/{cohort_id}_shuffled_sample/{cohort_id}_shuffled_sample.csv"
+# DATA_FILE = "/input/{cohort_id}_shuffled_sample"
 
 # VARIABLE SELECTION
 # ------------------
