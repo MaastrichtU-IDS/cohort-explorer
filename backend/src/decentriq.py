@@ -646,7 +646,7 @@ async def get_compute_dcr_definition(
         
         # Get the data fragment script from the analysisDCR_scripts module
         fragment_script = data_fragment_script(cohort_id, id_variable_name, airlock_percentage)
-        fragment_node_name = f"data-fragment-{cohort_id}"
+        fragment_node_name = f"create-airlock-without-outliers-{cohort_id}"
         
         builder.add_node_definition(
             PythonComputeNodeDefinition(
@@ -662,11 +662,11 @@ async def get_compute_dcr_definition(
                 participants[p_email]["analyst_of"].add(fragment_node_name)
         
         # Add a preview (airlock) node for the data fragment
-        preview_node_name = f"preview-fragment-{cohort_id}"
+        preview_node_name = f"preview-airlock-{cohort_id}"
         builder.add_node_definition(
             PreviewComputeNodeDefinition(
                 name=preview_node_name,
-                dependency=f"data-fragment-{cohort_id}",
+                dependency=f"create-airlock-without-outliers-{cohort_id}",
                 quota_bytes=10000000  # 10 MB quota
             )
         )

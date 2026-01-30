@@ -254,7 +254,7 @@ import random
 DATA_FILE = "/input/{cohort_id}"
 #
 # Option 2: Preview/Airlock sample - only the airlocked subset (e.g., 20%) of the processed data
-# DATA_FILE = "/input/preview-fragment-{cohort_id}"
+# DATA_FILE = "/input/preview-airlock-{cohort_id}"
 #
 # Option 3: Shuffled sample - synthetic/shuffled data for testing
 # DATA_FILE = "/input/{cohort_id}_shuffled_sample"
@@ -267,6 +267,13 @@ SELECTED_VARIABLES = [
     {vars_list}
 ]
 
+# CHART SIZE
+# ----------
+# Controls the overall size of the output image.
+# - 0.5 = small (50% of default, good for quick previews)
+# - 1.0 = default size
+# - 1.5 = large (150% of default, good for presentations)
+CHART_SCALE = 0.5
 
 ###############################################################################
 # END OF USER-CONFIGURABLE SECTION
@@ -278,7 +285,6 @@ OUTPUT_FILENAME = "sample_dataViz_{cohort_id}.png"
 
 HISTOGRAM_BINS = 30
 MAX_CATEGORIES = 20
-OUTPUT_DPI = 150
 NUM_RANDOM_COLUMNS = 5
 
 
@@ -291,6 +297,27 @@ with open(log_file, "w") as log:
     log.write(f"Data source: {{DATA_FILE}}\\n")
     log.write(f"Loaded data: {{len(df)}} rows, {{len(df.columns)}} columns\\n")
     log.write(f"Columns: {{list(df.columns)}}\\n\\n")
+
+# Try to load metadata dictionary to identify categorical variables
+categorical_vars = set()
+try:
+    metadata_df = pd.read_csv("/input/{cohort_id}_metadata_dictionary")
+    metadata_df.columns = metadata_df.columns.str.strip().str.upper()
+    # Find the variable name column
+    varname_col = next((c for c in metadata_df.columns if c in ['VARIABLE NAME', 'VARIABLENAME', 'VAR NAME', 'VAR_NAME']), None)
+    # Categorical column is always named CATEGORICAL (columns already uppercased)
+    if varname_col:
+        for _, row in metadata_df.iterrows():
+            var_name = str(row[varname_col]).strip()
+            cat_value = str(row['CATEGORICAL']).strip() if pd.notna(row['CATEGORICAL']) else ''
+            # If categorical field has any non-empty value, treat as categorical
+            if cat_value and cat_value.lower() not in ['', 'nan', 'none', 'n/a']:
+                categorical_vars.add(var_name)
+        with open(log_file, "a") as log:
+            log.write(f"Loaded metadata: {{len(categorical_vars)}} categorical variables identified\\n\\n")
+except Exception as e:
+    with open(log_file, "a") as log:
+        log.write(f"Could not load metadata dictionary: {{e}}\\n\\n")
 
 # Determine which columns to visualize
 if SELECTED_VARIABLES is not None:
@@ -312,7 +339,7 @@ with open(log_file, "a") as log:
 
 # Create visualizations
 num_cols = len(selected_columns)
-fig, axes = plt.subplots(num_cols, 1, figsize=(10, 4 * num_cols))
+fig, axes = plt.subplots(num_cols, 1, figsize=(10 * CHART_SCALE, 4 * num_cols * CHART_SCALE))
 if num_cols == 1:
     axes = [axes]
 
@@ -326,7 +353,12 @@ for idx, col in enumerate(selected_columns):
         log.write(f"  Data type: {{df[col].dtype}}\\n")
     
     # Check if numeric or categorical
-    if pd.api.types.is_numeric_dtype(col_data):
+    # Treat as categorical if: (1) metadata says it's categorical, (2) it's binary (0/1), or (3) pandas says it's not numeric
+    unique_vals = col_data.unique()
+    is_binary = len(unique_vals) <= 2 and set(unique_vals).issubset({{0, 1, 0.0, 1.0}})
+    is_categorical_in_metadata = col in categorical_vars
+    
+    if pd.api.types.is_numeric_dtype(col_data) and not is_binary and not is_categorical_in_metadata:
         # Histogram for numeric data
         ax.hist(col_data, bins=HISTOGRAM_BINS, edgecolor='black', alpha=0.7)
         ax.set_xlabel(col)
@@ -344,13 +376,14 @@ for idx, col in enumerate(selected_columns):
         with open(log_file, "a") as log:
             log.write(f"  Mean: {{mean_val:.4f}}, Median: {{median_val:.4f}}, Std: {{std_val:.4f}}\\n\\n")
     else:
-        # Bar chart for categorical data
+        # Bar chart for categorical/binary data
         value_counts = col_data.value_counts().head(MAX_CATEGORIES)
         ax.barh(range(len(value_counts)), value_counts.values)
         ax.set_yticks(range(len(value_counts)))
         ax.set_yticklabels([str(v)[:30] for v in value_counts.index])  # Truncate long labels
         ax.set_xlabel('Count')
-        ax.set_title(f'Distribution of {{col}} (Categorical, top {{MAX_CATEGORIES}})')
+        chart_type = 'Binary' if is_binary else ('Categorical' if is_categorical_in_metadata else f'Categorical, top {{MAX_CATEGORIES}}')
+        ax.set_title(f'Distribution of {{col}} ({{chart_type}})')
         
         with open(log_file, "a") as log:
             log.write(f"  Unique values: {{df[col].nunique()}}\\n")
@@ -358,7 +391,7 @@ for idx, col in enumerate(selected_columns):
 
 plt.tight_layout()
 output_path = os.path.join(output_dir, OUTPUT_FILENAME)
-plt.savefig(output_path, dpi=OUTPUT_DPI, bbox_inches='tight')
+plt.savefig(output_path, dpi=int(150 * CHART_SCALE), bbox_inches='tight')
 plt.close()
 
 with open(log_file, "a") as log:
