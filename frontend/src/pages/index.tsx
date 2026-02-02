@@ -55,12 +55,12 @@ export default function Home() {
           console.log(statsAreMissing ? 'Statistics missing, calculating...' : 'Page refresh detected, recalculating statistics...');
           setIsRecalculating(true);
           setStats({
-            totalCohorts: "calculating...",
-            cohortsWithMetadata: "calculating...",
-            cohortsWithAggregateAnalysis: "calculating...",
-            totalPatients: "calculating...",
-            patientsInCohortsWithMetadata: "calculating...",
-            totalVariables: "calculating..."
+            totalCohorts: "counting...",
+            cohortsWithMetadata: "counting...",
+            cohortsWithAggregateAnalysis: "counting...",
+            totalPatients: "counting...",
+            patientsInCohortsWithMetadata: "counting...",
+            totalVariables: "counting..."
           });
           await calculateStatistics();
           // Wait a bit for the file to be written
