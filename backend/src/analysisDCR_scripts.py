@@ -86,14 +86,75 @@ except Exception as e:
     with open(log_file, "a") as log:
         log.write(f"Could not load metadata dictionary: {{e}}\\n")
 
-# Remove ID column if it exists
-id_column = "{id_variable_name if id_variable_name else ''}"
+# Find the patient ID variable using OMOP ID 4086934 from metadata dictionary
+patient_id_var = None
+if metadata_df is not None:
+    # Clean column names to ensure uniformity
+    metadata_df.columns = metadata_df.columns.str.strip().str.upper()
+    
+    # Look for OMOP ID column (various possible names)
+    omop_id_col = None
+    for col in metadata_df.columns:
+        if 'OMOP' in col and 'ID' in col:
+            omop_id_col = col
+            break
+    
+    if omop_id_col:
+        # Find variable name column
+        varname_col = None
+        for col in metadata_df.columns:
+            col_upper = col.upper()
+            if col_upper in ['VARIABLE NAME', 'VARIABLENAME', 'VAR NAME', 'VAR_NAME']:
+                varname_col = col
+                break
+        
+        if varname_col:
+            # Look for patient ID (OMOP ID 4086934)
+            patient_id_rows = metadata_df[metadata_df[omop_id_col].astype(str) == '4086934']
+            if not patient_id_rows.empty:
+                patient_id_var = patient_id_rows.iloc[0][varname_col]
+                with open(log_file, "a") as log:
+                    log.write(f"Found patient ID variable with OMOP ID 4086934: {{patient_id_var}}\\n")
+            else:
+                with open(log_file, "a") as log:
+                    log.write(f"No variable found with OMOP ID 4086934 in metadata dictionary\\n")
+        else:
+            with open(log_file, "a") as log:
+                log.write(f"Could not find variable name column in metadata dictionary\\n")
+    else:
+        with open(log_file, "a") as log:
+            log.write(f"OMOP ID column not found in metadata dictionary\\n")
+
+# Replace ID column with synthetic IDs (instead of just removing it)
+# First try the OMOP-detected patient ID, then fall back to the specified id_variable_name
+# IMPORTANT: Rows with the same original ID must get the same synthetic ID
+id_column = patient_id_var if patient_id_var else "{id_variable_name if id_variable_name else ''}"
 with open(log_file, "a") as log:
     if id_column and id_column in df.columns:
+        # Store original position of ID column
+        id_col_position = df.columns.get_loc(id_column)
+        
+        # Create a mapping from original IDs to synthetic IDs
+        # This ensures rows with the same original ID get the same synthetic ID
+        unique_ids = df[id_column].unique()
+        id_mapping = {{orig_id: 'AIRLOCK_' + str(i).zfill(6) for i, orig_id in enumerate(unique_ids, start=1)}}
+        
+        # Map original IDs to synthetic IDs
+        synthetic_ids = df[id_column].map(id_mapping)
+        
+        # Remove the original ID column
         df = df.drop(columns=[id_column])
-        log.write(f"Removed ID column: {{id_column}}\\n")
+        
+        # Insert synthetic IDs at the same position
+        df.insert(id_col_position, 'Synthetic_ID', synthetic_ids)
+        
+        log.write(f"Replaced ID column '{{id_column}}' with synthetic IDs at position {{id_col_position}}\\n")
+        log.write(f"Mapped {{len(unique_ids)}} unique original IDs to synthetic IDs\\n")
     else:
-        log.write(f"ID column not found or not specified\\n")
+        # No ID column found - add synthetic IDs at the beginning (row-based, no grouping)
+        synthetic_ids = ['AIRLOCK_' + str(i).zfill(6) for i in range(1, len(df) + 1)]
+        df.insert(0, 'Synthetic_ID', synthetic_ids)
+        log.write(f"ID column not found or not specified, added row-based synthetic IDs at position 0\\n")
 
 # Airlock percentage setting
 airlock_percentage = {airlock_percentage}
