@@ -329,8 +329,89 @@ def pandas_script_merge_cohorts(merged_cohorts: dict[str, list[str]], all_cohort
     return merge_script
 
 
+def find_patient_id_variable(cohort_id: str) -> str | None:
+    """Find the patient ID variable in a cohort using SNOMED code (preferred) or OMOP ID (fallback).
+    
+    Searches for:
+    1. SNOMED code snomed:184107009 (preferred) - checks concept_code field
+    2. OMOP ID 4086934 (fallback) - checks omop_id field
+    
+    Args:
+        cohort_id: The ID of the cohort to search in
+        
+    Returns:
+        The variable name if found, None otherwise
+    """
+    import time
+    start_time = time.time()
+    
+    # Patient ID identifiers (in order of preference)
+    SNOMED_PATIENT_ID = "snomed:184107009"
+    OMOP_PATIENT_ID = "4086934"
+    
+    try:
+        from src.cohort_cache import get_cohorts_from_cache
+        from src.config import settings
+        
+        admin_email = settings.admins_list[0] if settings.admins_list else None
+        cached_cohorts = get_cohorts_from_cache(admin_email)
+        cache_time = time.time()
+        
+        if cohort_id not in cached_cohorts:
+            elapsed = time.time() - start_time
+            logging.warning(f"Cohort {cohort_id} not found in cache (took {elapsed:.3f}s)")
+            return None
+            
+        cohort = cached_cohorts[cohort_id]
+        
+        if not hasattr(cohort, 'variables') or not cohort.variables:
+            elapsed = time.time() - start_time
+            logging.info(f"No variables in cohort {cohort_id} (took {elapsed:.3f}s)")
+            return None
+        
+        # Log sample of concept_codes and omop_ids for debugging
+        sample_codes = []
+        for var_name, variable in list(cohort.variables.items())[:5]:
+            code = getattr(variable, 'concept_code', None)
+            omop = getattr(variable, 'omop_id', None)
+            sample_codes.append(f"{var_name}=(code={code}, omop={omop})")
+        logging.info(f"Searching for patient ID in cohort {cohort_id}. Sample codes: {sample_codes}")
+        
+        # First pass: look for SNOMED code (preferred)
+        for var_name, variable in cohort.variables.items():
+            concept_code = getattr(variable, 'concept_code', None)
+            if concept_code:
+                concept_code_str = str(concept_code).strip().lower()
+                if SNOMED_PATIENT_ID.lower() in concept_code_str or "184107009" in concept_code_str:
+                    elapsed = time.time() - start_time
+                    logging.info(f"Found patient ID variable '{var_name}' with SNOMED code {concept_code} in cohort {cohort_id} (took {elapsed:.3f}s)")
+                    return var_name
+        
+        # Second pass: look for OMOP ID (fallback)
+        for var_name, variable in cohort.variables.items():
+            omop_id = getattr(variable, 'omop_id', None)
+            if omop_id:
+                omop_id_str = str(omop_id).strip()
+                if omop_id_str == OMOP_PATIENT_ID or OMOP_PATIENT_ID in omop_id_str:
+                    elapsed = time.time() - start_time
+                    logging.info(f"Found patient ID variable '{var_name}' with OMOP ID {omop_id} in cohort {cohort_id} (took {elapsed:.3f}s)")
+                    return var_name
+        
+        elapsed = time.time() - start_time
+        logging.info(f"No patient ID variable found in cohort {cohort_id} (took {elapsed:.3f}s)")
+        return None
+        
+    except Exception as e:
+        elapsed = time.time() - start_time
+        logging.error(f"Error finding patient ID variable in cohort {cohort_id} (took {elapsed:.3f}s): {e}")
+        return None
+
+
 def find_variable_by_omop_id(cohort_id: str, omop_id: str) -> str | None:
     """Find a variable in a cohort by its OMOP ID using the cache.
+    
+    Note: For patient ID specifically, prefer using find_patient_id_variable() which
+    also checks SNOMED codes.
     
     Args:
         cohort_id: The ID of the cohort to search in
@@ -343,16 +424,13 @@ def find_variable_by_omop_id(cohort_id: str, omop_id: str) -> str | None:
     start_time = time.time()
     
     try:
-        # Use cache-based approach which is more reliable
         from src.cohort_cache import get_cohorts_from_cache
-        
-        # Get cohorts from cache (use admin email for full access)
         from src.config import settings
+        
         admin_email = settings.admins_list[0] if settings.admins_list else None
         cached_cohorts = get_cohorts_from_cache(admin_email)
         cache_time = time.time()
         
-        # Check if the cohort exists in cache
         if cohort_id not in cached_cohorts:
             elapsed = time.time() - start_time
             logging.warning(f"Cohort {cohort_id} not found in cache (took {elapsed:.3f}s)")
@@ -360,15 +438,14 @@ def find_variable_by_omop_id(cohort_id: str, omop_id: str) -> str | None:
             
         cohort = cached_cohorts[cohort_id]
         
-        # Search through all variables in the cohort
         if hasattr(cohort, 'variables') and cohort.variables:
             for var_name, variable in cohort.variables.items():
-                if hasattr(variable, 'omop_id') and variable.omop_id == omop_id:
-                    elapsed = time.time() - start_time
-                    cache_elapsed = cache_time - start_time
-                    search_elapsed = elapsed - cache_elapsed
-                    logging.info(f"Found variable '{var_name}' with OMOP ID {omop_id} in cohort {cohort_id} (total: {elapsed:.3f}s, cache: {cache_elapsed:.3f}s, search: {search_elapsed:.3f}s)")
-                    return var_name
+                if hasattr(variable, 'omop_id') and variable.omop_id:
+                    var_omop_id = str(variable.omop_id).strip()
+                    if var_omop_id == omop_id or omop_id in var_omop_id:
+                        elapsed = time.time() - start_time
+                        logging.info(f"Found variable '{var_name}' with OMOP ID {var_omop_id} in cohort {cohort_id} (took {elapsed:.3f}s)")
+                        return var_name
         
         elapsed = time.time() - start_time
         logging.info(f"No variable with OMOP ID {omop_id} found in cohort {cohort_id} (took {elapsed:.3f}s)")
@@ -383,7 +460,7 @@ def find_variable_by_omop_id(cohort_id: str, omop_id: str) -> str | None:
 def remove_id_column_from_shuffled_csv(csv_file_path: str, cohort_id: str) -> bool:
     """Post-process shuffled CSV file by removing the ID variable column.
     
-    Uses find_variable_by_omop_id to identify the patient ID variable (OMOP ID 4086934)
+    Uses find_patient_id_variable to identify the patient ID variable (SNOMED or OMOP code)
     and removes that column from the CSV file. Does NOT use pandas to preserve data types.
     
     Args:
@@ -391,14 +468,14 @@ def remove_id_column_from_shuffled_csv(csv_file_path: str, cohort_id: str) -> bo
         cohort_id: The cohort ID to look up the ID variable
         
     Returns:
-        True if ID column was found and removed, False otherwise
+        True if column was removed, False otherwise
     """
     try:
-        # Find the ID variable name using OMOP ID
-        id_variable_name = find_variable_by_omop_id(cohort_id, "4086934")
+        # Find the ID variable name using SNOMED code (preferred) or OMOP ID (fallback)
+        id_variable_name = find_patient_id_variable(cohort_id)
         
         if not id_variable_name:
-            logging.info(f"No ID variable (OMOP ID 4086934) found for cohort {cohort_id}, CSV not modified")
+            logging.info(f"No patient ID variable found for cohort {cohort_id}, CSV not modified")
             return False
         
         if not os.path.exists(csv_file_path):
@@ -637,7 +714,7 @@ async def get_compute_dcr_definition(
 
         # Add data fragment script for this cohort (Dec 2025)
         # This script excludes the ID column and splits the data based on airlock settings
-        id_variable_name = find_variable_by_omop_id(cohort_id, "4086934")
+        id_variable_name = find_patient_id_variable(cohort_id)
         
         # Get the airlock percentage for this cohort (default to 20 if not specified)
         airlock_percentage = 20
