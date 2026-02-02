@@ -587,16 +587,8 @@ export default function CohortsList() {
           <div className="flex flex-wrap gap-4 mt-3">
             {/* Search Scope Toggle */}
             <div className="flex items-center gap-2">
-              <span className="text-sm font-medium">Search in:</span>
+              <span className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Search in:</span>
               <div className="join">
-                <button
-                  className={`btn btn-sm join-item ${searchScope === 'all' ? '' : 'btn-ghost'}`}
-                  style={searchScope === 'all' ? { backgroundColor: '#dbeafe', color: '#1e3a8a', border: '1px solid #bfdbfe' } : {}}
-                  onClick={() => setSearchScope('all')}
-                  title="Search in both cohort metadata and variable information"
-                >
-                  {searchScope === 'all' && '●'} All
-                </button>
                 <button
                   className={`btn btn-sm join-item ${searchScope === 'cohorts' ? '' : 'btn-ghost'}`}
                   style={searchScope === 'cohorts' ? { backgroundColor: '#dbeafe', color: '#1e3a8a', border: '1px solid #bfdbfe' } : {}}
@@ -613,12 +605,20 @@ export default function CohortsList() {
                 >
                   {searchScope === 'variables' && '●'} Variables Information
                 </button>
+                <button
+                  className={`btn btn-sm join-item ${searchScope === 'all' ? '' : 'btn-ghost'}`}
+                  style={searchScope === 'all' ? { backgroundColor: '#dbeafe', color: '#1e3a8a', border: '1px solid #bfdbfe' } : {}}
+                  onClick={() => setSearchScope('all')}
+                  title="Search in both cohort metadata and variable information"
+                >
+                  {searchScope === 'all' && '●'} All
+                </button>
               </div>
             </div>
             
             {/* Search Mode Toggle */}
             <div className="flex items-center gap-2">
-              <span className="text-sm font-medium">Mode:</span>
+              <span className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Mode:</span>
               <div className="join">
                 <button
                   className={`btn btn-sm join-item ${searchMode === 'or' ? '' : 'btn-ghost'}`}
@@ -1127,7 +1127,8 @@ export default function CohortsList() {
                   searchFilters={{
                     searchQuery: searchScope === 'variables' ? searchQuery : '', 
                     searchMode,
-                    searchTerms
+                    searchTerms,
+                    searchScope
                   }}
                   selectedOMOPDomains={getFiltersForCohort(cohortData.cohort_id).selectedOMOPDomains}
                   selectedDataTypes={getFiltersForCohort(cohortData.cohort_id).selectedDataTypes}

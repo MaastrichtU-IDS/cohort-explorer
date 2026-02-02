@@ -25,6 +25,7 @@ interface VariablesListProps {
     searchQuery?: string;
     searchMode?: 'or' | 'and' | 'exact';
     searchTerms?: string[];
+    searchScope?: 'cohorts' | 'variables' | 'all';
   };
   selectedOMOPDomains: Set<string>;
   selectedDataTypes: Set<string>;
@@ -182,14 +183,64 @@ const VariablesList = ({
   
   const searchMode = searchFilters.searchMode || 'or';
 
-  // Filter variables based on filters only (OMOP domain, data type, etc.)
-  // Search is used for highlighting, not filtering - search determines which COHORTS to show,
-  // but within a cohort, all variables are shown and filters work independently
+  // Helper function to check if a variable matches search terms
+  const variableMatchesSearch = (variableName: string, variableData: any): boolean => {
+    if (searchTerms.length === 0) return true;
+    
+    const searchableVarFields = ['var_name', 'var_label', 'concept_name', 'mapped_label', 'omop_domain', 'concept_code', 'omop_id'];
+    const searchableCatFields = ['value', 'label', 'mapped_label'];
+    const variableWithName = { ...variableData, var_name: variableName };
+    
+    // Check variable fields
+    for (const field of searchableVarFields) {
+      const fieldValue = variableWithName[field];
+      if (fieldValue != null) {
+        const fieldText = String(fieldValue).toLowerCase();
+        if (searchMode === 'exact') {
+          if (fieldText.includes(searchTerms.join(' ').toLowerCase())) return true;
+        } else if (searchMode === 'and') {
+          if (searchTerms.every(term => fieldText.includes(term.toLowerCase()))) return true;
+        } else {
+          if (searchTerms.some(term => fieldText.includes(term.toLowerCase()))) return true;
+        }
+      }
+    }
+    
+    // Check categories
+    if (variableData.categories) {
+      for (const category of variableData.categories) {
+        for (const field of searchableCatFields) {
+          const fieldValue = category[field];
+          if (fieldValue != null) {
+            const fieldText = String(fieldValue).toLowerCase();
+            if (searchMode === 'exact') {
+              if (fieldText.includes(searchTerms.join(' ').toLowerCase())) return true;
+            } else if (searchMode === 'and') {
+              if (searchTerms.every(term => fieldText.includes(term.toLowerCase()))) return true;
+            } else {
+              if (searchTerms.some(term => fieldText.includes(term.toLowerCase()))) return true;
+            }
+          }
+        }
+      }
+    }
+    
+    return false;
+  };
+
+  // Filter variables based on filters and search (when searchScope is 'variables')
+  // When searchScope is 'variables', only show matching variables
+  // Otherwise, show all variables and use search only for highlighting
   const filteredVars = useMemo(() => {
     if (cohortsData && cohortsData[cohortId]) {
       return Object.entries(cohortsData[cohortId]['variables'])
         .filter(
           ([variableName, variableData]: any) => {
+            // When searchScope is 'variables', filter by search terms
+            if (searchFilters.searchScope === 'variables' && searchTerms.length > 0) {
+              if (!variableMatchesSearch(variableName, variableData)) return false;
+            }
+            
             // Filter by outcome keywords if enabled
             if (showOnlyOutcomes) {
               const outcomeKeywords = ['outcome', 'endpoint', 'end point'];
@@ -245,7 +296,10 @@ const VariablesList = ({
     selectedDataTypes,
     selectedCategoryTypes,
     selectedVisitTypes,
-    showOnlyOutcomes
+    showOnlyOutcomes,
+    searchFilters.searchScope,
+    searchTerms,
+    searchMode
   ]);
 
   // Report variable counts to parent - only when they actually change
