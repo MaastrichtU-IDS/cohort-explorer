@@ -1499,6 +1499,12 @@ def build_dcr_participants(
     if settings.decentriq_email and settings.decentriq_email != user_email:
         participants[settings.decentriq_email] = {"data_owner_of": set(), "analyst_of": set()}
     
+    # TEMPORARY: Add wei.wei as data owner of TIME-CHF for testing purposes
+    # TODO: Remove this override once testing is complete
+    TEMP_DATA_OWNER_OVERRIDES = {
+        "TIME-CHF": ["wei.wei@maastrichtuniversity.nl"]
+    }
+    
     # Process each cohort to determine data owners
     for cohort_id in cohorts_request.get('cohorts', {}).keys():
         if cohort_id not in all_cohorts:
@@ -1507,6 +1513,14 @@ def build_dcr_participants(
         cohort = all_cohorts[cohort_id]
         data_node_id = cohort_id.replace(" ", "-")
         metadata_node_id = f"{cohort_id.replace(' ', '-')}_metadata_dictionary"
+        
+        # Add temporary data owner overrides for testing
+        if cohort_id in TEMP_DATA_OWNER_OVERRIDES:
+            for temp_owner in TEMP_DATA_OWNER_OVERRIDES[cohort_id]:
+                if temp_owner not in participants:
+                    participants[temp_owner] = {"data_owner_of": set(), "analyst_of": set()}
+                participants[temp_owner]["data_owner_of"].add(data_node_id)
+                participants[temp_owner]["data_owner_of"].add(metadata_node_id)
         
         # Add data owners (in non-dev mode)
         if not settings.dev_mode:
