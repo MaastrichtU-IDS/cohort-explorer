@@ -25,7 +25,6 @@ export function Nav() {
   const [cohortsWithShuffledSamples, setCohortsWithShuffledSamples] = useState<string[]>([]);
   const [cohortsWithoutShuffledSamples, setCohortsWithoutShuffledSamples] = useState<string[]>([]);
   const [loadingShuffledSamples, setLoadingShuffledSamples] = useState(false);
-  const [dcrMode, setDcrMode] = useState<'current' | 'future'>('current');
   const [showParticipantsModal, setShowParticipantsModal] = useState(false);
   const [additionalAnalysts, setAdditionalAnalysts] = useState<string[]>([]);
   const [newAnalystEmail, setNewAnalystEmail] = useState('');
@@ -356,7 +355,7 @@ export function Nav() {
 
   // Fetch available mapping files when modal opens
   useEffect(() => {
-    if (showModal && dcrMode === 'future' && dataCleanRoom?.cohorts && Object.keys(dataCleanRoom.cohorts).length > 1) {
+    if (showModal && dataCleanRoom?.cohorts && Object.keys(dataCleanRoom.cohorts).length > 1) {
       const fetchMappingFiles = async () => {
         setLoadingMappingFiles(true);
         try {
@@ -389,7 +388,7 @@ export function Nav() {
       
       fetchMappingFiles();
     }
-  }, [showModal, dcrMode, dataCleanRoom?.cohorts]);
+  }, [showModal, dataCleanRoom?.cohorts]);
 
   // Fetch participants preview when modal opens
   useEffect(() => {
@@ -554,28 +553,8 @@ export function Nav() {
       {showModal && (
         <div className="modal modal-open">
           <div className="modal-box max-w-4xl max-h-[85vh]">
-            {/* Toggle switch for Current/Future mode */}
-            <div className="flex items-center gap-3 mb-4">
-              <span className="text-sm font-medium">Mode:</span>
-              <div className="join">
-                <button 
-                  className={`btn btn-sm join-item ${dcrMode === 'current' ? 'btn-active' : ''}`}
-                  onClick={() => setDcrMode('current')}
-                >
-                  Current
-                </button>
-                <button 
-                  className={`btn btn-sm join-item ${dcrMode === 'future' ? 'btn-active' : ''}`}
-                  onClick={() => setDcrMode('future')}
-                >
-                  Future (Beta)
-                </button>
-              </div>
-            </div>
-            
-            {/* DCR Name field - only visible in future mode, placed at top */}
-            {dcrMode === 'future' && (
-              <div className="form-control mb-3">
+            {/* DCR Name field */}
+            <div className="form-control mb-3">
                 <div className="flex items-center gap-3">
                   <span className="label-text font-semibold whitespace-nowrap">DCR Name</span>
                   <input 
@@ -589,8 +568,7 @@ export function Nav() {
                 <span className="text-xs text-base-content/60 mt-1">
                   Leave empty to use the default naming. Note: your email address, &quot; - created by {userEmail}&quot;, will be appended to the name.
                 </span>
-              </div>
-            )}
+            </div>
             
             <h3 className="font-bold text-lg mb-3">Cohorts to load in Decentriq Data Clean Room</h3>
             <p className="flex flex-wrap gap-x-1">
@@ -606,9 +584,7 @@ export function Nav() {
             Once the first is selected we only show the cohorts with same number of variables?
             */}
             
-            {/* Other settings - only visible in future mode */}
-            {dcrMode === 'future' && (
-              <>
+            {/* Other settings */}
                 
                 <div className="mt-2">
                   <button 
@@ -742,20 +718,16 @@ export function Nav() {
                     Missing a mapping file? Generate it from the <Link href="/mapping" className="underline hover:text-primary">Mapping page</Link> to add it to the cache.
                   </p>
                 </div>
-              </>
-            )}
             
             <div className="modal-action flex flex-wrap justify-end gap-2 mt-4">
                 {/* <div className="flex flex-wrap space-y-2"> */}
-                {dcrMode === 'future' && (
-                  <button 
-                    className="btn btn-primary" 
-                    onClick={createLiveDCR} 
-                    disabled={isLoading || dcrCreated}
-                  >
-                    Create Live DCR
-                  </button>
-                )}
+                <button 
+                  className="btn btn-primary" 
+                  onClick={createLiveDCR} 
+                  disabled={isLoading || dcrCreated}
+                >
+                  Create Live DCR
+                </button>
                 <button 
                   className="btn btn-neutral" 
                   onClick={getDCRDefinitionFile} 

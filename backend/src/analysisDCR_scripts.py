@@ -265,6 +265,52 @@ import random
 import tempfile
 import zipfile
 
+###############################################################################
+# USER-CONFIGURABLE SECTION
+# Modify the settings below to customize the visualization
+###############################################################################
+
+# DATA SOURCE
+# -----------
+# Choose which data source to visualize by uncommenting ONE of the options below:
+#
+# Option 1: The full cohort data - the original dataset.
+# Note this cannot be accessed in development without approval of the data owners for the new script!
+DATA_FILE = "/input/{cohort_id}"
+#
+# Option 2: Preview/Airlock sample - only the airlocked subset (20%) of the processed data and without ID column
+# Note: this can be used in development stage for the purpose of refining the script. 
+# To use the airlock subset: 
+#   (a) select preview-airlock-{cohort_id} from the input dropdown menu to the right
+#   (b) uncomment the line below    
+# DATA_FILE = "/input/preview-airlock-{cohort_id}/{cohort_id}_data_fragment.csv"
+#
+# Option 3: Shuffled sample - the columns have been independently shuffled.
+# To use this as data source:
+    (a) select {cohort_id}_shuffled_sample from the input dropdown menu to the right
+    (b) uncomment the line below 
+# DATA_FILE = "/input/{cohort_id}_shuffled_sample"
+
+# VARIABLE SELECTION
+# ------------------
+# Edit the list below to select which variables to visualize.
+# Remove variables you don't want, or set to None for random selection.
+SELECTED_VARIABLES = [
+    {vars_list}
+]
+
+# CHART SIZE
+# ----------
+# Controls the overall size of the output image.
+# - 0.5 = small (50% of default, good for quick previews)
+# - 1.0 = default size
+# - 1.5 = large (150% of default, good for presentations)
+CHART_SCALE = 0.5
+
+###############################################################################
+# END OF USER-CONFIGURABLE SECTION
+###############################################################################
+
 # Helper function to load data from CSV, SPSS, or zipped files
 def load_data(file_path):
     # Try CSV first
@@ -299,44 +345,6 @@ def load_data(file_path):
                         return pd.read_spss(data_file)
             except Exception as zip_error:
                 raise ValueError(f"Could not read file as CSV, SPSS, or ZIP. CSV error: {{csv_error}}, SPSS error: {{spss_error}}, ZIP error: {{zip_error}}")
-
-###############################################################################
-# USER-CONFIGURABLE SECTION
-# Modify the settings below to customize the visualization
-###############################################################################
-
-# DATA SOURCE
-# -----------
-# Choose which data source to visualize by uncommenting ONE of the options below:
-#
-# Option 1: Raw cohort data (default) - the original unprocessed dataset
-DATA_FILE = "/input/{cohort_id}"
-#
-# Option 2: Preview/Airlock sample - only the airlocked subset (e.g., 20%) of the processed data
-# DATA_FILE = "/input/preview-airlock-{cohort_id}/{cohort_id}_data_fragment.csv"
-#
-# Option 3: Shuffled sample - synthetic/shuffled data for testing
-# DATA_FILE = "/input/{cohort_id}_shuffled_sample"
-
-# VARIABLE SELECTION
-# ------------------
-# Edit the list below to select which variables to visualize.
-# Remove variables you don't want, or set to None for random selection.
-SELECTED_VARIABLES = [
-    {vars_list}
-]
-
-# CHART SIZE
-# ----------
-# Controls the overall size of the output image.
-# - 0.5 = small (50% of default, good for quick previews)
-# - 1.0 = default size
-# - 1.5 = large (150% of default, good for presentations)
-CHART_SCALE = 0.5
-
-###############################################################################
-# END OF USER-CONFIGURABLE SECTION
-###############################################################################
 
 # Output directory (always exists in Decentriq environment)
 output_dir = "/output"
