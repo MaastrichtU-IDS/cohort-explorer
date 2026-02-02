@@ -287,8 +287,8 @@ DATA_FILE = "/input/{cohort_id}"
 #
 # Option 3: Shuffled sample - the columns have been independently shuffled.
 # To use this as data source:
-    (a) select {cohort_id}_shuffled_sample from the input dropdown menu to the right
-    (b) uncomment the line below 
+#    (a) select {cohort_id}_shuffled_sample from the input dropdown menu to the right
+#    (b) uncomment the line below 
 # DATA_FILE = "/input/{cohort_id}_shuffled_sample"
 
 # VARIABLE SELECTION

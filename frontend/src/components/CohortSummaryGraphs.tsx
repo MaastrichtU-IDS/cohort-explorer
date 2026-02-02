@@ -232,8 +232,8 @@ const CohortSummaryGraphs = React.memo(function CohortSummaryGraphs({
       if (!visits || visits === '' || visits.toLowerCase() === 'not applicable' || visits.toLowerCase() === 'n/a') {
         visitCounts['Not specified'] = (visitCounts['Not specified'] || 0) + 1;
       } else {
-        // Split by common delimiters and count each visit type
-        const visitTypes = visits.split(/[;,/]/).map(v => v.trim()).filter(v => v.length > 0);
+        // Split by common delimiters (semicolon, comma) but NOT slash - keep values like "baseline/visit0" together
+        const visitTypes = visits.split(/[;,]/).map(v => v.trim()).filter(v => v.length > 0);
         
         if (visitTypes.length === 0) {
           visitCounts['Not specified'] = (visitCounts['Not specified'] || 0) + 1;
