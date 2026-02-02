@@ -147,6 +147,13 @@ if metadata_df is not None:
             categorical_col = col
     
     if varname_col and vartype_col:
+        # Normalize column names: lowercase, strip, collapse multiple spaces
+        def normalize_col(col):
+            return ' '.join(col.lower().strip().split())
+        
+        # Build normalized mapping from data columns to actual column names
+        df_cols_normalized = {{normalize_col(col): col for col in df_fragment.columns}}
+        
         for _, row in metadata_df.iterrows():
             var_name = str(row[varname_col]).strip()
             var_type = str(row[vartype_col]).strip().upper() if pd.notna(row[vartype_col]) else ''
@@ -154,8 +161,12 @@ if metadata_df is not None:
             
             # Check if numeric: VARTYPE in ['FLOAT', 'INT'] and CATEGORICAL is empty
             if var_type in ['FLOAT', 'INT'] and (categorical == '' or categorical.lower() == 'nan'):
-                if var_name in df_fragment.columns:
-                    numeric_vars.append(var_name)
+                # Normalized column matching (case-insensitive, space-normalized)
+                var_name_normalized = normalize_col(var_name)
+                if var_name_normalized in df_cols_normalized:
+                    # Use the actual column name from the data
+                    actual_col_name = df_cols_normalized[var_name_normalized]
+                    numeric_vars.append(actual_col_name)
 
 with open(log_file, "a") as log:
     log.write(f"\\nIdentified {{len(numeric_vars)}} numeric variables for outlier capping\\n")
@@ -389,15 +400,31 @@ except Exception as e:
 # Determine which columns to visualize
 if SELECTED_VARIABLES is not None:
     # Build a case-insensitive mapping from data columns
-    df_cols_lower = {{col.lower().strip(): col for col in df.columns}}
+    # Also normalize spaces (replace multiple spaces with single, strip)
+    def normalize_col(col):
+        return ' '.join(col.lower().strip().split())
     
-    # Match selected variables to actual column names (case-insensitive)
+    df_cols_normalized = {{normalize_col(col): col for col in df.columns}}
+    
+    # Log the mapping for debugging
+    with open(log_file, "a") as log:
+        log.write(f"Column mapping (normalized -> actual):\\n")
+        for norm, actual in list(df_cols_normalized.items())[:10]:
+            log.write(f"  '{{norm}}' -> '{{actual}}'\\n")
+        if len(df_cols_normalized) > 10:
+            log.write(f"  ... and {{len(df_cols_normalized) - 10}} more\\n")
+        log.write(f"\\nSELECTED_VARIABLES (first 10):\\n")
+        for var in SELECTED_VARIABLES[:10]:
+            log.write(f"  '{{var}}' -> normalized: '{{normalize_col(var)}}'\\n")
+        log.write("\\n")
+    
+    # Match selected variables to actual column names (case-insensitive, space-normalized)
     selected_columns = []
     missing_cols = []
     for var in SELECTED_VARIABLES:
-        var_lower = var.lower().strip()
-        if var_lower in df_cols_lower:
-            selected_columns.append(df_cols_lower[var_lower])
+        var_normalized = normalize_col(var)
+        if var_normalized in df_cols_normalized:
+            selected_columns.append(df_cols_normalized[var_normalized])
         else:
             missing_cols.append(var)
     
@@ -433,7 +460,7 @@ for idx, col in enumerate(selected_columns):
     # Treat as categorical if: (1) metadata says it's categorical, (2) it's binary (0/1), or (3) pandas says it's not numeric
     unique_vals = col_data.unique()
     is_binary = len(unique_vals) <= 2 and set(unique_vals).issubset({{0, 1, 0.0, 1.0}})
-    is_categorical_in_metadata = col.lower().strip() in {{v.lower().strip() for v in categorical_vars}}
+    is_categorical_in_metadata = normalize_col(col) in {{normalize_col(v) for v in categorical_vars}}
     
     if pd.api.types.is_numeric_dtype(col_data) and not is_binary and not is_categorical_in_metadata:
         # Histogram for numeric data
