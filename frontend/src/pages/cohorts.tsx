@@ -115,11 +115,11 @@ const SearchResultsDisplay = React.memo(({cohortsData, searchTerms, searchMode, 
     return (
       <div>
         <span>
-          Found <strong className="text-primary">{results.matchedCohorts.length}</strong> cohort{results.matchedCohorts.length !== 1 ? 's' : ''}
+          Search matched <strong className="text-primary">{results.matchedCohorts.length}</strong> cohort{results.matchedCohorts.length !== 1 ? 's' : ''} metadata
         </span>
         {results.matchedCohorts.length > 0 && (
           <div className="mt-1 text-xs text-gray-600 dark:text-gray-400">
-            {results.matchedCohorts.join(', ')}
+            <strong>Cohorts:</strong> {results.matchedCohorts.join(', ')}
           </div>
         )}
       </div>
@@ -130,11 +130,11 @@ const SearchResultsDisplay = React.memo(({cohortsData, searchTerms, searchMode, 
     return (
       <div>
         <span>
-          Found <strong className="text-primary">{results.totalVariables}</strong> variable{results.totalVariables !== 1 ? 's' : ''} in <strong className="text-primary">{cohortsWithVarMatches}</strong> cohort{cohortsWithVarMatches !== 1 ? 's' : ''}
+          Search matched <strong className="text-primary">{results.totalVariables}</strong> variable description{results.totalVariables !== 1 ? 's' : ''} in <strong className="text-primary">{cohortsWithVarMatches}</strong> cohort{cohortsWithVarMatches !== 1 ? 's' : ''}
         </span>
         {results.totalVariables > 0 && (
           <div className="mt-1 text-xs text-gray-600 dark:text-gray-400 max-h-20 overflow-y-auto">
-            {formatVariableResults()}
+            <strong>Variables:</strong> {formatVariableResults()}
           </div>
         )}
       </div>
@@ -145,7 +145,7 @@ const SearchResultsDisplay = React.memo(({cohortsData, searchTerms, searchMode, 
   return (
     <div>
       <span>
-        Found <strong className="text-primary">{results.matchedCohorts.length}</strong> cohort{results.matchedCohorts.length !== 1 ? 's' : ''} and <strong className="text-primary">{results.totalVariables}</strong> variable{results.totalVariables !== 1 ? 's' : ''} in <strong className="text-primary">{cohortsWithVarMatches}</strong> cohort{cohortsWithVarMatches !== 1 ? 's' : ''}
+        Search matched <strong className="text-primary">{results.matchedCohorts.length}</strong> cohort{results.matchedCohorts.length !== 1 ? 's' : ''} metadata and <strong className="text-primary">{results.totalVariables}</strong> variable description{results.totalVariables !== 1 ? 's' : ''} in <strong className="text-primary">{cohortsWithVarMatches}</strong> cohort{cohortsWithVarMatches !== 1 ? 's' : ''}
       </span>
       {(results.matchedCohorts.length > 0 || results.totalVariables > 0) && (
         <div className="mt-1 text-xs text-gray-600 dark:text-gray-400 max-h-24 overflow-y-auto">
