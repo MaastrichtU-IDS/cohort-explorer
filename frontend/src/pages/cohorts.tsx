@@ -35,55 +35,133 @@ const matchesSearchTerms = (text: string | null | undefined, searchTerms: string
 };
 
 // Component to count and display variable search results
-const SearchResultsCounter = React.memo(({filteredCohorts, searchTerms, searchMode}: {
-  filteredCohorts: Cohort[], 
+// Detailed search results component that shows matched names
+const SearchResultsDisplay = React.memo(({cohortsData, searchTerms, searchMode, searchScope}: {
+  cohortsData: Record<string, Cohort>,
   searchTerms: string[], 
-  searchMode: 'or' | 'and' | 'exact'
+  searchMode: 'or' | 'and' | 'exact',
+  searchScope: 'cohorts' | 'variables' | 'all'
 }) => {
   const results = useMemo(() => {
-    if (searchTerms.length === 0) return { totalVariables: 0, cohortsWithMatches: 0 };
+    if (searchTerms.length === 0) return { 
+      matchedCohorts: [] as string[], 
+      variablesByCohort: {} as Record<string, string[]>,
+      totalVariables: 0 
+    };
     
-    let totalVariables = 0;
-    let cohortsWithMatches = 0;
-    
+    const searchableCohortFields = [
+      'cohort_id', 'institution', 'study_type', 'study_objective', 'morbidity',
+      'study_participants', 'study_population', 'administrator', 'population_location',
+      'primary_outcome_spec', 'secondary_outcome_spec'
+    ];
     const searchableVarFields = ['var_name', 'var_label', 'concept_name', 'mapped_label', 'omop_domain', 'concept_code', 'omop_id'];
     const searchableCatFields = ['value', 'label', 'mapped_label'];
     
-    filteredCohorts.forEach((cohortData) => {
-      let cohortMatchingVariables = 0;
-      
-      Object.entries(cohortData.variables || {}).forEach(([varName, varData]: any) => {
-        // Check variable fields
-        const variableWithName = { ...varData, var_name: varName };
-        const varMatches = searchableVarFields.some(field => 
-          matchesSearchTerms(variableWithName[field], searchTerms, searchMode)
+    const matchedCohorts: string[] = [];
+    const variablesByCohort: Record<string, string[]> = {};
+    let totalVariables = 0;
+    
+    Object.entries(cohortsData).forEach(([cohortId, cohortData]) => {
+      // Check cohort metadata match (for 'cohorts' or 'all' scope)
+      if (searchScope === 'cohorts' || searchScope === 'all') {
+        const cohortWithId = { ...cohortData, cohort_id: cohortId };
+        const cohortMatches = searchableCohortFields.some(field => 
+          matchesSearchTerms((cohortWithId as any)[field], searchTerms, searchMode)
         );
-        
-        // Check categories if variable doesn't match
-        const catMatches = !varMatches && varData.categories?.some((cat: any) =>
-          searchableCatFields.some(field => matchesSearchTerms(cat[field], searchTerms, searchMode))
-        );
-        
-        if (varMatches || catMatches) {
-          totalVariables++;
-          cohortMatchingVariables++;
+        if (cohortMatches && !matchedCohorts.includes(cohortId)) {
+          matchedCohorts.push(cohortId);
         }
-      });
+      }
       
-      if (cohortMatchingVariables > 0) cohortsWithMatches++;
+      // Check variable matches (for 'variables' or 'all' scope)
+      if (searchScope === 'variables' || searchScope === 'all') {
+        const matchingVars: string[] = [];
+        
+        Object.entries(cohortData.variables || {}).forEach(([varName, varData]: any) => {
+          const variableWithName = { ...varData, var_name: varName };
+          const varMatches = searchableVarFields.some(field => 
+            matchesSearchTerms(variableWithName[field], searchTerms, searchMode)
+          );
+          
+          const catMatches = !varMatches && varData.categories?.some((cat: any) =>
+            searchableCatFields.some(field => matchesSearchTerms(cat[field], searchTerms, searchMode))
+          );
+          
+          if (varMatches || catMatches) {
+            matchingVars.push(varName);
+            totalVariables++;
+          }
+        });
+        
+        if (matchingVars.length > 0) {
+          variablesByCohort[cohortId] = matchingVars;
+        }
+      }
     });
     
-    return { totalVariables, cohortsWithMatches };
-  }, [filteredCohorts, searchTerms, searchMode]);
+    return { matchedCohorts, variablesByCohort, totalVariables };
+  }, [cohortsData, searchTerms, searchMode, searchScope]);
   
+  const cohortsWithVarMatches = Object.keys(results.variablesByCohort).length;
+  
+  // Format variable results: "var1, var2 (CohortA); var3 (CohortB)"
+  const formatVariableResults = () => {
+    return Object.entries(results.variablesByCohort)
+      .map(([cohortId, vars]) => `${vars.join(', ')} (${cohortId})`)
+      .join('; ');
+  };
+  
+  if (searchScope === 'cohorts') {
+    return (
+      <div>
+        <span>
+          Found <strong className="text-primary">{results.matchedCohorts.length}</strong> cohort{results.matchedCohorts.length !== 1 ? 's' : ''}
+        </span>
+        {results.matchedCohorts.length > 0 && (
+          <div className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+            {results.matchedCohorts.join(', ')}
+          </div>
+        )}
+      </div>
+    );
+  }
+  
+  if (searchScope === 'variables') {
+    return (
+      <div>
+        <span>
+          Found <strong className="text-primary">{results.totalVariables}</strong> variable{results.totalVariables !== 1 ? 's' : ''} in <strong className="text-primary">{cohortsWithVarMatches}</strong> cohort{cohortsWithVarMatches !== 1 ? 's' : ''}
+        </span>
+        {results.totalVariables > 0 && (
+          <div className="mt-1 text-xs text-gray-600 dark:text-gray-400 max-h-20 overflow-y-auto">
+            {formatVariableResults()}
+          </div>
+        )}
+      </div>
+    );
+  }
+  
+  // 'all' scope - show both
   return (
-    <span>
-      The search found <strong className="text-primary">{results.totalVariables}</strong> variable{results.totalVariables !== 1 ? 's' : ''} in <strong className="text-primary">{results.cohortsWithMatches}</strong> cohort{results.cohortsWithMatches !== 1 ? 's' : ''}
-    </span>
+    <div>
+      <span>
+        Found <strong className="text-primary">{results.matchedCohorts.length}</strong> cohort{results.matchedCohorts.length !== 1 ? 's' : ''} and <strong className="text-primary">{results.totalVariables}</strong> variable{results.totalVariables !== 1 ? 's' : ''} in <strong className="text-primary">{cohortsWithVarMatches}</strong> cohort{cohortsWithVarMatches !== 1 ? 's' : ''}
+      </span>
+      {(results.matchedCohorts.length > 0 || results.totalVariables > 0) && (
+        <div className="mt-1 text-xs text-gray-600 dark:text-gray-400 max-h-24 overflow-y-auto">
+          {results.matchedCohorts.length > 0 && (
+            <div><strong>Cohorts:</strong> {results.matchedCohorts.join(', ')}</div>
+          )}
+          {results.totalVariables > 0 && (
+            <div><strong>Variables:</strong> {formatVariableResults()}</div>
+          )}
+        </div>
+      )}
+    </div>
   );
 });
 
-SearchResultsCounter.displayName = 'SearchResultsCounter';
+SearchResultsDisplay.displayName = 'SearchResultsDisplay';
 
 // Helper function to format participants value for display in tags
 const formatParticipantsForTag = (value: string | number | null | undefined): string => {
@@ -116,7 +194,7 @@ export default function CohortsList() {
   // State to track which cohorts have collapsed metadata
   const [collapsedMetadata, setCollapsedMetadata] = useState<{[key: string]: boolean}>({});
   // Search configuration states
-  const [searchScope, setSearchScope] = useState<'cohorts' | 'variables'>('cohorts');
+  const [searchScope, setSearchScope] = useState<'cohorts' | 'variables' | 'all'>('all');
   const [searchMode, setSearchMode] = useState<'or' | 'and' | 'exact'>('or');
   
   // Shared filter state for each cohort (synced between charts and sidebar)
@@ -344,8 +422,9 @@ export default function CohortsList() {
   }, [searchQuery]);
 
   // Filter cohorts based on metadata filters and search
-  // - When searchScope='cohorts': filter by cohort metadata, show all variables
-  // - When searchScope='variables': filter by variable matches, but filters work on ALL variables (not just matched ones)
+  // - When searchScope='cohorts': filter by cohort metadata only
+  // - When searchScope='variables': filter by variable matches only
+  // - When searchScope='all': filter by either cohort metadata OR variable matches
   const filteredCohorts = useMemo(() => {
     const searchableCohortFields = [
       'cohort_id', 'institution', 'study_type', 'study_objective', 'morbidity',
@@ -354,6 +433,30 @@ export default function CohortsList() {
     ];
     const searchableVarFields = ['var_name', 'var_label', 'concept_name', 'mapped_label', 'omop_domain', 'concept_code', 'omop_id'];
     const searchableCatFields = ['value', 'label', 'mapped_label'];
+    
+    // Helper to check if cohort metadata matches
+    const cohortMetadataMatches = (key: string, value: Cohort) => {
+      const cohortWithId = { ...value, cohort_id: key };
+      return searchableCohortFields.some(field => 
+        matchesSearchTerms((cohortWithId as any)[field], searchTerms, searchMode)
+      );
+    };
+    
+    // Helper to check if any variable matches
+    const variableMatches = (value: Cohort) => {
+      return Object.entries(value.variables || {}).some(([varName, varData]: any) => {
+        const variableWithName = { ...varData, var_name: varName };
+        
+        const varMatches = searchableVarFields.some(field => 
+          matchesSearchTerms(variableWithName[field], searchTerms, searchMode)
+        );
+        
+        if (varMatches) return true;
+        return varData.categories?.some((cat: any) =>
+          searchableCatFields.some(field => matchesSearchTerms(cat[field], searchTerms, searchMode))
+        );
+      });
+    };
     
     return Object.entries(cohortsData as Record<string, Cohort>)
       .filter(([key, value]) => {
@@ -365,33 +468,17 @@ export default function CohortsList() {
         if (searchTerms.length === 0) return true;
         
         if (searchScope === 'cohorts') {
-          // Search in cohort metadata
-          const cohortWithId = { ...value, cohort_id: key };
-          return searchableCohortFields.some(field => 
-            matchesSearchTerms((cohortWithId as any)[field], searchTerms, searchMode)
-          );
+          return cohortMetadataMatches(key, value);
+        } else if (searchScope === 'variables') {
+          return variableMatches(value);
         } else {
-          // Search in variables - show cohort if ANY variable matches
-          return Object.entries(value.variables || {}).some(([varName, varData]: any) => {
-            const variableWithName = { ...varData, var_name: varName };
-            
-            // Check variable fields
-            const varMatches = searchableVarFields.some(field => 
-              matchesSearchTerms(variableWithName[field], searchTerms, searchMode)
-            );
-            
-            // Check categories if variable doesn't match
-            if (varMatches) return true;
-            return varData.categories?.some((cat: any) =>
-              searchableCatFields.some(field => matchesSearchTerms(cat[field], searchTerms, searchMode))
-            );
-          });
+          // 'all' scope - match if either cohort metadata OR variables match
+          return cohortMetadataMatches(key, value) || variableMatches(value);
         }
       })
       .map(([, cohortData]) => cohortData);
   }, [selectedStudyTypes, selectedInstitutes, cohortsData, searchScope, searchTerms, searchMode]);
-  // NOTE: When searchScope='variables', VariablesList filters work on ALL variables in the cohort,
-  // not just the search-matched ones. This allows filters and search to work independently.
+  // NOTE: Filters work on ALL variables in the cohort, not just the search-matched ones.
 
   // Function to toggle between cache and SPARQL modes
   const toggleDataSource = () => {
@@ -490,7 +577,7 @@ export default function CohortsList() {
         <div className="mb-4">
           <input
             type="text"
-            placeholder={searchScope === 'cohorts' ? "Search cohorts..." : "Search variables..."}
+            placeholder={searchScope === 'all' ? "Search cohorts and variables..." : searchScope === 'cohorts' ? "Search cohort metadata..." : "Search variable information..."}
             className="input input-bordered w-full"
             value={searchInput}
             onChange={handleSearchChange}
@@ -503,18 +590,28 @@ export default function CohortsList() {
               <span className="text-sm font-medium">Search in:</span>
               <div className="join">
                 <button
+                  className={`btn btn-sm join-item ${searchScope === 'all' ? '' : 'btn-ghost'}`}
+                  style={searchScope === 'all' ? { backgroundColor: '#dbeafe', color: '#1e3a8a', border: '1px solid #bfdbfe' } : {}}
+                  onClick={() => setSearchScope('all')}
+                  title="Search in both cohort metadata and variable information"
+                >
+                  {searchScope === 'all' && '●'} All
+                </button>
+                <button
                   className={`btn btn-sm join-item ${searchScope === 'cohorts' ? '' : 'btn-ghost'}`}
                   style={searchScope === 'cohorts' ? { backgroundColor: '#dbeafe', color: '#1e3a8a', border: '1px solid #bfdbfe' } : {}}
                   onClick={() => setSearchScope('cohorts')}
+                  title="Search only in cohort metadata (name, institution, study objective, etc.)"
                 >
-                  {searchScope === 'cohorts' && '●'} Cohorts
+                  {searchScope === 'cohorts' && '●'} Cohorts Metadata
                 </button>
                 <button
                   className={`btn btn-sm join-item ${searchScope === 'variables' ? '' : 'btn-ghost'}`}
                   style={searchScope === 'variables' ? { backgroundColor: '#dbeafe', color: '#1e3a8a', border: '1px solid #bfdbfe' } : {}}
                   onClick={() => setSearchScope('variables')}
+                  title="Search only in variable information (name, label, OMOP domain, etc.)"
                 >
-                  {searchScope === 'variables' && '●'} Variables
+                  {searchScope === 'variables' && '●'} Variables Information
                 </button>
               </div>
             </div>
@@ -551,25 +648,19 @@ export default function CohortsList() {
             </div>
           </div>
           
-          {/* Search Results Counter */}
+          {/* Search Results Display */}
           {searchInput.trim() && (
             <div className="mt-2 p-2 bg-base-200 rounded-lg text-sm">
-              <div className="flex items-center gap-3">
-                <span className="text-gray-600 dark:text-gray-400">🔍</span>
-                {searchScope === 'cohorts' ? (
-                  <span>
-                    Found <strong className="text-primary">{filteredCohorts.length}</strong> cohort{filteredCohorts.length !== 1 ? 's' : ''}
-                    {filteredCohorts.length !== Object.keys(cohortsData).length && (
-                      <span className="text-gray-500"> out of {Object.keys(cohortsData).length} total</span>
-                    )}
-                  </span>
-                ) : (
-                  <SearchResultsCounter 
-                    filteredCohorts={filteredCohorts}
+              <div className="flex items-start gap-3">
+                <span className="text-gray-600 dark:text-gray-400 mt-0.5">🔍</span>
+                <div className="flex-1">
+                  <SearchResultsDisplay 
+                    cohortsData={cohortsData as Record<string, Cohort>}
                     searchTerms={searchTerms}
                     searchMode={searchMode}
+                    searchScope={searchScope}
                   />
-                )}
+                </div>
                 <button
                   onClick={() => {
                     setSearchInput('');
