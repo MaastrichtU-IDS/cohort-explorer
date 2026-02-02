@@ -352,7 +352,7 @@ def load_data(file_path):
 DATA_FILE = "/input/{cohort_id}"
 #
 # Option 2: Preview/Airlock sample - only the airlocked subset (e.g., 20%) of the processed data
-# DATA_FILE = "/input/preview-airlock-{cohort_id}"
+# DATA_FILE = "/input/preview-airlock-{cohort_id}/{cohort_id}_data_fragment.csv"
 #
 # Option 3: Shuffled sample - synthetic/shuffled data for testing
 # DATA_FILE = "/input/{cohort_id}_shuffled_sample"
