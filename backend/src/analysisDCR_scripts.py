@@ -64,7 +64,7 @@ def load_data(file_path):
                     else:
                         return pd.read_spss(data_file)
             except Exception as zip_error:
-                raise ValueError(f"Could not read file as CSV, SPSS, or ZIP. CSV error: {{csv_error}}, SPSS error: {{spss_error}}, ZIP error: {{zip_error}}")
+                raise ValueError("Could not read file as CSV, SPSS, or ZIP. CSV error: {}, SPSS error: {}, ZIP error: {}".format(csv_error, spss_error, zip_error))
 
 # Helper function to load metadata dictionary (CSV only)
 def load_metadata(file_path):
@@ -74,24 +74,34 @@ def load_metadata(file_path):
 df = load_data("/input/{cohort_id}")
 
 with open(log_file, "a") as log:
-    log.write(f"Loaded cohort data with {{len(df)}} rows and {{len(df.columns)}} columns\\n")
+    log.write("Loaded cohort data with {} rows and {} columns\\n".format(len(df), len(df.columns)))
 
 # Read the metadata dictionary (CSV only)
 try:
     metadata_df = load_metadata("/input/{cohort_id}_metadata_dictionary")
     with open(log_file, "a") as log:
-        log.write(f"Loaded metadata dictionary with {{len(metadata_df)}} variables\\n")
+        log.write("Loaded metadata dictionary with {} variables\\n".format(len(metadata_df)))
 except Exception as e:
     metadata_df = None
     with open(log_file, "a") as log:
-        log.write(f"Could not load metadata dictionary: {{e}}\\n")
+        log.write("Could not load metadata dictionary: {}\\n".format(e))
 
-# ID column name is passed from the room creation code (discovered using OMOP ID 4086934)
+# ID column name is passed from the room creation code (discovered using SNOMED/OMOP codes)
 # Replace ID column with synthetic IDs
 # IMPORTANT: Rows with the same original ID must get the same synthetic ID
-id_column = "{id_variable_name if id_variable_name else ''}"
+id_column_expected = "{id_variable_name if id_variable_name else ''}"
+
+# Case-insensitive matching to find the actual column name in the data
+id_column = None
+if id_column_expected:
+    id_col_lower = id_column_expected.lower().strip()
+    for col in df.columns:
+        if col.lower().strip() == id_col_lower:
+            id_column = col
+            break
+
 with open(log_file, "a") as log:
-    if id_column and id_column in df.columns:
+    if id_column:
         # Store original position of ID column
         id_col_position = df.columns.get_loc(id_column)
         
@@ -109,13 +119,16 @@ with open(log_file, "a") as log:
         # Insert synthetic IDs at the same position
         df.insert(id_col_position, 'Synthetic_ID', synthetic_ids)
         
-        log.write(f"Replaced ID column '{{id_column}}' with synthetic IDs at position {{id_col_position}}\\n")
-        log.write(f"Mapped {{len(unique_ids)}} unique original IDs to synthetic IDs\\n")
+        log.write("Replaced ID column '{}' with synthetic IDs at position {}\\n".format(id_column, id_col_position))
+        log.write("Mapped {} unique original IDs to synthetic IDs\\n".format(len(unique_ids)))
     else:
         # No ID column found - add synthetic IDs at the beginning (row-based, no grouping)
         synthetic_ids = ['AIRLOCK_' + str(i).zfill(6) for i in range(1, len(df) + 1)]
         df.insert(0, 'Synthetic_ID', synthetic_ids)
-        log.write(f"ID column not found or not specified, added row-based synthetic IDs at position 0\\n")
+        if id_column_expected:
+            log.write("Expected ID column '{}' not found in data columns, added row-based synthetic IDs\\n".format(id_column_expected))
+        else:
+            log.write("No ID column specified, added row-based synthetic IDs at position 0\\n")
 
 # Airlock percentage setting
 airlock_percentage = {airlock_percentage}
@@ -165,7 +178,7 @@ if metadata_df is not None:
                     numeric_vars.append(actual_col_name)
 
 with open(log_file, "a") as log:
-    log.write(f"\\nIdentified {{len(numeric_vars)}} numeric variables for outlier capping\\n")
+    log.write("\\nIdentified {} numeric variables for outlier capping\\n".format(len(numeric_vars)))
 
 # Outlier capping using z-scores (2 standard deviations)
 # Calculate statistics on FULL dataset, cap on fragment only
@@ -213,31 +226,31 @@ for var in numeric_vars:
         }})
     except Exception as e:
         with open(log_file, "a") as log:
-            log.write(f"Error processing variable {{var}}: {{e}}\\n")
+            log.write("Error processing variable {}: {}\\n".format(var, e))
 
 # Write outlier capping summary to log
 with open(log_file, "a") as log:
-    log.write(f"\\n=== Outlier Capping Summary (Z-score threshold: {{Z_THRESHOLD}}) ===\\n")
+    log.write("\\n=== Outlier Capping Summary (Z-score threshold: {}) ===\\n".format(Z_THRESHOLD))
     total_vars_capped = 0
     total_values_capped = 0
     for stat in outlier_stats:
         if stat['total_capped'] > 0:
             total_vars_capped += 1
             total_values_capped += stat['total_capped']
-        log.write(f"\\nVariable: {{stat['variable']}}\\n")
-        log.write(f"  Mean: {{stat['mean']:.4f}}, Median: {{stat['median']:.4f}}, Std: {{stat['std']:.4f}}\\n")
-        log.write(f"  Lower limit (mean - 2*std): {{stat['lower_limit']:.4f}}\\n")
-        log.write(f"  Upper limit (mean + 2*std): {{stat['upper_limit']:.4f}}\\n")
-        log.write(f"  Values capped below: {{stat['capped_below']}}, above: {{stat['capped_above']}}, total: {{stat['total_capped']}}\\n")
-    log.write(f"\\nTotal: {{total_values_capped}} values capped across {{total_vars_capped}} variables\\n")
+        log.write("\\nVariable: {}\\n".format(stat['variable']))
+        log.write("  Mean: {:.4f}, Median: {:.4f}, Std: {:.4f}\\n".format(stat['mean'], stat['median'], stat['std']))
+        log.write("  Lower limit (mean - 2*std): {:.4f}\\n".format(stat['lower_limit']))
+        log.write("  Upper limit (mean + 2*std): {:.4f}\\n".format(stat['upper_limit']))
+        log.write("  Values capped below: {}, above: {}, total: {}\\n".format(stat['capped_below'], stat['capped_above'], stat['total_capped']))
+    log.write("\\nTotal: {} values capped across {} variables\\n".format(total_values_capped, total_vars_capped))
 
 # Save the fragment to output
 output_file = os.path.join(output_dir, "{cohort_id}_data_fragment.csv")
 df_fragment.to_csv(output_file, index=False)
 
 with open(log_file, "a") as log:
-    log.write(f"\\nData fragment saved: {{output_file}}\\n")
-    log.write(f"Fragment size: {{len(df_fragment)}} rows out of {{len(df_full)}} total rows ({{len(df_fragment)/len(df_full)*100:.1f}}%)\\n")
+    log.write("\\nData fragment saved: {}\\n".format(output_file))
+    log.write("Fragment size: {} rows out of {} total rows ({:.1f}%)\\n".format(len(df_fragment), len(df_full), len(df_fragment)/len(df_full)*100))
 """
 
 
@@ -264,14 +277,7 @@ def visualization_script(fragment_node_name: str, cohort_id: str, variable_names
         vars_list = ",\n    ".join(f'"{v}"' for v in vars_sample)
     else:
         vars_list = '"var1", "var2", "var3"  # (variable list not available)'
-    return f"""import pandas as pd
-import matplotlib.pyplot as plt
-import numpy as np
-import os
-import random
-import tempfile
-import zipfile
-
+    return f"""
 ###############################################################################
 # USER-CONFIGURABLE SECTION
 # Modify the settings below to customize the visualization
@@ -300,17 +306,23 @@ SELECTED_VARIABLES = [
 
 # CHART SIZE
 # ----------
-# Controls the overall size of the output image.
-# - 0.5 = small (50% of default, good for quick previews)
-# - 1.0 = default size
-# - 1.5 = large (150% of default, good for presentations)
-CHART_SCALE = 0.5
+# Width of each chart in inches. Height is auto-calculated (width / 2.5).
+# - 6 = small (good for quick previews)
+# - 10 = default size
+# - 14 = large (good for presentations)
+CHART_WIDTH = 10
 
 ###############################################################################
 # END OF USER-CONFIGURABLE SECTION
 ###############################################################################
 
-# Helper function to load data from CSV, SPSS, or zipped files
+import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
+import os
+import random
+
+# Helper function to load data from CSV or SPSS files
 def load_data(file_path):
     # Try CSV first
     try:
@@ -320,34 +332,10 @@ def load_data(file_path):
         try:
             return pd.read_spss(file_path)
         except Exception as spss_error:
-            # Try as zip file
-            try:
-                with tempfile.TemporaryDirectory() as tmpdir:
-                    with zipfile.ZipFile(file_path, 'r') as zip_ref:
-                        zip_ref.extractall(tmpdir)
-                    
-                    # Find all CSV and SPSS files in the extracted directory
-                    data_files = []
-                    for root, dirs, files in os.walk(tmpdir):
-                        for file in files:
-                            if file.endswith(('.csv', '.sav', '.CSV', '.SAV')):
-                                data_files.append(os.path.join(root, file))
-                    
-                    if not data_files:
-                        raise ValueError("No CSV or SPSS files found in the zip archive")
-                    
-                    # Read the first data file found
-                    data_file = data_files[0]
-                    if data_file.lower().endswith('.csv'):
-                        return pd.read_csv(data_file)
-                    else:
-                        return pd.read_spss(data_file)
-            except Exception as zip_error:
-                raise ValueError(f"Could not read file as CSV, SPSS, or ZIP. CSV error: {{csv_error}}, SPSS error: {{spss_error}}, ZIP error: {{zip_error}}")
+            raise ValueError("Could not read file as CSV or SPSS. CSV error: {}, SPSS error: {}".format(csv_error, spss_error))
 
 # Output directory (always exists in Decentriq environment)
 output_dir = "/output"
-OUTPUT_FILENAME = "sample_dataViz_{cohort_id}.png"
 
 HISTOGRAM_BINS = 30
 MAX_CATEGORIES = 20
@@ -360,9 +348,9 @@ df = load_data(DATA_FILE)
 # Log basic info
 log_file = os.path.join(output_dir, "visualization_log.txt")
 with open(log_file, "w") as log:
-    log.write(f"Data source: {{DATA_FILE}}\\n")
-    log.write(f"Loaded data: {{len(df)}} rows, {{len(df.columns)}} columns\\n")
-    log.write(f"Columns: {{list(df.columns)}}\\n\\n")
+    log.write("Data source: {}\\n".format(DATA_FILE))
+    log.write("Loaded data: {} rows, {} columns\\n".format(len(df), len(df.columns)))
+    log.write("Columns: {}\\n\\n".format(list(df.columns)))
 
 # Try to load metadata dictionary to identify categorical variables
 categorical_vars = set()
@@ -380,10 +368,10 @@ try:
             if cat_value and cat_value.lower() not in ['', 'nan', 'none', 'n/a']:
                 categorical_vars.add(var_name)
         with open(log_file, "a") as log:
-            log.write(f"Loaded metadata: {{len(categorical_vars)}} categorical variables identified\\n\\n")
+            log.write("Loaded metadata: {} categorical variables identified\\n\\n".format(len(categorical_vars)))
 except Exception as e:
     with open(log_file, "a") as log:
-        log.write(f"Could not load metadata dictionary: {{e}}\\n\\n")
+        log.write("Could not load metadata dictionary: {}\\n\\n".format(e))
 
 # Determine which columns to visualize
 if SELECTED_VARIABLES is not None:
@@ -402,31 +390,33 @@ if SELECTED_VARIABLES is not None:
     
     if missing_cols:
         with open(log_file, "a") as log:
-            log.write(f"WARNING: The following requested columns were not found: {{missing_cols}}\\n")
+            log.write("WARNING: The following requested columns were not found: {}\\n".format(missing_cols))
     if not selected_columns:
-        raise ValueError(f"None of the specified columns exist in the data. Available columns: {{list(df.columns)}}")
+        raise ValueError("None of the specified columns exist in the data. Available columns: {}".format(list(df.columns)))
 else:
     # Select random columns
     num_cols_to_visualize = min(NUM_RANDOM_COLUMNS, len(df.columns))
     selected_columns = random.sample(list(df.columns), num_cols_to_visualize)
 
 with open(log_file, "a") as log:
-    log.write(f"Selected {{len(selected_columns)}} columns for visualization: {{selected_columns}}\\n\\n")
+    log.write("Selected {} columns for visualization: {}\\n\\n".format(len(selected_columns), selected_columns))
 
-# Create visualizations
-num_cols = len(selected_columns)
-fig, axes = plt.subplots(num_cols, 1, figsize=(10 * CHART_SCALE, 4 * num_cols * CHART_SCALE))
-if num_cols == 1:
-    axes = [axes]
+# Cohort name for filenames
+COHORT_NAME = "{cohort_id}"
 
-for idx, col in enumerate(selected_columns):
-    ax = axes[idx]
+# Create visualizations - one image per variable
+saved_files = []
+for col in selected_columns:
     col_data = df[col].dropna()
     
     with open(log_file, "a") as log:
-        log.write(f"Column: {{col}}\\n")
-        log.write(f"  Non-null values: {{len(col_data)}}\\n")
-        log.write(f"  Data type: {{df[col].dtype}}\\n")
+        log.write("Column: {}\\n".format(col))
+        log.write("  Non-null values: {}\\n".format(len(col_data)))
+        log.write("  Data type: {}\\n".format(df[col].dtype))
+    
+    # Create a new figure for each variable
+    chart_height = CHART_WIDTH / 2.5
+    fig, ax = plt.subplots(figsize=(CHART_WIDTH, chart_height))
     
     # Check if numeric or categorical
     # Treat as categorical if: (1) metadata says it's categorical, (2) it's binary (0/1), or (3) pandas says it's not numeric
@@ -439,18 +429,18 @@ for idx, col in enumerate(selected_columns):
         ax.hist(col_data, bins=HISTOGRAM_BINS, edgecolor='black', alpha=0.7)
         ax.set_xlabel(col)
         ax.set_ylabel('Frequency')
-        ax.set_title(f'Distribution of {{col}} (Numeric)')
+        ax.set_title('Distribution of {} (Numeric)'.format(col))
         
         # Add statistics
         mean_val = col_data.mean()
         median_val = col_data.median()
         std_val = col_data.std()
-        ax.axvline(mean_val, color='red', linestyle='--', label=f'Mean: {{mean_val:.2f}}')
-        ax.axvline(median_val, color='green', linestyle='--', label=f'Median: {{median_val:.2f}}')
+        ax.axvline(mean_val, color='red', linestyle='--', label='Mean: {:.2f}'.format(mean_val))
+        ax.axvline(median_val, color='green', linestyle='--', label='Median: {:.2f}'.format(median_val))
         ax.legend()
         
         with open(log_file, "a") as log:
-            log.write(f"  Mean: {{mean_val:.4f}}, Median: {{median_val:.4f}}, Std: {{std_val:.4f}}\\n\\n")
+            log.write("  Mean: {:.4f}, Median: {:.4f}, Std: {:.4f}\\n".format(mean_val, median_val, std_val))
     else:
         # Bar chart for categorical/binary data
         value_counts = col_data.value_counts().head(MAX_CATEGORIES)
@@ -458,20 +448,26 @@ for idx, col in enumerate(selected_columns):
         ax.set_yticks(range(len(value_counts)))
         ax.set_yticklabels([str(v)[:30] for v in value_counts.index])  # Truncate long labels
         ax.set_xlabel('Count')
-        chart_type = 'Binary' if is_binary else ('Categorical' if is_categorical_in_metadata else f'Categorical, top {{MAX_CATEGORIES}}')
-        ax.set_title(f'Distribution of {{col}} ({{chart_type}})')
+        chart_type = 'Binary' if is_binary else ('Categorical' if is_categorical_in_metadata else 'Categorical, top {}'.format(MAX_CATEGORIES))
+        ax.set_title('Distribution of {} ({})'.format(col, chart_type))
         
         with open(log_file, "a") as log:
-            log.write(f"  Unique values: {{df[col].nunique()}}\\n")
-            log.write(f"  Top 5 values: {{dict(value_counts.head(5))}}\\n\\n")
-
-plt.tight_layout()
-output_path = os.path.join(output_dir, OUTPUT_FILENAME)
-plt.savefig(output_path, dpi=int(150 * CHART_SCALE), bbox_inches='tight')
-plt.close()
+            log.write("  Unique values: {}\\n".format(df[col].nunique()))
+            log.write("  Top 5 values: {}\\n".format(dict(value_counts.head(5))))
+    
+    # Save individual image
+    plt.tight_layout()
+    output_filename = "{}_{}.png".format(col, COHORT_NAME)
+    output_path = os.path.join(output_dir, output_filename)
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    saved_files.append(output_filename)
+    
+    with open(log_file, "a") as log:
+        log.write("  Saved to: {}\\n\\n".format(output_filename))
 
 with open(log_file, "a") as log:
-    log.write(f"Visualization saved to {{OUTPUT_FILENAME}}\\n")
+    log.write("Visualization complete. {} images saved: {}\\n".format(len(saved_files), saved_files))
 """
 
 
@@ -513,38 +509,38 @@ with open(output_file, "w") as f:
         if not os.path.isfile(filepath):
             continue
         
-        f.write(f"\\n{'=' * 80}\\n")
-        f.write(f"FILE: {filename}\\n")
-        f.write(f"{'=' * 80}\\n")
+        f.write("\\n" + "=" * 80 + "\\n")
+        f.write("FILE: {}\\n".format(filename))
+        f.write("=" * 80 + "\\n")
         
         # File size in KB
         file_size_bytes = os.path.getsize(filepath)
         file_size_kb = file_size_bytes / 1024
-        f.write(f"Size: {file_size_kb:.2f} KB ({file_size_bytes:,} bytes)\\n")
+        f.write("Size: {:.2f} KB ({:,} bytes)\\n".format(file_size_kb, file_size_bytes))
         
         # Last modified date
         mod_timestamp = os.path.getmtime(filepath)
         mod_date = datetime.fromtimestamp(mod_timestamp)
-        f.write(f"Last Modified: {mod_date.strftime('%Y-%m-%d %H:%M:%S')}\\n")
+        f.write("Last Modified: {}\\n".format(mod_date.strftime('%Y-%m-%d %H:%M:%S')))
         
         # Try to load as tabular data and display info
         try:
             df = decentriq_util.read_tabular_data(filename)
-            f.write(f"\\nDataFrame Info:\\n")
-            f.write(f"  Rows: {len(df):,}\\n")
-            f.write(f"  Columns: {len(df.columns):,}\\n")
-            f.write(f"  Column names: {list(df.columns)}\\n")
+            f.write("\\nDataFrame Info:\\n")
+            f.write("  Rows: {:,}\\n".format(len(df)))
+            f.write("  Columns: {:,}\\n".format(len(df.columns)))
+            f.write("  Column names: {}\\n".format(list(df.columns)))
             
-            f.write(f"\\nFirst 5 rows:\\n")
+            f.write("\\nFirst 5 rows:\\n")
             f.write(df.head(5).to_string() + "\\n")
             
         except Exception as e:
-            f.write(f"\\nCould not load as tabular data: {e}\\n")
+            f.write("\\nCould not load as tabular data: {}\\n".format(e))
         
         f.write("\\n")
     
     f.write("=" * 80 + "\\n")
     f.write("EXPLORATION COMPLETE\\n")
     f.write("=" * 80 + "\\n")
-    f.write(f"\\nReport written to {output_file}\\n")
+    f.write("\\nReport written to {}\\n".format(output_file))
 """
