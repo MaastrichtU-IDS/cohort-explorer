@@ -1499,12 +1499,6 @@ def build_dcr_participants(
     if settings.decentriq_email and settings.decentriq_email != user_email:
         participants[settings.decentriq_email] = {"data_owner_of": set(), "analyst_of": set()}
     
-    # TEMPORARY: Add wei.wei as data owner of TIME-CHF for testing purposes
-    # TODO: Remove this override once testing is complete
-    TEMP_DATA_OWNER_OVERRIDES = {
-        "TIME-CHF": ["wei.wei@maastrichtuniversity.nl"]
-    }
-    
     # Process each cohort to determine data owners
     for cohort_id in cohorts_request.get('cohorts', {}).keys():
         if cohort_id not in all_cohorts:
@@ -1513,14 +1507,6 @@ def build_dcr_participants(
         cohort = all_cohorts[cohort_id]
         data_node_id = cohort_id.replace(" ", "-")
         metadata_node_id = f"{cohort_id.replace(' ', '-')}_metadata_dictionary"
-        
-        # Add temporary data owner overrides for testing
-        if cohort_id in TEMP_DATA_OWNER_OVERRIDES:
-            for temp_owner in TEMP_DATA_OWNER_OVERRIDES[cohort_id]:
-                if temp_owner not in participants:
-                    participants[temp_owner] = {"data_owner_of": set(), "analyst_of": set()}
-                participants[temp_owner]["data_owner_of"].add(data_node_id)
-                participants[temp_owner]["data_owner_of"].add(metadata_node_id)
         
         # Add data owners (in non-dev mode)
         if not settings.dev_mode:
@@ -1545,12 +1531,14 @@ def build_dcr_participants(
             participants[user_email]["data_owner_of"].add(metadata_node_id)
     
     # Add additional analysts if provided
+    # They get the same privileges as the requester (data_owner_of and analyst_of)
     if additional_analysts:
         for analyst_email in additional_analysts:
             if analyst_email and analyst_email != user_email:
                 if analyst_email not in participants:
                     participants[analyst_email] = {"data_owner_of": set(), "analyst_of": set()}
-                # Note: analyst_of nodes will be added later when nodes are defined
+                # Give them the same data_owner_of permissions as the requester
+                participants[analyst_email]["data_owner_of"].update(participants[user_email]["data_owner_of"])
     
     return participants
 

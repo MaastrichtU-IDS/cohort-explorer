@@ -291,7 +291,7 @@ def visualization_script(fragment_node_name: str, cohort_id: str, variable_names
 DATA_FILE = "/input/{cohort_id}"
 #
 # Option 2: Preview/Airlock sample - only the airlocked subset (e.g., 20%) of the processed data
-# DATA_FILE = "/input/preview-airlock-{cohort_id}"
+# DATA_FILE = "/input/preview-airlock-{cohort_id}/{cohort_id}_data_fragment.csv"
 #
 # Option 3: Shuffled sample - synthetic/shuffled data for testing
 # DATA_FILE = "/input/{cohort_id}_shuffled_sample"
@@ -306,11 +306,11 @@ SELECTED_VARIABLES = [
 
 # CHART SIZE
 # ----------
-# Width of each chart in inches. Height is auto-calculated (width / 2.5).
-# - 6 = small
-# - 10 = default size
-# - 14 = large 
-CHART_WIDTH = 10
+# Width of each output PNG file in centimeters. Height is auto-calculated (width / 2.5).
+# - 10 = small
+# - 15 = default size
+# - 25 = large 
+CHART_WIDTH_CM = 15
 
 ###############################################################################
 # END OF USER-CONFIGURABLE SECTION
@@ -415,8 +415,10 @@ for col in selected_columns:
         log.write("  Data type: {{}}\\n".format(df[col].dtype))
     
     # Create a new figure for each variable
-    chart_height = CHART_WIDTH / 2.5
-    fig, ax = plt.subplots(figsize=(CHART_WIDTH, chart_height))
+    # Convert cm to inches for matplotlib (1 inch = 2.54 cm)
+    chart_width_inches = CHART_WIDTH_CM / 2.54
+    chart_height_inches = chart_width_inches / 2.5
+    fig, ax = plt.subplots(figsize=(chart_width_inches, chart_height_inches))
     
     # Check if numeric or categorical
     # Treat as categorical if: (1) metadata says it's categorical, (2) it's binary (0/1), or (3) pandas says it's not numeric
