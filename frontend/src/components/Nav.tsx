@@ -360,7 +360,7 @@ export function Nav() {
         setLoadingMappingFiles(true);
         try {
           const cohortIds = Object.keys(dataCleanRoom.cohorts);
-          const response = await fetch(`${apiUrl}/get-available-mapping-files`, {
+          const response = await fetch(`${apiUrl}/api/get-available-mapping-files`, {
             method: 'POST',
             credentials: 'include',
             headers: {
