@@ -65,6 +65,7 @@ dependencies = [
     "langchain_groq",
     "fastembed",
     # "fastembed-gpu",
+    "onnxruntime <1.20",  # Pin to version compatible with Python 3.10
     "adapters",
     "langdetect",
     "rank_bm25",
