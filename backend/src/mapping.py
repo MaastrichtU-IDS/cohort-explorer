@@ -202,7 +202,7 @@ async def get_available_mapping_files(
                 mtime = os.path.getmtime(filepath)
                 
                 # Create display name showing all cohorts
-                display_name = ' ↔ '.join(file_cohorts)
+                display_name = ' → '.join(file_cohorts)
                 
                 available_mappings.append({
                     'cohorts': file_cohorts,
