@@ -37,7 +37,19 @@ export function Nav() {
   const [selectedMappingFiles, setSelectedMappingFiles] = useState<Record<string, boolean>>({});
   const [loadingMappingFiles, setLoadingMappingFiles] = useState(false);
   const [includeMappingUploadSlot, setIncludeMappingUploadSlot] = useState(false);
+  const [wizardMode, setWizardMode] = useState(false);
+  const [wizardStep, setWizardStep] = useState(0);
   const notificationRef = React.useRef<HTMLDivElement>(null);
+  
+  // Wizard step definitions
+  const wizardSteps = [
+    { id: 'name', title: 'DCR Name & Cohorts' },
+    { id: 'participants', title: 'Participants' },
+    { id: 'airlock', title: 'Airlock Settings' },
+    { id: 'shuffled', title: 'Shuffled Samples' },
+    { id: 'mapping', title: 'Mapping Files' },
+    { id: 'review', title: 'Review & Create' },
+  ];
   
   // Helper function to scroll to notification box
   const scrollToNotification = () => {
@@ -300,6 +312,8 @@ export function Nav() {
     setAvailableMappingFiles([]);
     setSelectedMappingFiles({});
     setIncludeMappingUploadSlot(false);
+    setWizardMode(false);
+    setWizardStep(0);
   };
 
   const addAnalyst = useCallback(() => {
@@ -553,219 +567,524 @@ export function Nav() {
       {showModal && (
         <div className="modal modal-open">
           <div className="modal-box max-w-4xl max-h-[85vh]">
-            {/* DCR Name field */}
-            <div className="form-control mb-3">
-                <div className="flex items-center gap-3">
-                  <span className="label-text font-semibold whitespace-nowrap">DCR Name</span>
-                  <input 
-                    type="text"
-                    placeholder="iCARE4CVD DCR compute XXX"
-                    className="input input-bordered w-full input-sm"
-                    value={dcrName}
-                    onChange={(e) => setDcrName(e.target.value)}
-                  />
-                </div>
-                <span className="text-xs text-base-content/60 mt-1">
-                  Leave empty to use the default naming. Note: your email address, &quot; - created by {userEmail}&quot;, will be appended to the name.
-                </span>
+            {/* Toggle link between standard and wizard view */}
+            <div className="flex justify-end mb-2">
+              <button 
+                className="text-xs text-primary hover:underline"
+                onClick={() => { setWizardMode(!wizardMode); setWizardStep(0); }}
+              >
+                {wizardMode ? '← Back to standard view' : 'Use step-by-step wizard →'}
+              </button>
             </div>
             
-            <h3 className="font-bold text-lg mb-3">Cohorts to load in Decentriq Data Clean Room</h3>
-            <p className="flex flex-wrap gap-x-1">
-              {Object.entries(dataCleanRoom?.cohorts).map(([cohortId, variables]: any, index, arr) => (
-                <span key={cohortId}>
-                  {cohortId} ({variables.length} variables){index < arr.length - 1 ? ',' : ''}
-                </span>
-              ))}
-            </p>
-            {/* TODO: add a section to merge added cohorts? (merge automatically on variables using mapped_id)
-            - An id for the new generated dataframe
-            - A list of autocomplete using the dataCleanRoom.cohorts
-            Once the first is selected we only show the cohorts with same number of variables?
-            */}
-            
-            {/* Other settings */}
+            {wizardMode ? (
+              /* ========== WIZARD VIEW ========== */
+              <>
+                {/* Step indicator */}
+                <ul className="steps steps-horizontal w-full mb-6 text-xs">
+                  {wizardSteps.map((step, idx) => (
+                    <li 
+                      key={step.id} 
+                      className={`step ${idx <= wizardStep ? 'step-primary' : ''} cursor-pointer`}
+                      onClick={() => setWizardStep(idx)}
+                    >
+                      {step.title}
+                    </li>
+                  ))}
+                </ul>
                 
-                <div className="mt-2">
-                  <button 
-                    className="btn btn-sm btn-outline"
-                    onClick={() => setShowParticipantsModal(true)}
-                  >
-                    Manage Participants
-                  </button>
-                  {(additionalAnalysts.length > 0 || excludedDataOwners.length > 0) && (
-                    <span className="ml-2 text-sm text-base-content/70">
-                      {additionalAnalysts.length > 0 && `+${additionalAnalysts.length} analyst${additionalAnalysts.length > 1 ? 's' : ''}`}
-                      {additionalAnalysts.length > 0 && excludedDataOwners.length > 0 && ', '}
-                      {excludedDataOwners.length > 0 && `${excludedDataOwners.length} data owner${excludedDataOwners.length > 1 ? 's' : ''} excluded`}
-                    </span>
-                  )}
-                </div>
-                
-                {/* Airlock Settings */}
-                <div className="mt-2">
-                  <div className="divider my-2"></div>
-                  <h3 className="font-bold text-lg mb-1">Airlock Settings</h3>
-                  <p className="text-sm text-base-content/70 mb-2">Select the cohorts to include in the airlock (20% of the data will be visible to analysts inside the DCR):</p>
-                  <div className="flex flex-wrap gap-x-4 gap-y-1">
-                    {dataCleanRoom?.cohorts && Object.keys(dataCleanRoom.cohorts).map((cohortId) => (
-                      <div key={cohortId} className="form-control">
-                        <label className="label cursor-pointer justify-start gap-2 py-1">
-                          <input 
-                            type="checkbox"
-                            checked={airlockSettings[cohortId] ?? true}
-                            onChange={(e) => {
-                              setAirlockSettings({...airlockSettings, [cohortId]: e.target.checked});
-                            }}
-                            className="checkbox checkbox-primary"
-                          />
-                          <span className="label-text">{cohortId}</span>
-                        </label>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                
-                {/* Shuffled Samples Settings */}
-                <div className="mt-2">
-                  <div className="divider my-2"></div>
-                  <h3 className="font-bold text-lg mb-1">Shuffled Samples Settings</h3>
-                  {loadingShuffledSamples ? (
-                    <p className="text-sm text-base-content/70">Checking shuffled sample availability...</p>
-                  ) : (
+                {/* Step content */}
+                <div className="min-h-[300px]">
+                  {/* Step 0: DCR Name & Cohorts */}
+                  {wizardStep === 0 && (
                     <>
-                      {cohortsWithShuffledSamples.length > 0 && (
-                        <>
-                          <p className="text-sm text-base-content/70 mb-2">Select the shuffled samples to include:</p>
-                          <div className="flex flex-wrap gap-x-4 gap-y-1">
-                            {cohortsWithShuffledSamples.map((cohortId) => (
-                              <div key={cohortId} className="form-control">
-                                <label className="label cursor-pointer justify-start gap-2 py-1">
-                                  <input 
-                                    type="checkbox"
-                                    checked={shuffledSampleSettings[cohortId] ?? true}
-                                    onChange={(e) => {
-                                      setShuffledSampleSettings({...shuffledSampleSettings, [cohortId]: e.target.checked});
-                                    }}
-                                    className="checkbox checkbox-primary"
-                                  />
-                                  <span className="label-text">{cohortId}</span>
-                                </label>
-                              </div>
-                            ))}
-                          </div>
-                        </>
-                      )}
-                      {cohortsWithoutShuffledSamples.length > 0 && (
-                        <p className="text-sm text-base-content/50 mt-3 italic">
-                          Cohorts without shuffled samples: {cohortsWithoutShuffledSamples.join(', ')}
-                        </p>
-                      )}
-                      {cohortsWithShuffledSamples.length === 0 && cohortsWithoutShuffledSamples.length === 0 && (
-                        <p className="text-sm text-base-content/50 italic">None of the selected cohorts have a shuffled sample</p>
+                      <h3 className="font-bold text-lg mb-4">Step 1: DCR Name & Cohorts</h3>
+                      <div className="form-control mb-4">
+                        <label className="label">
+                          <span className="label-text font-semibold">DCR Name</span>
+                        </label>
+                        <input 
+                          type="text"
+                          placeholder="iCARE4CVD DCR compute XXX"
+                          className="input input-bordered w-full"
+                          value={dcrName}
+                          onChange={(e) => setDcrName(e.target.value)}
+                        />
+                        <span className="text-xs text-base-content/60 mt-1">
+                          Leave empty to use the default naming. Your email will be appended.
+                        </span>
+                      </div>
+                      <div className="mt-4">
+                        <label className="label">
+                          <span className="label-text font-semibold">Selected Cohorts</span>
+                        </label>
+                        <div className="bg-base-200 p-3 rounded-lg">
+                          {Object.entries(dataCleanRoom?.cohorts || {}).map(([cohortId, variables]: any) => (
+                            <div key={cohortId} className="badge badge-outline mr-2 mb-1">
+                              {cohortId} ({variables.length} vars)
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                  
+                  {/* Step 1: Participants */}
+                  {wizardStep === 1 && (
+                    <>
+                      <h3 className="font-bold text-lg mb-4">Step 2: Manage Participants</h3>
+                      <p className="text-sm text-base-content/70 mb-4">
+                        Add additional analysts or exclude data owners from the DCR.
+                      </p>
+                      <button 
+                        className="btn btn-outline"
+                        onClick={() => setShowParticipantsModal(true)}
+                      >
+                        Open Participants Manager
+                      </button>
+                      {(additionalAnalysts.length > 0 || excludedDataOwners.length > 0) && (
+                        <div className="mt-4 p-3 bg-base-200 rounded-lg">
+                          {additionalAnalysts.length > 0 && (
+                            <p className="text-sm">
+                              <strong>Additional analysts:</strong> {additionalAnalysts.join(', ')}
+                            </p>
+                          )}
+                          {excludedDataOwners.length > 0 && (
+                            <p className="text-sm mt-1">
+                              <strong>Excluded data owners:</strong> {excludedDataOwners.join(', ')}
+                            </p>
+                          )}
+                        </div>
                       )}
                     </>
                   )}
-                </div>
-                
-                {/* Mapping File Settings */}
-                <div className="mt-2">
-                  <div className="divider my-2"></div>
-                  <h3 className="font-bold text-lg mb-1">Mapping File Settings</h3>
-                  {loadingMappingFiles ? (
-                    <p className="text-sm text-base-content/70">Checking for available mapping files...</p>
-                  ) : availableMappingFiles.length > 0 ? (
+                  
+                  {/* Step 2: Airlock Settings */}
+                  {wizardStep === 2 && (
                     <>
-                      <p className="text-sm text-base-content/70 mb-2">Select mapping files to include in the DCR:</p>
-                      <div className="flex flex-wrap gap-x-4 gap-y-1">
-                        {availableMappingFiles.map((mapping) => (
-                          <div key={mapping.filename} className="form-control">
-                            <label className="label cursor-pointer justify-start gap-2 py-1">
+                      <h3 className="font-bold text-lg mb-4">Step 3: Airlock Settings</h3>
+                      <p className="text-sm text-base-content/70 mb-4">
+                        Select which cohorts to include in the airlock. 20% of the data will be visible to analysts inside the DCR.
+                      </p>
+                      <div className="space-y-2">
+                        {dataCleanRoom?.cohorts && Object.keys(dataCleanRoom.cohorts).map((cohortId) => (
+                          <div key={cohortId} className="form-control">
+                            <label className="label cursor-pointer justify-start gap-3">
                               <input 
                                 type="checkbox"
-                                checked={selectedMappingFiles[mapping.filename] ?? true}
+                                checked={airlockSettings[cohortId] ?? true}
                                 onChange={(e) => {
-                                  setSelectedMappingFiles({...selectedMappingFiles, [mapping.filename]: e.target.checked});
+                                  setAirlockSettings({...airlockSettings, [cohortId]: e.target.checked});
                                 }}
                                 className="checkbox checkbox-primary"
                               />
-                              <span className="label-text">{mapping.display_name}</span>
+                              <span className="label-text text-base">{cohortId}</span>
                             </label>
                           </div>
                         ))}
                       </div>
                     </>
-                  ) : Object.keys(dataCleanRoom?.cohorts || {}).length < 2 ? (
-                    <p className="text-sm text-base-content/50 italic">Select at least 2 cohorts to see available mapping files</p>
-                  ) : (
-                    <p className="text-sm text-base-content/50 italic">No mapping files available for the selected cohorts</p>
                   )}
                   
-                  {/* Option to include upload slot for mapping file */}
-                  <div className="form-control mt-4">
-                    <label className="label cursor-pointer justify-start gap-2">
-                      <input 
-                        type="checkbox"
-                        checked={includeMappingUploadSlot}
-                        onChange={(e) => setIncludeMappingUploadSlot(e.target.checked)}
-                        className="checkbox checkbox-primary"
-                      />
-                      <span className="label-text">Include file upload slot for cross-study mapping</span>
-                    </label>
-                  </div>
+                  {/* Step 3: Shuffled Samples */}
+                  {wizardStep === 3 && (
+                    <>
+                      <h3 className="font-bold text-lg mb-4">Step 4: Shuffled Samples</h3>
+                      {loadingShuffledSamples ? (
+                        <p className="text-sm text-base-content/70">Checking shuffled sample availability...</p>
+                      ) : (
+                        <>
+                          {cohortsWithShuffledSamples.length > 0 ? (
+                            <>
+                              <p className="text-sm text-base-content/70 mb-4">Select which shuffled samples to include:</p>
+                              <div className="space-y-2">
+                                {cohortsWithShuffledSamples.map((cohortId) => (
+                                  <div key={cohortId} className="form-control">
+                                    <label className="label cursor-pointer justify-start gap-3">
+                                      <input 
+                                        type="checkbox"
+                                        checked={shuffledSampleSettings[cohortId] ?? true}
+                                        onChange={(e) => {
+                                          setShuffledSampleSettings({...shuffledSampleSettings, [cohortId]: e.target.checked});
+                                        }}
+                                        className="checkbox checkbox-primary"
+                                      />
+                                      <span className="label-text text-base">{cohortId}</span>
+                                    </label>
+                                  </div>
+                                ))}
+                              </div>
+                            </>
+                          ) : (
+                            <p className="text-sm text-base-content/50 italic">
+                              None of the selected cohorts have shuffled samples available.
+                            </p>
+                          )}
+                          {cohortsWithoutShuffledSamples.length > 0 && cohortsWithShuffledSamples.length > 0 && (
+                            <p className="text-sm text-base-content/50 mt-4 italic">
+                              Cohorts without shuffled samples: {cohortsWithoutShuffledSamples.join(', ')}
+                            </p>
+                          )}
+                        </>
+                      )}
+                    </>
+                  )}
                   
-                  <p className="text-xs text-base-content/50 mt-3 italic">
-                    Missing a mapping file? Generate it from the <Link href="/mapping" className="underline hover:text-primary">Mapping page</Link> to add it to the cache.
-                  </p>
+                  {/* Step 4: Mapping Files */}
+                  {wizardStep === 4 && (
+                    <>
+                      <h3 className="font-bold text-lg mb-4">Step 5: Mapping Files</h3>
+                      {loadingMappingFiles ? (
+                        <p className="text-sm text-base-content/70">Checking for available mapping files...</p>
+                      ) : availableMappingFiles.length > 0 ? (
+                        <>
+                          <p className="text-sm text-base-content/70 mb-4">Select mapping files to include in the DCR:</p>
+                          <div className="space-y-2">
+                            {availableMappingFiles.map((mapping) => (
+                              <div key={mapping.filename} className="form-control">
+                                <label className="label cursor-pointer justify-start gap-3">
+                                  <input 
+                                    type="checkbox"
+                                    checked={selectedMappingFiles[mapping.filename] ?? true}
+                                    onChange={(e) => {
+                                      setSelectedMappingFiles({...selectedMappingFiles, [mapping.filename]: e.target.checked});
+                                    }}
+                                    className="checkbox checkbox-primary"
+                                  />
+                                  <span className="label-text text-base">{mapping.display_name}</span>
+                                </label>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      ) : Object.keys(dataCleanRoom?.cohorts || {}).length < 2 ? (
+                        <p className="text-sm text-base-content/50 italic">Select at least 2 cohorts to see available mapping files.</p>
+                      ) : (
+                        <p className="text-sm text-base-content/50 italic">No mapping files available for the selected cohorts.</p>
+                      )}
+                      
+                      <div className="form-control mt-6">
+                        <label className="label cursor-pointer justify-start gap-3">
+                          <input 
+                            type="checkbox"
+                            checked={includeMappingUploadSlot}
+                            onChange={(e) => setIncludeMappingUploadSlot(e.target.checked)}
+                            className="checkbox checkbox-primary"
+                          />
+                          <span className="label-text text-base">Include file upload slot for cross-study mapping</span>
+                        </label>
+                      </div>
+                      
+                      <p className="text-xs text-base-content/50 mt-4 italic">
+                        Missing a mapping file? Generate it from the <Link href="/mapping" className="underline hover:text-primary">Mapping page</Link>.
+                      </p>
+                    </>
+                  )}
+                  
+                  {/* Step 5: Review & Create */}
+                  {wizardStep === 5 && (
+                    <>
+                      <h3 className="font-bold text-lg mb-4">Step 6: Review & Create</h3>
+                      <div className="space-y-3 text-sm">
+                        <div className="p-3 bg-base-200 rounded-lg">
+                          <strong>DCR Name:</strong> {dcrName || '(default naming)'}
+                        </div>
+                        <div className="p-3 bg-base-200 rounded-lg">
+                          <strong>Cohorts:</strong> {Object.keys(dataCleanRoom?.cohorts || {}).join(', ')}
+                        </div>
+                        <div className="p-3 bg-base-200 rounded-lg">
+                          <strong>Additional Analysts:</strong> {additionalAnalysts.length > 0 ? additionalAnalysts.join(', ') : 'None'}
+                        </div>
+                        <div className="p-3 bg-base-200 rounded-lg">
+                          <strong>Airlock Cohorts:</strong> {Object.entries(airlockSettings).filter(([_, v]) => v !== false).map(([k]) => k).join(', ') || 'All selected'}
+                        </div>
+                        <div className="p-3 bg-base-200 rounded-lg">
+                          <strong>Shuffled Samples:</strong> {Object.entries(shuffledSampleSettings).filter(([_, v]) => v !== false).map(([k]) => k).join(', ') || 'None selected'}
+                        </div>
+                        <div className="p-3 bg-base-200 rounded-lg">
+                          <strong>Mapping Files:</strong> {availableMappingFiles.filter(m => selectedMappingFiles[m.filename] !== false).map(m => m.display_name).join(', ') || 'None'}
+                          {includeMappingUploadSlot && ' + Upload slot'}
+                        </div>
+                      </div>
+                      
+                      <div className="flex flex-wrap gap-2 mt-6">
+                        <button 
+                          className="btn btn-primary" 
+                          onClick={createLiveDCR} 
+                          disabled={isLoading || dcrCreated}
+                        >
+                          Create Live DCR
+                        </button>
+                        <button 
+                          className="btn btn-neutral" 
+                          onClick={getDCRDefinitionFile} 
+                          disabled={isLoading || configDownloaded}
+                        >
+                          Download DCR Config
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
-            
-            <div className="modal-action flex flex-wrap justify-end gap-2 mt-4">
-                {/* <div className="flex flex-wrap space-y-2"> */}
-                <button 
-                  className="btn btn-primary" 
-                  onClick={createLiveDCR} 
-                  disabled={isLoading || dcrCreated}
-                >
-                  Create Live DCR
-                </button>
-                <button 
-                  className="btn btn-neutral" 
-                  onClick={getDCRDefinitionFile} 
-                  disabled={isLoading || configDownloaded}
-                >
-                  Download DCR Config
-                </button>
-                <button 
-                  className="btn" 
-                  onClick={clearCohortsList}
-                >
-                  Clear cohorts
-                </button>
-                <button className="btn" onClick={() => setShowModal(false)}>
-                  Close
-                </button>
-                {/* </div> */}
-            </div>
-            {/* TODO: {isLoading && <div className="loader"></div>} */}
-            {isLoading && (
-              <div className="flex flex-col items-center opacity-70 text-slate-500 mt-5 mb-5">
-                <span className="loading loading-spinner loading-lg mb-4"></span>
-                <p>
-                  {loadingAction === 'live' 
-                    ? 'Creating the Data Clean Room on Decentriq Platform. Will take a few seconds...'
-                    : 'Creating the file specification for a DCR draft...'}
-                </p>
-              </div>
-            )}
-            <div ref={notificationRef}>
-              {publishedDCR && (
-                <div className="card card-compact">
-                  <div className="card-body mt-5">
-                      {publishedDCR}
+                
+                {/* Wizard navigation buttons */}
+                <div className="flex justify-between mt-6 pt-4 border-t">
+                  <div>
+                    {wizardStep > 0 && (
+                      <button 
+                        className="btn btn-outline"
+                        onClick={() => setWizardStep(wizardStep - 1)}
+                      >
+                        ← Previous
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <button className="btn" onClick={() => setShowModal(false)}>
+                      Close
+                    </button>
+                    {wizardStep < wizardSteps.length - 1 && (
+                      <button 
+                        className="btn btn-primary"
+                        onClick={() => setWizardStep(wizardStep + 1)}
+                      >
+                        Next →
+                      </button>
+                    )}
                   </div>
                 </div>
-              )}
-            </div>
+                
+                {/* Loading and notification for wizard */}
+                {isLoading && (
+                  <div className="flex flex-col items-center opacity-70 text-slate-500 mt-5 mb-5">
+                    <span className="loading loading-spinner loading-lg mb-4"></span>
+                    <p>
+                      {loadingAction === 'live' 
+                        ? 'Creating the Data Clean Room on Decentriq Platform. Will take a few seconds...'
+                        : 'Creating the file specification for a DCR draft...'}
+                    </p>
+                  </div>
+                )}
+                <div ref={wizardStep === 5 ? notificationRef : undefined}>
+                  {publishedDCR && wizardStep === 5 && (
+                    <div className="card card-compact">
+                      <div className="card-body mt-5">
+                        {publishedDCR}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              /* ========== STANDARD VIEW ========== */
+              <>
+                {/* DCR Name field */}
+                <div className="form-control mb-3">
+                    <div className="flex items-center gap-3">
+                      <span className="label-text font-semibold whitespace-nowrap">DCR Name</span>
+                      <input 
+                        type="text"
+                        placeholder="iCARE4CVD DCR compute XXX"
+                        className="input input-bordered w-full input-sm"
+                        value={dcrName}
+                        onChange={(e) => setDcrName(e.target.value)}
+                      />
+                    </div>
+                    <span className="text-xs text-base-content/60 mt-1">
+                      Leave empty to use the default naming. Note: your email address, &quot; - created by {userEmail}&quot;, will be appended to the name.
+                    </span>
+                </div>
+                
+                <h3 className="font-bold text-lg mb-3">Cohorts to load in Decentriq Data Clean Room</h3>
+                <p className="flex flex-wrap gap-x-1">
+                  {Object.entries(dataCleanRoom?.cohorts).map(([cohortId, variables]: any, index, arr) => (
+                    <span key={cohortId}>
+                      {cohortId} ({variables.length} variables){index < arr.length - 1 ? ',' : ''}
+                    </span>
+                  ))}
+                </p>
+                
+                {/* Other settings */}
+                    
+                    <div className="mt-2">
+                      <button 
+                        className="btn btn-sm btn-outline"
+                        onClick={() => setShowParticipantsModal(true)}
+                      >
+                        Manage Participants
+                      </button>
+                      {(additionalAnalysts.length > 0 || excludedDataOwners.length > 0) && (
+                        <span className="ml-2 text-sm text-base-content/70">
+                          {additionalAnalysts.length > 0 && `+${additionalAnalysts.length} analyst${additionalAnalysts.length > 1 ? 's' : ''}`}
+                          {additionalAnalysts.length > 0 && excludedDataOwners.length > 0 && ', '}
+                          {excludedDataOwners.length > 0 && `${excludedDataOwners.length} data owner${excludedDataOwners.length > 1 ? 's' : ''} excluded`}
+                        </span>
+                      )}
+                    </div>
+                    
+                    {/* Airlock Settings */}
+                    <div className="mt-2">
+                      <div className="divider my-2"></div>
+                      <h3 className="font-bold text-lg mb-1">Airlock Settings</h3>
+                      <p className="text-sm text-base-content/70 mb-2">Select the cohorts to include in the airlock (20% of the data will be visible to analysts inside the DCR):</p>
+                      <div className="flex flex-wrap gap-x-4 gap-y-1">
+                        {dataCleanRoom?.cohorts && Object.keys(dataCleanRoom.cohorts).map((cohortId) => (
+                          <div key={cohortId} className="form-control">
+                            <label className="label cursor-pointer justify-start gap-2 py-1">
+                              <input 
+                                type="checkbox"
+                                checked={airlockSettings[cohortId] ?? true}
+                                onChange={(e) => {
+                                  setAirlockSettings({...airlockSettings, [cohortId]: e.target.checked});
+                                }}
+                                className="checkbox checkbox-primary"
+                              />
+                              <span className="label-text">{cohortId}</span>
+                            </label>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    
+                    {/* Shuffled Samples Settings */}
+                    <div className="mt-2">
+                      <div className="divider my-2"></div>
+                      <h3 className="font-bold text-lg mb-1">Shuffled Samples Settings</h3>
+                      {loadingShuffledSamples ? (
+                        <p className="text-sm text-base-content/70">Checking shuffled sample availability...</p>
+                      ) : (
+                        <>
+                          {cohortsWithShuffledSamples.length > 0 && (
+                            <>
+                              <p className="text-sm text-base-content/70 mb-2">Select the shuffled samples to include:</p>
+                              <div className="flex flex-wrap gap-x-4 gap-y-1">
+                                {cohortsWithShuffledSamples.map((cohortId) => (
+                                  <div key={cohortId} className="form-control">
+                                    <label className="label cursor-pointer justify-start gap-2 py-1">
+                                      <input 
+                                        type="checkbox"
+                                        checked={shuffledSampleSettings[cohortId] ?? true}
+                                        onChange={(e) => {
+                                          setShuffledSampleSettings({...shuffledSampleSettings, [cohortId]: e.target.checked});
+                                        }}
+                                        className="checkbox checkbox-primary"
+                                      />
+                                      <span className="label-text">{cohortId}</span>
+                                    </label>
+                                  </div>
+                                ))}
+                              </div>
+                            </>
+                          )}
+                          {cohortsWithoutShuffledSamples.length > 0 && (
+                            <p className="text-sm text-base-content/50 mt-3 italic">
+                              Cohorts without shuffled samples: {cohortsWithoutShuffledSamples.join(', ')}
+                            </p>
+                          )}
+                          {cohortsWithShuffledSamples.length === 0 && cohortsWithoutShuffledSamples.length === 0 && (
+                            <p className="text-sm text-base-content/50 italic">None of the selected cohorts have a shuffled sample</p>
+                          )}
+                        </>
+                      )}
+                    </div>
+                    
+                    {/* Mapping File Settings */}
+                    <div className="mt-2">
+                      <div className="divider my-2"></div>
+                      <h3 className="font-bold text-lg mb-1">Mapping File Settings</h3>
+                      {loadingMappingFiles ? (
+                        <p className="text-sm text-base-content/70">Checking for available mapping files...</p>
+                      ) : availableMappingFiles.length > 0 ? (
+                        <>
+                          <p className="text-sm text-base-content/70 mb-2">Select mapping files to include in the DCR:</p>
+                          <div className="flex flex-wrap gap-x-4 gap-y-1">
+                            {availableMappingFiles.map((mapping) => (
+                              <div key={mapping.filename} className="form-control">
+                                <label className="label cursor-pointer justify-start gap-2 py-1">
+                                  <input 
+                                    type="checkbox"
+                                    checked={selectedMappingFiles[mapping.filename] ?? true}
+                                    onChange={(e) => {
+                                      setSelectedMappingFiles({...selectedMappingFiles, [mapping.filename]: e.target.checked});
+                                    }}
+                                    className="checkbox checkbox-primary"
+                                  />
+                                  <span className="label-text">{mapping.display_name}</span>
+                                </label>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      ) : Object.keys(dataCleanRoom?.cohorts || {}).length < 2 ? (
+                        <p className="text-sm text-base-content/50 italic">Select at least 2 cohorts to see available mapping files</p>
+                      ) : (
+                        <p className="text-sm text-base-content/50 italic">No mapping files available for the selected cohorts</p>
+                      )}
+                      
+                      {/* Option to include upload slot for mapping file */}
+                      <div className="form-control mt-4">
+                        <label className="label cursor-pointer justify-start gap-2">
+                          <input 
+                            type="checkbox"
+                            checked={includeMappingUploadSlot}
+                            onChange={(e) => setIncludeMappingUploadSlot(e.target.checked)}
+                            className="checkbox checkbox-primary"
+                          />
+                          <span className="label-text">Include file upload slot for cross-study mapping</span>
+                        </label>
+                      </div>
+                      
+                      <p className="text-xs text-base-content/50 mt-3 italic">
+                        Missing a mapping file? Generate it from the <Link href="/mapping" className="underline hover:text-primary">Mapping page</Link> to add it to the cache.
+                      </p>
+                    </div>
+                
+                <div className="modal-action flex flex-wrap justify-end gap-2 mt-4">
+                    <button 
+                      className="btn btn-primary" 
+                      onClick={createLiveDCR} 
+                      disabled={isLoading || dcrCreated}
+                    >
+                      Create Live DCR
+                    </button>
+                    <button 
+                      className="btn btn-neutral" 
+                      onClick={getDCRDefinitionFile} 
+                      disabled={isLoading || configDownloaded}
+                    >
+                      Download DCR Config
+                    </button>
+                    <button 
+                      className="btn" 
+                      onClick={clearCohortsList}
+                    >
+                      Clear cohorts
+                    </button>
+                    <button className="btn" onClick={() => setShowModal(false)}>
+                      Close
+                    </button>
+                </div>
+                {isLoading && (
+                  <div className="flex flex-col items-center opacity-70 text-slate-500 mt-5 mb-5">
+                    <span className="loading loading-spinner loading-lg mb-4"></span>
+                    <p>
+                      {loadingAction === 'live' 
+                        ? 'Creating the Data Clean Room on Decentriq Platform. Will take a few seconds...'
+                        : 'Creating the file specification for a DCR draft...'}
+                    </p>
+                  </div>
+                )}
+                <div ref={notificationRef}>
+                  {publishedDCR && (
+                    <div className="card card-compact">
+                      <div className="card-body mt-5">
+                          {publishedDCR}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
