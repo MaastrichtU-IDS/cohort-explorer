@@ -37,7 +37,7 @@ export function Nav() {
   const [selectedMappingFiles, setSelectedMappingFiles] = useState<Record<string, boolean>>({});
   const [loadingMappingFiles, setLoadingMappingFiles] = useState(false);
   const [includeMappingUploadSlot, setIncludeMappingUploadSlot] = useState(false);
-  const [wizardMode, setWizardMode] = useState(false);
+  const [wizardMode, setWizardMode] = useState(true);
   const [wizardStep, setWizardStep] = useState(0);
   const notificationRef = React.useRef<HTMLDivElement>(null);
   
@@ -527,7 +527,7 @@ export function Nav() {
       <div className="navbar-end">
         {/* Desktop */}
         <div className="menu menu-horizontal my-0 py-0 space-x-6 pr-6 items-center">
-          <button id="dcr-button" onClick={() => setShowModal(true)} className="btn transition-all duration-300">
+          <button id="dcr-button" onClick={() => setShowModal(true)} className="btn btn-outline btn-lg shadow-md hover:shadow-lg transition-all duration-300">
             Data Clean Room <div className="badge badge-neutral">{Object.keys(dataCleanRoom?.cohorts).length || 0}</div>
           </button>
 
@@ -573,7 +573,7 @@ export function Nav() {
                 className="text-xs text-primary hover:underline"
                 onClick={() => { setWizardMode(!wizardMode); setWizardStep(0); }}
               >
-                {wizardMode ? '← Back to standard view' : 'Use step-by-step wizard →'}
+                {wizardMode ? 'Switch to 1-page view →' : '← Back to step-by-step wizard'}
               </button>
             </div>
             
