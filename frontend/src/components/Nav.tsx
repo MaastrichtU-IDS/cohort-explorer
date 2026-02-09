@@ -331,7 +331,13 @@ export function Nav() {
     setAdditionalAnalysts(prev => prev.filter(e => e !== email));
   }, []);
 
-  // Fetch shuffled sample availability when modal opens
+  // Track cohort IDs as a string for dependency comparison
+  const cohortIdsKey = useMemo(() => 
+    Object.keys(dataCleanRoom?.cohorts || {}).sort().join(','), 
+    [dataCleanRoom?.cohorts]
+  );
+
+  // Fetch shuffled sample availability when modal opens or cohorts change
   useEffect(() => {
     if (showModal && dataCleanRoom?.cohorts && Object.keys(dataCleanRoom.cohorts).length > 0) {
       const fetchShuffledSamples = async () => {
@@ -368,7 +374,7 @@ export function Nav() {
       
       fetchShuffledSamples();
     }
-  }, [showModal, dataCleanRoom?.cohorts]);
+  }, [showModal, cohortIdsKey]);
 
   // Fetch available mapping files when modal opens
   useEffect(() => {
@@ -405,7 +411,7 @@ export function Nav() {
       
       fetchMappingFiles();
     }
-  }, [showModal, dataCleanRoom?.cohorts]);
+  }, [showModal, cohortIdsKey]);
 
   // Fetch participants preview when modal opens
   useEffect(() => {
