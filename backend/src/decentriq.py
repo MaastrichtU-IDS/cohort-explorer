@@ -820,10 +820,9 @@ async def get_compute_dcr_definition(
             if settings.decentriq_email and settings.decentriq_email in participants:
                 participants[settings.decentriq_email]["data_owner_of"].add(node_name)
             
-            # Add all existing data owners as owners of mapping nodes
+            # Add all participants (data owners and analysts) as owners of mapping nodes
             for email, roles in participants.items():
-                if len(roles["data_owner_of"]) > 0:
-                    roles["data_owner_of"].add(node_name)
+                roles["data_owner_of"].add(node_name)
             
             logging.info(f"Added mapping node: {node_name} for file: {mapping_file['filepath']}")
     
@@ -839,10 +838,9 @@ async def get_compute_dcr_definition(
         if settings.decentriq_email and settings.decentriq_email in participants:
             participants[settings.decentriq_email]["data_owner_of"].add("CrossStudyMappings")
         
-        # Add all data owners as owners of CrossStudyMappings
+        # Add all participants (data owners and analysts) as owners of CrossStudyMappings
         for email, roles in participants.items():
-            if len(roles["data_owner_of"]) > 0:
-                roles["data_owner_of"].add("CrossStudyMappings")
+            roles["data_owner_of"].add("CrossStudyMappings")
     
     # Add users permissions for previews
     # for prev_node in preview_nodes:

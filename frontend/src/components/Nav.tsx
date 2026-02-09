@@ -2,6 +2,7 @@
 
 import React, {useState, useEffect, useMemo, useCallback} from 'react';
 import Link from 'next/link';
+import {useRouter} from 'next/router';
 import {LogIn, LogOut, Compass, Upload, HardDrive, Map} from 'react-feather';
 import {useCohorts} from '@/components/CohortsContext';
 import {DarkThemeIcon, LightThemeIcon} from '@/components/Icons';
@@ -13,6 +14,8 @@ import {apiUrl} from '@/utils';
 // https://github.com/nextauthjs/next-auth-example/blob/cc1c91a65c70e1a51bfbbb550dbc85e605f0e402/auth.ts
 
 export function Nav() {
+  const router = useRouter();
+  const { pathname } = router;
   const {dataCleanRoom, setDataCleanRoom, cohortsData, setCohortsData, userEmail, setUserEmail} = useCohorts();
   const [theme, setTheme] = useState('light');
   const [showModal, setShowModal] = useState(false);
@@ -386,10 +389,10 @@ export function Nav() {
           if (response.ok) {
             const result = await response.json();
             setAvailableMappingFiles(result.available_mappings);
-            // Initialize selection - default to true for all available mappings
+            // Initialize selection - default to false (unselected) for all available mappings
             const initialSettings: Record<string, boolean> = {};
             result.available_mappings.forEach((mapping: any) => {
-              initialSettings[mapping.filename] = selectedMappingFiles[mapping.filename] ?? true;
+              initialSettings[mapping.filename] = selectedMappingFiles[mapping.filename] ?? false;
             });
             setSelectedMappingFiles(prev => ({...prev, ...initialSettings}));
           }
@@ -527,9 +530,11 @@ export function Nav() {
       <div className="navbar-end">
         {/* Desktop */}
         <div className="menu menu-horizontal my-0 py-0 space-x-6 pr-6 items-center">
-          <button id="dcr-button" onClick={() => setShowModal(true)} className="btn btn-outline btn-lg shadow-md hover:shadow-lg transition-all duration-300">
-            Data Clean Room <div className="badge badge-neutral">{Object.keys(dataCleanRoom?.cohorts).length || 0}</div>
-          </button>
+          {(pathname === '/' || pathname === '/cohorts' || pathname === '/mapping') && (
+            <button id="dcr-button" onClick={() => { setShowModal(true); setWizardMode(true); setWizardStep(0); }} className="btn btn-outline btn-lg shadow-md hover:shadow-lg hover:bg-gray-600 hover:text-white transition-all duration-300">
+              Create a Data Clean Room <div className="badge badge-neutral">{Object.keys(dataCleanRoom?.cohorts).length || 0}</div>
+            </button>
+          )}
 
           {userEmail ? (
             <button onClick={handleLogout} className="flex space-x-2 p-2 rounded-lg hover:bg-neutral-300">
@@ -611,7 +616,7 @@ export function Nav() {
                           onChange={(e) => setDcrName(e.target.value)}
                         />
                         <span className="text-xs text-base-content/60 mt-1">
-                          Leave empty to use the default naming. Your email will be appended.
+                          Leave empty to use the default naming. Your email ({userEmail || 'not logged in'}) will be appended to the title for clarity.
                         </span>
                       </div>
                       <div className="mt-4">
@@ -634,13 +639,13 @@ export function Nav() {
                     <>
                       <h3 className="font-bold text-lg mb-4">Step 2: Manage Participants</h3>
                       <p className="text-sm text-base-content/70 mb-4">
-                        Add additional analysts or exclude data owners from the DCR.
+                        Invite additional analysts to the DCR.
                       </p>
                       <button 
                         className="btn btn-outline"
                         onClick={() => setShowParticipantsModal(true)}
                       >
-                        Open Participants Manager
+                        Edit Participants List
                       </button>
                       {(additionalAnalysts.length > 0 || excludedDataOwners.length > 0) && (
                         <div className="mt-4 p-3 bg-base-200 rounded-lg">
@@ -664,7 +669,7 @@ export function Nav() {
                     <>
                       <h3 className="font-bold text-lg mb-4">Step 3: Airlock Settings</h3>
                       <p className="text-sm text-base-content/70 mb-4">
-                        Select which cohorts to include in the airlock. 20% of the data will be visible to analysts inside the DCR.
+                        Select which cohorts to include in the airlock (the airlock allows 20% of the data to be visible to analysts inside the DCR).
                       </p>
                       <div className="space-y-2">
                         {dataCleanRoom?.cohorts && Object.keys(dataCleanRoom.cohorts).map((cohortId) => (
@@ -733,12 +738,12 @@ export function Nav() {
                   {/* Step 4: Mapping Files */}
                   {wizardStep === 4 && (
                     <>
-                      <h3 className="font-bold text-lg mb-4">Step 5: Mapping Files</h3>
+                      <h3 className="font-bold text-lg mb-4">Step 5: Mapping Files (Optional)</h3>
                       {loadingMappingFiles ? (
                         <p className="text-sm text-base-content/70">Checking for available mapping files...</p>
                       ) : availableMappingFiles.length > 0 ? (
                         <>
-                          <p className="text-sm text-base-content/70 mb-4">Select mapping files to include in the DCR:</p>
+                          <p className="text-sm text-base-content/70 mb-4">Select which mapping files to include in the DCR (optional):</p>
                           <div className="space-y-2">
                             {availableMappingFiles.map((mapping) => (
                               <div key={mapping.filename} className="form-control">
@@ -771,7 +776,7 @@ export function Nav() {
                             onChange={(e) => setIncludeMappingUploadSlot(e.target.checked)}
                             className="checkbox checkbox-primary"
                           />
-                          <span className="label-text text-base">Include file upload slot for cross-study mapping</span>
+                          <span className="label-text text-base">Include a file upload slot for cross-study mapping</span>
                         </label>
                       </div>
                       
