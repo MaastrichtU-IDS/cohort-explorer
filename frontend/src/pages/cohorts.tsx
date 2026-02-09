@@ -1142,6 +1142,7 @@ export default function CohortsList() {
                   onShowOnlyOutcomesChange={(value: boolean) => toggleShowOnlyOutcomes(cohortData.cohort_id)}
                   onVariableCountsChange={(filtered: number, total: number) => updateVariableCounts(cohortData.cohort_id, filtered, total)}
                   onResetFilters={() => resetCohortFilters(cohortData.cohort_id)}
+                  onCloseCohort={() => setExpandedCohorts(prev => ({...prev, [cohortData.cohort_id]: false}))}
                 />
               </div>
             </div>

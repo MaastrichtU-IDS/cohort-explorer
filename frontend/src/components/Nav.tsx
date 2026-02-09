@@ -588,7 +588,12 @@ export function Nav() {
               </button>
             </div>
             
-            {wizardMode ? (
+            {!userEmail ? (
+              /* ========== NOT LOGGED IN ========== */
+              <div className="min-h-[200px] flex items-center justify-center">
+                <p className="text-red-500 text-center">Authenticate to access the explorer</p>
+              </div>
+            ) : wizardMode ? (
               /* ========== WIZARD VIEW ========== */
               <>
                 {/* Step indicator */}
@@ -630,11 +635,25 @@ export function Nav() {
                           <span className="label-text font-semibold">Selected Cohorts</span>
                         </label>
                         <div className="bg-base-200 p-3 rounded-lg">
-                          {Object.entries(dataCleanRoom?.cohorts || {}).map(([cohortId, variables]: any) => (
-                            <div key={cohortId} className="badge badge-outline mr-2 mb-1">
-                              {cohortId} ({variables.length} vars)
-                            </div>
-                          ))}
+                          {Object.keys(dataCleanRoom?.cohorts || {}).length === 0 ? (
+                            <span className="text-base-content/60">No cohorts selected</span>
+                          ) : (
+                            Object.entries(dataCleanRoom?.cohorts || {}).map(([cohortId, variables]: any) => (
+                              <div key={cohortId} className="badge badge-outline mr-2 mb-1">
+                                {cohortId} ({variables.length} vars)
+                              </div>
+                            ))
+                          )}
+                        </div>
+                        <div className="flex gap-2 mt-3">
+                          <Link href="/cohorts" onClick={() => setShowModal(false)} className="btn btn-outline btn-sm">
+                            Add/Remove Cohorts
+                          </Link>
+                          {Object.keys(dataCleanRoom?.cohorts || {}).length > 0 && (
+                            <button className="btn btn-outline btn-sm btn-error" onClick={clearCohortsList}>
+                              Clear Cohorts
+                            </button>
+                          )}
                         </div>
                       </div>
                     </>
@@ -822,17 +841,22 @@ export function Nav() {
                         <button 
                           className="btn btn-primary" 
                           onClick={createLiveDCR} 
-                          disabled={isLoading || dcrCreated}
+                          disabled={isLoading || dcrCreated || Object.keys(dataCleanRoom?.cohorts || {}).length === 0}
                         >
                           Create Live DCR
                         </button>
                         <button 
                           className="btn btn-neutral" 
                           onClick={getDCRDefinitionFile} 
-                          disabled={isLoading || configDownloaded}
+                          disabled={isLoading || configDownloaded || Object.keys(dataCleanRoom?.cohorts || {}).length === 0}
                         >
                           Download DCR Config
                         </button>
+                        {Object.keys(dataCleanRoom?.cohorts || {}).length > 0 && (
+                          <button className="btn btn-outline btn-error" onClick={clearCohortsList}>
+                            Clear Cohorts
+                          </button>
+                        )}
                       </div>
                     </>
                   )}
@@ -1168,7 +1192,13 @@ const ParticipantsModal = React.memo(({
                   Retrieving list of data owners for the selected cohorts...
                 </p>
               </div>
-            ) : dataOwners.length > 0 ? (
+            ) : dataOwners.length === 0 ? (
+              <div className="bg-base-200 p-3 rounded-lg mb-2">
+                <p className="text-sm text-base-content/60">
+                  No cohorts have been selected.
+                </p>
+              </div>
+            ) : (
               dataOwners.map((owner) => (
                 <div key={owner.email} className={`p-3 rounded-lg mb-2 flex items-start gap-3 ${excludedDataOwners.includes(owner.email) ? 'bg-base-200 opacity-50' : 'bg-base-200'}`}>
                   <input
@@ -1188,12 +1218,6 @@ const ParticipantsModal = React.memo(({
                   </div>
                 </div>
               ))
-            ) : (
-              <div className="bg-warning bg-opacity-20 p-3 rounded-lg mb-2">
-                <p className="text-sm text-gray-700">
-                  ⚠️ No data owner emails found for the selected cohorts. Please ensure the cohort metadata includes data owner contact information.
-                </p>
-              </div>
             )}
           </div>
           

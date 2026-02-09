@@ -39,6 +39,7 @@ interface VariablesListProps {
   onShowOnlyOutcomesChange?: (value: boolean) => void;
   onVariableCountsChange?: (filtered: number, total: number) => void;
   onResetFilters: () => void;
+  onCloseCohort?: () => void;
 }
 
 const VariablesList = ({
@@ -55,7 +56,8 @@ const VariablesList = ({
   onVisitTypesChange,
   onShowOnlyOutcomesChange,
   onVariableCountsChange,
-  onResetFilters
+  onResetFilters,
+  onCloseCohort
 }: VariablesListProps) => {
   const {cohortsData, updateCohortData, dataCleanRoom, setDataCleanRoom} = useCohorts();
   const [openedModal, setOpenedModal] = useState('');
@@ -112,8 +114,12 @@ const VariablesList = ({
     setDataCleanRoom(updatedDcr);
     sessionStorage.setItem('dataCleanRoom', JSON.stringify(updatedDcr));
     
-    // After 1 second, scroll to top and highlight the DCR button
+    // After 0.5 second, close the cohort tab, scroll to top and highlight the DCR button
     setTimeout(() => {
+      // Close the cohort tab
+      if (onCloseCohort) {
+        onCloseCohort();
+      }
       // Smooth scroll to top
       window.scrollTo({ top: 0, behavior: 'smooth' });
       
@@ -129,7 +135,7 @@ const VariablesList = ({
           }, 2000);
         }
       }, 500);
-    }, 1000);
+    }, 500);
   };
 
   // Button to remove cohort or variable from data clean room
