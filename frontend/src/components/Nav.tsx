@@ -42,6 +42,8 @@ export function Nav() {
   const [includeMappingUploadSlot, setIncludeMappingUploadSlot] = useState(false);
   const [wizardMode, setWizardMode] = useState(true);
   const [wizardStep, setWizardStep] = useState(0);
+  const [showAddCohortModal, setShowAddCohortModal] = useState(false);
+  const [cohortSearchQuery, setCohortSearchQuery] = useState('');
   const notificationRef = React.useRef<HTMLDivElement>(null);
   
   // Wizard step definitions
@@ -315,7 +317,6 @@ export function Nav() {
     setAvailableMappingFiles([]);
     setSelectedMappingFiles({});
     setIncludeMappingUploadSlot(false);
-    setWizardMode(false);
     setWizardStep(0);
   };
 
@@ -578,22 +579,29 @@ export function Nav() {
       {showModal && (
         <div className="modal modal-open">
           <div className="modal-box max-w-4xl max-h-[85vh]">
-            {/* Toggle link between standard and wizard view */}
-            <div className="flex justify-end mb-2">
-              <button 
-                className="text-xs text-primary hover:underline"
-                onClick={() => { setWizardMode(!wizardMode); setWizardStep(0); }}
-              >
-                {wizardMode ? 'Switch to 1-page view →' : '← Back to step-by-step wizard'}
-              </button>
-            </div>
-            
             {!userEmail ? (
               /* ========== NOT LOGGED IN ========== */
-              <div className="min-h-[200px] flex items-center justify-center">
-                <p className="text-red-500 text-center">Authenticate to access the explorer</p>
+              <>
+                <div className="flex justify-end mb-2">
+                  <button className="btn btn-sm btn-ghost" onClick={() => setShowModal(false)}>✕</button>
+                </div>
+                <div className="min-h-[200px] flex items-center justify-center">
+                  <p className="text-red-500 text-center">Authenticate to access the explorer</p>
+                </div>
+              </>
+            ) : (
+              <>
+              {/* Toggle link between standard and wizard view */}
+              <div className="flex justify-end mb-2">
+                <button 
+                  className="text-xs text-primary hover:underline"
+                  onClick={() => { setWizardMode(!wizardMode); setWizardStep(0); }}
+                >
+                  {wizardMode ? 'Switch to 1-page view →' : '← Back to step-by-step wizard'}
+                </button>
               </div>
-            ) : wizardMode ? (
+              
+              { wizardMode ? (
               /* ========== WIZARD VIEW ========== */
               <>
                 {/* Step indicator */}
@@ -646,9 +654,9 @@ export function Nav() {
                           )}
                         </div>
                         <div className="flex gap-2 mt-3">
-                          <Link href="/cohorts" onClick={() => setShowModal(false)} className="btn btn-outline btn-sm">
+                          <button onClick={() => setShowAddCohortModal(true)} className="btn btn-outline btn-sm">
                             Add/Remove Cohorts
-                          </Link>
+                          </button>
                           {Object.keys(dataCleanRoom?.cohorts || {}).length > 0 && (
                             <button className="btn btn-outline btn-sm btn-error" onClick={clearCohortsList}>
                               Clear Cohorts
@@ -1120,6 +1128,8 @@ export function Nav() {
                 </div>
               </>
             )}
+            </>
+            )}
           </div>
         </div>
       )}
@@ -1139,6 +1149,80 @@ export function Nav() {
           onClose={() => setShowParticipantsModal(false)}
           isLoading={loadingParticipants}
         />
+      )}
+
+      {/* Add Cohort Modal */}
+      {showAddCohortModal && (
+        <div className="modal modal-open">
+          <div className="modal-box max-w-2xl">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-bold text-lg">Add/Remove Cohorts</h3>
+              <button className="btn btn-sm btn-ghost" onClick={() => { setShowAddCohortModal(false); setCohortSearchQuery(''); }}>✕</button>
+            </div>
+            
+            <input 
+              type="text"
+              placeholder="Search cohorts by name..."
+              className="input input-bordered w-full mb-4"
+              value={cohortSearchQuery}
+              onChange={(e) => setCohortSearchQuery(e.target.value)}
+              autoFocus
+            />
+            
+            <div className="max-h-[400px] overflow-y-auto space-y-2">
+              {Object.entries(cohortsData || {})
+                .filter(([cohortId]) => 
+                  cohortSearchQuery === '' || 
+                  cohortId.toLowerCase().includes(cohortSearchQuery.toLowerCase())
+                )
+                .map(([cohortId, cohortInfo]: [string, any]) => {
+                  const isSelected = !!dataCleanRoom?.cohorts?.[cohortId];
+                  const variableCount = cohortInfo?.variables ? Object.keys(cohortInfo.variables).length : 0;
+                  return (
+                    <div 
+                      key={cohortId}
+                      className={`p-3 rounded-lg cursor-pointer flex justify-between items-center ${isSelected ? 'bg-primary/20 border border-primary' : 'bg-base-200 hover:bg-base-300'}`}
+                      onClick={() => {
+                        if (isSelected) {
+                          // Remove cohort
+                          const updatedDcr = {...dataCleanRoom};
+                          delete updatedDcr.cohorts[cohortId];
+                          setDataCleanRoom(updatedDcr);
+                          sessionStorage.setItem('dataCleanRoom', JSON.stringify(updatedDcr));
+                        } else {
+                          // Add cohort with all variables
+                          const updatedDcr = {...dataCleanRoom};
+                          if (!updatedDcr.cohorts) updatedDcr.cohorts = {};
+                          updatedDcr.cohorts[cohortId] = Object.keys(cohortInfo?.variables || {});
+                          setDataCleanRoom(updatedDcr);
+                          sessionStorage.setItem('dataCleanRoom', JSON.stringify(updatedDcr));
+                        }
+                      }}
+                    >
+                      <div>
+                        <span className="font-medium">{cohortId}</span>
+                        <span className="text-sm text-base-content/60 ml-2">({variableCount} variables)</span>
+                      </div>
+                      <div>
+                        {isSelected ? (
+                          <span className="badge badge-primary">Selected</span>
+                        ) : (
+                          <span className="badge badge-ghost">Click to add</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              {Object.keys(cohortsData || {}).length === 0 && (
+                <p className="text-center text-base-content/60 py-4">No cohorts available</p>
+              )}
+            </div>
+            
+            <div className="modal-action">
+              <button className="btn" onClick={() => { setShowAddCohortModal(false); setCohortSearchQuery(''); }}>Done</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -63,7 +63,7 @@ export default function DocsStorePage() {
         )}
 
         {!isLoading && !error && documents.length > 0 && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 mt-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 mt-6" style={{gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))'}}>
             {documents.map((docName) => {
               const isPdf = docName.toLowerCase().endsWith('.pdf');
               return (

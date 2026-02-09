@@ -114,16 +114,12 @@ const VariablesList = ({
     setDataCleanRoom(updatedDcr);
     sessionStorage.setItem('dataCleanRoom', JSON.stringify(updatedDcr));
     
-    // After 0.5 second, close the cohort tab, scroll to top and highlight the DCR button
+    // After 0.5 second, scroll to top and highlight the DCR button, then close the tab while out of view
     setTimeout(() => {
-      // Close the cohort tab
-      if (onCloseCohort) {
-        onCloseCohort();
-      }
       // Smooth scroll to top
       window.scrollTo({ top: 0, behavior: 'smooth' });
       
-      // After scroll completes (approx 500ms), highlight the DCR button
+      // After scroll completes (approx 500ms), highlight the DCR button and close the cohort tab
       setTimeout(() => {
         const dcrButton = document.getElementById('dcr-button');
         if (dcrButton) {
@@ -133,6 +129,10 @@ const VariablesList = ({
           setTimeout(() => {
             dcrButton.classList.remove('dcr-highlight-effect');
           }, 2000);
+        }
+        // Close the cohort tab while it's out of view
+        if (onCloseCohort) {
+          onCloseCohort();
         }
       }, 500);
     }, 500);
