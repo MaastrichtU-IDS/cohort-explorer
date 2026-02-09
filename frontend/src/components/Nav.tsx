@@ -444,7 +444,7 @@ export function Nav() {
       
       fetchParticipants();
     }
-  }, [showParticipantsModal, dataCleanRoom?.cohorts, additionalAnalysts]);
+  }, [showParticipantsModal, cohortIdsKey, additionalAnalysts]);
 
   // Memoize cohort IDs to prevent unnecessary recalculations
   const dcrCohortIds = useMemo(() => 
