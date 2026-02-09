@@ -825,7 +825,7 @@ export function Nav() {
                       <h3 className="font-bold text-lg mb-4">Step 6: Review & Create</h3>
                       <div className="space-y-3 text-sm">
                         <div className="p-3 bg-base-200 rounded-lg">
-                          <strong>DCR Name:</strong> {dcrName || '(default naming)'}
+                          <strong>DCR Name:</strong> {dcrName ? `${dcrName} - created by ${userEmail}` : `iCARE4CVD DCR compute - created by ${userEmail}`}
                         </div>
                         <div className="p-3 bg-base-200 rounded-lg">
                           <strong>Cohorts:</strong> {Object.keys(dataCleanRoom?.cohorts || {}).join(', ')}
@@ -1169,31 +1169,37 @@ export function Nav() {
               autoFocus
             />
             
+            <p className="text-xs text-base-content/60 mb-3 italic">Only cohorts with uploaded metadata can be added to the DCR.</p>
+            
             <div className="max-h-[400px] overflow-y-auto space-y-2">
               {Object.entries(cohortsData || {})
-                .filter(([cohortId]) => 
-                  cohortSearchQuery === '' || 
-                  cohortId.toLowerCase().includes(cohortSearchQuery.toLowerCase())
-                )
+                .filter(([cohortId, cohortInfo]: [string, any]) => {
+                  // Only show cohorts with uploaded metadata (i.e., those with variables)
+                  const hasMetadata = cohortInfo?.variables && Object.keys(cohortInfo.variables).length > 0;
+                  const matchesSearch = cohortSearchQuery === '' || 
+                    cohortId.toLowerCase().includes(cohortSearchQuery.toLowerCase());
+                  return hasMetadata && matchesSearch;
+                })
                 .map(([cohortId, cohortInfo]: [string, any]) => {
                   const isSelected = !!dataCleanRoom?.cohorts?.[cohortId];
-                  const variableCount = cohortInfo?.variables ? Object.keys(cohortInfo.variables).length : 0;
+                  const variableCount = Object.keys(cohortInfo.variables).length;
                   return (
                     <div 
                       key={cohortId}
                       className={`p-3 rounded-lg cursor-pointer flex justify-between items-center ${isSelected ? 'bg-primary/20 border border-primary' : 'bg-base-200 hover:bg-base-300'}`}
                       onClick={() => {
                         if (isSelected) {
-                          // Remove cohort
-                          const updatedDcr = {...dataCleanRoom};
-                          delete updatedDcr.cohorts[cohortId];
+                          // Remove cohort - create new cohorts object to trigger re-render
+                          const newCohorts = {...dataCleanRoom.cohorts};
+                          delete newCohorts[cohortId];
+                          const updatedDcr = {...dataCleanRoom, cohorts: newCohorts};
                           setDataCleanRoom(updatedDcr);
                           sessionStorage.setItem('dataCleanRoom', JSON.stringify(updatedDcr));
                         } else {
-                          // Add cohort with all variables
-                          const updatedDcr = {...dataCleanRoom};
-                          if (!updatedDcr.cohorts) updatedDcr.cohorts = {};
-                          updatedDcr.cohorts[cohortId] = Object.keys(cohortInfo?.variables || {});
+                          // Add cohort with all variables - create new cohorts object to trigger re-render
+                          const newCohorts = {...(dataCleanRoom.cohorts || {})};
+                          newCohorts[cohortId] = Object.keys(cohortInfo?.variables || {});
+                          const updatedDcr = {...dataCleanRoom, cohorts: newCohorts};
                           setDataCleanRoom(updatedDcr);
                           sessionStorage.setItem('dataCleanRoom', JSON.stringify(updatedDcr));
                         }
@@ -1213,8 +1219,10 @@ export function Nav() {
                     </div>
                   );
                 })}
-              {Object.keys(cohortsData || {}).length === 0 && (
-                <p className="text-center text-base-content/60 py-4">No cohorts available</p>
+              {Object.entries(cohortsData || {}).filter(([_, cohortInfo]: [string, any]) => 
+                cohortInfo?.variables && Object.keys(cohortInfo.variables).length > 0
+              ).length === 0 && (
+                <p className="text-center text-base-content/60 py-4">No cohorts with uploaded metadata available</p>
               )}
             </div>
             
