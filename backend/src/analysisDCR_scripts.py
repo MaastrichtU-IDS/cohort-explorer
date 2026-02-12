@@ -1,6 +1,54 @@
 """Analysis DCR embedded scripts for data fragmentation, visualization, and exploration."""
 
 
+def generate_mapping_files_section(mapping_files: list[dict] = None, include_mapping_upload_slot: bool = False) -> str:
+    """Generate the commented section with mapping file paths and pandas instructions.
+    
+    Args:
+        mapping_files: List of mapping file info dicts with 'node_name' keys
+        include_mapping_upload_slot: Whether a CrossStudyMappings upload slot is included
+        
+    Returns:
+        A string containing the commented section for the visualization script
+    """
+    if not mapping_files and not include_mapping_upload_slot:
+        return ""
+    
+    lines = [
+        "",
+        "###############################################################################",
+        "# CROSS-STUDY MAPPING FILES",
+        "# The following mapping files are available in this DCR.",
+        "# Uncomment and use the code below to load them for cross-cohort analysis.",
+        "###############################################################################",
+        "",
+        "# How to load JSON mapping files using pandas:",
+        "# mapping_df = pd.read_json(mapping_path)",
+        "#",
+        "# The mapping files contain variable mappings between cohorts.",
+        "# You can use them to harmonize data across different cohorts.",
+        "",
+    ]
+    
+    # Add each mapping file path
+    if mapping_files:
+        for i, mapping_info in enumerate(mapping_files, 1):
+            node_name = mapping_info.get('node_name', f'mapping_{i}')
+            lines.append(f"# Mapping file {i}: {node_name}")
+            lines.append(f"# mapping_path_{i} = \"/input/{node_name}\"")
+            lines.append(f"# mapping_df_{i} = pd.read_json(mapping_path_{i})")
+            lines.append("")
+    
+    # Add upload slot if included
+    if include_mapping_upload_slot:
+        lines.append("# User-uploaded mapping file (CrossStudyMappings upload slot):")
+        lines.append("# cross_study_mapping_path = \"/input/CrossStudyMappings\"")
+        lines.append("# cross_study_mapping_df = pd.read_json(cross_study_mapping_path)")
+        lines.append("")
+    
+    return "\n".join(lines)
+
+
 def data_fragment_script(cohort_id: str, id_variable_name: str, airlock_percentage: int) -> str:
     """Generate the data fragmentation script for a cohort.
     
@@ -254,7 +302,7 @@ with open(log_file, "a") as log:
 """
 
 
-def visualization_script(fragment_node_name: str, cohort_id: str, variable_names: list[str] = None) -> str:
+def visualization_script(fragment_node_name: str, cohort_id: str, variable_names: list[str] = None, mapping_files: list[dict] = None, include_mapping_upload_slot: bool = False) -> str:
     """Generate the data visualization script.
     
     This script:
@@ -262,11 +310,14 @@ def visualization_script(fragment_node_name: str, cohort_id: str, variable_names
     - Selects 5 random columns (or user-specified columns)
     - Creates histograms for numeric data and bar charts for categorical data
     - Saves visualization to PNG
+    - Includes commented section with mapping file paths and instructions
     
     Args:
         fragment_node_name: Name of the data fragment node to read data from
         cohort_id: The cohort identifier (used to locate the data CSV file)
         variable_names: Optional list of variable names from the cohort (for documentation)
+        mapping_files: Optional list of mapping file info dicts with 'node_name' keys
+        include_mapping_upload_slot: Whether a CrossStudyMappings upload slot is included
         
     Returns:
         The Python script as a string
@@ -391,8 +442,42 @@ if SELECTED_VARIABLES is not None:
     if missing_cols:
         with open(log_file, "a") as log:
             log.write("WARNING: The following requested columns were not found: {{}}\\n".format(missing_cols))
+        
+        # Create comparison dataframes showing column mismatches
+        # This helps users understand the difference between metadata and actual data
+        metadata_vars = set(v.lower().strip() for v in SELECTED_VARIABLES)
+        data_cols = set(col.lower().strip() for col in df.columns)
+        
+        in_metadata_not_in_data = [v for v in SELECTED_VARIABLES if v.lower().strip() not in data_cols]
+        in_data_not_in_metadata = [col for col in df.columns if col.lower().strip() not in metadata_vars]
+        
+        # Save comparison files
+        pd.DataFrame({{'In Metadata Not in Data': in_metadata_not_in_data}}).to_csv(
+            os.path.join(output_dir, "columns_in_metadata_not_in_data.csv"), index=False)
+        pd.DataFrame({{'In Data Not in Metadata': in_data_not_in_metadata}}).to_csv(
+            os.path.join(output_dir, "columns_in_data_not_in_metadata.csv"), index=False)
+        
+        with open(log_file, "a") as log:
+            log.write("Column mismatch detected. Comparison files saved:\\n")
+            log.write("  - columns_in_metadata_not_in_data.csv ({{}} columns)\\n".format(len(in_metadata_not_in_data)))
+            log.write("  - columns_in_data_not_in_metadata.csv ({{}} columns)\\n\\n".format(len(in_data_not_in_metadata)))
+    
     if not selected_columns:
-        raise ValueError("None of the specified columns exist in the data. Available columns: {{}}".format(list(df.columns)))
+        # No valid columns found - log error and exit gracefully instead of raising exception
+        with open(log_file, "a") as log:
+            log.write("ERROR: None of the specified columns exist in the data.\\n")
+            log.write("Available columns in data: {{}}\\n".format(list(df.columns)))
+            log.write("Requested columns: {{}}\\n".format(SELECTED_VARIABLES))
+            log.write("\\nVisualization cannot proceed. Please check the column mismatch files for details.\\n")
+        
+        # Create an empty summary file to indicate the issue
+        with open(os.path.join(output_dir, "visualization_error.txt"), "w") as f:
+            f.write("Visualization could not be completed.\\n")
+            f.write("None of the specified columns were found in the data.\\n")
+            f.write("Please check visualization_log.txt and column mismatch CSV files for details.\\n")
+        
+        # Set selected_columns to empty list to skip visualization loop
+        selected_columns = []
 else:
     # Select random columns
     num_cols_to_visualize = min(NUM_RANDOM_COLUMNS, len(df.columns))
@@ -470,6 +555,7 @@ for col in selected_columns:
 
 with open(log_file, "a") as log:
     log.write("Visualization complete. {{}} images saved: {{}}\\n".format(len(saved_files), saved_files))
+{generate_mapping_files_section(mapping_files, include_mapping_upload_slot)}
 """
 
 

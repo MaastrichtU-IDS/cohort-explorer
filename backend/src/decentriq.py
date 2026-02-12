@@ -552,6 +552,20 @@ async def get_compute_dcr_definition(
     metadata_time = datetime.now() - metadata_start
     logging.info(f"Retrieved cohorts metadata from cache in {metadata_time.total_seconds():.3f}s")
 
+    # Pre-compute mapping file info for visualization scripts
+    # This needs to be done before the cohort loop so we can pass it to visualization_script
+    mapping_files_for_viz = []
+    selected_mapping_files = selected_mapping_files or []
+    for mapping_file in selected_mapping_files:
+        cohorts = mapping_file.get('cohorts', [])
+        if len(cohorts) >= 2:
+            node_name = f"{'_'.join(cohorts)}_mapping"
+        else:
+            base_name = mapping_file['filename'].replace('.json', '').replace('.csv', '')
+            base_name = base_name.replace(' ', '-').replace('(', '').replace(')', '').replace('+', '_')
+            node_name = f"mapping_{base_name}"
+        mapping_files_for_viz.append({'node_name': node_name})
+
     # Get metadata for selected cohorts and variables
     selected_cohorts = {}
     for cohort_id, requested_vars in cohorts_request["cohorts"].items():
@@ -757,7 +771,7 @@ async def get_compute_dcr_definition(
         visualization_node_name = f"visualize-data-{cohort_id}"
         # Get variable names from the cohort for documentation in the script
         cohort_var_names = list(cohort.variables.keys()) if hasattr(cohort, 'variables') and cohort.variables else None
-        viz_script = visualization_script(fragment_node_name, cohort_id, cohort_var_names)
+        viz_script = visualization_script(fragment_node_name, cohort_id, cohort_var_names, mapping_files_for_viz, include_mapping_upload_slot)
         builder.add_node_definition(
             PythonComputeNodeDefinition(
                 name=visualization_node_name,
