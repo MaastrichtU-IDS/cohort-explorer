@@ -19,7 +19,7 @@ def generate_mapping_files_section(mapping_files: list[dict] = None, include_map
         "###############################################################################",
         "# CROSS-STUDY MAPPING FILES",
         "# The following mapping files are available in this DCR.",
-        "# Uncomment and use the code below to load them for cross-cohort analysis.",
+        "# Copy this code to the 'Development' tab, uncomment the code below as needed to incorporate mapping information into your analysis",
         "###############################################################################",
         "",
         "# How to load JSON mapping files using pandas:",
@@ -34,15 +34,13 @@ def generate_mapping_files_section(mapping_files: list[dict] = None, include_map
     if mapping_files:
         for i, mapping_info in enumerate(mapping_files, 1):
             node_name = mapping_info.get('node_name', f'mapping_{i}')
-            lines.append(f"# Mapping file {i}: {node_name}")
             lines.append(f"# mapping_path_{i} = \"/input/{node_name}\"")
             lines.append(f"# mapping_df_{i} = pd.read_json(mapping_path_{i})")
             lines.append("")
     
     # Add upload slot if included
     if include_mapping_upload_slot:
-        lines.append("# User-uploaded mapping file (CrossStudyMappings upload slot):")
-        lines.append("# cross_study_mapping_path = \"/input/CrossStudyMappings\"")
+        lines.append("# cross_study_mapping_path = \"/input/CrossStudyMappings\"  #user-uploaded mapping file")
         lines.append("# cross_study_mapping_df = pd.read_json(cross_study_mapping_path)")
         lines.append("")
     
@@ -371,7 +369,6 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 import os
-import random
 
 # Helper function to load data from CSV or SPSS files
 def load_data(file_path):
@@ -390,7 +387,6 @@ output_dir = "/output"
 
 HISTOGRAM_BINS = 30
 MAX_CATEGORIES = 20
-NUM_RANDOM_COLUMNS = 5
 
 
 # Read the data from the selected source
@@ -463,25 +459,12 @@ if SELECTED_VARIABLES is not None:
             log.write("  - columns_in_data_not_in_metadata.csv ({{}} columns)\\n\\n".format(len(in_data_not_in_metadata)))
     
     if not selected_columns:
-        # No valid columns found - log error and exit gracefully instead of raising exception
+        # No valid columns found - log error gracefully
         with open(log_file, "a") as log:
             log.write("ERROR: None of the specified columns exist in the data.\\n")
             log.write("Available columns in data: {{}}\\n".format(list(df.columns)))
             log.write("Requested columns: {{}}\\n".format(SELECTED_VARIABLES))
-            log.write("\\nVisualization cannot proceed. Please check the column mismatch files for details.\\n")
-        
-        # Create an empty summary file to indicate the issue
-        with open(os.path.join(output_dir, "visualization_error.txt"), "w") as f:
-            f.write("Visualization could not be completed.\\n")
-            f.write("None of the specified columns were found in the data.\\n")
-            f.write("Please check visualization_log.txt and column mismatch CSV files for details.\\n")
-        
-        # Set selected_columns to empty list to skip visualization loop
-        selected_columns = []
-else:
-    # Select random columns
-    num_cols_to_visualize = min(NUM_RANDOM_COLUMNS, len(df.columns))
-    selected_columns = random.sample(list(df.columns), num_cols_to_visualize)
+            log.write("\\nNo charts will be generated. Please check the column mismatch files for details.\\n")
 
 with open(log_file, "a") as log:
     log.write("Selected {{}} columns for visualization: {{}}\\n\\n".format(len(selected_columns), selected_columns))
@@ -489,8 +472,8 @@ with open(log_file, "a") as log:
 # Cohort name for filenames
 COHORT_NAME = "{cohort_id}"
 
-# Create visualizations - one image per variable
-saved_files = []
+# Create PNG charts - one per variable
+saved_charts = []
 for col in selected_columns:
     col_data = df[col].dropna()
     
@@ -548,13 +531,13 @@ for col in selected_columns:
     output_path = os.path.join(output_dir, output_filename)
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
     plt.close()
-    saved_files.append(output_filename)
+    saved_charts.append(output_filename)
     
     with open(log_file, "a") as log:
         log.write("  Saved to: {{}}\\n\\n".format(output_filename))
 
 with open(log_file, "a") as log:
-    log.write("Visualization complete. {{}} images saved: {{}}\\n".format(len(saved_files), saved_files))
+    log.write("Visualization complete. {{}} PNG charts saved: {{}}\\n".format(len(saved_charts), saved_charts))
 {generate_mapping_files_section(mapping_files, include_mapping_upload_slot)}
 """
 
