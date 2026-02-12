@@ -798,11 +798,15 @@ async def get_compute_dcr_definition(
     if selected_mapping_files:
         logging.info(f"Adding {len(selected_mapping_files)} mapping file nodes to DCR")
         for mapping_file in selected_mapping_files:
-            # Create a node name from the filename (remove extension and sanitize)
-            # Decentriq only allows alphanumeric, underscores, and hyphens (no leading/trailing)
-            base_name = mapping_file['filename'].replace('.json', '').replace('.csv', '')
-            base_name = base_name.replace(' ', '-').replace('(', '').replace(')', '').replace('+', '_')
-            node_name = f"mapping_{base_name}"
+            # Create node name from cohort IDs: cohortID1_cohortID2_mapping
+            cohorts = mapping_file.get('cohorts', [])
+            if len(cohorts) >= 2:
+                node_name = f"{'_'.join(cohorts)}_mapping"
+            else:
+                # Fallback to old naming if cohorts not available
+                base_name = mapping_file['filename'].replace('.json', '').replace('.csv', '')
+                base_name = base_name.replace(' ', '-').replace('(', '').replace(')', '').replace('+', '_')
+                node_name = f"mapping_{base_name}"
             
             builder.add_node_definition(
                 RawDataNodeDefinition(name=node_name, is_required=False)
