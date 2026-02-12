@@ -197,7 +197,7 @@ export function Nav() {
           dcr_name: dcrName,
           selected_mapping_files: availableMappingFiles
             .filter(m => selectedMappingFiles[m.filename] !== false)
-            .map(m => ({ filename: m.filename, filepath: m.filepath, display_name: m.display_name })),
+            .map(m => ({ filename: m.filename, filepath: m.filepath, display_name: m.display_name, cohorts: m.cohorts })),
           include_mapping_upload_slot: includeMappingUploadSlot
         })
       });

@@ -810,7 +810,8 @@ async def get_compute_dcr_definition(
             mapping_nodes.append({
                 'node_name': node_name,
                 'filepath': mapping_file['filepath'],
-                'display_name': mapping_file.get('display_name', mapping_file['filename'])
+                'display_name': mapping_file.get('display_name', mapping_file['filename']),
+                'cohorts': mapping_file.get('cohorts', [])
             })
             
             # Add requester as data owner
@@ -886,7 +887,7 @@ async def get_compute_dcr_definition(
     logging.info(f"DCR build completed in {build_time.total_seconds():.3f}s")
     logging.info(f"Total DCR definition creation completed in {total_time.total_seconds():.3f}s for {len(cohorts_request['cohorts'])} cohorts")
     
-    return dcr_definition, dcr_title, participants
+    return dcr_definition, dcr_title, participants, mapping_nodes
 
 
 
@@ -924,7 +925,7 @@ async def create_live_compute_dcr(
     logging.info(f"Starting live compute DCR creation for user {user['email']} at {start_time}")
     
     # Step 1: Create the DCR definition (reuse existing logic)
-    dcr_definition, dcr_title, participants = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings, dcr_name, excluded_data_owners, selected_mapping_files, include_mapping_upload_slot)
+    dcr_definition, dcr_title, participants, mapping_nodes = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings, dcr_name, excluded_data_owners, selected_mapping_files, include_mapping_upload_slot)
     
     # Step 2: Publish the DCR to Decentriq with retry logic for race conditions
     import time
@@ -1099,7 +1100,60 @@ async def create_live_compute_dcr(
         shuffled_upload_time = datetime.now() - shuffled_upload_start
         logging.info(f"Shuffled sample upload completed in {shuffled_upload_time.total_seconds():.3f}s. Results: {shuffled_upload_results}")
         
-        # Step 5: Log the DCR creation
+        # Step 5: Upload mapping files
+        mapping_upload_results = {}
+        if mapping_nodes:
+            logging.info(f"Starting mapping file upload for {len(mapping_nodes)} files")
+            mapping_upload_start = datetime.now()
+            
+            for mapping_info in mapping_nodes:
+                node_name = mapping_info['node_name']
+                filepath = mapping_info['filepath']
+                display_name = mapping_info.get('display_name', node_name)
+                
+                try:
+                    if not os.path.exists(filepath):
+                        logging.warning(f"Mapping file not found: {filepath}")
+                        mapping_upload_results[node_name] = "file_not_found"
+                        continue
+                    
+                    # Get the mapping node from the DCR
+                    try:
+                        mapping_node = dcr.get_node(node_name)
+                    except Exception as node_error:
+                        logging.warning(f"Mapping node not found for {node_name}: {node_error}")
+                        mapping_upload_results[node_name] = "node_not_found"
+                        continue
+                    
+                    # Generate encryption key
+                    key = dq.Key()
+                    
+                    # Generate upload filename in format: mapping__cohortID1__to__cohortID2__cohortID3.json
+                    cohorts = mapping_info.get('cohorts', [])
+                    if len(cohorts) >= 2:
+                        # First cohort is source, rest are targets joined with __
+                        upload_filename = f"mapping__{cohorts[0]}__to__{'__'.join(cohorts[1:])}.json"
+                    else:
+                        # Fallback to original filename if cohorts not available
+                        upload_filename = os.path.basename(filepath)
+                    
+                    # Upload and publish the mapping file
+                    with open(filepath, "rb") as mapping_data:
+                        mapping_node.upload_and_publish_dataset(mapping_data, key, upload_filename)
+                    
+                    logging.info(f"Uploaded mapping file as: {upload_filename}")
+                    
+                    logging.info(f"Successfully uploaded mapping file: {display_name}")
+                    mapping_upload_results[node_name] = "success"
+                    
+                except Exception as e:
+                    logging.error(f"Failed to upload mapping file {node_name}: {e}", exc_info=True)
+                    mapping_upload_results[node_name] = f"error: {str(e)}"
+            
+            mapping_upload_time = datetime.now() - mapping_upload_start
+            logging.info(f"Mapping file upload completed in {mapping_upload_time.total_seconds():.3f}s. Results: {mapping_upload_results}")
+        
+        # Step 6: Log the DCR creation
         cohort_ids = list(cohorts_request["cohorts"].keys())
         log_data = {
             "DCR_id": dcr.id,
@@ -1126,6 +1180,7 @@ async def create_live_compute_dcr(
         # Count successful uploads
         successful_metadata_uploads = sum(1 for status in metadata_upload_results.values() if status == "success")
         successful_shuffled_uploads = sum(1 for status in shuffled_upload_results.values() if status == "success")
+        successful_mapping_uploads = sum(1 for status in mapping_upload_results.values() if status == "success")
         
         # Convert participants dictionary for JSON serialization
         participants_json = {}
@@ -1135,8 +1190,9 @@ async def create_live_compute_dcr(
                 "analyst_of": list(roles["analyst_of"])
             }
         
+        mapping_msg = f" Mapping files uploaded: {successful_mapping_uploads}/{len(mapping_nodes)}." if mapping_nodes else ""
         return {
-            "message": f"Live compute DCR created successfully for {len(cohort_ids)} cohort(s). Metadata uploaded for {successful_metadata_uploads}/{len(cohort_ids)} cohorts. Shuffled samples uploaded for {successful_shuffled_uploads}/{len(cohort_ids)} cohorts.",
+            "message": f"Live compute DCR created successfully for {len(cohort_ids)} cohort(s). Metadata uploaded for {successful_metadata_uploads}/{len(cohort_ids)} cohorts. Shuffled samples uploaded for {successful_shuffled_uploads}/{len(cohort_ids)} cohorts.{mapping_msg}",
             "dcr_id": dcr.id,
             "dcr_url": dcr_url,
             "dcr_title": dcr_title,
@@ -1146,6 +1202,8 @@ async def create_live_compute_dcr(
             "metadata_uploads_successful": successful_metadata_uploads,
             "shuffled_upload_results": shuffled_upload_results,
             "shuffled_uploads_successful": successful_shuffled_uploads,
+            "mapping_upload_results": mapping_upload_results,
+            "mapping_uploads_successful": successful_mapping_uploads,
             "participants": participants_json
         }
         
@@ -1253,7 +1311,7 @@ async def api_get_compute_dcr_definition(
     # Extract dcr_name from request, default to None
     dcr_name = cohorts_request.get("dcr_name", None)
 
-    dcr_definition, _dcr_title, _participants = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, dcr_name=dcr_name)
+    dcr_definition, _dcr_title, _participants, _mapping_nodes = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, dcr_name=dcr_name)
 
     # Generate DCR config JSON
     dcr_config_json = { "dataScienceDataRoom": dcr_definition.high_level }
