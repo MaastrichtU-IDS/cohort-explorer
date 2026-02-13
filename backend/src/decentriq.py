@@ -726,57 +726,70 @@ async def get_compute_dcr_definition(
         # # Add the requester as analyst of prepare script
         # participants[user["email"]]["analyst_of"].add(f"prepare-{cohort_id}")
 
-        # Add data fragment script for this cohort (Dec 2025)
-        # This script excludes the ID column and splits the data based on airlock settings
-        id_variable_name = find_patient_id_variable(cohort_id)
-        
         # Get the airlock percentage for this cohort (default to 20 if not specified)
+        # A value of 0 means no airlock is requested for this cohort
         airlock_percentage = 20
         if airlock_settings and cohort_id in airlock_settings:
             airlock_percentage = airlock_settings[cohort_id]
         
-        # Get the data fragment script from the analysisDCR_scripts module
-        fragment_script = data_fragment_script(cohort_id, id_variable_name, airlock_percentage)
-        fragment_node_name = f"create-airlock-without-outliers-{cohort_id}"
-        
-        builder.add_node_definition(
-            PythonComputeNodeDefinition(
-                name=fragment_node_name,
-                script=fragment_script,
-                dependencies=[data_node_id, metadata_node_id]
+        # Only create airlock/fragment nodes if airlock is enabled (percentage > 0)
+        fragment_node_name = None
+        if airlock_percentage > 0:
+            # Add data fragment script for this cohort (Dec 2025)
+            # This script excludes the ID column and splits the data based on airlock settings
+            id_variable_name = find_patient_id_variable(cohort_id)
+            
+            # Get the data fragment script from the analysisDCR_scripts module
+            fragment_script = data_fragment_script(cohort_id, id_variable_name, airlock_percentage)
+            fragment_node_name = f"create-airlock-without-outliers-{cohort_id}"
+            
+            builder.add_node_definition(
+                PythonComputeNodeDefinition(
+                    name=fragment_node_name,
+                    script=fragment_script,
+                    dependencies=[data_node_id, metadata_node_id]
+                )
             )
-        )
-        # Add data owners of this cohort's data node as analysts of the fragmentation script
-        # (not the requester or other analysts - only data owners can run the fragmentation)
-        for p_email, p_roles in participants.items():
-            if data_node_id in p_roles["data_owner_of"]:
-                participants[p_email]["analyst_of"].add(fragment_node_name)
-        
-        # Add a preview (airlock) node for the data fragment
-        preview_node_name = f"preview-airlock-{cohort_id}"
-        builder.add_node_definition(
-            PreviewComputeNodeDefinition(
-                name=preview_node_name,
-                dependency=f"create-airlock-without-outliers-{cohort_id}",
-                quota_bytes=10000000  # 10 MB quota
+            # Add data owners of this cohort's data node as analysts of the fragmentation script
+            # (not the requester or other analysts - only data owners can run the fragmentation)
+            for p_email, p_roles in participants.items():
+                if data_node_id in p_roles["data_owner_of"]:
+                    participants[p_email]["analyst_of"].add(fragment_node_name)
+            
+            # Add a preview (airlock) node for the data fragment
+            preview_node_name = f"preview-airlock-{cohort_id}"
+            builder.add_node_definition(
+                PreviewComputeNodeDefinition(
+                    name=preview_node_name,
+                    dependency=f"create-airlock-without-outliers-{cohort_id}",
+                    quota_bytes=10000000  # 10 MB quota
+                )
             )
-        )
-        # Add the requester as analyst of the preview node
-        participants[user["email"]]["analyst_of"].add(preview_node_name)
-        # Track the preview node for additional analysts
-        preview_nodes.append(preview_node_name)
+            # Add the requester as analyst of the preview node
+            participants[user["email"]]["analyst_of"].add(preview_node_name)
+            # Track the preview node for additional analysts
+            preview_nodes.append(preview_node_name)
+            logging.info(f"Created airlock nodes for {cohort_id} with {airlock_percentage}% airlock")
+        else:
+            logging.info(f"Skipping airlock nodes for {cohort_id} (airlock disabled)")
         
         # Add a visualization script that reads the raw cohort data
-        # It depends on both the raw data node (to read) and the fragment node (to ensure it runs after fragmentation)
         visualization_node_name = f"visualize-data-{cohort_id}"
         # Get variable names from the cohort for documentation in the script
         cohort_var_names = list(cohort.variables.keys()) if hasattr(cohort, 'variables') and cohort.variables else None
+        
+        # Visualization script dependencies depend on whether airlock is enabled
+        if fragment_node_name:
+            viz_dependencies = [data_node_id, metadata_node_id, fragment_node_name]
+        else:
+            viz_dependencies = [data_node_id, metadata_node_id]
+        
         viz_script = visualization_script(fragment_node_name, cohort_id, cohort_var_names, mapping_files_for_viz, include_mapping_upload_slot)
         builder.add_node_definition(
             PythonComputeNodeDefinition(
                 name=visualization_node_name,
                 script=viz_script,
-                dependencies=[data_node_id, metadata_node_id, fragment_node_name]
+                dependencies=viz_dependencies
             )
         )
         # Add all participants as analysts of the visualization script
