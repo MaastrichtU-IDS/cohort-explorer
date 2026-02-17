@@ -40,7 +40,6 @@ export function Nav() {
   const [selectedMappingFiles, setSelectedMappingFiles] = useState<Record<string, boolean>>({});
   const [loadingMappingFiles, setLoadingMappingFiles] = useState(false);
   const [includeMappingUploadSlot, setIncludeMappingUploadSlot] = useState(false);
-  const [wizardMode, setWizardMode] = useState(true);
   const [wizardStep, setWizardStep] = useState(0);
   const [showAddCohortModal, setShowAddCohortModal] = useState(false);
   const [cohortSearchQuery, setCohortSearchQuery] = useState('');
@@ -538,7 +537,7 @@ export function Nav() {
         {/* Desktop */}
         <div className="menu menu-horizontal my-0 py-0 space-x-6 pr-6 items-center">
           {(pathname === '/' || pathname === '/cohorts' || pathname === '/mapping') && (
-            <button id="dcr-button" onClick={() => { setShowModal(true); setWizardMode(true); setWizardStep(0); }} className="btn btn-outline btn-lg shadow-md hover:shadow-lg hover:bg-gray-600 hover:text-white transition-all duration-300">
+            <button id="dcr-button" onClick={() => { setShowModal(true); setWizardStep(0); }} className="btn btn-outline btn-lg shadow-md hover:shadow-lg hover:bg-gray-600 hover:text-white transition-all duration-300">
               Create a Data Clean Room <div className="badge badge-neutral">{Object.keys(dataCleanRoom?.cohorts).length || 0}</div>
             </button>
           )}
@@ -591,17 +590,6 @@ export function Nav() {
               </>
             ) : (
               <>
-              {/* Toggle link between standard and wizard view */}
-              <div className="flex justify-end mb-2">
-                <button 
-                  className="text-xs text-primary hover:underline"
-                  onClick={() => { setWizardMode(!wizardMode); setWizardStep(0); }}
-                >
-                  {wizardMode ? 'Switch to 1-page view →' : '← Back to step-by-step wizard'}
-                </button>
-              </div>
-              
-              { wizardMode ? (
               /* ========== WIZARD VIEW ========== */
               <>
                 {/* Step indicator */}
@@ -918,216 +906,6 @@ export function Nav() {
                   )}
                 </div>
               </>
-            ) : (
-              /* ========== STANDARD VIEW ========== */
-              <>
-                {/* DCR Name field */}
-                <div className="form-control mb-3">
-                    <div className="flex items-center gap-3">
-                      <span className="label-text font-semibold whitespace-nowrap">DCR Name</span>
-                      <input 
-                        type="text"
-                        placeholder="iCARE4CVD DCR compute XXX"
-                        className="input input-bordered w-full input-sm"
-                        value={dcrName}
-                        onChange={(e) => setDcrName(e.target.value)}
-                      />
-                    </div>
-                    <span className="text-xs text-base-content/60 mt-1">
-                      Leave empty to use the default naming. Note: your email address, &quot; - created by {userEmail}&quot;, will be appended to the name.
-                    </span>
-                </div>
-                
-                <h3 className="font-bold text-lg mb-3">Cohorts to load in Decentriq Data Clean Room</h3>
-                <p className="flex flex-wrap gap-x-1">
-                  {Object.entries(dataCleanRoom?.cohorts).map(([cohortId, variables]: any, index, arr) => (
-                    <span key={cohortId}>
-                      {cohortId} ({variables.length} variables){index < arr.length - 1 ? ',' : ''}
-                    </span>
-                  ))}
-                </p>
-                
-                {/* Other settings */}
-                    
-                    <div className="mt-2">
-                      <button 
-                        className="btn btn-sm btn-outline"
-                        onClick={() => setShowParticipantsModal(true)}
-                      >
-                        Manage Participants
-                      </button>
-                      {(additionalAnalysts.length > 0 || excludedDataOwners.length > 0) && (
-                        <span className="ml-2 text-sm text-base-content/70">
-                          {additionalAnalysts.length > 0 && `+${additionalAnalysts.length} analyst${additionalAnalysts.length > 1 ? 's' : ''}`}
-                          {additionalAnalysts.length > 0 && excludedDataOwners.length > 0 && ', '}
-                          {excludedDataOwners.length > 0 && `${excludedDataOwners.length} data owner${excludedDataOwners.length > 1 ? 's' : ''} excluded`}
-                        </span>
-                      )}
-                    </div>
-                    
-                    {/* Airlock Settings */}
-                    <div className="mt-2">
-                      <div className="divider my-2"></div>
-                      <h3 className="font-bold text-lg mb-1">Airlock Settings</h3>
-                      <p className="text-sm text-base-content/70 mb-2">Select the cohorts to include in the airlock (20% of the data will be visible to analysts inside the DCR):</p>
-                      <div className="flex flex-wrap gap-x-4 gap-y-1">
-                        {dataCleanRoom?.cohorts && Object.keys(dataCleanRoom.cohorts).map((cohortId) => (
-                          <div key={cohortId} className="form-control">
-                            <label className="label cursor-pointer justify-start gap-2 py-1">
-                              <input 
-                                type="checkbox"
-                                checked={airlockSettings[cohortId] ?? true}
-                                onChange={(e) => {
-                                  setAirlockSettings({...airlockSettings, [cohortId]: e.target.checked});
-                                }}
-                                className="checkbox checkbox-primary"
-                              />
-                              <span className="label-text">{cohortId}</span>
-                            </label>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    
-                    {/* Shuffled Samples Settings */}
-                    <div className="mt-2">
-                      <div className="divider my-2"></div>
-                      <h3 className="font-bold text-lg mb-1">Shuffled Samples Settings</h3>
-                      {loadingShuffledSamples ? (
-                        <p className="text-sm text-base-content/70">Checking shuffled sample availability...</p>
-                      ) : (
-                        <>
-                          {cohortsWithShuffledSamples.length > 0 && (
-                            <>
-                              <p className="text-sm text-base-content/70 mb-2">Select the shuffled samples to include:</p>
-                              <div className="flex flex-wrap gap-x-4 gap-y-1">
-                                {cohortsWithShuffledSamples.map((cohortId) => (
-                                  <div key={cohortId} className="form-control">
-                                    <label className="label cursor-pointer justify-start gap-2 py-1">
-                                      <input 
-                                        type="checkbox"
-                                        checked={shuffledSampleSettings[cohortId] ?? true}
-                                        onChange={(e) => {
-                                          setShuffledSampleSettings({...shuffledSampleSettings, [cohortId]: e.target.checked});
-                                        }}
-                                        className="checkbox checkbox-primary"
-                                      />
-                                      <span className="label-text">{cohortId}</span>
-                                    </label>
-                                  </div>
-                                ))}
-                              </div>
-                            </>
-                          )}
-                          {cohortsWithoutShuffledSamples.length > 0 && (
-                            <p className="text-sm text-base-content/50 mt-3 italic">
-                              Cohorts without shuffled samples: {cohortsWithoutShuffledSamples.join(', ')}
-                            </p>
-                          )}
-                          {cohortsWithShuffledSamples.length === 0 && cohortsWithoutShuffledSamples.length === 0 && (
-                            <p className="text-sm text-base-content/50 italic">None of the selected cohorts have a shuffled sample</p>
-                          )}
-                        </>
-                      )}
-                    </div>
-                    
-                    {/* Mapping File Settings */}
-                    <div className="mt-2">
-                      <div className="divider my-2"></div>
-                      <h3 className="font-bold text-lg mb-1">Mapping File Settings</h3>
-                      {loadingMappingFiles ? (
-                        <p className="text-sm text-base-content/70">Checking for available mapping files...</p>
-                      ) : availableMappingFiles.length > 0 ? (
-                        <>
-                          <p className="text-sm text-base-content/70 mb-2">Select mapping files to include in the DCR:</p>
-                          <div className="flex flex-wrap gap-x-4 gap-y-1">
-                            {availableMappingFiles.map((mapping) => (
-                              <div key={mapping.filename} className="form-control">
-                                <label className="label cursor-pointer justify-start gap-2 py-1">
-                                  <input 
-                                    type="checkbox"
-                                    checked={selectedMappingFiles[mapping.filename] ?? true}
-                                    onChange={(e) => {
-                                      setSelectedMappingFiles({...selectedMappingFiles, [mapping.filename]: e.target.checked});
-                                    }}
-                                    className="checkbox checkbox-primary"
-                                  />
-                                  <span className="label-text">{mapping.display_name}</span>
-                                </label>
-                              </div>
-                            ))}
-                          </div>
-                        </>
-                      ) : Object.keys(dataCleanRoom?.cohorts || {}).length < 2 ? (
-                        <p className="text-sm text-base-content/50 italic">Select at least 2 cohorts to see available mapping files</p>
-                      ) : (
-                        <p className="text-sm text-base-content/50 italic">No mapping files available for the selected cohorts</p>
-                      )}
-                      
-                      {/* Option to include upload slot for mapping file */}
-                      <div className="form-control mt-4">
-                        <label className="label cursor-pointer justify-start gap-2">
-                          <input 
-                            type="checkbox"
-                            checked={includeMappingUploadSlot}
-                            onChange={(e) => setIncludeMappingUploadSlot(e.target.checked)}
-                            className="checkbox checkbox-primary"
-                          />
-                          <span className="label-text">Include file upload slot for cross-study mapping</span>
-                        </label>
-                      </div>
-                      
-                      <p className="text-xs text-base-content/50 mt-3 italic">
-                        Missing a mapping file? Generate it from the <Link href="/mapping" className="underline hover:text-primary">Mapping page</Link> to add it to the cache.
-                      </p>
-                    </div>
-                
-                <div className="modal-action flex flex-wrap justify-end gap-2 mt-4">
-                    <button 
-                      className="btn btn-primary" 
-                      onClick={createLiveDCR} 
-                      disabled={isLoading || dcrCreated}
-                    >
-                      Create Live DCR
-                    </button>
-                    <button 
-                      className="btn btn-neutral" 
-                      onClick={getDCRDefinitionFile} 
-                      disabled={isLoading || configDownloaded}
-                    >
-                      Download DCR Config
-                    </button>
-                    <button 
-                      className="btn" 
-                      onClick={clearCohortsList}
-                    >
-                      Clear cohorts
-                    </button>
-                    <button className="btn" onClick={() => setShowModal(false)}>
-                      Close
-                    </button>
-                </div>
-                {isLoading && (
-                  <div className="flex flex-col items-center opacity-70 text-slate-500 mt-5 mb-5">
-                    <span className="loading loading-spinner loading-lg mb-4"></span>
-                    <p>
-                      {loadingAction === 'live' 
-                        ? 'Creating the Data Clean Room on Decentriq Platform. Will take a few seconds...'
-                        : 'Creating the file specification for a DCR draft...'}
-                    </p>
-                  </div>
-                )}
-                <div ref={notificationRef}>
-                  {publishedDCR && (
-                    <div className="card card-compact">
-                      <div className="card-body mt-5">
-                          {publishedDCR}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
             </>
             )}
           </div>
