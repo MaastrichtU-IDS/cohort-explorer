@@ -216,6 +216,22 @@ def _get_cohorts_with_shuffled_samples() -> list[str]:
 
 
 @router.get(
+    "/get-cohorts-with-shuffled-samples",
+    name="Get list of cohorts with shuffled samples",
+    response_description="List of cohort IDs that have shuffled sample files available",
+)
+async def get_cohorts_with_shuffled_samples() -> dict[str, list[str]]:
+    """
+    Get a list of all cohorts that have shuffled sample files available.
+    
+    Returns:
+    - cohorts_with_shuffled_samples: List of cohort IDs that have shuffled samples
+    """
+    cohorts_with_samples = _get_cohorts_with_shuffled_samples()
+    return {"cohorts_with_shuffled_samples": sorted(cohorts_with_samples)}
+
+
+@router.get(
     "/get-shuffled-sample/{cohort_name}",
     name="Get shuffled sample file for a cohort",
     response_description="CSV file containing the shuffled sample data",
