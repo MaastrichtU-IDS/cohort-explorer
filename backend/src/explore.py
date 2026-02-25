@@ -169,3 +169,96 @@ async def download_cohorts_metadata_spreadsheet(user: Any = Depends(get_current_
         headers=headers,
     )
 
+
+def _get_all_cohort_ids() -> list[str]:
+    """Get all valid cohort IDs from the cache or triplestore."""
+    if is_cache_initialized():
+        cohorts = get_cohorts_from_cache("")
+        return list(cohorts.keys()) if cohorts else []
+    
+    # Fallback to SPARQL
+    cohorts = retrieve_cohorts_metadata("")
+    return list(cohorts.keys()) if cohorts else []
+
+
+def _normalize_cohort_name(name: str) -> str:
+    """Normalize cohort name for comparison: lowercase and strip leading/trailing spaces."""
+    return name.strip().lower()
+
+
+def _find_cohort_id_by_name(cohort_name: str) -> str | None:
+    """
+    Find the actual cohort ID that matches the given name after normalization.
+    Returns the original cohort ID if found, None otherwise.
+    """
+    normalized_input = _normalize_cohort_name(cohort_name)
+    all_cohort_ids = _get_all_cohort_ids()
+    
+    for cohort_id in all_cohort_ids:
+        if _normalize_cohort_name(cohort_id) == normalized_input:
+            return cohort_id
+    
+    return None
+
+
+def _get_cohorts_with_shuffled_samples() -> list[str]:
+    """Get list of all cohort IDs that have shuffled sample files available."""
+    cohorts_with_samples = []
+    all_cohort_ids = _get_all_cohort_ids()
+    
+    for cohort_id in all_cohort_ids:
+        storage_dir = os.path.join(settings.data_folder, f"dcr_output_{cohort_id}")
+        shuffled_csv = os.path.join(storage_dir, "shuffled_sample.csv")
+        if os.path.exists(shuffled_csv):
+            cohorts_with_samples.append(cohort_id)
+    
+    return cohorts_with_samples
+
+
+@router.get(
+    "/get-shuffled-sample/{cohort_name}",
+    name="Get shuffled sample file for a cohort",
+    response_description="CSV file containing the shuffled sample data",
+)
+async def get_shuffled_sample(cohort_name: str) -> FileResponse:
+    """
+    Download the shuffled sample CSV file for a given cohort.
+    
+    - **cohort_name**: Name of the cohort (case-insensitive, leading/trailing spaces ignored)
+    
+    Returns:
+    - The shuffled_sample.csv file if available
+    
+    Errors:
+    - 404 if cohort name is not valid
+    - 404 if cohort exists but has no shuffled sample yet (includes list of cohorts that do have samples)
+    """
+    # Find the actual cohort ID matching the normalized name
+    actual_cohort_id = _find_cohort_id_by_name(cohort_name)
+    
+    if actual_cohort_id is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"'{cohort_name}' is not a valid cohort name."
+        )
+    
+    # Check if shuffled sample file exists
+    storage_dir = os.path.join(settings.data_folder, f"dcr_output_{actual_cohort_id}")
+    shuffled_csv = os.path.join(storage_dir, "shuffled_sample.csv")
+    
+    if not os.path.exists(shuffled_csv):
+        cohorts_with_samples = _get_cohorts_with_shuffled_samples()
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": f"Cohort '{actual_cohort_id}' does not have a shuffled sample file yet.",
+                "cohorts_with_shuffled_samples": sorted(cohorts_with_samples)
+            }
+        )
+    
+    return FileResponse(
+        path=shuffled_csv,
+        filename=f"{actual_cohort_id}_shuffled_sample.csv",
+        media_type="text/csv"
+    )
+
