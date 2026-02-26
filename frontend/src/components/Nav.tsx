@@ -590,7 +590,7 @@ export function Nav() {
               </>
             ) : (
               <>
-              /* ========== WIZARD VIEW ========== */
+              {/* ========== WIZARD VIEW ========== */}
               <>
                 {/* Step indicator */}
                 <ul className="steps steps-horizontal w-full mb-6 text-xs">
