@@ -322,12 +322,6 @@ export default function UploadPage() {
                   Providing accurate metadata is crucial for enabling data scientists to understand and effectively utilize the data within the secure Decentriq platform later.
                 </p>
                 
-                 {metadataExists && (
-                   <div role="alert" className="alert alert-info mt-4">
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" className="stroke-current shrink-0 w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                     <span>Metadata already exists for cohort <strong>{cohortsData?.[cohortId]?.label || cohortId}</strong>. You can proceed directly to Step 2 or upload a new file to replace the existing metadata.</span>
-                   </div>
-                 )}
               </div>
 
               <form onSubmit={handleMetadataSubmit} className="space-y-5">
@@ -356,21 +350,23 @@ export default function UploadPage() {
                     )}
                   </select>
                   {cohortId && (
-                    <div className="mt-2 text-sm">
+                    <div className="mt-2">
                       {metadataExists ? (
-                        <p className="text-base-content/80">
-                          This cohort already has a metadata dictionary in the explorer. You can{' '}
-                          <a
-                            href={`${apiUrl}/cohort-spreadsheet/${cohortId}`}
-                            className="link link-primary font-medium"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                          >
-                            download the dictionary here
-                          </a>. You may replace or update the existing dictionary using the button below.
-                        </p>
+                        <div role="alert" className="alert alert-info">
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" className="stroke-current shrink-0 w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                          <span>Metadata already exists for cohort <strong>{cohortsData?.[cohortId]?.label || cohortId}</strong>. You can proceed directly to Step 2 or upload a new file to replace the existing metadata. You may view the current metadata dictionary{' '}
+                            <a
+                              href={`${apiUrl}/cohort-spreadsheet/${cohortId}`}
+                              className="link font-medium underline"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              here
+                            </a>.
+                          </span>
+                        </div>
                       ) : (
-                        <p className="text-base-content/70">
+                        <p className="text-sm text-base-content/70">
                           This cohort does not yet have a metadata dictionary in the explorer. Please upload the dictionary as a CSV file using the button below.
                         </p>
                       )}
