@@ -44,7 +44,7 @@ export default function UploadPage() {
   const cohortsUserCanEdit = cohortsData ? Object.keys(cohortsData).filter(cohortId => cohortsData[cohortId]['can_edit']) : [];
 
   useEffect(() => {
-    if (cohortId && cohortsData?.[cohortId]?.physical_dictionary_exists) {
+    if (cohortId && cohortsData?.[cohortId]?.variables && Object.keys(cohortsData[cohortId].variables).length > 0) {
       setMetadataExists(true);
     } else {
       setMetadataExists(false);
