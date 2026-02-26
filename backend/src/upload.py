@@ -1387,6 +1387,9 @@ async def upload_cohort(
 
     # Create directory named after cohort_id
     os.makedirs(cohort_info.folder_path, exist_ok=True)
+    # Track backup info so we can restore the original dictionary if processing fails
+    backed_up_original_path = None
+    backed_up_to_path = None
     # Check if cohort already uploaded
     if cohort_info and len(cohort_info.variables) > 0:
         # Check for existing data dictionary file and back it up
@@ -1398,6 +1401,8 @@ async def upload_cohort(
                 existing_file_path = os.path.join(cohort_info.folder_path, file_name)
                 # Rename (backup) the existing file
                 os.rename(existing_file_path, backup_file_path)
+                backed_up_original_path = existing_file_path
+                backed_up_to_path = backup_file_path
                 break  # Assuming there's only one data dictionary file per cohort
 
     # Make sure metadata file ends with _datadictionary
@@ -1447,7 +1452,13 @@ async def upload_cohort(
                 # Cache was already updated directly from the graph in load_cohort_dict_file
                 logging.info(f"Cohort {cohort_id} published to triplestore and cache updated")
     except Exception as e:
-        os.remove(cohort_info.metadata_filepath)
+        # Remove the newly written (invalid) file
+        if os.path.exists(metadata_path):
+            os.remove(metadata_path)
+        # Restore the original dictionary from backup if one was made
+        if backed_up_original_path and backed_up_to_path and os.path.exists(backed_up_to_path):
+            os.rename(backed_up_to_path, backed_up_original_path)
+            logging.info(f"Restored original dictionary for cohort {cohort_id} after failed upload")
         raise e
 
     # return {

@@ -355,6 +355,27 @@ export default function UploadPage() {
                       </option>
                     )}
                   </select>
+                  {cohortId && (
+                    <div className="mt-2 text-sm">
+                      {metadataExists ? (
+                        <p className="text-base-content/80">
+                          This cohort already has a metadata dictionary in the explorer. You can{' '}
+                          <a
+                            href={`${apiUrl}/cohort-spreadsheet/${cohortId}`}
+                            className="link link-primary font-medium"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            download the dictionary here
+                          </a>. You may replace or update the existing dictionary using the button below.
+                        </p>
+                      ) : (
+                        <p className="text-base-content/70">
+                          This cohort does not yet have a metadata dictionary in the explorer. Please upload the dictionary as a CSV file using the button below.
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div className="form-control">
