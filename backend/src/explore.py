@@ -220,7 +220,7 @@ def _get_cohorts_with_shuffled_samples() -> list[str]:
     name="Get list of cohorts with shuffled samples",
     response_description="List of cohort IDs that have shuffled sample files available",
 )
-async def get_cohorts_with_shuffled_samples() -> dict[str, list[str]]:
+async def get_cohorts_with_shuffled_samples(user: Any = Depends(get_current_user)) -> dict[str, list[str]]:
     """
     Get a list of all cohorts that have shuffled sample files available.
     
@@ -236,7 +236,7 @@ async def get_cohorts_with_shuffled_samples() -> dict[str, list[str]]:
     name="Get shuffled sample file for a cohort",
     response_description="CSV file containing the shuffled sample data",
 )
-async def get_shuffled_sample(cohort_name: str) -> FileResponse:
+async def get_shuffled_sample(cohort_name: str, user: Any = Depends(get_current_user)) -> FileResponse:
     """
     Download the shuffled sample CSV file for a given cohort.
     

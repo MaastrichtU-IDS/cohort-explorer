@@ -52,7 +52,8 @@ def get_latest_dictionary_timestamp(cohort_id: str) -> float | None:
 @router.post("/check-mapping-cache")
 async def check_mapping_cache(
     source_study: str = Body(...),
-    target_studies: list = Body(...)
+    target_studies: list = Body(...),
+    user: Any = Depends(get_current_user),
 ):
     """
     Check cache status for mapping pairs without generating mappings.
@@ -222,7 +223,8 @@ async def get_available_mapping_files(
 @router.post("/generate-mapping")
 async def generate_mapping(
     source_study: str = Body(...),
-    target_studies: list = Body(...)
+    target_studies: list = Body(...),
+    user: Any = Depends(get_current_user),
 ):
     """
     Generate a mapping CSV for the given source and target studies and return it as a downloadable file.

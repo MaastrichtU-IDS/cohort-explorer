@@ -1080,12 +1080,13 @@ async def normalize_all_dictionary_headers(
     name="Generate metadata issues report",
     response_description="Metadata issues report file",
 )
-async def generate_metadata_issues_report():
-    """Generate a report of all metadata dictionary validation issues across all cohorts.
-    
-    This endpoint can be called without authentication as it's typically used during startup.
-    Returns the report as a downloadable text file.
-    """
+async def generate_metadata_issues_report(
+    user: Any = Depends(get_current_user),
+):
+    """Generate a report of all metadata dictionary validation issues across all cohorts. Admins only."""
+    user_email = user["email"]
+    if user_email not in settings.admins_list:
+        raise HTTPException(status_code=403, detail="You need to be admin to perform this action.")
     from fastapi.responses import FileResponse
     from src.cohort_cache import get_cohorts_from_cache
     

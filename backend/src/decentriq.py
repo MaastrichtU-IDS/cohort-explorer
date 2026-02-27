@@ -1455,6 +1455,9 @@ def get_dcr_log_main(dcr_id: str,  user: Any = Depends(get_current_user)):
 @router.get("/compute-get-output/{dcr_id}", 
             name = "run the scripts for a given DCR and download the output")
 def run_computation_get_output(dcr_id: str,  user: Any = Depends(get_current_user)):
+    """Run the scripts for a given DCR and download the output. Admins only."""
+    if user["email"] not in settings.admins_list:
+        raise HTTPException(status_code=403, detail="You need to be admin to perform this action.")
     #example id = "9e2715f4b32a646d2da3d8952b7fa7ca48537ee6731627417f735d15fa17d4f6"
     client = dq.create_client(settings.decentriq_email, settings.decentriq_token)
     dcr = client.retrieve_analytics_dcr(dcr_id)
@@ -1496,14 +1499,9 @@ def run_computation_get_output(dcr_id: str,  user: Any = Depends(get_current_use
 @router.get("/shuffle-get-output/{dcr_id}",
             name = "run the C4 shuffle script for a given DCR and download the output")
 def run_shuffle_get_output(dcr_id: str, user: Any = Depends(get_current_user)):
-    """Run the C4 shuffle_data script and save output to the same folder as C3 (EDA) output.
-    
-    The shuffle script:
-    - Removes PII columns (patient ID with OMOP ID 4086934)
-    - Independently shuffles each column to destroy correlations
-    - Samples a subset of rows
-    - Outputs shuffled_sample.csv and shuffle_summary.txt
-    """
+    """Run the C4 shuffle_data script and save output to the same folder as C3 (EDA) output. Admins only."""
+    if user["email"] not in settings.admins_list:
+        raise HTTPException(status_code=403, detail="You need to be admin to perform this action.")
     client = dq.create_client(settings.decentriq_email, settings.decentriq_token)
     dcr = client.retrieve_analytics_dcr(dcr_id)
     cohort_id = dcr.node_definitions[0].name.strip()
@@ -1641,11 +1639,9 @@ async def api_preview_dcr_participants(
     cohorts_request: dict[str, Any],
     user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """Preview what participants would be configured for a DCR without creating it.
-    
-    This allows the UI to show who will be data owners and analysts before
-    the user decides to add additional participants.
-    """
+    """Preview what participants would be configured for a DCR without creating it. Admins only."""
+    if user["email"] not in settings.admins_list:
+        raise HTTPException(status_code=403, detail="You need to be admin to perform this action.")
     try:
         # Get cohort metadata
         from src.cohort_cache import get_cohorts_from_cache
@@ -1686,13 +1682,9 @@ async def check_shuffled_samples(
     cohorts_request: dict[str, Any],
     user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """
-    Check which cohorts have shuffled sample files available.
-    
-    Returns a dictionary with:
-    - cohorts_with_samples: list of cohort IDs that have shuffled samples
-    - cohorts_without_samples: list of cohort IDs that don't have shuffled samples
-    """
+    """Check which cohorts have shuffled sample files available. Admins only."""
+    if user["email"] not in settings.admins_list:
+        raise HTTPException(status_code=403, detail="You need to be admin to perform this action.")
     try:
         cohorts_with_samples = []
         cohorts_without_samples = []
