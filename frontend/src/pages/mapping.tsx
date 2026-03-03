@@ -355,6 +355,7 @@ export default function MappingPage() {
       // First, check cache status immediately
       const cacheResponse = await fetch(`${apiUrl}/api/check-mapping-cache`, {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
         },
@@ -378,6 +379,7 @@ export default function MappingPage() {
       
       const response = await fetch(`${apiUrl}/api/generate-mapping`, {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
         },
