@@ -11,8 +11,9 @@ from typing import Optional, Dict, Any, List, Tuple
 import re
 from pathlib import Path
 from requests.exceptions import RequestException  # add this import
-from CohortVarLinker.src.omop_graph import OmopGraphNX
+from CohortVarLinker.src.omop_graph_nx import OmopGraphNX
 import time
+import json
 from CohortVarLinker.src.config import settings
 from CohortVarLinker.src.utils import load_dictionary
 """_summary_
@@ -318,17 +319,10 @@ def to_int_or_none(x: Optional[str]) -> Optional[int]:
     except Exception:
         return None
 
-def athena_headers() -> Dict[str, str]:
-    # Athena-Auth-Token = eyJhbGciOiJIUzI1NiJ9.eyIkaW50X3Blcm1zIjpbXSwic3ViIjoib3JnLnBhYzRqLnNhbWwucHJvZmlsZS5TQU1MMlByb2ZpbGUja29tYWwuZ2lsYW5pQG1hYXN0cmljaHR1bml2ZXJzaXR5Lm5sIiwibGFzdE5hbWUiOlsiR2lsYW5pIl0sImlzRnJvbU5ld0xvZ2luIjpbInRydWUiXSwiYXV0aGVudGljYXRpb25EYXRlIjpbIjIwMjUtMTEtMjVUMTU6MjE6NTQuODE3WltVVENdIl0sInN1Y2Nlc3NmdWxBdXRoZW50aWNhdGlvbkhhbmRsZXJzIjpbIkFyYWNobmUiXSwibm90QmVmb3JlIjp7fSwic2FtbEF1dGhlbnRpY2F0aW9uU3RhdGVtZW50QXV0aE1ldGhvZCI6WyJ1cm46b2FzaXM6bmFtZXM6dGM6U0FNTDoxLjA6YW06cGFzc3dvcmQiXSwiZmlyc3ROYW1lIjpbIktvbWFsIl0sImF1dGhlbnRpY2F0aW9uTWV0aG9kIjpbIkFyYWNobmUiXSwib3JnYW5pemF0aW9uIjpbIk1hYXN0cmljaHQgVW5pdmVyc2l0eSJdLCJub3RPbk9yQWZ0ZXIiOnt9LCIkaW50X3JvbGVzIjpbXSwibG9uZ1Rlcm1BdXRoZW50aWNhdGlvblJlcXVlc3RUb2tlblVzZWQiOlsiZmFsc2UiXSwiaWF0IjoxNzY0MDg0MTE3LCJzZXNzaW9uaW5kZXgiOiJfMjYyMTAyMTIzMTI2NjMxMzU0OCIsImVtYWlsIjoia29tYWwuZ2lsYW5pQG1hYXN0cmljaHR1bml2ZXJzaXR5Lm5sIn0.dA3ee3mxnJqP4bAVxOkpN_oIqhSqAf4hU2q_x2RjJNM
-    return {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/124.0.0.0 Safari/537.36"
-        ),
-        "Accept": "application/json",
-        "Referer": "https://athena.ohdsi.org/"    
-    }
+
+_ATHENA_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"
+}
 
 def fetch_athena(label: str, vocabularies: List[str], include_classification: bool = True) -> List[Dict[str, Any]]:
     """
@@ -341,7 +335,7 @@ def fetch_athena(label: str, vocabularies: List[str], include_classification: bo
 
     # 1) Check cache first
     if cache_key in CACHE_ATHENA:
-        print(f"Using cached Athena results for label='{label}', vocabularies={vocabularies}")
+        # print(f"Using cached Athena results for label='{label}', vocabularies={vocabularies}")
         return CACHE_ATHENA[cache_key]
 
     # 2) Build params
@@ -364,7 +358,7 @@ def fetch_athena(label: str, vocabularies: List[str], include_classification: bo
         r = requests.get(
             ATHENA_ENDPOINT,
             params=params,
-            headers=athena_headers(),
+            headers=_ATHENA_HEADERS,
             timeout=TIMEOUT,
         )
         r.raise_for_status()
@@ -382,7 +376,7 @@ def fetch_athena(label: str, vocabularies: List[str], include_classification: bo
         return result
 
     except Exception as e:
-        print(f"⚠️ Error querying Athena: {e}")
+        # print(f"⚠️ Error querying Athena: {e}")
         return []
 
 
@@ -444,7 +438,7 @@ def validate_component(label: str, code_prefixed: Optional[str], omop_id_str: Op
         else:
     
             try:
-                    print(f"validate_component: label='{lab}', code='{code}', cid={cid} -> flag={flag}, status={status}, context={context}")
+                    # print(f"validate_component: label='{lab}', code='{code}', cid={cid} -> flag={flag}, status={status}, context={context}")
                     rows = fetch_athena(code, vocab, include_classification=True)
                     concepts = rows_to_simple(rows)
                     if not concepts:
@@ -513,10 +507,22 @@ def structure_sanity_check(df: pd.DataFrame, required_columns: List[str], out_cs
     if missing:
         #raise ValueError(f"Missing required columns: {missing}")
         # return on row stating that columns are missing
-        print(f"⚠️ Missing required columns: {missing}")
+        # print(f"⚠️ Missing required columns: {missing}")
         out_rows = []
         v_log = ValidationLog(status="FAIL", description=f"Missing required columns: {missing}")
         out_rows.append({**asdict(v_log)})
+        out_df = pd.DataFrame(out_rows)
+        out_df.to_csv(out_csv, index=False)
+        return False
+    df['domain'] = df['domain'].apply(lambda x: x.strip().lower() if isinstance(x, str) else x)
+    domain_columns_value = ["condition_occurrence", "observation", "measurement", "procedure_occurrence", "person", "observation_period", "drug_exposure", "device_exposure", "visit_occurrence", "specimen", "death", "condition_era", "drug_era", "dose_era"]
+    # check if domain column has allowed values
+    invalid_domains = df[~df['domain'].isna() & (~df['domain'].isin(domain_columns_value))]
+    if not invalid_domains.empty:
+        out_rows = []
+        for _, r in invalid_domains.iterrows():
+            v_log = ValidationLog(status="FAIL", description=f"Invalid entry in column 'domain': '{r['domain']}' not allowed.")
+            out_rows.append({**asdict(v_log)})
         out_df = pd.DataFrame(out_rows)
         out_df.to_csv(out_csv, index=False)
         return False
@@ -602,7 +608,7 @@ def validate_additional_context(r: pd.Series, omop_graph_obj: OmopGraphNX) -> Va
                             
                         else:
                             
-                            print(f"Validating additional context={label} for variable='{r.get('variable label','')}'")
+                            # print(f"Validating additional context={label} for variable='{r.get('variable label','')}'")
                             ac_log = validate_component(
                             label=label,
                             code_prefixed=code_prefixed,    
@@ -799,7 +805,7 @@ def validate_dictionary(in_csv: str, out_csv: str=None) -> None:
         out_df.to_csv(out_csv, index=False)
     # print(f"Saved results to: {out_csv}")
     print(f"Validation completed in {time.time() - start_time:.2f} seconds")
-    if out_df.empty:
+    if out_df['overall_status'].eq('PASS').all():
         return True
     else:
         return False

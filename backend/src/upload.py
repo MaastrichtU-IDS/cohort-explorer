@@ -1224,6 +1224,197 @@ async def generate_metadata_issues_report(
 
 
 @router.post(
+    "/validate-athena-codes",
+    name="Validate Athena codes across all cohorts",
+    response_description="Athena code validation report",
+)
+async def validate_athena_codes(
+    user: Any = Depends(get_current_user),
+):
+    """Validate OMOP concept codes against the OMOP graph and Athena API for all cohort dictionaries. Admins only.
+
+    For each cohort dictionary, this checks whether the concept triples
+    (concept name, concept code, OMOP ID) for variables, additional context,
+    categorical values, units, and visits are semantically valid.
+    """
+    user_email = user["email"]
+    if user_email not in settings.admins_list:
+        raise HTTPException(status_code=403, detail="You need to be admin to perform this action.")
+    from fastapi.responses import FileResponse
+    from src.cohort_cache import get_cohorts_from_cache
+    from CohortVarLinker.validate_cde import validate_dictionary
+
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    reports_folder = os.path.join(settings.data_folder, "ATHENA_VALIDATION_REPORTS")
+    os.makedirs(reports_folder, exist_ok=True)
+
+    summary_file = os.path.join(reports_folder, f"athena_validation_{timestamp}.txt")
+
+    admin_email = settings.admins_list[0] if settings.admins_list else "admin@example.com"
+    all_cohorts = get_cohorts_from_cache(admin_email)
+
+    total_cohorts = 0
+    cohorts_passed = 0
+    cohorts_failed = 0
+    cohorts_without_dict = 0
+    cohorts_errored = 0
+
+    with open(summary_file, "w") as f:
+        f.write(f"Athena Code Validation Report - Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write("=" * 80 + "\n\n")
+
+    for cohort_id in sorted(all_cohorts.keys()):
+        total_cohorts += 1
+        cohort_folder_path = os.path.join(settings.cohort_folder, cohort_id)
+
+        if not os.path.exists(cohort_folder_path):
+            cohorts_without_dict += 1
+            continue
+
+        latest_dict_file = get_latest_datadictionary(cohort_folder_path)
+
+        if not latest_dict_file:
+            cohorts_without_dict += 1
+            with open(summary_file, "a") as f:
+                f.write(f"COHORT: {cohort_id}\n")
+                f.write(f"Status: No metadata dictionary file found\n")
+                f.write("-" * 80 + "\n\n")
+            continue
+
+        # Run Athena/graph validation — results go to a per-cohort CSV
+        out_csv = os.path.join(reports_folder, f"{cohort_id}_athena_{timestamp}.csv")
+        try:
+            all_pass = validate_dictionary(latest_dict_file, out_csv)
+
+            # Read the per-cohort CSV to extract failure details
+            failures = []
+            if os.path.exists(out_csv):
+                result_df = pd.read_csv(out_csv)
+                fail_rows = result_df[result_df.get("overall_status", pd.Series(dtype=str)) == "FAIL"]
+                for _, row in fail_rows.iterrows():
+                    var_name = row.get("variable name", "")
+                    reasons = []
+                    for col in ["variable_reason", "categorical_value_reason",
+                                "additional_context_status", "unit_reason", "visit_reason"]:
+                        val = str(row.get(col, "")).strip()
+                        if val and val not in ("N/A", "nan", ""):
+                            status_col = col.replace("_reason", "_status")
+                            status_val = str(row.get(status_col, "")).strip()
+                            if status_val == "FAIL" or "FAIL" in val:
+                                reasons.append(f"  - {col}: {val}")
+                    if reasons:
+                        failures.append(f"  Variable '{var_name}':\n" + "\n".join(reasons))
+
+            with open(summary_file, "a") as f:
+                f.write(f"COHORT: {cohort_id}\n")
+                f.write(f"File: {os.path.basename(latest_dict_file)}\n")
+                if all_pass is True:
+                    f.write(f"Status: ALL PASS\n")
+                    cohorts_passed += 1
+                elif all_pass is False:
+                    f.write(f"Status: FAILURES FOUND ({len(failures)} variable(s))\n")
+                    cohorts_failed += 1
+                    for failure in failures:
+                        f.write(f"{failure}\n")
+                else:
+                    # validate_dictionary returned None (structure check failed)
+                    f.write(f"Status: STRUCTURE CHECK FAILED (missing required columns)\n")
+                    cohorts_failed += 1
+                f.write(f"Detail CSV: {os.path.basename(out_csv)}\n")
+                f.write("-" * 80 + "\n\n")
+
+        except Exception as e:
+            cohorts_errored += 1
+            with open(summary_file, "a") as f:
+                f.write(f"COHORT: {cohort_id}\n")
+                f.write(f"File: {os.path.basename(latest_dict_file)}\n")
+                f.write(f"Status: ERROR - {str(e)}\n")
+                f.write("-" * 80 + "\n\n")
+
+    # Write summary
+    with open(summary_file, "a") as f:
+        f.write("=" * 80 + "\n")
+        f.write("SUMMARY\n")
+        f.write("=" * 80 + "\n")
+        f.write(f"Total cohorts: {total_cohorts}\n")
+        f.write(f"Cohorts passed: {cohorts_passed}\n")
+        f.write(f"Cohorts with failures: {cohorts_failed}\n")
+        f.write(f"Cohorts without dictionary: {cohorts_without_dict}\n")
+        f.write(f"Cohorts with errors: {cohorts_errored}\n")
+        f.write(f"Per-cohort detail CSVs saved in: {reports_folder}\n")
+        f.write(f"Report generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+
+    logging.info(f"Generated Athena validation report: {summary_file}")
+    logging.info(f"Athena validation summary - Total: {total_cohorts}, Passed: {cohorts_passed}, Failed: {cohorts_failed}, No dict: {cohorts_without_dict}, Errors: {cohorts_errored}")
+
+    return FileResponse(
+        path=summary_file,
+        media_type="text/plain",
+        filename=os.path.basename(summary_file),
+        headers={
+            "X-Total-Cohorts": str(total_cohorts),
+            "X-Cohorts-Passed": str(cohorts_passed),
+            "X-Cohorts-Failed": str(cohorts_failed),
+            "X-Cohorts-Without-Dict": str(cohorts_without_dict),
+            "X-Cohorts-Errored": str(cohorts_errored),
+        }
+    )
+
+
+@router.post(
+    "/validate-athena-codes/{cohort_id}",
+    name="Validate Athena codes for a single cohort",
+    response_description="Athena code validation report for a single cohort",
+)
+async def validate_athena_codes_single(
+    cohort_id: str,
+    user: Any = Depends(get_current_user),
+):
+    """Validate OMOP concept codes against the OMOP graph and Athena API for a single cohort dictionary. Admins only."""
+    user_email = user["email"]
+    if user_email not in settings.admins_list:
+        raise HTTPException(status_code=403, detail="You need to be admin to perform this action.")
+    from fastapi.responses import FileResponse
+    from src.cohort_cache import get_cohorts_from_cache
+    from CohortVarLinker.validate_cde import validate_dictionary
+
+    all_cohorts = get_cohorts_from_cache(user_email)
+    if cohort_id not in all_cohorts:
+        raise HTTPException(status_code=404, detail=f"Cohort '{cohort_id}' does not exist in the system. Please check the cohort name and try again.")
+
+    cohort_folder_path = os.path.join(settings.cohort_folder, cohort_id)
+    latest_dict_file = get_latest_datadictionary(cohort_folder_path) if os.path.exists(cohort_folder_path) else None
+    if not latest_dict_file:
+        raise HTTPException(status_code=404, detail=f"Cohort '{cohort_id}' exists but has no metadata dictionary uploaded.")
+
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    reports_folder = os.path.join(settings.data_folder, "ATHENA_VALIDATION_REPORTS")
+    os.makedirs(reports_folder, exist_ok=True)
+
+    out_csv = os.path.join(reports_folder, f"{cohort_id}_athena_{timestamp}.csv")
+
+    try:
+        all_pass = validate_dictionary(latest_dict_file, out_csv)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Validation failed for cohort {cohort_id}: {str(e)}")
+
+    if not os.path.exists(out_csv):
+        raise HTTPException(status_code=500, detail=f"Validation produced no output for cohort {cohort_id}")
+
+    logging.info(f"Athena validation for {cohort_id}: {'PASS' if all_pass else 'FAIL'}")
+
+    return FileResponse(
+        path=out_csv,
+        media_type="text/csv",
+        filename=os.path.basename(out_csv),
+        headers={
+            "X-Cohort-Id": cohort_id,
+            "X-All-Pass": str(all_pass),
+        }
+    )
+
+
+@router.post(
     "/get-logs",
     name="Get logs",
     response_description="Logs",

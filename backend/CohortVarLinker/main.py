@@ -19,7 +19,7 @@ from CohortVarLinker.src.utils import (
     
     )
 from CohortVarLinker.src.modes import MappingType, EmbeddingType 
-from CohortVarLinker.src.omop_graph import OmopGraphNX
+from CohortVarLinker.src.omop_graph_nx import OmopGraphNX
 
 
 
