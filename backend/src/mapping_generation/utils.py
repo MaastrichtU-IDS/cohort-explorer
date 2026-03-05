@@ -9,7 +9,7 @@ from typing import Dict, List, Tuple
 # import psutil
 import pandas as pd
 from json_repair import repair_json
-from langchain.schema import Document
+from langchain_core.documents import Document
 from simstring.database.dict import DictDatabase
 from simstring.feature_extractor.character_ngram import CharacterNgramFeatureExtractor
 from simstring.measure.cosine import CosineMeasure
