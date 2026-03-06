@@ -1,9 +1,17 @@
 #new version of the module. From Komal (komi786) 
 # added 05.03.2026
 
+import sys
 import numpy
-if not hasattr(numpy, '_core'):
-    numpy._core = numpy.core
+import numpy.core
+
+# Shim: map numpy._core → numpy.core for loading pickles created with numpy 2.x
+# when running under numpy 1.x (numpy 2.x moved internals from numpy.core to numpy._core)
+if 'numpy._core' not in sys.modules:
+    sys.modules['numpy._core'] = numpy.core
+    for _name, _mod in list(sys.modules.items()):
+        if _name.startswith('numpy.core.'):
+            sys.modules['numpy._core.' + _name[len('numpy.core.'):]] = _mod
 
 import networkx as nx
 import pandas as pd
