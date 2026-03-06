@@ -14,9 +14,6 @@ RUN uv sync --frozen
 
 COPY . /app/
 
-# Run import test on container start and log results
-RUN uv run python test_langchain_imports.py || true
-
 ENV PYTHONUNBUFFERED='1'
 ENV PYTHONPATH="/app"
 

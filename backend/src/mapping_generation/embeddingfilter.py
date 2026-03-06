@@ -2,8 +2,8 @@ from collections.abc import Sequence
 from typing import List, Optional
 
 import numpy as np
-from langchain_core.embeddings import Embeddings
-from langchain_community.retrievers.document_compressors import EmbeddingsFilter
+from langchain.embeddings.base import Embeddings
+from langchain.retrievers.document_compressors import EmbeddingsFilter
 from langchain_community.document_transformers.embeddings_redundant_filter import _DocumentWithState
 from langchain_core.callbacks.manager import Callbacks
 from langchain_core.documents import Document
