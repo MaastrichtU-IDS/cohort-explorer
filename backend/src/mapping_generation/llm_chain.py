@@ -9,7 +9,7 @@ from .utils import load_mapping
 from .utils import global_logger as logger
 from pydantic.v1 import ValidationError
 from langchain_core.output_parsers import JsonOutputParser
-from langchain.output_parsers import OutputFixingParser
+from langchain_core.output_parsers import OutputFixingParser
 from typing import List, Dict, Any
 import time
 from langchain_core.callbacks.base import BaseCallbackHandler
