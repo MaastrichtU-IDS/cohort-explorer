@@ -163,6 +163,119 @@ const SearchResultsDisplay = React.memo(({cohortsData, searchTerms, searchMode, 
 
 SearchResultsDisplay.displayName = 'SearchResultsDisplay';
 
+// Component to show equivalent variable names based on shared concept_codes
+const EquivalentVariableNames = React.memo(({cohortsData, searchTerms, searchMode, searchScope}: {
+  cohortsData: Record<string, Cohort>,
+  searchTerms: string[],
+  searchMode: 'or' | 'and' | 'exact',
+  searchScope: 'cohorts' | 'variables' | 'all'
+}) => {
+  const [expanded, setExpanded] = useState(false);
+
+  const equivalentNames = useMemo(() => {
+    if (searchTerms.length === 0) return null;
+    // Only relevant when searching variables or all
+    if (searchScope === 'cohorts') return null;
+
+    // Step 1: Find variables whose var_name matches the query and collect their concept_codes
+    const matchedConceptCodes = new Map<string, Set<string>>(); // concept_code -> set of matched var_names
+
+    Object.entries(cohortsData).forEach(([_cohortId, cohortData]) => {
+      Object.entries(cohortData.variables || {}).forEach(([varName, varData]) => {
+        const nameMatches = matchesSearchTerms(varName, searchTerms, searchMode);
+        if (nameMatches && varData.concept_code) {
+          const code = varData.concept_code.trim();
+          if (code) {
+            if (!matchedConceptCodes.has(code)) {
+              matchedConceptCodes.set(code, new Set());
+            }
+            matchedConceptCodes.get(code)!.add(varName);
+          }
+        }
+      });
+    });
+
+    if (matchedConceptCodes.size === 0) return null;
+
+    // Step 2: For each concept_code, find ALL variable names across all cohorts, grouped by cohort
+    const result: {conceptCode: string; conceptName: string | null; namesByCohort: {cohortId: string; names: string[]; isMatched: boolean}[]}[] = [];
+
+    matchedConceptCodes.forEach((matchedVarNames, conceptCode) => {
+      let conceptName: string | null = null;
+      const cohortEntries: {cohortId: string; names: string[]; isMatched: boolean}[] = [];
+
+      Object.entries(cohortsData).forEach(([cohortId, cohortData]) => {
+        const namesInCohort: string[] = [];
+        Object.entries(cohortData.variables || {}).forEach(([varName, varData]) => {
+          if (varData.concept_code && varData.concept_code.trim() === conceptCode) {
+            namesInCohort.push(varName);
+            if (!conceptName && varData.concept_name) {
+              conceptName = varData.concept_name;
+            }
+          }
+        });
+        if (namesInCohort.length > 0) {
+          // A cohort is "matched" if any of its names were the ones that triggered the search hit
+          const hasMatchedName = namesInCohort.some(n => matchedVarNames.has(n));
+          cohortEntries.push({ cohortId, names: namesInCohort.sort(), isMatched: hasMatchedName });
+        }
+      });
+
+      // Sort: cohorts with non-matched (equivalent) names first, matched cohorts last
+      cohortEntries.sort((a, b) => {
+        if (a.isMatched === b.isMatched) return a.cohortId.localeCompare(b.cohortId);
+        return a.isMatched ? 1 : -1;
+      });
+
+      // Only show if there's at least one name beyond the matched ones
+      const hasEquivalent = cohortEntries.some(e => 
+        e.names.some(n => !matchedVarNames.has(n))
+      );
+      if (hasEquivalent) {
+        result.push({ conceptCode, conceptName, namesByCohort: cohortEntries });
+      }
+    });
+
+    return result.length > 0 ? result : null;
+  }, [cohortsData, searchTerms, searchMode, searchScope]);
+
+  if (!equivalentNames) return null;
+
+  return (
+    <div className="mt-2">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="btn btn-xs btn-outline btn-info"
+      >
+        {expanded ? '▾ Hide' : '▸ Show'} equivalent variable names
+      </button>
+      {expanded && (
+        <div className="mt-2 space-y-2">
+          {equivalentNames.map(({conceptCode, conceptName, namesByCohort}) => (
+            <div key={conceptCode} className="p-2 bg-base-100 rounded-lg border border-base-300 text-sm">
+              <div className="font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                Standard code: <span className="text-primary">{conceptCode}</span>
+                {conceptName && <span className="ml-1 text-gray-500">({conceptName})</span>}
+              </div>
+              <div className="space-y-1">
+                {namesByCohort.map(({cohortId, names, isMatched}) => (
+                  <div key={cohortId} className={isMatched ? 'text-gray-400 dark:text-gray-500' : ''}>
+                    <span className="font-medium">{cohortId}:</span>{' '}
+                    {names.join(', ')}
+                    {isMatched && <span className="ml-1 text-xs italic">(matched)</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+});
+
+EquivalentVariableNames.displayName = 'EquivalentVariableNames';
+
 // Helper function to format participants value for display in tags
 const formatParticipantsForTag = (value: string | number | null | undefined): string => {
   if (!value) return '';
@@ -650,11 +763,17 @@ export default function CohortsList() {
           
           {/* Search Results Display */}
           {searchInput.trim() && (
-            <div className="mt-2 p-2 bg-base-200 rounded-lg text-sm">
+            <div className="mt-2 p-2 bg-base-200 rounded-lg text-base">
               <div className="flex items-start gap-3">
                 <span className="text-gray-600 dark:text-gray-400 mt-0.5">🔍</span>
                 <div className="flex-1">
                   <SearchResultsDisplay 
+                    cohortsData={cohortsData as Record<string, Cohort>}
+                    searchTerms={searchTerms}
+                    searchMode={searchMode}
+                    searchScope={searchScope}
+                  />
+                  <EquivalentVariableNames
                     cohortsData={cohortsData as Record<string, Cohort>}
                     searchTerms={searchTerms}
                     searchMode={searchMode}
