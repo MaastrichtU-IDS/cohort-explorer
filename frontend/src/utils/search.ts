@@ -8,15 +8,28 @@ export interface SearchResult {
 }
 
 /**
+ * Normalize text for fuzzy matching: split camelCase and replace common separators with spaces
+ */
+const normalizeText = (text: string): string =>
+  text
+    .replace(/([a-z])([A-Z])/g, '$1 $2')   // camelCase: aB → a B
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2') // acronym boundary: ABc → A Bc
+    .replace(/[_\-.,—]/g, ' ');
+
+/**
  * Create a regex pattern for word boundary matching
+ * Treats common punctuation as word boundaries so e.g. "body_mass" matches "body mass"
  * @param term - Search term
  * @returns RegExp for word boundary matching
  */
 const createWordBoundaryRegex = (term: string): RegExp => {
-  // Escape special regex characters
-  const escapedTerm = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  // Create word boundary regex (case insensitive)
-  return new RegExp(`\\b${escapedTerm}`, 'gi');
+  // Normalize punctuation in the term to spaces, then split into sub-terms
+  const normalized = normalizeText(term);
+  // Escape special regex characters in each part
+  const parts = normalized.split(/\s+/).filter(p => p.length > 0);
+  // Join with a pattern that matches any word boundary or common punctuation
+  const pattern = parts.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[_\\-.,—\\s]*');
+  return new RegExp(`\\b${pattern}`, 'gi');
 };
 
 /**
@@ -29,12 +42,15 @@ const createWordBoundaryRegex = (term: string): RegExp => {
 export const matchesSearchTerms = (text: string, searchTerms: string[], searchMode: 'or' | 'and' | 'exact' = 'or'): boolean => {
   if (!text || searchTerms.length === 0) return true;
   
+  // Normalize punctuation in text for matching
+  const textNorm = normalizeText(text);
+  
   if (searchMode === 'exact') {
     // For exact phrase, join terms back and search as single phrase
     const fullPhrase = searchTerms.join(' ');
     if (!fullPhrase.trim()) return true;
     const regex = createWordBoundaryRegex(fullPhrase.trim());
-    return regex.test(text);
+    return regex.test(text) || regex.test(textNorm);
   }
   
   if (searchMode === 'and') {
@@ -42,7 +58,7 @@ export const matchesSearchTerms = (text: string, searchTerms: string[], searchMo
     return searchTerms.every(term => {
       if (!term.trim()) return true;
       const regex = createWordBoundaryRegex(term.trim());
-      return regex.test(text);
+      return regex.test(text) || regex.test(textNorm);
     });
   }
   
@@ -50,7 +66,7 @@ export const matchesSearchTerms = (text: string, searchTerms: string[], searchMo
   return searchTerms.some(term => {
     if (!term.trim()) return true;
     const regex = createWordBoundaryRegex(term.trim());
-    return regex.test(text);
+    return regex.test(text) || regex.test(textNorm);
   });
 };
 

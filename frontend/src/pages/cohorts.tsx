@@ -20,17 +20,24 @@ const HighlightedText = ({text, searchTerms, searchMode}: {text: string, searchT
   return <span dangerouslySetInnerHTML={{__html: highlightedHtml}} />;
 };
 
+// Normalize text for fuzzy matching: split camelCase and replace common separators with spaces
+const normalizeText = (text: string): string =>
+  text
+    .replace(/([a-z])([A-Z])/g, '$1 $2')   // camelCase: aB → a B
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2') // acronym boundary: ABc → A Bc
+    .replace(/[_\-.,—]/g, ' ');
+
 // Helper function to check if text matches search terms (reusable)
 const matchesSearchTerms = (text: string | null | undefined, searchTerms: string[], searchMode: 'or' | 'and' | 'exact'): boolean => {
   if (!text || searchTerms.length === 0) return false;
-  const textLower = String(text).toLowerCase();
+  const textNorm = normalizeText(String(text).toLowerCase());
   
   if (searchMode === 'exact') {
-    return textLower.includes(searchTerms.join(' ').toLowerCase());
+    return textNorm.includes(normalizeText(searchTerms.join(' ').toLowerCase()));
   } else if (searchMode === 'and') {
-    return searchTerms.every(term => textLower.includes(term.toLowerCase()));
+    return searchTerms.every(term => textNorm.includes(normalizeText(term.toLowerCase())));
   } else { // 'or' mode
-    return searchTerms.some(term => textLower.includes(term.toLowerCase()));
+    return searchTerms.some(term => textNorm.includes(normalizeText(term.toLowerCase())));
   }
 };
 
@@ -119,9 +126,21 @@ const SearchResultsDisplay = React.memo(({cohortsData, searchTerms, searchMode, 
   
   // Format cohort metadata results: "CohortA (study objective, morbidity), CohortB (institution)"
   const formatCohortResults = () => {
-    return results.matchedCohorts
-      .map(({cohortId, sections}) => `${cohortId} (${sections.join(', ')})`)
-      .join(', ');
+    return (
+      <span>
+        {results.matchedCohorts.map(({cohortId, sections}, idx) => (
+          <span key={cohortId}>
+            {cohortId} ({sections.map((s, i) => (
+              <span key={i}>
+                <em>{s}</em>
+                {i < sections.length - 1 && ', '}
+              </span>
+            ))})
+            {idx < results.matchedCohorts.length - 1 && ', '}
+          </span>
+        ))}
+      </span>
+    );
   };
   
   // Format variable results: "var1, var2 (CohortA); var3 (CohortB)"
@@ -138,7 +157,7 @@ const SearchResultsDisplay = React.memo(({cohortsData, searchTerms, searchMode, 
           Search matched <strong className="text-primary">{results.matchedCohorts.length}</strong> cohort{results.matchedCohorts.length !== 1 ? 's' : ''} metadata
         </span>
         {results.matchedCohorts.length > 0 && (
-          <div className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+          <div className="mt-1 text-gray-600 dark:text-gray-400">
             <strong>Studies metadata:</strong> {formatCohortResults()}
           </div>
         )}
@@ -153,7 +172,7 @@ const SearchResultsDisplay = React.memo(({cohortsData, searchTerms, searchMode, 
           Search matched <strong className="text-primary">{results.totalVariables}</strong> variable description{results.totalVariables !== 1 ? 's' : ''} in <strong className="text-primary">{cohortsWithVarMatches}</strong> cohort{cohortsWithVarMatches !== 1 ? 's' : ''}
         </span>
         {results.totalVariables > 0 && (
-          <div className="mt-1 text-xs text-gray-600 dark:text-gray-400 max-h-20 overflow-y-auto">
+          <div className="mt-1 text-gray-600 dark:text-gray-400 max-h-20 overflow-y-auto">
             <strong>Variables:</strong> {formatVariableResults()}
           </div>
         )}
@@ -168,7 +187,7 @@ const SearchResultsDisplay = React.memo(({cohortsData, searchTerms, searchMode, 
         Search matched <strong className="text-primary">{results.matchedCohorts.length}</strong> cohort{results.matchedCohorts.length !== 1 ? 's' : ''} metadata and <strong className="text-primary">{results.totalVariables}</strong> variable description{results.totalVariables !== 1 ? 's' : ''} in <strong className="text-primary">{cohortsWithVarMatches}</strong> cohort{cohortsWithVarMatches !== 1 ? 's' : ''}
       </span>
       {(results.matchedCohorts.length > 0 || results.totalVariables > 0) && (
-        <div className="mt-1 text-xs text-gray-600 dark:text-gray-400 max-h-24 overflow-y-auto">
+        <div className="mt-1 text-gray-600 dark:text-gray-400 max-h-24 overflow-y-auto">
           {results.matchedCohorts.length > 0 && (
             <div><strong>Studies metadata:</strong> {formatCohortResults()}</div>
           )}
@@ -202,7 +221,7 @@ const EquivalentVariableNames = React.memo(({cohortsData, searchTerms, searchMod
 
     Object.entries(cohortsData).forEach(([_cohortId, cohortData]) => {
       Object.entries(cohortData.variables || {}).forEach(([varName, varData]) => {
-        const nameMatches = matchesSearchTerms(varName, searchTerms, 'and');
+        const nameMatches = matchesSearchTerms(varName, searchTerms, 'and') || matchesSearchTerms(varData.concept_name, searchTerms, 'and');
         if (nameMatches && varData.concept_code) {
           const code = varData.concept_code.trim().toUpperCase();
           if (code) {
@@ -787,7 +806,7 @@ export default function CohortsList() {
           
           {/* Search Results Display */}
           {searchInput.trim() && (
-            <div className="mt-2 p-2 bg-base-200 rounded-lg text-lg">
+            <div className="mt-2 p-2 bg-base-200 rounded-lg text-base">
               <div className="flex items-start gap-3">
                 <span className="text-gray-600 dark:text-gray-400 mt-0.5">🔍</span>
                 <div className="flex-1">
