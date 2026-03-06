@@ -44,20 +44,30 @@ const SearchResultsDisplay = React.memo(({cohortsData, searchTerms, searchMode, 
 }) => {
   const results = useMemo(() => {
     if (searchTerms.length === 0) return { 
-      matchedCohorts: [] as string[], 
+      matchedCohorts: [] as {cohortId: string; sections: string[]}[], 
       variablesByCohort: {} as Record<string, string[]>,
       totalVariables: 0 
     };
     
-    const searchableCohortFields = [
-      'cohort_id', 'institution', 'study_type', 'study_objective', 'morbidity',
-      'study_participants', 'study_population', 'administrator', 'population_location',
-      'primary_outcome_spec', 'secondary_outcome_spec'
-    ];
+    // Map field names to human-readable section names (lowercase)
+    const fieldToSection: Record<string, string> = {
+      'cohort_id': 'cohort name',
+      'institution': 'institution',
+      'study_type': 'study type',
+      'study_objective': 'study objective',
+      'morbidity': 'morbidity',
+      'study_participants': 'study participants',
+      'study_population': 'study population',
+      'administrator': 'administrator',
+      'population_location': 'population location',
+      'primary_outcome_spec': 'primary outcome specification',
+      'secondary_outcome_spec': 'secondary outcome specification',
+    };
+    const searchableCohortFields = Object.keys(fieldToSection);
     const searchableVarFields = ['var_name', 'var_label', 'concept_name', 'mapped_label', 'omop_domain', 'concept_code', 'omop_id'];
     const searchableCatFields = ['value', 'label', 'mapped_label'];
     
-    const matchedCohorts: string[] = [];
+    const matchedCohorts: {cohortId: string; sections: string[]}[] = [];
     const variablesByCohort: Record<string, string[]> = {};
     let totalVariables = 0;
     
@@ -65,11 +75,14 @@ const SearchResultsDisplay = React.memo(({cohortsData, searchTerms, searchMode, 
       // Check cohort metadata match (for 'cohorts' or 'all' scope)
       if (searchScope === 'cohorts' || searchScope === 'all') {
         const cohortWithId = { ...cohortData, cohort_id: cohortId };
-        const cohortMatches = searchableCohortFields.some(field => 
-          matchesSearchTerms((cohortWithId as any)[field], searchTerms, searchMode)
-        );
-        if (cohortMatches && !matchedCohorts.includes(cohortId)) {
-          matchedCohorts.push(cohortId);
+        const matchedSections: string[] = [];
+        searchableCohortFields.forEach(field => {
+          if (matchesSearchTerms((cohortWithId as any)[field], searchTerms, searchMode)) {
+            matchedSections.push(fieldToSection[field]);
+          }
+        });
+        if (matchedSections.length > 0 && !matchedCohorts.some(c => c.cohortId === cohortId)) {
+          matchedCohorts.push({ cohortId, sections: matchedSections });
         }
       }
       
@@ -104,6 +117,13 @@ const SearchResultsDisplay = React.memo(({cohortsData, searchTerms, searchMode, 
   
   const cohortsWithVarMatches = Object.keys(results.variablesByCohort).length;
   
+  // Format cohort metadata results: "CohortA (study objective, morbidity), CohortB (institution)"
+  const formatCohortResults = () => {
+    return results.matchedCohorts
+      .map(({cohortId, sections}) => `${cohortId} (${sections.join(', ')})`)
+      .join(', ');
+  };
+  
   // Format variable results: "var1, var2 (CohortA); var3 (CohortB)"
   const formatVariableResults = () => {
     return Object.entries(results.variablesByCohort)
@@ -119,7 +139,7 @@ const SearchResultsDisplay = React.memo(({cohortsData, searchTerms, searchMode, 
         </span>
         {results.matchedCohorts.length > 0 && (
           <div className="mt-1 text-xs text-gray-600 dark:text-gray-400">
-            <strong>Cohorts:</strong> {results.matchedCohorts.join(', ')}
+            <strong>Studies metadata:</strong> {formatCohortResults()}
           </div>
         )}
       </div>
@@ -150,7 +170,7 @@ const SearchResultsDisplay = React.memo(({cohortsData, searchTerms, searchMode, 
       {(results.matchedCohorts.length > 0 || results.totalVariables > 0) && (
         <div className="mt-1 text-xs text-gray-600 dark:text-gray-400 max-h-24 overflow-y-auto">
           {results.matchedCohorts.length > 0 && (
-            <div><strong>Cohorts:</strong> {results.matchedCohorts.join(', ')}</div>
+            <div><strong>Studies metadata:</strong> {formatCohortResults()}</div>
           )}
           {results.totalVariables > 0 && (
             <div><strong>Variables:</strong> {formatVariableResults()}</div>
@@ -182,9 +202,9 @@ const EquivalentVariableNames = React.memo(({cohortsData, searchTerms, searchMod
 
     Object.entries(cohortsData).forEach(([_cohortId, cohortData]) => {
       Object.entries(cohortData.variables || {}).forEach(([varName, varData]) => {
-        const nameMatches = matchesSearchTerms(varName, searchTerms, searchMode);
+        const nameMatches = matchesSearchTerms(varName, searchTerms, 'and');
         if (nameMatches && varData.concept_code) {
-          const code = varData.concept_code.trim();
+          const code = varData.concept_code.trim().toUpperCase();
           if (code) {
             if (!matchedConceptCodes.has(code)) {
               matchedConceptCodes.set(code, new Set());
@@ -207,7 +227,7 @@ const EquivalentVariableNames = React.memo(({cohortsData, searchTerms, searchMod
       Object.entries(cohortsData).forEach(([cohortId, cohortData]) => {
         const namesInCohort: string[] = [];
         Object.entries(cohortData.variables || {}).forEach(([varName, varData]) => {
-          if (varData.concept_code && varData.concept_code.trim() === conceptCode) {
+          if (varData.concept_code && varData.concept_code.trim().toUpperCase() === conceptCode) {
             namesInCohort.push(varName);
             if (!conceptName && varData.concept_name) {
               conceptName = varData.concept_name;
@@ -227,13 +247,18 @@ const EquivalentVariableNames = React.memo(({cohortsData, searchTerms, searchMod
         return a.isMatched ? 1 : -1;
       });
 
-      // Only show if there's at least one name beyond the matched ones
-      const hasEquivalent = cohortEntries.some(e => 
-        e.names.some(n => !matchedVarNames.has(n))
-      );
-      if (hasEquivalent) {
+      // Show if there are multiple distinct variable names for this concept code
+      const allNames = new Set(cohortEntries.flatMap(e => e.names));
+      if (allNames.size > 1 || cohortEntries.length > 1) {
         result.push({ conceptCode, conceptName, namesByCohort: cohortEntries });
       }
+    });
+
+    // Sort groups by total number of variable names (largest first)
+    result.sort((a, b) => {
+      const countA = a.namesByCohort.reduce((sum, e) => sum + e.names.length, 0);
+      const countB = b.namesByCohort.reduce((sum, e) => sum + e.names.length, 0);
+      return countB - countA;
     });
 
     return result.length > 0 ? result : null;
@@ -252,17 +277,16 @@ const EquivalentVariableNames = React.memo(({cohortsData, searchTerms, searchMod
       {expanded && (
         <div className="mt-2 space-y-2">
           {equivalentNames.map(({conceptCode, conceptName, namesByCohort}) => (
-            <div key={conceptCode} className="p-2 bg-base-100 rounded-lg border border-base-300 text-sm">
+            <div key={conceptCode} className="p-2 bg-base-100 rounded-lg border border-base-300 text-base">
               <div className="font-semibold text-gray-700 dark:text-gray-300 mb-1">
                 Standard code: <span className="text-primary">{conceptCode}</span>
                 {conceptName && <span className="ml-1 text-gray-500">({conceptName})</span>}
               </div>
               <div className="space-y-1">
-                {namesByCohort.map(({cohortId, names, isMatched}) => (
-                  <div key={cohortId} className={isMatched ? 'text-gray-400 dark:text-gray-500' : ''}>
+                {namesByCohort.map(({cohortId, names}) => (
+                  <div key={cohortId}>
                     <span className="font-medium">{cohortId}:</span>{' '}
                     {names.join(', ')}
-                    {isMatched && <span className="ml-1 text-xs italic">(matched)</span>}
                   </div>
                 ))}
               </div>
@@ -763,7 +787,7 @@ export default function CohortsList() {
           
           {/* Search Results Display */}
           {searchInput.trim() && (
-            <div className="mt-2 p-2 bg-base-200 rounded-lg text-base">
+            <div className="mt-2 p-2 bg-base-200 rounded-lg text-lg">
               <div className="flex items-start gap-3">
                 <span className="text-gray-600 dark:text-gray-400 mt-0.5">🔍</span>
                 <div className="flex-1">
