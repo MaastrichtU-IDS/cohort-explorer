@@ -1,6 +1,10 @@
 #new version of the module. From Komal (komi786) 
 # added 05.03.2026
 
+import numpy
+if not hasattr(numpy, '_core'):
+    numpy._core = numpy.core
+
 import networkx as nx
 import pandas as pd
 import pickle, os, gzip, zlib, time
