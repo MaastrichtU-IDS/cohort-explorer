@@ -1,11 +1,11 @@
 from typing import Any, List
-from langchain.retrievers import ContextualCompressionRetriever
+from langchain_community.retrievers import ContextualCompressionRetriever
 from langchain_core.callbacks import (
     AsyncCallbackManagerForRetrieverRun,
     CallbackManagerForRetrieverRun,
 )
 from langchain_core.documents import Document
-from langchain.retrievers import MergerRetriever
+from langchain_community.retrievers import MergerRetriever
 from langchain_core.retrievers import BaseRetriever
 import asyncio
 
