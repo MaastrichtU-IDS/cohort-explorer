@@ -5,13 +5,24 @@ import sys
 import numpy
 import numpy.core
 
-# Shim: map numpy._core → numpy.core for loading pickles created with numpy 2.x
-# when running under numpy 1.x (numpy 2.x moved internals from numpy.core to numpy._core)
-if 'numpy._core' not in sys.modules:
-    sys.modules['numpy._core'] = numpy.core
-    for _name, _mod in list(sys.modules.items()):
-        if _name.startswith('numpy.core.'):
-            sys.modules['numpy._core.' + _name[len('numpy.core.'):]] = _mod
+# Shim added by Anas to resolve incompatibility between numpy v1.2 required by the mapping code and v.2x required by the pickled graph file:
+# map numpy._core → numpy.core submodules for loading pickles created with numpy 2.x
+# under numpy 1.x. numpy 1.26.x has numpy._core stub but not all submodules (e.g. numeric).
+# Explicitly import the submodules numpy 2.x uses in its pickle protocol, then register them.
+import numpy.core.numeric
+import numpy.core.multiarray
+import numpy.core.umath
+import numpy.core.fromnumeric
+import numpy.core.shape_base
+import numpy.core.function_base
+
+_numpy_core_submodules = [
+    'numeric', 'multiarray', 'umath', 'fromnumeric',
+    'shape_base', 'function_base',
+]
+sys.modules.setdefault('numpy._core', numpy.core)
+for _sub in _numpy_core_submodules:
+    sys.modules.setdefault(f'numpy._core.{_sub}', sys.modules[f'numpy.core.{_sub}'])
 
 import networkx as nx
 import pandas as pd
