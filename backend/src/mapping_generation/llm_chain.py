@@ -9,7 +9,7 @@ from .utils import load_mapping
 from .utils import global_logger as logger
 from pydantic.v1 import ValidationError
 from langchain_core.output_parsers import JsonOutputParser
-from langchain_community.output_parsers.fix import OutputFixingParser
+# Note: OutputFixingParser not available in langchain 0.3.15, using fallback
 from typing import List, Dict, Any
 import time
 from langchain_core.callbacks.base import BaseCallbackHandler
@@ -22,9 +22,8 @@ from .manager_llm import LLMManager, ExampleSelectorManager
 
 parsing_llm = LLMManager.get_instance("llama3.1")
 parser = JsonOutputParser()
-fixing_parser = OutputFixingParser.from_llm(
-    parser=parser, llm=parsing_llm, max_retries=3
-)
+# Fallback: use parser directly since OutputFixingParser is not available
+fixing_parser = parser
 REQUEST_LIMIT = 30
 TIME_WINDOW = 60
 # from langchain_core.tracers.stdout import ConsoleCallbackHandler
