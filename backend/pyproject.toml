@@ -27,6 +27,7 @@ classifiers = [
 
 dependencies = [
     "numpy >=2.0.0,<3.0",  # Pin to 2.x - requires regenerating graph.pkl.gz
+    "pydantic >=2.0.0",  # Keep v2 for decentriq-platform compatibility
     "decentriq-platform ==0.39.1",
     "thefuzz",
     "curies",
@@ -42,7 +43,6 @@ dependencies = [
     "oxrdflib",
     "SPARQLWrapper",
     "python-dotenv",
-    # "pydantic >=2.0.0",
     # "pydantic-settings",
     # NOTE: dependencies for mapping-generation are below
     "tqdm",
@@ -52,7 +52,6 @@ dependencies = [
     "qdrant-client",
     "langchain",
     "langchain_openai",
-    "pydantic",
     "langchain_qdrant",
     "typing-extensions",
     "openai",
