@@ -8,9 +8,9 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-COPY pyproject.toml /app/
+COPY pyproject.toml uv.lock /app/
 
-RUN uv sync
+RUN uv sync --frozen
 
 COPY . /app/
 

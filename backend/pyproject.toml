@@ -26,6 +26,7 @@ classifiers = [
 ]
 
 dependencies = [
+    "numpy >=2.0.0,<3.0",  # Pin to 2.x - requires regenerating graph.pkl.gz
     "decentriq-platform ==0.39.1",
     "thefuzz",
     "curies",
