@@ -1076,14 +1076,14 @@ async def normalize_all_dictionary_headers(
 
 
 @router.post(
-    "/generate-metadata-issues-report",
-    name="Generate metadata issues report",
-    response_description="Metadata issues report file",
+    "/metadata-syntax-issues-report",
+    name="Metadata syntax issues report",
+    response_description="Metadata syntax issues report file",
 )
-async def generate_metadata_issues_report(
+async def metadata_syntax_issues_report(
     user: Any = Depends(get_current_user),
 ):
-    """Generate a report of all metadata dictionary validation issues across all cohorts. Admins only."""
+    """Generate a report of all metadata dictionary syntax/validation issues across all cohorts. Admins only."""
     user_email = user["email"]
     if user_email not in settings.admins_list:
         raise HTTPException(status_code=403, detail="You need to be admin to perform this action.")
@@ -1093,14 +1093,14 @@ async def generate_metadata_issues_report(
     # Generate timestamp for filename
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     reports_folder = os.path.join(settings.data_folder, "DICTIONARY_ISSUES_REPORTS")
-    errors_file = os.path.join(reports_folder, f"metadata_files_issues_{timestamp}.txt")
+    errors_file = os.path.join(reports_folder, f"metadata_syntax_issues_{timestamp}.txt")
     
     # Ensure directory exists
     os.makedirs(reports_folder, exist_ok=True)
     
     # Initialize the report file
     with open(errors_file, "w") as f:
-        f.write(f"Metadata Issues Report - Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"Metadata Syntax Issues Report - Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
         f.write("=" * 80 + "\n\n")
     
     # Get all cohorts and process their dictionaries
@@ -1150,15 +1150,10 @@ async def generate_metadata_issues_report(
             df_cols_lower = {c.lower() for c in df.columns}
             missing_columns = [col for col in critical_column_names if col.lower() not in df_cols_lower]
             
-            # Check for extra columns not in the approved list (case-insensitive)
-            extra_columns = [col for col in df.columns if col.lower() not in critical_cols_lower]
-            
             # Collect validation errors
             errors = []
             if missing_columns:
                 errors.append(f"Missing required columns: {', '.join(missing_columns)}")
-            if extra_columns:
-                errors.append(f"Unexpected columns found (not in approved list): {', '.join(extra_columns)}")
             
             # Parse categories for validation
             try:
@@ -1173,6 +1168,9 @@ async def generate_metadata_issues_report(
             validation_errors = validate_metadata_dataframe(df, cohort_id)
             errors.extend(validation_errors)
             
+            # Get dictionary date
+            dict_date = datetime.fromtimestamp(os.path.getmtime(latest_dict_file)).strftime('%Y-%m-%d %H:%M:%S')
+            
             # Write results
             if errors:
                 cohorts_with_errors += 1
@@ -1180,18 +1178,27 @@ async def generate_metadata_issues_report(
                 with open(errors_file, "a") as f:
                     f.write(f"COHORT: {cohort_id}\n")
                     f.write(f"File: {os.path.basename(latest_dict_file)}\n")
-                    f.write(f"Modified: {datetime.fromtimestamp(os.path.getmtime(latest_dict_file)).strftime('%Y-%m-%d %H:%M:%S')}\n")
+                    f.write(f"Dictionary date: {dict_date}\n")
                     f.write(f"Errors found: {len(errors)}\n\n")
                     for idx, error in enumerate(errors, 1):
                         f.write(f"  {idx}. {error}\n")
+                    f.write("-" * 80 + "\n\n")
+            else:
+                with open(errors_file, "a") as f:
+                    f.write(f"COHORT: {cohort_id}\n")
+                    f.write(f"File: {os.path.basename(latest_dict_file)}\n")
+                    f.write(f"Dictionary date: {dict_date}\n")
+                    f.write(f"Status: OK\n")
                     f.write("-" * 80 + "\n\n")
             
         except Exception as e:
             cohorts_with_errors += 1
             total_errors += 1
+            dict_date = datetime.fromtimestamp(os.path.getmtime(latest_dict_file)).strftime('%Y-%m-%d %H:%M:%S')
             with open(errors_file, "a") as f:
                 f.write(f"COHORT: {cohort_id}\n")
                 f.write(f"File: {os.path.basename(latest_dict_file)}\n")
+                f.write(f"Dictionary date: {dict_date}\n")
                 f.write(f"Error: Failed to process file - {str(e)}\n")
                 f.write("-" * 80 + "\n\n")
     
