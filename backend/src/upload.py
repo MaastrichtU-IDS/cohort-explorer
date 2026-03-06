@@ -2375,7 +2375,7 @@ def _perform_triplestore_initialization():
         async def call_report_endpoint():
             async with httpx.AsyncClient() as client:
                 response = await client.post(
-                    f"http://localhost:3000/upload/generate-metadata-issues-report",
+                    f"http://localhost:3000/upload/metadata-syntax-issues-report",
                     timeout=60.0
                 )
                 return response
