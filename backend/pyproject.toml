@@ -26,7 +26,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "numpy >=2.0.0,<3.0",  # Pin to 2.x - requires regenerating graph.pkl.gz
+    "numpy",  # numpy shim in omop_graph_nx.py handles numpy 2.x pickle compatibility
     "decentriq-platform ==0.39.1",
     "thefuzz",
     "curies",
@@ -50,14 +50,14 @@ dependencies = [
     "transformers",
     "python-dotenv",
     "qdrant-client",
-    "langchain",
-    "langchain_openai",
+    "langchain >=0.2.0,<0.3",
+    "langchain_openai >=0.1.0,<0.2",
     "pydantic",
     "langchain_qdrant",
     "typing-extensions",
     "openai",
     "qdrant-client",
-    "langchain-community",
+    "langchain-community >=0.2.0,<0.3",
     "faiss-cpu",
     "langchain-together",
     "simstring-fast",
