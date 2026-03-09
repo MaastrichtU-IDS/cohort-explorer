@@ -172,7 +172,7 @@ const SearchResultsDisplay = React.memo(({cohortsData, searchTerms, searchMode, 
           Search matched <strong className="text-primary">{results.totalVariables}</strong> variable description{results.totalVariables !== 1 ? 's' : ''} in <strong className="text-primary">{cohortsWithVarMatches}</strong> cohort{cohortsWithVarMatches !== 1 ? 's' : ''}
         </span>
         {results.totalVariables > 0 && (
-          <div className="mt-1 text-gray-600 dark:text-gray-400 max-h-20 overflow-y-auto">
+          <div className="mt-1 text-gray-600 dark:text-gray-400 max-h-40 overflow-y-auto">
             <strong>Variables:</strong> {formatVariableResults()}
           </div>
         )}
@@ -187,7 +187,7 @@ const SearchResultsDisplay = React.memo(({cohortsData, searchTerms, searchMode, 
         Search matched <strong className="text-primary">{results.matchedCohorts.length}</strong> cohort{results.matchedCohorts.length !== 1 ? 's' : ''} metadata and <strong className="text-primary">{results.totalVariables}</strong> variable description{results.totalVariables !== 1 ? 's' : ''} in <strong className="text-primary">{cohortsWithVarMatches}</strong> cohort{cohortsWithVarMatches !== 1 ? 's' : ''}
       </span>
       {(results.matchedCohorts.length > 0 || results.totalVariables > 0) && (
-        <div className="mt-1 text-gray-600 dark:text-gray-400 max-h-24 overflow-y-auto">
+        <div className="mt-1 text-gray-600 dark:text-gray-400 max-h-48 overflow-y-auto">
           {results.matchedCohorts.length > 0 && (
             <div><strong>Studies metadata:</strong> {formatCohortResults()}</div>
           )}
@@ -289,7 +289,7 @@ const EquivalentVariableNames = React.memo(({cohortsData, searchTerms, searchMod
     <div className="mt-2">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="btn btn-xs btn-outline btn-info"
+        className="btn btn-sm btn-outline btn-info"
       >
         {expanded ? '▾ Hide' : '▸ Show'} equivalent variable names
       </button>

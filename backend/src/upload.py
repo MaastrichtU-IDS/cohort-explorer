@@ -612,6 +612,68 @@ def to_camelcase(s: str) -> str:
 
 
 
+def get_athena_validation_errors(dict_path: str) -> list[str]:
+    """Run Athena/OMOP concept-code validation on a dictionary CSV and return
+    formatted error strings for every variable whose overall_status is FAIL.
+
+    For each failing variable the function inspects:
+      - categorical_value_status / categorical_value_reason
+      - variable_status          / variable_reason
+      - additional_context_status (may be a stringified ValidationLog object)
+      - unit_status              / unit_reason
+
+    Any component with status FAIL contributes its reason to the message.
+    """
+    import re
+    from CohortVarLinker.validate_cde import validate_dictionary
+
+    error_messages: list[str] = []
+    temp_csv = dict_path + f"._athena_tmp_{os.getpid()}.csv"
+    try:
+        validate_dictionary(dict_path, temp_csv)
+        if not os.path.exists(temp_csv):
+            return []
+        result_df = pd.read_csv(temp_csv)
+        fail_mask = result_df.get("overall_status", pd.Series(dtype=str)) == "FAIL"
+        fail_rows = result_df[fail_mask]
+
+        # Columns with clean status/reason string pairs
+        simple_pairs = [
+            ("categorical_value_status", "categorical_value_reason"),
+            ("variable_status",          "variable_reason"),
+            ("unit_status",              "unit_reason"),
+        ]
+
+        for _, row in fail_rows.iterrows():
+            var_name = str(row.get("variable name", "")).strip() or str(row.get("variable label", "")).strip() or "unknown"
+            reasons: list[str] = []
+
+            for status_col, reason_col in simple_pairs:
+                if str(row.get(status_col, "")).strip() == "FAIL":
+                    reason_val = str(row.get(reason_col, "")).strip()
+                    if reason_val and reason_val.lower() not in ("nan", ""):
+                        label = status_col.replace("_status", "").replace("_", " ").title()
+                        reasons.append(f"{label}: {reason_val}")
+
+            # additional_context_status stores the full ValidationLog repr in the CSV
+            ac_raw = str(row.get("additional_context_status", ""))
+            if "status='FAIL'" in ac_raw or 'status="FAIL"' in ac_raw:
+                desc_match = re.search(r"description='([^']*)'", ac_raw) or re.search(r'description="([^"]*)"', ac_raw)
+                ac_reason = desc_match.group(1) if desc_match else ac_raw
+                reasons.append(f"Additional Context: {ac_reason}")
+
+            if reasons:
+                error_messages.append(f"Variable '{var_name}': " + "; ".join(reasons))
+
+    except Exception as e:
+        logging.warning(f"Athena validation during upload failed: {e}")
+    finally:
+        if os.path.exists(temp_csv):
+            os.remove(temp_csv)
+
+    return error_messages
+
+
 def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user_email: str = None, filename: str = None) -> Dataset:
     """Parse the cohort dictionary uploaded as excel or CSV spreadsheet, and load it to the triplestore
     
@@ -720,6 +782,12 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
         validation_errors = validate_metadata_dataframe(df, cohort_id)
         errors.extend(validation_errors)
 
+        # --- Athena / OMOP concept-code validation (upload only, runs after content checks pass) ---
+        if source == "upload_dict" and len(errors) == 0:
+            athena_errors = get_athena_validation_errors(dict_path)
+            if athena_errors:
+                errors.append("--- ATHENA CONCEPT CODE VALIDATION ---")
+                errors.extend(athena_errors)
 
         # --- Final Error Check & Graph Generation ---
         if len(errors) > 0 and source == "upload_dict":
