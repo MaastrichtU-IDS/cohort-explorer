@@ -1231,7 +1231,7 @@ async def metadata_syntax_issues_report(
 
 
 @router.post(
-    "/validate-athena-codes",
+    "/validate-athena-codes-all-summary",
     name="Validate Athena codes across all cohorts",
     response_description="Athena code validation report",
 )
@@ -1282,59 +1282,52 @@ async def validate_athena_codes(
 
         if not latest_dict_file:
             cohorts_without_dict += 1
-            with open(summary_file, "a") as f:
-                f.write(f"COHORT: {cohort_id}\n")
-                f.write(f"Status: No metadata dictionary file found\n")
-                f.write("-" * 80 + "\n\n")
             continue
 
-        # Run Athena/graph validation — results go to a per-cohort CSV
+        # Run Athena/graph validation — results go to a temp per-cohort CSV
         out_csv = os.path.join(reports_folder, f"{cohort_id}_athena_{timestamp}.csv")
         try:
             all_pass = validate_dictionary(latest_dict_file, out_csv)
 
-            # Read the per-cohort CSV to extract failure details
-            failures = []
+            # Read the per-cohort CSV to extract counts and variable names
+            n_pass = n_fail = n_na = 0
+            fail_vars = []
+            na_vars = []
             if os.path.exists(out_csv):
                 result_df = pd.read_csv(out_csv)
-                fail_rows = result_df[result_df.get("overall_status", pd.Series(dtype=str)) == "FAIL"]
-                for _, row in fail_rows.iterrows():
-                    var_name = row.get("variable name", "")
-                    reasons = []
-                    for col in ["variable_reason", "categorical_value_reason",
-                                "additional_context_status", "unit_reason", "visit_reason"]:
-                        val = str(row.get(col, "")).strip()
-                        if val and val not in ("N/A", "nan", ""):
-                            status_col = col.replace("_reason", "_status")
-                            status_val = str(row.get(status_col, "")).strip()
-                            if status_val == "FAIL" or "FAIL" in val:
-                                reasons.append(f"  - {col}: {val}")
-                    if reasons:
-                        failures.append(f"  Variable '{var_name}':\n" + "\n".join(reasons))
+                status_col = result_df.get("overall_status", pd.Series(dtype=str))
+                n_pass = int((status_col == "PASS").sum())
+                n_fail = int((status_col == "FAIL").sum())
+                n_na = int((status_col == "N/A").sum())
+                fail_vars = result_df.loc[status_col == "FAIL", "variable name"].tolist()
+                na_vars = result_df.loc[status_col == "N/A", "variable name"].tolist()
+                # Delete the temp CSV
+                os.remove(out_csv)
 
             with open(summary_file, "a") as f:
                 f.write(f"COHORT: {cohort_id}\n")
-                f.write(f"File: {os.path.basename(latest_dict_file)}\n")
-                if all_pass is True:
-                    f.write(f"Status: ALL PASS\n")
-                    cohorts_passed += 1
-                elif all_pass is False:
-                    f.write(f"Status: FAILURES FOUND ({len(failures)} variable(s))\n")
-                    cohorts_failed += 1
-                    for failure in failures:
-                        f.write(f"{failure}\n")
-                else:
+                if all_pass is None:
                     # validate_dictionary returned None (structure check failed)
                     f.write(f"Status: STRUCTURE CHECK FAILED (missing required columns)\n")
                     cohorts_failed += 1
-                f.write(f"Detail CSV: {os.path.basename(out_csv)}\n")
+                else:
+                    f.write(f"  PASS: {n_pass}  |  FAIL: {n_fail}  |  N/A: {n_na}\n")
+                    if all_pass is True:
+                        cohorts_passed += 1
+                    else:
+                        cohorts_failed += 1
+                    if fail_vars:
+                        f.write(f"  FAIL variables: {', '.join(str(v) for v in fail_vars)}\n")
+                    if na_vars:
+                        f.write(f"  N/A variables:  {', '.join(str(v) for v in na_vars)}\n")
                 f.write("-" * 80 + "\n\n")
 
         except Exception as e:
             cohorts_errored += 1
+            if os.path.exists(out_csv):
+                os.remove(out_csv)
             with open(summary_file, "a") as f:
                 f.write(f"COHORT: {cohort_id}\n")
-                f.write(f"File: {os.path.basename(latest_dict_file)}\n")
                 f.write(f"Status: ERROR - {str(e)}\n")
                 f.write("-" * 80 + "\n\n")
 
@@ -1348,7 +1341,6 @@ async def validate_athena_codes(
         f.write(f"Cohorts with failures: {cohorts_failed}\n")
         f.write(f"Cohorts without dictionary: {cohorts_without_dict}\n")
         f.write(f"Cohorts with errors: {cohorts_errored}\n")
-        f.write(f"Per-cohort detail CSVs saved in: {reports_folder}\n")
         f.write(f"Report generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
 
     logging.info(f"Generated Athena validation report: {summary_file}")
@@ -1386,8 +1378,12 @@ async def validate_athena_codes_single(
     from CohortVarLinker.validate_cde import validate_dictionary
 
     all_cohorts = get_cohorts_from_cache(user_email)
-    if cohort_id not in all_cohorts:
+    # Case-insensitive match: resolve the supplied cohort_id to the canonical key
+    lower_to_canonical = {k.lower(): k for k in all_cohorts}
+    canonical_id = lower_to_canonical.get(cohort_id.lower())
+    if canonical_id is None:
         raise HTTPException(status_code=404, detail=f"Cohort '{cohort_id}' does not exist in the system. Please check the cohort name and try again.")
+    cohort_id = canonical_id
 
     cohort_folder_path = os.path.join(settings.cohort_folder, cohort_id)
     latest_dict_file = get_latest_datadictionary(cohort_folder_path) if os.path.exists(cohort_folder_path) else None
