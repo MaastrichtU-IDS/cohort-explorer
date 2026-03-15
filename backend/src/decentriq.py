@@ -37,51 +37,6 @@ except PackageNotFoundError:
     logger.warning("decentriq-platform is not installed")
 
 
-def user_can_access_cohorts(user_email: str, cohort_ids: list[str], all_cohorts: dict[str, Cohort]) -> tuple[bool, list[str]]:
-    """Check if a user has permission to access the requested cohorts.
-    
-    A user can access a cohort if they are:
-    1. A global admin
-    2. In the cohort_email list (data owner)
-    3. The administrator_email
-    4. The study_contact_person_email
-    
-    Args:
-        user_email: Email of the user requesting access
-        cohort_ids: List of cohort IDs being requested
-        all_cohorts: Dictionary of all cohorts with metadata
-        
-    Returns:
-        Tuple of (has_access: bool, inaccessible_cohorts: list[str])
-    """
-    user_email_lower = user_email.lower() if user_email else ""
-    is_admin = user_email_lower in settings.admins_list
-    
-    # Admins have access to everything
-    if is_admin:
-        return True, []
-    
-    inaccessible_cohorts = []
-    
-    for cohort_id in cohort_ids:
-        if cohort_id not in all_cohorts:
-            inaccessible_cohorts.append(cohort_id)
-            continue
-            
-        cohort = all_cohorts[cohort_id]
-        
-        # Check if user has any permission for this cohort
-        is_cohort_owner = user_email_lower in [e.lower() for e in (cohort.cohort_email or [])]
-        is_administrator = cohort.administrator_email and user_email_lower == cohort.administrator_email.lower()
-        is_contact_person = cohort.study_contact_person_email and user_email_lower == cohort.study_contact_person_email.lower()
-        
-        if not (is_cohort_owner or is_administrator or is_contact_person):
-            inaccessible_cohorts.append(cohort_id)
-    
-    has_access = len(inaccessible_cohorts) == 0
-    return has_access, inaccessible_cohorts
-
-
 def get_cohort_schema(cohort_dict: Cohort) -> list[Column]:
     """Convert cohort variables to Decentriq schema"""
     schema = []
@@ -1546,22 +1501,11 @@ def run_computation_get_output(dcr_id: str,  user: Any = Depends(get_current_use
 def run_shuffle_get_output(dcr_id: str, user: Any = Depends(get_current_user)):
     """Run the C4 shuffle_data script and save output to the same folder as C3 (EDA) output.
     
-    Accessible to users who have permission to access the cohort in the DCR.
+    Accessible to all authenticated users.
     """
     client = dq.create_client(settings.decentriq_email, settings.decentriq_token)
     dcr = client.retrieve_analytics_dcr(dcr_id)
     cohort_id = dcr.node_definitions[0].name.strip()
-    
-    # Check if user has access to this cohort
-    from src.cohort_cache import get_cohorts_from_cache
-    all_cohorts = get_cohorts_from_cache(user["email"])
-    has_access, inaccessible_cohorts = user_can_access_cohorts(user["email"], [cohort_id], all_cohorts)
-    
-    if not has_access:
-        raise HTTPException(
-            status_code=403,
-            detail=f"You do not have permission to access cohort: {cohort_id}"
-        )
     
     # Run the shuffle_data node (C4)
     shuffle_node = dcr.get_node("shuffle_data")
@@ -1698,22 +1642,12 @@ async def api_preview_dcr_participants(
 ) -> dict[str, Any]:
     """Preview what participants would be configured for a DCR without creating it.
     
-    Accessible to users who have permission to access all requested cohorts.
+    Accessible to all authenticated users.
     """
     try:
         # Get cohort metadata
         from src.cohort_cache import get_cohorts_from_cache
         all_cohorts = get_cohorts_from_cache(user["email"])
-        
-        # Check if user has access to all requested cohorts
-        cohort_ids = list(cohorts_request.get('cohorts', {}).keys())
-        has_access, inaccessible_cohorts = user_can_access_cohorts(user["email"], cohort_ids, all_cohorts)
-        
-        if not has_access:
-            raise HTTPException(
-                status_code=403,
-                detail=f"You do not have permission to access the following cohorts: {', '.join(inaccessible_cohorts)}"
-            )
         
         # Build participants using the shared function
         additional_analysts = cohorts_request.get('additional_analysts', [])
@@ -1752,23 +1686,9 @@ async def check_shuffled_samples(
 ) -> dict[str, Any]:
     """Check which cohorts have shuffled sample files available.
     
-    Accessible to users who have permission to access all requested cohorts.
+    Accessible to all authenticated users.
     """
     try:
-        # Get cohort metadata to check permissions
-        from src.cohort_cache import get_cohorts_from_cache
-        all_cohorts = get_cohorts_from_cache(user["email"])
-        
-        # Check if user has access to all requested cohorts
-        cohort_ids = list(cohorts_request.get('cohorts', {}).keys())
-        has_access, inaccessible_cohorts = user_can_access_cohorts(user["email"], cohort_ids, all_cohorts)
-        
-        if not has_access:
-            raise HTTPException(
-                status_code=403,
-                detail=f"You do not have permission to access the following cohorts: {', '.join(inaccessible_cohorts)}"
-            )
-        
         cohorts_with_samples = []
         cohorts_without_samples = []
         
