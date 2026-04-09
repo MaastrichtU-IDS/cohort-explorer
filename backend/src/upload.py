@@ -1172,7 +1172,7 @@ async def metadata_syntax_issues_report(
         f.write("=" * 80 + "\n\n")
     
     # Get all cohorts and process their dictionaries
-    admin_email = settings.admins_list[0] if settings.admins_list else "admin@example.com"
+    admin_email = settings.admins_list[0]
     all_cohorts = get_cohorts_from_cache(admin_email)
     
     total_cohorts = 0
@@ -1325,7 +1325,7 @@ async def validate_athena_codes(
 
     summary_file = os.path.join(reports_folder, f"athena_validation_{timestamp}.txt")
 
-    admin_email = settings.admins_list[0] if settings.admins_list else "admin@example.com"
+    admin_email = settings.admins_list[0]
     all_cohorts = get_cohorts_from_cache(admin_email)
 
     total_cohorts = 0
@@ -1747,7 +1747,7 @@ def generate_mappings(cohort_id: str, metadata_path: str, g: Graph) -> None:
     if publish_graph_to_endpoint(g):
         # Update the cache with the new cohort data
         # Use admin email to ensure we can access all cohorts
-        cohorts = retrieve_cohorts_metadata("admin@example.com")
+        cohorts = retrieve_cohorts_metadata(settings.admins_list[0])
         if cohort_id in cohorts:
             add_cohort_to_cache(cohorts[cohort_id])
             logging.info(f"Added cohort {cohort_id} to cache after generating mappings")
@@ -2395,7 +2395,7 @@ def init_triplestore():
                 time.sleep(5)
                 # Initialize cache from triplestore after other worker completes
                 from src.cohort_cache import initialize_cache_from_triplestore
-                admin_email = settings.admins_list[0] if settings.admins_list else "admin@example.com"
+                admin_email = settings.admins_list[0]
                 initialize_cache_from_triplestore(admin_email)
                 print(f"✅ Worker {os.getpid()} cache initialized from triplestore")
                 return
@@ -2463,7 +2463,7 @@ def _perform_triplestore_initialization():
     if triplestore_initialized:
         from src.cohort_cache import initialize_cache_from_triplestore
         print("Initializing cache from existing triplestore...")
-        admin_email = settings.admins_list[0] if settings.admins_list else "admin@example.com"
+        admin_email = settings.admins_list[0]
         initialize_cache_from_triplestore(admin_email)
         print("✅ Cohort cache initialization complete.")
         return
@@ -2526,6 +2526,6 @@ def _perform_triplestore_initialization():
     # This must happen AFTER the triplestore is populated, not before
     from src.cohort_cache import initialize_cache_from_triplestore
     print("Initializing cache from triplestore...")
-    admin_email = settings.admins_list[0] if settings.admins_list else "admin@example.com"
+    admin_email = settings.admins_list[0]
     initialize_cache_from_triplestore(admin_email)
     print("✅ Cohort cache initialization complete.")
