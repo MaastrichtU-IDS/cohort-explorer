@@ -349,6 +349,10 @@ export default function CohortsList() {
   const [expandedCohorts, setExpandedCohorts] = useState<{[key: string]: boolean}>({});
   // State to track which cohorts have collapsed metadata
   const [collapsedMetadata, setCollapsedMetadata] = useState<{[key: string]: boolean}>({});
+  // State to track active sub-tab for each cohort ('metadata' | 'graphs' | 'list')
+  const [activeSubTab, setActiveSubTab] = useState<{[key: string]: 'metadata' | 'graphs' | 'list'}>({});
+  // State to track shimmer effect for each cohort
+  const [shimmerActive, setShimmerActive] = useState<{[key: string]: boolean}>({});
   // Search configuration states
   const [searchScope, setSearchScope] = useState<'cohorts' | 'variables' | 'all'>('all');
   const [searchMode, setSearchMode] = useState<'or' | 'and' | 'exact'>('or');
@@ -509,10 +513,34 @@ export default function CohortsList() {
 
   // Function to toggle the expanded state for a cohort
   const toggleCohortExpanded = (cohortId: string) => {
+    const isCurrentlyExpanded = expandedCohorts[cohortId];
+    
     setExpandedCohorts((prev: Record<string, boolean>) => ({
       ...prev,
       [cohortId]: !prev[cohortId]
     }));
+    
+    // When opening a cohort, set default sub-tab to 'metadata' and trigger shimmer
+    if (!isCurrentlyExpanded) {
+      setActiveSubTab(prev => ({
+        ...prev,
+        [cohortId]: 'metadata'
+      }));
+      
+      // Activate shimmer effect
+      setShimmerActive(prev => ({
+        ...prev,
+        [cohortId]: true
+      }));
+      
+      // Deactivate shimmer after 1.5 seconds
+      setTimeout(() => {
+        setShimmerActive(prev => ({
+          ...prev,
+          [cohortId]: false
+        }));
+      }, 1500);
+    }
   };
 
   // Function to toggle metadata collapse for a cohort
@@ -895,32 +923,71 @@ export default function CohortsList() {
                 
               </div>
               <div className="collapse-content">
-                {/* Control buttons - shown when cohort is expanded */}
+                {/* Sub-tab buttons - shown when cohort is expanded */}
                 {expandedCohorts[cohortData.cohort_id] && (
-                  <div className="flex justify-center gap-2 mb-4">
-                    <button 
-                      onClick={(e: React.MouseEvent) => {
-                        e.stopPropagation();
-                        toggleMetadataCollapsed(cohortData.cohort_id);
-                      }} 
-                      className="btn btn-sm btn-outline btn-neutral rounded-full px-4 opacity-80"
-                    >
-                      {collapsedMetadata[cohortData.cohort_id] ? 'Show Metadata' : 'Hide Metadata'}
-                    </button>
-                    <button 
-                      onClick={(e: React.MouseEvent) => {
-                        e.stopPropagation();
-                        toggleCohortExpanded(cohortData.cohort_id);
-                      }} 
-                      className="btn btn-sm btn-outline btn-neutral rounded-full px-4"
-                    >
-                      Close
-                    </button>
-                  </div>
+                  <>
+                    <div className="flex justify-center gap-3 mb-6">
+                      <button 
+                        onClick={(e: React.MouseEvent) => {
+                          e.stopPropagation();
+                          setActiveSubTab(prev => ({...prev, [cohortData.cohort_id]: 'metadata'}));
+                        }} 
+                        className={`btn btn-lg ${
+                          activeSubTab[cohortData.cohort_id] === 'metadata' || !activeSubTab[cohortData.cohort_id]
+                            ? 'btn-primary' 
+                            : 'btn-outline btn-primary'
+                        } ${shimmerActive[cohortData.cohort_id] ? 'shimmer-effect' : ''}`}
+                        style={{ minWidth: '180px' }}
+                      >
+                        📋 Study Metadata
+                      </button>
+                      <button 
+                        onClick={(e: React.MouseEvent) => {
+                          e.stopPropagation();
+                          setActiveSubTab(prev => ({...prev, [cohortData.cohort_id]: 'graphs'}));
+                        }} 
+                        className={`btn btn-lg ${
+                          activeSubTab[cohortData.cohort_id] === 'graphs'
+                            ? 'btn-primary' 
+                            : 'btn-outline btn-primary'
+                        } ${shimmerActive[cohortData.cohort_id] ? 'shimmer-effect' : ''}`}
+                        style={{ minWidth: '180px' }}
+                      >
+                        📊 Variables Graphs + List
+                      </button>
+                      <button 
+                        onClick={(e: React.MouseEvent) => {
+                          e.stopPropagation();
+                          setActiveSubTab(prev => ({...prev, [cohortData.cohort_id]: 'list'}));
+                        }} 
+                        className={`btn btn-lg ${
+                          activeSubTab[cohortData.cohort_id] === 'list'
+                            ? 'btn-primary' 
+                            : 'btn-outline btn-primary'
+                        } ${shimmerActive[cohortData.cohort_id] ? 'shimmer-effect' : ''}`}
+                        style={{ minWidth: '180px' }}
+                      >
+                        📝 Variables List
+                      </button>
+                    </div>
+                    
+                    {/* Close button - below the sub-tabs */}
+                    <div className="flex justify-center mb-4">
+                      <button 
+                        onClick={(e: React.MouseEvent) => {
+                          e.stopPropagation();
+                          toggleCohortExpanded(cohortData.cohort_id);
+                        }} 
+                        className="btn btn-sm btn-outline btn-neutral rounded-full px-6"
+                      >
+                        ✕ Close
+                      </button>
+                    </div>
+                  </>
                 )}
                 
-                {/* Metadata section - collapsible */}
-                {!collapsedMetadata[cohortData.cohort_id] && (
+                {/* Study Metadata Tab Content */}
+                {(activeSubTab[cohortData.cohort_id] === 'metadata' || !activeSubTab[cohortData.cohort_id]) && (
                   <>
                 {/* Display study objective section */}
                 {cohortData.study_objective && (
@@ -1265,8 +1332,11 @@ export default function CohortsList() {
                   </>
                 )}
                 
-                {/* Summary Graphs Section */}
-                <CohortSummaryGraphs 
+                {/* Variables Graphs + List Tab Content */}
+                {activeSubTab[cohortData.cohort_id] === 'graphs' && (
+                  <>
+                    {/* Summary Graphs Section */}
+                    <CohortSummaryGraphs 
                   variables={cohortData.variables}
                   isExpanded={expandedCohorts[cohortData.cohort_id] || false}
                   cohortId={cohortData.cohort_id}
@@ -1282,9 +1352,9 @@ export default function CohortsList() {
                   onCategoryClick={(category) => handleCategoryClick(cohortData.cohort_id, category)}
                   onVisitTypeClick={(visitType) => handleVisitTypeClick(cohortData.cohort_id, visitType)}
                   onResetFilters={() => resetCohortFilters(cohortData.cohort_id)}
-                />
-                
-                <VariablesList 
+                    />
+                    
+                    <VariablesList 
                   cohortId={cohortData.cohort_id} 
                   searchFilters={{
                     searchQuery: searchScope === 'variables' ? searchQuery : '', 
@@ -1304,8 +1374,36 @@ export default function CohortsList() {
                   onShowOnlyOutcomesChange={(value: boolean) => toggleShowOnlyOutcomes(cohortData.cohort_id)}
                   onVariableCountsChange={(filtered: number, total: number) => updateVariableCounts(cohortData.cohort_id, filtered, total)}
                   onResetFilters={() => resetCohortFilters(cohortData.cohort_id)}
-                  onCloseCohort={() => setExpandedCohorts(prev => ({...prev, [cohortData.cohort_id]: false}))}
-                />
+                      onCloseCohort={() => setExpandedCohorts(prev => ({...prev, [cohortData.cohort_id]: false}))}
+                    />
+                  </>
+                )}
+                
+                {/* Variables List Only Tab Content */}
+                {activeSubTab[cohortData.cohort_id] === 'list' && (
+                  <VariablesList 
+                    cohortId={cohortData.cohort_id} 
+                    searchFilters={{
+                      searchQuery: searchScope === 'variables' ? searchQuery : '', 
+                      searchMode,
+                      searchTerms,
+                      searchScope
+                    }}
+                    selectedOMOPDomains={getFiltersForCohort(cohortData.cohort_id).selectedOMOPDomains}
+                    selectedDataTypes={getFiltersForCohort(cohortData.cohort_id).selectedDataTypes}
+                    selectedCategoryTypes={getFiltersForCohort(cohortData.cohort_id).selectedCategoryTypes}
+                    selectedVisitTypes={getFiltersForCohort(cohortData.cohort_id).selectedVisitTypes}
+                    showOnlyOutcomes={showOnlyOutcomes[cohortData.cohort_id] || false}
+                    onOMOPDomainsChange={(domains: Set<string>) => updateCohortFilters(cohortData.cohort_id, 'selectedOMOPDomains', domains)}
+                    onDataTypesChange={(types: Set<string>) => updateCohortFilters(cohortData.cohort_id, 'selectedDataTypes', types)}
+                    onCategoryTypesChange={(categories: Set<string>) => updateCohortFilters(cohortData.cohort_id, 'selectedCategoryTypes', categories)}
+                    onVisitTypesChange={(visitTypes: Set<string>) => updateCohortFilters(cohortData.cohort_id, 'selectedVisitTypes', visitTypes)}
+                    onShowOnlyOutcomesChange={(value: boolean) => toggleShowOnlyOutcomes(cohortData.cohort_id)}
+                    onVariableCountsChange={(filtered: number, total: number) => updateVariableCounts(cohortData.cohort_id, filtered, total)}
+                    onResetFilters={() => resetCohortFilters(cohortData.cohort_id)}
+                    onCloseCohort={() => setExpandedCohorts(prev => ({...prev, [cohortData.cohort_id]: false}))}
+                  />
+                )}
               </div>
             </div>
           ))}
