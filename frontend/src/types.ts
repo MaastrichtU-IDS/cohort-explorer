@@ -25,6 +25,7 @@ export interface Cohort {
   references?: string[];
   // Analysis data availability
   has_aggregate_analysis?: boolean;
+  can_edit?: boolean;
   
   // Additional metadata fields
   population_location?: string;

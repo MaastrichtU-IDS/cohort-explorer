@@ -944,47 +944,67 @@ export default function CohortsList() {
                           e.stopPropagation();
                           setActiveSubTab(prev => ({...prev, [cohortData.cohort_id]: 'metadata'}));
                         }} 
-                        className={`btn btn-lg ${
+                        className={`btn btn-lg rounded-full ${
                           activeSubTab[cohortData.cohort_id] === 'metadata' || !activeSubTab[cohortData.cohort_id]
-                            ? 'btn-primary' 
-                            : 'btn-outline btn-primary'
+                            ? 'bg-black text-white hover:bg-gray-800' 
+                            : 'btn-outline btn-neutral text-black hover:bg-gray-100'
                         } ${shimmerActive[cohortData.cohort_id] ? 'shimmer-effect' : ''}`}
-                        style={{ minWidth: '180px' }}
+                        style={{ minWidth: '200px' }}
                       >
-                        📋 Study Metadata
+                        Study Metadata
                       </button>
                       <button 
                         onClick={(e: React.MouseEvent) => {
                           e.stopPropagation();
                           setActiveSubTab(prev => ({...prev, [cohortData.cohort_id]: 'graphs'}));
                         }} 
-                        className={`btn btn-lg ${
+                        className={`btn btn-lg rounded-full ${
                           activeSubTab[cohortData.cohort_id] === 'graphs'
-                            ? 'btn-primary' 
-                            : 'btn-outline btn-primary'
+                            ? 'bg-black text-white hover:bg-gray-800' 
+                            : 'btn-outline btn-neutral text-black hover:bg-gray-100'
                         } ${shimmerActive[cohortData.cohort_id] ? 'shimmer-effect' : ''}`}
-                        style={{ minWidth: '180px' }}
+                        style={{ minWidth: '200px' }}
                       >
-                        📊 Variables Graphs + List
+                        Variables Graphs + List
                       </button>
                       <button 
                         onClick={(e: React.MouseEvent) => {
                           e.stopPropagation();
                           setActiveSubTab(prev => ({...prev, [cohortData.cohort_id]: 'list'}));
                         }} 
-                        className={`btn btn-lg ${
+                        className={`btn btn-lg rounded-full ${
                           activeSubTab[cohortData.cohort_id] === 'list'
-                            ? 'btn-primary' 
-                            : 'btn-outline btn-primary'
+                            ? 'bg-black text-white hover:bg-gray-800' 
+                            : 'btn-outline btn-neutral text-black hover:bg-gray-100'
                         } ${shimmerActive[cohortData.cohort_id] ? 'shimmer-effect' : ''}`}
-                        style={{ minWidth: '180px' }}
+                        style={{ minWidth: '200px' }}
                       >
-                        📝 Variables List
+                        Variables List
                       </button>
                     </div>
                     
-                    {/* Close button - below the sub-tabs */}
-                    <div className="flex justify-center mb-4">
+                    {/* Action buttons - below the sub-tabs */}
+                    <div className="flex justify-center gap-2 mb-4">
+                      {cohortData.can_edit && (
+                        <button
+                          onClick={(e: React.MouseEvent) => {
+                            e.stopPropagation();
+                            router.push(`/upload?cohort=${cohortData.cohort_id}`);
+                          }}
+                          className="btn btn-sm btn-outline btn-neutral rounded-full px-6"
+                        >
+                          Add to DCR
+                        </button>
+                      )}
+                      <button
+                        onClick={(e: React.MouseEvent) => {
+                          e.stopPropagation();
+                          window.open(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'}/download-metadata/${cohortData.cohort_id}`, '_blank');
+                        }}
+                        className="btn btn-sm btn-outline btn-neutral rounded-full px-6"
+                      >
+                        Download Metadata
+                      </button>
                       <button 
                         onClick={(e: React.MouseEvent) => {
                           e.stopPropagation();
