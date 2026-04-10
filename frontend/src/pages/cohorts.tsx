@@ -338,7 +338,7 @@ const formatParticipantsForTag = (value: string | number | null | undefined): st
 
 export default function CohortsList() {
   const router = useRouter();
-  const {cohortsData, userEmail, loadingMetrics, isLoading, fetchCohortsData, calculateStatistics} = useCohorts();
+  const {cohortsData, userEmail, loadingMetrics, isLoading, fetchCohortsData, calculateStatistics, dataCleanRoom, setDataCleanRoom} = useCohorts();
   const [searchQuery, setSearchQuery] = useState('');
   
   // Check if we should use SPARQL mode based on query parameter
@@ -985,16 +985,53 @@ export default function CohortsList() {
                     
                     {/* Action buttons - below the sub-tabs */}
                     <div className="flex justify-center gap-2 mb-4">
-                      {cohortData.can_edit && (
-                        <button
-                          onClick={(e: React.MouseEvent) => {
-                            e.stopPropagation();
-                            router.push(`/upload?cohort=${cohortData.cohort_id}`);
-                          }}
-                          className="btn btn-sm btn-outline btn-neutral rounded-full px-6"
-                        >
-                          Add to DCR
-                        </button>
+                      {Object.keys(cohortData.variables).length > 0 && (
+                        dataCleanRoom.cohorts[cohortData.cohort_id] &&
+                        dataCleanRoom.cohorts[cohortData.cohort_id].length === Object.keys(cohortData.variables).length ? (
+                          <button
+                            onClick={(e: React.MouseEvent) => {
+                              e.stopPropagation();
+                              // Remove all variables from DCR
+                              const updatedDcr = {...dataCleanRoom};
+                              delete updatedDcr.cohorts[cohortData.cohort_id];
+                              setDataCleanRoom(updatedDcr);
+                              sessionStorage.setItem('dataCleanRoom', JSON.stringify(updatedDcr));
+                            }}
+                            className="btn btn-sm bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-full px-6"
+                          >
+                            Remove from DCR
+                          </button>
+                        ) : (
+                          <button
+                            onClick={(e: React.MouseEvent) => {
+                              e.stopPropagation();
+                              // Add all variables to DCR
+                              const updatedDcr = {...dataCleanRoom};
+                              updatedDcr.cohorts[cohortData.cohort_id] = Object.keys(cohortData.variables);
+                              setDataCleanRoom(updatedDcr);
+                              sessionStorage.setItem('dataCleanRoom', JSON.stringify(updatedDcr));
+                              
+                              // Scroll to top and highlight DCR button
+                              setTimeout(() => {
+                                window.scrollTo({ top: 0, behavior: 'smooth' });
+                                setTimeout(() => {
+                                  const dcrButton = document.getElementById('dcr-button');
+                                  if (dcrButton) {
+                                    dcrButton.classList.add('dcr-highlight-effect');
+                                    setTimeout(() => {
+                                      dcrButton.classList.remove('dcr-highlight-effect');
+                                    }, 2000);
+                                  }
+                                  // Close the cohort tab
+                                  toggleCohortExpanded(cohortData.cohort_id);
+                                }, 500);
+                              }, 500);
+                            }}
+                            className="btn btn-sm btn-outline btn-neutral rounded-full px-6"
+                          >
+                            Add to DCR
+                          </button>
+                        )
                       )}
                       <button
                         onClick={(e: React.MouseEvent) => {
