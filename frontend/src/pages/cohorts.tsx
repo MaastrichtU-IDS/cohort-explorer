@@ -542,6 +542,9 @@ export default function CohortsList() {
           [cohortId]: false
         }));
       }, 1500);
+    } else {
+      // When closing a cohort, reset its filters
+      resetCohortFilters(cohortId);
     }
   };
 
@@ -943,6 +946,8 @@ export default function CohortsList() {
                         onClick={(e: React.MouseEvent) => {
                           e.stopPropagation();
                           setActiveSubTab(prev => ({...prev, [cohortData.cohort_id]: 'metadata'}));
+                          // Reset filters when switching to metadata tab
+                          resetCohortFilters(cohortData.cohort_id);
                         }} 
                         className={`btn btn-lg rounded-full ${
                           activeSubTab[cohortData.cohort_id] === 'metadata' || !activeSubTab[cohortData.cohort_id]
