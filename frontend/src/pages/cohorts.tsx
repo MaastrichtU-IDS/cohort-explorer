@@ -10,6 +10,7 @@ import CohortSummaryGraphs from '@/components/CohortSummaryGraphs';
 import GenderPieChart from '@/components/GenderPieChart';
 import AgeDistributionBar from '@/components/AgeDistributionBar';
 import {parseSearchQuery, searchInObject, highlightSearchTerms} from '@/utils/search';
+import {apiUrl} from '@/utils';
 
 // Helper component to render highlighted text
 const HighlightedText = ({text, searchTerms, searchMode}: {text: string, searchTerms: string[], searchMode?: 'or' | 'and' | 'exact'}) => {
@@ -1041,7 +1042,7 @@ export default function CohortsList() {
                       <button
                         onClick={(e: React.MouseEvent) => {
                           e.stopPropagation();
-                          window.open(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'}/download-metadata/${cohortData.cohort_id}`, '_blank');
+                          window.open(`${apiUrl}/cohort-spreadsheet/${cohortData.cohort_id}`, '_blank');
                         }}
                         className="btn btn-sm btn-outline btn-neutral rounded-full px-6"
                       >
