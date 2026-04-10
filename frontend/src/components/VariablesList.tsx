@@ -572,9 +572,6 @@ const VariablesList = ({
                           Min: {variable.min} {variable.units} | Max: {variable.max} {variable.units}
                         </p>
                       )}
-                      <p>
-                        {variable.count} values | {variable.na} na
-                      </p>
                       {variable.categories.length > 0 && (
                         <table className="table w-full">
                           <thead>
