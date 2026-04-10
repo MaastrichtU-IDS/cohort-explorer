@@ -7,6 +7,8 @@ import FilterByMetadata from '@/components/FilterByMetadata';
 import {Cohort} from '@/types';
 import VariablesList from '@/components/VariablesList';
 import CohortSummaryGraphs from '@/components/CohortSummaryGraphs';
+import GenderPieChart from '@/components/GenderPieChart';
+import AgeDistributionBar from '@/components/AgeDistributionBar';
 import {parseSearchQuery, searchInObject, highlightSearchTerms} from '@/utils/search';
 
 // Helper component to render highlighted text
@@ -911,6 +913,16 @@ export default function CohortsList() {
                       👥 {formatParticipantsForTag(cohortData.study_participants)} {cohortData.study_population}
                     </span>
                   )}
+                  {/* Gender distribution pie chart */}
+                  <GenderPieChart 
+                    malePercentage={cohortData.male_percentage}
+                    femalePercentage={cohortData.female_percentage}
+                    size={50}
+                  />
+                  {/* Age distribution bar chart */}
+                  <AgeDistributionBar 
+                    ageDistribution={cohortData.age_distribution}
+                  />
                   {/* Display aggregate data analysis tag if available */}
                   {analysisAvailability[cohortData.cohort_id] && (
                     <span className="badge mx-1" style={{ backgroundColor: '#dbeafe', color: '#1e3a8a', border: '1px solid #bfdbfe' }}>

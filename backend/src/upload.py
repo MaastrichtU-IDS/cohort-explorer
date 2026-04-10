@@ -2170,19 +2170,28 @@ def handle_special_fields(g: Graph, row: pd.Series, study_design_execution_uri: 
         g.add((mixed_sex_quality, RDFS.label, Literal("mixed sex", datatype=XSD.string), metadata_graph))
         g.add((mixed_sex_quality, OntologyNamespaces.CMEO.value.has_value, Literal(mixed_sex_value, datatype=XSD.string), metadata_graph))
         
-        # Parse percentages from mixed sex field
+        # Parse percentages from mixed sex field - handles multiple formats:
+        # "50% male; 50% female", "male 50%; female 50%", "44% male and 56% female"
+        # "male 48.5% and female 51.5%", "male 0.49 and female 0.51"
         parts = mixed_sex_value.split(";") if ";" in mixed_sex_value else mixed_sex_value.split("and") if "and" in mixed_sex_value else [mixed_sex_value]
         
         for part in parts:
             part = part.strip().lower().replace(",", ".")
-            digits_only = ''.join(c for c in part if c.isdigit() or c == '.')
-            if digits_only:
+            # Extract number (including decimals)
+            number_match = re.search(r'(\d+\.?\d*)', part)
+            if number_match:
                 try:
-                    percentage = float(digits_only)
+                    value = float(number_match.group(1))
+                    # Convert decimal format (0.49) to percentage (49%)
+                    if value < 1.0 and value > 0:
+                        value = value * 100
+                    # Round to nearest integer
+                    value = round(value)
+                    
                     if "male" in part and "female" not in part:
-                        male_percentage = percentage
+                        male_percentage = value
                     elif "female" in part:
-                        female_percentage = percentage
+                        female_percentage = value
                 except ValueError:
                     continue
         
@@ -2216,11 +2225,34 @@ def handle_special_fields(g: Graph, row: pd.Series, study_design_execution_uri: 
     
     # Handle age distribution as characteristic of output population (matches query expectations)
     if pd.notna(row.get("age distribution", "")):
+        age_dist_value = str(row["age distribution"])
         age_quality = URIRef(study_uri + "/age_distribution")
         g.add((age_quality, RDF.type, OntologyNamespaces.OBI.value.age_distribution, metadata_graph))
         g.add((output_population_uri, OntologyNamespaces.RO.value.has_characteristic, age_quality, metadata_graph))
         g.add((age_quality, RDFS.label, Literal("age distribution", datatype=XSD.string), metadata_graph))
-        g.add((age_quality, OntologyNamespaces.CMEO.value.has_value, Literal(str(row["age distribution"]), datatype=XSD.string), metadata_graph))
+        g.add((age_quality, OntologyNamespaces.CMEO.value.has_value, Literal(age_dist_value, datatype=XSD.string), metadata_graph))
+        
+        # Parse age distribution: "18-39: 25%; 40-64: 50%; 65+: 25%"
+        age_groups = {}
+        parts = age_dist_value.split(";")
+        for part in parts:
+            part = part.strip()
+            # Match patterns like "18-39: 25%" or "65+: 25%"
+            match = re.search(r'([\d\-+]+)\s*:\s*(\d+\.?\d*)\s*%?', part)
+            if match:
+                age_range = match.group(1).strip()
+                percentage = round(float(match.group(2)))
+                age_groups[age_range] = percentage
+                
+                # Add each age group to the graph
+                age_group_uri = URIRef(study_uri + f"/age_group_{age_range.replace('+', 'plus').replace('-', '_')}")
+                g.add((age_group_uri, RDF.type, OntologyNamespaces.CMEO.value.age_group, metadata_graph))
+                g.add((age_quality, OntologyNamespaces.RO.value.has_part, age_group_uri, metadata_graph))
+                g.add((age_group_uri, RDFS.label, Literal(age_range, datatype=XSD.string), metadata_graph))
+                g.add((age_group_uri, OntologyNamespaces.CMEO.value.has_value, Literal(percentage, datatype=XSD.float), metadata_graph))
+        
+        if age_groups:
+            print(f"Age Distribution parsing for {row.get('study name', 'unknown')}: '{age_dist_value}' → {age_groups}")
     
     # Handle population location with site pointing to output population (matches query expectations)
     if pd.notna(row.get("population location", "")):

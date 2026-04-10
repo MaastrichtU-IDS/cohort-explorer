@@ -65,6 +65,7 @@ class Cohort:
     study_end: Optional[str] = None
     male_percentage: Optional[float] = None
     female_percentage: Optional[float] = None
+    age_distribution: dict[str, float] = field(default_factory=dict)  # e.g., {"18-39": 25, "40-64": 50, "65+": 25}
     # Contact information fields
     administrator: Optional[str] = None
     administrator_email: Optional[str] = None

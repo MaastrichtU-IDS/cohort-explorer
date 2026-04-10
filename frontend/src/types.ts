@@ -16,6 +16,7 @@ export interface Cohort {
   study_end: string;
   male_percentage: number | null;
   female_percentage: number | null;
+  age_distribution?: {[key: string]: number};  // e.g., {"18-39": 25, "40-64": 50, "65+": 25}
   // Contact information fields
   administrator?: string;
   administrator_email?: string;

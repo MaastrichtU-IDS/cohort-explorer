@@ -145,6 +145,7 @@ def cohort_to_dict(cohort: Cohort) -> Dict[str, Any]:
         "study_end": cohort.study_end,
         "male_percentage": cohort.male_percentage,
         "female_percentage": cohort.female_percentage,
+        "age_distribution": cohort.age_distribution,
         "administrator": cohort.administrator,
         "administrator_email": cohort.administrator_email,
         "study_contact_person": cohort.study_contact_person,
@@ -321,20 +322,50 @@ def create_cohort_from_metadata_graph(cohort_id: str, cohort_uri: URIRef, g: Dat
         cohort.study_start = get_literal_value(CMEO.studyStart) or get_literal_value(ICARE.studyStart)
         cohort.study_end = get_literal_value(CMEO.studyEnd) or get_literal_value(ICARE.studyEnd)
         
-        # Sex distribution
+        # Sex distribution - parse from mixed sex field
         cohort.male_percentage = None
         cohort.female_percentage = None
         mixed_sex = get_literal_value(CMEO.mixedSex) or get_literal_value(ICARE.mixedSex)
         if mixed_sex:
             import re
-            # Try to extract male and female percentages
-            male_match = re.search(r'male[\s:]*([0-9.]+)\s*%', mixed_sex, re.IGNORECASE)
-            female_match = re.search(r'female[\s:]*([0-9.]+)\s*%', mixed_sex, re.IGNORECASE)
+            # Parse percentages - handles multiple formats
+            parts = mixed_sex.split(";") if ";" in mixed_sex else mixed_sex.split("and") if "and" in mixed_sex else [mixed_sex]
             
-            if male_match:
-                cohort.male_percentage = float(male_match.group(1))
-            if female_match:
-                cohort.female_percentage = float(female_match.group(1))
+            for part in parts:
+                part = part.strip().lower().replace(",", ".")
+                # Extract number (including decimals)
+                number_match = re.search(r'(\d+\.?\d*)', part)
+                if number_match:
+                    try:
+                        value = float(number_match.group(1))
+                        # Convert decimal format (0.49) to percentage (49%)
+                        if value < 1.0 and value > 0:
+                            value = value * 100
+                        # Round to nearest integer
+                        value = round(value)
+                        
+                        if "male" in part and "female" not in part:
+                            cohort.male_percentage = value
+                        elif "female" in part:
+                            cohort.female_percentage = value
+                    except ValueError:
+                        continue
+        
+        # Age distribution - parse from age distribution field
+        cohort.age_distribution = {}
+        age_dist_value = get_literal_value(CMEO.ageDistribution) or get_literal_value(ICARE.ageDistribution)
+        if age_dist_value:
+            import re
+            # Parse age distribution: "18-39: 25%; 40-64: 50%; 65+: 25%"
+            parts = age_dist_value.split(";")
+            for part in parts:
+                part = part.strip()
+                # Match patterns like "18-39: 25%" or "65+: 25%"
+                match = re.search(r'([\d\-+]+)\s*:\s*(\d+\.?\d*)\s*%?', part)
+                if match:
+                    age_range = match.group(1).strip()
+                    percentage = round(float(match.group(2)))
+                    cohort.age_distribution[age_range] = percentage
         
         # Contact information - try CMEO first, then ICARE
         cohort.administrator = get_literal_value(CMEO.administrator) or get_literal_value(ICARE.administrator)
