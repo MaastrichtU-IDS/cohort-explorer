@@ -2491,13 +2491,13 @@ def _perform_triplestore_initialization():
     except Exception as e:
         print(f"⚠️  Failed to generate metadata issues report: {e}")
     
-    # If triplestore is already initialized, initialize cache from it and return
+    # If triplestore is already initialized, initialize cache directly from Excel and return
     if triplestore_initialized:
-        from src.cohort_cache import initialize_cache_from_triplestore
-        print("Initializing cache from existing triplestore...")
+        from src.cohort_cache import initialize_cache_from_excel
+        print("Initializing cache directly from Excel file...")
         admin_email = settings.admins_list[0]
-        initialize_cache_from_triplestore(admin_email)
-        print("✅ Cohort cache initialization complete.")
+        initialize_cache_from_excel(COHORTS_METADATA_FILEPATH, admin_email)
+        print("✅ Cohort cache initialization complete (from Excel).")
         return
     
     # Otherwise, continue with triplestore initialization
@@ -2554,10 +2554,10 @@ def _perform_triplestore_initialization():
     
     print("✅ Triplestore initialization complete!")
     
-    # Initialize the cache from the now-populated triplestore
-    # This must happen AFTER the triplestore is populated, not before
-    from src.cohort_cache import initialize_cache_from_triplestore
-    print("Initializing cache from triplestore...")
+    # Initialize the cache directly from Excel file (bypassing triplestore for cache building)
+    # This ensures gender and age distribution data is correctly parsed and cached
+    from src.cohort_cache import initialize_cache_from_excel
+    print("Initializing cache directly from Excel file...")
     admin_email = settings.admins_list[0]
-    initialize_cache_from_triplestore(admin_email)
-    print("✅ Cohort cache initialization complete.")
+    initialize_cache_from_excel(COHORTS_METADATA_FILEPATH, admin_email)
+    print("✅ Cohort cache initialization complete (from Excel).")

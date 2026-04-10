@@ -350,35 +350,6 @@ const VariablesList = ({
   return (
     <main className="flex w-full space-x-4">
       <aside className="flex-shrink-0 text-center flex flex-col items-center w-52">
-        {Object.keys(cohortsData[cohortId]['variables']).length > 0 && (
-          dataCleanRoom.cohorts[cohortId] &&
-          dataCleanRoom.cohorts[cohortId].length === Object.keys(cohortsData[cohortId]['variables']).length ? (
-            <button
-              onClick={() => removeFromDataCleanRoom()}
-              className="btn btn-sm mb-2 bg-gray-200 hover:bg-gray-300 text-gray-700 tooltip tooltip-right"
-              data-tip={`Remove all variables of the cohort ${cohortId} from your Data Clean Room`}
-            >
-              Remove from DCR
-            </button>
-          ) : (
-            <button
-              onClick={() => addToDataCleanRoom()}
-              className="btn btn-neutral btn-sm mb-2 hover:bg-slate-600 tooltip tooltip-right"
-              data-tip={`Add all variables of the cohort ${cohortId} to your Data Clean Room`}
-            >
-              Add to DCR
-            </button>
-          )
-        )}
-        {filteredVars.length > 0 && (
-          <button
-            onClick={downloadMetadataCSV}
-            className="btn btn-neutral btn-sm mb-2 hover:bg-slate-600 tooltip tooltip-right"
-            data-tip="Download the cohort metadata as CSV file. You can edit and re-upload it, if you are the person who published it originally."
-          >
-            Download Metadata
-          </button>
-        )}
         {/* NOTE: You will need to create an API endpoint just to ddl the imgs for the cohort stats
         If the <img> I set up dont work, then you'll need to use a fetch call
         e.g. const response = await fetch(`${apiUrl}/cohort-stats/${cohortId}`, {credentials: 'include'});

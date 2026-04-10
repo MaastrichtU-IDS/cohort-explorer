@@ -919,3 +919,186 @@ def clear_cache() -> None:
     if cache_file.exists():
         os.remove(cache_file)
         logging.info(f"Removed cohorts cache file {cache_file}")
+
+
+def initialize_cache_from_excel(excel_filepath: str, user_email: str | None = None) -> None:
+    """Initialize the cache directly from the Excel metadata file, bypassing the triplestore.
+    
+    This is the preferred method for building the cache as it avoids SPARQL complexity
+    and ensures data consistency between the source file and the cache.
+    
+    Args:
+        excel_filepath: Path to the cohorts metadata Excel file
+        user_email: Email to use for setting can_edit permissions
+    """
+    global _cohorts_cache, _cache_initialized
+    
+    import pandas as pd
+    from src.config import settings
+    
+    # Get user email from settings if not provided
+    if user_email is None:
+        user_email = settings.admins_list[0] if settings.admins_list else ""
+    
+    logging.info(f"Initializing cache directly from Excel file: {excel_filepath}")
+    
+    try:
+        # Read the Excel file
+        df = pd.read_excel(excel_filepath, sheet_name="Descriptions")
+        df = df.fillna("")
+        df.columns = df.columns.str.lower()
+        
+        # Clear existing cache
+        clear_cache()
+        
+        # Process each row to create cohort objects
+        for _i, row in df.iterrows():
+            cohort_id = str(row["study name"]).strip()
+            logging.info(f"Processing cohort: {cohort_id}")
+            
+            # Create a basic Cohort object
+            cohort = Cohort(
+                cohort_id=cohort_id,
+                cohort_type=str(row.get("study design", "")).strip() if pd.notna(row.get("study design")) else "",
+                cohort_email=[],
+                institution=str(row.get("institute", "")).strip() if pd.notna(row.get("institute")) else "",
+                study_type=str(row.get("study design", "")).strip() if pd.notna(row.get("study design")) else "",
+                study_participants=int(row.get("study participants", 0)) if pd.notna(row.get("study participants")) and str(row.get("study participants")).replace('.', '').isdigit() else 0,
+                study_population=str(row.get("study population", "")).strip() if pd.notna(row.get("study population")) else "",
+                study_duration=str(row.get("study duration", "")).strip() if pd.notna(row.get("study duration")) else "",
+                study_ongoing=str(row.get("study ongoing", "")).strip().lower() if pd.notna(row.get("study ongoing")) else "",
+                study_objective=str(row.get("study objective", "")).strip() if pd.notna(row.get("study objective")) else "",
+                primary_outcome_spec=str(row.get("primary outcome specification", "")).strip() if pd.notna(row.get("primary outcome specification")) else "",
+                secondary_outcome_spec=str(row.get("secondary outcome specification", "")).strip() if pd.notna(row.get("secondary outcome specification")) else "",
+                morbidity=str(row.get("morbidity", "")).strip() if pd.notna(row.get("morbidity")) else "",
+                study_start=str(row.get("study start", "")).strip() if pd.notna(row.get("study start")) else "",
+                study_end=str(row.get("study end", "")).strip() if pd.notna(row.get("study end")) else "",
+            )
+            
+            # Parse gender distribution from "Mixed Sex" column
+            if pd.notna(row.get("mixed sex", "")):
+                mixed_sex_value = str(row["mixed sex"])
+                male_percentage = None
+                female_percentage = None
+                
+                parts = mixed_sex_value.split(";") if ";" in mixed_sex_value else mixed_sex_value.split("and") if "and" in mixed_sex_value else [mixed_sex_value]
+                
+                for part in parts:
+                    part = part.strip().lower().replace(",", ".")
+                    number_match = re.search(r'(\d+\.?\d*)', part)
+                    if number_match:
+                        value = float(number_match.group(1))
+                        if value < 1.0 and value > 0:
+                            value = value * 100
+                        value = round(value)
+                        
+                        if "male" in part and "female" not in part:
+                            male_percentage = value
+                        elif "female" in part:
+                            female_percentage = value
+                
+                cohort.male_percentage = male_percentage
+                cohort.female_percentage = female_percentage
+            
+            # Parse age distribution from "Age Distribution" column
+            if pd.notna(row.get("age distribution", "")):
+                age_dist_value = str(row["age distribution"])
+                age_groups = {}
+                parts = age_dist_value.split(";")
+                
+                for part in parts:
+                    part = part.strip()
+                    match = re.search(r'([\d\-+]+)\s*:\s*(\d+\.?\d*)\s*%?', part)
+                    if match:
+                        age_range = match.group(1).strip()
+                        percentage = round(float(match.group(2)))
+                        age_groups[age_range] = percentage
+                
+                cohort.age_distribution = age_groups
+            
+            # Contact information
+            cohort.administrator = str(row.get("administrator", "")).strip() if pd.notna(row.get("administrator")) else None
+            cohort.administrator_email = str(row.get("administrator email address", "")).strip().lower() if pd.notna(row.get("administrator email address")) else None
+            cohort.study_contact_person = str(row.get("study contact person", "")).strip() if pd.notna(row.get("study contact person")) else None
+            cohort.study_contact_person_email = str(row.get("study contact person email address", "")).strip().lower() if pd.notna(row.get("study contact person email address")) else None
+            
+            # Build cohort_email list from all available emails
+            emails = []
+            if cohort.administrator_email:
+                for email in cohort.administrator_email.split(";"):
+                    emails.append(email.strip().lower())
+            if cohort.study_contact_person_email:
+                for email in cohort.study_contact_person_email.split(";"):
+                    if email.strip().lower() not in emails:
+                        emails.append(email.strip().lower())
+            cohort.cohort_email = emails
+            
+            # References
+            if pd.notna(row.get("references", "")):
+                cohort.references = [ref.strip() for ref in str(row["references"]).split(";") if ref.strip()]
+            
+            # Additional metadata
+            cohort.population_location = str(row.get("population location", "")).strip() if pd.notna(row.get("population location")) else None
+            cohort.language = str(row.get("language", "")).strip() if pd.notna(row.get("language")) else None
+            cohort.data_collection_frequency = str(row.get("frequency of data collection", "")).strip() if pd.notna(row.get("frequency of data collection")) else None
+            cohort.interventions = str(row.get("interventions", "")).strip() if pd.notna(row.get("interventions")) else None
+            
+            # Inclusion/exclusion criteria
+            cohort.sex_inclusion = str(row.get("sex inclusion", "")).strip() if pd.notna(row.get("sex inclusion")) else None
+            cohort.health_status_inclusion = str(row.get("health status inclusion", "")).strip() if pd.notna(row.get("health status inclusion")) else None
+            cohort.clinically_relevant_exposure_inclusion = str(row.get("clinically relevant exposure inclusion", "")).strip() if pd.notna(row.get("clinically relevant exposure inclusion")) else None
+            cohort.age_group_inclusion = str(row.get("age group inclusion", "")).strip() if pd.notna(row.get("age group inclusion")) else None
+            cohort.bmi_range_inclusion = str(row.get("bmi range inclusion", "")).strip() if pd.notna(row.get("bmi range inclusion")) else None
+            cohort.ethnicity_inclusion = str(row.get("ethnicity inclusion", "")).strip() if pd.notna(row.get("ethnicity inclusion")) else None
+            cohort.family_status_inclusion = str(row.get("family status inclusion", "")).strip() if pd.notna(row.get("family status inclusion")) else None
+            cohort.hospital_patient_inclusion = str(row.get("hospital patient inclusion", "")).strip() if pd.notna(row.get("hospital patient inclusion")) else None
+            cohort.use_of_medication_inclusion = str(row.get("use of medication inclusion", "")).strip() if pd.notna(row.get("use of medication inclusion")) else None
+            cohort.health_status_exclusion = str(row.get("health status exclusion", "")).strip() if pd.notna(row.get("health status exclusion")) else None
+            cohort.bmi_range_exclusion = str(row.get("bmi range exclusion", "")).strip() if pd.notna(row.get("bmi range exclusion")) else None
+            cohort.limited_life_expectancy_exclusion = str(row.get("limited life expectancy exclusion", "")).strip() if pd.notna(row.get("limited life expectancy exclusion")) else None
+            cohort.need_for_surgery_exclusion = str(row.get("need for surgery exclusion", "")).strip() if pd.notna(row.get("need for surgery exclusion")) else None
+            cohort.surgical_procedure_history_exclusion = str(row.get("surgical procedure history exclusion", "")).strip() if pd.notna(row.get("surgical procedure history exclusion")) else None
+            cohort.clinically_relevant_exposure_exclusion = str(row.get("clinically relevant exposure exclusion", "")).strip() if pd.notna(row.get("clinically relevant exposure exclusion")) else None
+            
+            # Set can_edit permissions
+            user_email_lower = user_email.lower() if user_email else ""
+            is_admin = user_email_lower in [email.lower() for email in settings.admins_list]
+            is_cohort_owner = user_email_lower in [email.lower() for email in cohort.cohort_email]
+            is_administrator = cohort.administrator_email and user_email_lower == cohort.administrator_email.lower()
+            is_contact_person = cohort.study_contact_person_email and user_email_lower == cohort.study_contact_person_email.lower()
+            cohort.can_edit = is_admin or is_cohort_owner or is_administrator or is_contact_person
+            
+            # Add to cache
+            _cohorts_cache[cohort_id] = cohort
+        
+        # Now load variables from data dictionary files for each cohort
+        logging.info("Loading variables from data dictionary files...")
+        cohorts_folder = os.path.join(settings.data_folder, "cohorts")
+        if os.path.exists(cohorts_folder):
+            for cohort_id in _cohorts_cache.keys():
+                cohort_folder = os.path.join(cohorts_folder, cohort_id)
+                if os.path.isdir(cohort_folder):
+                    try:
+                        # Find the latest data dictionary file
+                        from src.upload import get_latest_datadictionary
+                        latest_dict_file = get_latest_datadictionary(cohort_folder)
+                        if latest_dict_file:
+                            logging.info(f"Loading variables for {cohort_id} from {os.path.basename(latest_dict_file)}")
+                            # Use create_cohort_from_dict_file which will update the existing cohort with variables
+                            create_cohort_from_dict_file(latest_dict_file, cohort_id)
+                        else:
+                            logging.info(f"No data dictionary found for {cohort_id}")
+                    except Exception as e:
+                        logging.warning(f"Failed to load variables for {cohort_id}: {e}")
+        
+        # Mark cache as initialized
+        _cache_initialized = True
+        
+        # Save to disk
+        save_cache_to_disk()
+        
+        logging.info(f"Successfully initialized cache from Excel with {len(_cohorts_cache)} cohorts")
+        
+    except Exception as e:
+        logging.error(f"Error initializing cache from Excel: {e}", exc_info=True)
+        raise
