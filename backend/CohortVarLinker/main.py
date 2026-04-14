@@ -236,7 +236,7 @@ def cluster_variables_by_omop(endpoint_url):
       }
     }
     GROUP BY ?omop_id
-    HAVING (COUNT(?variable_uri) > 1)
+    HAVING (COUNT(?variable_uri) >= 1)
     """
     
     sparql.setQuery(query)
