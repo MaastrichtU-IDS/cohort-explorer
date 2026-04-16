@@ -85,13 +85,15 @@ export default function DocsStorePage() {
         <div className="flex justify-center mb-6">
           <div className="join">
             <button
-              className={`join-item btn ${viewMode === 'providers' ? 'btn-primary' : 'btn-ghost'}`}
+              className={`join-item btn ${viewMode === 'providers' ? '' : 'btn-ghost'}`}
+              style={viewMode === 'providers' ? { backgroundColor: '#dbeafe', color: '#1e3a8a', border: '1px solid #bfdbfe' } : {}}
               onClick={() => setViewMode('providers')}
             >
               For Data Providers
             </button>
             <button
-              className={`join-item btn ${viewMode === 'analysts' ? 'btn-primary' : 'btn-ghost'}`}
+              className={`join-item btn ${viewMode === 'analysts' ? '' : 'btn-ghost'}`}
+              style={viewMode === 'analysts' ? { backgroundColor: '#dbeafe', color: '#1e3a8a', border: '1px solid #bfdbfe' } : {}}
               onClick={() => setViewMode('analysts')}
             >
               For Analysts
@@ -162,17 +164,20 @@ export default function DocsStorePage() {
           </div>
         )}
 
-        {/* Feedback Form Button - Visible in both views */}
-        <div className="mt-12 flex justify-center">
-          <a
-            href="https://docs.google.com/forms/d/e/1FAIpQLSd7EmQJgfNJJej8cuKN_eOv5ROYcjVVE-aM_sruNW6P0wySOQ/viewform?hl=en%2Fedit&hl=en"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn btn-lg btn-primary"
-          >
-            Problems? Suggestions? Please fill out our feedback form!
-          </a>
-        </div>
+        {/* Feedback Form Button - For Data Providers view (shown here) */}
+        {viewMode === 'providers' && (
+          <div className="mt-20 flex justify-center">
+            <a
+              href="https://docs.google.com/forms/d/e/1FAIpQLSd7EmQJgfNJJej8cuKN_eOv5ROYcjVVE-aM_sruNW6P0wySOQ/viewform?hl=en%2Fedit&hl=en"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn btn-lg"
+              style={{ backgroundColor: '#dbeafe', color: '#1e3a8a', border: '1px solid #bfdbfe' }}
+            >
+              Problems? Suggestions? Please fill out our feedback form!
+            </a>
+          </div>
+        )}
 
         {/* Video Tutorials Section - Only shown in Analysts view */}
         {viewMode === 'analysts' && videoLinks.length > 0 && (
@@ -199,6 +204,21 @@ export default function DocsStorePage() {
                 </a>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* Feedback Form Button - For Analysts view (shown below video tutorials) */}
+        {viewMode === 'analysts' && (
+          <div className="mt-20 flex justify-center">
+            <a
+              href="https://docs.google.com/forms/d/e/1FAIpQLSd7EmQJgfNJJej8cuKN_eOv5ROYcjVVE-aM_sruNW6P0wySOQ/viewform?hl=en%2Fedit&hl=en"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn btn-lg"
+              style={{ backgroundColor: '#dbeafe', color: '#1e3a8a', border: '1px solid #bfdbfe' }}
+            >
+              Problems? Suggestions? Please fill out our feedback form!
+            </a>
           </div>
         )}
       </div>

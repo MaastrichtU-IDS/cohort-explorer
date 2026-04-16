@@ -349,7 +349,7 @@ const VariablesList = ({
 
   return (
     <main className="flex w-full space-x-4">
-      <aside className="flex-shrink-0 text-center flex flex-col items-center w-52">
+      <aside className="flex-shrink-0 text-center flex flex-col items-center w-52 sticky top-4 self-start max-h-[calc(100vh-2rem)] overflow-y-auto">
         {/* NOTE: You will need to create an API endpoint just to ddl the imgs for the cohort stats
         If the <img> I set up dont work, then you'll need to use a fetch call
         e.g. const response = await fetch(`${apiUrl}/cohort-stats/${cohortId}`, {credentials: 'include'});

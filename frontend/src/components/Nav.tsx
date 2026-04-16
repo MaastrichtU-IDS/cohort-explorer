@@ -50,7 +50,8 @@ export function Nav() {
   const wizardSteps = [
     { id: 'name', title: 'DCR Name & Cohorts' },
     { id: 'participants', title: 'Participants' },
-    { id: 'data-access', title: 'Data Access' },
+    { id: 'research-goals', title: 'Research Goals' },
+    { id: 'data-samples', title: 'Data Samples' },
     { id: 'mapping', title: 'Mapping Files' },
     { id: 'review', title: 'Review & Create' },
   ];
@@ -683,14 +684,20 @@ export function Nav() {
                         </div>
                       )}
                       
-                      {/* Research Question */}
-                      <div className="form-control mt-6">
+                    </>
+                  )}
+                  
+                  {/* Step 2: Research Goals */}
+                  {wizardStep === 2 && (
+                    <>
+                      <h3 className="font-bold text-lg mb-4">Step 3: Information about Research Goals</h3>
+                      <div className="form-control">
                         <label className="label">
                           <span className="label-text font-semibold">Please describe your research question</span>
                         </label>
                         <textarea
                           placeholder="Describe the research question you aim to answer with this DCR..."
-                          className="textarea textarea-bordered w-full h-24"
+                          className="textarea textarea-bordered w-full h-32"
                           value={researchQuestion}
                           onChange={(e) => setResearchQuestion(e.target.value)}
                         />
@@ -698,13 +705,13 @@ export function Nav() {
                     </>
                   )}
                   
-                  {/* Step 2: Data Access Settings (merged Airlock + Shuffled Samples) */}
-                  {wizardStep === 2 && (
+                  {/* Step 3: Data Samples Settings (merged Airlock + Shuffled Samples) */}
+                  {wizardStep === 3 && (
                     <>
-                      <h3 className="font-bold text-lg mb-4">Step 3: Data Access Settings</h3>
+                      <h3 className="font-bold text-lg mb-4">Step 4: Data Samples</h3>
                       <div className="text-sm text-base-content/70 mb-4 space-y-2">
-                        <p><strong>Airlock:</strong> The airlock allows 20% of the data to be visible to analysts inside the DCR for testing and validation purposes.</p>
-                        <p><strong>Shuffled Sample:</strong> A shuffled sample is a pre-generated synthetic dataset that preserves statistical properties while protecting individual privacy. It can be used for initial analysis before accessing real data.</p>
+                        <p><strong>Shuffled Sample:</strong> A shuffled sample is maximum of 500 rows from dataset without the patient id column. Each column in the sample is shuffled independently of the other columns. The purpose is code testing and validation.</p>
+                        <p><strong>Airlock:</strong> The airlock allows 20% of the real data to be available to analysts inside the DCR for code testing and validation purposes. Note that the patient id column and the rows with outlier values (z-score - mean &gt; 2) are excluded from the airlock sample.</p>
                       </div>
                       
                       {loadingShuffledSamples ? (
@@ -713,8 +720,11 @@ export function Nav() {
                         <div className="space-y-4">
                           {dataCleanRoom?.cohorts && Object.keys(dataCleanRoom.cohorts).sort().map((cohortId) => {
                             const hasShuffledSample = cohortsWithShuffledSamples.includes(cohortId);
-                            const currentAirlock = airlockSettings[cohortId] ?? true;
-                            const currentShuffled = shuffledSampleSettings[cohortId] ?? true;
+                            // Default: shuffled sample if available, otherwise airlock
+                            const defaultAirlock = !hasShuffledSample;
+                            const defaultShuffled = hasShuffledSample;
+                            const currentAirlock = airlockSettings[cohortId] ?? defaultAirlock;
+                            const currentShuffled = shuffledSampleSettings[cohortId] ?? defaultShuffled;
                             
                             // Determine current selection
                             let currentSelection = 'none';
@@ -779,10 +789,10 @@ export function Nav() {
                     </>
                   )}
                   
-                  {/* Step 3: Mapping Files */}
-                  {wizardStep === 3 && (
+                  {/* Step 4: Mapping Files */}
+                  {wizardStep === 4 && (
                     <>
-                      <h3 className="font-bold text-lg mb-4">Step 4: Mapping Files (Optional)</h3>
+                      <h3 className="font-bold text-lg mb-4">Step 5: Mapping Files (Optional)</h3>
                       {loadingMappingFiles ? (
                         <p className="text-sm text-base-content/70">Checking for available mapping files...</p>
                       ) : availableMappingFiles.length > 0 ? (
@@ -830,10 +840,10 @@ export function Nav() {
                     </>
                   )}
                   
-                  {/* Step 4: Review & Create */}
-                  {wizardStep === 4 && (
+                  {/* Step 5: Review & Create */}
+                  {wizardStep === 5 && (
                     <>
-                      <h3 className="font-bold text-lg mb-4">Step 5: Review & Create</h3>
+                      <h3 className="font-bold text-lg mb-4">Step 6: Review & Create</h3>
                       <div className="space-y-3 text-sm">
                         <div className="p-3 bg-base-200 rounded-lg">
                           <strong>DCR Name:</strong> {dcrName ? `${dcrName} - created by ${userEmail}` : `iCARE4CVD DCR compute - created by ${userEmail}`}
@@ -924,8 +934,8 @@ export function Nav() {
                     </p>
                   </div>
                 )}
-                <div ref={wizardStep === 4 ? notificationRef : undefined}>
-                  {publishedDCR && wizardStep === 4 && (
+                <div ref={wizardStep === 5 ? notificationRef : undefined}>
+                  {publishedDCR && wizardStep === 5 && (
                     <div className="card card-compact">
                       <div className="card-body mt-5">
                         {publishedDCR}
