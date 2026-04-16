@@ -3,12 +3,29 @@
 import React, { useState, useEffect } from 'react';
 import { apiUrl } from '@/utils';
 import Link from 'next/link';
-import { HardDrive, AlertTriangle, Check, Info, FileText } from 'react-feather'; // Added more icons
+import { HardDrive, AlertTriangle, Check, Info, FileText, Video } from 'react-feather'; // Added more icons
+
+interface VideoLink {
+  title: string;
+  url: string;
+}
 
 export default function DocsStorePage() {
   const [documents, setDocuments] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'providers' | 'analysts'>('providers');
+  const [videoLinks, setVideoLinks] = useState<VideoLink[]>([]);
+
+  // Filter documents based on view mode
+  // 'providers' view: documents WITHOUT 'user' in the name
+  // 'analysts' view: documents WITH 'user' in the name
+  // Always exclude video_links.txt from display
+  const filteredDocuments = documents.filter((docName) => {
+    if (docName.toLowerCase() === 'video_links.txt') return false;
+    const hasUser = docName.toLowerCase().includes('user');
+    return viewMode === 'analysts' ? hasUser : !hasUser;
+  });
 
   useEffect(() => {
     const fetchDocuments = async () => {
@@ -33,12 +50,54 @@ export default function DocsStorePage() {
     fetchDocuments();
   }, []);
 
+  // Fetch and parse video_links.txt
+  useEffect(() => {
+    const fetchVideoLinks = async () => {
+      try {
+        const response = await fetch(`${apiUrl}/docs-api/documents/video_links.txt`);
+        if (!response.ok) return;
+        const text = await response.text();
+        // Parse the file: items separated by blank lines, each item has title on first line, URL on second
+        const items = text.split(/\n\s*\n/).filter(item => item.trim());
+        const parsed: VideoLink[] = items.map(item => {
+          const lines = item.trim().split('\n');
+          return {
+            title: lines[0]?.trim() || '',
+            url: lines[1]?.trim() || ''
+          };
+        }).filter(v => v.title && v.url);
+        setVideoLinks(parsed);
+      } catch (err) {
+        console.error('Error fetching video links:', err);
+      }
+    };
+    fetchVideoLinks();
+  }, []);
+
   return (
     <main className="flex flex-col items-center justify-start p-8 min-h-screen bg-base-200">
       <div className="w-full max-w-4xl space-y-8">
-        <h1 className="text-3xl font-bold text-center mb-8 flex items-center justify-center">
+        <h1 className="text-3xl font-bold text-center mb-4 flex items-center justify-center">
           <HardDrive size={32} className="mr-3" /> Project Documents
         </h1>
+
+        {/* View Toggle Buttons */}
+        <div className="flex justify-center mb-6">
+          <div className="join">
+            <button
+              className={`join-item btn ${viewMode === 'providers' ? 'btn-primary' : 'btn-ghost'}`}
+              onClick={() => setViewMode('providers')}
+            >
+              For Data Providers
+            </button>
+            <button
+              className={`join-item btn ${viewMode === 'analysts' ? 'btn-primary' : 'btn-ghost'}`}
+              onClick={() => setViewMode('analysts')}
+            >
+              For Analysts
+            </button>
+          </div>
+        </div>
 
         {isLoading && (
           <div className="flex flex-col items-center opacity-70 text-slate-500 mt-[10%]">
@@ -62,9 +121,17 @@ export default function DocsStorePage() {
           </div>
         )}
 
-        {!isLoading && !error && documents.length > 0 && (
+        {!isLoading && !error && documents.length > 0 && filteredDocuments.length === 0 && (
+          <div className="text-center text-slate-500 p-10 border-2 border-dashed border-base-300 rounded-lg mt-[5%]">
+            <Info size={48} className="mx-auto mb-4 opacity-50" />
+            <p className="text-xl">No documents in this category.</p>
+            <p className="text-sm mt-2">Try switching to the other view.</p>
+          </div>
+        )}
+
+        {!isLoading && !error && filteredDocuments.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 mt-6" style={{gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))'}}>
-            {documents.map((docName) => {
+            {filteredDocuments.map((docName) => {
               const isPdf = docName.toLowerCase().endsWith('.pdf');
               return (
                 <Link 
@@ -81,7 +148,7 @@ export default function DocsStorePage() {
                       ) : (
                         <HardDrive size={36} className="mb-4 opacity-70"/>
                       )}
-                      <h2 className="card-title text-sm leading-tight text-center break-words hyphens-auto w-full" title={docName}>
+                      <h2 className="card-title text-sm leading-tight text-center w-full" style={{overflowWrap: 'break-word', wordBreak: 'keep-all'}} title={docName}>
                         {docName}
                       </h2>
                     </div>
@@ -92,6 +159,34 @@ export default function DocsStorePage() {
                 </Link>
               );
             })}
+          </div>
+        )}
+
+        {/* Video Tutorials Section - Only shown in Analysts view */}
+        {viewMode === 'analysts' && videoLinks.length > 0 && (
+          <div className="mt-12 pt-8 border-t border-base-300">
+            <h2 className="text-2xl font-bold text-center mb-2 flex items-center justify-center">
+              <Video size={28} className="mr-3" /> Video Tutorials
+            </h2>
+            <p className="text-center text-sm text-base-content/60 mb-6">
+              (requires access to the SharePoint folder)
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {videoLinks.map((video, index) => (
+                <a
+                  key={index}
+                  href={video.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="card bg-base-100 shadow-md hover:shadow-lg transition-shadow duration-200 p-4 flex flex-row items-center gap-3"
+                >
+                  <Video size={24} className="text-primary shrink-0" />
+                  <span className="text-sm font-medium hover:text-primary transition-colors" style={{overflowWrap: 'break-word', wordBreak: 'keep-all'}}>
+                    {video.title}
+                  </span>
+                </a>
+              ))}
+            </div>
           </div>
         )}
       </div>
