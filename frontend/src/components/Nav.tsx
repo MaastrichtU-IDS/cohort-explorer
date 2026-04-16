@@ -487,7 +487,7 @@ export function Nav() {
   }, [participantsPreview]);
 
   return (
-    <div className="navbar bg-base-300 min-h-0 p-0">
+    <div className="navbar bg-base-300 min-h-14 h-14 p-0">
       <div className="navbar-start">
         <ul className="menu menu-horizontal gap-2 my-0 py-0 pl-6 lg:flex">
           <li>
@@ -538,8 +538,8 @@ export function Nav() {
         {/* Desktop */}
         <div className="menu menu-horizontal my-0 py-0 space-x-6 pr-6 items-center">
           {(pathname === '/' || pathname === '/cohorts' || pathname === '/mapping') && (
-            <button id="dcr-button" onClick={() => { setShowModal(true); setWizardStep(0); }} className="btn btn-outline btn-lg shadow-md hover:shadow-lg hover:bg-gray-600 hover:text-white transition-all duration-300">
-              Create a Data Clean Room <div className="badge badge-neutral">{Object.keys(dataCleanRoom?.cohorts).length || 0}</div>
+            <button id="dcr-button" onClick={() => { setShowModal(true); setWizardStep(0); }} className="btn btn-outline btn-sm shadow-md hover:shadow-lg hover:bg-gray-600 hover:text-white transition-all duration-300">
+              Create a Data Clean Room <div className="badge badge-neutral badge-sm">{Object.keys(dataCleanRoom?.cohorts).length || 0}</div>
             </button>
           )}
 
@@ -943,6 +943,20 @@ export function Nav() {
                     </div>
                   )}
                 </div>
+                
+                {/* Feedback link at bottom of final step */}
+                {wizardStep === 5 && (
+                  <div className="mt-6 text-center text-sm text-base-content/60">
+                    <a
+                      href="https://docs.google.com/forms/d/e/1FAIpQLSd7EmQJgfNJJej8cuKN_eOv5ROYcjVVE-aM_sruNW6P0wySOQ/viewform?hl=en%2Fedit&hl=en"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="hover:underline hover:text-primary"
+                    >
+                      Having issues? Share your feedback →
+                    </a>
+                  </div>
+                )}
               </>
             </>
             )}

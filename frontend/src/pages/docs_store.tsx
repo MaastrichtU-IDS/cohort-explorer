@@ -14,7 +14,7 @@ export default function DocsStorePage() {
   const [documents, setDocuments] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<'providers' | 'analysts'>('providers');
+  const [viewMode, setViewMode] = useState<'providers' | 'analysts'>('analysts');
   const [videoLinks, setVideoLinks] = useState<VideoLink[]>([]);
 
   // Filter documents based on view mode
