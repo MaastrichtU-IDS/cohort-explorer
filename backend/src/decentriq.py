@@ -1342,48 +1342,73 @@ async def api_get_compute_dcr_definition(
     # Extract dcr_name from request, default to None
     dcr_name = cohorts_request.get("dcr_name", None)
 
+    # Extract selected_mapping_files from request
+    selected_mapping_files = cohorts_request.get("selected_mapping_files", [])
+    
     dcr_definition, _dcr_title, _participants, _mapping_nodes = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, dcr_name=dcr_name)
 
     # Generate DCR config JSON
     dcr_config_json = { "dataScienceDataRoom": dcr_definition.high_level }
     
-    # Check for shuffled sample files for each selected cohort (respecting settings)
-    shuffled_files = {}
+    # Collect all ancillary files to include in ZIP
+    shuffled_files = {}  # cohort_id -> {csv: path, summary: path}
+    metadata_files = {}  # cohort_id -> path
+    mapping_files_to_include = []  # list of {filepath: path, filename: name}
+    
+    # Get cohort metadata from cache for metadata dictionary paths
+    from src.cohort_cache import get_cohorts_from_cache
+    all_cohorts = get_cohorts_from_cache(user.get("email"))
+    
     for cohort_id in cohorts_request["cohorts"].keys():
-        # Check if shuffled samples are enabled for this cohort
-        # include_shuffled_samples can be a boolean (legacy) or a dict of cohort_id -> boolean
-        should_include = False
+        # Check for shuffled samples
+        should_include_shuffled = False
         if isinstance(include_shuffled_samples, dict):
-            should_include = include_shuffled_samples.get(cohort_id, False)
+            should_include_shuffled = include_shuffled_samples.get(cohort_id, False)
         elif include_shuffled_samples:
-            should_include = True
+            should_include_shuffled = True
         
-        if not should_include:
-            logging.info(f"Shuffled samples disabled for cohort {cohort_id}, skipping")
-            continue
+        if should_include_shuffled:
+            storage_dir = os.path.join(settings.data_folder, f"dcr_output_{cohort_id}")
+            shuffled_csv = os.path.join(storage_dir, "shuffled_sample.csv")
+            shuffled_summary = os.path.join(storage_dir, "shuffle_summary.txt")
+            
+            cohort_files = {}
+            if os.path.exists(shuffled_csv):
+                cohort_files["csv"] = shuffled_csv
+                logging.info(f"Found shuffled sample CSV for cohort {cohort_id}")
+            if os.path.exists(shuffled_summary):
+                cohort_files["summary"] = shuffled_summary
+                logging.info(f"Found shuffle summary for cohort {cohort_id}")
+            
+            if cohort_files:
+                shuffled_files[cohort_id] = cohort_files
         
-        storage_dir = os.path.join(settings.data_folder, f"dcr_output_{cohort_id}")
-        shuffled_csv = os.path.join(storage_dir, "shuffled_sample.csv")
-        shuffled_summary = os.path.join(storage_dir, "shuffle_summary.txt")
-        
-        cohort_files = {}
-        if os.path.exists(shuffled_csv):
-            cohort_files["csv"] = shuffled_csv
-            logging.info(f"Found shuffled sample CSV for cohort {cohort_id}")
-        if os.path.exists(shuffled_summary):
-            cohort_files["summary"] = shuffled_summary
-            logging.info(f"Found shuffle summary for cohort {cohort_id}")
-        
-        if cohort_files:
-            shuffled_files[cohort_id] = cohort_files
+        # Check for metadata dictionary
+        if cohort_id in all_cohorts:
+            try:
+                cohort = all_cohorts[cohort_id]
+                metadata_path = cohort.metadata_filepath
+                if os.path.exists(metadata_path):
+                    metadata_files[cohort_id] = metadata_path
+                    logging.info(f"Found metadata dictionary for cohort {cohort_id}")
+            except (FileNotFoundError, AttributeError) as e:
+                logging.info(f"No metadata dictionary found for cohort {cohort_id}: {e}")
     
-    # If no shuffled files found, return JSON as before
-    if not shuffled_files:
-        logging.info("No shuffled sample files found, returning JSON config only")
-        return dcr_config_json
+    # Collect mapping files
+    for mapping_file in selected_mapping_files:
+        filepath = mapping_file.get('filepath')
+        if filepath and os.path.exists(filepath):
+            mapping_files_to_include.append({
+                'filepath': filepath,
+                'filename': os.path.basename(filepath)
+            })
+            logging.info(f"Found mapping file: {filepath}")
     
-    # Create a temporary ZIP file with config and shuffled samples
-    logging.info(f"Creating ZIP with DCR config and shuffled samples for {len(shuffled_files)} cohorts")
+    # Always create ZIP with ancillary files organized in subfolders
+    logging.info(f"Creating ZIP with DCR config and ancillary files")
+    logging.info(f"  - Shuffled samples: {len(shuffled_files)} cohorts")
+    logging.info(f"  - Metadata dictionaries: {len(metadata_files)} cohorts")
+    logging.info(f"  - Mapping files: {len(mapping_files_to_include)} files")
     
     # Create temp file that won't be auto-deleted (we'll handle cleanup)
     temp_zip = tempfile.NamedTemporaryFile(mode='w+b', suffix='.zip', delete=False)
@@ -1392,26 +1417,36 @@ async def api_get_compute_dcr_definition(
     
     try:
         with zipfile.ZipFile(temp_zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-            # Add DCR config JSON
+            # Add DCR config JSON at root level
             config_json_str = json.dumps(dcr_config_json, indent=2)
             zipf.writestr("dcr_config.json", config_json_str)
             logging.info("Added dcr_config.json to ZIP")
             
-            # Add shuffled sample files for each cohort
+            # Add shuffled sample files in shuffled_samples/ subfolder
             for cohort_id, files in shuffled_files.items():
                 if "csv" in files:
-                    # Add with cohort-specific name
-                    zipf.write(files["csv"], f"{cohort_id}_shuffled_sample.csv")
-                    logging.info(f"Added {cohort_id}_shuffled_sample.csv to ZIP")
+                    zipf.write(files["csv"], f"shuffled_samples/{cohort_id}_shuffled_sample.csv")
+                    logging.info(f"Added shuffled_samples/{cohort_id}_shuffled_sample.csv to ZIP")
                 
                 if "summary" in files:
-                    zipf.write(files["summary"], f"{cohort_id}_shuffle_summary.txt")
-                    logging.info(f"Added {cohort_id}_shuffle_summary.txt to ZIP")
+                    zipf.write(files["summary"], f"shuffled_samples/{cohort_id}_shuffle_summary.txt")
+                    logging.info(f"Added shuffled_samples/{cohort_id}_shuffle_summary.txt to ZIP")
+            
+            # Add metadata dictionaries in metadata_dictionaries/ subfolder
+            for cohort_id, metadata_path in metadata_files.items():
+                filename = os.path.basename(metadata_path)
+                zipf.write(metadata_path, f"metadata_dictionaries/{filename}")
+                logging.info(f"Added metadata_dictionaries/{filename} to ZIP")
+            
+            # Add mapping files in mapping_files/ subfolder
+            for mapping_file in mapping_files_to_include:
+                zipf.write(mapping_file['filepath'], f"mapping_files/{mapping_file['filename']}")
+                logging.info(f"Added mapping_files/{mapping_file['filename']} to ZIP")
         
         # Return the ZIP file for download
         return FileResponse(
             path=temp_zip_path,
-            filename="dcr_config_with_samples.zip",
+            filename="dcr_config_package.zip",
             media_type="application/zip",
             background=None  # File will be cleaned up by FastAPI after sending
         )

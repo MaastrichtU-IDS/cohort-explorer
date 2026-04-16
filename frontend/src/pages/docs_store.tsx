@@ -166,7 +166,7 @@ export default function DocsStorePage() {
 
         {/* Feedback Form Button - For Data Providers view (shown here) */}
         {viewMode === 'providers' && (
-          <div className="mt-20 flex justify-center">
+          <div className="mt-32 mb-16 flex justify-center">
             <a
               href="https://docs.google.com/forms/d/e/1FAIpQLSd7EmQJgfNJJej8cuKN_eOv5ROYcjVVE-aM_sruNW6P0wySOQ/viewform?hl=en%2Fedit&hl=en"
               target="_blank"
@@ -209,7 +209,7 @@ export default function DocsStorePage() {
 
         {/* Feedback Form Button - For Analysts view (shown below video tutorials) */}
         {viewMode === 'analysts' && (
-          <div className="mt-20 flex justify-center">
+          <div className="mt-32 mb-16 flex justify-center">
             <a
               href="https://docs.google.com/forms/d/e/1FAIpQLSd7EmQJgfNJJej8cuKN_eOv5ROYcjVVE-aM_sruNW6P0wySOQ/viewform?hl=en%2Fedit&hl=en"
               target="_blank"

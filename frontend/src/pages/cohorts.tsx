@@ -768,12 +768,12 @@ export default function CohortsList() {
             href="https://docs.google.com/forms/d/e/1FAIpQLSd7EmQJgfNJJej8cuKN_eOv5ROYcjVVE-aM_sruNW6P0wySOQ/viewform?hl=en%2Fedit&hl=en"
             target="_blank"
             rel="noopener noreferrer"
-            className="btn btn-sm w-full"
+            className="btn btn-md w-full py-3"
             style={{ backgroundColor: '#dbeafe', color: '#1e3a8a', borderColor: '#bfdbfe' }}
           >
             <span className="flex flex-col items-center">
-              <span>Feedback Form</span>
-              <span className="text-xs opacity-70">(links to a Google form)</span>
+              <span className="text-base">Feedback Form</span>
+              <span className="text-sm opacity-70">(links to a Google form)</span>
             </span>
           </a>
         </div>

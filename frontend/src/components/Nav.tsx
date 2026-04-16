@@ -538,7 +538,7 @@ export function Nav() {
         {/* Desktop */}
         <div className="menu menu-horizontal my-0 py-0 space-x-6 pr-6 items-center">
           {(pathname === '/' || pathname === '/cohorts' || pathname === '/mapping') && (
-            <button id="dcr-button" onClick={() => { setShowModal(true); setWizardStep(0); }} className="btn btn-outline btn-sm shadow-md hover:shadow-lg hover:bg-gray-600 hover:text-white transition-all duration-300">
+            <button id="dcr-button" onClick={() => { setShowModal(true); setWizardStep(0); }} className="btn btn-ghost btn-sm border border-base-300 hover:bg-gray-100 hover:border-gray-400 transition-all duration-200">
               Create a Data Clean Room <div className="badge badge-neutral badge-sm">{Object.keys(dataCleanRoom?.cohorts).length || 0}</div>
             </button>
           )}
@@ -710,8 +710,8 @@ export function Nav() {
                     <>
                       <h3 className="font-bold text-lg mb-4">Step 4: Data Samples</h3>
                       <div className="text-sm text-base-content/70 mb-4 space-y-2">
-                        <p><strong>Shuffled Sample:</strong> A shuffled sample is maximum of 500 rows from dataset without the patient id column. Each column in the sample is shuffled independently of the other columns. The purpose is code testing and validation.</p>
-                        <p><strong>Airlock:</strong> The airlock allows 20% of the real data to be available to analysts inside the DCR for code testing and validation purposes. Note that the patient id column and the rows with outlier values (z-score - mean &gt; 2) are excluded from the airlock sample.</p>
+                        <p><strong>Shuffled Sample:</strong> A shuffled sample contains a maximum of 500 rows from dataset without the patient id column. Each column in the sample is shuffled independently of the other columns. The sample can be downloaded for code testing and validation outside this platform.</p>
+                        <p><strong>Airlock:</strong> The airlock allows 20% of the real data to be available to analysts inside the DCR for code testing and validation purposes. Note that the patient id column and the rows with outlier values (|z-score - mean| &gt; 2) are excluded from the airlock sample.</p>
                       </div>
                       
                       {loadingShuffledSamples ? (
@@ -880,11 +880,12 @@ export function Nav() {
                           Create Live DCR
                         </button>
                         <button 
-                          className="btn btn-neutral" 
+                          className="btn btn-neutral flex flex-col items-center py-2" 
                           onClick={getDCRDefinitionFile} 
                           disabled={isLoading || configDownloaded || Object.keys(dataCleanRoom?.cohorts || {}).length === 0}
                         >
-                          Download DCR Config
+                          <span>Download DCR Config</span>
+                          <span className="text-xs opacity-70 font-normal">+ ancillary files</span>
                         </button>
                         {Object.keys(dataCleanRoom?.cohorts || {}).length > 0 && (
                           <button className="btn btn-outline btn-error" onClick={clearCohortsList}>
@@ -953,7 +954,7 @@ export function Nav() {
                       rel="noopener noreferrer"
                       className="hover:underline hover:text-primary"
                     >
-                      Having issues? Share your feedback →
+                    Do you have a feedback for us? We have a form for you →
                     </a>
                   </div>
                 )}
