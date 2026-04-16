@@ -41,6 +41,7 @@ export function Nav() {
   const [loadingMappingFiles, setLoadingMappingFiles] = useState(false);
   const [includeMappingUploadSlot, setIncludeMappingUploadSlot] = useState(false);
   const [wizardStep, setWizardStep] = useState(0);
+  const [researchQuestion, setResearchQuestion] = useState('');
   const [showAddCohortModal, setShowAddCohortModal] = useState(false);
   const [cohortSearchQuery, setCohortSearchQuery] = useState('');
   const notificationRef = React.useRef<HTMLDivElement>(null);
@@ -49,8 +50,7 @@ export function Nav() {
   const wizardSteps = [
     { id: 'name', title: 'DCR Name & Cohorts' },
     { id: 'participants', title: 'Participants' },
-    { id: 'airlock', title: 'Airlock Settings' },
-    { id: 'shuffled', title: 'Shuffled Samples' },
+    { id: 'data-access', title: 'Data Access' },
     { id: 'mapping', title: 'Mapping Files' },
     { id: 'review', title: 'Review & Create' },
   ];
@@ -682,84 +682,107 @@ export function Nav() {
                           )}
                         </div>
                       )}
-                    </>
-                  )}
-                  
-                  {/* Step 2: Airlock Settings */}
-                  {wizardStep === 2 && (
-                    <>
-                      <h3 className="font-bold text-lg mb-4">Step 3: Airlock Settings</h3>
-                      <p className="text-sm text-base-content/70 mb-4">
-                        Select which cohorts to include in the airlock (the airlock allows 20% of the data to be visible to analysts inside the DCR).
-                      </p>
-                      <div className="space-y-2">
-                        {dataCleanRoom?.cohorts && Object.keys(dataCleanRoom.cohorts).map((cohortId) => (
-                          <div key={cohortId} className="form-control">
-                            <label className="label cursor-pointer justify-start gap-3">
-                              <input 
-                                type="checkbox"
-                                checked={airlockSettings[cohortId] ?? true}
-                                onChange={(e) => {
-                                  setAirlockSettings({...airlockSettings, [cohortId]: e.target.checked});
-                                }}
-                                className="checkbox checkbox-primary"
-                              />
-                              <span className="label-text text-base">{cohortId}</span>
-                            </label>
-                          </div>
-                        ))}
+                      
+                      {/* Research Question */}
+                      <div className="form-control mt-6">
+                        <label className="label">
+                          <span className="label-text font-semibold">Please describe your research question</span>
+                        </label>
+                        <textarea
+                          placeholder="Describe the research question you aim to answer with this DCR..."
+                          className="textarea textarea-bordered w-full h-24"
+                          value={researchQuestion}
+                          onChange={(e) => setResearchQuestion(e.target.value)}
+                        />
                       </div>
                     </>
                   )}
                   
-                  {/* Step 3: Shuffled Samples */}
-                  {wizardStep === 3 && (
+                  {/* Step 2: Data Access Settings (merged Airlock + Shuffled Samples) */}
+                  {wizardStep === 2 && (
                     <>
-                      <h3 className="font-bold text-lg mb-4">Step 4: Shuffled Samples</h3>
+                      <h3 className="font-bold text-lg mb-4">Step 3: Data Access Settings</h3>
+                      <div className="text-sm text-base-content/70 mb-4 space-y-2">
+                        <p><strong>Airlock:</strong> The airlock allows 20% of the data to be visible to analysts inside the DCR for testing and validation purposes.</p>
+                        <p><strong>Shuffled Sample:</strong> A shuffled sample is a pre-generated synthetic dataset that preserves statistical properties while protecting individual privacy. It can be used for initial analysis before accessing real data.</p>
+                      </div>
+                      
                       {loadingShuffledSamples ? (
-                        <p className="text-sm text-base-content/70">Checking shuffled sample availability...</p>
+                        <p className="text-sm text-base-content/70">Checking data availability...</p>
                       ) : (
-                        <>
-                          {cohortsWithShuffledSamples.length > 0 ? (
-                            <>
-                              <p className="text-sm text-base-content/70 mb-4">Select which shuffled samples to include:</p>
-                              <div className="space-y-2">
-                                {cohortsWithShuffledSamples.map((cohortId) => (
-                                  <div key={cohortId} className="form-control">
-                                    <label className="label cursor-pointer justify-start gap-3">
-                                      <input 
-                                        type="checkbox"
-                                        checked={shuffledSampleSettings[cohortId] ?? true}
-                                        onChange={(e) => {
-                                          setShuffledSampleSettings({...shuffledSampleSettings, [cohortId]: e.target.checked});
-                                        }}
-                                        className="checkbox checkbox-primary"
-                                      />
-                                      <span className="label-text text-base">{cohortId}</span>
-                                    </label>
-                                  </div>
-                                ))}
+                        <div className="space-y-4">
+                          {dataCleanRoom?.cohorts && Object.keys(dataCleanRoom.cohorts).sort().map((cohortId) => {
+                            const hasShuffledSample = cohortsWithShuffledSamples.includes(cohortId);
+                            const currentAirlock = airlockSettings[cohortId] ?? true;
+                            const currentShuffled = shuffledSampleSettings[cohortId] ?? true;
+                            
+                            // Determine current selection
+                            let currentSelection = 'none';
+                            if (currentAirlock && currentShuffled && hasShuffledSample) currentSelection = 'both';
+                            else if (currentAirlock && !currentShuffled) currentSelection = 'airlock';
+                            else if (!currentAirlock && currentShuffled && hasShuffledSample) currentSelection = 'shuffled';
+                            else if (currentAirlock) currentSelection = 'airlock';
+                            
+                            return (
+                              <div key={cohortId} className="p-3 bg-base-200 rounded-lg">
+                                <p className="font-medium mb-2">{cohortId}</p>
+                                <div className="flex flex-wrap gap-2">
+                                  <button
+                                    className={`btn btn-sm ${currentSelection === 'none' ? 'btn-primary' : 'btn-outline'}`}
+                                    onClick={() => {
+                                      setAirlockSettings({...airlockSettings, [cohortId]: false});
+                                      setShuffledSampleSettings({...shuffledSampleSettings, [cohortId]: false});
+                                    }}
+                                  >
+                                    None
+                                  </button>
+                                  {hasShuffledSample && (
+                                    <button
+                                      className={`btn btn-sm ${currentSelection === 'shuffled' ? 'btn-primary' : 'btn-outline'}`}
+                                      onClick={() => {
+                                        setAirlockSettings({...airlockSettings, [cohortId]: false});
+                                        setShuffledSampleSettings({...shuffledSampleSettings, [cohortId]: true});
+                                      }}
+                                    >
+                                      Shuffled Sample
+                                    </button>
+                                  )}
+                                  <button
+                                    className={`btn btn-sm ${currentSelection === 'airlock' ? 'btn-primary' : 'btn-outline'}`}
+                                    onClick={() => {
+                                      setAirlockSettings({...airlockSettings, [cohortId]: true});
+                                      setShuffledSampleSettings({...shuffledSampleSettings, [cohortId]: false});
+                                    }}
+                                  >
+                                    Airlocked Sample
+                                  </button>
+                                  {hasShuffledSample && (
+                                    <button
+                                      className={`btn btn-sm ${currentSelection === 'both' ? 'btn-primary' : 'btn-outline'}`}
+                                      onClick={() => {
+                                        setAirlockSettings({...airlockSettings, [cohortId]: true});
+                                        setShuffledSampleSettings({...shuffledSampleSettings, [cohortId]: true});
+                                      }}
+                                    >
+                                      Both
+                                    </button>
+                                  )}
+                                </div>
+                                {!hasShuffledSample && (
+                                  <p className="text-xs text-base-content/50 mt-2 italic">No shuffled sample available for this cohort</p>
+                                )}
                               </div>
-                            </>
-                          ) : (
-                            <p className="text-sm text-base-content/50 italic">
-                              None of the selected cohorts have shuffled samples available.
-                            </p>
-                          )}
-                          {cohortsWithoutShuffledSamples.length > 0 && cohortsWithShuffledSamples.length > 0 && (
-                            <p className="text-sm text-base-content/50 mt-4 italic">
-                              Cohorts without shuffled samples: {cohortsWithoutShuffledSamples.join(', ')}
-                            </p>
-                          )}
-                        </>
+                            );
+                          })}
+                        </div>
                       )}
                     </>
                   )}
                   
-                  {/* Step 4: Mapping Files */}
-                  {wizardStep === 4 && (
+                  {/* Step 3: Mapping Files */}
+                  {wizardStep === 3 && (
                     <>
-                      <h3 className="font-bold text-lg mb-4">Step 5: Mapping Files (Optional)</h3>
+                      <h3 className="font-bold text-lg mb-4">Step 4: Mapping Files (Optional)</h3>
                       {loadingMappingFiles ? (
                         <p className="text-sm text-base-content/70">Checking for available mapping files...</p>
                       ) : availableMappingFiles.length > 0 ? (
@@ -807,10 +830,10 @@ export function Nav() {
                     </>
                   )}
                   
-                  {/* Step 5: Review & Create */}
-                  {wizardStep === 5 && (
+                  {/* Step 4: Review & Create */}
+                  {wizardStep === 4 && (
                     <>
-                      <h3 className="font-bold text-lg mb-4">Step 6: Review & Create</h3>
+                      <h3 className="font-bold text-lg mb-4">Step 5: Review & Create</h3>
                       <div className="space-y-3 text-sm">
                         <div className="p-3 bg-base-200 rounded-lg">
                           <strong>DCR Name:</strong> {dcrName ? `${dcrName} - created by ${userEmail}` : `iCARE4CVD DCR compute - created by ${userEmail}`}
@@ -821,11 +844,16 @@ export function Nav() {
                         <div className="p-3 bg-base-200 rounded-lg">
                           <strong>Additional Analysts:</strong> {additionalAnalysts.length > 0 ? additionalAnalysts.join(', ') : 'None'}
                         </div>
+                        {researchQuestion && (
+                          <div className="p-3 bg-base-200 rounded-lg">
+                            <strong>Research Question:</strong> {researchQuestion}
+                          </div>
+                        )}
                         <div className="p-3 bg-base-200 rounded-lg">
-                          <strong>Airlock Cohorts:</strong> {Object.entries(airlockSettings).filter(([_, v]) => v !== false).map(([k]) => k).join(', ') || 'All selected'}
+                          <strong>Airlock Cohorts:</strong> {Object.entries(airlockSettings).filter(([_, v]) => v !== false).map(([k]) => k).join(', ') || 'None'}
                         </div>
                         <div className="p-3 bg-base-200 rounded-lg">
-                          <strong>Shuffled Samples:</strong> {Object.entries(shuffledSampleSettings).filter(([_, v]) => v !== false).map(([k]) => k).join(', ') || 'None selected'}
+                          <strong>Shuffled Samples:</strong> {Object.entries(shuffledSampleSettings).filter(([_, v]) => v !== false).map(([k]) => k).join(', ') || 'None'}
                         </div>
                         <div className="p-3 bg-base-200 rounded-lg">
                           <strong>Mapping Files:</strong> {availableMappingFiles.filter(m => selectedMappingFiles[m.filename] !== false).map(m => m.display_name).join(', ') || 'None'}
@@ -896,8 +924,8 @@ export function Nav() {
                     </p>
                   </div>
                 )}
-                <div ref={wizardStep === 5 ? notificationRef : undefined}>
-                  {publishedDCR && wizardStep === 5 && (
+                <div ref={wizardStep === 4 ? notificationRef : undefined}>
+                  {publishedDCR && wizardStep === 4 && (
                     <div className="card card-compact">
                       <div className="card-body mt-5">
                         {publishedDCR}
@@ -958,6 +986,7 @@ export function Nav() {
                     cohortId.toLowerCase().includes(cohortSearchQuery.toLowerCase());
                   return hasMetadata && matchesSearch;
                 })
+                .sort(([a], [b]) => a.localeCompare(b))
                 .map(([cohortId, cohortInfo]: [string, any]) => {
                   const isSelected = !!dataCleanRoom?.cohorts?.[cohortId];
                   const variableCount = Object.keys(cohortInfo.variables).length;
