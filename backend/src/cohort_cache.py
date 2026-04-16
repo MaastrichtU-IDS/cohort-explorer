@@ -12,6 +12,46 @@ from src.config import settings
 from src.models import Cohort, CohortVariable, VariableCategory
 from rdflib import Dataset, URIRef
 
+
+def _extract_number(text: str) -> Optional[float]:
+    """Extract the first number (including decimals) from a string without using regex."""
+    num_str = ""
+    found_digit = False
+    found_decimal = False
+    for char in text:
+        if char.isdigit():
+            num_str += char
+            found_digit = True
+        elif char == '.' and found_digit and not found_decimal:
+            num_str += char
+            found_decimal = True
+        elif found_digit:
+            # Stop when we hit a non-digit after finding digits
+            break
+    if num_str and num_str != '.':
+        try:
+            return float(num_str)
+        except ValueError:
+            return None
+    return None
+
+
+def _parse_age_distribution_part(part: str) -> Optional[tuple]:
+    """Parse a single age distribution part like '18-39: 25%' without regex.
+    Returns (age_range, percentage) or None."""
+    part = part.strip()
+    if ':' not in part:
+        return None
+    
+    colon_idx = part.find(':')
+    age_range = part[:colon_idx].strip()
+    percentage_str = part[colon_idx + 1:].strip().replace('%', '')
+    
+    percentage = _extract_number(percentage_str)
+    if percentage is not None and age_range:
+        return (age_range, round(percentage))
+    return None
+
 # Global cache for cohorts data
 _cohorts_cache: Dict[str, Dict[str, Any]] = {}
 _cache_initialized = False
@@ -327,44 +367,35 @@ def create_cohort_from_metadata_graph(cohort_id: str, cohort_uri: URIRef, g: Dat
         cohort.female_percentage = None
         mixed_sex = get_literal_value(CMEO.mixedSex) or get_literal_value(ICARE.mixedSex)
         if mixed_sex:
-            import re
             # Parse percentages - handles multiple formats
             parts = mixed_sex.split(";") if ";" in mixed_sex else mixed_sex.split("and") if "and" in mixed_sex else [mixed_sex]
             
             for part in parts:
                 part = part.strip().lower().replace(",", ".")
                 # Extract number (including decimals)
-                number_match = re.search(r'(\d+\.?\d*)', part)
-                if number_match:
-                    try:
-                        value = float(number_match.group(1))
-                        # Convert decimal format (0.49) to percentage (49%)
-                        if value < 1.0 and value > 0:
-                            value = value * 100
-                        # Round to nearest integer
-                        value = round(value)
-                        
-                        if "male" in part and "female" not in part:
-                            cohort.male_percentage = value
-                        elif "female" in part:
-                            cohort.female_percentage = value
-                    except ValueError:
-                        continue
+                value = _extract_number(part)
+                if value is not None:
+                    # Convert decimal format (0.49) to percentage (49%)
+                    if value < 1.0 and value > 0:
+                        value = value * 100
+                    # Round to nearest integer
+                    value = round(value)
+                    
+                    if "male" in part and "female" not in part:
+                        cohort.male_percentage = value
+                    elif "female" in part:
+                        cohort.female_percentage = value
         
         # Age distribution - parse from age distribution field
         cohort.age_distribution = {}
         age_dist_value = get_literal_value(CMEO.ageDistribution) or get_literal_value(ICARE.ageDistribution)
         if age_dist_value:
-            import re
             # Parse age distribution: "18-39: 25%; 40-64: 50%; 65+: 25%"
             parts = age_dist_value.split(";")
             for part in parts:
-                part = part.strip()
-                # Match patterns like "18-39: 25%" or "65+: 25%"
-                match = re.search(r'([\d\-+]+)\s*:\s*(\d+\.?\d*)\s*%?', part)
-                if match:
-                    age_range = match.group(1).strip()
-                    percentage = round(float(match.group(2)))
+                result = _parse_age_distribution_part(part)
+                if result:
+                    age_range, percentage = result
                     cohort.age_distribution[age_range] = percentage
         
         # Contact information - try CMEO first, then ICARE
@@ -985,9 +1016,8 @@ def initialize_cache_from_excel(excel_filepath: str, user_email: str | None = No
                 
                 for part in parts:
                     part = part.strip().lower().replace(",", ".")
-                    number_match = re.search(r'(\d+\.?\d*)', part)
-                    if number_match:
-                        value = float(number_match.group(1))
+                    value = _extract_number(part)
+                    if value is not None:
                         if value < 1.0 and value > 0:
                             value = value * 100
                         value = round(value)
@@ -1007,11 +1037,9 @@ def initialize_cache_from_excel(excel_filepath: str, user_email: str | None = No
                 parts = age_dist_value.split(";")
                 
                 for part in parts:
-                    part = part.strip()
-                    match = re.search(r'([\d\-+]+)\s*:\s*(\d+\.?\d*)\s*%?', part)
-                    if match:
-                        age_range = match.group(1).strip()
-                        percentage = round(float(match.group(2)))
+                    result = _parse_age_distribution_part(part)
+                    if result:
+                        age_range, percentage = result
                         age_groups[age_range] = percentage
                 
                 cohort.age_distribution = age_groups
