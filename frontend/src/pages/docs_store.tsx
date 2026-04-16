@@ -162,6 +162,18 @@ export default function DocsStorePage() {
           </div>
         )}
 
+        {/* Feedback Form Button - Visible in both views */}
+        <div className="mt-12 flex justify-center">
+          <a
+            href="https://docs.google.com/forms/d/e/1FAIpQLSd7EmQJgfNJJej8cuKN_eOv5ROYcjVVE-aM_sruNW6P0wySOQ/viewform?hl=en%2Fedit&hl=en"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="btn btn-lg btn-primary"
+          >
+            Problems? Suggestions? Please fill out our feedback form!
+          </a>
+        </div>
+
         {/* Video Tutorials Section - Only shown in Analysts view */}
         {viewMode === 'analysts' && videoLinks.length > 0 && (
           <div className="mt-12 pt-8 border-t border-base-300">
