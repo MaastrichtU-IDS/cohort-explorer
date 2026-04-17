@@ -538,7 +538,7 @@ export function Nav() {
         {/* Desktop */}
         <div className="menu menu-horizontal my-0 py-0 space-x-6 pr-6 items-center">
           {(pathname === '/' || pathname === '/cohorts' || pathname === '/mapping') && (
-            <button id="dcr-button" onClick={() => { setShowModal(true); setWizardStep(0); }} className="btn btn-ghost btn-sm border border-base-300 hover:bg-gray-100 hover:border-gray-400 transition-all duration-200">
+            <button id="dcr-button" onClick={() => { setShowModal(true); setWizardStep(0); }} className="btn btn-sm bg-white border-2 border-gray-300 shadow-md hover:shadow-lg hover:bg-gray-50 transition-all duration-200">
               Create a Data Clean Room <div className="badge badge-neutral badge-sm">{Object.keys(dataCleanRoom?.cohorts).length || 0}</div>
             </button>
           )}
@@ -880,12 +880,14 @@ export function Nav() {
                           Create Live DCR
                         </button>
                         <button 
-                          className="btn btn-neutral flex flex-col items-center py-2" 
+                          className="btn btn-neutral h-auto min-h-0 py-2 px-4" 
                           onClick={getDCRDefinitionFile} 
                           disabled={isLoading || configDownloaded || Object.keys(dataCleanRoom?.cohorts || {}).length === 0}
                         >
-                          <span>Download DCR Config</span>
-                          <span className="text-xs opacity-70 font-normal">+ ancillary files</span>
+                          <span className="flex flex-col items-center">
+                            <span>Download DCR Config</span>
+                            <span className="text-xs opacity-70 font-normal">+ ancillary files</span>
+                          </span>
                         </button>
                         {Object.keys(dataCleanRoom?.cohorts || {}).length > 0 && (
                           <button className="btn btn-outline btn-error" onClick={clearCohortsList}>

@@ -76,7 +76,7 @@ export default function DocsStorePage() {
 
   return (
     <main className="flex flex-col items-center justify-start p-8 min-h-screen bg-base-200">
-      <div className="w-full max-w-4xl space-y-8">
+      <div className="w-full max-w-4xl space-y-8 flex flex-col min-h-[calc(100vh-8rem)]">
         <h1 className="text-3xl font-bold text-center mb-4 flex items-center justify-center">
           <HardDrive size={32} className="mr-3" /> Project Documents
         </h1>
@@ -166,7 +166,7 @@ export default function DocsStorePage() {
 
         {/* Feedback Form Button - For Data Providers view (shown here) */}
         {viewMode === 'providers' && (
-          <div className="mt-32 mb-16 flex justify-center">
+          <div className="mt-auto pt-32 mb-16 flex justify-center">
             <a
               href="https://docs.google.com/forms/d/e/1FAIpQLSd7EmQJgfNJJej8cuKN_eOv5ROYcjVVE-aM_sruNW6P0wySOQ/viewform?hl=en%2Fedit&hl=en"
               target="_blank"
@@ -209,7 +209,7 @@ export default function DocsStorePage() {
 
         {/* Feedback Form Button - For Analysts view (shown below video tutorials) */}
         {viewMode === 'analysts' && (
-          <div className="mt-32 mb-16 flex justify-center">
+          <div className="mt-auto pt-32 mb-16 flex justify-center">
             <a
               href="https://docs.google.com/forms/d/e/1FAIpQLSd7EmQJgfNJJej8cuKN_eOv5ROYcjVVE-aM_sruNW6P0wySOQ/viewform?hl=en%2Fedit&hl=en"
               target="_blank"
