@@ -780,11 +780,11 @@ export default function CohortsList() {
       </aside>
 
       <div className="w-full">
-        <div className="mb-4">
+        <div className="mb-4 p-4 border border-base-300 rounded-lg bg-base-100">
           <input
             type="text"
             placeholder={searchScope === 'all' ? "Search cohorts and variables..." : searchScope === 'cohorts' ? "Search cohort metadata..." : "Search variable information..."}
-            className="input input-bordered w-full"
+            className="input input-bordered w-full max-w-2xl"
             value={searchInput}
             onChange={handleSearchChange}
           />
@@ -928,14 +928,16 @@ export default function CohortsList() {
                   {cohortData.study_ongoing && cohortData.study_ongoing === 'no' && (
                     <span className="badge badge-default mx-1">Completed study</span>
                   )}
-                  <span className="badge badge-ghost mx-1">
-                    👥 {formatParticipantsForTag(cohortData.study_participants) || 'N/A'}
-                  </span>
+                  {cohortData.study_participants && cohortData.study_participants !== 0 && (
+                    <span className="badge badge-ghost mx-1">
+                      👥 {formatParticipantsForTag(cohortData.study_participants)}
+                    </span>
+                  )}
                   {/* Gender distribution pie chart */}
                   <GenderPieChart 
                     malePercentage={cohortData.male_percentage}
                     femalePercentage={cohortData.female_percentage}
-                    size={36}
+                    size={24}
                   />
                   {/* Age distribution bar chart */}
                   <AgeDistributionBar 

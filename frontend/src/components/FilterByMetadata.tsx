@@ -35,7 +35,7 @@ const FilterByMetadata = ({label, options, onFiltersChange, metadata_id, searchR
     <div className="mb-3 w-full space-y-1">
       <h3 className="text-sm font-bold">{label}</h3>
       {options.map((option: any, index: number) => (
-        <div key={index} className="form-control text-left">
+        <div key={index} className={`form-control text-left ${index > 0 && index % 2 === 0 ? 'mt-3' : ''}`}>
           <label className="label cursor-pointer p-0">
             <span className="label-text text-xs">
               {option} <span className="opacity-50">({countMatches(metadata_id, option)})</span>

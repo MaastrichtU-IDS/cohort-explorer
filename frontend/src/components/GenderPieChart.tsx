@@ -9,7 +9,7 @@ interface GenderPieChartProps {
 const GenderPieChart: React.FC<GenderPieChartProps> = ({ 
   malePercentage, 
   femalePercentage,
-  size = 40 
+  size = 28 
 }) => {
   // Don't render if we don't have both percentages
   if (malePercentage === null || femalePercentage === null) {
@@ -25,7 +25,7 @@ const GenderPieChart: React.FC<GenderPieChartProps> = ({
   const maleOffset = circumference - (malePercentage / 100) * circumference;
 
   return (
-    <div className="flex flex-col items-center gap-1">
+    <div className="flex items-center" title={`M ${malePercentage}% / F ${femalePercentage}%`}>
       <svg
         height={size}
         width={size}
@@ -52,16 +52,6 @@ const GenderPieChart: React.FC<GenderPieChartProps> = ({
           cy={radius}
         />
       </svg>
-      <div className="text-xs text-gray-600 dark:text-gray-400 flex gap-2">
-        <span className="flex items-center gap-0.5">
-          <span style={{ color: '#3b82f6' }}>M</span>
-          {malePercentage}%
-        </span>
-        <span className="flex items-center gap-0.5">
-          <span style={{ color: '#ec4899' }}>F</span>
-          {femalePercentage}%
-        </span>
-      </div>
     </div>
   );
 };
