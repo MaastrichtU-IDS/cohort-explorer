@@ -4,7 +4,7 @@ export interface Cohort {
   cohort_email: string[];
   institution: string;
   study_type: string;
-  study_participants: number;
+  study_participants: string;
   study_population: string;
   study_duration: string;
   study_ongoing: string;
