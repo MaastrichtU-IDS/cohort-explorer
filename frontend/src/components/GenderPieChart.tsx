@@ -9,7 +9,7 @@ interface GenderPieChartProps {
 const GenderPieChart: React.FC<GenderPieChartProps> = ({ 
   malePercentage, 
   femalePercentage,
-  size = 60 
+  size = 40 
 }) => {
   // Don't render if we don't have both percentages
   if (malePercentage === null || femalePercentage === null) {
@@ -53,12 +53,12 @@ const GenderPieChart: React.FC<GenderPieChartProps> = ({
         />
       </svg>
       <div className="text-xs text-gray-600 dark:text-gray-400 flex gap-2">
-        <span className="flex items-center gap-1">
-          <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: '#3b82f6' }}></span>
+        <span className="flex items-center gap-0.5">
+          <span style={{ color: '#3b82f6' }}>M</span>
           {malePercentage}%
         </span>
-        <span className="flex items-center gap-1">
-          <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: '#ec4899' }}></span>
+        <span className="flex items-center gap-0.5">
+          <span style={{ color: '#ec4899' }}>F</span>
           {femalePercentage}%
         </span>
       </div>

@@ -928,16 +928,14 @@ export default function CohortsList() {
                   {cohortData.study_ongoing && cohortData.study_ongoing === 'no' && (
                     <span className="badge badge-default mx-1">Completed study</span>
                   )}
-                  {(cohortData.study_participants || cohortData.study_population) && (
-                    <span className="badge badge-ghost mx-1">
-                      👥 {formatParticipantsForTag(cohortData.study_participants)} {cohortData.study_population}
-                    </span>
-                  )}
+                  <span className="badge badge-ghost mx-1">
+                    👥 {formatParticipantsForTag(cohortData.study_participants) || 'N/A'}
+                  </span>
                   {/* Gender distribution pie chart */}
                   <GenderPieChart 
                     malePercentage={cohortData.male_percentage}
                     femalePercentage={cohortData.female_percentage}
-                    size={50}
+                    size={36}
                   />
                   {/* Age distribution bar chart */}
                   <AgeDistributionBar 
