@@ -780,7 +780,7 @@ export default function CohortsList() {
       </aside>
 
       <div className="w-full">
-        <div className="mb-4 p-4 border border-base-300 rounded-lg bg-base-100">
+        <div className="mb-8 p-4 border border-base-300 rounded-lg bg-base-100 w-fit">
           <input
             type="text"
             placeholder={searchScope === 'all' ? "Search cohorts and variables..." : searchScope === 'cohorts' ? "Search cohort metadata..." : "Search variable information..."}
@@ -917,7 +917,7 @@ export default function CohortsList() {
                   <HighlightedText text={cohortData.cohort_id} searchTerms={searchTerms} searchMode={searchMode} />
                   <span className="badge badge-outline mx-2">{cohortData.institution}</span>
                   {cohortData.study_type && <span className="badge badge-ghost mx-1">{cohortData.study_type}</span>}
-                  {cohortData.cohort_type && <span className="badge badge-ghost mx-1">{cohortData.cohort_type}</span>}
+                  {cohortData.cohort_type && cohortData.cohort_type !== cohortData.study_type && <span className="badge badge-ghost mx-1">{cohortData.cohort_type}</span>}
                   {/* Sex distribution moved to More Details section */}
                   {cohortData.study_duration && (
                     <span className="badge badge-default mx-1">⏱️ {cohortData.study_duration}</span>
@@ -928,9 +928,9 @@ export default function CohortsList() {
                   {cohortData.study_ongoing && cohortData.study_ongoing === 'no' && (
                     <span className="badge badge-default mx-1">Completed study</span>
                   )}
-                  {cohortData.study_participants && cohortData.study_participants !== 0 && (
+                  {cohortData.study_participants && cohortData.study_participants !== '0' && (
                     <span className="badge badge-ghost mx-1">
-                      👥 {formatParticipantsForTag(cohortData.study_participants)}
+                      👥 {cohortData.study_participants}
                     </span>
                   )}
                   {/* Gender distribution pie chart */}
