@@ -11,11 +11,11 @@ from typing import Optional, Dict, Any, List, Tuple
 import re
 from pathlib import Path
 from requests.exceptions import RequestException  # add this import
-from CohortVarLinker.src.omop_graph_nx import OmopGraphNX
+from llm.omop_graph_nx import OmopGraphNX
 import time
 import json
-from CohortVarLinker.src.config import settings
-from CohortVarLinker.src.utils import load_dictionary
+from llm.config import settings
+from llm.utils import load_dictionary
 """_summary_
 
 CDE dictionary validator (format, structure, semantics)
@@ -54,7 +54,7 @@ COLUMN_CHECK_LIST  = [
     ]
 
 CACHE_ATHENA: Dict[Tuple[str, Tuple[str, ...]], List[Dict[str, Any]]] = {}
-VOCAB_CHECK_LIST = ["SNOMEDCT", "SNOMED-CT", "SNOMED", "RXNORM", "RXNORMEXTENSION", "RXNORM_EXTENSION", "OMOP", "OMOPGENOMIC", "UKBIOBANK", "ATC", "CDISC", "UCUM", "ICARE", "LOINC", "MESH"]
+VOCAB_CHECK_LIST = ["SNOMEDCT", "SNOMED-CT", "SNOMED", "RXNORM", "RXNORMEXTENSION", "RXNORM_EXTENSION", "OMOP", "OMOPGENOMIC", "UKBIOBANK", "ATC", "CDISC", "UCUM", "ICARE", "LOINC", "MESH", "CPT4"]
 _INT   = re.compile(r"^\s*-?\d+\s*$")
 _FLOAT = re.compile(r"^\s*-?(?:\d+(?:\.\d+)?|\.\d+)\s*$")
 _PAIR  = re.compile(r"\s*=\s*")
@@ -319,11 +319,22 @@ def to_int_or_none(x: Optional[str]) -> Optional[int]:
     except Exception:
         return None
 
+def athena_headers() -> Dict[str, str]:
+    # Athena-Auth-Token = eyJhbGciOiJIUzI1NiJ9.eyIkaW50X3Blcm1zIjpbXSwic3ViIjoib3JnLnBhYzRqLnNhbWwucHJvZmlsZS5TQU1MMlByb2ZpbGUja29tYWwuZ2lsYW5pQG1hYXN0cmljaHR1bml2ZXJzaXR5Lm5sIiwibGFzdE5hbWUiOlsiR2lsYW5pIl0sImlzRnJvbU5ld0xvZ2luIjpbInRydWUiXSwiYXV0aGVudGljYXRpb25EYXRlIjpbIjIwMjUtMTEtMjVUMTU6MjE6NTQuODE3WltVVENdIl0sInN1Y2Nlc3NmdWxBdXRoZW50aWNhdGlvbkhhbmRsZXJzIjpbIkFyYWNobmUiXSwibm90QmVmb3JlIjp7fSwic2FtbEF1dGhlbnRpY2F0aW9uU3RhdGVtZW50QXV0aE1ldGhvZCI6WyJ1cm46b2FzaXM6bmFtZXM6dGM6U0FNTDoxLjA6YW06cGFzc3dvcmQiXSwiZmlyc3ROYW1lIjpbIktvbWFsIl0sImF1dGhlbnRpY2F0aW9uTWV0aG9kIjpbIkFyYWNobmUiXSwib3JnYW5pemF0aW9uIjpbIk1hYXN0cmljaHQgVW5pdmVyc2l0eSJdLCJub3RPbk9yQWZ0ZXIiOnt9LCIkaW50X3JvbGVzIjpbXSwibG9uZ1Rlcm1BdXRoZW50aWNhdGlvblJlcXVlc3RUb2tlblVzZWQiOlsiZmFsc2UiXSwiaWF0IjoxNzY0MDg0MTE3LCJzZXNzaW9uaW5kZXgiOiJfMjYyMTAyMTIzMTI2NjMxMzU0OCIsImVtYWlsIjoia29tYWwuZ2lsYW5pQG1hYXN0cmljaHR1bml2ZXJzaXR5Lm5sIn0.dA3ee3mxnJqP4bAVxOkpN_oIqhSqAf4hU2q_x2RjJNM
+    # return {
+    #     "User-Agent": (
+    #         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    #         "AppleWebKit/537.36 (KHTML, like Gecko) "
+    #         "Chrome/124.0.0.0 Safari/537.36"
+    #     ),
+    #     "Accept": "application/json",
+    #     "Referer": "https://athena.ohdsi.org/"    
+    # }
+     return { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"
+            },
 
-_ATHENA_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"
-}
-
+                # We need to fake the user agent to avoid a 403 error. What a bunch of douchebags, and incompetent with this! Try again losers!
+            
 def fetch_athena(label: str, vocabularies: List[str], include_classification: bool = True) -> List[Dict[str, Any]]:
     """
     Query Athena for a given code/label within one or more vocabularies.
@@ -358,7 +369,10 @@ def fetch_athena(label: str, vocabularies: List[str], include_classification: bo
         r = requests.get(
             ATHENA_ENDPOINT,
             params=params,
-            headers=_ATHENA_HEADERS,
+            headers={
+                # We need to fake the user agent to avoid a 403 error. What a bunch of douchebags, and incompetent with this! Try again losers!
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"
+            },
             timeout=TIMEOUT,
         )
         r.raise_for_status()
@@ -413,8 +427,15 @@ class ValidationLog:
     matched_standard: Optional[str] = None
 
 
+def is_domain_vocab_compatible(vocab:str, domain:str) -> bool:
+    # if domain has condition or disorder  it should use SNOMEDCT or ICD 
+    if 'condition' in domain or 'disorder' in domain:
+        if vocab not in ["SNOMEDCT", "ICD"]:
+            return False
+    return True
+    
 
-def validate_component(label: str, code_prefixed: Optional[str], omop_id_str: Optional[str], omop_graph_obj:Any, context:str=None) -> ValidationLog:
+def validate_component(label: str, code_prefixed: Optional[str], omop_id_str: Optional[str], omop_graph_obj:Any,context:str=None, domain_hint:str=None) -> ValidationLog:
     lab = " ".join((label or "").strip().split())
     vocab, code = split_code_prefixed(code_prefixed)
     cid = to_int_or_none(omop_id_str)
@@ -432,11 +453,8 @@ def validate_component(label: str, code_prefixed: Optional[str], omop_id_str: Op
         if flag and status == "correct":
             return ValidationLog(status="PASS", description="concept_id and concept_code are the same.", vocabulary=vocab[0], label=lab, assigned_concept_id=cid, assigned_concept_code=code, matched_concept_id=cid, matched_concept_code=code)
         elif not flag and status == "incorrect":
-            
             return ValidationLog(status="FAIL", description="concept_id and concept_code do not match.", vocabulary=vocab[0], label=lab, assigned_concept_id=cid, assigned_concept_code=code, matched_concept_id=None, matched_concept_code=None)
-        
         else:
-    
             try:
                     # print(f"validate_component: label='{lab}', code='{code}', cid={cid} -> flag={flag}, status={status}, context={context}")
                     rows = fetch_athena(code, vocab, include_classification=True)
@@ -471,7 +489,7 @@ def validate_component(label: str, code_prefixed: Optional[str], omop_id_str: Op
                         return ValidationLog("N/A", "No code/id provided.")
             except Exception as e:
                     # <--  this is where your NameResolutionError ends up
-                    print(f"⚠️ Error: {e}")
+                    # print(f"⚠️ Error: {e}")
                     return ValidationLog(
                         status="N/A",
                         description=f"Athena API not reachable: {e}",
@@ -519,6 +537,7 @@ def structure_sanity_check(df: pd.DataFrame, required_columns: List[str], out_cs
     # check if domain column has allowed values
     invalid_domains = df[~df['domain'].isna() & (~df['domain'].isin(domain_columns_value))]
     if not invalid_domains.empty:
+        # print(f"⚠️ Invalid entries found in column 'domain': {invalid_domains['domain'].unique().tolist()}")
         out_rows = []
         for _, r in invalid_domains.iterrows():
             v_log = ValidationLog(status="FAIL", description=f"Invalid entry in column 'domain': '{r['domain']}' not allowed.")
@@ -555,6 +574,7 @@ def validate_variable(r: pd.Series, omop_graph_obj: OmopGraphNX) -> ValidationLo
     v_log = ValidationLog(status="N/A", description="Variable description not available.")
     # variable
     if varlabel != "":
+        
         if is_missing(r.get("variable concept name",None)) or is_missing(r.get("variable concept code",None)) or is_missing(r.get("variable omop id",None)):
             v_log = ValidationLog(status="N/A", description="Variable concept details missing/incomplete for non-empty variable label.")
             if not is_missing(r.get("additional context concept name",None)) or  not is_missing(r.get("additional context concept code",None)) or not is_missing(r.get("additional context omop id",None)):
@@ -571,7 +591,7 @@ def validate_variable(r: pd.Series, omop_graph_obj: OmopGraphNX) -> ValidationLo
                 omop_id_str=r.get("variable omop id"),
                 omop_graph_obj=omop_graph_obj,
                 context="variable",
-                # domain_hint=domain,,
+                domain_hint=r.get("domain",None)
             )
                 
     else:
@@ -593,7 +613,7 @@ def validate_additional_context(r: pd.Series, omop_graph_obj: OmopGraphNX) -> Va
                 list_ids = str(r.get("additional context omop id")).split("|")
                 if not len(list_names) == len(list_codes) == len(list_ids):
                     ac_logs = ValidationLog(status="FAIL", description=f"Mismatch in number of additional context concept details: names({len(list_names)}), codes({len(list_codes)}), ids({len(list_ids)}).")
-                elif not isinstance(r.get("additional context concept name"), str) or not isinstance(r.get("additional context concept code"), str) or not isinstance(r.get("additional context omop id"), str):
+                elif not isinstance(r.get("additional context concept name"), str) or not isinstance(r.get("additional context concept code"), str):
                     ac_logs = ValidationLog(status="FAIL", description="Additional context concept details must be strings.")
                 else:
                     ac_log_list = []    
