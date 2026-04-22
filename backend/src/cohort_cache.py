@@ -1210,16 +1210,21 @@ def initialize_cache_from_excel(excel_filepath: str, user_email: str | None = No
                 cohort_email=[],
                 institution=str(row.get("institute", "")).strip() if pd.notna(row.get("institute")) else "",
                 study_type=str(row.get("study design", "")).strip() if pd.notna(row.get("study design")) else "",
-                study_participants=str(row.get("study participants", "")).strip() if pd.notna(row.get("study participants")) else "",
+                # Column names match the iCARE4CVD Cohorts Excel spreadsheet
+                # (see upload.cohorts_metadata_file_to_graph and CohortVarLinker/study_kg).
+                # The earlier values "study participants", "study ongoing",
+                # "study start", "study end" did not exist in the sheet and
+                # silently returned empty strings.
+                study_participants=str(row.get("number of participants", "")).strip() if pd.notna(row.get("number of participants")) else "",
                 study_population=str(row.get("study population", "")).strip() if pd.notna(row.get("study population")) else "",
                 study_duration=str(row.get("study duration", "")).strip() if pd.notna(row.get("study duration")) else "",
-                study_ongoing=str(row.get("study ongoing", "")).strip().lower() if pd.notna(row.get("study ongoing")) else "",
+                study_ongoing=str(row.get("ongoing", "")).strip().lower() if pd.notna(row.get("ongoing")) else "",
                 study_objective=str(row.get("study objective", "")).strip() if pd.notna(row.get("study objective")) else "",
                 primary_outcome_spec=str(row.get("primary outcome specification", "")).strip() if pd.notna(row.get("primary outcome specification")) else "",
                 secondary_outcome_spec=str(row.get("secondary outcome specification", "")).strip() if pd.notna(row.get("secondary outcome specification")) else "",
                 morbidity=str(row.get("morbidity", "")).strip() if pd.notna(row.get("morbidity")) else "",
-                study_start=str(row.get("study start", "")).strip() if pd.notna(row.get("study start")) else "",
-                study_end=str(row.get("study end", "")).strip() if pd.notna(row.get("study end")) else "",
+                study_start=str(row.get("start date", "")).strip() if pd.notna(row.get("start date")) else "",
+                study_end=str(row.get("end date", "")).strip() if pd.notna(row.get("end date")) else "",
             )
             
             # Parse gender distribution from "Mixed Sex" column
@@ -1287,22 +1292,60 @@ def initialize_cache_from_excel(excel_filepath: str, user_email: str | None = No
             cohort.data_collection_frequency = str(row.get("frequency of data collection", "")).strip() if pd.notna(row.get("frequency of data collection")) else None
             cohort.interventions = str(row.get("interventions", "")).strip() if pd.notna(row.get("interventions")) else None
             
-            # Inclusion/exclusion criteria
-            cohort.sex_inclusion = str(row.get("sex inclusion", "")).strip() if pd.notna(row.get("sex inclusion")) else None
-            cohort.health_status_inclusion = str(row.get("health status inclusion", "")).strip() if pd.notna(row.get("health status inclusion")) else None
-            cohort.clinically_relevant_exposure_inclusion = str(row.get("clinically relevant exposure inclusion", "")).strip() if pd.notna(row.get("clinically relevant exposure inclusion")) else None
-            cohort.age_group_inclusion = str(row.get("age group inclusion", "")).strip() if pd.notna(row.get("age group inclusion")) else None
-            cohort.bmi_range_inclusion = str(row.get("bmi range inclusion", "")).strip() if pd.notna(row.get("bmi range inclusion")) else None
-            cohort.ethnicity_inclusion = str(row.get("ethnicity inclusion", "")).strip() if pd.notna(row.get("ethnicity inclusion")) else None
-            cohort.family_status_inclusion = str(row.get("family status inclusion", "")).strip() if pd.notna(row.get("family status inclusion")) else None
-            cohort.hospital_patient_inclusion = str(row.get("hospital patient inclusion", "")).strip() if pd.notna(row.get("hospital patient inclusion")) else None
-            cohort.use_of_medication_inclusion = str(row.get("use of medication inclusion", "")).strip() if pd.notna(row.get("use of medication inclusion")) else None
-            cohort.health_status_exclusion = str(row.get("health status exclusion", "")).strip() if pd.notna(row.get("health status exclusion")) else None
-            cohort.bmi_range_exclusion = str(row.get("bmi range exclusion", "")).strip() if pd.notna(row.get("bmi range exclusion")) else None
-            cohort.limited_life_expectancy_exclusion = str(row.get("limited life expectancy exclusion", "")).strip() if pd.notna(row.get("limited life expectancy exclusion")) else None
-            cohort.need_for_surgery_exclusion = str(row.get("need for surgery exclusion", "")).strip() if pd.notna(row.get("need for surgery exclusion")) else None
-            cohort.surgical_procedure_history_exclusion = str(row.get("surgical procedure history exclusion", "")).strip() if pd.notna(row.get("surgical procedure history exclusion")) else None
-            cohort.clinically_relevant_exposure_exclusion = str(row.get("clinically relevant exposure exclusion", "")).strip() if pd.notna(row.get("clinically relevant exposure exclusion")) else None
+            # Inclusion / exclusion criteria.
+            #
+            # The Excel columns are named like "sex inclusion criterion",
+            # "age group inclusion criterion", "health status exclusion
+            # criterion", etc. upload.cohorts_metadata_file_to_graph and
+            # CohortVarLinker/study_kg.py discover them by filtering row.index
+            # for the substring "inclusion criterion" / "exclusion criterion";
+            # we do the same here and then route each column's value into the
+            # corresponding Cohort.*_inclusion / *_exclusion field.
+            inclusion_keyword_to_field = [
+                ("clinically relevant exposure", "clinically_relevant_exposure_inclusion"),
+                ("use of medication", "use_of_medication_inclusion"),
+                ("hospital patient", "hospital_patient_inclusion"),
+                ("family status", "family_status_inclusion"),
+                ("health status", "health_status_inclusion"),
+                ("age group", "age_group_inclusion"),
+                ("age", "age_group_inclusion"),
+                ("bmi", "bmi_range_inclusion"),
+                ("ethnicity", "ethnicity_inclusion"),
+                ("sex", "sex_inclusion"),
+            ]
+            exclusion_keyword_to_field = [
+                ("clinically relevant exposure", "clinically_relevant_exposure_exclusion"),
+                ("surgical procedure history", "surgical_procedure_history_exclusion"),
+                ("limited life expectancy", "limited_life_expectancy_exclusion"),
+                ("need for surgery", "need_for_surgery_exclusion"),
+                ("health status", "health_status_exclusion"),
+                ("bmi", "bmi_range_exclusion"),
+            ]
+
+            def _pick_field(col_name_lc: str, mapping):
+                for keyword, field in mapping:
+                    if keyword in col_name_lc:
+                        return field
+                return None
+
+            for col in row.index:
+                col_lc = str(col).lower()
+                raw = row.get(col)
+                if not pd.notna(raw):
+                    continue
+                value = str(raw).strip()
+                if not value or value.lower() == "not applicable":
+                    continue
+
+                if "inclusion criterion" in col_lc:
+                    field = _pick_field(col_lc, inclusion_keyword_to_field)
+                elif "exclusion criterion" in col_lc:
+                    field = _pick_field(col_lc, exclusion_keyword_to_field)
+                else:
+                    continue
+
+                if field and hasattr(cohort, field) and not getattr(cohort, field):
+                    setattr(cohort, field, value)
             
             # Set can_edit permissions
             user_email_lower = user_email.lower() if user_email else ""
