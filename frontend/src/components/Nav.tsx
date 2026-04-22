@@ -195,6 +195,7 @@ export function Nav() {
             ])
           ),
           dcr_name: dcrName,
+          research_question: researchQuestion,
           selected_mapping_files: availableMappingFiles
             .filter(m => selectedMappingFiles[m.filename] !== false)
             .map(m => ({ filename: m.filename, filepath: m.filepath, display_name: m.display_name, cohorts: m.cohorts })),

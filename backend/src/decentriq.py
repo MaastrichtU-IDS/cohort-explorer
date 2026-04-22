@@ -535,6 +535,7 @@ async def get_compute_dcr_definition(
     excluded_data_owners: list[str] = None,
     selected_mapping_files: list[dict] = None,
     include_mapping_upload_slot: bool = False,
+    research_question: str = None,
 ) -> Any:
     start_time = datetime.now()
     logging.info(f"Starting DCR definition creation for user {user['email']} at {start_time}")
@@ -604,7 +605,13 @@ async def get_compute_dcr_definition(
         .with_name(dcr_title)
         # .with_owner(settings.decentriq_email)
         .with_owner(user["email"])
-        .with_description("A data clean room to run analyses on cohorts for the iCARE4CVD project")
+        .with_description(
+            build_dcr_description(
+                research_question,
+                list(cohorts_request.get("cohorts", {}).keys()),
+                user["email"],
+            )
+        )
     )
     logging.info(f"DCR builder initialized for {len(cohorts_request['cohorts'])} cohorts")
 
@@ -933,6 +940,7 @@ async def create_live_compute_dcr(
     excluded_data_owners: list[str] = None,
     selected_mapping_files: list[dict] = None,
     include_mapping_upload_slot: bool = False,
+    research_question: str = None,
 ) -> dict[str, Any]:
     """Create and publish a live compute DCR that is immediately available for use.
     
@@ -956,7 +964,7 @@ async def create_live_compute_dcr(
     logging.info(f"Starting live compute DCR creation for user {user['email']} at {start_time}")
     
     # Step 1: Create the DCR definition (reuse existing logic)
-    dcr_definition, dcr_title, participants, mapping_nodes = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings, dcr_name, excluded_data_owners, selected_mapping_files, include_mapping_upload_slot)
+    dcr_definition, dcr_title, participants, mapping_nodes = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings, dcr_name, excluded_data_owners, selected_mapping_files, include_mapping_upload_slot, research_question)
     
     # Step 2: Publish the DCR to Decentriq with retry logic for race conditions
     import time
@@ -1288,7 +1296,10 @@ async def api_create_live_compute_dcr(
     
     # Extract dcr_name from request, default to None
     dcr_name = cohorts_request.get("dcr_name", None)
-    
+
+    # Extract research_question from request, used as DCR description
+    research_question = cohorts_request.get("research_question", None)
+
     # Extract excluded_data_owners from request, default to empty list
     excluded_data_owners = cohorts_request.get("excluded_data_owners", [])
     
@@ -1300,7 +1311,7 @@ async def api_create_live_compute_dcr(
     
     # Create and publish the live compute DCR
     try:
-        return await create_live_compute_dcr(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings, dcr_name, excluded_data_owners, selected_mapping_files, include_mapping_upload_slot)
+        return await create_live_compute_dcr(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings, dcr_name, excluded_data_owners, selected_mapping_files, include_mapping_upload_slot, research_question)
     except Exception as e:
         error_msg = f"Failed to create live compute DCR: {str(e)}"
         logging.error(error_msg)
@@ -1583,6 +1594,22 @@ def run_shuffle_get_output(dcr_id: str, user: Any = Depends(get_current_user)):
         "script": "shuffle_data",
         "files": ["shuffled_sample.csv", "shuffle_summary.txt"]
     }
+
+
+def build_dcr_description(
+    research_question: str | None,
+    cohort_ids: list[str],
+    creator_email: str,
+) -> str:
+    """Build a uniform DCR description string used for all compute DCRs."""
+    rq_text = research_question.strip() if research_question and research_question.strip() else "no research question specified"
+    cohorts_text = ", ".join(cohort_ids) if cohort_ids else "none"
+    return (
+        "This Data Clean Room was created via iCARE4CVD Cohort Explorer to "
+        f"investigate the following research question: {rq_text}.\n"
+        f"Cohorts involved: {cohorts_text}\n"
+        f"Created by: {creator_email}"
+    )
 
 
 def build_dcr_participants(
