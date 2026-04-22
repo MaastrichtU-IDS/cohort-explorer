@@ -1313,6 +1313,29 @@ async def api_create_live_compute_dcr(
     # Extract session_id from request (frontend-generated UUID correlating wizard events)
     session_id = cohorts_request.get("session_id")
 
+    # Resolve the full participants list (cohort data owners + additional analysts
+    # + service account, minus excluded owners) so the activity log captures who
+    # the DCR is being created for, not just the requester's inputs.
+    try:
+        from src.cohort_cache import get_cohorts_from_cache
+        resolved_participants = build_dcr_participants(
+            cohorts_request,
+            user["email"],
+            get_cohorts_from_cache(user.get("email")),
+            additional_analysts,
+            excluded_data_owners,
+        )
+        participants_for_log = {
+            email: {
+                "data_owner_of": sorted(list(roles.get("data_owner_of", set()))),
+                "analyst_of": sorted(list(roles.get("analyst_of", set()))),
+            }
+            for email, roles in resolved_participants.items()
+        }
+    except Exception as exc:
+        logging.warning("Failed to resolve participants for logging: %s", exc)
+        participants_for_log = None
+
     publish_started_at = datetime.now()
     log_dcr_event(
         "dcr_publish_started",
@@ -1327,6 +1350,7 @@ async def api_create_live_compute_dcr(
         include_shuffled_samples=include_shuffled_samples,
         selected_mapping_files=[m.get("filename") for m in (selected_mapping_files or []) if isinstance(m, dict)],
         include_mapping_upload_slot=include_mapping_upload_slot,
+        participants=participants_for_log,
     )
 
     # Create and publish the live compute DCR
@@ -1341,7 +1365,14 @@ async def api_create_live_compute_dcr(
             dcr_id=result.get("dcr_id") if isinstance(result, dict) else None,
             dcr_url=result.get("dcr_url") if isinstance(result, dict) else None,
             dcr_title=result.get("dcr_title") if isinstance(result, dict) else None,
+            dcr_name=dcr_name,
             cohorts=list(cohorts_request.get("cohorts", {}).keys()),
+            research_question=research_question,
+            additional_analysts=additional_analysts,
+            excluded_data_owners=excluded_data_owners,
+            airlock_settings=airlock_settings,
+            include_shuffled_samples=include_shuffled_samples,
+            participants=participants_for_log,
         )
         return result
     except Exception as e:
@@ -1872,6 +1903,34 @@ async def api_list_dcr_events(
 
     events = read_events(limit=limit)
     return {"events": events, "count": len(events)}
+
+
+@router.get(
+    "/dcr-events/successful",
+    name="List successfully created DCRs",
+    response_description="Events belonging to sessions that successfully created a DCR, newest first",
+)
+async def api_list_successful_dcr_events(
+    user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Return only the events from sessions that resulted in a live DCR.
+
+    Available to any authenticated user. Sessions are identified by
+    ``session_id``: any session containing a ``dcr_publish_succeeded`` event
+    is considered successful and all of its events are returned. Sessions
+    that were only previewed / downloaded / abandoned / failed are omitted.
+    """
+    all_events = read_events()
+    successful_sessions: set[str] = {
+        evt.get("session_id")
+        for evt in all_events
+        if evt.get("event") == "dcr_publish_succeeded" and evt.get("session_id")
+    }
+    filtered = [
+        evt for evt in all_events
+        if evt.get("session_id") in successful_sessions
+    ]
+    return {"events": filtered, "count": len(filtered)}
 
 
 @router.post("/check-shuffled-samples")
