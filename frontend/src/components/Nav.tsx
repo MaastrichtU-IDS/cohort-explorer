@@ -36,6 +36,12 @@ export function Nav() {
   const [loadingParticipants, setLoadingParticipants] = useState(false);
   const [excludedDataOwners, setExcludedDataOwners] = useState<string[]>([]);
   const [dcrName, setDcrName] = useState('');
+  // True once the user has explicitly edited the DCR name: prevents our
+  // "update default on cohort change" effect from overwriting their choice.
+  const [dcrNameCustomized, setDcrNameCustomized] = useState(false);
+  // When true the Step 1 name field is shown as an editable input; otherwise
+  // it is displayed read-only with a pencil button to switch to edit mode.
+  const [isEditingDcrName, setIsEditingDcrName] = useState(false);
   const [availableMappingFiles, setAvailableMappingFiles] = useState<any[]>([]);
   const [selectedMappingFiles, setSelectedMappingFiles] = useState<Record<string, boolean>>({});
   const [loadingMappingFiles, setLoadingMappingFiles] = useState(false);
@@ -192,6 +198,27 @@ export function Nav() {
     setShowModal(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userEmail, logWizardEvent]);
+
+  // --- Default DCR name --------------------------------------------------
+  // Format: "<cohort1>-<cohort2>-...-<Month><Day>" e.g. "CohortA-CohortB-April22".
+  // Re-computed whenever the set of selected cohorts changes. When the user
+  // has not manually edited the name (dcrNameCustomized=false) we push this
+  // default into the dcrName field so the wizard always shows a meaningful
+  // title; once they click the pencil and type their own, we stop touching it.
+  const defaultDcrName = useMemo(() => {
+    const cohortIds = Object.keys(dataCleanRoom?.cohorts || {});
+    const now = new Date();
+    const month = now.toLocaleString('en-US', { month: 'long' });
+    const day = now.getDate();
+    const dateSuffix = `${month}${day}`;
+    return cohortIds.length > 0 ? `${cohortIds.join('-')}-${dateSuffix}` : dateSuffix;
+  }, [dataCleanRoom?.cohorts]);
+
+  useEffect(() => {
+    if (!dcrNameCustomized) {
+      setDcrName(defaultDcrName);
+    }
+  }, [defaultDcrName, dcrNameCustomized]);
 
   
   // Helper function to scroll to notification box
@@ -467,6 +494,8 @@ export function Nav() {
     setAdditionalAnalysts([]);
     setAirlockSettings({});
     setDcrName('');
+    setDcrNameCustomized(false);
+    setIsEditingDcrName(false);
     setExcludedDataOwners([]);
     setAvailableMappingFiles([]);
     setSelectedMappingFiles({});
@@ -770,15 +799,57 @@ export function Nav() {
                         <label className="label">
                           <span className="label-text font-semibold">DCR Name</span>
                         </label>
-                        <input 
-                          type="text"
-                          placeholder="iCARE4CVD DCR compute XXX"
-                          className="input input-bordered w-full"
-                          value={dcrName}
-                          onChange={(e) => setDcrName(e.target.value)}
-                        />
+                        {!isEditingDcrName ? (
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 input input-bordered flex items-center bg-base-200 cursor-default">
+                              <span className="truncate">{dcrName || defaultDcrName}</span>
+                            </div>
+                            <button
+                              type="button"
+                              className="btn btn-outline btn-sm"
+                              title="Edit DCR name"
+                              onClick={() => setIsEditingDcrName(true)}
+                            >
+                              ✏️ Edit
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              placeholder={defaultDcrName}
+                              className="input input-bordered w-full"
+                              value={dcrName}
+                              autoFocus
+                              onChange={(e) => {
+                                setDcrName(e.target.value);
+                                setDcrNameCustomized(true);
+                              }}
+                              onBlur={() => setIsEditingDcrName(false)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === 'Escape') {
+                                  setIsEditingDcrName(false);
+                                }
+                              }}
+                            />
+                            {dcrNameCustomized && (
+                              <button
+                                type="button"
+                                className="btn btn-ghost btn-sm"
+                                title="Reset to default"
+                                onClick={() => {
+                                  setDcrNameCustomized(false);
+                                  setDcrName(defaultDcrName);
+                                  setIsEditingDcrName(false);
+                                }}
+                              >
+                                Reset
+                              </button>
+                            )}
+                          </div>
+                        )}
                         <span className="text-xs text-base-content/60 mt-1">
-                          Leave empty to use the default naming. Your email ({userEmail || 'not logged in'}) will be appended to the title for clarity.
+                          A default name is generated from your selected cohorts and today&apos;s date. Click Edit to customize. Your email ({userEmail || 'not logged in'}) will be appended to the title for clarity.
                         </span>
                       </div>
                       <div className="mt-4">
@@ -1004,7 +1075,7 @@ export function Nav() {
                       <h3 className="font-bold text-lg mb-4">Step 6: Review & Create</h3>
                       <div className="space-y-3 text-sm">
                         <div className="p-3 bg-base-200 rounded-lg">
-                          <strong>DCR Name:</strong> {dcrName ? `${dcrName} - created by ${userEmail}` : `iCARE4CVD DCR compute - created by ${userEmail}`}
+                          <strong>DCR Name:</strong> {(dcrName || defaultDcrName)} - created by {userEmail}
                         </div>
                         <div className="p-3 bg-base-200 rounded-lg">
                           <strong>Cohorts:</strong> {Object.keys(dataCleanRoom?.cohorts || {}).join(', ')}

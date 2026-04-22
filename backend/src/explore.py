@@ -88,39 +88,39 @@ async def get_cohort_eda_output(
         )
 
 
-# @router.get("/cohorts-metadata-sparql")
-# def get_cohorts_metadata_sparql(summary: bool = False, user: Any = Depends(get_current_user)) -> dict:
-#     """Returns data dictionaries of all cohorts using SPARQL queries only.
-#     
-#     - When summary=false: return full cohorts (plus SPARQL execution metadata).
-#     - When summary=true: return only cohort headers (no variables) to keep payload small.
-#     
-#     Always executes SPARQL queries directly against the triplestore,
-#     bypassing the cache completely. This provides real-time data but is slower.
-#     Returns both cohorts data and SPARQL execution metadata.
-#     """
-#     user_email = user["email"]
-#     
-#     logging.info("Retrieving cohorts using SPARQL queries (bypassing cache)")
-#     result = retrieve_cohorts_metadata(user_email, include_sparql_metadata=True)
-#     
-#     # Add user email to result
-#     result["userEmail"] = user_email
-#     
-#     if not summary:
-#         return result
-#     
-#     # Convert cohorts payload to summary
-#     cohorts_full = result.get("cohorts", result)  # support both shapes if changed in future
-#     if isinstance(cohorts_full, dict) and all(hasattr(v, "cohort_id") for v in cohorts_full.values()):
-#         cohorts_summary = {cid: {k: v for k, v in cohort_to_dict(c).items() if k != "variables"} for cid, c in cohorts_full.items()}
-#         result["cohorts"] = cohorts_summary
-#         return result
-#     else:
-#         # If result is already a dict[str, Cohort]
-#         summary_result = {cid: {k: v for k, v in cohort_to_dict(c).items() if k != "variables"} for cid, c in cohorts_full.items()}
-#         summary_result["userEmail"] = user_email
-#         return summary_result
+@router.get("/cohorts-metadata-sparql")
+def get_cohorts_metadata_sparql(summary: bool = False, user: Any = Depends(get_current_user)) -> dict:
+    """Returns data dictionaries of all cohorts using SPARQL queries only.
+
+    - When summary=false: return full cohorts (plus SPARQL execution metadata).
+    - When summary=true: return only cohort headers (no variables) to keep payload small.
+
+    Always executes SPARQL queries directly against the triplestore,
+    bypassing the cache completely. This provides real-time data but is slower.
+    Returns both cohorts data and SPARQL execution metadata.
+    """
+    user_email = user["email"]
+
+    logging.info("Retrieving cohorts using SPARQL queries (bypassing cache)")
+    result = retrieve_cohorts_metadata(user_email, include_sparql_metadata=True)
+
+    # Add user email to result
+    result["userEmail"] = user_email
+
+    if not summary:
+        return result
+
+    # Convert cohorts payload to summary
+    cohorts_full = result.get("cohorts", result)  # support both shapes if changed in future
+    if isinstance(cohorts_full, dict) and all(hasattr(v, "cohort_id") for v in cohorts_full.values()):
+        cohorts_summary = {cid: {k: v for k, v in cohort_to_dict(c).items() if k != "variables"} for cid, c in cohorts_full.items()}
+        result["cohorts"] = cohorts_summary
+        return result
+    else:
+        # If result is already a dict[str, Cohort]
+        summary_result = {cid: {k: v for k, v in cohort_to_dict(c).items() if k != "variables"} for cid, c in cohorts_full.items()}
+        summary_result["userEmail"] = user_email
+        return summary_result
 
 
 @router.get("/cohort-spreadsheet/{cohort_id}")

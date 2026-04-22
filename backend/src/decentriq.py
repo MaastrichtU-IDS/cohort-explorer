@@ -1684,14 +1684,27 @@ def build_dcr_description(
     cohort_ids: list[str],
     creator_email: str,
 ) -> str:
-    """Build a uniform DCR description string used for all compute DCRs."""
+    """Build a uniform DCR description string used for all compute DCRs.
+
+    Decentriq's UI renders DCR descriptions but it is not clear whether it
+    treats them as plain text, Markdown, or HTML. To find out, this function
+    deliberately emits three different line-break styles between the
+    description sections -- a single real newline, a literal backslash-n
+    sequence, and an HTML <br> tag. Whichever one actually shows up as a line
+    break in the DCR page tells us the correct format to keep; once confirmed,
+    the other two variants can be removed.
+    """
     rq_text = research_question.strip() if research_question and research_question.strip() else "no research question specified"
     cohorts_text = ", ".join(cohort_ids) if cohort_ids else "none"
     return (
         "This Data Clean Room was created via iCARE4CVD Cohort Explorer to "
-        f"investigate the following research question: {rq_text}.\n"
-        f"Cohorts involved: {cohorts_text}\n"
+        f"investigate the following research question: {rq_text}."
+        "\n"  # variant 1: real newline
+        f"Cohorts involved: {cohorts_text}"
+        "\\n"  # variant 2: literal backslash-n
         f"Created by: {creator_email}"
+        "<br>"  # variant 3: HTML line break
+        "(testing line-break rendering)"
     )
 
 
