@@ -11,7 +11,12 @@ from src.auth import get_current_user
 from src.config import settings
 from src.models import Cohort
 from src.utils import retrieve_cohorts_metadata
-from src.cohort_cache import get_cohorts_from_cache, is_cache_initialized, cohort_to_dict
+from src.cohort_cache import (
+    get_cohorts_from_cache,
+    is_cache_initialized,
+    cohort_to_dict,
+    initialize_cache_from_source_files,
+)
 
 router = APIRouter()
 
@@ -27,21 +32,17 @@ def get_cohorts_metadata(summary: bool = False, user: Any = Depends(get_current_
     Falls back to SPARQL queries if the cache is not initialized or is empty.
     """
     user_email = user["email"]
-    
-    # Try to get cohorts from the cache first
-    if is_cache_initialized():
-        logging.info("Retrieving cohorts from cache")
+
+    # Always serve from the file-built cache; never read from SPARQL here.
+    # If the cache is empty for any reason, rebuild it synchronously from the
+    # Excel spreadsheet and CSV dictionaries so that no SPARQL-normalized text
+    # ever reaches the frontend.
+    cohorts = get_cohorts_from_cache(user_email)
+    if not cohorts:
+        logging.info("Cache is empty, rebuilding from source files (Excel + CSV dictionaries)")
+        initialize_cache_from_source_files(user_email)
         cohorts = get_cohorts_from_cache(user_email)
-        if cohorts:
-            result = cohorts if not summary else {cid: {k: v for k, v in cohort_to_dict(c).items() if k != "variables"} for cid, c in cohorts.items()}
-            return {**result, "userEmail": user_email}
-        logging.warning("Cache is initialized but empty, falling back to SPARQL queries")
-    else:
-        logging.info("Cache not initialized, falling back to SPARQL queries")
-    
-    # Fall back to SPARQL queries if cache is not available or empty
-    cohorts = retrieve_cohorts_metadata(user_email)
-    
+
     result = cohorts if not summary else {cid: {k: v for k, v in cohort_to_dict(c).items() if k != "variables"} for cid, c in cohorts.items()}
     return {**result, "userEmail": user_email}
 

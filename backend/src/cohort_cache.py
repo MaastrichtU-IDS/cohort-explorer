@@ -91,7 +91,7 @@ def save_cache_to_disk() -> None:
                 for cohort_id, cohort_data in _cohorts_cache.items():
                     # Convert each cohort to a serializable dictionary
                     serializable_cache[cohort_id] = cohort_to_dict(cohort_data)
-                
+
                 # Use atomic write: write to temp file then rename
                 temp_fd, temp_path = tempfile.mkstemp(
                     dir=cache_file.parent,
@@ -140,11 +140,11 @@ def load_cache_from_disk() -> bool:
                 
                 with open(cache_file, 'r') as f:
                     serialized_cache = json.load(f)
-                
+
                 # Convert serialized dictionaries back to Cohort objects
                 for cohort_id, cohort_data in serialized_cache.items():
                     _cohorts_cache[cohort_id] = dict_to_cohort(cohort_data)
-                
+
                 _cache_initialized = True
                 logging.info(f"Loaded cohorts cache from {cache_file} with {len(_cohorts_cache)} cohorts")
                 return True
@@ -848,6 +848,24 @@ def initialize_cache_from_triplestore(admin_email: str | None = None, force_refr
                 logging.warning(f"Error cleaning up lock file: {e}")
 
 
+def initialize_cache_from_source_files(user_email: str | None = None) -> None:
+    """Build the cache directly from the source files (Excel + per-cohort CSV dictionaries).
+
+    This is the canonical cache-building path: it does NOT involve the triplestore or any
+    SPARQL queries. The Excel spreadsheet supplies cohort-level metadata, and each cohort's
+    latest *_datadictionary.csv supplies the variables and categories verbatim.
+    """
+    from src.config import settings as _settings
+
+    excel_path = os.path.join(_settings.data_folder, "iCARE4CVD_Cohorts.xlsx")
+    if not os.path.exists(excel_path):
+        logging.error(
+            f"Cannot initialize cache from source files: Excel metadata file not found at {excel_path}"
+        )
+        return
+    initialize_cache_from_excel(excel_path, user_email)
+
+
 def get_cohorts_from_cache(user_email: str) -> Dict[str, Cohort]:
     """Get all cohorts from the cache, updating the can_edit field based on user email."""
     global _cohorts_cache, _cache_initialized
@@ -861,17 +879,26 @@ def get_cohorts_from_cache(user_email: str) -> Dict[str, Cohort]:
         
         # Check if we need to refresh cache (timestamp file doesn't exist = new service start)
         if not timestamp_file.exists():
-            # New service start - force fresh initialization from triplestore
-            logging.info("New service start detected, initializing fresh cache from triplestore")
-            initialize_cache_from_triplestore(force_refresh=True)
+            # New service start - build a fresh cache directly from the source files.
+            # The triplestore is intentionally NOT consulted here so the cached text is
+            # identical to what is in the Excel spreadsheet and CSV dictionaries.
+            logging.info("New service start detected, initializing fresh cache from source files")
+            initialize_cache_from_source_files()
+            # Mark that we've done a fresh init for this session
+            try:
+                timestamp_file.parent.mkdir(parents=True, exist_ok=True)
+                with open(timestamp_file, 'w') as f:
+                    f.write(str(time.time()))
+            except Exception as e:
+                logging.warning(f"Could not write cache timestamp file: {e}")
         elif cache_file.exists():
             # Timestamp exists and cache file exists - load from disk (same session)
             logging.info("Loading cache from disk for this worker")
             load_cache_from_disk()
         else:
-            # Timestamp exists but no cache file - initialize
-            logging.info("No cache file found, initializing from triplestore")
-            initialize_cache_from_triplestore()
+            # Timestamp exists but no cache file - rebuild from source files
+            logging.info("No cache file found, initializing from source files")
+            initialize_cache_from_source_files()
     
     # If still empty, return empty dict
     if not _cohorts_cache:
@@ -950,6 +977,176 @@ def clear_cache() -> None:
     if cache_file.exists():
         os.remove(cache_file)
         logging.info(f"Removed cohorts cache file {cache_file}")
+
+
+def _split_pipe(value: str) -> List[str]:
+    """Split a pipe-delimited string, preserving original whitespace within each part.
+    Returns empty list for empty / 'na' values."""
+    if not value:
+        return []
+    v = value.strip()
+    if not v or v.lower() == "na":
+        return []
+    return v.split("|")
+
+
+def _get_first_present(row: Dict[str, Any], *col_names: str) -> str:
+    """Return the first non-empty value from row for the given column names (case-insensitive).
+    Preserves the original text as stored in the row (just strips whitespace)."""
+    # Build a lower-case lookup once per row for speed
+    lookup = getattr(_get_first_present, "_lookup_cache", None)
+    # Simple lookup each call (rows are small); avoid caching across rows
+    for name in col_names:
+        for key, val in row.items():
+            if key.lower() == name.lower():
+                s = "" if val is None else str(val).strip()
+                if s and s.lower() != "na":
+                    return s
+                break  # Found the column, but empty — try next col_name
+    return ""
+
+
+def build_cohort_variables_from_csv(cohort_id: str, csv_path: str) -> bool:
+    """Populate (or replace) a cached cohort's variables by reading a data-dictionary CSV directly.
+
+    This is the single source of truth for the cache's variable-level data: all text is
+    taken verbatim from the CSV (only whitespace is stripped). No SPARQL, no RDF, no
+    concatenation/splitting of GROUP_CONCAT strings. Categories are parsed with
+    `parse_categorical_string` which supports both ',' and '|' delimiters.
+
+    Args:
+        cohort_id: The cohort this CSV belongs to. The cohort must already be in the cache
+                   (add it first via initialize_cache_from_excel or add_cohort_to_cache).
+        csv_path:  Path to the latest *_datadictionary.csv file.
+
+    Returns:
+        True on success, False on failure (errors are logged; the cache is left unchanged).
+    """
+    global _cohorts_cache
+
+    import pandas as pd
+
+    if cohort_id not in _cohorts_cache:
+        logging.warning(
+            f"build_cohort_variables_from_csv: cohort '{cohort_id}' is not in the cache yet; "
+            f"creating a minimal entry so variables can be attached."
+        )
+        _cohorts_cache[cohort_id] = Cohort(cohort_id=cohort_id)
+
+    cohort = _cohorts_cache[cohort_id]
+
+    try:
+        # Deferred import to avoid circular dependency with upload.py
+        from src.upload import normalize_column_name, parse_categorical_string
+
+        df = pd.read_csv(csv_path, na_values=[""], keep_default_na=False)
+        df = df.dropna(how="all")
+        df = df.fillna("")
+        df.columns = [normalize_column_name(c) for c in df.columns]
+    except Exception as e:
+        logging.error(f"Failed to read CSV for cohort '{cohort_id}' at {csv_path}: {e}", exc_info=True)
+        return False
+
+    new_variables: Dict[str, CohortVariable] = {}
+
+    for i, row in df.iterrows():
+        try:
+            row_d = row.to_dict()
+            var_name = str(row_d.get("VARIABLENAME", "")).strip()
+            if not var_name:
+                continue
+
+            var_label = str(row_d.get("VARIABLELABEL", "")).strip() or var_name
+            var_type = str(row_d.get("VARTYPE", "")).strip().upper()
+
+            # Numeric fields — tolerant to empty/non-numeric values
+            count_raw = str(row_d.get("COUNT", "")).strip()
+            try:
+                count_val = int(float(count_raw)) if count_raw and count_raw.lower() != "na" else 0
+            except ValueError:
+                count_val = 0
+
+            na_raw = str(row_d.get("NA", "")).strip()
+            try:
+                na_val = int(float(na_raw)) if na_raw and na_raw.lower() != "na" else 0
+            except ValueError:
+                na_val = 0
+
+            def _opt(*cols: str) -> Optional[str]:
+                v = _get_first_present(row_d, *cols)
+                return v if v else None
+
+            # Variable-level concept fields: prefer the longer, more specific column names
+            # but fall back to the alternate names present in different schemas.
+            concept_code = _opt("VARIABLE CONCEPT CODE")
+            concept_name = _opt("VARIABLE CONCEPT NAME")
+            omop_id = _opt("VARIABLE CONCEPT OMOP ID", "VARIABLE OMOP ID")
+
+            # Parse categories directly from CSV (preserves exact text)
+            categories: List[VariableCategory] = []
+            categorical_raw = str(row_d.get("CATEGORICAL", "")).strip()
+            if categorical_raw and categorical_raw.lower() != "na":
+                try:
+                    parsed = parse_categorical_string(categorical_raw)
+                except Exception as cat_exc:
+                    logging.warning(
+                        f"[{cohort_id}] row {i+2} ({var_name}): could not parse CATEGORICAL "
+                        f"'{categorical_raw}': {cat_exc}"
+                    )
+                    parsed = []
+
+                cat_codes = _split_pipe(str(row_d.get("CATEGORICAL VALUE CONCEPT CODE", "")))
+                cat_names = _split_pipe(str(row_d.get("CATEGORICAL VALUE CONCEPT NAME", "")))
+                cat_omops = _split_pipe(str(row_d.get("CATEGORICAL VALUE OMOP ID", "")))
+
+                for idx, cat in enumerate(parsed):
+                    categories.append(
+                        VariableCategory(
+                            value=cat.get("value", ""),
+                            label=cat.get("label", ""),
+                            concept_id=cat_codes[idx].strip() if idx < len(cat_codes) else None,
+                            mapped_id=cat_omops[idx].strip() if idx < len(cat_omops) else None,
+                            mapped_label=cat_names[idx].strip() if idx < len(cat_names) else None,
+                        )
+                    )
+
+            variable = CohortVariable(
+                var_name=var_name,
+                var_label=var_label,
+                var_type=var_type or "unknown",
+                count=count_val,
+                max=_opt("MAX"),
+                min=_opt("MIN"),
+                units=_opt("UNITS"),
+                visits=_opt("VISITS"),
+                visit_concept_name=_opt("VISIT CONCEPT NAME"),
+                formula=_opt("FORMULA"),
+                definition=_opt("DEFINITION"),
+                concept_id=concept_code,
+                concept_code=concept_code,
+                concept_name=concept_name,
+                omop_id=omop_id,
+                mapped_id=None,
+                mapped_label=None,
+                omop_domain=_opt("DOMAIN"),
+                index=None,
+                na=na_val,
+                categories=categories,
+            )
+            new_variables[var_name] = variable
+        except Exception as row_exc:
+            logging.warning(
+                f"[{cohort_id}] error processing row {i+2} while building cache variables: {row_exc}"
+            )
+            continue
+
+    cohort.variables = new_variables
+    cohort.physical_dictionary_exists = True
+    logging.info(
+        f"Loaded {len(new_variables)} variables for cohort '{cohort_id}' directly from CSV "
+        f"({os.path.basename(csv_path)})"
+    )
+    return True
 
 
 def initialize_cache_from_excel(excel_filepath: str, user_email: str | None = None) -> None:
@@ -1112,8 +1309,8 @@ def initialize_cache_from_excel(excel_filepath: str, user_email: str | None = No
                         latest_dict_file = get_latest_datadictionary(cohort_folder)
                         if latest_dict_file:
                             logging.info(f"Loading variables for {cohort_id} from {os.path.basename(latest_dict_file)}")
-                            # Use create_cohort_from_dict_file which will update the existing cohort with variables
-                            create_cohort_from_dict_file(latest_dict_file, cohort_id)
+                            # Read the CSV directly — no RDF/SPARQL involved.
+                            build_cohort_variables_from_csv(cohort_id, latest_dict_file)
                         else:
                             logging.info(f"No data dictionary found for {cohort_id}")
                     except Exception as e:

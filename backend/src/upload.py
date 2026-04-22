@@ -980,14 +980,16 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
             logging.warning(f"Dictionary upload for cohort {cohort_id} completed with {len(errors)} errors. Processing time: {processing_time:.2f}s")
 
 
-    # Update the cohort cache directly from the graph data
-    # This is more efficient than retrieving it from the triplestore later
-    # Only update cache if this is called from upload API, not from init_triplestore
-    if source == "upload_dict" and g is not None:
-        from src.cohort_cache import create_cohort_from_dict_file
-        cohort_uri = get_cohort_uri(cohort_id)
-        create_cohort_from_dict_file(cohort_id, cohort_uri, g)
-        logging.info(f"Added cohort {cohort_id} to cache directly from dictionary file")
+    # Update the cohort cache directly from the CSV file (not from the RDF graph).
+    # This ensures the cached text matches the source file verbatim and avoids any
+    # SPARQL/RDF-induced normalization or concatenation.
+    if source == "upload_dict":
+        from src.cohort_cache import build_cohort_variables_from_csv, save_cache_to_disk
+        if build_cohort_variables_from_csv(cohort_id, dict_path):
+            save_cache_to_disk()
+            logging.info(f"Refreshed cache variables for cohort {cohort_id} directly from CSV")
+        else:
+            logging.warning(f"Failed to refresh cache variables for cohort {cohort_id} from CSV")
     else:
         logging.info(f"Skipping cache update for cohort {cohort_id} - cache managed by {source}")
 
@@ -1550,31 +1552,30 @@ async def clear_cohort_cache(
 
 @router.post(
     "/refresh-cache",
-    name="Refresh the cohort cache from triplestore",
+    name="Refresh the cohort cache from source files",
     response_description="Cache refresh result",
 )
 async def refresh_cohort_cache(
     user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """Regenerate the cohort cache from the triplestore. Admins only.
-    
-    This endpoint forces a complete refresh of the cache by re-reading all cohort
-    metadata from the triplestore. Useful when the cache gets out of sync or after
-    manual changes to the triplestore.
+    """Regenerate the cohort cache directly from the source files. Admins only.
+
+    Reads the Excel spreadsheet for cohort-level metadata and every cohort's latest
+    *_datadictionary.csv for variables/categories. The triplestore is NOT consulted,
+    so the cache text is guaranteed to match the source files byte-for-byte.
     """
     user_email = user["email"]
     if user_email not in settings.admins_list:
         raise HTTPException(status_code=403, detail="You need to be admin to perform this action.")
-    
-    from src.cohort_cache import initialize_cache_from_triplestore
-    
+
+    from src.cohort_cache import initialize_cache_from_source_files
+
     try:
-        # Force refresh the cache from triplestore
-        initialize_cache_from_triplestore(user_email, force_refresh=True)
-        
-        logging.info(f"Cache refreshed from triplestore by admin user {user_email}")
+        initialize_cache_from_source_files(user_email)
+
+        logging.info(f"Cache refreshed from source files by admin user {user_email}")
         return {
-            "message": "Cache has been successfully refreshed from the triplestore.",
+            "message": "Cache has been successfully refreshed from the source files (Excel + CSV dictionaries).",
             "refreshed_by": user_email
         }
     except Exception as e:
@@ -1745,12 +1746,12 @@ def generate_mappings(cohort_id: str, metadata_path: str, g: Graph) -> None:
     # )
     delete_existing_triples(get_cohort_graph_uri(cohort_id))
     if publish_graph_to_endpoint(g):
-        # Update the cache with the new cohort data
-        # Use admin email to ensure we can access all cohorts
-        cohorts = retrieve_cohorts_metadata(settings.admins_list[0])
-        if cohort_id in cohorts:
-            add_cohort_to_cache(cohorts[cohort_id])
-            logging.info(f"Added cohort {cohort_id} to cache after generating mappings")
+        # Refresh the cache directly from the CSV (not from SPARQL) so that any
+        # text the frontend displays mirrors the file byte-for-byte.
+        from src.cohort_cache import build_cohort_variables_from_csv, save_cache_to_disk
+        if build_cohort_variables_from_csv(cohort_id, metadata_path):
+            save_cache_to_disk()
+            logging.info(f"Refreshed cache variables for cohort {cohort_id} after generating mappings")
 
 
 @router.post(
@@ -1813,11 +1814,12 @@ async def upload_cohorts_metadata(
     if len(g) > 0:
         delete_existing_triples(ICARE["graph/metadata"])
         publish_graph_to_endpoint(g)
-        
-        # Refresh the cache in background to avoid blocking the response
-        from src.cohort_cache import initialize_cache_from_triplestore
-        background_tasks.add_task(initialize_cache_from_triplestore, user["email"], True)
-        logging.info("Cache refresh scheduled after cohorts metadata update")
+
+    # Refresh the cache directly from the Excel file we just saved — independent of the
+    # triplestore. Runs in the background to avoid blocking the response.
+    from src.cohort_cache import initialize_cache_from_excel
+    background_tasks.add_task(initialize_cache_from_excel, COHORTS_METADATA_FILEPATH, user["email"])
+    logging.info("Cache refresh (from Excel source file) scheduled after cohorts metadata update")
     
     return {
         "message": "Cohorts metadata file has been successfully uploaded and processed. The cache will be refreshed in the background and changes will be visible in a few minutes.",
@@ -2425,11 +2427,11 @@ def init_triplestore():
                 print(f"⏳ Worker {os.getpid()} waiting for initialization to complete by another worker...")
                 # Another worker is initializing, wait for it to complete
                 time.sleep(5)
-                # Initialize cache from triplestore after other worker completes
-                from src.cohort_cache import initialize_cache_from_triplestore
+                # Initialize cache directly from source files (no SPARQL)
+                from src.cohort_cache import initialize_cache_from_source_files
                 admin_email = settings.admins_list[0]
-                initialize_cache_from_triplestore(admin_email)
-                print(f"✅ Worker {os.getpid()} cache initialized from triplestore")
+                initialize_cache_from_source_files(admin_email)
+                print(f"✅ Worker {os.getpid()} cache initialized from source files")
                 return
             
             # If we reach here, we have the lock and should proceed with initialization
