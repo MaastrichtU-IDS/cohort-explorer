@@ -22,6 +22,7 @@ from fastapi.responses import FileResponse
 
 from src.auth import get_current_user
 from src.config import settings
+from src.analysis_dcr_logging import log_dcr_event, read_events
 from src.eda_scripts import c1_data_dict_check, c2_save_to_json, c3_eda_data_profiling, shuffle_data
 from src.analysisDCR_scripts import data_fragment_script, visualization_script, exploration_script
 from src.models import Cohort
@@ -1308,11 +1309,52 @@ async def api_create_live_compute_dcr(
     
     # Extract include_mapping_upload_slot from request, default to False
     include_mapping_upload_slot = cohorts_request.get("include_mapping_upload_slot", False)
-    
+
+    # Extract session_id from request (frontend-generated UUID correlating wizard events)
+    session_id = cohorts_request.get("session_id")
+
+    publish_started_at = datetime.now()
+    log_dcr_event(
+        "dcr_publish_started",
+        user_email=user.get("email"),
+        session_id=session_id,
+        dcr_name=dcr_name,
+        cohorts=list(cohorts_request.get("cohorts", {}).keys()),
+        research_question=research_question,
+        additional_analysts=additional_analysts,
+        excluded_data_owners=excluded_data_owners,
+        airlock_settings=airlock_settings,
+        include_shuffled_samples=include_shuffled_samples,
+        selected_mapping_files=[m.get("filename") for m in (selected_mapping_files or []) if isinstance(m, dict)],
+        include_mapping_upload_slot=include_mapping_upload_slot,
+    )
+
     # Create and publish the live compute DCR
     try:
-        return await create_live_compute_dcr(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings, dcr_name, excluded_data_owners, selected_mapping_files, include_mapping_upload_slot, research_question)
+        result = await create_live_compute_dcr(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings, dcr_name, excluded_data_owners, selected_mapping_files, include_mapping_upload_slot, research_question)
+        duration_ms = int((datetime.now() - publish_started_at).total_seconds() * 1000)
+        log_dcr_event(
+            "dcr_publish_succeeded",
+            user_email=user.get("email"),
+            session_id=session_id,
+            duration_ms=duration_ms,
+            dcr_id=result.get("dcr_id") if isinstance(result, dict) else None,
+            dcr_url=result.get("dcr_url") if isinstance(result, dict) else None,
+            dcr_title=result.get("dcr_title") if isinstance(result, dict) else None,
+            cohorts=list(cohorts_request.get("cohorts", {}).keys()),
+        )
+        return result
     except Exception as e:
+        duration_ms = int((datetime.now() - publish_started_at).total_seconds() * 1000)
+        log_dcr_event(
+            "dcr_publish_failed",
+            user_email=user.get("email"),
+            session_id=session_id,
+            duration_ms=duration_ms,
+            error_type=type(e).__name__,
+            error_message=str(e),
+            cohorts=list(cohorts_request.get("cohorts", {}).keys()),
+        )
         error_msg = f"Failed to create live compute DCR: {str(e)}"
         logging.error(error_msg)
         logging.error(f"Error type: {type(e).__name__}")
@@ -1355,7 +1397,17 @@ async def api_get_compute_dcr_definition(
 
     # Extract selected_mapping_files from request
     selected_mapping_files = cohorts_request.get("selected_mapping_files", [])
-    
+
+    session_id = cohorts_request.get("session_id")
+    log_dcr_event(
+        "dcr_preview_requested",
+        user_email=user.get("email"),
+        session_id=session_id,
+        dcr_name=dcr_name,
+        cohorts=list(cohorts_request.get("cohorts", {}).keys()),
+        include_shuffled_samples=include_shuffled_samples,
+    )
+
     dcr_definition, _dcr_title, _participants, _mapping_nodes = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, dcr_name=dcr_name)
 
     # Generate DCR config JSON
@@ -1739,6 +1791,87 @@ async def api_preview_dcr_participants(
             status_code=500,
             detail=f"Failed to preview DCR participants: {str(e)}"
         )
+
+
+# Set of event names the frontend is allowed to emit via /dcr-wizard-event.
+# Anything outside this set is dropped so stray/malformed traffic cannot
+# pollute the activity log.
+_ALLOWED_FRONTEND_EVENTS = {
+    "wizard_opened",
+    "wizard_step_advanced",
+    "wizard_step_left",
+    "wizard_closed",
+    "wizard_abandoned",
+    "dcr_download_config_clicked",
+}
+
+
+@router.post(
+    "/dcr-wizard-event",
+    name="Log a DCR wizard UI event",
+    response_description="Acknowledgement",
+)
+async def api_dcr_wizard_event(
+    event_request: dict[str, Any],
+    user: Any = Depends(get_current_user),
+) -> dict[str, str]:
+    """Append a frontend-reported wizard event to the activity log.
+
+    Expected payload:
+        {
+          "event": "<one of _ALLOWED_FRONTEND_EVENTS>",
+          "session_id": "<uuid>",
+          "step": <int|optional>,
+          "step_name": "<str|optional>",
+          "time_on_step_seconds": <number|optional>,
+          "details": { ...optional extra fields... }
+        }
+
+    The endpoint always returns ``{"status": "ok"}``; logging failures are
+    swallowed so the frontend's fire-and-forget calls never error out the UI.
+    """
+    event_name = event_request.get("event")
+    if event_name not in _ALLOWED_FRONTEND_EVENTS:
+        raise HTTPException(status_code=400, detail=f"Unknown event: {event_name!r}")
+
+    session_id = event_request.get("session_id")
+    step = event_request.get("step")
+    step_name = event_request.get("step_name")
+    time_on_step_seconds = event_request.get("time_on_step_seconds")
+    details = event_request.get("details") or {}
+
+    log_dcr_event(
+        event_name,
+        user_email=user.get("email"),
+        session_id=session_id,
+        step=step,
+        step_name=step_name,
+        time_on_step_seconds=time_on_step_seconds,
+        **{k: v for k, v in details.items() if k not in {"event", "session_id", "step", "step_name", "time_on_step_seconds"}},
+    )
+    return {"status": "ok"}
+
+
+@router.get(
+    "/dcr-events",
+    name="List DCR activity events",
+    response_description="All logged DCR events, newest first",
+)
+async def api_list_dcr_events(
+    limit: int | None = None,
+    user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Return the full DCR activity history (newest first).
+
+    Admin-only. Restricts access to users listed in ``settings.admins_list``.
+    """
+    user_email = user.get("email") if isinstance(user, dict) else None
+    admins = getattr(settings, "admins_list", []) or []
+    if not user_email or user_email.strip().lower() not in admins:
+        raise HTTPException(status_code=403, detail="Admins only")
+
+    events = read_events(limit=limit)
+    return {"events": events, "count": len(events)}
 
 
 @router.post("/check-shuffled-samples")

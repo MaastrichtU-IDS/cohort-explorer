@@ -1,6 +1,6 @@
 'use client';
 
-import React, {useState, useEffect, useMemo, useCallback} from 'react';
+import React, {useState, useEffect, useMemo, useCallback, useRef} from 'react';
 import Link from 'next/link';
 import {useRouter} from 'next/router';
 import {LogIn, LogOut, Compass, Upload, HardDrive, Map} from 'react-feather';
@@ -45,8 +45,9 @@ export function Nav() {
   const [showAddCohortModal, setShowAddCohortModal] = useState(false);
   const [cohortSearchQuery, setCohortSearchQuery] = useState('');
   const notificationRef = React.useRef<HTMLDivElement>(null);
-  
-  // Wizard step definitions
+
+  // Wizard step definitions (declared before the logging hooks below so their
+  // closures can read step ids safely).
   const wizardSteps = [
     { id: 'name', title: 'DCR Name & Cohorts' },
     { id: 'participants', title: 'Participants' },
@@ -55,6 +56,143 @@ export function Nav() {
     { id: 'mapping', title: 'Mapping Files' },
     { id: 'review', title: 'Review & Create' },
   ];
+
+  // --- DCR activity logging (wizard) -------------------------------------
+  // Session id correlates every event a user emits during one wizard session.
+  // Kept in a ref so it is stable across renders without triggering re-renders.
+  const sessionIdRef = useRef<string | null>(null);
+  // Timestamp when the current wizard step was entered. Used to compute
+  // time_on_step_seconds when the user leaves a step, closes the wizard,
+  // or the tab unloads.
+  const stepEnteredAtRef = useRef<number>(Date.now());
+  // Tracks which step the user is currently on so we can compute the time
+  // on the *previous* step when wizardStep changes.
+  const currentStepRef = useRef<number>(0);
+  // Becomes true once the user successfully publishes or downloads; used to
+  // decide whether a close/unload counts as "closed" vs "abandoned".
+  const wizardCompletedRef = useRef<boolean>(false);
+
+  const logWizardEvent = useCallback(
+    (event: string, extra: Record<string, any> = {}, opts?: { beacon?: boolean }) => {
+      if (!userEmail || !sessionIdRef.current) return;
+      const payload = {
+        event,
+        session_id: sessionIdRef.current,
+        ...extra,
+      };
+      const url = `${apiUrl}/dcr-wizard-event`;
+      try {
+        if (opts?.beacon && typeof navigator !== 'undefined' && navigator.sendBeacon) {
+          const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+          navigator.sendBeacon(url, blob);
+          return;
+        }
+        // Fire-and-forget; do not await so the UI stays responsive.
+        fetch(url, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+          keepalive: true,
+        }).catch(() => {});
+      } catch {
+        // Logging must never throw into the UI.
+      }
+    },
+    [userEmail]
+  );
+
+  // Open / close lifecycle: generate a session_id on open, log close/abandon
+  // when the modal is dismissed.
+  useEffect(() => {
+    if (showModal && userEmail) {
+      const sid =
+        typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? crypto.randomUUID()
+          : `sid-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      sessionIdRef.current = sid;
+      stepEnteredAtRef.current = Date.now();
+      currentStepRef.current = wizardStep;
+      wizardCompletedRef.current = false;
+      logWizardEvent('wizard_opened', {
+        step: wizardStep,
+        step_name: wizardSteps[wizardStep]?.id,
+        details: {
+          cohorts: Object.keys(dataCleanRoom?.cohorts || {}),
+        },
+      });
+    }
+    // Intentionally excluding wizardStep/wizardSteps/dataCleanRoom from deps;
+    // we only want to fire "opened" when the modal transitions open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showModal, userEmail]);
+
+  // When wizardStep changes while the modal is open, emit a step_left event
+  // for the previous step (with its duration) and a step_advanced for the
+  // new step.
+  useEffect(() => {
+    if (!showModal || !userEmail || !sessionIdRef.current) return;
+    const prevStep = currentStepRef.current;
+    if (prevStep !== wizardStep) {
+      const seconds = Math.round((Date.now() - stepEnteredAtRef.current) / 1000);
+      logWizardEvent('wizard_step_left', {
+        step: prevStep,
+        step_name: wizardSteps[prevStep]?.id,
+        time_on_step_seconds: seconds,
+      });
+      logWizardEvent('wizard_step_advanced', {
+        step: wizardStep,
+        step_name: wizardSteps[wizardStep]?.id,
+        details: { from_step: prevStep },
+      });
+      currentStepRef.current = wizardStep;
+      stepEnteredAtRef.current = Date.now();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wizardStep]);
+
+  // Fire abandonment via sendBeacon if the tab is closed while the wizard
+  // is open and the user has not completed a publish/download.
+  useEffect(() => {
+    if (!showModal || !userEmail) return;
+    const handler = () => {
+      if (!sessionIdRef.current) return;
+      const seconds = Math.round((Date.now() - stepEnteredAtRef.current) / 1000);
+      logWizardEvent(
+        wizardCompletedRef.current ? 'wizard_closed' : 'wizard_abandoned',
+        {
+          step: currentStepRef.current,
+          step_name: wizardSteps[currentStepRef.current]?.id,
+          time_on_step_seconds: seconds,
+          details: { via: 'unload' },
+        },
+        { beacon: true }
+      );
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showModal, userEmail]);
+
+  // Explicit close handler so both the ✕ and "Close" buttons log consistently.
+  const closeWizard = useCallback(() => {
+    if (sessionIdRef.current && userEmail) {
+      const seconds = Math.round((Date.now() - stepEnteredAtRef.current) / 1000);
+      logWizardEvent(
+        wizardCompletedRef.current ? 'wizard_closed' : 'wizard_abandoned',
+        {
+          step: currentStepRef.current,
+          step_name: wizardSteps[currentStepRef.current]?.id,
+          time_on_step_seconds: seconds,
+          details: { via: 'close_button' },
+        }
+      );
+    }
+    sessionIdRef.current = null;
+    setShowModal(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userEmail, logWizardEvent]);
+
   
   // Helper function to scroll to notification box
   const scrollToNotification = () => {
@@ -117,7 +255,8 @@ export function Nav() {
         body: JSON.stringify({
           ...dataCleanRoom,
           include_shuffled_samples: shuffledSampleSettings,
-          dcr_name: dcrName
+          dcr_name: dcrName,
+          session_id: sessionIdRef.current
         })
       });
       
@@ -136,6 +275,12 @@ export function Nav() {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
         setConfigDownloaded(true);
+        wizardCompletedRef.current = true;
+        logWizardEvent('dcr_download_config_clicked', {
+          step: currentStepRef.current,
+          step_name: wizardSteps[currentStepRef.current]?.id,
+          details: { variant: 'zip_with_samples' },
+        });
         setPublishedDCR((
           <p>✅ Data Clean Room configuration package (with shuffled samples) has been downloaded. <br />
           Please go to <a href="https://platform.decentriq.com/" target="_blank" className="underline text-blue-600 hover:text-blue-800">https://platform.decentriq.com</a> to create a new DCR from the configuration file. </p>
@@ -154,6 +299,12 @@ export function Nav() {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
         setConfigDownloaded(true);
+        wizardCompletedRef.current = true;
+        logWizardEvent('dcr_download_config_clicked', {
+          step: currentStepRef.current,
+          step_name: wizardSteps[currentStepRef.current]?.id,
+          details: { variant: 'json_only' },
+        });
         setPublishedDCR((
           <p>✅ Data Clean Room configuration file has been downloaded. <br />
           Please go to <a href="https://platform.decentriq.com/" target="_blank" className="underline text-blue-600 hover:text-blue-800">https://platform.decentriq.com</a> to create a new DCR from the configuration file. </p>
@@ -196,6 +347,7 @@ export function Nav() {
           ),
           dcr_name: dcrName,
           research_question: researchQuestion,
+          session_id: sessionIdRef.current,
           selected_mapping_files: availableMappingFiles
             .filter(m => selectedMappingFiles[m.filename] !== false)
             .map(m => ({ filename: m.filename, filepath: m.filepath, display_name: m.display_name, cohorts: m.cohorts })),
@@ -220,6 +372,7 @@ export function Nav() {
         });
         
         setDcrCreated(true);
+        wizardCompletedRef.current = true;
         setPublishedDCR((
           <div className="bg-success text-slate-900 p-4 rounded-lg">
             <p className="font-bold mb-4 text-lg">✅ {result.message}</p>
@@ -584,7 +737,7 @@ export function Nav() {
               /* ========== NOT LOGGED IN ========== */
               <>
                 <div className="flex justify-end mb-2">
-                  <button className="btn btn-sm btn-ghost" onClick={() => setShowModal(false)}>✕</button>
+                  <button className="btn btn-sm btn-ghost" onClick={closeWizard}>✕</button>
                 </div>
                 <div className="min-h-[200px] flex items-center justify-center">
                   <p className="text-red-500 text-center">Authenticate to access the explorer</p>
@@ -700,8 +853,12 @@ export function Nav() {
                           placeholder="Describe the research question you aim to answer with this DCR..."
                           className="textarea textarea-bordered w-full h-32"
                           value={researchQuestion}
-                          onChange={(e) => setResearchQuestion(e.target.value)}
+                          onChange={(e) => setResearchQuestion(e.target.value.slice(0, 1000))}
+                          maxLength={1000}
                         />
+                        <span className="text-xs text-base-content/60 mt-1 self-end">
+                          {researchQuestion.length}/1000
+                        </span>
                       </div>
                     </>
                   )}
@@ -913,7 +1070,7 @@ export function Nav() {
                     )}
                   </div>
                   <div className="flex gap-2">
-                    <button className="btn" onClick={() => setShowModal(false)}>
+                    <button className="btn" onClick={closeWizard}>
                       Close
                     </button>
                     {wizardStep < wizardSteps.length - 1 && (
