@@ -6,11 +6,35 @@ import re
 import shutil
 import csv
 import json
+import warnings
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any
 from re import sub
+
+# Silence noisy openpyxl warnings that fire every time we read the central
+# iCARE4CVD Cohorts Excel spreadsheet. The workbook contains data-validation
+# drop-downs, conditional formatting, and a few custom extensions that
+# openpyxl does not implement -- it just drops them. These are informational
+# messages, not real errors, but they print dozens of lines per worker on
+# startup and per upload.
+warnings.filterwarnings(
+    "ignore",
+    message="Unknown extension is not supported and will be removed",
+    module="openpyxl.*",
+)
+warnings.filterwarnings(
+    "ignore",
+    message="Conditional Formatting extension is not supported and will be removed",
+    module="openpyxl.*",
+)
+warnings.filterwarnings(
+    "ignore",
+    message="Data Validation extension is not supported and will be removed",
+    module="openpyxl.*",
+)
+
 import pandas as pd
 import requests
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
@@ -2463,29 +2487,28 @@ def _perform_triplestore_initialization():
             break
         time.sleep(0.5)  # Small delay between checks
     
-    # Generate metadata issues report (runs on every startup)
+    # Generate metadata issues report (runs on every startup).
+    # Use the synchronous httpx.Client here rather than AsyncClient + asyncio.run(),
+    # because init_triplestore() may be invoked from inside a running event loop
+    # (e.g. when the ASGI server imports src.main with a loop already started),
+    # in which case asyncio.run() raises "cannot be called from a running event
+    # loop" and the coroutine is never awaited. Sync httpx works in both cases.
     print("Generating metadata issues report...")
     try:
         import httpx
-        import asyncio
-        
-        # Call the endpoint to generate the report
-        async def call_report_endpoint():
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    f"http://localhost:3000/upload/metadata-syntax-issues-report",
-                    timeout=60.0
-                )
-                return response
-        
-        response = asyncio.run(call_report_endpoint())
-        
+
+        with httpx.Client() as client:
+            response = client.post(
+                "http://localhost:3000/upload/metadata-syntax-issues-report",
+                timeout=60.0,
+            )
+
         # Extract summary info from response headers
         filename = response.headers.get('content-disposition', '').split('filename=')[-1].strip('"')
         total_cohorts = response.headers.get('X-Total-Cohorts', 'N/A')
         cohorts_with_errors = response.headers.get('X-Cohorts-With-Errors', 'N/A')
         cohorts_without_dict = response.headers.get('X-Cohorts-Without-Dict', 'N/A')
-        
+
         print(f"✅ Metadata issues report generated: {filename}")
         print(f"   Total cohorts: {total_cohorts}")
         print(f"   Cohorts with errors: {cohorts_with_errors}")
