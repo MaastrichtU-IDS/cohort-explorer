@@ -787,10 +787,16 @@ def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = F
                 logging.debug(
                     f"Suppressed duplicate error for cohort_id={cohort_id}, var_name={var_name}, error={exc_type}"
                 )
-    # Merge cohorts with and without variables
-    # Put cohorts with variables first so they appear at the top of the list
+    # Merge cohorts with and without variables.
+    # Within each group, sort alphabetically (case-insensitive) by cohort_id so
+    # the order is deterministic and matches the cache-backed endpoint.
     logging.info(f"Merging cohorts: {len(cohorts_with_variables)} with variables, {len(cohorts_without_variables)} without")
-    cohorts = {**cohorts_with_variables, **cohorts_without_variables}
+    with_vars_sorted = sorted(cohorts_with_variables.keys(), key=lambda cid: cid.lower())
+    without_vars_sorted = sorted(cohorts_without_variables.keys(), key=lambda cid: cid.lower())
+    cohorts = {
+        **{cid: cohorts_with_variables[cid] for cid in with_vars_sorted},
+        **{cid: cohorts_without_variables[cid] for cid in without_vars_sorted},
+    }
     
     # Count total variables and categories
     total_variables = sum(len(c.variables) for c in cohorts.values())

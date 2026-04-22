@@ -866,6 +866,23 @@ def initialize_cache_from_source_files(user_email: str | None = None) -> None:
     initialize_cache_from_excel(excel_path, user_email)
 
 
+def sort_cohorts_with_variables_first(cohorts: Dict[str, Cohort]) -> Dict[str, Cohort]:
+    """Return a new dict with cohorts reordered so that cohorts that have at
+    least one variable come first (alphabetical by cohort_id), followed by
+    cohorts with no variables (also alphabetical). Python dicts preserve
+    insertion order, which is what the frontend renders.
+    """
+    with_vars = sorted(
+        (cid for cid, c in cohorts.items() if getattr(c, "variables", None)),
+        key=lambda cid: cid.lower(),
+    )
+    without_vars = sorted(
+        (cid for cid, c in cohorts.items() if not getattr(c, "variables", None)),
+        key=lambda cid: cid.lower(),
+    )
+    return {cid: cohorts[cid] for cid in (*with_vars, *without_vars)}
+
+
 def get_cohorts_from_cache(user_email: str) -> Dict[str, Cohort]:
     """Get all cohorts from the cache, updating the can_edit field based on user email."""
     global _cohorts_cache, _cache_initialized
@@ -942,8 +959,10 @@ def get_cohorts_from_cache(user_email: str) -> Dict[str, Cohort]:
             )
         
         result[cohort_id] = cohort_copy
-    
-    return result
+
+    # Cohorts with variables first (alphabetical), then cohorts without
+    # (alphabetical). Matches the SPARQL path ordering for consistency.
+    return sort_cohorts_with_variables_first(result)
 
 def is_cache_initialized() -> bool:
     """Check if the cache has been initialized.
