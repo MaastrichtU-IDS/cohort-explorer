@@ -64,6 +64,7 @@ const SearchResultsDisplay = React.memo(({cohortsData, searchTerms, searchMode, 
       'cohort_id': 'cohort name',
       'institution': 'institution',
       'study_type': 'study type',
+      'study_design': 'study design',
       'study_objective': 'study objective',
       'morbidity': 'morbidity',
       'study_participants': 'study participants',
@@ -72,6 +73,10 @@ const SearchResultsDisplay = React.memo(({cohortsData, searchTerms, searchMode, 
       'population_location': 'population location',
       'primary_outcome_spec': 'primary outcome specification',
       'secondary_outcome_spec': 'secondary outcome specification',
+      'interventions': 'interventions',
+      'comparator': 'comparator',
+      'race_ethnicity': 'race/ethnicity',
+      'part_of_study': 'part of study',
     };
     const searchableCohortFields = Object.keys(fieldToSection);
     const searchableVarFields = ['var_name', 'var_label', 'concept_name', 'mapped_label', 'omop_domain', 'concept_code', 'omop_id'];
@@ -617,9 +622,10 @@ export default function CohortsList() {
   // - When searchScope='all': filter by either cohort metadata OR variable matches
   const filteredCohorts = useMemo(() => {
     const searchableCohortFields = [
-      'cohort_id', 'institution', 'study_type', 'study_objective', 'morbidity',
+      'cohort_id', 'institution', 'study_type', 'study_design', 'study_objective', 'morbidity',
       'study_participants', 'study_population', 'administrator', 'population_location',
-      'primary_outcome_spec', 'secondary_outcome_spec'
+      'primary_outcome_spec', 'secondary_outcome_spec',
+      'interventions', 'comparator', 'race_ethnicity', 'part_of_study'
     ];
     const searchableVarFields = ['var_name', 'var_label', 'concept_name', 'mapped_label', 'omop_domain', 'concept_code', 'omop_id'];
     const searchableCatFields = ['value', 'label', 'mapped_label'];
@@ -651,7 +657,10 @@ export default function CohortsList() {
     return Object.entries(cohortsData as Record<string, Cohort>)
       .filter(([key, value]) => {
         // Apply metadata filters (study type, institution)
-        if (selectedStudyTypes.size > 0 && !selectedStudyTypes.has(value.study_type)) return false;
+        // The sidebar filter is labelled "Filter by study design" so it
+        // matches against study_design (Excel "Study Design" column), not
+        // study_type ("Study Type" column).
+        if (selectedStudyTypes.size > 0 && !selectedStudyTypes.has((value as any).study_design)) return false;
         if (selectedInstitutes.size > 0 && !selectedInstitutes.has(value.institution)) return false;
         
         // No search terms - show all cohorts
@@ -696,8 +705,8 @@ export default function CohortsList() {
         {/* Filter by cohorts type removed */}
         <FilterByMetadata
           label="Filter by study design"
-          metadata_id="study_type"
-          options={Array.from(new Set(Object.values(cohortsData).map((cohort: any) => cohort.study_type)))}
+          metadata_id="study_design"
+          options={Array.from(new Set(Object.values(cohortsData).map((cohort: any) => cohort.study_design).filter((v: any) => v)))}
           searchResults={filteredCohorts}
           selectedValues={selectedStudyTypes}
           onFiltersChange={(optionsSelected: any) => setSelectedStudyTypes(optionsSelected)}
@@ -917,7 +926,20 @@ export default function CohortsList() {
                   <HighlightedText text={cohortData.cohort_id} searchTerms={searchTerms} searchMode={searchMode} />
                   <span className="badge badge-outline mx-2">{cohortData.institution}</span>
                   {cohortData.study_type && <span className="badge badge-ghost mx-1">{cohortData.study_type}</span>}
-                  {cohortData.cohort_type && cohortData.cohort_type !== cohortData.study_type && <span className="badge badge-ghost mx-1">{cohortData.cohort_type}</span>}
+                  {cohortData.study_design && cohortData.study_design !== cohortData.study_type && <span className="badge badge-ghost mx-1">{cohortData.study_design}</span>}
+                  {/*
+                    Participants badge. The "Number of Participants" column
+                    sometimes holds a full sentence (e.g. "1234 patients with
+                    type 2 diabetes"); for the compact badge we only want the
+                    leading token, which in practice is the count. Placed
+                    immediately before the gender/age mini-graphs so the
+                    three demographic summaries sit together on the left.
+                  */}
+                  {cohortData.study_participants && cohortData.study_participants.trim() !== '' && cohortData.study_participants.trim() !== '0' && (
+                    <span className="badge badge-ghost mx-1">
+                      👥 {cohortData.study_participants.trim().split(/\s+/)[0]}
+                    </span>
+                  )}
                   {/* Sex distribution moved to More Details section */}
                   {cohortData.study_duration && (
                     <span className="badge badge-default mx-1">⏱️ {cohortData.study_duration}</span>
@@ -927,11 +949,6 @@ export default function CohortsList() {
                   )}
                   {cohortData.study_ongoing && cohortData.study_ongoing === 'no' && (
                     <span className="badge badge-default mx-1">Completed study</span>
-                  )}
-                  {cohortData.study_participants && cohortData.study_participants !== '0' && (
-                    <span className="badge badge-ghost mx-1">
-                      👥 {cohortData.study_participants}
-                    </span>
                   )}
                   {/* Gender distribution pie chart */}
                   <GenderPieChart 
@@ -1256,28 +1273,52 @@ export default function CohortsList() {
                   {/* Create an array of detail fields to render dynamically */}
                   {(() => {
                     // Define all possible detail fields with their labels and values
+                    // Study information fields, grouped logically so the two-
+                    // column layout below reads naturally:
+                    //   1. Study descriptors (type/design, participants, dates)
+                    //   2. Contacts / organisation
+                    //   3. Population demographics
+                    //   4. Data / methodology
+                    //   5. Clinical context
+                    //   6. Relationships & references
                     const detailFields = [
+                      // Study descriptors
+                      { label: 'Study Type', value: cohortData.study_type },
+                      { label: 'Study Design', value: (cohortData as any).study_design },
+                      { label: 'Number of Participants', value: cohortData.study_participants },
+                      { label: 'Start Date', value: cohortData.study_start },
+                      { label: 'End Date', value: cohortData.study_end },
+                      { label: 'Part of Study', value: (cohortData as any).part_of_study },
+                      // Contacts / organisation
                       { label: 'Institute', value: cohortData.institution },
                       { label: 'Administrator', value: cohortData.administrator },
                       { label: 'Administrator Email', value: cohortData.administrator_email },
                       { label: 'Study Contact Person', value: cohortData.study_contact_person },
                       { label: 'Study Contact Person Email', value: cohortData.study_contact_person_email },
-                      { label: 'Start Date', value: cohortData.study_start },
-                      { label: 'End Date', value: cohortData.study_end },
+                      // Population demographics
                       { label: 'Population Location', value: cohortData.population_location },
                       { label: 'Language', value: cohortData.language },
-                      { label: 'Number of Participants', value: cohortData.study_participants },
-                      { label: 'Frequency of Data Collection', value: cohortData.data_collection_frequency },
-                      { 
-                        label: 'Sex Distribution', 
-                        value: (cohortData.male_percentage !== null && cohortData.female_percentage !== null) ? 
-                          `Male: ${cohortData.male_percentage}%, Female: ${cohortData.female_percentage}%` : null 
+                      { label: 'Race / Ethnicity', value: (cohortData as any).race_ethnicity },
+                      {
+                        label: 'Sex Distribution',
+                        value: (cohortData.male_percentage !== null && cohortData.female_percentage !== null) ?
+                          `Male: ${cohortData.male_percentage}%, Female: ${cohortData.female_percentage}%` : null
                       },
+                      // Data / methodology
+                      { label: 'Frequency of Data Collection', value: cohortData.data_collection_frequency },
+                      { label: 'Dataset Format', value: (cohortData as any).dataset_format },
+                      { label: 'Coding System', value: (cohortData as any).coding_system },
+                      { label: 'Anonymisation/Pseudonymization Technique', value: (cohortData as any).anonymisation_technique },
+                      // Clinical context
                       { label: 'Interventions', value: cohortData.interventions },
-                      { 
-                        label: 'References', 
+                      { label: 'Comparator', value: (cohortData as any).comparator },
+                      { label: 'Enrolled with Diabetes', value: (cohortData as any).enrolled_with_diabetes },
+                      { label: 'Enrolled with CVD (%)', value: (cohortData as any).enrolled_with_cvd },
+                      // Relationships & references
+                      {
+                        label: 'References',
                         value: cohortData.references && cohortData.references.length > 0 ? cohortData.references : null,
-                        isReference: true 
+                        isReference: true
                       },
                     ];
                     

@@ -49,10 +49,14 @@ class Cohort:
     """Metadata about a cohort (1 tabular data file)"""
 
     cohort_id: str
-    cohort_type: Optional[str] = None
+    # study_type = Excel "Study Type" column (e.g. Observational, Interventional)
+    # study_design = Excel "Study Design" column (e.g. Cohort study, RCT)
+    # These replace the older, overloaded `cohort_type` field. Both are kept as
+    # strings so the UI always renders the spreadsheet value verbatim.
     cohort_email: list[str] = field(default_factory=list)
     institution: str = ""
     study_type: Optional[str] = None
+    study_design: Optional[str] = None
     study_participants: Optional[str] = None
     study_duration: Optional[str] = None
     study_ongoing: Optional[str] = None
@@ -77,6 +81,17 @@ class Cohort:
     language: Optional[str] = None
     data_collection_frequency: Optional[str] = None
     interventions: Optional[str] = None
+    # Additional fields captured from the Cohorts spreadsheet. Treated as free
+    # text (string) even when they look numeric (e.g. "Enrolled with CVD (%)"),
+    # per user preference -- values are rendered verbatim on the cohort page.
+    anonymisation_technique: Optional[str] = None
+    dataset_format: Optional[str] = None
+    coding_system: Optional[str] = None
+    comparator: Optional[str] = None
+    race_ethnicity: Optional[str] = None
+    enrolled_with_diabetes: Optional[str] = None
+    enrolled_with_cvd: Optional[str] = None
+    part_of_study: Optional[str] = None
     # Inclusion criteria fields
     sex_inclusion: Optional[str] = None
     health_status_inclusion: Optional[str] = None

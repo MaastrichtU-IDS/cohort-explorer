@@ -5,6 +5,7 @@ This provides a parallel structure to the RDF graph for faster data access.
 import json
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Dict, List, Optional, Union, Any
 
@@ -169,10 +170,10 @@ def cohort_to_dict(cohort: Cohort) -> Dict[str, Any]:
     """Convert a Cohort object to a serializable dictionary."""
     cohort_dict = {
         "cohort_id": cohort.cohort_id,
-        "cohort_type": cohort.cohort_type,
         "cohort_email": cohort.cohort_email,
         "institution": cohort.institution,
         "study_type": cohort.study_type,
+        "study_design": cohort.study_design,
         "study_participants": cohort.study_participants,
         "study_duration": cohort.study_duration,
         "study_ongoing": cohort.study_ongoing,
@@ -195,6 +196,14 @@ def cohort_to_dict(cohort: Cohort) -> Dict[str, Any]:
         "language": cohort.language,
         "data_collection_frequency": cohort.data_collection_frequency,
         "interventions": cohort.interventions,
+        "anonymisation_technique": cohort.anonymisation_technique,
+        "dataset_format": cohort.dataset_format,
+        "coding_system": cohort.coding_system,
+        "comparator": cohort.comparator,
+        "race_ethnicity": cohort.race_ethnicity,
+        "enrolled_with_diabetes": cohort.enrolled_with_diabetes,
+        "enrolled_with_cvd": cohort.enrolled_with_cvd,
+        "part_of_study": cohort.part_of_study,
         "sex_inclusion": cohort.sex_inclusion,
         "health_status_inclusion": cohort.health_status_inclusion,
         "clinically_relevant_exposure_inclusion": cohort.clinically_relevant_exposure_inclusion,
@@ -257,6 +266,10 @@ def dict_to_cohort(cohort_dict: Dict[str, Any]) -> Cohort:
     """Convert a dictionary to a Cohort object."""
     # Create the cohort without variables first
     variables_dict = cohort_dict.pop("variables", {})
+    # Drop fields that are no longer part of the Cohort dataclass so older
+    # cache files on disk still deserialize without TypeError. Currently
+    # this only affects the deprecated `cohort_type` field.
+    cohort_dict.pop("cohort_type", None)
     cohort = Cohort(**cohort_dict)
     
     # Add variables
@@ -342,11 +355,17 @@ def create_cohort_from_metadata_graph(cohort_id: str, cohort_uri: URIRef, g: Dat
         # Institution - try CMEO first, then ICARE
         cohort.institution = get_literal_value(CMEO.institution) or get_literal_value(ICARE.institution) or ""
         
-        # Study type and cohort type - try CMEO first, then ICARE
-        cohort.study_type = get_literal_value(CMEO.studyType) or get_literal_value(ICARE.studyType)
-        cohort_types = get_literal_values(CMEO.cohortType) or get_literal_values(ICARE.cohortType)
-        if cohort_types:
-            cohort.cohort_type = cohort_types[0]  # Take the first one if multiple
+        # Study type / study design. Note the historical predicate naming is
+        # the reverse of the spreadsheet columns:
+        #   - CMEO.studyType in the graph holds the Excel "Study Design" value
+        #   - CMEO.cohortType in the graph holds the Excel "Study Type" value
+        # (see upload.cohorts_metadata_file_to_graph). We preserve that graph
+        # layout but surface the values under the correctly-named Cohort
+        # fields here.
+        cohort.study_design = get_literal_value(CMEO.studyType) or get_literal_value(ICARE.studyType)
+        cohort_type_values = get_literal_values(CMEO.cohortType) or get_literal_values(ICARE.cohortType)
+        if cohort_type_values:
+            cohort.study_type = cohort_type_values[0]  # Take the first one if multiple
         
         # Study details - try CMEO first, then ICARE
         cohort.study_participants = get_literal_value(CMEO.studyParticipants) or get_literal_value(ICARE.studyParticipants)
@@ -1203,18 +1222,18 @@ def initialize_cache_from_excel(excel_filepath: str, user_email: str | None = No
             cohort_id = str(row["study name"]).strip()
             logging.info(f"Processing cohort: {cohort_id}")
             
-            # Create a basic Cohort object
+            # Create a basic Cohort object.
+            # Column names here match the iCARE4CVD Cohorts Excel spreadsheet
+            # verbatim (lowercased). study_type is the "Study Type" column
+            # (e.g. Observational) and study_design is the "Study Design"
+            # column (e.g. Cohort study). They were previously conflated into
+            # a single overloaded field.
             cohort = Cohort(
                 cohort_id=cohort_id,
-                cohort_type=str(row.get("study design", "")).strip() if pd.notna(row.get("study design")) else "",
                 cohort_email=[],
                 institution=str(row.get("institute", "")).strip() if pd.notna(row.get("institute")) else "",
-                study_type=str(row.get("study design", "")).strip() if pd.notna(row.get("study design")) else "",
-                # Column names match the iCARE4CVD Cohorts Excel spreadsheet
-                # (see upload.cohorts_metadata_file_to_graph and CohortVarLinker/study_kg).
-                # The earlier values "study participants", "study ongoing",
-                # "study start", "study end" did not exist in the sheet and
-                # silently returned empty strings.
+                study_type=str(row.get("study type", "")).strip() if pd.notna(row.get("study type")) else "",
+                study_design=str(row.get("study design", "")).strip() if pd.notna(row.get("study design")) else "",
                 study_participants=str(row.get("number of participants", "")).strip() if pd.notna(row.get("number of participants")) else "",
                 study_population=str(row.get("study population", "")).strip() if pd.notna(row.get("study population")) else "",
                 study_duration=str(row.get("study duration", "")).strip() if pd.notna(row.get("study duration")) else "",
@@ -1291,16 +1310,34 @@ def initialize_cache_from_excel(excel_filepath: str, user_email: str | None = No
             cohort.language = str(row.get("language", "")).strip() if pd.notna(row.get("language")) else None
             cohort.data_collection_frequency = str(row.get("frequency of data collection", "")).strip() if pd.notna(row.get("frequency of data collection")) else None
             cohort.interventions = str(row.get("interventions", "")).strip() if pd.notna(row.get("interventions")) else None
+
+            # Additional free-text fields from the spreadsheet. All stored as
+            # strings (even when they look numeric, e.g. "enrolled with cvd (%)").
+            cohort.anonymisation_technique = str(row.get("anonymisation/pseudonymization technique", "")).strip() if pd.notna(row.get("anonymisation/pseudonymization technique")) else None
+            cohort.dataset_format = str(row.get("dataset format", "")).strip() if pd.notna(row.get("dataset format")) else None
+            cohort.coding_system = str(row.get("coding system", "")).strip() if pd.notna(row.get("coding system")) else None
+            cohort.comparator = str(row.get("comparator", "")).strip() if pd.notna(row.get("comparator")) else None
+            cohort.race_ethnicity = str(row.get("race/ethnicity", "")).strip() if pd.notna(row.get("race/ethnicity")) else None
+            cohort.enrolled_with_diabetes = str(row.get("enrolled with diabetes", "")).strip() if pd.notna(row.get("enrolled with diabetes")) else None
+            cohort.enrolled_with_cvd = str(row.get("enrolled with cvd (%)", "")).strip() if pd.notna(row.get("enrolled with cvd (%)")) else None
+            cohort.part_of_study = str(row.get("part of study", "")).strip() if pd.notna(row.get("part of study")) else None
             
             # Inclusion / exclusion criteria.
             #
-            # The Excel columns are named like "sex inclusion criterion",
-            # "age group inclusion criterion", "health status exclusion
-            # criterion", etc. upload.cohorts_metadata_file_to_graph and
-            # CohortVarLinker/study_kg.py discover them by filtering row.index
-            # for the substring "inclusion criterion" / "exclusion criterion";
-            # we do the same here and then route each column's value into the
-            # corresponding Cohort.*_inclusion / *_exclusion field.
+            # Columns follow the pattern "<something> inclusion criterion" /
+            # "<something> exclusion criterion" in the spreadsheet. We discover
+            # them by substring match and route by keyword into the matching
+            # Cohort.*_inclusion / *_exclusion field.
+            #
+            # Two quirks handled here:
+            #   1. "health  status exclusion criterion" has two spaces between
+            #      "health" and "status" in the sheet. We collapse any run of
+            #      whitespace to a single space before matching so the double
+            #      space does not break the keyword lookup.
+            #   2. "surgical procedure history" is an exclusion criterion column
+            #      but lacks the "exclusion criterion" suffix, so we treat any
+            #      column starting with that phrase as the surgical-history
+            #      exclusion field.
             inclusion_keyword_to_field = [
                 ("clinically relevant exposure", "clinically_relevant_exposure_inclusion"),
                 ("use of medication", "use_of_medication_inclusion"),
@@ -1329,7 +1366,7 @@ def initialize_cache_from_excel(excel_filepath: str, user_email: str | None = No
                 return None
 
             for col in row.index:
-                col_lc = str(col).lower()
+                col_lc = re.sub(r"\s+", " ", str(col).lower()).strip()
                 raw = row.get(col)
                 if not pd.notna(raw):
                     continue
@@ -1341,6 +1378,11 @@ def initialize_cache_from_excel(excel_filepath: str, user_email: str | None = No
                     field = _pick_field(col_lc, inclusion_keyword_to_field)
                 elif "exclusion criterion" in col_lc:
                     field = _pick_field(col_lc, exclusion_keyword_to_field)
+                elif col_lc.startswith("surgical procedure history"):
+                    # "surgical procedure history" column lacks the trailing
+                    # "exclusion criterion" in the spreadsheet but is still an
+                    # exclusion field.
+                    field = "surgical_procedure_history_exclusion"
                 else:
                     continue
 

@@ -1,9 +1,11 @@
 export interface Cohort {
   cohort_id: string;
-  cohort_type: string;
   cohort_email: string[];
   institution: string;
+  // study_type = Excel "Study Type" column (e.g. Observational)
+  // study_design = Excel "Study Design" column (e.g. Cohort study)
   study_type: string;
+  study_design?: string;
   study_participants: string;
   study_population: string;
   study_duration: string;
@@ -26,12 +28,21 @@ export interface Cohort {
   // Analysis data availability
   has_aggregate_analysis?: boolean;
   can_edit?: boolean;
-  
+
   // Additional metadata fields
   population_location?: string;
   language?: string;
   data_collection_frequency?: string;
   interventions?: string;
+  // Additional free-text fields from the Cohorts spreadsheet
+  anonymisation_technique?: string;
+  dataset_format?: string;
+  coding_system?: string;
+  comparator?: string;
+  race_ethnicity?: string;
+  enrolled_with_diabetes?: string;
+  enrolled_with_cvd?: string;
+  part_of_study?: string;
   // Inclusion criteria fields
   sex_inclusion?: string;
   health_status_inclusion?: string;
