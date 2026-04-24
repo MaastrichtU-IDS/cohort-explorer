@@ -9,6 +9,7 @@ import VariablesList from '@/components/VariablesList';
 import CohortSummaryGraphs from '@/components/CohortSummaryGraphs';
 import GenderPieChart from '@/components/GenderPieChart';
 import AgeDistributionBar from '@/components/AgeDistributionBar';
+import AgeRangeWhisker from '@/components/AgeRangeWhisker';
 import {parseSearchQuery, searchInObject, highlightSearchTerms} from '@/utils/search';
 import {apiUrl} from '@/utils';
 
@@ -953,7 +954,11 @@ export default function CohortsList() {
                     femalePercentage={cohortData.female_percentage}
                     size={24}
                   />
-                  {/* Age distribution bar chart */}
+                  {/* Age range mini-axis whisker, driven by the raw
+                      "age group inclusion criterion" spreadsheet column. */}
+                  <AgeRangeWhisker ageRangeRaw={(cohortData as any).age_group_inclusion} />
+                  {/* Legacy bucketed age-distribution bar (only renders when
+                      age_distribution buckets are populated). */}
                   <AgeDistributionBar 
                     ageDistribution={cohortData.age_distribution}
                   />
