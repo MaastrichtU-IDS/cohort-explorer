@@ -934,22 +934,19 @@ export default function CohortsList() {
                     leading token, which in practice is the count. Placed
                     immediately before the gender/age mini-graphs so the
                     three demographic summaries sit together on the left.
+                    Rendered as badge-lg with a group-of-people emoji so the
+                    participant count stands out more than the other tags.
                   */}
                   {cohortData.study_participants && cohortData.study_participants.trim() !== '' && cohortData.study_participants.trim() !== '0' && (
-                    <span className="badge badge-ghost mx-1">
-                      👥 {cohortData.study_participants.trim().split(/\s+/)[0]}
+                    <span className="badge badge-ghost badge-lg mx-1 font-semibold">
+                      � {cohortData.study_participants.trim().split(/\s+/)[0]}
                     </span>
                   )}
                   {/* Sex distribution moved to More Details section */}
                   {cohortData.study_duration && (
                     <span className="badge badge-default mx-1">⏱️ {cohortData.study_duration}</span>
                   )}
-                  {cohortData.study_ongoing && cohortData.study_ongoing === 'yes' && (
-                    <span className="badge badge-default mx-1">Ongoing study</span>
-                  )}
-                  {cohortData.study_ongoing && cohortData.study_ongoing === 'no' && (
-                    <span className="badge badge-default mx-1">Completed study</span>
-                  )}
+                  {/* Completed/Ongoing tags removed; status still available in More Details */}
                   {/* Gender distribution pie chart */}
                   <GenderPieChart 
                     malePercentage={cohortData.male_percentage}
