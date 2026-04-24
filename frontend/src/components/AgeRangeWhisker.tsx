@@ -15,13 +15,17 @@ interface AgeRangeWhiskerProps {
  * cohort on a fixed 0-100 axis so cohorts can be compared at a glance.
  *
  * Rendered elements:
- *   - Light grey background rail spanning the full [axisMin, axisMax] range.
+ *   - Medium-grey background rail spanning the full [axisMin, axisMax] range.
  *   - Blue whisker spanning [min, max] of the cohort's reported age range.
- *   - Vertical end-caps at explicit bounds (e.g. "<= 84 and >= 65").
- *   - Open-ended arrow when one side is unbounded (e.g. ">= 18 years old"
- *     has no stated upper limit, so we draw an arrow toward the right edge).
+ *   - Vertical end-caps only on explicit bounds (e.g. "<= 84 and >= 65").
+ *     When a side is unbounded (e.g. ">= 18 years old") we draw no marker at
+ *     all -- the rail continuing past the whisker visually conveys "no upper
+ *     limit" without cluttering the glyph.
  *   - A small dark-blue dot at the median when it is known (only produced by
  *     the "X +/- Y" form; explicit ranges leave the dot out).
+ *
+ * Tooltip: handled by the parent wrapper in cohorts.tsx so that gender + age
+ * glyphs share a single combined tooltip. No `title` attribute is set here.
  *
  * Returns null when parseAgeRange cannot extract any numeric information --
  * matching the behaviour of GenderPieChart / AgeDistributionBar so empty cells
@@ -50,31 +54,19 @@ const AgeRangeWhisker: React.FC<AgeRangeWhiskerProps> = ({
   const hasMin = min !== undefined;
   const hasMax = max !== undefined;
   // When a bound is open, anchor the whisker to the padded edge so the
-  // open-end arrow has room to sit.
+  // rail continues past the coloured segment without any end marker.
   const x1 = hasMin ? xFromAge(min as number) : pad;
   const x2 = hasMax ? xFromAge(max as number) : width - pad;
 
-  const railColour = '#e5e7eb';
+  // Rail uses a mid-grey so the axis is legible against both white and the
+  // zebra-striped cohort list background. It was previously gray-200
+  // (#e5e7eb) which blended into the row backgrounds.
+  const railColour = '#9ca3af';
   const barColour = '#2563eb';
   const medianColour = '#1e3a8a';
 
-  // Tooltip shows the raw cell value plus the parsed summary so users can see
-  // both what the spreadsheet said and how we interpreted it.
-  const parsedSummary = [
-    hasMin ? `\u2265 ${min}` : null,
-    hasMax ? `\u2264 ${max}` : null,
-    median !== undefined ? `median ${median}` : null,
-  ]
-    .filter(Boolean)
-    .join(', ');
-  const tooltip = `Age range: ${String(ageRangeRaw).trim()}${parsedSummary ? ` (parsed: ${parsedSummary})` : ''}`;
-
   return (
-    <div
-      title={tooltip}
-      className="inline-flex items-center"
-      style={{ width, height }}
-    >
+    <div className="inline-flex items-center" style={{ width, height }}>
       <svg width={width} height={height} aria-hidden="true">
         {/* Background rail */}
         <line
@@ -83,7 +75,7 @@ const AgeRangeWhisker: React.FC<AgeRangeWhiskerProps> = ({
           y1={yMid}
           y2={yMid}
           stroke={railColour}
-          strokeWidth={2}
+          strokeWidth={2.5}
           strokeLinecap="round"
         />
         {/* Whisker body */}
@@ -96,7 +88,9 @@ const AgeRangeWhisker: React.FC<AgeRangeWhiskerProps> = ({
           strokeWidth={3}
           strokeLinecap="round"
         />
-        {/* Explicit-bound end caps */}
+        {/* Explicit-bound end caps -- only rendered on the side(s) where the
+            spreadsheet gave an explicit numeric bound. Open sides are left
+            unmarked so the continuing rail signals "no stated limit". */}
         {hasMin && (
           <line
             x1={x1}
@@ -117,19 +111,6 @@ const AgeRangeWhisker: React.FC<AgeRangeWhiskerProps> = ({
             stroke={barColour}
             strokeWidth={1.5}
             strokeLinecap="round"
-          />
-        )}
-        {/* Open-end arrow on whichever side is unbounded */}
-        {!hasMin && (
-          <polygon
-            points={`${pad + 4},${yMid - 3} ${pad + 4},${yMid + 3} ${pad},${yMid}`}
-            fill={barColour}
-          />
-        )}
-        {!hasMax && (
-          <polygon
-            points={`${width - pad - 4},${yMid - 3} ${width - pad - 4},${yMid + 3} ${width - pad},${yMid}`}
-            fill={barColour}
           />
         )}
         {/* Median dot (only present for "X +/- Y" form) */}

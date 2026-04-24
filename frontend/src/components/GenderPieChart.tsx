@@ -24,8 +24,11 @@ const GenderPieChart: React.FC<GenderPieChartProps> = ({
   // Calculate the stroke dash offset for the male percentage
   const maleOffset = circumference - (malePercentage / 100) * circumference;
 
+  // Tooltip is intentionally omitted: cohorts.tsx wraps this glyph together
+  // with the age-range whisker in a shared hover area so a single tooltip
+  // can show both demographic summaries at once.
   return (
-    <div className="flex items-center" title={`M ${malePercentage}% / F ${femalePercentage}%`}>
+    <div className="flex items-center">
       <svg
         height={size}
         width={size}

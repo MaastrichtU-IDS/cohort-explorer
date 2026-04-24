@@ -10,6 +10,7 @@ import CohortSummaryGraphs from '@/components/CohortSummaryGraphs';
 import GenderPieChart from '@/components/GenderPieChart';
 import AgeDistributionBar from '@/components/AgeDistributionBar';
 import AgeRangeWhisker from '@/components/AgeRangeWhisker';
+import {Users} from 'react-feather';
 import {parseSearchQuery, searchInObject, highlightSearchTerms} from '@/utils/search';
 import {apiUrl} from '@/utils';
 
@@ -935,12 +936,14 @@ export default function CohortsList() {
                     leading token, which in practice is the count. Placed
                     immediately before the gender/age mini-graphs so the
                     three demographic summaries sit together on the left.
-                    Rendered as badge-lg with a group-of-people emoji so the
-                    participant count stands out more than the other tags.
+                    Icon is react-feather's Users (3 silhouettes) instead of
+                    an emoji to avoid font-dependent rendering -- the 👪
+                    glyph fell back to a missing-char box on some systems.
                   */}
                   {cohortData.study_participants && cohortData.study_participants.trim() !== '' && cohortData.study_participants.trim() !== '0' && (
-                    <span className="badge badge-ghost badge-lg mx-1 font-semibold">
-                      � {cohortData.study_participants.trim().split(/\s+/)[0]}
+                    <span className="badge badge-ghost mx-1 inline-flex items-center gap-1">
+                      <Users size={12} strokeWidth={2.25} />
+                      {cohortData.study_participants.trim().split(/\s+/)[0]}
                     </span>
                   )}
                   {/* Sex distribution moved to More Details section */}
@@ -948,20 +951,46 @@ export default function CohortsList() {
                     <span className="badge badge-default mx-1">⏱️ {cohortData.study_duration}</span>
                   )}
                   {/* Completed/Ongoing tags removed; status still available in More Details */}
-                  {/* Gender distribution pie chart */}
-                  <GenderPieChart 
-                    malePercentage={cohortData.male_percentage}
-                    femalePercentage={cohortData.female_percentage}
-                    size={24}
-                  />
-                  {/* Age range mini-axis whisker, driven by the raw
-                      "age group inclusion criterion" spreadsheet column. */}
-                  <AgeRangeWhisker ageRangeRaw={(cohortData as any).age_group_inclusion} />
-                  {/* Legacy bucketed age-distribution bar (only renders when
-                      age_distribution buckets are populated). */}
-                  <AgeDistributionBar 
-                    ageDistribution={cohortData.age_distribution}
-                  />
+                  {/*
+                    Gender + age demographic glyphs grouped into one hover
+                    region. The combined tooltip shows whichever of the two
+                    fields are available (parsed gender percentages and the
+                    raw "age group inclusion criterion" spreadsheet string),
+                    so users get both demographic summaries at once without
+                    having to aim precisely at one glyph or the other.
+                  */}
+                  {(() => {
+                    const genderKnown = cohortData.male_percentage !== null && cohortData.female_percentage !== null;
+                    const ageRaw = (cohortData as any).age_group_inclusion as string | undefined;
+                    const ageKnown = !!ageRaw && ageRaw.trim() !== '' && ageRaw.trim().toLowerCase() !== 'not applicable';
+                    if (!genderKnown && !ageKnown && (!cohortData.age_distribution || Object.keys(cohortData.age_distribution).length === 0)) {
+                      return null;
+                    }
+                    const tooltipLines: string[] = [];
+                    if (genderKnown) {
+                      tooltipLines.push(`Gender: Male ${cohortData.male_percentage}%, Female ${cohortData.female_percentage}%`);
+                    } else {
+                      tooltipLines.push('Gender: not reported');
+                    }
+                    if (ageKnown) {
+                      tooltipLines.push(`Age range: ${(ageRaw as string).trim()}`);
+                    } else {
+                      tooltipLines.push('Age range: not reported');
+                    }
+                    return (
+                      <div className="inline-flex items-center gap-1" title={tooltipLines.join('\n')}>
+                        <GenderPieChart
+                          malePercentage={cohortData.male_percentage}
+                          femalePercentage={cohortData.female_percentage}
+                          size={24}
+                        />
+                        <AgeRangeWhisker ageRangeRaw={ageRaw} />
+                        <AgeDistributionBar
+                          ageDistribution={cohortData.age_distribution}
+                        />
+                      </div>
+                    );
+                  })()}
                   {/* Display aggregate data analysis tag if available */}
                   {analysisAvailability[cohortData.cohort_id] && (
                     <span className="badge mx-1" style={{ backgroundColor: '#dbeafe', color: '#1e3a8a', border: '1px solid #bfdbfe' }}>
