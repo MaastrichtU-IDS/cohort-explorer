@@ -978,7 +978,14 @@ export default function CohortsList() {
                       tooltipLines.push('Age range: not reported');
                     }
                     return (
-                      <div className="inline-flex items-center gap-1" title={tooltipLines.join('\n')}>
+                      // `relative z-10` lifts this wrapper above the
+                      // absolutely-positioned DaisyUI `collapse-checkbox`
+                      // (sibling of collapse-title). Without it the checkbox
+                      // is the topmost hover target and swallows the title
+                      // tooltip; raising the wrapper restores hover while
+                      // clicks still bubble up to collapse-title's onClick
+                      // so expand/collapse continues to work.
+                      <div className="inline-flex items-center gap-1 relative z-10" title={tooltipLines.join('\n')}>
                         <GenderPieChart
                           malePercentage={cohortData.male_percentage}
                           femalePercentage={cohortData.female_percentage}
