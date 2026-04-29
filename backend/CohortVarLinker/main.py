@@ -7,23 +7,20 @@ import os
 import glob
 import time
 import json
-from CohortVarLinker.src.variables_kg import process_variables_metadata_file
-from CohortVarLinker.src.study_kg import generate_studies_kg
-from CohortVarLinker.src.vector_db import generate_studies_embeddings
-from CohortVarLinker.src.utils import (
+from CohortVarLinker.updated_CohortVarLinker.variables_kg import process_variables_metadata_file
+from CohortVarLinker.updated_CohortVarLinker.study_kg import generate_studies_kg
+from CohortVarLinker.updated_CohortVarLinker.vector_db import generate_studies_embeddings
+from CohortVarLinker.updated_CohortVarLinker.utils import (
         get_cohort_mapping_uri,
         delete_existing_triples,
         publish_graph_to_endpoint,
         OntologyNamespaces,
-        get_member_studies
-    
+        get_member_studies,
     )
-from CohortVarLinker.src.modes import MappingType, EmbeddingType 
-from CohortVarLinker.src.omop_graph_nx import OmopGraphNX
-
-
-
-from CohortVarLinker.src.fetch import map_source_target
+from CohortVarLinker.updated_CohortVarLinker.data_model import MappingType, EmbeddingType
+from CohortVarLinker.updated_CohortVarLinker.omop_graph_nx import OmopGraphNX
+from CohortVarLinker.updated_CohortVarLinker.run import StudyMapper
+from CohortVarLinker.updated_CohortVarLinker.config import settings
 
 
 def create_study_metadata_graph(file_path, recreate=False):
@@ -610,24 +607,39 @@ def generate_mapping_csv(
     print(f"Final target studies: {target_studies}")
     # min_score_list = [0.5,0.6,0.65,0.7, 0.75, 0.8, 0.85, 0.9]
     # vector_db, embedding_model = generate_studies_embeddings(cohort_file_path, "qdrant", f"studies_metadata_{model_name}", model_name=model_name, recreate_db=True)
-    vector_db, embedding_model = generate_studies_embeddings(cohort_file_path, "qdrant", f"studies_metadata_{model_name}_{embedding_mode}", model_name=model_name, embedding_mode=embedding_mode, recreate_db=True)
+    collection_name = f"studies_metadata_{model_name}_{embedding_mode}"
+    vector_db, embedding_model = generate_studies_embeddings(
+        cohort_file_path, "qdrant", collection_name,
+        model_name=model_name, embedding_mode=embedding_mode, recreate_db=True,
+    )
 
     graph = OmopGraphNX(csv_file_path=settings.concepts_file_path)
+
+    # Instantiate the StudyMapper once — it reuses vector_db, embedding model,
+    # and OMOP graph across every target study. LLM adjudication is gated on
+    # settings.llm_models (driven by MAPPING_LLM_MODELS env var); empty means
+    # purely embedding + graph + constraint-solver, no LLM / API keys required.
+    study_mapper = StudyMapper(
+        vector_db=vector_db,
+        embedding_model=embedding_model,
+        omop_graph=graph,
+        vector_collection=collection_name,
+        mapping_mode=mapping_mode,
+        llm_models=settings.llm_models or None,
+    )
+
     for tstudy in target_studies:
         out_filename = f'{source_study}_{tstudy}_cross_mapping.csv'
         out_path = os.path.join(output_dir, out_filename)
         if os.path.exists(out_path):
             print(f"Mapping already exists for {source_study} to {tstudy}, skipping computation.")
             continue
-        mapping_transformed = map_source_target(
-            source_study_name=source_study,
-            target_study_name=tstudy,
-            embedding_model=embedding_model,
-            vector_db=vector_db,
-            collection_name=f"studies_metadata_{model_name}",
-            graph=graph,
-        ) # if empty it will return empty DataFrame with header not None
-    
+        mapping_transformed = study_mapper.run_pipeline(
+            src_study=source_study,
+            tgt_study=tstudy,
+            mapping_mode=mapping_mode,
+        )  # returns empty DataFrame (with header) if no matches found
+
         if mapping_transformed is None or mapping_transformed.empty:
             # If possible, preserve the expected columns
             columns = getattr(mapping_transformed, 'columns', None)

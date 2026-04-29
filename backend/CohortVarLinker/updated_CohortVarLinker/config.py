@@ -1,77 +1,144 @@
-from dataclasses import dataclass, field
-from typing import List, Set, Dict, Any
+"""Configuration for the CohortVarLinker mapping pipeline.
+
+Follows the same .env-driven conventions as `backend/src/config.py` and the
+legacy `backend/CohortVarLinker/src/config.py`, so folder paths (data_folder,
+cohort_folder, output_dir) stay consistent across the whole app.
+
+All LLM adjudication is gated on MAPPING_LLM_MODELS being non-empty; with the
+default (empty) it never calls an LLM, so missing API keys are harmless.
+"""
 import os
+from dataclasses import dataclass, field
+from typing import List, Set
+
 from dotenv import load_dotenv
 
+# Load root .env (same pattern as backend/src/config.py).
+load_dotenv(".env")
 
-load_dotenv()  # reads .env into os.environ
-@dataclass(frozen=True)
+
+def _default_data_folder() -> str:
+    """Match legacy cvl_src/config.py: DATA_FOLDER env, else an abs path
+    derived from this file's location."""
+    return os.getenv(
+        "DATA_FOLDER",
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../data")),
+    )
+
+
+def _get_output_dir() -> str:
+    """Resolve the mapping-output directory using the same resolution order as
+    the legacy cvl_src/config.py:
+
+      1. MAPPING_OUTPUT_DIR env var (if set and exists)
+      2. Docker production path /app/CohortVarLinker/data/mapping_output
+      3. ../data/mapping_output relative to this file (local dev)
+    """
+    env_dir = os.getenv("MAPPING_OUTPUT_DIR")
+    if env_dir and os.path.exists(env_dir):
+        return env_dir
+
+    docker_path = "/app/CohortVarLinker/data/mapping_output"
+    if os.path.exists(docker_path):
+        return docker_path
+
+    relative_path = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "../data/mapping_output")
+    )
+    return relative_path
+
+
+@dataclass
 class Settings:
-    # Thresholds
-    SIMILARITY_THRESHOLD: float = 0.8 # lower threshold and apply adaptive gate
-    ADAPTIVE_THRESHOLD: float = 0.45 # minimum score for adaptive retrival from vector db
-    LIMIT: int = 5 # limit for adaptive retrival from vector db
-        # Text hints for logic
-    DATE_HINTS: List[str] = field(default_factory=lambda: ["visit date", "date of visit", "date of event", "event date"])
-    TOGETHER_API_KEY: str = field(default_factory=lambda: os.getenv("TOGETHER_API_KEY"))   
-    # FIREWORKS_API_KEY: str = field(default_factory=lambda: os.getenv("FIREWORKS_API_KEY"))
-    OPENROUTER_API_KEY: str = field(default_factory=lambda: os.getenv("OPENROUTER_API_KEY"))
-    OLLAMA_URL = "localhost:11434"
+    # ------------------------------------------------------------------ #
+    # Matching / thresholds
+    # ------------------------------------------------------------------ #
+    SIMILARITY_THRESHOLD: float = 0.8
+    ADAPTIVE_THRESHOLD: float = 0.45
+    LIMIT: int = 5
+    DEFAULT_GRAPH_DEPTH: int = 1
+
+    DATE_HINTS: List[str] = field(default_factory=lambda: [
+        "visit date", "date of visit", "date of event", "event date",
+    ])
     CROSS_CATS: Set[str] = field(default_factory=lambda: {
-        "measurement", "observation", "condition_occurrence", 
-        "condition_era", "observation_period"
+        "measurement", "observation", "condition_occurrence",
+        "condition_era", "observation_period",
     })
+    DATA_DOMAINS: List[str] = field(default_factory=lambda: [
+        "drug_exposure", "condition_occurrence", "condition_era", "observation",
+        "observation_era", "measurement", "visit_occurrence",
+        "procedure_occurrence", "device_exposure", "person",
+    ])
+
+    # ------------------------------------------------------------------ #
+    # Embedding model (neural matcher)
+    # ------------------------------------------------------------------ #
+    EMBEDDING_MODEL_NAME: str = field(
+        default_factory=lambda: os.getenv("EMBEDDING_MODEL_NAME", "sapbert")
+    )
+    FULL_EMBEDDING_MODEL_NAME: str = "cambridgeltl/SapBERT-from-PubMedBERT-fulltext"
+    MODEL_CACHE_DIR: str = field(
+        default_factory=lambda: os.getenv("MODEL_CACHE_DIR", "../data/models")
+    )
+
+    # ------------------------------------------------------------------ #
+    # LLM adjudication (optional).
+    #
+    # All API keys default to empty strings. The LLM path is only invoked
+    # when MAPPING_LLM_MODELS is non-empty (see `llm_models` property), so
+    # with no configuration the pipeline runs purely embedding + graph +
+    # constraint-solver and never needs a valid key.
+    # ------------------------------------------------------------------ #
+    TOGETHER_API_KEY: str = field(default_factory=lambda: os.getenv("TOGETHER_API_KEY", ""))
+    OPENROUTER_API_KEY: str = field(default_factory=lambda: os.getenv("OPENROUTER_API_KEY", ""))
+    OPENAI_API_KEY: str = field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""))
+    GEMINI_API_KEY: str = field(default_factory=lambda: os.getenv("GEMINI_API_KEY", ""))
+    ANTHROPIC_API_KEY: str = field(default_factory=lambda: os.getenv("ANTHROPIC_API_KEY", ""))
+    OLLAMA_URL: str = field(default_factory=lambda: os.getenv("OLLAMA_URL", "localhost:11434"))
     LLM_CACHE_DIR: str = field(default_factory=lambda: os.getenv("LLM_CACHE_DIR", ".llm_cache"))
-    
-    DEFAULT_GRAPH_DEPTH: int = 1 # additional cross-vocabulary depth is automatically added for concepts across vocabularies, but this is the default depth for all concepts
-    
-    LOCAL_LLM_MODELS: List[str] = field(default_factory=lambda:  ["mistral:latest", "llama3.3:70b", "qwen2.5:72b"])
-    TOGETHER_LLM_MODELS: List[str] = field(default_factory=lambda:  [ "Qwen/Qwen3-Next-80B-A3B-Instruct", "openai/gpt-oss-120b","meta-llama/Llama-3.3-70B-Instruct-Turbo" , "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8"])
-    LARGE_LMs: List[str] = field(default_factory=lambda:  ["gemini-2.5-flash"]) # "gpt-4.1-2025-04-14",
-    
-    # External Resources
-    OPENAI_API_KEY: str = field(default_factory=lambda: os.getenv("OPENAI_API_KEY"))
-    GEMINI_API_KEY: str = field(default_factory=lambda: os.getenv("GEMINI_API_KEY"))
+
+    # Reference catalogues of known models (author-curated). Not env-driven
+    # because they are just "menus"; runtime selection is via MAPPING_LLM_MODELS.
+    LOCAL_LLM_MODELS: List[str] = field(default_factory=lambda: [
+        "mistral:latest", "llama3.3:70b", "qwen2.5:72b",
+    ])
+    TOGETHER_LLM_MODELS: List[str] = field(default_factory=lambda: [
+        "Qwen/Qwen3-Next-80B-A3B-Instruct",
+        "openai/gpt-oss-120b",
+        "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+        "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
+    ])
+    LARGE_LMs: List[str] = field(default_factory=lambda: ["gemini-2.5-flash"])
+
+    # ------------------------------------------------------------------ #
+    # Graph / ontology resources
+    # ------------------------------------------------------------------ #
     GRAPH_REPO: str = "https://w3id.org/CMEO/graph"
 
-    DATA_DOMAINS: List[str] = field(default_factory=lambda: ["drug_exposure","condition_occurrence","condition_era","observation","observation_era","measurement","visit_occurrence","procedure_occurrence","device_exposure","person"])
-    # Derived Variable Rules (Example)
-    DERIVED_VARIABLES_LIST: List[Dict[str, Any]] = field(default_factory=lambda: [
-    {
-        "name": "BMI",
-        "omop_id": 3038553,
-        "code": "loinc:39156-5",
-        "label": "Body mass index (BMI) [Ratio]",
-        "unit": "ucum:kg/m2",
-        "required_omops": [3016723, 3025315],  # Weight, Height
-        "category": "measurement",
-        "data_type": "continuous_variable"
-    },
-    {
-        "name": "eGFR_CG",
-        "omop_id": 37169169,
-        "code": "snomed:1556501000000100",
-        "label": "Estimated creatinine clearance calculated using actual body weight Cockcroft-Gault formula",
-        "unit": "ucum:ml/min",
-        "required_omops": [3025315, 3016723, 3022304, 46235213],  # Height, Weight, Creatinine, Age/Gender proxy
-        "category": "measurement",
-        "data_type": "continuous_variable"
-    }
-    # CKD-EPI is prioritized  over others, eGFR (CKD-EPI and MDRD)
-    ])
+    # ------------------------------------------------------------------ #
+    # Auth / admins (mirrors legacy cvl_src/config.py)
+    # ------------------------------------------------------------------ #
     admins: str = field(default_factory=lambda: os.getenv("ADMINS", ""))
+    scope: str = field(default_factory=lambda: os.getenv("SCOPE", "openid email"))
 
-    data_folder: str = field(default_factory=lambda: os.getenv("DATA_FOLDER", "./data"))
-    sparql_endpoint: str = field(default_factory=lambda: os.getenv("SPARQL_ENDPOINT", "http://localhost:7879"))
+    # ------------------------------------------------------------------ #
+    # Folders & endpoints — resolved identically to legacy cvl_src/config.py
+    # so that backend/src/mapping.py and the new pipeline read/write the
+    # same directories.
+    # ------------------------------------------------------------------ #
+    data_folder: str = field(default_factory=_default_data_folder)
+    cohort_folder: str = field(
+        default_factory=lambda: os.path.join(_default_data_folder(), "cohorts")
+    )
+    output_dir: str = field(default_factory=_get_output_dir)
 
-    EMBEDDING_MODEL_NAME: str = "sapbert"
-    FULL_EMBEDDING_MODEL_NAME: str = "cambridgeltl/SapBERT-from-PubMedBERT-fulltext"
-    MODEL_CACHE_DIR: str = "../data/models"
+    sparql_endpoint: str = field(
+        default_factory=lambda: os.getenv("SPARQL_ENDPOINT", "http://localhost:7878")
+    )
+
     @property
     def auth_audience(self) -> str:
-        # if self.dev_mode:
-        #     return "https://other-ihi-app"
-        # else:
         return "https://explorer.icare4cvd.eu"
 
     @property
@@ -82,26 +149,47 @@ class Settings:
     def update_endpoint(self) -> str:
         return f"{self.sparql_endpoint}/update"
 
-
     @property
     def admins_list(self) -> list[str]:
-        return self.admins.split(",")
+        return [e.strip() for e in self.admins.split(",") if e.strip()]
 
     @property
     def logs_filepath(self) -> str:
-        return os.path.join(self.data_folder, "../logs.log")
-    
+        return os.path.join(self.data_folder, "logs.log")
+
     @property
     def sqlite_db_filepath(self) -> str:
         return "vocab.db"
-    
+
     @property
     def vector_db_path(self) -> str:
-        # return  "komal.qdrant.137.120.31.148.nip.io"
-        return  "localhost"
+        """Qdrant host. Defaults to 'localhost' for dev; set VECTOR_DB_HOST=qdrant
+        (the docker-compose service name) in production."""
+        return os.getenv("VECTOR_DB_HOST", "localhost")
+
     @property
     def concepts_file_path(self) -> str:
-        # return  "komal.qdrant.137.120.31.148.nip.io"
-        return  "../data/concept_relationship_enriched.csv"
+        """Path to the OMOP concept_relationship CSV used by OmopGraphNX.
+
+        Overridable via CONCEPTS_FILE_PATH env var; otherwise defaults to
+        {data_folder}/concept_relationship_enriched.csv so it colocates with
+        cohort data under the standard /data mount.
+        """
+        explicit = os.getenv("CONCEPTS_FILE_PATH")
+        if explicit:
+            return explicit
+        return os.path.join(self.data_folder, "concept_relationship_enriched.csv")
+
+    @property
+    def llm_models(self) -> list[str]:
+        """Comma-separated list from MAPPING_LLM_MODELS (empty = LLM disabled).
+
+        Passed as the `llm_models` argument to `StudyMapper`. When empty the
+        new pipeline runs purely embedding + graph + constraint-solver with
+        no LLM calls, so API keys are never read.
+        """
+        raw = os.getenv("MAPPING_LLM_MODELS", "")
+        return [m.strip() for m in raw.split(",") if m.strip()]
+
 
 settings = Settings()

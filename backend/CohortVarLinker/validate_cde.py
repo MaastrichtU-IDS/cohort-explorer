@@ -319,22 +319,13 @@ def to_int_or_none(x: Optional[str]) -> Optional[int]:
     except Exception:
         return None
 
-def athena_headers() -> Dict[str, str]:
-    # Athena-Auth-Token = eyJhbGciOiJIUzI1NiJ9.eyIkaW50X3Blcm1zIjpbXSwic3ViIjoib3JnLnBhYzRqLnNhbWwucHJvZmlsZS5TQU1MMlByb2ZpbGUja29tYWwuZ2lsYW5pQG1hYXN0cmljaHR1bml2ZXJzaXR5Lm5sIiwibGFzdE5hbWUiOlsiR2lsYW5pIl0sImlzRnJvbU5ld0xvZ2luIjpbInRydWUiXSwiYXV0aGVudGljYXRpb25EYXRlIjpbIjIwMjUtMTEtMjVUMTU6MjE6NTQuODE3WltVVENdIl0sInN1Y2Nlc3NmdWxBdXRoZW50aWNhdGlvbkhhbmRsZXJzIjpbIkFyYWNobmUiXSwibm90QmVmb3JlIjp7fSwic2FtbEF1dGhlbnRpY2F0aW9uU3RhdGVtZW50QXV0aE1ldGhvZCI6WyJ1cm46b2FzaXM6bmFtZXM6dGM6U0FNTDoxLjA6YW06cGFzc3dvcmQiXSwiZmlyc3ROYW1lIjpbIktvbWFsIl0sImF1dGhlbnRpY2F0aW9uTWV0aG9kIjpbIkFyYWNobmUiXSwib3JnYW5pemF0aW9uIjpbIk1hYXN0cmljaHQgVW5pdmVyc2l0eSJdLCJub3RPbk9yQWZ0ZXIiOnt9LCIkaW50X3JvbGVzIjpbXSwibG9uZ1Rlcm1BdXRoZW50aWNhdGlvblJlcXVlc3RUb2tlblVzZWQiOlsiZmFsc2UiXSwiaWF0IjoxNzY0MDg0MTE3LCJzZXNzaW9uaW5kZXgiOiJfMjYyMTAyMTIzMTI2NjMxMzU0OCIsImVtYWlsIjoia29tYWwuZ2lsYW5pQG1hYXN0cmljaHR1bml2ZXJzaXR5Lm5sIn0.dA3ee3mxnJqP4bAVxOkpN_oIqhSqAf4hU2q_x2RjJNM
-    # return {
-    #     "User-Agent": (
-    #         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    #         "AppleWebKit/537.36 (KHTML, like Gecko) "
-    #         "Chrome/124.0.0.0 Safari/537.36"
-    #     ),
-    #     "Accept": "application/json",
-    #     "Referer": "https://athena.ohdsi.org/"    
-    # }
-     return { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"
-            },
+# Spoof a desktop-browser User-Agent because Athena returns 403 to default
+# python-requests UAs.
+_ATHENA_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"
+}
 
-                # We need to fake the user agent to avoid a 403 error. What a bunch of douchebags, and incompetent with this! Try again losers!
-            
+
 def fetch_athena(label: str, vocabularies: List[str], include_classification: bool = True) -> List[Dict[str, Any]]:
     """
     Query Athena for a given code/label within one or more vocabularies.
@@ -369,10 +360,7 @@ def fetch_athena(label: str, vocabularies: List[str], include_classification: bo
         r = requests.get(
             ATHENA_ENDPOINT,
             params=params,
-            headers={
-                # We need to fake the user agent to avoid a 403 error. What a bunch of douchebags, and incompetent with this! Try again losers!
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"
-            },
+            headers=_ATHENA_HEADERS,
             timeout=TIMEOUT,
         )
         r.raise_for_status()

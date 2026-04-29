@@ -18,6 +18,7 @@ from .data_model import (
     MappingType, VariableNode, StatisticalType, 
     ContextMatchType,
 )
+from .derived_variables import DERIVED_VARIABLES
 from .vector_db import search_category_by_id, search_in_db, _embed_cache,  _cache_key
 from .fuzz_match import FuzzyMatcher
 from .graph_similarity import (
@@ -512,7 +513,7 @@ class NeuroSymbolicMatcher:
                 "target": [n.to_element_dict("target") for n in tgt_collection.variables],
                 "mapped": final_matches,
             }
-            for derived_def in settings.DERIVED_VARIABLES_LIST:
+            for derived_def in DERIVED_VARIABLES:
                 derived_match = self._extend_with_derived_variables(
                     single_source=single_source_context,
                     standard_derived_variable=(
