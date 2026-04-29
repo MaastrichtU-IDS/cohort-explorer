@@ -659,7 +659,10 @@ async def get_compute_dcr_definition(
             should_include_shuffled = include_shuffled_samples.get(cohort_id, False)
         elif include_shuffled_samples:
             should_include_shuffled = True
-            
+
+        # Track whether a shuffled sample data node was actually created for this cohort.
+        # Used later to decide whether to add the "test-visualize-shuffled-sample-of-..." compute node.
+        shuffled_node_added = False
         if should_include_shuffled:
             storage_dir = os.path.join(settings.data_folder, f"dcr_output_{cohort_id}")
             shuffled_csv = os.path.join(storage_dir, "shuffled_sample.csv")
@@ -672,6 +675,7 @@ async def get_compute_dcr_definition(
                 builder.add_node_definition(
                     RawDataNodeDefinition(name=shuffled_node_id, is_required=False)
                 )
+                shuffled_node_added = True
                 
                 # Add data owners for shuffled sample node (participants already have base nodes from build_dcr_participants)
                 # Add requester as data owner
@@ -781,18 +785,54 @@ async def get_compute_dcr_definition(
         else:
             logging.info(f"Skipping airlock nodes for {cohort_id} (airlock disabled)")
         
-        # Add a visualization script that reads the raw cohort data
-        visualization_node_name = f"visualize-data-{cohort_id}"
-        # Get variable names from the cohort for documentation in the script
+        # Get variable names from the cohort for documentation in the visualization scripts
         cohort_var_names = list(cohort.variables.keys()) if hasattr(cohort, 'variables') and cohort.variables else None
-        
+
+        # If a shuffled sample data node was provisioned for this cohort, add a
+        # dedicated visualization script that defaults to the shuffled sample.
+        # This is added BEFORE the full-dataset visualization script so it appears
+        # at the top of the cohort's compute scripts list.
+        if shuffled_node_added:
+            shuffled_viz_node_name = f"test-visualize-shuffled-sample-of-{cohort_id}"
+            shuffled_viz_dependencies = [shuffled_node_id, metadata_node_id]
+            shuffled_viz_script = visualization_script(
+                fragment_node_name,
+                cohort_id,
+                cohort_var_names,
+                mapping_files_for_viz,
+                include_mapping_upload_slot,
+                data_source="shuffled",
+            )
+            builder.add_node_definition(
+                PythonComputeNodeDefinition(
+                    name=shuffled_viz_node_name,
+                    script=shuffled_viz_script,
+                    dependencies=shuffled_viz_dependencies,
+                )
+            )
+            # All participants can run the shuffled-sample visualization
+            for p_email in participants:
+                participants[p_email]["analyst_of"].add(shuffled_viz_node_name)
+            logging.info(f"Added shuffled-sample visualization node: {shuffled_viz_node_name}")
+
+        # Add a visualization script that reads the FULL cohort dataset (the original
+        # unprocessed data). The node name makes the data source explicit.
+        visualization_node_name = f"visualize-full-dataset-of-{cohort_id}"
+
         # Visualization script dependencies depend on whether airlock is enabled
         if fragment_node_name:
             viz_dependencies = [data_node_id, metadata_node_id, fragment_node_name]
         else:
             viz_dependencies = [data_node_id, metadata_node_id]
-        
-        viz_script = visualization_script(fragment_node_name, cohort_id, cohort_var_names, mapping_files_for_viz, include_mapping_upload_slot)
+
+        viz_script = visualization_script(
+            fragment_node_name,
+            cohort_id,
+            cohort_var_names,
+            mapping_files_for_viz,
+            include_mapping_upload_slot,
+            data_source="full",
+        )
         builder.add_node_definition(
             PythonComputeNodeDefinition(
                 name=visualization_node_name,

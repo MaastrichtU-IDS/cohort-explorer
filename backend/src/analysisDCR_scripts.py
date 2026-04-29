@@ -300,25 +300,36 @@ with open(log_file, "a") as log:
 """
 
 
-def visualization_script(fragment_node_name: str, cohort_id: str, variable_names: list[str] = None, mapping_files: list[dict] = None, include_mapping_upload_slot: bool = False) -> str:
+def visualization_script(
+    fragment_node_name: str,
+    cohort_id: str,
+    variable_names: list[str] = None,
+    mapping_files: list[dict] = None,
+    include_mapping_upload_slot: bool = False,
+    data_source: str = "full",
+) -> str:
     """Generate the data visualization script.
-    
+
     This script:
-    - Reads the full cohort data (or preview/shuffled sample)
-    - Selects 5 random columns (or user-specified columns)
+    - Reads the selected data source (full dataset, airlock sample, or shuffled sample)
+    - Selects user-specified columns
     - Creates histograms for numeric data and bar charts for categorical data
     - Saves visualization to PNG
     - Includes commented section with mapping file paths and instructions
-    
+
     Args:
-        fragment_node_name: Name of the data fragment node to read data from
-        cohort_id: The cohort identifier (used to locate the data CSV file)
-        variable_names: Optional list of variable names from the cohort (for documentation)
-        mapping_files: Optional list of mapping file info dicts with 'node_name' keys
-        include_mapping_upload_slot: Whether a CrossStudyMappings upload slot is included
-        
+        fragment_node_name: Name of the data fragment node (None if no airlock).
+        cohort_id: The cohort identifier (used to locate the data CSV file).
+        variable_names: Optional list of variable names from the cohort.
+        mapping_files: Optional list of mapping file info dicts with 'node_name' keys.
+        include_mapping_upload_slot: Whether a CrossStudyMappings upload slot is included.
+        data_source: Which data source to select by default. One of:
+            - "full"     : the full dataset (original cohort data) [default]
+            - "shuffled" : the shuffled sample
+            - "airlock"  : the airlock sample
+
     Returns:
-        The Python script as a string
+        The Python script as a string.
     """
     # Generate the list of available variables (first 20, one per line for easy editing)
     if variable_names:
@@ -326,6 +337,30 @@ def visualization_script(fragment_node_name: str, cohort_id: str, variable_names
         vars_list = ",\n    ".join(f'"{v}"' for v in vars_sample)
     else:
         vars_list = '"var1", "var2", "var3"  # (variable list not available)'
+
+    # Normalise data_source and demote "airlock" to "full" if there is no airlock node
+    if data_source not in ("full", "shuffled", "airlock"):
+        data_source = "full"
+    has_airlock = bool(fragment_node_name)
+    if data_source == "airlock" and not has_airlock:
+        data_source = "full"
+
+    # "" => uncommented (selected) ; "# " => commented (not selected)
+    p_full = "" if data_source == "full" else "# "
+    p_shuf = "" if data_source == "shuffled" else "# "
+    p_air = "" if data_source == "airlock" else "# "
+
+    if has_airlock:
+        airlock_block = (
+            f'# Option 2: Airlock sample - only the airlocked subset (e.g., 20%) of the processed data\n'
+            f'{p_air}DATA_FILE = "/input/preview-airlock-{cohort_id}/{cohort_id}_data_fragment.csv"\n'
+            f'{p_air}DATA_SOURCE_NAME = "airlock sample"\n'
+        )
+    else:
+        airlock_block = (
+            "# Option 2: Airlock sample - (no airlock node was provisioned for this cohort)\n"
+        )
+
     return f"""
 ###############################################################################
 # USER-CONFIGURABLE SECTION
@@ -334,16 +369,18 @@ def visualization_script(fragment_node_name: str, cohort_id: str, variable_names
 
 # DATA SOURCE
 # -----------
-# Choose which data source to visualize by uncommenting ONE of the options below:
+# Choose which data source to visualize by uncommenting ONE of the options below.
+# DATA_SOURCE_NAME is shown on each chart so it is always clear which data
+# source the visualization is based on.
 #
-# Option 1: Raw cohort data (default) - the original unprocessed dataset
-DATA_FILE = "/input/{cohort_id}"
+# Option 1: Full dataset - the original unprocessed cohort dataset
+{p_full}DATA_FILE = "/input/{cohort_id}"
+{p_full}DATA_SOURCE_NAME = "full dataset"
 #
-# Option 2: Preview/Airlock sample - only the airlocked subset (e.g., 20%) of the processed data
-# DATA_FILE = "/input/preview-airlock-{cohort_id}/{cohort_id}_data_fragment.csv"
-#
+{airlock_block}#
 # Option 3: Shuffled sample - synthetic/shuffled data for testing
-# DATA_FILE = "/input/{cohort_id}_shuffled_sample"
+{p_shuf}DATA_FILE = "/input/{cohort_id}_shuffled_sample"
+{p_shuf}DATA_SOURCE_NAME = "shuffled sample"
 
 # VARIABLE SELECTION
 # ------------------
@@ -389,33 +426,54 @@ HISTOGRAM_BINS = 30
 MAX_CATEGORIES = 20
 
 
-# Read the data from the selected source
-df = load_data(DATA_FILE)
+# Read the data from the selected source.
+# If the data source is not available (e.g. it has not been provisioned for this DCR,
+# or the user is in Development Mode and has not selected the corresponding data
+# source from the rightside drop-down menu), surface a clear, actionable error.
+try:
+    df = load_data(DATA_FILE)
+except Exception as e:
+    raise FileNotFoundError(
+        'Data source: "' + DATA_SOURCE_NAME + '" was not found. '
+        'Please check that it has been provisioned. '
+        'If you are in "Development Mode", please check that you have selected it '
+        'from the rightside drop-down menu.'
+    ) from e
 
 # Log basic info
 log_file = os.path.join(output_dir, "visualization_log.txt")
 with open(log_file, "w") as log:
-    log.write("Data source: {{}}\\n".format(DATA_FILE))
+    log.write("Data source name: {{}}\\n".format(DATA_SOURCE_NAME))
+    log.write("Data source file: {{}}\\n".format(DATA_FILE))
     log.write("Loaded data: {{}} rows, {{}} columns\\n".format(len(df), len(df.columns)))
     log.write("Columns: {{}}\\n\\n".format(list(df.columns)))
 
-# Try to load metadata dictionary to identify categorical variables
+# Try to load metadata dictionary to identify categorical variables and variable descriptions
 categorical_vars = set()
+# Map of lowercase variable name -> variable description (var label) from the metadata dictionary
+var_descriptions = {{}}
 try:
     metadata_df = pd.read_csv("/input/{cohort_id}_metadata_dictionary")
     metadata_df.columns = metadata_df.columns.str.strip().str.upper()
     # Find the variable name column
     varname_col = next((c for c in metadata_df.columns if c in ['VARIABLE NAME', 'VARIABLENAME', 'VAR NAME', 'VAR_NAME']), None)
+    # Find the variable label/description column (optional)
+    varlabel_col = next((c for c in metadata_df.columns if c in ['VARIABLE LABEL', 'VARIABLELABEL', 'VAR LABEL', 'VAR_LABEL']), None)
     # Categorical column is always named CATEGORICAL (columns already uppercased)
     if varname_col:
         for _, row in metadata_df.iterrows():
             var_name = str(row[varname_col]).strip()
-            cat_value = str(row['CATEGORICAL']).strip() if pd.notna(row['CATEGORICAL']) else ''
+            cat_value = str(row['CATEGORICAL']).strip() if 'CATEGORICAL' in metadata_df.columns and pd.notna(row['CATEGORICAL']) else ''
             # If categorical field has any non-empty value, treat as categorical
             if cat_value and cat_value.lower() not in ['', 'nan', 'none', 'n/a']:
                 categorical_vars.add(var_name)
+            # Capture the variable description (label), if available
+            if varlabel_col and pd.notna(row[varlabel_col]):
+                desc = str(row[varlabel_col]).strip()
+                if desc and desc.lower() not in ['', 'nan', 'none', 'n/a']:
+                    var_descriptions[var_name.lower().strip()] = desc
         with open(log_file, "a") as log:
-            log.write("Loaded metadata: {{}} categorical variables identified\\n\\n".format(len(categorical_vars)))
+            log.write("Loaded metadata: {{}} categorical variables identified, {{}} descriptions captured\\n\\n".format(len(categorical_vars), len(var_descriptions)))
 except Exception as e:
     with open(log_file, "a") as log:
         log.write("Could not load metadata dictionary: {{}}\\n\\n".format(e))
@@ -494,13 +552,34 @@ for col in selected_columns:
     is_binary = len(unique_vals) <= 2 and set(unique_vals).issubset({{0, 1, 0.0, 1.0}})
     is_categorical_in_metadata = col.lower().strip() in {{v.lower().strip() for v in categorical_vars}}
     
+    # Look up the variable description (var_label) from the metadata dictionary so
+    # it can be shown alongside the variable name in the chart title.
+    var_description = var_descriptions.get(col.lower().strip(), '')
+    # Truncate over-long descriptions so the title remains readable.
+    if var_description and len(var_description) > 120:
+        var_description_display = var_description[:117] + '...'
+    else:
+        var_description_display = var_description
+
+    def _build_title(chart_type_label):
+        # Title layout:
+        #   Distribution of <var_name> (<chart_type>)
+        #   <variable description from metadata>
+        #   Data source: <DATA_SOURCE_NAME>
+        lines = ['Distribution of {{}} ({{}})'.format(col, chart_type_label)]
+        if var_description_display:
+            lines.append(var_description_display)
+        lines.append('Data source: {{}}'.format(DATA_SOURCE_NAME))
+        return '\\n'.join(lines)
+
     if pd.api.types.is_numeric_dtype(col_data) and not is_binary and not is_categorical_in_metadata:
         # Histogram for numeric data
-        ax.hist(col_data, bins=HISTOGRAM_BINS, edgecolor='black', alpha=0.7)
+        ax.hist(col_data, bins=HISTOGRAM_BINS, edgecolor='black', alpha=0.7,
+                label='Data source: {{}}'.format(DATA_SOURCE_NAME))
         ax.set_xlabel(col)
         ax.set_ylabel('Frequency')
-        ax.set_title('Distribution of {{}} (Numeric)'.format(col))
-        
+        ax.set_title(_build_title('Numeric'))
+
         # Add statistics
         mean_val = col_data.mean()
         median_val = col_data.median()
@@ -508,18 +587,20 @@ for col in selected_columns:
         ax.axvline(mean_val, color='red', linestyle='--', label='Mean: {{:.2f}}'.format(mean_val))
         ax.axvline(median_val, color='green', linestyle='--', label='Median: {{:.2f}}'.format(median_val))
         ax.legend()
-        
+
         with open(log_file, "a") as log:
             log.write("  Mean: {{:.4f}}, Median: {{:.4f}}, Std: {{:.4f}}\\n".format(mean_val, median_val, std_val))
     else:
         # Bar chart for categorical/binary data
         value_counts = col_data.value_counts().head(MAX_CATEGORIES)
-        ax.barh(range(len(value_counts)), value_counts.values)
+        ax.barh(range(len(value_counts)), value_counts.values,
+                label='Data source: {{}}'.format(DATA_SOURCE_NAME))
         ax.set_yticks(range(len(value_counts)))
         ax.set_yticklabels([str(v)[:30] for v in value_counts.index])  # Truncate long labels
         ax.set_xlabel('Count')
         chart_type = 'Binary' if is_binary else ('Categorical' if is_categorical_in_metadata else 'Categorical, top {{}}'.format(MAX_CATEGORIES))
-        ax.set_title('Distribution of {{}} ({{}})'.format(col, chart_type))
+        ax.set_title(_build_title(chart_type))
+        ax.legend()
         
         with open(log_file, "a") as log:
             log.write("  Unique values: {{}}\\n".format(df[col].nunique()))

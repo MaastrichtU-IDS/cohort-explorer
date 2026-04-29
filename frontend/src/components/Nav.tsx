@@ -34,7 +34,10 @@ export function Nav() {
   const [airlockSettings, setAirlockSettings] = useState<Record<string, boolean>>({});
   const [participantsPreview, setParticipantsPreview] = useState<any>(null);
   const [loadingParticipants, setLoadingParticipants] = useState(false);
-  const [excludedDataOwners, setExcludedDataOwners] = useState<string[]>([]);
+  // Track owners the user has explicitly opted back in. By default ALL data
+  // owners are excluded (boxes unchecked). To include one, the user checks
+  // the box; that adds the email to manuallyIncludedOwners.
+  const [manuallyIncludedOwners, setManuallyIncludedOwners] = useState<string[]>([]);
   const [dcrName, setDcrName] = useState('');
   // True once the user has explicitly edited the DCR name: prevents our
   // "update default on cohort change" effect from overwriting their choice.
@@ -496,7 +499,7 @@ export function Nav() {
     setDcrName('');
     setDcrNameCustomized(false);
     setIsEditingDcrName(false);
-    setExcludedDataOwners([]);
+    setManuallyIncludedOwners([]);
     setAvailableMappingFiles([]);
     setSelectedMappingFiles({});
     setIncludeMappingUploadSlot(false);
@@ -668,6 +671,14 @@ export function Nav() {
     }
     return [];
   }, [participantsPreview]);
+
+  // Derive the list of excluded data owners. By default ALL data owners are
+  // excluded; the user can opt them back in via the participants modal which
+  // adds them to manuallyIncludedOwners.
+  const excludedDataOwners = useMemo(
+    () => dataOwners.map(o => o.email).filter(e => !manuallyIncludedOwners.includes(e)),
+    [dataOwners, manuallyIncludedOwners]
+  );
 
   return (
     <div className="navbar bg-base-300 min-h-14 h-14 p-0">
@@ -1206,8 +1217,8 @@ export function Nav() {
           setNewAnalystEmail={setNewAnalystEmail}
           addAnalyst={addAnalyst}
           removeAnalyst={removeAnalyst}
-          excludedDataOwners={excludedDataOwners}
-          setExcludedDataOwners={setExcludedDataOwners}
+          manuallyIncludedOwners={manuallyIncludedOwners}
+          setManuallyIncludedOwners={setManuallyIncludedOwners}
           onClose={() => setShowParticipantsModal(false)}
           isLoading={loadingParticipants}
         />
@@ -1308,8 +1319,8 @@ const ParticipantsModal = React.memo(({
   setNewAnalystEmail,
   addAnalyst,
   removeAnalyst,
-  excludedDataOwners,
-  setExcludedDataOwners,
+  manuallyIncludedOwners,
+  setManuallyIncludedOwners,
   onClose,
   isLoading
 }: {
@@ -1320,16 +1331,19 @@ const ParticipantsModal = React.memo(({
   setNewAnalystEmail: (email: string) => void;
   addAnalyst: () => void;
   removeAnalyst: (email: string) => void;
-  excludedDataOwners: string[];
-  setExcludedDataOwners: (emails: string[]) => void;
+  manuallyIncludedOwners: string[];
+  setManuallyIncludedOwners: (emails: string[]) => void;
   onClose: () => void;
   isLoading: boolean;
 }) => {
+  // By default a data owner is EXCLUDED. They are only included when the
+  // user explicitly opts them in (checks the box).
+  const isExcluded = (email: string) => !manuallyIncludedOwners.includes(email);
   const toggleDataOwner = (email: string) => {
-    if (excludedDataOwners.includes(email)) {
-      setExcludedDataOwners(excludedDataOwners.filter(e => e !== email));
+    if (manuallyIncludedOwners.includes(email)) {
+      setManuallyIncludedOwners(manuallyIncludedOwners.filter(e => e !== email));
     } else {
-      setExcludedDataOwners([...excludedDataOwners, email]);
+      setManuallyIncludedOwners([...manuallyIncludedOwners, email]);
     }
   };
   return (
@@ -1355,15 +1369,15 @@ const ParticipantsModal = React.memo(({
               </div>
             ) : (
               dataOwners.map((owner) => (
-                <div key={owner.email} className={`p-3 rounded-lg mb-2 flex items-start gap-3 ${excludedDataOwners.includes(owner.email) ? 'bg-base-200 opacity-50' : 'bg-base-200'}`}>
+                <div key={owner.email} className={`p-3 rounded-lg mb-2 flex items-start gap-3 ${isExcluded(owner.email) ? 'bg-base-200 opacity-50' : 'bg-base-200'}`}>
                   <input
                     type="checkbox"
-                    checked={!excludedDataOwners.includes(owner.email)}
+                    checked={!isExcluded(owner.email)}
                     onChange={() => toggleDataOwner(owner.email)}
                     className="checkbox checkbox-primary mt-1"
                   />
                   <div className="flex-1">
-                    <p className={`font-semibold ${excludedDataOwners.includes(owner.email) ? 'line-through' : ''}`}>
+                    <p className={`font-semibold ${isExcluded(owner.email) ? 'line-through' : ''}`}>
                       {owner.email}
                       {owner.email === userEmail && <span className="ml-2 text-xs badge badge-primary">You</span>}
                     </p>
