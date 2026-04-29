@@ -495,7 +495,7 @@ def generate_mapping_csv(
         target_studies (list of tuple): Each tuple is (target_study_name, visit_constraint_bool).
         data_dir (str, optional): Directory containing data files. Defaults to the 'data' folder inside CohortVarLinker.
         cohort_file_path (str, optional): Path to the cohorts directory. Defaults to settings.cohort_folder.
-        cohorts_metadata_file (str, optional): Path to the cohort metadata file. Defaults to f"{data_dir}/cohort_metadata_sheet_v2.csv".
+        cohorts_metadata_file (str, optional): Path to the cohort metadata Excel file (must contain a 'Descriptions' sheet). Defaults to settings.data_folder + '/iCARE4CVD_Cohorts.xlsx' — the file uploaded via the admin endpoint.
         output_dir (str, optional): Directory to store output mapping CSVs. Defaults to settings.output_dir (CohortVarLinker/data/mapping_output).
     
     Returns:
@@ -504,7 +504,6 @@ def generate_mapping_csv(
 
     if data_dir is None:
         data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
-    from CohortVarLinker.src.config import settings
     if cohort_file_path is None:
         cohort_file_path = settings.cohort_folder
     # Robust check: ensure all selected cohorts exist
@@ -530,7 +529,10 @@ def generate_mapping_csv(
             message = f"The metadata of the following cohorts is missing: {missing_str}"
             raise ValueError(message)
     if cohorts_metadata_file is None:
-        cohorts_metadata_file = f"{data_dir}/queries/cohort_metadata_sheet.csv"
+        # Match the file written by the admin upload endpoint
+        # (backend/src/upload.py::COHORTS_METADATA_FILEPATH). study_kg.generate_studies_kg
+        # reads this with pd.read_excel(..., sheet_name='Descriptions').
+        cohorts_metadata_file = os.path.join(settings.data_folder, "iCARE4CVD_Cohorts.xlsx")
     if output_dir is None:
         output_dir = settings.output_dir
     os.makedirs(output_dir, exist_ok=True)
