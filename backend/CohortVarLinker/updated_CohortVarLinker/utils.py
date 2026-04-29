@@ -62,10 +62,17 @@ def split_categories(categories: str | None) -> tuple[List[str], List[str]]:
     parts = [c.strip().lower() for c in categories.split("|") if c.strip()]
     if not parts:
         return [], []
-    if "=" not in categories:
-        return parts, parts
-    original_categories = [c.split("=")[0].strip() for c in parts]
-    category_labels = [c.split("=")[1].strip() for c in parts]
+    # Per-part split so a mixed string like "1=Yes|2=No|3" doesn't crash:
+    # any token without '=' is treated as both the code and the label,
+    # matching the existing fallback when no token contains '='.
+    original_categories: List[str] = []
+    category_labels: List[str] = []
+    for c in parts:
+        code, sep, label = c.partition("=")
+        code = code.strip()
+        label = label.strip() if sep else code
+        original_categories.append(code)
+        category_labels.append(label)
     return original_categories, category_labels
 
 
