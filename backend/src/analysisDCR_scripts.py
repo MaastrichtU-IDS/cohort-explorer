@@ -447,7 +447,11 @@ categorical_vars = set()
 metadata_df = None
 try:
     metadata_df = pd.read_csv("/input/{cohort_id}_metadata_dictionary")
+    with open(log_file, "a") as log:
+        log.write("Metadata columns (before upper): {{}}\\n".format(list(metadata_df.columns)))
     metadata_df.columns = metadata_df.columns.str.strip().str.upper()
+    with open(log_file, "a") as log:
+        log.write("Metadata columns (after upper): {{}}\\n".format(list(metadata_df.columns)))
     # Build categorical set
     if 'CATEGORICAL' in metadata_df.columns:
         varname_col = 'VARIABLENAME' if 'VARIABLENAME' in metadata_df.columns else 'VARIABLE NAME'
@@ -456,7 +460,10 @@ try:
             if cat_val and cat_val not in ['', 'nan', 'none', 'n/a']:
                 categorical_vars.add(str(row[varname_col]).strip())
     with open(log_file, "a") as log:
-        log.write("Loaded metadata dictionary: {{}} rows, {{}} categorical vars\\n\\n".format(len(metadata_df), len(categorical_vars)))
+        log.write("Loaded metadata dictionary: {{}} rows, {{}} categorical vars\\n".format(len(metadata_df), len(categorical_vars)))
+        # Show first row to debug
+        if len(metadata_df) > 0:
+            log.write("First row sample: {{}}\\n\\n".format(dict(metadata_df.iloc[0])))
 except Exception as e:
     with open(log_file, "a") as log:
         log.write("Could not load metadata dictionary: {{}}\\n\\n".format(e))
@@ -478,8 +485,21 @@ def get_var_metadata(var_name, column):
 
 def get_var_label(var_name):
     \"\"\"Get the variable label from metadata dictionary.\"\"\"
-    col = 'VARIABLELABEL' if metadata_df is not None and 'VARIABLELABEL' in metadata_df.columns else 'VARIABLE LABEL'
-    return get_var_metadata(var_name, col)
+    if metadata_df is None:
+        return ''
+    # Try both possible column names
+    if 'VARIABLELABEL' in metadata_df.columns:
+        col = 'VARIABLELABEL'
+    elif 'VARIABLE LABEL' in metadata_df.columns:
+        col = 'VARIABLE LABEL'
+    else:
+        with open(log_file, "a") as log:
+            log.write("WARNING: No variable label column found in metadata\\n")
+        return ''
+    result = get_var_metadata(var_name, col)
+    with open(log_file, "a") as log:
+        log.write("get_var_label('{{}}') using col='{{}}' -> '{{}}'\\n".format(var_name, col, result[:50] if result else ''))
+    return result
 
 def get_var_domain(var_name):
     \"\"\"Get the OMOP domain from metadata dictionary.\"\"\"
