@@ -94,7 +94,12 @@ _OMOP_GRAPH: Optional[OmopGraphNX] = None
 def get_omop_graph() -> OmopGraphNX:
     global _OMOP_GRAPH
     if _OMOP_GRAPH is None:
-        _OMOP_GRAPH = OmopGraphNX(settings.concepts_file_path)   # builds/loads the 300MB graph once
+        # Persist the pickle next to mapping_output (volume-mounted) so the
+        # graph survives container rebuilds and is shared across processes.
+        _OMOP_GRAPH = OmopGraphNX(
+            csv_file_path=settings.concepts_file_path,
+            output_file=settings.omop_graph_pickle_path,
+        )
     return _OMOP_GRAPH
     
 def load_json(filepath: str) -> dict:

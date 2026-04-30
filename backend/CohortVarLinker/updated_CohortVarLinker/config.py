@@ -168,6 +168,20 @@ class Settings:
         return os.getenv("VECTOR_DB_HOST", "localhost")
 
     @property
+    def omop_graph_pickle_path(self) -> str:
+        """Path to the cached OmopGraphNX pickle (gzipped).
+
+        Stored alongside the mapping_output directory (i.e. its parent), so
+        the cache lives under the volume-mounted CohortVarLinker/data
+        directory and survives container rebuilds. Overridable via the
+        OMOP_GRAPH_PICKLE_PATH env var.
+        """
+        explicit = os.getenv("OMOP_GRAPH_PICKLE_PATH")
+        if explicit:
+            return explicit
+        return os.path.join(os.path.dirname(self.output_dir), "graph_nx.pkl.gz")
+
+    @property
     def concepts_file_path(self) -> str:
         """Path to the OMOP concept_relationship CSV used by OmopGraphNX.
 
