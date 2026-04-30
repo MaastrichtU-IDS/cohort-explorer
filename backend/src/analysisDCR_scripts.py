@@ -442,47 +442,41 @@ with open(log_file, "w") as log:
     log.write("Loaded data: {{}} rows, {{}} columns\\n".format(len(df), len(df.columns)))
     log.write("Columns: {{}}\\n\\n".format(list(df.columns)))
 
-# Try to load metadata dictionary to identify categorical variables and variable descriptions
+# Load metadata dictionary for categorical detection and variable labels
 categorical_vars = set()
-# Map of lowercase variable name -> variable description (var label) from the metadata dictionary
-var_descriptions = {{}}
+metadata_df = None
 try:
     metadata_df = pd.read_csv("/input/{cohort_id}_metadata_dictionary")
-    with open(log_file, "a") as log:
-        log.write("Metadata dictionary columns (raw): {{}}\\n".format(list(metadata_df.columns)))
     metadata_df.columns = metadata_df.columns.str.strip().str.upper()
-    with open(log_file, "a") as log:
-        log.write("Metadata dictionary columns (uppercased): {{}}\\n".format(list(metadata_df.columns)))
-    # Find the variable name column
-    varname_col = next((c for c in metadata_df.columns if c in ['VARIABLE NAME', 'VARIABLENAME', 'VAR NAME', 'VAR_NAME']), None)
-    # Find the variable label/description column (optional)
-    varlabel_col = next((c for c in metadata_df.columns if c in ['VARIABLE LABEL', 'VARIABLELABEL', 'VAR LABEL', 'VAR_LABEL']), None)
-    with open(log_file, "a") as log:
-        log.write("varname_col: {{}}, varlabel_col: {{}}\\n".format(varname_col, varlabel_col))
-    # Categorical column is always named CATEGORICAL (columns already uppercased)
-    if varname_col:
+    # Build categorical set
+    if 'CATEGORICAL' in metadata_df.columns:
+        varname_col = 'VARIABLENAME' if 'VARIABLENAME' in metadata_df.columns else 'VARIABLE NAME'
         for _, row in metadata_df.iterrows():
-            var_name = str(row[varname_col]).strip()
-            cat_value = str(row['CATEGORICAL']).strip() if 'CATEGORICAL' in metadata_df.columns and pd.notna(row['CATEGORICAL']) else ''
-            # If categorical field has any non-empty value, treat as categorical
-            if cat_value and cat_value.lower() not in ['', 'nan', 'none', 'n/a']:
-                categorical_vars.add(var_name)
-            # Capture the variable description (label), if available
-            if varlabel_col and pd.notna(row[varlabel_col]):
-                desc = str(row[varlabel_col]).strip()
-                if desc and desc.lower() not in ['', 'nan', 'none', 'n/a']:
-                    var_descriptions[var_name.lower().strip()] = desc
-        with open(log_file, "a") as log:
-            log.write("Loaded metadata: {{}} categorical variables identified, {{}} descriptions captured\\n".format(len(categorical_vars), len(var_descriptions)))
-            # Log first few descriptions for debugging
-            sample_descs = list(var_descriptions.items())[:5]
-            log.write("Sample descriptions: {{}}\\n\\n".format(sample_descs))
-    else:
-        with open(log_file, "a") as log:
-            log.write("WARNING: Could not find variable name column in metadata dictionary\\n\\n")
+            cat_val = str(row.get('CATEGORICAL', '')).strip().lower()
+            if cat_val and cat_val not in ['', 'nan', 'none', 'n/a']:
+                categorical_vars.add(str(row[varname_col]).strip())
+    with open(log_file, "a") as log:
+        log.write("Loaded metadata dictionary: {{}} rows, {{}} categorical vars\\n\\n".format(len(metadata_df), len(categorical_vars)))
 except Exception as e:
     with open(log_file, "a") as log:
         log.write("Could not load metadata dictionary: {{}}\\n\\n".format(e))
+
+def get_var_label(var_name):
+    \"\"\"Get the variable label from metadata dictionary for a given variable name.\"\"\"
+    if metadata_df is None:
+        return ''
+    varname_col = 'VARIABLENAME' if 'VARIABLENAME' in metadata_df.columns else 'VARIABLE NAME'
+    varlabel_col = 'VARIABLELABEL' if 'VARIABLELABEL' in metadata_df.columns else 'VARIABLE LABEL'
+    if varlabel_col not in metadata_df.columns:
+        return ''
+    # Find the row matching this variable name (case-insensitive)
+    mask = metadata_df[varname_col].str.strip().str.lower() == var_name.lower().strip()
+    matches = metadata_df.loc[mask, varlabel_col]
+    if len(matches) > 0:
+        label = str(matches.iloc[0]).strip()
+        if label.lower() not in ['', 'nan', 'none', 'n/a']:
+            return label
+    return ''
 
 # Determine which columns to visualize
 if SELECTED_VARIABLES is not None:
@@ -558,23 +552,19 @@ for col in selected_columns:
     is_binary = len(unique_vals) <= 2 and set(unique_vals).issubset({{0, 1, 0.0, 1.0}})
     is_categorical_in_metadata = col.lower().strip() in {{v.lower().strip() for v in categorical_vars}}
     
-    # Look up the variable description (var_label) from the metadata dictionary so
-    # it can be shown alongside the variable name in the chart title.
-    var_description = var_descriptions.get(col.lower().strip(), '')
-    # Truncate over-long descriptions so the title remains readable.
-    if var_description and len(var_description) > 120:
-        var_description_display = var_description[:117] + '...'
-    else:
-        var_description_display = var_description
+    # Get the variable label from metadata dictionary
+    var_label = get_var_label(col)
+    # Truncate if too long
+    if len(var_label) > 120:
+        var_label = var_label[:117] + '...'
 
     def _build_title(chart_type_label):
-        # Title layout:
-        #   Distribution of <var_name> (<chart_type>)
-        #   <variable description from metadata>
-        #   Data source: <DATA_SOURCE_NAME>
+        # Title: Distribution of <var_name> (<chart_type>)
+        #        <variable label from metadata>
+        #        Data source: <DATA_SOURCE_NAME>
         lines = ['Distribution of {{}} ({{}})'.format(col, chart_type_label)]
-        if var_description_display:
-            lines.append(var_description_display)
+        if var_label:
+            lines.append(var_label)
         lines.append('Data source: {{}}'.format(DATA_SOURCE_NAME))
         return '\\n'.join(lines)
 
