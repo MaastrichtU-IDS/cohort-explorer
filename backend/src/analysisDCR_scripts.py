@@ -461,22 +461,29 @@ except Exception as e:
     with open(log_file, "a") as log:
         log.write("Could not load metadata dictionary: {{}}\\n\\n".format(e))
 
-def get_var_label(var_name):
-    \"\"\"Get the variable label from metadata dictionary for a given variable name.\"\"\"
+def get_var_metadata(var_name, column):
+    \"\"\"Get a metadata field from the metadata dictionary for a given variable name.\"\"\"
     if metadata_df is None:
         return ''
     varname_col = 'VARIABLENAME' if 'VARIABLENAME' in metadata_df.columns else 'VARIABLE NAME'
-    varlabel_col = 'VARIABLELABEL' if 'VARIABLELABEL' in metadata_df.columns else 'VARIABLE LABEL'
-    if varlabel_col not in metadata_df.columns:
+    if column not in metadata_df.columns:
         return ''
-    # Find the row matching this variable name (case-insensitive)
     mask = metadata_df[varname_col].str.strip().str.lower() == var_name.lower().strip()
-    matches = metadata_df.loc[mask, varlabel_col]
+    matches = metadata_df.loc[mask, column]
     if len(matches) > 0:
-        label = str(matches.iloc[0]).strip()
-        if label.lower() not in ['', 'nan', 'none', 'n/a']:
-            return label
+        val = str(matches.iloc[0]).strip()
+        if val.lower() not in ['', 'nan', 'none', 'n/a']:
+            return val
     return ''
+
+def get_var_label(var_name):
+    \"\"\"Get the variable label from metadata dictionary.\"\"\"
+    col = 'VARIABLELABEL' if metadata_df is not None and 'VARIABLELABEL' in metadata_df.columns else 'VARIABLE LABEL'
+    return get_var_metadata(var_name, col)
+
+def get_var_domain(var_name):
+    \"\"\"Get the OMOP domain from metadata dictionary.\"\"\"
+    return get_var_metadata(var_name, 'DOMAIN')
 
 # Determine which columns to visualize
 if SELECTED_VARIABLES is not None:
@@ -552,17 +559,21 @@ for col in selected_columns:
     is_binary = len(unique_vals) <= 2 and set(unique_vals).issubset({{0, 1, 0.0, 1.0}})
     is_categorical_in_metadata = col.lower().strip() in {{v.lower().strip() for v in categorical_vars}}
     
-    # Get the variable label from metadata dictionary
+    # Get the variable label and domain from metadata dictionary
     var_label = get_var_label(col)
-    # Truncate if too long
+    var_domain = get_var_domain(col)
+    # Truncate label if too long
     if len(var_label) > 120:
         var_label = var_label[:117] + '...'
 
-    def _build_title(chart_type_label):
-        # Title: Distribution of <var_name> (<chart_type>)
+    def _build_title(data_type):
+        # Title: Distribution of <var_name> (<data_type>, <domain>)
         #        <variable label from metadata>
         #        Data source: <DATA_SOURCE_NAME>
-        lines = ['Distribution of {{}} ({{}})'.format(col, chart_type_label)]
+        type_info = data_type
+        if var_domain:
+            type_info = '{{}} - {{}}'.format(data_type, var_domain)
+        lines = ['Distribution of {{}} ({{}})'.format(col, type_info)]
         if var_label:
             lines.append(var_label)
         lines.append('Data source: {{}}'.format(DATA_SOURCE_NAME))
@@ -592,8 +603,8 @@ for col in selected_columns:
         ax.set_yticks(range(len(value_counts)))
         ax.set_yticklabels([str(v)[:30] for v in value_counts.index])  # Truncate long labels
         ax.set_xlabel('Count')
-        chart_type = 'Binary' if is_binary else ('Categorical' if is_categorical_in_metadata else 'Categorical, top {{}}'.format(MAX_CATEGORIES))
-        ax.set_title(_build_title(chart_type))
+        data_type = 'Binary' if is_binary else 'Categorical'
+        ax.set_title(_build_title(data_type))
         
         with open(log_file, "a") as log:
             log.write("  Unique values: {{}}\\n".format(df[col].nunique()))
