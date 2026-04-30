@@ -448,11 +448,17 @@ categorical_vars = set()
 var_descriptions = {{}}
 try:
     metadata_df = pd.read_csv("/input/{cohort_id}_metadata_dictionary")
+    with open(log_file, "a") as log:
+        log.write("Metadata dictionary columns (raw): {{}}\\n".format(list(metadata_df.columns)))
     metadata_df.columns = metadata_df.columns.str.strip().str.upper()
+    with open(log_file, "a") as log:
+        log.write("Metadata dictionary columns (uppercased): {{}}\\n".format(list(metadata_df.columns)))
     # Find the variable name column
     varname_col = next((c for c in metadata_df.columns if c in ['VARIABLE NAME', 'VARIABLENAME', 'VAR NAME', 'VAR_NAME']), None)
     # Find the variable label/description column (optional)
     varlabel_col = next((c for c in metadata_df.columns if c in ['VARIABLE LABEL', 'VARIABLELABEL', 'VAR LABEL', 'VAR_LABEL']), None)
+    with open(log_file, "a") as log:
+        log.write("varname_col: {{}}, varlabel_col: {{}}\\n".format(varname_col, varlabel_col))
     # Categorical column is always named CATEGORICAL (columns already uppercased)
     if varname_col:
         for _, row in metadata_df.iterrows():
@@ -467,7 +473,13 @@ try:
                 if desc and desc.lower() not in ['', 'nan', 'none', 'n/a']:
                     var_descriptions[var_name.lower().strip()] = desc
         with open(log_file, "a") as log:
-            log.write("Loaded metadata: {{}} categorical variables identified, {{}} descriptions captured\\n\\n".format(len(categorical_vars), len(var_descriptions)))
+            log.write("Loaded metadata: {{}} categorical variables identified, {{}} descriptions captured\\n".format(len(categorical_vars), len(var_descriptions)))
+            # Log first few descriptions for debugging
+            sample_descs = list(var_descriptions.items())[:5]
+            log.write("Sample descriptions: {{}}\\n\\n".format(sample_descs))
+    else:
+        with open(log_file, "a") as log:
+            log.write("WARNING: Could not find variable name column in metadata dictionary\\n\\n")
 except Exception as e:
     with open(log_file, "a") as log:
         log.write("Could not load metadata dictionary: {{}}\\n\\n".format(e))
