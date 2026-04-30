@@ -247,8 +247,12 @@ async def generate_mapping(
     target_str = "_".join([t[0].lower() for t in target_studies])
     
     # Use the same naming convention as generate_mapping_csv: {source}_{targets}_{model}_{mode}.json
+    # The mode token is the MappingType enum *name/abbreviation* (e.g. "OEC"),
+    # which is what generate_mapping_csv now emits via `MappingType.OEC.value`.
+    # (Previously this was the long form "ontology+embedding(concept)", so any
+    # legacy files written under the old scheme will not be matched here.)
     model_name = "sapbert"
-    mapping_mode = "ontology+embedding(concept)"
+    mapping_mode = "OEC"
     filename = f"{source_study}_{target_str}_{model_name}_{mapping_mode}.json"
     filepath = os.path.join(output_dir, filename)
     if os.path.exists(filepath):
