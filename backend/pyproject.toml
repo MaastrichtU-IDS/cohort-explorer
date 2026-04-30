@@ -71,7 +71,8 @@ dependencies = [
     "langdetect",
     "rank_bm25",
     "json-repair",
-    "pytorch_metric_learning"
+    "pytorch_metric_learning",
+    "spacy",  # used by updated_CohortVarLinker.fuzz_match for negation / lemma detection; en_core_web_sm model is downloaded in the Dockerfile
     # "ctransformers",
     # "ragatouille",
     # "tiktoken",

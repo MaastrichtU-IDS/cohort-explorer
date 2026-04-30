@@ -12,6 +12,10 @@ COPY pyproject.toml uv.lock /app/
 
 RUN uv sync --frozen
 
+# spaCy English model (used by updated_CohortVarLinker.fuzz_match).
+# Installed as a pip-distributed package so spacy.load("en_core_web_sm") resolves at runtime.
+RUN uv run python -m spacy download en_core_web_sm
+
 COPY . /app/
 
 ENV PYTHONUNBUFFERED='1'
