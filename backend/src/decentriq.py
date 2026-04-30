@@ -695,6 +695,37 @@ async def get_compute_dcr_definition(
         else:
             logging.info(f"Shuffled samples not requested for {cohort_id}, skipping node creation")
         
+        # Get variable names from the cohort for documentation in the visualization scripts
+        cohort_var_names = list(cohort.variables.keys()) if hasattr(cohort, 'variables') and cohort.variables else None
+
+        # If a shuffled sample data node was provisioned for this cohort, add a
+        # dedicated visualization script that defaults to the shuffled sample.
+        # This is added FIRST (before airlock and full-dataset scripts) so it appears
+        # at the top of the cohort's compute scripts list.
+        if shuffled_node_added:
+            shuffled_viz_node_name = f"test-visualize-shuffled-sample-of-{cohort_id}"
+            shuffled_viz_dependencies = [shuffled_node_id, metadata_node_id]
+            # Note: fragment_node_name is not yet defined here, so we pass None.
+            # The shuffled-sample viz script doesn't need airlock info anyway.
+            shuffled_viz_script = visualization_script(
+                None,  # No airlock dependency for shuffled sample viz
+                cohort_id,
+                cohort_var_names,
+                mapping_files_for_viz,
+                include_mapping_upload_slot,
+                data_source="shuffled",
+            )
+            builder.add_node_definition(
+                PythonComputeNodeDefinition(
+                    name=shuffled_viz_node_name,
+                    script=shuffled_viz_script,
+                    dependencies=shuffled_viz_dependencies,
+                )
+            )
+            # All participants can run the shuffled-sample visualization
+            for p_email in participants:
+                participants[p_email]["analyst_of"].add(shuffled_viz_node_name)
+            logging.info(f"Added shuffled-sample visualization node: {shuffled_viz_node_name}")
 
         # # Add pandas preparation script - COMMENTED OUT Nov 2025
         # pandas_script = "import pandas as pd\nimport decentriq_util\n\n"
@@ -738,9 +769,9 @@ async def get_compute_dcr_definition(
         # # Add the requester as analyst of prepare script
         # participants[user["email"]]["analyst_of"].add(f"prepare-{cohort_id}")
 
-        # Get the airlock percentage for this cohort (default to 20 if not specified)
+        # Get the airlock percentage for this cohort (default to 0 if not specified)
         # A value of 0 means no airlock is requested for this cohort
-        airlock_percentage = 20
+        airlock_percentage = 0
         if airlock_settings and cohort_id in airlock_settings:
             airlock_percentage = airlock_settings[cohort_id]
         
@@ -784,36 +815,6 @@ async def get_compute_dcr_definition(
             logging.info(f"Created airlock nodes for {cohort_id} with {airlock_percentage}% airlock")
         else:
             logging.info(f"Skipping airlock nodes for {cohort_id} (airlock disabled)")
-        
-        # Get variable names from the cohort for documentation in the visualization scripts
-        cohort_var_names = list(cohort.variables.keys()) if hasattr(cohort, 'variables') and cohort.variables else None
-
-        # If a shuffled sample data node was provisioned for this cohort, add a
-        # dedicated visualization script that defaults to the shuffled sample.
-        # This is added BEFORE the full-dataset visualization script so it appears
-        # at the top of the cohort's compute scripts list.
-        if shuffled_node_added:
-            shuffled_viz_node_name = f"test-visualize-shuffled-sample-of-{cohort_id}"
-            shuffled_viz_dependencies = [shuffled_node_id, metadata_node_id]
-            shuffled_viz_script = visualization_script(
-                fragment_node_name,
-                cohort_id,
-                cohort_var_names,
-                mapping_files_for_viz,
-                include_mapping_upload_slot,
-                data_source="shuffled",
-            )
-            builder.add_node_definition(
-                PythonComputeNodeDefinition(
-                    name=shuffled_viz_node_name,
-                    script=shuffled_viz_script,
-                    dependencies=shuffled_viz_dependencies,
-                )
-            )
-            # All participants can run the shuffled-sample visualization
-            for p_email in participants:
-                participants[p_email]["analyst_of"].add(shuffled_viz_node_name)
-            logging.info(f"Added shuffled-sample visualization node: {shuffled_viz_node_name}")
 
         # Add a visualization script that reads the FULL cohort dataset (the original
         # unprocessed data). The node name makes the data source explicit.

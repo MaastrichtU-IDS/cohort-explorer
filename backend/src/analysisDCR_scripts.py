@@ -354,7 +354,7 @@ def visualization_script(
         airlock_block = (
             f'# Option 2: Airlock sample - only the airlocked subset (e.g., 20%) of the processed data\n'
             f'{p_air}DATA_FILE = "/input/preview-airlock-{cohort_id}/{cohort_id}_data_fragment.csv"\n'
-            f'{p_air}DATA_SOURCE_NAME = "airlock sample"\n'
+            f'{p_air}DATA_SOURCE_NAME = "{cohort_id} airlock sample"\n'
         )
     else:
         airlock_block = (
@@ -375,12 +375,12 @@ def visualization_script(
 #
 # Option 1: Full dataset - the original unprocessed cohort dataset
 {p_full}DATA_FILE = "/input/{cohort_id}"
-{p_full}DATA_SOURCE_NAME = "full dataset"
+{p_full}DATA_SOURCE_NAME = "{cohort_id} full dataset"
 #
 {airlock_block}#
 # Option 3: Shuffled sample - synthetic/shuffled data for testing
 {p_shuf}DATA_FILE = "/input/{cohort_id}_shuffled_sample"
-{p_shuf}DATA_SOURCE_NAME = "shuffled sample"
+{p_shuf}DATA_SOURCE_NAME = "{cohort_id} shuffled sample"
 
 # VARIABLE SELECTION
 # ------------------
@@ -408,7 +408,7 @@ import numpy as np
 import os
 
 # Helper function to load data from CSV or SPSS files
-def load_data(file_path):
+def load_data(file_path, source_name):
     # Try CSV first
     try:
         return pd.read_csv(file_path)
@@ -417,7 +417,14 @@ def load_data(file_path):
         try:
             return pd.read_spss(file_path)
         except Exception as spss_error:
-            raise ValueError("Could not read file as CSV or SPSS. CSV error: {{}}, SPSS error: {{}}".format(csv_error, spss_error))
+            # Surface a clear, actionable error when the data source is not available
+            raise FileNotFoundError(
+                'Data source "' + source_name + '" was not found at path "' + file_path + '". '
+                'Please check that it has been provisioned. '
+                'If you are in "Development Mode", please check that you have selected it '
+                'from the rightside drop-down menu. '
+                '(CSV error: ' + str(csv_error) + ', SPSS error: ' + str(spss_error) + ')'
+            )
 
 # Output directory (always exists in Decentriq environment)
 output_dir = "/output"
@@ -425,20 +432,7 @@ output_dir = "/output"
 HISTOGRAM_BINS = 30
 MAX_CATEGORIES = 20
 
-
-# Read the data from the selected source.
-# If the data source is not available (e.g. it has not been provisioned for this DCR,
-# or the user is in Development Mode and has not selected the corresponding data
-# source from the rightside drop-down menu), surface a clear, actionable error.
-try:
-    df = load_data(DATA_FILE)
-except Exception as e:
-    raise FileNotFoundError(
-        'Data source: "' + DATA_SOURCE_NAME + '" was not found. '
-        'Please check that it has been provisioned. '
-        'If you are in "Development Mode", please check that you have selected it '
-        'from the rightside drop-down menu.'
-    ) from e
+df = load_data(DATA_FILE, DATA_SOURCE_NAME)
 
 # Log basic info
 log_file = os.path.join(output_dir, "visualization_log.txt")
@@ -574,8 +568,7 @@ for col in selected_columns:
 
     if pd.api.types.is_numeric_dtype(col_data) and not is_binary and not is_categorical_in_metadata:
         # Histogram for numeric data
-        ax.hist(col_data, bins=HISTOGRAM_BINS, edgecolor='black', alpha=0.7,
-                label='Data source: {{}}'.format(DATA_SOURCE_NAME))
+        ax.hist(col_data, bins=HISTOGRAM_BINS, edgecolor='black', alpha=0.7)
         ax.set_xlabel(col)
         ax.set_ylabel('Frequency')
         ax.set_title(_build_title('Numeric'))
@@ -593,14 +586,12 @@ for col in selected_columns:
     else:
         # Bar chart for categorical/binary data
         value_counts = col_data.value_counts().head(MAX_CATEGORIES)
-        ax.barh(range(len(value_counts)), value_counts.values,
-                label='Data source: {{}}'.format(DATA_SOURCE_NAME))
+        ax.barh(range(len(value_counts)), value_counts.values)
         ax.set_yticks(range(len(value_counts)))
         ax.set_yticklabels([str(v)[:30] for v in value_counts.index])  # Truncate long labels
         ax.set_xlabel('Count')
         chart_type = 'Binary' if is_binary else ('Categorical' if is_categorical_in_metadata else 'Categorical, top {{}}'.format(MAX_CATEGORIES))
         ax.set_title(_build_title(chart_type))
-        ax.legend()
         
         with open(log_file, "a") as log:
             log.write("  Unique values: {{}}\\n".format(df[col].nunique()))
