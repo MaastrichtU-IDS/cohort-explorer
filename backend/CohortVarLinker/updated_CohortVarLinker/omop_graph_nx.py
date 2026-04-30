@@ -1095,6 +1095,32 @@
 
 
 
+import sys
+import numpy
+import numpy.core
+
+# Shim added by Anas to resolve incompatibility between numpy v1.x required by
+# the mapping code and v2.x under which the graph pickle was created.
+# Map numpy._core -> numpy.core submodules for loading pickles created with
+# numpy 2.x under numpy 1.x. numpy 1.26.x has a numpy._core stub but not all
+# submodules (e.g. numeric). Explicitly import the submodules numpy 2.x uses
+# in its pickle protocol, then register them so `pickle.load` can resolve
+# `numpy._core.<submodule>` references.
+import numpy.core.numeric
+import numpy.core.multiarray
+import numpy.core.umath
+import numpy.core.fromnumeric
+import numpy.core.shape_base
+import numpy.core.function_base
+
+_numpy_core_submodules = [
+    'numeric', 'multiarray', 'umath', 'fromnumeric',
+    'shape_base', 'function_base',
+]
+sys.modules.setdefault('numpy._core', numpy.core)
+for _sub in _numpy_core_submodules:
+    sys.modules.setdefault(f'numpy._core.{_sub}', sys.modules[f'numpy.core.{_sub}'])
+
 import networkx as nx
 import pandas as pd
 import pickle, os, gzip, zlib, time
