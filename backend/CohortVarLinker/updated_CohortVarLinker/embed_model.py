@@ -122,7 +122,7 @@ class UnifiedEmbeddingModel:
             model_name_or_path, cache_dir=cache, trust_remote_code=True)
         self.model = AutoModel.from_pretrained(
             model_name_or_path, cache_dir=cache, trust_remote_code=True,
-            dtype=dtype)
+            torch_dtype=dtype)
 
         if self._is_decoder:
             self.tokenizer.padding_side = "left"
