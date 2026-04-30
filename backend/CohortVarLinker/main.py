@@ -18,9 +18,9 @@ from CohortVarLinker.updated_CohortVarLinker.utils import (
         get_member_studies,
     )
 from CohortVarLinker.updated_CohortVarLinker.data_model import MappingType, EmbeddingType
-from CohortVarLinker.updated_CohortVarLinker.omop_graph_nx import OmopGraphNX
 from CohortVarLinker.updated_CohortVarLinker.run import StudyMapper
 from CohortVarLinker.updated_CohortVarLinker.config import settings
+from CohortVarLinker.validate_cde import get_omop_graph
 
 
 def create_study_metadata_graph(file_path, recreate=False):
@@ -615,7 +615,11 @@ def generate_mapping_csv(
         model_name=model_name, embedding_mode=embedding_mode, recreate_db=True,
     )
 
-    graph = OmopGraphNX(csv_file_path=settings.concepts_file_path)
+    # Reuse the cached OMOP graph singleton from validate_cde rather than
+    # constructing a fresh OmopGraphNX every call. The class self-caches to
+    # graph_nx.pkl.gz so even an independent build is just a pickle reload,
+    # but holding two in-memory instances doubles RAM for a ~300MB graph.
+    graph = get_omop_graph()
 
     # Instantiate the StudyMapper once — it reuses vector_db, embedding model,
     # and OMOP graph across every target study. LLM adjudication is gated on
