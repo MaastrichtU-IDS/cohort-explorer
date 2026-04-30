@@ -24,6 +24,28 @@ from .utils import (
 from typing import Optional, Any
 
 
+# Column-name aliases for tolerant reading of dictionary CSVs. Historically some
+# uploaded files have the space-separated variant ("VARIABLE NAME") while the
+# current upload pipeline (backend/src/upload.py::cols_normalized) collapses
+# those same three headers to the space-less form ("VARIABLENAME"). The rest of
+# this module queries the collapsed lowercase form, so we map both shapes to it.
+_COLUMN_ALIASES = {
+    "variable name": "variablename",
+    "variable label": "variablelabel",
+    "var type": "vartype",
+}
+
+
+def _normalize_metadata_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Lowercase and strip column names, collapsing the known space-separated
+    header variants into the space-less form used throughout this module."""
+    df.columns = [
+        _COLUMN_ALIASES.get(c.strip().lower(), c.strip().lower())
+        for c in df.columns
+    ]
+    return df
+
+
 @dataclass
 class Concept:
     standard_label: Optional[str] = None
@@ -47,8 +69,13 @@ def process_variables_metadata_file(file_path:str, study_metadata_graph_file_pat
         data = load_dictionary(file_path)
         if data is None or data.empty:
             return None, None   
-        data.columns = data.columns.str.lower()
+        data = _normalize_metadata_columns(data)
         print(f"colums: {data.columns}")
+        if 'variablename' not in data.columns:
+            raise KeyError(
+                f"Dictionary file {file_path} is missing a required 'VARIABLENAME' "
+                f"(or 'VARIABLE NAME') column. Found columns: {list(data.columns)}"
+            )
         cohort_id = normalize_text(cohort_name)
    
         cohort_uri = get_study_uri(cohort_id)
