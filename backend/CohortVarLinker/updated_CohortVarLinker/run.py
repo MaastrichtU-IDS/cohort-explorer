@@ -2,7 +2,6 @@
 import json
 import pandas as pd
 from typing import Any, List, Tuple
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from .config import settings
 from .query_builder import SPARQLQueryBuilder
 from .constraints import ConstraintSolver
@@ -10,13 +9,26 @@ from .data_model import (
     MappingType, VariableNode, VariableCollection,
     Statistics, StatisticalType, _safe_float
 )
+
 from .neuro_matcher import NeuroSymbolicMatcher
 from .variable_profile import VariableProfile
 
 from .graph_similarity import compute_context_scores
-from .utils import clean_label_remove_temporal_context, execute_query, parse_post_cordinating_concepts_labels
-# from .llm_call import LocalLLMConceptMatcher
+from .utils import execute_query
 
+from concurrent.futures import ThreadPoolExecutor
+
+
+_SOLVER = _MODE = _SRC = _TGT = None
+def _init_solver(matcher, mapping_mode, src_study, tgt_study):
+    global _SOLVER, _MODE, _SRC, _TGT
+    _SOLVER, _MODE, _SRC, _TGT = ConstraintSolver(matcher), mapping_mode, src_study, tgt_study
+
+def _solve_record(row):
+    s = VariableNode.from_source_row(row, study=_SRC)
+    t = VariableNode.from_target_row(row, study=_TGT)
+    details, status = _SOLVER.solve(s, t, mapping_mode=_MODE)
+    return str(details), status
 
 class StudyMapper:
 
@@ -26,7 +38,7 @@ class StudyMapper:
         self.collection_name = vector_collection
         self.llm_models = llm_models
         self.embed_model = embedding_model
-        self.similarity_threshold = settings.ADAPTIVE_THRESHOLD
+        self.similarity_threshold =  self._select_mode_specific_threshold(mapping_mode)
         # self.similarity_threshold =
 
         # 0.6 if self.embed_model.model_name  in  else 0.8 # not using coder here
@@ -44,7 +56,12 @@ class StudyMapper:
         self.solver = ConstraintSolver(self.matcher)
         # self.llm_models = llm_models
    
- 
+    
+    def _select_mode_specific_threshold(self, mapping_mode):
+        if mapping_mode == MappingType.NE.value:
+            return 0.45  # lower a bit due to low label quality
+        return settings.ADAPTIVE_THRESHOLD
+    
     # Step 1a: SPARQL → typed VariableCollections
  
 
@@ -221,8 +238,8 @@ class StudyMapper:
             return result
 
         # Build lookup: identifier → profile row
-        prof_map = {row["identifier"]: row for _, row in profiles_df.iterrows()}
-
+        # prof_map = {row["identifier"]: row for _, row in profiles_df.iterrows()}
+        prof_map = profiles_df.set_index("identifier").to_dict("index")
         for node in collection.variables:
             p = prof_map.get(node.name)
             if p is None:
@@ -280,23 +297,6 @@ class StudyMapper:
         self._enrich_with_profiles(tgt_col, settings.GRAPH_REPO, mapping_mode)
         print(f"📊 Parsed {len(src_col)} source, {len(tgt_col)} target variables")
 
-        # ── Step 2: Concept matching + context scoring ────────────
-        # ns_matches = self.matcher.resolve_matches(
-        #     src_collection=src_col, tgt_collection=tgt_col, target_study=tgt_study
-        # )
-
-        # # ── Build DataFrame (profile columns already in dicts) ────
-        # df = pd.DataFrame(ns_matches)
-        # if df.empty:
-        #     return pd.DataFrame(columns=["source", "target", "harmonization_status"])
-        # df = df.drop_duplicates(subset=["source", "target"]).dropna(subset=["source", "target"])
-
-        # # ── Step 3: Pre-embed categorical labels ──────────────────
-        # # if mapping_mode != MappingType.OO.value:
-        # df = self.matcher._precompute_catvalues_similarity(df, model_object=self.embed_model)
-        # if not self.llm_models:
-        #     df = compute_context_scores(df, graph=self.graph, embed_model=self.embed_model, mapping_mode=mapping_mode, threshold=self.similarity_threshold)
-
         # ── Step 2: Discover Candidates ────────────
         ns_matches = self.matcher.generate_candidates(src_collection=src_col, tgt_collection=tgt_col, target_study=tgt_study)
 
@@ -316,41 +316,26 @@ class StudyMapper:
         # ── Step 5: Expand Derived Variables ──────────────────
         df = self.matcher.compute_derived_variables(df, src_col, tgt_col)
 
-        # ── Step 6: Constraint solving ────────────────────────────
-        total_rows = len(df)
-        # print(f"🔧 Solving constraints for {total_rows} rows (parallel)...")
-
-        def solve_row(idx_row):
-            idx, row = idx_row
-            src_node = VariableNode.from_source_row(row, study=src_study)
-            tgt_node = VariableNode.from_target_row(row, study=tgt_study)
-            details, status = self.solver.solve(src_node, tgt_node, mapping_mode=mapping_mode)
-            return idx, (str(details), status)
-
-        results = [None] * total_rows
-        done_count = 0
-        with ThreadPoolExecutor(max_workers=8) as executor:
-            futures = {
-                executor.submit(solve_row, (i, row)): i
-                for i, (_, row) in enumerate(df.iterrows())
-            }
-            for future in as_completed(futures):
-                idx, result = future.result()
-                results[idx] = result
-                done_count += 1
-                if done_count % 500 == 0:
-                    print(f"  solve row: {done_count}/{total_rows}...")
-
-        print(f"  solve row: {total_rows}/{total_rows} done")
-        df[["transformation_rule", "harmonization_status"]] = pd.DataFrame(results, index=df.index)
-
-        for col in df.columns:
-            if col in {"source", "target"}:
-                continue
-            if df[col].apply(lambda x: isinstance(x, dict)).any():
-                df[col] = df[col].apply(json.dumps)
-            elif df[col].apply(lambda x: isinstance(x, list)).any():
-                df[col] = df[col].apply(str)
-
+        # Step 6: Constraint solving — process pool over plain dicts
+        # Step 6: Constraint solving — sequential, dict-preserving
+        if not df.empty:
+            recs = df.to_dict("records")
+            descriptions, transformations, statuses = [], [], []
+            for row in recs:
+                s = VariableNode.from_source_row(row, study=src_study)
+                t = VariableNode.from_target_row(row, study=tgt_study)
+                details, status = self.solver.solve(s, t, mapping_mode=mapping_mode)
+                d = dict(details) if details else {}
+                transformations.append(d.pop("transformation", "") or "")
+                # print(f"TType {transformations}" )
+                descriptions.append(json.dumps(d, default=str, ensure_ascii=False))
+                statuses.append(status)
+            df["transformation_type"]   = transformations
+            df["Mapping Description"]   = descriptions
+            df["harmonization_status"]  = statuses
+        # Delete context_match_type column
+     
         df.dropna(subset=["source", "target"], inplace=True)
-        return df.drop_duplicates(keep="first")
+        df.drop(columns="context_match_type", inplace=True, errors="ignore")
+        return df
+       
