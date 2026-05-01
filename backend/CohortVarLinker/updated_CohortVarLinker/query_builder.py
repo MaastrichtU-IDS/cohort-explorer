@@ -106,7 +106,7 @@ class SPARQLQueryBuilder:
                     OPTIONAL {{ ?de iao:is_denoted_by/cmeo:has_value ?stat_label. }}
                     OPTIONAL {{ ?de sio:has_attribute ?visit.
                                 ?visit a cmeo:visit_type;
-                                  rdfs:label ?visit_label. }}
+                                  cmeo:has_value ?visit_label. }}
                     OPTIONAL {{ ?de sio:has_annotation/cmeo:has_value ?domain_val. }}
                     OPTIONAL {{ ?de obi:has_measurement_unit_label/cmeo:has_value ?unit_label. }}
                 }}
