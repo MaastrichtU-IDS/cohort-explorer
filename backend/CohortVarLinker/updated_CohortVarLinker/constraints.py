@@ -358,7 +358,7 @@ class ContextGate:
                 return                                   # pass, no cap
             if ctx_type in (ContextMatchType.SUBSUMED.value,
                             ContextMatchType.COMPATIBLE.value,
-                            ContextMatchType.PARTIAL.value):
+                            ContextMatchType.PARTIAL.value) and ctx.mapping_mode != MappingType.NE.value:
                 ctx.context_overlap = True           # pass, cap to PARTIAL post-hoc
                 return
             if ctx_type == ContextMatchType.NOT_APPLICABLE.value:
@@ -467,8 +467,6 @@ class ContinuousHandler:
                 should_stop=True
             )
       
-
-
 class CategoricalHandler:
     """Same-type categorical comparison (binary-binary or multi-multi)."""
     

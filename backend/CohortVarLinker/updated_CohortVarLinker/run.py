@@ -125,6 +125,7 @@ class StudyMapper:
     def _fetch_unmapped_variables(self, study: str, graph_repo: str, role: str = None,use_filter:bool=False) -> List[VariableNode]:
         """Raw unmapped variables — self-sufficient (no enrichment needed)."""
         query = SPARQLQueryBuilder.build_unmapped_variables_query(study, graph_repo, use_filter)
+        # print(f"query={query}")
         bindings = execute_query(query).get("results", {}).get("bindings", [])
         nodes = []
         for b in bindings:

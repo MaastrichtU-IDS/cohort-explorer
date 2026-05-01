@@ -329,9 +329,7 @@ class NeuroSymbolicMatcher:
                 "mapping_relation": "Symbolic:closeMatch",
                 "context_match_type": ContextMatchType.EXACT.value,
                 "sim_score": 1.0,
-                "transformation_rule": {
-                    "description": f"Derived variable {variable_name} using parameter columns {parameters_omop_ids}.",
-                }
+                "transformation_rule": f"Derived variable {variable_name} using parameter columns {parameters_omop_ids}.",
             })
         return final_results
 
@@ -962,78 +960,6 @@ class NeuroSymbolicMatcher:
                         return True, "Neural:closeMatch"
 
         return False, None
-    # def _precompute_catvalues_similarity(self, df: pd.DataFrame, model_object: Any) -> pd.DataFrame:
-    #     from .constraints import CategoryMapper
-    #     if df.empty:
-    #         return df
-
-    #     all_labels, contextualized_pairs = set(), set()
-    #     src_ids_per_row, tgt_ids_per_row = [], []
-
-    #     for _, row in df.iterrows():
-    #         row_ids = {'source_categories_omop_ids': [], 'target_categories_omop_ids': []}
-    #         for lbl_col, omop_col, concept in [
-    #             ('source_categories_labels', 'source_categories_omop_ids', row.get('slabel', '')),
-    #             ('target_categories_labels', 'target_categories_omop_ids', row.get('tlabel', '')),
-    #         ]:
-    #             labels_raw = row.get(lbl_col)
-    #             omops_raw  = row.get(omop_col)
-    #             if not pd.notna(labels_raw) or not str(labels_raw).strip():
-    #                 continue
-    #             labels = [l.strip().lower() for l in parse_post_cordinating_concepts_labels(labels_raw) if l.strip()]
-    #             omops  = [o.strip() for o in str(omops_raw).split('||')] if pd.notna(omops_raw) else []
-
-    #             for i, lbl in enumerate(labels):
-    #                 all_labels.add(lbl)
-    #                 if concept:
-    #                     contextualized_pairs.add((concept, lbl))
-    #                 if i < len(omops) and omops[i].isdigit():
-    #                     oid = int(omops[i])
-    #                     CategoryMapper._label_omop_cache[lbl] = oid
-    #                     row_ids[omop_col].append(oid)
-
-    #         src_ids_per_row.append(row_ids['source_categories_omop_ids'])
-    #         tgt_ids_per_row.append(row_ids['target_categories_omop_ids'])
-
-    #     print(f"🔤 Ontology cache: {len(CategoryMapper._label_omop_cache)} label→OMOP mappings")
-
-    #     # ── Pass 2: populate alignment cache  — runs in OO and OEH ──
-    #     if self.graph is not None:
-    #         pairs_to_check = set()
-    #         for s_ids, t_ids in zip(src_ids_per_row, tgt_ids_per_row):
-    #             for sid in s_ids:
-    #                 for tid in t_ids:
-    #                     if sid == tid:
-    #                         continue
-    #                     pairs_to_check.add((sid, tid) if sid <= tid else (tid, sid))
-
-    #         if pairs_to_check:
-    #             print(f"🧭 Resolving {len(pairs_to_check)} unique OMOP-pair alignments via graph...")
-    #             aligned = 0
-    #             for sid, tid in pairs_to_check:
-    #                 hit = bool(self.graph.source_to_targets_paths(sid, {tid}, max_depth=1))
-    #                 CategoryMapper._alignment_cache[(sid, tid)] = hit
-    #                 aligned += int(hit)
-    #             print(f"✅ Alignment cache: {aligned} aligned / {len(pairs_to_check)} checked")
-
-    #     # ── Embedding precompute — OO skips, OEH/NE continue ──
-    #     if self.mapping_mode == MappingType.OO.value or not all_labels:
-    #         return df
-
-    #     texts, keys = [], []
-    #     for lbl in all_labels:
-    #         texts.append(lbl); keys.append(lbl)
-    #     for concept, lbl in contextualized_pairs:
-    #         texts.append(f"{concept} {lbl}"); keys.append(f"{concept}::{lbl}")
-
-    #     print(f"🔤 Pre-encoding {len(texts)} categorical embeddings "
-    #         f"({len(all_labels)} labels + {len(contextualized_pairs)} contextualized)...")
-    #     embeddings = model_object.embed_batch(texts, show_progress=False)
-    #     for k, e in zip(keys, embeddings):
-    #         CategoryMapper._label_embedding_cache[k] = e
-    #     print(f"✅ Encoded {len(all_labels)} label-only + {len(contextualized_pairs)} contextualized embeddings")
-    #     return df
-
     def _precompute_catvalues_similarity(self, df: pd.DataFrame, model_object: Any) -> pd.DataFrame:
         from .constraints import CategoryMapper
         if df.empty:
@@ -1112,54 +1038,3 @@ class NeuroSymbolicMatcher:
 
         print(f"✅ Cache size: {len(emb_cache)} embeddings")
         return df
-    # def _precompute_catvalues_similarity(self, df: pd.DataFrame, model_object: Any) -> pd.DataFrame:
-    #     from .constraints import CategoryMapper
-    #     if self.mapping_mode == MappingType.OO.value:
-    #         return df
-
-    #     all_labels = set()
-    #     contextualized_pairs = set()
-
-    #     for _, row in df.iterrows():
-    #         s_concept = row.get('slabel', '')
-    #         t_concept = row.get('tlabel', '')
-
-    #         for cat_col, fallback_col, concept in [
-    #             ('source_categories_labels', 'source_original_categories', s_concept),
-    #             ('target_categories_labels', 'target_original_categories', t_concept),
-    #         ]:
-    #             col = cat_col
-    #             if not pd.notna(row.get(col)) or not str(row.get(col, '')).strip():
-    #                 col = fallback_col
-    #             if pd.notna(row.get(col)) and str(row.get(col, '')).strip():
-    #                 labels = [l.strip().lower() for l in parse_post_cordinating_concepts_labels(row[col]) if l.strip()]
-    #                 for label in labels:
-    #                     all_labels.add(label)
-    #                     if concept:
-    #                         contextualized_pairs.add((concept, label))
-
-    #     if not all_labels:
-    #         return df
-        
-    #     texts_to_encode = []
-    #     cache_keys = []
-
-    #     for label in all_labels:
-    #         texts_to_encode.append(label)
-    #         cache_keys.append(label)
-
-    #     for concept, label in contextualized_pairs:
-    #         texts_to_encode.append(f"{concept} {label}")
-    #         cache_keys.append(f"{concept}::{label}")
-
-    #     print(f"🔤 Pre-encoding {len(texts_to_encode)} categorical embeddings "
-    #         f"({len(all_labels)} labels + {len(contextualized_pairs)} contextualized)...")
-
-    #     embeddings = model_object.embed_batch(texts_to_encode, show_progress=False)
-
-    #     for cache_key, emb in zip(cache_keys, embeddings):
-    #         CategoryMapper._label_embedding_cache[cache_key] = emb
-
-    #     print(f"✅ Encoded {len(all_labels)} label-only + {len(contextualized_pairs)} contextualized embeddings")
-    #     return df
-   
