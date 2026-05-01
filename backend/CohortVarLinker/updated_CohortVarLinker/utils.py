@@ -54,6 +54,80 @@ def clean_label_remove_temporal_context(label: str) -> str:
     # Safety: never return empty string
     return cleaned if cleaned else label
 
+# check if variable is identifier-code like to determine its statistical type
+
+STRONG_ID_PHRASES = [
+    "id",
+    "identifier",
+    "identification",
+    "patient code",
+    "patient id",
+    "patient number",
+    "subject code",
+    "subject id",
+    "subject number",
+    "participant code",
+    "participant id",
+    "participant number",
+    "hospital code",
+    "hospital id",
+    "hospital number",
+    "record code",
+    "record id",
+    "record number",
+    "registry code",
+    "registry id",
+    "registry number",
+    "screening code",
+    "screening id",
+    "screening number",
+    "randomization code",
+    "randomization id",
+    "randomization number",
+    "randomisation code",
+    "randomisation id",
+    "randomisation number",
+    "case report form",
+    "code",
+    "crf",
+]
+
+CLINICAL_CODE_EXCLUSIONS = [
+    "code",
+    "diagnosis code",
+    "procedure code",
+    "medication code",
+    "device code",
+]
+
+
+_STRONG_ID_RE = re.compile(
+    r'\b(?:' + '|'.join(re.escape(p) for p in STRONG_ID_PHRASES) + r')\b'
+)
+_EXCLUSION_RE = re.compile(
+    r'\b(?:' + '|'.join(re.escape(p) for p in CLINICAL_CODE_EXCLUSIONS) + r')\b'
+)
+def is_identifier_like_variable(row: pd.Series) -> tuple[bool, list[str]]:
+    def _clean_text(x):
+        if x is None or pd.isna(x):
+            return ""
+        return str(x).lower().replace("_", " ").replace("-", " ").strip()
+
+    fields = {
+        "variablename":          _clean_text(row.get("variablename", "")),
+        "variablelabel":         _clean_text(row.get("variablelabel", "")),
+        "variable concept name": _clean_text(row.get("variable concept name", "")),
+    }
+
+    reasons = []
+    for field, text in fields.items():
+        if not text or _EXCLUSION_RE.search(text):
+            continue
+        m = _STRONG_ID_RE.search(text)
+        if m:
+            reasons.append(f"{field} contains '{m.group(0)}'")
+    return bool(reasons), reasons
+
 # Add near the top of graph_similarity.py, after imports
 
 def split_categories(categories: str | None) -> tuple[List[str], List[str]]:
@@ -271,7 +345,7 @@ def determine_var_uri(cohort_id: str | URIRef, var_name: str,multi_class_categor
     elif var_name in multi_class_categorical:
         statistical_type_uri =  URIRef(var_uri + "/multi_class_variable")
         statistical_type = "multi_class_variable"
-    elif data_type  and data_type in  ["str"]:
+    elif data_type  and data_type in  ["str",]:
         statistical_type_uri =  URIRef(var_uri + "/qualitative_variable")
         statistical_type = "qualitative_variable"
     else:
@@ -293,13 +367,24 @@ def parse_post_cordinating_concepts_labels(pipe_str) -> List[str]:
     pipe_str = pipe_str.replace("||", "|")
     return [p.strip().lower() for p in str(pipe_str).split("|") if p.strip()]
 
-def build_concept_text(main_label, composite_labels_str) -> str:
-    parts = [str(main_label).strip().lower()] if main_label and not pd.isna(main_label) else []
+def build_concept_parts(main_label, composite_labels_str) -> List[str]:
+    """Merge main label with composite labels into an ordered, deduped list.
+    """
+    parts = []
+    if main_label is not None and not pd.isna(main_label):
+        m = str(main_label).strip().lower()
+        if m:
+            parts.append(m)
     for l in parse_post_cordinating_concepts_labels(composite_labels_str):
-        if l not in parts: parts.append(l)
-    return " ".join(parts).strip()
+        if l not in parts:
+            parts.append(l)
+    return parts
 
-def _extract_visit_period(visit: str) -> str:
+def build_concept_text(main_label, composite_labels_str) -> str:
+    """String form of the concept signature (kept for callers that expect a string)."""
+    return " ".join(build_concept_parts(main_label, composite_labels_str)).strip()
+
+def extract_visit_period(visit: str) -> str:
     """Normalize visit string to comparable period label."""
     if not visit:
         return ""
@@ -347,9 +432,6 @@ def is_categorical_variable(df):
                 else:
                     multi_class_categorical.append(normalize_text(key))
     return binary_categorical, multi_class_categorical
-
-
-
 
 def safe_int(value):
     """Safely convert a value to an integer, returning None if the value is invalid."""
@@ -458,11 +540,6 @@ def adjust_for_additional_context(result_dict, status, src_info, tgt_info, mappi
 
     # Exact match
     elif src_codes == tgt_codes:
-        # Optionally, store what matched (can help debugging)
-        # if src_codes:
-            # result_dict.setdefault("additional_context_comparison", "exact")
-            # result_dict.setdefault("additional_context_source",src_codes)
-            # result_dict.setdefault("additional_context_target",tgt_codes)
         if src_visit == tgt_visit:
             return result_dict, mapping_relation, status
         else:
@@ -498,9 +575,7 @@ def adjust_for_additional_context(result_dict, status, src_info, tgt_info, mappi
 
         
         result_dict["description"] =  desc + extra_note
-        # result_dict["additional_context_comparison"] = comparison_kind
-        # result_dict["additional_context_source"] = src_codes
-        # result_dict["additional_context_target"] = tgt_codes
+       
         if src_visit != tgt_visit:
             result_dict["description"] += " Temporal context also differs between source and target at metadata level."
             # status = lower_stat_by_1(status)
@@ -742,9 +817,9 @@ def apply_rules(domain, mapping_relation, src_info, tgt_info):
         }
         return finalize(details, "Not Applicable", src_info, tgt_info, mapping_relation)
      
-      # -------------------------------------------------------------------------
+
     # CASE 3: continuous vs categorical
-    # -------------------------------------------------------------------------
+    
     
     elif ((src_type == "continuous_variable" and tgt_type in {"binary_class_variable", "multi_class_variable"}) or 
         (tgt_type == "continuous_variable" and src_type in {"binary_class_variable", "multi_class_variable"})):
@@ -1024,7 +1099,10 @@ def load_dictionary( filepath=None) -> pd.DataFrame:
             # Optionally save to Excel if needed
          
         elif filepath.endswith('.csv'):
-            df_input = pd.read_csv(filepath, low_memory=False)
+            try:
+                df_input = pd.read_csv(filepath, dtype=str, keep_default_na=False)
+            except UnicodeDecodeError:
+                df_input = pd.read_csv(filepath, dtype=str, keep_default_na=False, encoding="latin-1")
         elif filepath.endswith('.xlsx'):
             df_input = pd.read_excel(filepath, sheet_name=0)
         else:
@@ -1148,6 +1226,4 @@ def setup_logger(log_file: str):
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
     logger.setLevel(logging.INFO)
-    # logger.addHandler(logging.StreamHandler())
-    # logger.addHandler(logging.FileHandler(log_file))
     return logger

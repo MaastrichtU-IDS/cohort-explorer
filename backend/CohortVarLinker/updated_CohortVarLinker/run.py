@@ -1,18 +1,8 @@
-"""Pipeline orchestrator: SPARQL → VariableCollection → matching → constraints.
-
-Key changes from original:
-  - _parse_sparql_results returns typed VariableCollections (not List[Dict])
-  - _enrich_with_profiles merges profile data INTO VariableNode attributes
-  - No separate attach_attributes / attach_profiles step
-  - Exact matches built from enriched nodes with profile columns
-  - resolve_matches takes VariableCollections, returns dicts with all columns
-"""
 
 import json
 import pandas as pd
 from typing import Any, List, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
-
 from .config import settings
 from .query_builder import SPARQLQueryBuilder
 from .constraints import ConstraintSolver
@@ -22,59 +12,12 @@ from .data_model import (
 )
 from .neuro_matcher import NeuroSymbolicMatcher
 from .variable_profile import VariableProfile
-# from .fuzz_match import FuzzyMatcher
+
 from .graph_similarity import compute_context_scores
 from .utils import clean_label_remove_temporal_context, execute_query, parse_post_cordinating_concepts_labels
-# from .llm_matcher import LocalLLMConceptMatcher
+# from .llm_call import LocalLLMConceptMatcher
 
-# def select_thresholds(embedding_model: Any, mapping_mode: str = MappingType.OEH.value):
-#     # if mapping_mode == MappingType.NE.value:
-#     #     if embedding_model.model_name  in ["biolord", "openai", "sapbert"]:
-#     #         return 0.65
-#     #     elif embedding_model.model_name  in ["qwen3-8b", "qwen3-0.6b"]:
-#     #         return 0.7
-#     # elif mapping_mode == MappingType.OEH.value:
-#     #     if embedding_model.model_name  in ["biolord", "openai", "sapbert"]:
-#     #         return 0.7
-#     #     elif embedding_model.model_name  in ["qwen3-8b", "qwen3-0.6b"]:
-#     #         return 0.8
-#     if embedding_model.model_name  in ["biolord",  "sapbert","openai"]:
-#         if mapping_mode == MappingType.OEH.value:
-#             # start, floor
-#             return 0.8, 0.5
-#         else:
-#             # start, floor
-#             return 0.8, 0.4
-#     else:
-#         if mapping_mode == MappingType.OEH.value:
-#             return 0.8,  0.75
-#         else:
-#             return 0.8,  0.65
 
-def select_thresholds(embedding_model: Any, mapping_mode: str = MappingType.OEH.value):
-    # if mapping_mode == MappingType.NE.value:
-    #     if embedding_model.model_name  in ["biolord", "openai", "sapbert"]:
-    #         return 0.65
-    #     elif embedding_model.model_name  in ["qwen3-8b", "qwen3-0.6b"]:
-    #         return 0.7
-    # elif mapping_mode == MappingType.OEH.value:
-    #     if embedding_model.model_name  in ["biolord", "openai", "sapbert"]:
-    #         return 0.7
-    #     elif embedding_model.model_name  in ["qwen3-8b", "qwen3-0.6b"]:
-    #         return 0.8
-    if embedding_model.model_name  in ["biolord",  "sapbert","openai"]:
-        if mapping_mode == MappingType.OEH.value:
-            return 0.6
-        else:
-            if embedding_model.model_name  in ["sapbert"]:
-                return 0.5
-            else:
-                return 0.55
-    else:
-        if mapping_mode == MappingType.OEH.value:
-            return 0.8
-        else:
-            return 0.75
 class StudyMapper:
 
     def __init__(self, vector_db: Any, embedding_model: Any, omop_graph: Any = None,
@@ -83,7 +26,7 @@ class StudyMapper:
         self.collection_name = vector_collection
         self.llm_models = llm_models
         self.embed_model = embedding_model
-        self.similarity_threshold = select_thresholds(embedding_model, mapping_mode)
+        self.similarity_threshold = settings.ADAPTIVE_THRESHOLD
         # self.similarity_threshold =
 
         # 0.6 if self.embed_model.model_name  in  else 0.8 # not using coder here
@@ -101,132 +44,87 @@ class StudyMapper:
         self.solver = ConstraintSolver(self.matcher)
         # self.llm_models = llm_models
    
-    # =================================================================
+ 
     # Step 1a: SPARQL → typed VariableCollections
-    # =================================================================
+ 
 
-    def _build_collections_from_vectordb(self, src_study: str, tgt_study: str) -> Tuple[VariableCollection, VariableCollection]:
-        """Build VariableCollections from vector DB payloads — no SPARQL, no OMOP."""
-        from qdrant_client import models
+    # def _build_collections_from_vectordb(self, src_study: str, tgt_study: str) -> Tuple[VariableCollection, VariableCollection]:
+    #     """Build VariableCollections from vector DB payloads — no SPARQL, no OMOP."""
+    #     from qdrant_client import models
 
-        def _fetch_study_vars(study: str) -> List[VariableNode]:
-            results = self.matcher.vector_db.scroll(
-                collection_name=self.matcher.collection_name,
-                scroll_filter=models.Filter(must=[
-                    models.FieldCondition(key='study_name', match=models.MatchValue(value=study)),
-                    models.FieldCondition(key='is_category', match=models.MatchValue(value=0)),
-                ]),
-                limit=10000, with_payload=True, with_vectors=False,
-            )[0]
-            nodes = []
-            for point in results:
-                p = point.payload
-                description = clean_label_remove_temporal_context(p.get('variable_label', ''))
-                original_categories = parse_post_cordinating_concepts_labels(p.get('original_categories'))
-                category_labels = parse_post_cordinating_concepts_labels(p.get('original_categories_labels'))
-                unit = p.get('unit', '') or ''
-                min_val = _safe_float(p.get('min', None))
-                max_val = _safe_float(p.get('max', None))
-                stat_type = p.get('statistical_type', None)
-                if not stat_type:
-                    n_cats = len(original_categories) or len(category_labels)
-                    if n_cats == 2: stat_type = StatisticalType.BINARY.value
-                    elif n_cats > 2: stat_type = StatisticalType.MULTI_CLASS.value
-                    elif unit or (min_val is not None and max_val is not None): stat_type = StatisticalType.CONTINUOUS.value
-                    else: stat_type = StatisticalType.QUALITATIVE.value
+    #     def _fetch_study_vars(study: str) -> List[VariableNode]:
+    #         results = self.matcher.vector_db.scroll(
+    #             collection_name=self.matcher.collection_name,
+    #             scroll_filter=models.Filter(must=[
+    #                 models.FieldCondition(key='study_name', match=models.MatchValue(value=study)),
+    #                 models.FieldCondition(key='is_category', match=models.MatchValue(value=0)),
+    #             ]),
+    #             limit=10000, with_payload=True, with_vectors=False,
+    #         )[0]
+    #         nodes = []
+    #         for point in results:
+    #             p = point.payload
+    #             description = clean_label_remove_temporal_context(p.get('variable_label', ''))
+    #             original_categories = parse_post_cordinating_concepts_labels(p.get('original_categories'))
+    #             category_labels = parse_post_cordinating_concepts_labels(p.get('original_categories_labels'))
+    #             unit = p.get('unit', '') or ''
+    #             min_val = _safe_float(p.get('min', None))
+    #             max_val = _safe_float(p.get('max', None))
+    #             # stat_type = p.get('statistical_type', None)
+    #             # if not stat_type:
+    #             #     n_cats = len(original_categories) or len(category_labels)
+    #             #     if n_cats == 2: stat_type = StatisticalType.BINARY.value
+    #             #     elif n_cats > 2: stat_type = StatisticalType.MULTI_CLASS.value
+    #             #     elif unit or (min_val is not None and max_val is not None): stat_type = StatisticalType.CONTINUOUS.value
+    #             #     else: stat_type = StatisticalType.QUALITATIVE.value
 
-                if p.get('is_category', 0) != 0:
-                    continue
+    #             if p.get('is_category', 0) != 0:
+    #                 continue
 
-                # Expand grouped visits into individual nodes
-                visits_raw = p.get('visit', '')
-                visits = [v.strip() for v in visits_raw.split('|') if v.strip()] if visits_raw else ['']
-                names_raw = p.get('variable_names', p.get('variable_name', ''))
-                names = [n.strip() for n in names_raw.split('|') if n.strip()] if names_raw else ['']
+    #             # Expand grouped visits into individual nodes
+    #             visits_raw = p.get('visit', '')
+    #             visits = [v.strip() for v in visits_raw.split('|') if v.strip()] if visits_raw else ['']
+    #             names_raw = p.get('variable_names', p.get('variable_name', ''))
+    #             names = [n.strip() for n in names_raw.split('|') if n.strip()] if names_raw else ['']
 
-                for vi, visit in enumerate(visits):
-                    name = names[vi] if vi < len(names) else names[0]
-                    node = VariableNode(
-                        name=name, description=description, main_label=description,
-                        study=study, role="source" if study == src_study else "target",
-                        unit=unit, visit=visit, category=p.get('domain', ''),
-                        statistics=Statistics(min_val=min_val, max_val=max_val),
-                        original_categories=original_categories, category_labels=category_labels,
-                    )
-                    node.statistical_type = StatisticalType.from_string(stat_type)
-                    nodes.append(node)
-            print(f"fetched {len(nodes)} variables from {study}")
-            return nodes
-        # def _fetch_study_vars(study: str) -> List[VariableNode]:
-        #     results = self.matcher.vector_db.scroll(
-        #         collection_name=self.matcher.collection_name,
-        #         scroll_filter=models.Filter(must=[
-        #             models.FieldCondition(key='study_name', match=models.MatchValue(value=study)),
-        #             models.FieldCondition(key='is_category', match=models.MatchValue(value=0)),
-        #             # models.FieldCondition(key='domain', match=models.MatchAny(any=settings.DATA_DOMAINS))
-        #         ]),
-        #         limit=10000, with_payload=True, with_vectors=False,
-        #     )[0]
-        #     nodes = []
-        #     for point in results:
-        #         p = point.payload
-        #         description = clean_label_remove_temporal_context(p.get('variable_label', ''))
+    #             for vi, visit in enumerate(visits):
+    #                 name = names[vi] if vi < len(names) else names[0]
+    #                 node = VariableNode(
+    #                     name=name, description=description, main_label=description,
+    #                     study=study, role="source" if study == src_study else "target",
+    #                     unit=unit, visit=visit, category=p.get('domain', ''),
+    #                     statistics=Statistics(min_val=min_val, max_val=max_val),
+    #                     original_categories=original_categories, category_labels=category_labels,
+    #                 )
+    #                 # node.statistical_type = StatisticalType.from_string(stat_type)
+    #                 nodes.append(node)
+    #         print(f"fetched {len(nodes)} variables from {study}")
+    #         return nodes
+       
+    #     src_nodes = _fetch_study_vars(src_study)
+    #     tgt_nodes = _fetch_study_vars(tgt_study)
+    #     return VariableCollection(study=src_study, variables=src_nodes), VariableCollection(study=tgt_study, variables=tgt_nodes)
 
-        #         original_categories = parse_post_cordinating_concepts_labels(p.get('original_categories'))
-        #         category_labels = parse_post_cordinating_concepts_labels(p.get('original_categories_labels'))
-        #         unit = p.get('unit', '') or ''
-        #         min_val = _safe_float(p.get('min', None))
-        #         max_val = _safe_float(p.get('max', None))
-
-        #         # Infer statistical type from metadata signals
-        #         stat_type = p.get('statistical_type', None)
-        #         if not stat_type:
-        #             n_cats = len(original_categories) or len(category_labels)
-        #             if n_cats == 2:
-        #                 stat_type = StatisticalType.BINARY.value
-        #             elif n_cats > 2:
-        #                 stat_type = StatisticalType.MULTI_CLASS.value
-        #             elif unit or (min_val is not None and max_val is not None):
-        #                 stat_type = StatisticalType.CONTINUOUS.value
-        #             else:
-        #                 stat_type = StatisticalType.QUALITATIVE.value
-
-        #         if p.get('is_category', 0) == 0:
-        #             node = VariableNode(
-        #                 name=p.get('variable_name', ''),
-        #                 description=description,
-        #                 main_label=description,
-        #                 study=study,
-        #                 role="source" if study == src_study else "target",
-        #                 unit=unit,
-        #                 visit=p.get('visit', ''),
-        #                 category=p.get('domain', ''),
-        #                 # statistical_type=StatisticalType.from_string(stat_type) ,
-        #                 statistics=Statistics(min_val=min_val, max_val=max_val),
-        #                 original_categories=original_categories,
-        #                 category_labels=category_labels,
-        #             )
-        #             node.statistical_type = StatisticalType.from_string(stat_type)
-        #             nodes.append(node)
-        #     print(f"fetched {len(nodes)} variables from {study}")
-        #     return nodes
-        src_nodes = _fetch_study_vars(src_study)
-        tgt_nodes = _fetch_study_vars(tgt_study)
-        return VariableCollection(study=src_study, variables=src_nodes), VariableCollection(study=tgt_study, variables=tgt_nodes)
-    def _fetch_unmapped_variables(self, study: str, graph_repo: str) -> List[VariableNode]:
-        """Fetch variables with no OMOP mapping — invisible to alignment query."""
-        query = SPARQLQueryBuilder.build_unmapped_variables_query(study, graph_repo)
+    def _fetch_unmapped_variables(self, study: str, graph_repo: str, role: str = None,use_filter:bool=False) -> List[VariableNode]:
+        """Raw unmapped variables — self-sufficient (no enrichment needed)."""
+        query = SPARQLQueryBuilder.build_unmapped_variables_query(study, graph_repo, use_filter)
         bindings = execute_query(query).get("results", {}).get("bindings", [])
         nodes = []
         for b in bindings:
-            name = b.get("var", {}).get("value", "")
             label = b.get("var_label", {}).get("value", "")
-            visit = b.get("visit_label", {}).get("value", "baseline")
-            domain = b.get("domain_val", {}).get("value", "")
-            nodes.append(VariableNode(
-                name=name, description=label, study=study,
-                main_id=None, main_label=label, visit=visit, category=domain,
-            ))
+            unit = b.get("unit_label", {}).get("value", "") or None
+            stat = b.get("stat_label", {}).get("value", "")
+            node = VariableNode(
+                name=b.get("var", {}).get("value", ""),
+                description=label, main_label=label, study=study, role=role,
+                visit=b.get("visit_label", {}).get("value", "baseline"),
+                category=b.get("domain_val", {}).get("value", ""),
+                unit=unit, main_id=None, main_code=None,
+            )
+            if stat:
+                node.statistical_type = StatisticalType.from_string(stat)
+            nodes.append(node)
+        # print(f"first node format = {nodes[0]}")
         return nodes
     def _parse_sparql_results(
         self, query: str, src_study: str, tgt_study: str,
@@ -284,12 +182,12 @@ class StudyMapper:
         tgt_col = VariableCollection(study=tgt_study, variables=tgt_nodes)
         return src_col, tgt_col
 
-    # =================================================================
+ 
     # Step 1b: Enrich VariableNodes with profile data — O(n) per study
-    # =================================================================
+ 
     
     @staticmethod
-    def _enrich_with_profiles(collection: VariableCollection, graph_repo: str):
+    def _enrich_with_profiles(collection: VariableCollection, graph_repo: str, mapping_mode:str=MappingType.OEH.value):
         """Fetch profiles from KG and merge INTO VariableNode attributes in-place.
 
         After this call, every node has: statistical_type, unit, context_labels,
@@ -330,96 +228,95 @@ class StudyMapper:
             if p is None:
                 continue
             # Parse into typed values BEFORE assignment (validators don't fire post-init)
-            node.statistical_type = StatisticalType.from_string(p.get("stat_label"))
-            node.unit = p.get("unit_label") or ""
-            node.context_labels = _split_labels(p.get("composite_code_labels"))
-            node.context_ids = _split_ids(p.get("composite_code_omop_ids"))
+            node.statistical_type = StatisticalType.from_string(p.get("stat_label")) if mapping_mode != MappingType.NE.value else node.statistical_type
+            node.unit = p.get("unit_label", "") if mapping_mode != MappingType.NE.value else node.unit
+            node.context_labels = _split_labels(p.get("composite_code_labels")) if mapping_mode != MappingType.NE.value else []
+            node.context_ids = _split_ids(p.get("composite_code_omop_ids"))   if mapping_mode != MappingType.NE.value else []
             node.category_labels = _split_labels(p.get("categories_labels"))
-            node.category_ids = _split_ids(p.get("categories_omop_ids"))
+            node.category_ids = _split_ids(p.get("categories_omop_ids"))  if mapping_mode != MappingType.NE.value else []
             node.original_categories = _split_labels(p.get("original_categories"))
             node.statistics = Statistics(
                 min_val=_safe_float(p.get("min_val")),
                 max_val=_safe_float(p.get("max_val")),
             )
 
-    # =================================================================
-    # Step 1c: Exact matches (same OMOP ID + visit alignment)
-    # =================================================================
-
-    # def _find_exact_matches(
-    #     self,
-    #     src_col: VariableCollection,
-    #     tgt_col: VariableCollection,
-    # ) -> List[Dict[str, Any]]:
-    #     """Find exact matches: same OMOP concept ID + aligned visits.
-
-    #     Uses enriched nodes so match dicts include full profile columns.
-    #     """
-    #     matches = []
-    #     common_omops = src_col.omop_ids & tgt_col.omop_ids
-    #     for omop_id in common_omops:
-    #         for src_node in src_col.get_by_omop_id(omop_id):
-    #             for tgt_node in tgt_col.get_by_omop_id(omop_id):
-    #                 s_vis = src_node.visit
-    #                 t_vis = tgt_node.visit
-    #                 if FuzzyMatcher.check_visit_string(s_vis, t_vis) != \
-    #                    FuzzyMatcher.check_visit_string(t_vis, s_vis):
-    #                     continue
-    #                 matches.append(_build_match_dict(
-    #                     src_node, tgt_node,
-    #                     relation="Symbolic Match: Exact",ctx_type= ContextMatchType.EXACT.value, sim_score=1.0,
-    #                 ))
-    #     return matches
-
-    # =================================================================
-    # Pipeline
-    # =================================================================
+   
+ 
+    # Run Pipeline
+ 
 
     def run_pipeline(
         self, src_study: str, tgt_study: str,
-        mapping_mode: str = "OEH"
+        mapping_mode: str = MappingType.OEH.value
     ) -> pd.DataFrame:
-        # print(f"Aligning {src_study} -> {tgt_study} [{mapping_mode}]")
+        
+
+        src_col = VariableCollection(study=src_study, variables=[])
+        tgt_col = VariableCollection(study=tgt_study, variables=[])
 
         # ── Step 1a: Parse SPARQL → typed VariableCollections ─────
-      
         if mapping_mode == MappingType.NE.value:
-            src_col, tgt_col = self._build_collections_from_vectordb(src_study, tgt_study)  
+            src_col = VariableCollection(study=src_study,
+                variables=self._fetch_unmapped_variables(src_study, settings.GRAPH_REPO, role="source"))
+            tgt_col = VariableCollection(study=tgt_study,
+                variables=self._fetch_unmapped_variables(tgt_study, settings.GRAPH_REPO, role="target"))
+
         else:
             query = SPARQLQueryBuilder.build_alignment_query(src_study, tgt_study, settings.GRAPH_REPO)
             src_col, tgt_col = self._parse_sparql_results(query, src_study, tgt_study)
-            # ── Step 1b: Fetch unmapped variables (OEH/OEC only) ─────
-            if mapping_mode != MappingType.OO.value:
-                for col, study in [(src_col, src_study), (tgt_col, tgt_study)]:
-                    unmapped = self._fetch_unmapped_variables(study, settings.GRAPH_REPO)
-                    if unmapped:
-                        col.variables.extend(unmapped)
-                        col._by_omop_id = None
-                        col._by_name = None
-                        col._build_indexes()
-                        print(f"  📎 Added {len(unmapped)} unmapped variables from {study}")
+        
+        # ── Step 1b: Fetch unmapped variables (OEH/NE) ─────
+        if mapping_mode == MappingType.OEH.value:
+            for col, study in [(src_col, src_study), (tgt_col, tgt_study)]:
+                unmapped = self._fetch_unmapped_variables(study, settings.GRAPH_REPO, use_filter=True)
+                if unmapped:
+                    col.variables.extend(unmapped)
+                    col._by_omop_id = None
+                    col._by_name = None
+                    col._build_indexes()
+                    print(f"  📎 Added {len(unmapped)} unmapped variables from {study}")
 
-            self._enrich_with_profiles(src_col, settings.GRAPH_REPO)
-            self._enrich_with_profiles(tgt_col, settings.GRAPH_REPO)
+        self._enrich_with_profiles(src_col, settings.GRAPH_REPO, mapping_mode)
+        self._enrich_with_profiles(tgt_col, settings.GRAPH_REPO, mapping_mode)
         print(f"📊 Parsed {len(src_col)} source, {len(tgt_col)} target variables")
 
         # ── Step 2: Concept matching + context scoring ────────────
-        ns_matches = self.matcher.resolve_matches(
-            src_collection=src_col, tgt_collection=tgt_col, target_study=tgt_study
-        )
+        # ns_matches = self.matcher.resolve_matches(
+        #     src_collection=src_col, tgt_collection=tgt_col, target_study=tgt_study
+        # )
 
-        # ── Build DataFrame (profile columns already in dicts) ────
+        # # ── Build DataFrame (profile columns already in dicts) ────
+        # df = pd.DataFrame(ns_matches)
+        # if df.empty:
+        #     return pd.DataFrame(columns=["source", "target", "harmonization_status"])
+        # df = df.drop_duplicates(subset=["source", "target"]).dropna(subset=["source", "target"])
+
+        # # ── Step 3: Pre-embed categorical labels ──────────────────
+        # # if mapping_mode != MappingType.OO.value:
+        # df = self.matcher._precompute_catvalues_similarity(df, model_object=self.embed_model)
+        # if not self.llm_models:
+        #     df = compute_context_scores(df, graph=self.graph, embed_model=self.embed_model, mapping_mode=mapping_mode, threshold=self.similarity_threshold)
+
+        # ── Step 2: Discover Candidates ────────────
+        ns_matches = self.matcher.generate_candidates(src_collection=src_col, tgt_collection=tgt_col, target_study=tgt_study)
+
         df = pd.DataFrame(ns_matches)
         if df.empty:
             return pd.DataFrame(columns=["source", "target", "harmonization_status"])
-        df = df.drop_duplicates(subset=["source", "target"]).dropna(subset=["source", "target"])
+        df = df.drop_duplicates(subset=["source", "target"])
 
-        # ── Step 3: Pre-embed categorical labels ──────────────────
-        if mapping_mode != MappingType.OO.value:
-            df = self.matcher._precompute_catvalues_similarity(df, model_object=self.embed_model)
-        if not self.llm_models:
-            df = compute_context_scores(df, graph=self.graph, embed_model=self.embed_model, mapping_mode=mapping_mode, threshold=self.similarity_threshold)
-        # ── Step 4: Constraint solving ────────────────────────────
+        # ── Step 3: Embeddings & Context Scoring ──────────────────
+        df = self.matcher._precompute_catvalues_similarity(df, model_object=self.embed_model)
+        llm_use = True if self.llm_models else False
+        df = compute_context_scores(df, graph=self.graph, embed_model=self.embed_model, mapping_mode=mapping_mode, threshold=self.similarity_threshold, llm=llm_use)
+        # ── Step 4: Symbolic Rules & LLM ──────────────────
+        if self.llm_models:
+            df = self.matcher.resolve_pending_with_llm(df, src_study, tgt_study)
+
+        # ── Step 5: Expand Derived Variables ──────────────────
+        df = self.matcher.compute_derived_variables(df, src_col, tgt_col)
+
+        # ── Step 6: Constraint solving ────────────────────────────
         total_rows = len(df)
         # print(f"🔧 Solving constraints for {total_rows} rows (parallel)...")
 
@@ -442,9 +339,9 @@ class StudyMapper:
                 results[idx] = result
                 done_count += 1
                 if done_count % 500 == 0:
-                    print(f"  solve_row: {done_count}/{total_rows}...")
+                    print(f"  solve row: {done_count}/{total_rows}...")
 
-        print(f"  solve_row: {total_rows}/{total_rows} done")
+        print(f"  solve row: {total_rows}/{total_rows} done")
         df[["transformation_rule", "harmonization_status"]] = pd.DataFrame(results, index=df.index)
 
         for col in df.columns:

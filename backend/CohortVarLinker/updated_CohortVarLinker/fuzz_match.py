@@ -2,15 +2,15 @@
 from typing import List, Set, Tuple, Optional
 import re
 from .config import settings    
-from .utils import _extract_visit_period
+from .utils import extract_visit_period
 _nlp = None
 class FuzzyMatcher:
 
     @staticmethod
     def check_visit_string(visit_str_1: str, visit_str_2: str) -> bool:
         """Normalize temporal context strings."""
-        s_low = _extract_visit_period(visit_str_1.lower())
-        t_low = _extract_visit_period(visit_str_2.lower())
+        s_low = extract_visit_period(visit_str_1.lower())
+        t_low = extract_visit_period(visit_str_2.lower())
         # print(f"s_low: {s_low}, t_low: {t_low}")
         for hint in settings.DATE_HINTS:
             if hint in s_low and hint in t_low:
@@ -24,13 +24,29 @@ class FuzzyMatcher:
                 return True
         return s_low == t_low
 
+    # @staticmethod
+    # def check_visit_string(visit_str_1: str, visit_str_2: str) -> bool:
+    #     """Match if periods agree, or if one side is a date-hint placeholder
+    #     and the other is baseline (registry-enrollment convention)."""
+    #     s_low = extract_visit_period(visit_str_1.lower())
+    #     t_low = extract_visit_period(visit_str_2.lower())
+    #     if s_low == t_low:
+    #         return True
+    #     s_hint = any(h in s_low for h in settings.DATE_HINTS)
+    #     t_hint = any(h in t_low for h in settings.DATE_HINTS)
+    #     if s_hint and t_hint:
+    #         return s_low == t_low                    # both placeholders: literal equality
+    #     if s_hint:
+    #         return t_low == "baseline time"          # placeholder ↔ baseline only
+    #     if t_hint:
+    #         return s_low == "baseline time"
+    #     return False                                  # both explicit and unequal
+
     @staticmethod
     def tokenize(text):
             # Split on non-alphanumeric chars (keep only words)
             return set(re.split(r'[^a-zA-Z0-9]+', text.lower()))
     
-
-
     @staticmethod
     def _has_token_overlap(label1: str, label2: str) -> bool:
        return (FuzzyMatcher.tokenize(label2).issubset(FuzzyMatcher.tokenize(label1)) or FuzzyMatcher.tokenize(label1).issubset(FuzzyMatcher.tokenize(label2)))

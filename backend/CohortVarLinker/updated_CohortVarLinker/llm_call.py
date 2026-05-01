@@ -2,7 +2,6 @@ from __future__ import annotations
 import json, re, time
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass, field
-from collections import Counter
 from .config import settings
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from .data_model import ContextMatchType, MappingType
@@ -346,7 +345,7 @@ class LLMConceptMatcher:
     models: List[str] = field(default_factory=list)
     max_retries: int = 5
     temperature: float = 0
-    timeout: int = 500
+    timeout: int = 1000
     mode: str = MappingType.OEH.value
     _clients: Dict[str, Any] = field(default_factory=dict, repr=False)
 
@@ -503,7 +502,7 @@ class LLMConceptMatcher:
                     src_desc=g.get("src_desc", ""), tgt_desc=t.get("desc", ""),
                     src_unit=g.get("src_unit", ""), tgt_unit=t.get("tgt_unit", ""),
                     evidence=t.get("evidence", ""), mode=self.mode))
-        with ThreadPoolExecutor(max_workers=1) as pool:
+        with ThreadPoolExecutor(max_workers=3) as pool:
             futures = {pool.submit(self._eval_pair, model, p): i for i, p in enumerate(prompts)}
             results = [None] * len(prompts)
             for fut in as_completed(futures):

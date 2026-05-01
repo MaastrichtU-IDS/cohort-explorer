@@ -1,7 +1,7 @@
-# from rdflib import Dataset, Namespace
+
 from rdflib.namespace import  XSD
 from rdflib import Graph,Literal, RDF, RDFS, URIRef, DC
-# from urllib.parse import quote
+
 import pandas as pd
 from .config import settings
 import json
@@ -14,6 +14,7 @@ from .utils import (
     normalize_text, 
     safe_int,
     determine_var_uri,
+    is_identifier_like_variable,
     get_study_uri,
     load_dictionary,
     extract_tick_values,
@@ -79,8 +80,30 @@ def process_variables_metadata_file(file_path:str, study_metadata_graph_file_pat
             if pd.notna(row['domain']):
                 g=add_category_annotation(g, var_uri, row['domain'], cohort_graph)
             print(f"row['vartype']: {row['vartype']}")
-            statistical_type_uri,statistical_type = determine_var_uri(cohort_id, var_name, multi_class_categorical, binary_categorical, data_type=row['vartype'])
+            # statistical_type_uri,statistical_type = determine_var_uri(cohort_id, var_name, multi_class_categorical, binary_categorical, data_type=row['vartype'])
             
+            is_identifier, reasons = is_identifier_like_variable(row)
+
+            if is_identifier:
+                print(
+                    f"[IDENTIFIER] {row.get('variablename')} | "
+                    f"{row.get('variablelabel')} | "
+                    f"{row.get('variable concept name')} | "
+                    f"{'; '.join(reasons)}"
+                )
+
+                statistical_type = "qualitative_variable"
+                statistical_type_uri = URIRef(f"{var_uri}/statistical_type/{statistical_type}")
+
+            else:
+                statistical_type_uri, statistical_type = determine_var_uri(
+                    cohort_id,
+                    var_name,
+                    multi_class_categorical,
+                    binary_categorical,
+                    data_type=row["vartype"]
+                )
+
             g.add((statistical_type_uri, RDF.type, URIRef(f"{OntologyNamespaces.CMEO.value}{statistical_type}"), cohort_graph))
             g.add((statistical_type_uri, OntologyNamespaces.CMEO.value.has_value, Literal(statistical_type, datatype=XSD.string), cohort_graph))
             g.add((var_uri, OntologyNamespaces.IAO.value.is_denoted_by, statistical_type_uri, cohort_graph))
@@ -814,39 +837,68 @@ def add_categories_to_graph(g: Graph, var_uri: URIRef, cohort_uri: URIRef, row: 
 
 
 
+# def add_measurement_unit(g:Graph, var_uri:URIRef, cohort_uri: URIRef,row: pd.Series) -> Graph:
+#     """
+#     Adds measurement unit details to the RDF graph for a given variable URI.
+    
+#     Parameters:
+#     - g: The RDF graph to add triples to.
+#     - var_uri: The URI of the measured variable to which the unit is related.
+#     - measurement_unit: An object or dictionary containing the unit details, 
+#       including `unit_value`, `label`, `code`, and `omop_id`.
+#     """
+#     # measurement_unit = MeasurementUnit(
+#     #     value=row['units'] if pd.notna(row['units']) else None,
+        
+#     # )
+   
+#     if pd.notna(row['units']) and pd.notna(row['unit concept name']):
+#         unit_concept= Concept(
+#             standard_label=row['unit concept name'] if pd.notna(row['unit concept name']) else None,
+#             code=row['unit concept code'] if pd.notna(row['unit concept code']) else None,
+#             omop_id=safe_int(row['unit omop id']) if pd.notna(row['unit omop id']) else None
+#         )
+#         #print(f"unit_concept: {unit_concept[0].code} {unit_concept[0].standard_label} {unit_concept[0].omop_id}")
+#         # Create a unique URI for the measurement unit
+#         unit_uri = URIRef(f"{var_uri}/measurement_unit_label")
+#         unit_value=row['units'] if pd.notna(row['units']) else None
+#         # Add the measurement unit type to the graph
+#         g.add((unit_uri, RDF.type, OntologyNamespaces.OBI.value.measurement_unit_label, cohort_uri))
+
+#         g.add((unit_uri, OntologyNamespaces.CMEO.value.has_value, Literal(unit_value, datatype=XSD.string),cohort_uri))
+
+#         g= add_solo_concept_info(g, unit_uri, unit_concept, cohort_uri)
+#         g.add((var_uri, OntologyNamespaces.OBI.value.has_measurement_unit_label, unit_uri,cohort_uri))
+#         # g.add((var_uri, OntologyNamespaces.RO.value.has_part, unit_uri,cohort_uri))
+
+#     return g
+
+
 def add_measurement_unit(g:Graph, var_uri:URIRef, cohort_uri: URIRef,row: pd.Series) -> Graph:
     """
     Adds measurement unit details to the RDF graph for a given variable URI.
-    
-    Parameters:
-    - g: The RDF graph to add triples to.
-    - var_uri: The URI of the measured variable to which the unit is related.
-    - measurement_unit: An object or dictionary containing the unit details, 
-      including `unit_value`, `label`, `code`, and `omop_id`.
     """
-    # measurement_unit = MeasurementUnit(
-    #     value=row['units'] if pd.notna(row['units']) else None,
-        
-    # )
-   
-    if pd.notna(row['units']) and pd.notna(row['unit concept name']):
+    # 1. Safely extract and strip the string to catch hidden empty values
+    unit_raw = row['units']
+    unit_str = str(unit_raw).strip() if pd.notna(unit_raw) else ""
+    
+    # 2. Check that the unit string is actually not empty
+    if unit_str != "" and pd.notna(row['unit concept name']):
         unit_concept= Concept(
             standard_label=row['unit concept name'] if pd.notna(row['unit concept name']) else None,
             code=row['unit concept code'] if pd.notna(row['unit concept code']) else None,
             omop_id=safe_int(row['unit omop id']) if pd.notna(row['unit omop id']) else None
         )
-        #print(f"unit_concept: {unit_concept[0].code} {unit_concept[0].standard_label} {unit_concept[0].omop_id}")
-        # Create a unique URI for the measurement unit
+
         unit_uri = URIRef(f"{var_uri}/measurement_unit_label")
-        unit_value=row['units'] if pd.notna(row['units']) else None,
-        # Add the measurement unit type to the graph
+        
+        # 3. FIX: Removed the trailing comma from this line
+        unit_value = unit_str 
+        
         g.add((unit_uri, RDF.type, OntologyNamespaces.OBI.value.measurement_unit_label, cohort_uri))
-
         g.add((unit_uri, OntologyNamespaces.CMEO.value.has_value, Literal(unit_value, datatype=XSD.string),cohort_uri))
-
         g= add_solo_concept_info(g, unit_uri, unit_concept, cohort_uri)
         g.add((var_uri, OntologyNamespaces.OBI.value.has_measurement_unit_label, unit_uri,cohort_uri))
-        # g.add((var_uri, OntologyNamespaces.RO.value.has_part, unit_uri,cohort_uri))
 
     return g
 
@@ -874,8 +926,8 @@ def get_temporal_context_uri(var_uri: str | URIRef, temporal_context_id: str) ->
     return URIRef(f"{var_uri!s}/visit/{safe_temporal_context_id}")
 
 def get_measurement_unit_uri(var_uri: str | URIRef, unit_label: str) -> URIRef:
-    if unit_label is None:
-        print("Unit label is None")
+    # if unit_label is None:
+    #     print("Unit label is None")
     safe_unit_label = normalize_text(unit_label)
     return URIRef(f"{var_uri!s}/unit/{safe_unit_label}")
 

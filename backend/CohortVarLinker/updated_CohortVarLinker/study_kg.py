@@ -5,7 +5,6 @@ from .utils import (
     init_graph, 
     OntologyNamespaces, 
     normalize_text, 
-    # STUDY_TYPES, 
     graph_exists,
     save_graph_to_trig_file, 
     check_triple_exists, 

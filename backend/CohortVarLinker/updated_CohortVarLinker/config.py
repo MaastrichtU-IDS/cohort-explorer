@@ -8,13 +8,12 @@ load_dotenv()  # reads .env into os.environ
 @dataclass(frozen=True)
 class Settings:
     # Thresholds
-    SIMILARITY_THRESHOLD: float = 0.8 # lower threshold and apply adaptive gate
-    ADAPTIVE_THRESHOLD: float = 0.45 # minimum score for adaptive retrival from vector db
+    ADAPTIVE_THRESHOLD: float = 0.5 # minimum score for adaptive retrival from vector db
+    ADAPTIVE_ALPHA = 0.85 # upper bound
     LIMIT: int = 5 # limit for adaptive retrival from vector db
         # Text hints for logic
     DATE_HINTS: List[str] = field(default_factory=lambda: ["visit date", "date of visit", "date of event", "event date"])
     TOGETHER_API_KEY: str = field(default_factory=lambda: os.getenv("TOGETHER_API_KEY"))   
-    # FIREWORKS_API_KEY: str = field(default_factory=lambda: os.getenv("FIREWORKS_API_KEY"))
     OPENROUTER_API_KEY: str = field(default_factory=lambda: os.getenv("OPENROUTER_API_KEY"))
     OLLAMA_URL = "localhost:11434"
     CROSS_CATS: Set[str] = field(default_factory=lambda: {
@@ -25,9 +24,9 @@ class Settings:
     
     DEFAULT_GRAPH_DEPTH: int = 1 # additional cross-vocabulary depth is automatically added for concepts across vocabularies, but this is the default depth for all concepts
     
-    LOCAL_LLM_MODELS: List[str] = field(default_factory=lambda:  ["mistral:latest", "llama3.3:70b", "qwen2.5:72b"])
-    TOGETHER_LLM_MODELS: List[str] = field(default_factory=lambda:  [ "Qwen/Qwen3-Next-80B-A3B-Instruct", "openai/gpt-oss-120b","meta-llama/Llama-3.3-70B-Instruct-Turbo" , "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8"])
-    LARGE_LMs: List[str] = field(default_factory=lambda:  ["gemini-2.5-flash"]) # "gpt-4.1-2025-04-14",
+    # LOCAL_LLM_MODELS: List[str] = field(default_factory=lambda:  ["mistral:latest", "llama3.3:70b", "qwen2.5:72b"])
+    # TOGETHER_LLM_MODELS: List[str] = field(default_factory=lambda:  [ "Qwen/Qwen3-Next-80B-A3B-Instruct", "openai/gpt-oss-120b","meta-llama/Llama-3.3-70B-Instruct-Turbo" , "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8"])
+    # LARGE_LMs: List[str] = field(default_factory=lambda:  ["gemini-2.5-flash"]) # "gpt-4.1-2025-04-14",
     
     # External Resources
     OPENAI_API_KEY: str = field(default_factory=lambda: os.getenv("OPENAI_API_KEY"))
@@ -56,8 +55,107 @@ class Settings:
         "required_omops": [3025315, 3016723, 3022304, 46235213],  # Height, Weight, Creatinine, Age/Gender proxy
         "category": "measurement",
         "data_type": "continuous_variable"
+    },
+    {
+        "name": "eGFR_CKD_EPI", # 2021 CKD-EPI is race-free
+        "omop_id": 3030354,                                  
+        "code": "loinc:33914-3",
+        "label": "Glomerular filtration rate/1.73 sq M.predicted by Creatinine-based formula (CKD-EPI)",
+        "unit": "ucum:mL/min/{1.73_m2}",
+        "required_omops": [4324383, 4265453, 46235213],       # Creatinine, Age, Sex assigned at birth
+        "category": "measurement",
+        "data_type": "continuous_variable",
+        "formula": "CKD-EPI 2021 race-free: 142*min(Scr/k,1)^a*max(Scr/k,1)^-1.200*0.9938^Age*1.012[F] ; k=0.7[F]/0.9[M], a=-0.241[F]/-0.302[M]"
+    },
+    {
+        "name": "eGFR_MDRD",
+        "omop_id": 3053283,
+        "code": "loinc:48643-1",
+        "label": "Glomerular filtration rate/1.73 sq M predicted by Creatinine-based formula (MDRD)",
+        "unit": "ucum:mL/min/{1.73_m2}",
+        "required_omops": [4324383, 4265453, 46235213],        # Creatinine, Age, Sex
+        "category": "measurement",
+        "data_type": "continuous_variable",
+        "formula": "175 * Scr^-1.154 * Age^-0.203 * 0.742[F] * 1.212[Black]"
+    },
+    {
+        "name": "MAP",
+        "omop_id": 4239021,                                  # verify
+        "code": "snomed:6797001",
+        "label": "Mean blood pressure",
+        "unit": "ucum:mm[Hg]",
+        "required_omops": [4152194, 4154790],                 # SBP, DBP
+        "category": "measurement",
+        "data_type": "continuous_variable",
+        "formula": "MAP = DBP + (SBP - DBP)/3"
+    },
+    {
+        "name": "Pulse_Pressure",
+        "omop_id": 3559113,                                   # SNOMED 
+        "code": "snomed:811751000000106",
+        "label": "Pulse pressure",
+        "unit": "ucum:mm[Hg]",
+        "required_omops": [4152194, 4154790],                 # SBP, DBP
+        "category": "measurement",
+        "data_type": "continuous_variable",
+        "formula": "PP = SBP - DBP"
+    },
+    {
+        "name": "BSA_DuBois",
+        "omop_id": 4201235,
+        "code": "snomed:301898006",
+        "label": "Body surface area",
+        "unit": "ucum:m2",
+        "required_omops": [3025315, 3036277],                 # Body Weight, Body Height 
+        "category": "measurement",
+        "data_type": "continuous_variable",
+        "formula": "DuBois: BSA = 0.007184 * W(kg)^0.425 * H(cm)^0.725"
+    },
+    {
+        "name": "Waist_Hip_Ratio",
+        "omop_id": 4087501,                                   # LOINC 9844-2 — verify
+        "code": "snomed:248367009",
+        "label": "Ratio of waist circumference to hip circumference",
+        "unit": "ucum:1",
+        "required_omops": [40329251, 4111665],                 # Waist circumference, Hip circumference — verify
+        "category": "measurement",
+        "data_type": "continuous_variable",
+        "formula": "WHR = waist / hip"
+    },
+    {
+        "name": "LDL_Friedewald", # Friedewald is invalid when triglycerides ≥ 400 mg/dL or in non-fasting samples
+        "omop_id": 3028288,
+        "code": "loinc:13457-7",
+        "label": "Cholesterol in LDL [Mass/volume] in Serum or Plasma by calculation",
+        "unit": "ucum:mg/dL",
+        "required_omops": [4008265, 3007070, 3022192],        # Total cholesterol measurement, Cholesterol in HDL [Mass/volume] in Serum or Plasma, Triglyceride [Mass/volume] in Serum or Plasma
+        "category": "measurement",
+        "data_type": "continuous_variable",
+        "formula": "LDL = TC - HDL - TG/5 ; invalid if TG >= 400 mg/dL (use Martin-Hopkins or direct LDL)"
+    },
+    {
+        "name": "Non_HDL_Cholesterol",
+        "omop_id": 3044491,                                  # verify
+        "code": "loinc:43396-1",
+        "label": "Cholesterol non HDL [Mass/volume] in Serum or Plasma",
+        "unit": "ucum:mg/dL",
+        "required_omops": [4008265, 3007070],                 # Total cholesterol measurement, Cholesterol in HDL [Mass/volume] in Serum or Plasma
+        "category": "measurement",
+        "data_type": "continuous_variable",
+        "formula": "Non-HDL = TC - HDL"
+    },
+    {
+        "name": "QTc_Bazett",
+        "omop_id": 46235174,                                   
+        "code": "loinc:76635-2",
+        "label": "Q-T interval corrected based on Bazett formula",
+        "unit": "ucum:ms",
+        "required_omops": [4216826, 3027018],                 # QT interval feature, heart rate  — verify
+        "category": "measurement",
+        "data_type": "continuous_variable",
+        "formula": "QTc = QT_ms / sqrt(RR_s) ; RR_s = 60/HR"
     }
-    # CKD-EPI is prioritized  over others, eGFR (CKD-EPI and MDRD)
+
     ])
     admins: str = field(default_factory=lambda: os.getenv("ADMINS", ""))
 

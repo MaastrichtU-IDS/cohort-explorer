@@ -44,6 +44,7 @@ class MappingType(str, Enum):
 
 
 class ContextMatchType(IntEnum):
+    PENDING = 0
     EXACT = 1
     COMPATIBLE = 2
     SUBSUMED = 3
@@ -51,14 +52,8 @@ class ContextMatchType(IntEnum):
     NOT_APPLICABLE = 5
 
     def to_str(self) -> str:
-        mapping = {
-            1: "exact match",
-            2: "compatible match",
-            3: "subsumed",
-            4: "partial match",
-            5: "not applicable"
-        }
-        return mapping[self]
+        return {0:"pending", 1:"exact match", 2:"compatible match",
+                3:"subsumed", 4:"partial match", 5:"not applicable"}[self]
 class MatchLevel(IntEnum):
     """Hierarchy: Lower = Better Match"""
     IDENTICAL = 1
@@ -99,12 +94,6 @@ class TransformationType(str, Enum):
     TIMEPOINT_ALIGNMENT = "Require Transformation for Timepoints Alignment"
     DERIVATION = "Require Transformation to compute derived variable"
     MANUAL_REVIEW = "Require Manual Review before harmonization"
-    
-# class EmbeddingType(str, Enum):
-#     """Types of embedding strategies for neural matching."""
-#     ED = "embedding(description)"
-#     EC = "embedding(concept)"
-#     EH = "embedding(hybrid)"
 
 
 class StatisticalType(str, Enum):
@@ -771,6 +760,8 @@ class MatchResult(BaseModel):
             # Composite codes
             "source_composite_code_labels": self.source.composite_code_labels,
             "target_composite_code_labels": self.target.composite_code_labels,
+            "source_composite_code_omop_ids": "|".join(str(x) for x in self.source.context_ids),
+            "target_composite_code_omop_ids": "|".join(str(x) for x in self.target.context_ids),
             
             # Statistics
             "source_min_val": self.source.statistics.min_val,
@@ -803,7 +794,7 @@ class VariableCollection(BaseModel):
     # Indexes built on first access
     _by_omop_id: Optional[Dict[int, List[VariableNode]]] = None
     _by_name: Optional[Dict[str, VariableNode]] = None
-    
+    _by_visit:Optional[Dict[str, List[VariableNode]]] = None
     class Config:
         extra = "allow"
         arbitrary_types_allowed = True
@@ -816,7 +807,7 @@ class VariableCollection(BaseModel):
         """Build lookup indexes."""
         self._by_omop_id = {}
         self._by_name = {}
-        
+        self._by_visit = {}
         for var in self.variables:
             var.study = self.study  # Ensure study is set
             
@@ -828,6 +819,7 @@ class VariableCollection(BaseModel):
             
             # Index by name (unique)
             self._by_name[var.name] = var
+            # we need to combine all visits and append them as str for a variable ???
     
     def get_by_omop_id(self, omop_id: int) -> List[VariableNode]:
         """Get all variables with given OMOP ID."""
