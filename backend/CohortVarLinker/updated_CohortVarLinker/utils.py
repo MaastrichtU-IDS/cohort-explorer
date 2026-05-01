@@ -334,7 +334,7 @@ def extract_age_range(text):
         return min_age, max_age
 
     return None
-def determine_var_uri(cohort_id: str | URIRef, var_name: str,multi_class_categorical: list[str], binary_categorical: list[str], data_type: str = None) -> tuple[URIRef, str]:
+def determine_var_uri(cohort_id: str | URIRef, var_name: str,multi_class_categorical: list[str], binary_categorical: list[str], data_type: str = None, unit:str=None) -> tuple[URIRef, str]:
     print(f"data_type: {data_type}")
     # cohort_uri = get_cohort_uri(cohort_id)
     var_uri = get_var_uri(cohort_id, var_name)
@@ -345,7 +345,7 @@ def determine_var_uri(cohort_id: str | URIRef, var_name: str,multi_class_categor
     elif var_name in multi_class_categorical:
         statistical_type_uri =  URIRef(var_uri + "/multi_class_variable")
         statistical_type = "multi_class_variable"
-    elif data_type  and data_type in  ["str",]:
+    elif data_type  and data_type in  ["str",] and unit is None:
         statistical_type_uri =  URIRef(var_uri + "/qualitative_variable")
         statistical_type = "qualitative_variable"
     else:

@@ -346,10 +346,7 @@ class ContextGate:
             return bool(labels) and any(label.strip().lower() != 'nan' for label in labels)
 
         ctx_type = ctx.context_match_type
-        # print(f"ctx_type = {ctx_type}")
-        # if isinstance(ctx_type, str):
-        #     s = ctx_type.strip()
-        #     ctx_type = int(s) if s.lstrip('-').isdigit() else None
+     
         if ctx_type == ContextMatchType.PENDING.value:
             ctx_type = None
 
@@ -376,13 +373,15 @@ class ContextGate:
             ctx.set_result(MatchLevel.NOT_APPLICABLE,
                 reason="One variable has context, the other doesn't.",
                 extra_details={"transformation": TransformationType.MANUAL_REVIEW},
-                should_stop=True)
+                    should_stop=True
+                )
             return
         if ctx.sim_score is not None and round(ctx.sim_score, 2) < self.threshold:
             ctx.set_result(MatchLevel.NOT_APPLICABLE,
                 reason=f"Context similarity {ctx.sim_score:.2f} below threshold {self.threshold}.",
                 extra_details={"transformation": TransformationType.MANUAL_REVIEW},
-                should_stop=True)
+                    should_stop=True
+                )
 
 
 
@@ -419,8 +418,7 @@ class ContinuousHandler:
             ctx.set_result(
                 level=MatchLevel.IDENTICAL,
                 reason="Unit dimension not applicable.",
-                extra_details={**unit_info, "transformation": TransformationType.NONE},
-                should_stop=True
+                extra_details={**unit_info, "transformation": TransformationType.NONE}
             )
            
             return
@@ -430,8 +428,7 @@ class ContinuousHandler:
             ctx.set_result(
                 level=MatchLevel.IDENTICAL,
                 reason="Same units.",
-                extra_details={**unit_info, "transformation": TransformationType.VALUE_NORMALIZATION},
-                should_stop=True
+                extra_details={**unit_info, "transformation": TransformationType.NONE}
             )
           
             return
@@ -441,8 +438,7 @@ class ContinuousHandler:
             ctx.set_result(
                 level=MatchLevel.COMPATIBLE,
                 reason=f"Units differ ({src_unit} vs {tgt_unit}).",
-                extra_details={**unit_info, "transformation": TransformationType.UNIT_CONVERSION},
-                should_stop=True
+                extra_details={**unit_info, "transformation": TransformationType.UNIT_CONVERSION}
             )
            
             return
@@ -452,8 +448,7 @@ class ContinuousHandler:
             ctx.set_result(
                 level=MatchLevel.COMPATIBLE,
                 reason="Derived variable; recomputation required.",
-                extra_details={**unit_info, "transformation": TransformationType.DERIVATION},
-                should_stop=True
+                extra_details={**unit_info, "transformation": TransformationType.DERIVATION}
             )
           
             return
@@ -463,8 +458,7 @@ class ContinuousHandler:
         ctx.set_result(
                 level=MatchLevel.PARTIAL,
                 reason=f"Unit declared on only one side ({src_unit or tgt_unit}); cannot verify equivalence.",
-                extra_details={**unit_info, "transformation": TransformationType.MANUAL_REVIEW},
-                should_stop=True
+                extra_details={**unit_info, "transformation": TransformationType.MANUAL_REVIEW}
             )
       
 class CategoricalHandler:
@@ -492,8 +486,7 @@ class CategoricalHandler:
             ctx.set_result(
                 level=level,
                 reason=reason,
-                extra_details=extra,
-                should_stop=True
+                extra_details=extra
             )
             return
 
@@ -507,8 +500,7 @@ class CategoricalHandler:
             ctx.set_result(
                 level=MatchLevel.PARTIAL,
                 reason="One variable is categorical subset of other.",
-                extra_details=extra,
-                should_stop=True
+                extra_details=extra
             )
            
             return
@@ -520,8 +512,7 @@ class CategoricalHandler:
             ctx.set_result(
                 level=MatchLevel.PARTIAL,
                 reason= "Some overlapping categories.",
-                extra_details=extra,
-                should_stop=True
+                extra_details=extra
             )
            
             return
@@ -533,7 +524,7 @@ class CategoricalHandler:
                         {"transformation": TransformationType.MANUAL_REVIEW,
                         "source_categories": s_lbl_norm, "target_categories": t_lbl_norm
                         },
-                     should_stop=True)
+                     )
 
 
 class ContinuousCategoricalHandler:
@@ -562,8 +553,7 @@ class ContinuousCategoricalHandler:
                 "continuous_variable_side": continuous_side,
                 "categorical_variable_side": categorical_side,
                 "source_type": ctx.src.statistical_type, "target_type": ctx.tgt.statistical_type,
-            },
-            should_stop=True
+            }
         )
        
 class ContinuousBinaryHandler:
@@ -598,8 +588,7 @@ class ContinuousBinaryHandler:
                     **common,
                     "transformation": TransformationType.BINARY_EXTRACTION,
                     "extraction_direction": "continuous_to_binary",
-                },
-                should_stop=True
+                }
              )
            
             return
@@ -611,8 +600,7 @@ class ContinuousBinaryHandler:
             extra_details={
                 **common,
                 "transformation": TransformationType.MANUAL_REVIEW,
-            },
-            should_stop=True
+            }
              )
        
    
@@ -673,8 +661,7 @@ class MixedCategoricalHandler:
             ctx.set_result(
             MatchLevel.PARTIAL,
             reason="Binary variable is subset of Multi-class variable.",
-            extra_details=base,
-            should_stop=True
+            extra_details=base
             )
            
             return
@@ -707,7 +694,6 @@ class MixedCategoricalHandler:
                 ctx.set_result(
                     level=MatchLevel.PARTIAL,
                     reason=f"Binary extracts '{cat_label}' (direct label match).",
-                    should_stop=True,
                     extra_details={
                         "transformation": TransformationType.BINARY_EXTRACTION,
                         "binary_variable_side": binary_side,
@@ -736,8 +722,7 @@ class MixedCategoricalHandler:
                         "matched_category_label": cat_label,
                         "matched_category_omop": cat_id,
                         "mapping_relation": method,
-                    },
-                    should_stop=True
+                    }
                 )   
               
                 return True
@@ -789,8 +774,7 @@ class MixedCategoricalHandler:
         ctx.set_result(
             level=MatchLevel.PARTIAL,
             reason=f"'{aggregate_cat}' aggregates {len(aggregated_multi)} categories.",
-            extra_details=extra,
-            should_stop=True
+            extra_details=extra
         )
         return True
 
@@ -860,13 +844,11 @@ class StatisticalLogicConstraint(Constraint):
             if ctx.is_derived_variable:
                 ctx.set_result(MatchLevel.COMPATIBLE, 
                 reason="Variables are compatible",
-                extra_details={"transformation": TransformationType.DERIVATION},
-                should_stop=True)
+                extra_details={"transformation": TransformationType.DERIVATION})
             else:
                 ctx.set_result(MatchLevel.NOT_APPLICABLE,
                     reason= f"Invalid or missing statistical types: {s_type} vs {t_type}.",
-                    extra_details={"transformation": TransformationType.NONE},
-                    should_stop=True
+                    extra_details={"transformation": TransformationType.NONE}
                 )
             return
 
@@ -883,8 +865,7 @@ class StatisticalLogicConstraint(Constraint):
                     reason="Variables are compatible.",
                     extra_details={
                    "transformation": TransformationType.NONE
-                    },
-                    should_stop=True
+                    }
                 )
               
             return
@@ -893,7 +874,7 @@ class StatisticalLogicConstraint(Constraint):
             ctx.set_result(MatchLevel.NOT_APPLICABLE, 
                 reason= "Continuous vs qualitative (free-text); no structural harmonization possible.",
                 extra_details={
-                   "transformation": TransformationType.MANUAL_REVIEW
+                   "transformation": TransformationType.NONE
                 })
             return
           
@@ -921,8 +902,7 @@ class StatisticalLogicConstraint(Constraint):
                         "transformation": TransformationType.VALUE_NORMALIZATION,
                         "source_range": f"[{s_min}, {s_max}]",
                         "target_range": f"[{t_min}, {t_max}]",
-                    },
-                    should_stop=True
+                    }
                 )
               
             return
@@ -938,7 +918,7 @@ class StatisticalLogicConstraint(Constraint):
         ctx.set_result(
             MatchLevel.NOT_APPLICABLE,
             reason=f"Statistical type mismatch: {s_type} vs {t_type}.",
-            extra_details={"transformation": TransformationType.MANUAL_REVIEW},
+            extra_details={"transformation": TransformationType.NONE},
         )
 
     def _build_cat_map(self, ctx: CandidateContext) -> Optional[Dict]:

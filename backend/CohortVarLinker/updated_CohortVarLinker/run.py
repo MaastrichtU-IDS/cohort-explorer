@@ -337,6 +337,6 @@ class StudyMapper:
         # Delete context_match_type column
      
         df.dropna(subset=["source", "target"], inplace=True)
-        df.drop(columns="context_match_type", inplace=True, errors="ignore")
+        # df.drop(columns="context_match_type", inplace=True, errors="ignore")
         return df
        

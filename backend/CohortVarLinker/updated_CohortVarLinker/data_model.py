@@ -510,6 +510,7 @@ class VariableNode(BaseModel):
         
         return cls(
             name=row.get("source", ""),
+            description=row.get("source_label", ""),
             study=study or row.get("study"),
             main_id=row.get("somop_id"),
             main_label=row.get("slabel", ""),
@@ -543,6 +544,7 @@ class VariableNode(BaseModel):
         
         return cls(
             name=row.get("target", ""),
+            description=row.get("target_label", ""),
             study=study or row.get("study"),
             main_id=row.get("tomop_id"),
             main_label=row.get("tlabel", ""),

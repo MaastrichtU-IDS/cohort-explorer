@@ -101,9 +101,9 @@ def process_variables_metadata_file(file_path:str, study_metadata_graph_file_pat
                     var_name,
                     multi_class_categorical,
                     binary_categorical,
-                    data_type=row["vartype"]
+                    data_type=row["vartype"],
+                    unit = row['units'] if pd.notna(row['units']) else None
                 )
-
             g.add((statistical_type_uri, RDF.type, URIRef(f"{OntologyNamespaces.CMEO.value}{statistical_type}"), cohort_graph))
             g.add((statistical_type_uri, OntologyNamespaces.CMEO.value.has_value, Literal(statistical_type, datatype=XSD.string), cohort_graph))
             g.add((var_uri, OntologyNamespaces.IAO.value.is_denoted_by, statistical_type_uri, cohort_graph))
@@ -834,44 +834,6 @@ def add_categories_to_graph(g: Graph, var_uri: URIRef, cohort_uri: URIRef, row: 
     return g
 
 
-
-
-
-# def add_measurement_unit(g:Graph, var_uri:URIRef, cohort_uri: URIRef,row: pd.Series) -> Graph:
-#     """
-#     Adds measurement unit details to the RDF graph for a given variable URI.
-    
-#     Parameters:
-#     - g: The RDF graph to add triples to.
-#     - var_uri: The URI of the measured variable to which the unit is related.
-#     - measurement_unit: An object or dictionary containing the unit details, 
-#       including `unit_value`, `label`, `code`, and `omop_id`.
-#     """
-#     # measurement_unit = MeasurementUnit(
-#     #     value=row['units'] if pd.notna(row['units']) else None,
-        
-#     # )
-   
-#     if pd.notna(row['units']) and pd.notna(row['unit concept name']):
-#         unit_concept= Concept(
-#             standard_label=row['unit concept name'] if pd.notna(row['unit concept name']) else None,
-#             code=row['unit concept code'] if pd.notna(row['unit concept code']) else None,
-#             omop_id=safe_int(row['unit omop id']) if pd.notna(row['unit omop id']) else None
-#         )
-#         #print(f"unit_concept: {unit_concept[0].code} {unit_concept[0].standard_label} {unit_concept[0].omop_id}")
-#         # Create a unique URI for the measurement unit
-#         unit_uri = URIRef(f"{var_uri}/measurement_unit_label")
-#         unit_value=row['units'] if pd.notna(row['units']) else None
-#         # Add the measurement unit type to the graph
-#         g.add((unit_uri, RDF.type, OntologyNamespaces.OBI.value.measurement_unit_label, cohort_uri))
-
-#         g.add((unit_uri, OntologyNamespaces.CMEO.value.has_value, Literal(unit_value, datatype=XSD.string),cohort_uri))
-
-#         g= add_solo_concept_info(g, unit_uri, unit_concept, cohort_uri)
-#         g.add((var_uri, OntologyNamespaces.OBI.value.has_measurement_unit_label, unit_uri,cohort_uri))
-#         # g.add((var_uri, OntologyNamespaces.RO.value.has_part, unit_uri,cohort_uri))
-
-#     return g
 
 
 def add_measurement_unit(g:Graph, var_uri:URIRef, cohort_uri: URIRef,row: pd.Series) -> Graph:

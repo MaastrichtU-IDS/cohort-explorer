@@ -479,15 +479,17 @@ class NeuroSymbolicMatcher:
         # After compute_context_scores, unresolved rows will be NOT_APPLICABLE or pending/nan.
         needs_llm = df['context_match_type'].isna() | \
                     (df['context_match_type'] == ContextMatchType.PENDING.value) | \
-                    (df['context_match_type'] == ContextMatchType.NOT_APPLICABLE.value)
+                    (df['context_match_type'] == ContextMatchType.NOT_APPLICABLE.value) | \
+                    (df['context_match_type'] == ContextMatchType.PARTIAL.value)
         
         
         pending_indices = df[needs_llm].index
         concept_matches = {}
         pending_keys = set()
-        
+        print(f"pending_indices= {len(pending_indices)}")
         for idx in pending_indices:
             row = df.loc[idx]
+           
             src_node = VariableNode.from_source_row(row, study=src_study)
             tgt_node = VariableNode.from_target_row(row, study=tgt_study)
             
@@ -495,8 +497,10 @@ class NeuroSymbolicMatcher:
             c_ctx = CandidateContext(src=src_node, tgt=tgt_node, matcher=self, mapping_mode=self.mapping_mode)
             stat_logic.apply(c_ctx)
             transform = c_ctx.details.get("transformation")
-            needs_review = (transform ==TransformationType.MANUAL_REVIEW and c_ctx.current_level == MatchLevel.PARTIAL)
+            needs_review = (transform ==TransformationType.MANUAL_REVIEW)
+            #  and (c_ctx.current_level == MatchLevel.PARTIAL or c_ctx.current_level == MatchLevel.NOT_APPLICABLE))
             if c_ctx.current_level == MatchLevel.NOT_APPLICABLE and not needs_review:
+                print(f"src_node={src_node.description}---tgt_node={tgt_node.description}")
                 df.at[idx, 'context_match_type'] = ContextMatchType.NOT_APPLICABLE.value
                 continue
                 
@@ -741,73 +745,16 @@ class NeuroSymbolicMatcher:
         if src_node.unit: s_parts.append(src_node.unit)
         if tgt_node.unit: t_parts.append(tgt_node.unit)
 
-        s_cats = tuple(sorted(l.strip() for l in
-            (src_node.category_labels if use_ontology else src_node.original_categories) if l.strip()))
-        t_cats = tuple(sorted(l.strip() for l in
-            (tgt_node.category_labels if use_ontology else tgt_node.original_categories) if l.strip()))
+        # s_cats = tuple(sorted(l.strip() for l in
+        #     (src_node.category_labels if use_ontology else src_node.category_labels) if l.strip()))
+        # t_cats = tuple(sorted(l.strip() for l in
+        #     (tgt_node.category_labels if use_ontology else tgt_node.category_labels) if l.strip()))
+
+        s_cats = tuple(sorted(l.strip() for l in src_node.category_labels if l.strip()))
+        t_cats = tuple(sorted(l.strip() for l in tgt_node.category_labels if l.strip()))
 
         return (" | ".join(s_parts), s_cats, " | ".join(t_parts), t_cats)
 
-    # def _llm_resolve_concepts_batch(self, pending_keys, concept_matches):
-      
-    #     pending_keys = sorted(list(pending_keys))
-    #     MAX_TARGETS_PER_BATCH = 3
-    #     is_ne = self.mapping_mode == MappingType.NE.value
-
-    #     src_groups = defaultdict(list)
-    #     for key in pending_keys:
-    #         src_sig = (key[0], key[1])
-    #         src_groups[src_sig].append(key)
-       
-    #     groups, flat_keys = [], []
-       
-    #     for src_sig, keys in sorted(src_groups.items()):
-
-    #         entry0 = concept_matches[keys[0]]
-    #         src = entry0["src_rep"]
-    #         keys.sort()
-    #         for chunk_start in range(0, len(keys), MAX_TARGETS_PER_BATCH):
-    #             chunk = keys[chunk_start:chunk_start + MAX_TARGETS_PER_BATCH]
-    #             targets = []
-    #             for key in chunk:
-    #                 tgt = concept_matches[key]["tgt_rep"]
-    #                 tgt_entry = {
-    #                     "tgt_cats": " | ".join(key[3]),
-    #                     "tgt_unit": tgt.unit or "",
-    #                     "desc": self._desc_for_mode(tgt),
-    #                 }
-    #                 if not is_ne:
-    #                     tgt_entry["tgt_concepts"] = key[2]
-    #                 targets.append(tgt_entry)
-    #                 flat_keys.append(key)
-
-    #             group = {
-    #                 "src_cats": " | ".join(src_sig[1]),
-    #                 "src_unit": src.unit or "",
-    #                 "src_desc": self._desc_for_mode(src),
-    #                 "targets": targets,
-    #             }
-    #             if not is_ne:
-    #                 group["src_concepts"] = src_sig[0]
-    #             groups.append(group)
-
-    #     case_ids = [f"P{i}" for i in range(len(flat_keys))]
-    #     logger.info(f"  🤖 LLM: {len(flat_keys)} concept pairs in {len(groups)} groups (max {MAX_TARGETS_PER_BATCH}/group)")
-
-    #     grouped_results, _ = self.llm_matcher.assess_batch(groups, case_ids=case_ids)
-
-    #     results = {}
-    #     flat_pos = 0
-    #     for grp_verdicts in grouped_results:
-    #         for verdict in grp_verdicts:
-    #             key = flat_keys[flat_pos]
-    #             if verdict and verdict[0] is True:
-    #                 results[key] = (verdict[1], verdict[2])
-    #             else:
-    #                 results[key] = (ContextMatchType.NOT_APPLICABLE.value, 0.0)
-    #             flat_pos += 1
-
-    #     return results
     def _llm_resolve_concepts(self, pending_keys, concept_matches):
         is_ne = self.mapping_mode == MappingType.NE.value
 
