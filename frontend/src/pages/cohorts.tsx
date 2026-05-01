@@ -226,45 +226,61 @@ const EquivalentVariableNames = React.memo(({cohortsData, searchTerms, searchMod
     // Only relevant when searching variables or all
     if (searchScope === 'cohorts') return null;
 
-    // Step 1: Find variables whose var_name matches the query and collect their concept_codes
+    // Step 1: Find variables whose var_name/concept_name matches the query.
+    // Track matched var_names by (cohortId, varName) and by their concept_code / omop_id.
     const matchedConceptCodes = new Map<string, Set<string>>(); // concept_code -> set of matched var_names
+    const matchedOmopIds = new Map<string, Set<string>>(); // omop_id -> set of matched var_names
+    const uncodedByCohort = new Map<string, string[]>(); // cohortId -> list of matched var names with NO concept_code AND NO omop_id
 
-    Object.entries(cohortsData).forEach(([_cohortId, cohortData]) => {
+    Object.entries(cohortsData).forEach(([cohortId, cohortData]) => {
       Object.entries(cohortData.variables || {}).forEach(([varName, varData]) => {
         const nameMatches = matchesSearchTerms(varName, searchTerms, 'and') || matchesSearchTerms(varData.concept_name, searchTerms, 'and');
-        if (nameMatches && varData.concept_code) {
-          const code = varData.concept_code.trim().toUpperCase();
-          if (code) {
-            if (!matchedConceptCodes.has(code)) {
-              matchedConceptCodes.set(code, new Set());
-            }
-            matchedConceptCodes.get(code)!.add(varName);
-          }
+        if (!nameMatches) return;
+
+        const rawCode = varData.concept_code ? varData.concept_code.trim() : '';
+        const rawOmop = varData.omop_id ? String(varData.omop_id).trim() : '';
+
+        if (rawCode) {
+          const code = rawCode.toUpperCase();
+          if (!matchedConceptCodes.has(code)) matchedConceptCodes.set(code, new Set());
+          matchedConceptCodes.get(code)!.add(varName);
+        }
+        if (rawOmop) {
+          if (!matchedOmopIds.has(rawOmop)) matchedOmopIds.set(rawOmop, new Set());
+          matchedOmopIds.get(rawOmop)!.add(varName);
+        }
+        if (!rawCode && !rawOmop) {
+          if (!uncodedByCohort.has(cohortId)) uncodedByCohort.set(cohortId, []);
+          uncodedByCohort.get(cohortId)!.push(varName);
         }
       });
     });
 
-    if (matchedConceptCodes.size === 0) return null;
+    if (matchedConceptCodes.size === 0 && matchedOmopIds.size === 0 && uncodedByCohort.size === 0) return null;
 
-    // Step 2: For each concept_code, find ALL variable names across all cohorts, grouped by cohort
-    const result: {conceptCode: string; conceptName: string | null; namesByCohort: {cohortId: string; names: string[]; isMatched: boolean}[]}[] = [];
-
-    matchedConceptCodes.forEach((matchedVarNames, conceptCode) => {
+    // Helper: build cohort entries for a given key, by scanning all cohorts for variables sharing that key.
+    // keyType: 'concept_code' matches by varData.concept_code (uppercased/trimmed).
+    //          'omop_id' matches by varData.omop_id (trimmed, case-sensitive string compare).
+    const buildEntries = (
+      keyType: 'concept_code' | 'omop_id',
+      key: string,
+      matchedVarNames: Set<string>,
+    ) => {
       let conceptName: string | null = null;
       const cohortEntries: {cohortId: string; names: string[]; isMatched: boolean}[] = [];
 
       Object.entries(cohortsData).forEach(([cohortId, cohortData]) => {
         const namesInCohort: string[] = [];
         Object.entries(cohortData.variables || {}).forEach(([varName, varData]) => {
-          if (varData.concept_code && varData.concept_code.trim().toUpperCase() === conceptCode) {
+          const matches = keyType === 'concept_code'
+            ? (varData.concept_code && varData.concept_code.trim().toUpperCase() === key)
+            : (varData.omop_id && String(varData.omop_id).trim() === key);
+          if (matches) {
             namesInCohort.push(varName);
-            if (!conceptName && varData.concept_name) {
-              conceptName = varData.concept_name;
-            }
+            if (!conceptName && varData.concept_name) conceptName = varData.concept_name;
           }
         });
         if (namesInCohort.length > 0) {
-          // A cohort is "matched" if any of its names were the ones that triggered the search hit
           const hasMatchedName = namesInCohort.some(n => matchedVarNames.has(n));
           cohortEntries.push({ cohortId, names: namesInCohort.sort(), isMatched: hasMatchedName });
         }
@@ -276,24 +292,49 @@ const EquivalentVariableNames = React.memo(({cohortsData, searchTerms, searchMod
         return a.isMatched ? 1 : -1;
       });
 
-      // Show if there are multiple distinct variable names for this concept code
-      const allNames = new Set(cohortEntries.flatMap(e => e.names));
-      if (allNames.size > 1 || cohortEntries.length > 1) {
-        result.push({ conceptCode, conceptName, namesByCohort: cohortEntries });
+      return { conceptName, cohortEntries };
+    };
+
+    // Step 2a: Build concept_code groups
+    const conceptGroups: {code: string; conceptName: string | null; namesByCohort: {cohortId: string; names: string[]; isMatched: boolean}[]}[] = [];
+    matchedConceptCodes.forEach((matchedVarNames, conceptCode) => {
+      const { conceptName, cohortEntries } = buildEntries('concept_code', conceptCode, matchedVarNames);
+      if (cohortEntries.length > 0) {
+        conceptGroups.push({ code: conceptCode, conceptName, namesByCohort: cohortEntries });
       }
     });
-
-    // Sort groups by total number of variable names (largest first)
-    result.sort((a, b) => {
+    conceptGroups.sort((a, b) => {
       const countA = a.namesByCohort.reduce((sum, e) => sum + e.names.length, 0);
       const countB = b.namesByCohort.reduce((sum, e) => sum + e.names.length, 0);
       return countB - countA;
     });
 
-    return result.length > 0 ? result : null;
+    // Step 2b: Build omop_id groups
+    const omopGroups: {code: string; conceptName: string | null; namesByCohort: {cohortId: string; names: string[]; isMatched: boolean}[]}[] = [];
+    matchedOmopIds.forEach((matchedVarNames, omopId) => {
+      const { conceptName, cohortEntries } = buildEntries('omop_id', omopId, matchedVarNames);
+      if (cohortEntries.length > 0) {
+        omopGroups.push({ code: omopId, conceptName, namesByCohort: cohortEntries });
+      }
+    });
+    omopGroups.sort((a, b) => {
+      const countA = a.namesByCohort.reduce((sum, e) => sum + e.names.length, 0);
+      const countB = b.namesByCohort.reduce((sum, e) => sum + e.names.length, 0);
+      return countB - countA;
+    });
+
+    // Build uncoded list sorted by cohort id
+    const uncoded = Array.from(uncodedByCohort.entries())
+      .map(([cohortId, names]) => ({ cohortId, names: names.slice().sort() }))
+      .sort((a, b) => a.cohortId.localeCompare(b.cohortId));
+
+    if (conceptGroups.length === 0 && omopGroups.length === 0 && uncoded.length === 0) return null;
+    return { conceptGroups, omopGroups, uncoded };
   }, [cohortsData, searchTerms, searchMode, searchScope]);
 
   if (!equivalentNames) return null;
+
+  const { conceptGroups, omopGroups, uncoded } = equivalentNames;
 
   return (
     <div className="mt-2">
@@ -304,15 +345,63 @@ const EquivalentVariableNames = React.memo(({cohortsData, searchTerms, searchMod
         {expanded ? '▾ Hide' : '▸ Show'} equivalent variable names
       </button>
       {expanded && (
-        <div className="mt-2 space-y-2">
-          {equivalentNames.map(({conceptCode, conceptName, namesByCohort}) => (
-            <div key={conceptCode} className="p-2 bg-base-100 rounded-lg border border-base-300 text-base">
-              <div className="font-semibold text-gray-700 dark:text-gray-300 mb-1">
-                Standard code: <span className="text-primary">{conceptCode}</span>
-                {conceptName && <span className="ml-1 text-gray-500">({conceptName})</span>}
+        <div className="mt-2 space-y-4">
+          {conceptGroups.length > 0 && (
+            <div className="space-y-2">
+              <div className="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide">
+                Grouped by standard code
               </div>
-              <div className="space-y-1">
-                {namesByCohort.map(({cohortId, names}) => (
+              {conceptGroups.map(({code, conceptName, namesByCohort}) => (
+                <div key={`cc-${code}`} className="p-2 bg-base-100 rounded-lg border border-base-300 text-base">
+                  <div className="font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                    Standard code: <span className="text-primary">{code}</span>
+                    {conceptName && <span className="ml-1 text-gray-500">({conceptName})</span>}
+                  </div>
+                  <div className="space-y-1">
+                    {namesByCohort.map(({cohortId, names}) => (
+                      <div key={cohortId}>
+                        <span className="font-medium">{cohortId}:</span>{' '}
+                        {names.join(', ')}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {omopGroups.length > 0 && (
+            <div className="space-y-2">
+              <div className="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide">
+                Grouped by OMOP ID
+              </div>
+              {omopGroups.map(({code, conceptName, namesByCohort}) => (
+                <div key={`omop-${code}`} className="p-2 bg-sky-50 dark:bg-sky-900/20 rounded-lg border border-sky-200 dark:border-sky-800 text-base">
+                  <div className="font-semibold text-sky-800 dark:text-sky-300 mb-1">
+                    OMOP ID: <span className="text-primary">{code}</span>
+                    {conceptName && <span className="ml-1 text-gray-500">({conceptName})</span>}
+                  </div>
+                  <div className="space-y-1 text-sky-900 dark:text-sky-200">
+                    {namesByCohort.map(({cohortId, names}) => (
+                      <div key={cohortId}>
+                        <span className="font-medium">{cohortId}:</span>{' '}
+                        {names.join(', ')}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {uncoded.length > 0 && (
+            <div className="p-2 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800 text-base">
+              <div className="font-semibold text-amber-700 dark:text-amber-300 mb-1">
+                No standard concept code
+                <span className="ml-1 text-amber-600 dark:text-amber-400 font-normal italic">
+                  (these matched variables have neither a concept_code nor an omop_id assigned)
+                </span>
+              </div>
+              <div className="space-y-1 text-amber-800 dark:text-amber-200">
+                {uncoded.map(({cohortId, names}) => (
                   <div key={cohortId}>
                     <span className="font-medium">{cohortId}:</span>{' '}
                     {names.join(', ')}
@@ -320,7 +409,7 @@ const EquivalentVariableNames = React.memo(({cohortsData, searchTerms, searchMod
                 ))}
               </div>
             </div>
-          ))}
+          )}
         </div>
       )}
     </div>
