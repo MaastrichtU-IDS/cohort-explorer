@@ -53,9 +53,19 @@ def _parse_age_distribution_part(part: str) -> Optional[tuple]:
         return (age_range, round(percentage))
     return None
 
-# Global cache for cohorts data
+# Global cache for cohorts data.
+#
+# These three variables live in each uvicorn worker process. The deployment runs
+# multiple workers (see Dockerfile), so every worker holds its own copy of the
+# cache. To keep them in sync, we use the cohorts_cache.json file's own
+# st_mtime_ns as a cross-worker version token: whenever any worker writes the
+# file via save_cache_to_disk() the mtime changes, and every other worker will
+# notice on its next call to get_cohorts_from_cache() and reload from disk.
 _cohorts_cache: Dict[str, Dict[str, Any]] = {}
 _cache_initialized = False
+# The mtime_ns of the cache file at the moment this worker last read it from
+# disk (or last wrote it). None means "we have never synchronised with disk".
+_cache_disk_mtime_ns: Optional[int] = None
 
 def get_cache_file_path() -> Path:
     """Get the path to the cache file."""
@@ -70,7 +80,14 @@ def get_cache_timestamp_file() -> Path:
     return cache_dir / ".cache_timestamp"
 
 def save_cache_to_disk() -> None:
-    """Save the current cache to disk using atomic write with file locking."""
+    """Save the current cache to disk using atomic write with file locking.
+
+    After a successful write, record the new file mtime in
+    ``_cache_disk_mtime_ns`` so this worker does not spuriously treat its own
+    write as a cross-worker change on the next read.
+    """
+    global _cache_disk_mtime_ns
+
     if not _cohorts_cache:
         logging.warning("Attempted to save empty cache to disk")
         return
@@ -106,7 +123,21 @@ def save_cache_to_disk() -> None:
                     
                     # Atomic rename (overwrites existing file)
                     os.replace(temp_path, cache_file)
-                    logging.info(f"Saved cohorts cache to {cache_file} ({len(_cohorts_cache)} cohorts)")
+                    # Record the new file mtime under the same lock so the
+                    # value we remember corresponds exactly to the bytes we
+                    # just wrote (no room for a peer to rewrite between
+                    # replace() and stat()).
+                    try:
+                        _cache_disk_mtime_ns = cache_file.stat().st_mtime_ns
+                    except Exception as stat_err:
+                        logging.warning(
+                            f"Could not stat cache file after save to record mtime: {stat_err}"
+                        )
+                        _cache_disk_mtime_ns = None
+                    logging.info(
+                        f"Saved cohorts cache to {cache_file} "
+                        f"({len(_cohorts_cache)} cohorts, mtime_ns={_cache_disk_mtime_ns})"
+                    )
                 except Exception as write_error:
                     # Clean up temp file on error
                     if os.path.exists(temp_path):
@@ -120,8 +151,13 @@ def save_cache_to_disk() -> None:
         logging.error(f"Error saving cohorts cache to disk: {e}")
 
 def load_cache_from_disk() -> bool:
-    """Load the cache from disk if it exists, with file locking to prevent reading partial writes."""
-    global _cohorts_cache, _cache_initialized
+    """Load the cache from disk if it exists, with file locking to prevent reading partial writes.
+
+    Replaces (not merges into) the in-memory cache so that cohorts deleted on
+    disk by another worker are removed here as well. Records the loaded file's
+    mtime in ``_cache_disk_mtime_ns`` for subsequent staleness checks.
+    """
+    global _cohorts_cache, _cache_initialized, _cache_disk_mtime_ns
     
     import fcntl
     
@@ -142,12 +178,27 @@ def load_cache_from_disk() -> bool:
                 with open(cache_file, 'r') as f:
                     serialized_cache = json.load(f)
 
-                # Convert serialized dictionaries back to Cohort objects
+                # Record the mtime of the file we just read, under the lock,
+                # so peers that are about to overwrite it will produce a
+                # different mtime and trigger another reload later.
+                try:
+                    loaded_mtime_ns = cache_file.stat().st_mtime_ns
+                except Exception:
+                    loaded_mtime_ns = None
+
+                # Replace the in-memory cache entirely to reflect any
+                # deletions that happened on disk since the last load.
+                new_cache: Dict[str, Any] = {}
                 for cohort_id, cohort_data in serialized_cache.items():
-                    _cohorts_cache[cohort_id] = dict_to_cohort(cohort_data)
+                    new_cache[cohort_id] = dict_to_cohort(cohort_data)
+                _cohorts_cache = new_cache
 
                 _cache_initialized = True
-                logging.info(f"Loaded cohorts cache from {cache_file} with {len(_cohorts_cache)} cohorts")
+                _cache_disk_mtime_ns = loaded_mtime_ns
+                logging.info(
+                    f"Loaded cohorts cache from {cache_file} "
+                    f"with {len(_cohorts_cache)} cohorts (mtime_ns={loaded_mtime_ns})"
+                )
                 return True
                 
             finally:
@@ -165,6 +216,40 @@ def load_cache_from_disk() -> bool:
     except Exception as e:
         logging.error(f"Error loading cohorts cache from disk: {e}")
         return False
+
+
+def _reload_if_stale() -> bool:
+    """Reload the in-memory cache from disk if another worker has written it.
+
+    Compares the current cohorts_cache.json mtime against the last mtime this
+    worker observed. Cheap (single stat syscall) and safe to call on every
+    read request.
+
+    Returns True if a reload happened, False otherwise.
+    """
+    global _cache_disk_mtime_ns
+
+    cache_file = get_cache_file_path()
+    try:
+        current_mtime_ns = cache_file.stat().st_mtime_ns
+    except FileNotFoundError:
+        # Cache file is currently missing (e.g. another worker is mid-rebuild
+        # between clear_cache() and save_cache_to_disk()). Keep serving what
+        # we have in memory; the rebuild will finish shortly and we'll pick
+        # up the new mtime on the next request.
+        return False
+    except Exception as e:
+        logging.warning(f"Could not stat cohorts cache file for staleness check: {e}")
+        return False
+
+    if _cache_disk_mtime_ns is not None and current_mtime_ns == _cache_disk_mtime_ns:
+        return False
+
+    logging.info(
+        f"Cohort cache on disk changed (mtime_ns={current_mtime_ns}, "
+        f"this worker had {_cache_disk_mtime_ns}); reloading."
+    )
+    return load_cache_from_disk()
 
 def cohort_to_dict(cohort: Cohort) -> Dict[str, Any]:
     """Convert a Cohort object to a serializable dictionary."""
@@ -907,7 +992,14 @@ def get_cohorts_from_cache(user_email: str) -> Dict[str, Cohort]:
     global _cohorts_cache, _cache_initialized
     
     import time
-    
+
+    # Cross-worker invalidation: if any other uvicorn worker has written a
+    # newer cohorts_cache.json (e.g. via /upload-cohorts-metadata or
+    # /refresh-cache), pick up its changes now. Single stat syscall when the
+    # mtime matches, a full reload when it doesn't.
+    if _cohorts_cache:
+        _reload_if_stale()
+
     # If cache is empty in this worker's memory
     if not _cohorts_cache:
         cache_file = get_cache_file_path()
@@ -1006,9 +1098,12 @@ def is_cache_initialized() -> bool:
 
 def clear_cache() -> None:
     """Clear the cache."""
-    global _cohorts_cache, _cache_initialized
+    global _cohorts_cache, _cache_initialized, _cache_disk_mtime_ns
     _cohorts_cache = {}
     _cache_initialized = False
+    # Forget the mtime we had so the next save or reload is not mistaken for
+    # "unchanged" by _reload_if_stale.
+    _cache_disk_mtime_ns = None
     
     # Remove the cache file if it exists
     cache_file = get_cache_file_path()
