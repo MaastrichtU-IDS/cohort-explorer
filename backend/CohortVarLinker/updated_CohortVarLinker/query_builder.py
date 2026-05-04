@@ -81,8 +81,7 @@ class SPARQLQueryBuilder:
             GROUP BY ?omop_id
             ORDER BY ?omop_id
         """
-        # print("Generated SPARQL Query:")
-        # print(query)
+  
         return query
 
     # query_builder.py — add new method
@@ -227,8 +226,7 @@ class SPARQLQueryBuilder:
 
                 
         """
-        # print("Generated SPARQL Query:")
-        # print(query)
+
         return query
         
         

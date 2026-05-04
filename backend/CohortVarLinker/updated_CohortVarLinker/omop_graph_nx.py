@@ -3,7 +3,7 @@ import pandas as pd
 import pickle, os, gzip, zlib, time
 from typing import List, Tuple
 from collections import deque, OrderedDict
-
+from llm.data_model import MappingRelation
 
 LOINC_REQUIRED_AXES = ['component', 'specimen', 'time_aspect']
 LOINC_IGNORABLE_AXES = ['system', 'property', 'method', 'scale_type']
@@ -457,9 +457,9 @@ class OmopGraphNX:
 
         exact_term_match_targets = self.check_exact_term_match(start, target_ids)
         if len(exact_term_match_targets) == len(target_ids):
-            return [(tid, "Symbolic:exactMatch") for tid in exact_term_match_targets]
+            return [(tid, MappingRelation.SymbolicExactMatch.value) for tid in exact_term_match_targets]
 
-        results = [(tid, "Symbolic:exactMatch") for tid in exact_term_match_targets]
+        results = [(tid, MappingRelation.SymbolicExactMatch.value) for tid in exact_term_match_targets]
         target_ids = list(set(target_ids) - exact_term_match_targets)
 
         vs = self.get_node_attr(start, "vocabulary").lower()
@@ -472,7 +472,7 @@ class OmopGraphNX:
         eq = self._equiv_closure(start)
         eq_matched = resolved & eq
         for tid in eq_matched:
-            results.append((tid, "Symbolic:exactMatch"))
+            results.append((tid, MappingRelation.SymbolicExactMatch.value))
         resolved -= eq_matched
 
         # LOINC-specific handling
@@ -482,27 +482,47 @@ class OmopGraphNX:
                 if self.get_node_attr(tid, "vocabulary").lower() == 'loinc':
                     handled.add(tid)
                     if self.graph.has_edge(start, tid) or self.graph.has_edge(tid, start):
-                        results.append((tid, "Symbolic:closeMatch"))
+                        results.append((tid, MappingRelation.SymbolicCloseMatch.value))
                     elif self.compare_loinc_axes(start, tid)['is_match']:
-                        results.append((tid, "Symbolic:closeMatch"))
+                        results.append((tid, MappingRelation.SymbolicCloseMatch.value))
 
         remaining = resolved - handled
         if remaining:
-            ancestors = self._bfs_dir(eq, max_depth + 2, 'up')
+       
+
+            ancestors   = self._bfs_dir(eq, max_depth + 2, 'up')
             descendants = self._bfs_dir(eq, max_depth + 2, 'down')
 
             for tid in remaining:
                 vg = self.get_node_attr(tid, "vocabulary").lower()
                 allowed = self._allowed_depth(vs, vg, max_depth)
 
+                # Forward: from src, walk hierarchy
                 if tid in ancestors and ancestors[tid] <= allowed:
-                    results.append((tid, "Symbolic:broadMatch"))
-                elif tid in descendants and descendants[tid] <= allowed:
-                    results.append((tid, "Symbolic:narrowMatch"))
-                else:
-                    dists = self._sssp_lengths(start, cutoff=max_depth + 2) 
-                    if tid in dists and dists[tid] <= allowed and not self.is_sibling_path(start, tid) :
-                        results.append((tid, "Symbolic:closeMatch"))
+                    results.append((tid, MappingRelation.SymbolicBroadMatch.value))
+                    continue
+                if tid in descendants and descendants[tid] <= allowed:
+                    results.append((tid, MappingRelation.SymbolicNarrowMatch.value))
+                    continue
+
+                # Reverse: from tgt, walk hierarchy back into src's equiv closure
+                tgt_eq = self._equiv_closure(tid)
+                tgt_anc = self._bfs_dir(tgt_eq, allowed, 'up')      # tgt is descendant of src?
+                hit = next(((n, tgt_anc[n]) for n in tgt_anc if n in eq), None)
+                if hit is not None:
+                    results.append((tid, MappingRelation.SymbolicNarrowMatch.value))
+                    continue
+
+                tgt_desc = self._bfs_dir(tgt_eq, allowed, 'down')   # tgt is ancestor of src?
+                hit = next(((n, tgt_desc[n]) for n in tgt_desc if n in eq), None)
+                if hit is not None:
+                    results.append((tid, MappingRelation.SymbolicBroadMatch.value))
+                    continue
+
+                # Fallback (mixed paths, sibling-via-pivot, etc.)
+                dists = self._sssp_lengths(start, cutoff=max_depth + 2)
+                if tid in dists and dists[tid] <= allowed and not self.is_sibling_path(start, tid):
+                    results.append((tid, MappingRelation.SymbolicCloseMatch.value))
         return results
 
     # ══════════════════════════════════════════════════════════════════
@@ -1048,7 +1068,11 @@ def run_pair_tests(omop_nx):
          (21600961, 3655005, False,
          "antithrombotic agents vs Platelet aggregation inhibitor therapy"),
          (4029066, 21601521, True,
-         "Torsemide vs torasemide; oral, parenteral")
+         "Torsemide vs torasemide; oral, parenteral"),
+         (21601665, 1314002, True,
+         "BETA BLOCKING AGENTS vs Atenolol"),
+          (1314002, 21601665, True,
+         "Atenolol vs BETA BLOCKING AGENTS")
     ]
 
     passed = failed = 0
@@ -1083,47 +1107,3 @@ def run_pair_tests(omop_nx):
 
     print(f"\n  Pair tests: {passed} passed, {failed} failed, {passed + failed} total")
     return failed == 0
-if __name__ == "__main__":
-    start_time = time.time()
-    csv_path = "/Users/komalgilani/phd_projects/CohortVarLinker/data/concept_relationship_enriched.csv"
-
-    omop_nx = OmopGraphNX(csv_path, output_file='graph_nx.pkl.gz')
-
-    # 1. loincparent-child (4248525, 4060832) lying systolic blood pressure vs systolic blood pressure --- No 
-    # 2. loinc grandparent-child (4248525, 4326744) lying systolic blood pressure vs blood pressure --- No
-
-    # 3. snomed-atc drug (4306892,21601810 ) Furosemide vs cilazapril and diuretics --- No
-    # 4 snomed-atc drug (4306892,21601516 ) Furosemide vs HIGH-CEILING DIURETICS --- Yes
-    # 5. drug ingredient (21035025, 956874) Amiloride / Furosemide Oral Solution vs furosemide --- No
-    # 6. maps to  (2212357, 3020399) Glucose, body fluid, other than blood vs Glucose [Mass/volume] in Urine --- Yes 
-    # 7. loinc loose equal  (3020399,3005570 ) Glucose [Mass/volume] in Urine vs Glucose [Moles/volume] in Urine --- Yes
-    # 8. atc drugs (21601517, 21601520) Sulfonamides, plain vs piretanide
-    # 9. atc drugs hierarchy (21601517, 21601521) Sulfonamides, plain vs torasemide; oral, parenteral--- Yes
-    # 10. atc drugs hierarchy (21601517, 942350) Sulfonamides, plain vs torsemide--- Yes
-    # 11. atc drugs siblings(942350, 21601520) 	torsemide vs piretanide --- No 
-    # 12  disease (312327, 4329847) Acute myocardial infarction vs Myocardial infarction --- Yes
-    # 12 disease siblings  (4173632, 312327)	Microinfarct of heart vs Acute myocardial infarction --- No
-
-    run_pair_tests(omop_nx)
-    p = omop_nx.explain_path(21600961, 3655005)
-    print(p['path'])        # [(21600961, name, vocab), (X, name, vocab), (3655005, name, vocab)]
-    print(omop_nx.get_edge_rels(p['path'][1][0], 3655005))   # every relation stored on X→365500
-
-    eq = omop_nx._equiv_closure(778939)
-    print(eq)
-    # target_found = omop_nx.source_to_targets_paths(4248525, [4232915])
-    # print(f"target found:{target_found}")
-    # print(omop_nx._equiv_closure(4248525))
-    # print(f"path found:{omop_nx.explain_path(970250, 21601517)}")
-
-    # is_sibling_path = omop_nx.is_sibling_path(970250, 42536050, max_hops=3)
-    # print(f"is sibling path:{is_sibling_path}\n\n\n")
-
-    # print(f"path found:{omop_nx.explain_path(3051968, 2000000049)}")
-    # is_sibling_path = omop_nx.is_sibling_path(4248525, 4232915)
-    # print(f"is sibling path:{is_sibling_path}")
-    # print("\nGraph edge 4248525→4232915:", omop_nx.graph.has_edge(4248525, 4232915))
-    # print("\nGraph edge 4248525→4232915:", omop_nx.graph.has_edge(4232915, 4248525))
-    # print("\nEquiv neighbors of 4248525:", omop_nx._equiv_bidir.get(4248525, set()))
-    # print("Equiv neighbors of 4232915:", omop_nx._equiv_bidir.get(4232915, set()))
-

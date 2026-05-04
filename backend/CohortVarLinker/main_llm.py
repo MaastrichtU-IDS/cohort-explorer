@@ -21,8 +21,6 @@ from llm.utils import (
         publish_graph_to_endpoint,
         OntologyNamespaces,
         get_member_studies
-    
-    
     )
 from llm.vector_db import generate_studies_embeddings, _embed_cache
 
@@ -43,17 +41,19 @@ def create_study_metadata_graph(file_path, recreate=False):
         graph_file_path = f"{base_path}/data/graphs/studies_metadata.trig"
         g=generate_studies_kg(file_path)
         if len(g) > 0:
-            print(f"delete_existing_triples for graph: {OntologyNamespaces.CMEO.value['graph/studies_metadata']}")
+            # print(f"delete_existing_triples for graph: {OntologyNamespaces.CMEO.value['graph/studies_metadata']}")
             delete_existing_triples(graph_uri=OntologyNamespaces.CMEO.value["graph/studies_metadata"])
             response=publish_graph_to_endpoint(g)
-            print(f"Metadata graph published to endpoint: {response}")
+            # print(f"Metadata graph published to endpoint: {response}")
             g.serialize(destination=graph_file_path, format="trig")
-            print(f"Serialized graph to: {graph_file_path}")
+            # print(f"Serialized graph to: {graph_file_path}")
             return g
         else:
             return None
     else:
         print("Recreate flag is set to False. Skipping processing of study metadata.")
+        
+        
 
 
 def create_cohort_specific_metadata_graph(dir_path, recreate=False):
@@ -103,72 +103,28 @@ def create_cohort_specific_metadata_graph(dir_path, recreate=False):
 
 
 
-def combine_all_mappings_to_json(
-    source_study, target_studies, output_dir, json_path, model_name=None
-):
+def combine_all_mappings_to_json(source_study, target_studies, output_dir, json_path,
+                                 model_name, llm_tag, mapping_mode):
     mappings = {}
     for target in target_studies:
-        suffix = f"_{model_name}" if model_name else ""
-        csv_file = os.path.join(output_dir, f"{source_study}_{target}{suffix}_full.csv")
-        # print(f"Processing file: {csv_file}")
+        csv_file = os.path.join(
+            output_dir,
+            f"{source_study}_{target}_{model_name}+{llm_tag}_{mapping_mode}_full.csv",
+        )
         if not os.path.exists(csv_file):
-            # print(f"Skipping {csv_file}, does not exist.")
+            print(f"⚠️ Missing: {csv_file}")
             continue
         df = pd.read_csv(csv_file)
         for _, row in df.iterrows():
-            # Source variable name
             src_var = str(row["source"]).strip()
             if not src_var:
                 continue
-            # Initialize dict for this variable if not present
-            if src_var not in mappings:
-                mappings[src_var] = []
-            # Build mapping dict for this target study
-            mapping = {"target_study": target}
-            # Source columns
-            for col in df.columns:
-                if col.startswith("source_") or col.startswith("s") or col in [
-                    "source", "somop_id", "scode", "slabel",
-                    "category", "source_visit", "source_type", "source_unit", "source_data_type"
-                ]:
-                    mapping[f"s_{col}"] = row[col]
-            # Target columns
-            for col in df.columns:
-                if col.startswith("target_") or col.startswith("t") or col in [
-                    "target", "tomop_id", "tcode", "tlabel", 
-                    "target_visit", "target_type", "target_unit", "target_data_type"
-                ]:
-                    mapping[f"{target}_{col}"] = row[col]
-            # Extra columns (mapping_type, transformation_rule, etc.)
-            for col in df.columns:
-                if col not in [
-                    "source", "target", "somop_id", "tomop_id",
-                    "scode", "slabel", "tcode", "tlabel",
-                    "category", "mapping type", "source_visit", "target_visit",
-                    "source_type", "target_type", "source_unit", "target_unit",
-                    "source_data_type", "target_data_type", "transformation_rule"
-                ]:
-                    mapping[f"{col}"] = row[col]
-            # Always include mapping type and transformation rule
-            if "mapping type" in df.columns:
-                mapping[f"{target}_mapping_type"] = row["mapping type"]
-            if "transformation_rule" in df.columns:
-                mapping[f"{target}_transformation_rule"] = row["transformation_rule"]
-            # Add to source variable
-            
-            mappings[src_var].append(mapping)
-    # Compose final JSON dict
-    final_json = {}
-    for src_var, mapping_list in mappings.items():
-        final_json[src_var] = {
-            "from": source_study,
-            "mappings": mapping_list
-        }
-    # Save to JSON
+            entry = {"target_study": target, **row.drop(labels=["source"]).to_dict()}
+            mappings.setdefault(src_var, []).append(entry)
+    final_json = {k: {"from": source_study, "mappings": v} for k, v in mappings.items()}
     with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(final_json, f, indent=2, ensure_ascii=False)
-    print(f"✅ All mappings combined and saved to {json_path}")
-
+        json.dump(final_json, f, indent=2, ensure_ascii=False, default=str)
+    print(f"✅ saved {len(final_json)} source vars → {json_path}")
 
 def concatenate_member_csvs_to_parent(
     source_study: str,
@@ -203,10 +159,10 @@ def concatenate_member_csvs_to_parent(
             member_df = pd.read_csv(member_csv_path)
             member_df['member_study'] = member  # Mark rows as from member
             dfs_to_concat.append(member_df)
-            print(f"  📎 Appending {member} ({len(member_df)} rows) to {parent_study}")
+            # print(f"  📎 Appending {member} ({len(member_df)} rows) to {parent_study}")
             # delete memeber csv after appending
-            os.remove(member_csv_path)
-            print(f"    🗑️ Deleted member CSV: {member_csv_path}")
+            # os.remove(member_csv_path)
+            # print(f"    🗑️ Deleted member CSV: {member_csv_path}")
         else:
             print(f"  ⚠️ Member CSV not found: {member_csv_path}")
     
@@ -218,10 +174,8 @@ def concatenate_member_csvs_to_parent(
             combined_df.drop(columns=['member_study'], inplace=True)
             
         # Save back to parent CSV (overwrites with combined data)
-        combined_df.to_csv(parent_csv_path, index=False)
+        combined_df.to_csv(parent_csv_path, encoding='utf-8',index=False)
         print(f"✅ Combined {len(dfs_to_concat)} CSVs into {parent_study}: {len(combined_df)} total rows")
-
-
 
 if __name__ == '__main__':
     start_time = time.time()
@@ -229,11 +183,11 @@ if __name__ == '__main__':
     cohort_file_path = f"{data_dir}/cross_mapping_article_data"
     cohorts_metadata_file = f"{data_dir}/studies_metadata-2.xlsx"
     output_dir = f"{data_dir}/output/cross_mapping"
-   
-    model_name = "biolord"
+
+    model_name = "sapbert"
     select_relevant_studies = True
-    embedding_mode = EmbeddingType.ED.value  # embedding_concepts
-    mapping_mode = MappingType.NE.value # ontology + embedding_concepts
+    embedding_mode = EmbeddingType.EH.value  # embedding_concepts
+    mapping_mode = MappingType.OEH.value # ontology + embedding_concepts
     create_study_metadata_graph(cohorts_metadata_file, recreate=False)             
     create_cohort_specific_metadata_graph(cohort_file_path, recreate=False)      
     collection_name = f"studies_metadata_{model_name}_{embedding_mode}"      
@@ -241,7 +195,7 @@ if __name__ == '__main__':
     # llm_matcher = LocalLLMConceptMatcher(models=["llama3.3:70b", "llama3.1:latest"])
     vector_db, embedding_model = generate_studies_embeddings(cohort_file_path, "localhost", collection_name, model_name=model_name, embedding_mode=embedding_mode, recreate_db=False)
     source_study = "time-chf"
-    target_studies = ["viennahf-register","gissi-hf","aachen-hf","aric"]
+    target_studies = ["viennahf-register","gissi-hf","aachen-hf"]
 
     clear_all_caches()
     new_studies = []
@@ -253,11 +207,10 @@ if __name__ == '__main__':
             new_studies.extend(member_studies)
     target_studies.extend(new_studies)
 
-    print(f"connected studies: {parent_to_members}")
+    # print(f"connected studies: {parent_to_members}")
     omop_id_tracker = {} 
 
-
-    llm_models = None
+    llm_model = None
     mapping_dict = {}  
     omop_graph = None if mapping_mode == MappingType.NE.value else OmopGraphNX(csv_file_path=settings.concepts_file_path)
     mapper = StudyMapper(
@@ -266,9 +219,10 @@ if __name__ == '__main__':
          embedding_model=embedding_model, 
          omop_graph=omop_graph,
          mapping_mode=mapping_mode,
-         llm_models=llm_models
+         llm_model=llm_model
          )
-    llm_tag = llm_models[0].split("/")[-1] if llm_models and mapping_mode != MappingType.OO.value else "no_llm" 
+    llm_tag = llm_model.split("/")[-1] if llm_model and mapping_mode != MappingType.OO.value else "no_llm" 
+    llm_tag = llm_tag.replace(":nitro","")
     print(f"llm_tag: {llm_tag}")
     for tstudy in target_studies:
         print(f"Running experiment for {source_study} -> {tstudy} with model: {model_name} and mapping mode: {mapping_mode}")
@@ -276,9 +230,7 @@ if __name__ == '__main__':
             src_study=source_study,
             tgt_study=tstudy,
             mapping_mode=mapping_mode)        
-        mapping_transformed = mapping_transformed.drop_duplicates(keep='first') if not mapping_transformed.empty else pd.DataFrame(columns=["source_variable", "target_variable", "source_omop_id", "target_omop_id"])
         mapping_transformed.to_csv(f'{output_dir}/{model_name}/{mapping_mode}/{source_study}_{tstudy}_{model_name}+{llm_tag}_{mapping_mode}_full.csv', index=False)
-        
     tstudy_str = "_".join(target_studies)
     
     for parent_study, members in parent_to_members.items():
@@ -297,30 +249,9 @@ if __name__ == '__main__':
         target_studies=target_studies,
         output_dir=f"{output_dir}/{model_name}/{mapping_mode}",
         json_path=os.path.join(f"{output_dir}/{model_name}/{mapping_mode}", f"{source_study}_{tstudy_str}_{model_name}+{llm_tag}_{mapping_mode}.json"),
-        model_name=f"{model_name}_{mapping_mode}"
+        model_name=model_name,
+        mapping_mode=mapping_mode,
+        llm_tag=llm_tag
     )
     print(f"Total time taken: {time.time() - start_time:.2f} seconds")
-
-
     # add_data_access_spec(study_name="time-chf", data_policy=['disease specific research'], data_modifier=['ethics approval required'], disease_concept_code="snomed:42343007", disease_concept_label="congestive heart failure", disease_concept_omop_id="42343007", study_metadata_graph_file_path=f"{data_dir}/graphs/studies_metadata.trig")
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    

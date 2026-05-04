@@ -10,7 +10,7 @@ import os
 import re
 import urllib.parse
 from enum import Enum
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from datetime import datetime
 import logging
 
@@ -128,6 +128,61 @@ def is_identifier_like_variable(row: pd.Series) -> tuple[bool, list[str]]:
             reasons.append(f"{field} contains '{m.group(0)}'")
     return bool(reasons), reasons
 
+
+
+def is_absolute_vs_percent_dose(src_unit: Optional[str], tgt_unit: Optional[str]) -> bool:
+    """
+    Detect whether a unit pair represents an absolute medication dose
+    versus a percent/target-dose-normalised value.
+
+    Examples:
+        mg vs %          -> True
+        mg/day vs %      -> True
+        ucum:mg vs percent -> True
+        kg vs %          -> False
+        mg/dl vs %       -> False
+        mg vs mg         -> False
+    """
+
+    if not src_unit or not tgt_unit:
+        return False
+
+    s = str(src_unit).lower().strip()
+    t = str(tgt_unit).lower().strip()
+
+    # Light normalization
+    s = (
+        s.replace("ucum:", "")
+         .replace("milligram", "mg")
+         .replace("microgram", "mcg")
+         .replace("µg", "mcg")
+         .replace("μg", "mcg")
+         .replace("percentage", "percent")
+    )
+
+    t = (
+        t.replace("ucum:", "")
+         .replace("milligram", "mg")
+         .replace("microgram", "mcg")
+         .replace("µg", "mcg")
+         .replace("μg", "mcg")
+         .replace("percentage", "percent")
+    )
+
+    percent_units = {"%", "percent"}
+
+    absolute_dose_units = {
+        "mg", "mg/day", "mg/d", "mg/24h",
+        "g", "g/day", "g/d", "g/24h",
+        "mcg", "mcg/day", "mcg/d", "mcg/24h",
+        "ug", "ug/day", "ug/d", "ug/24h"
+    }
+
+    return (
+        (s in absolute_dose_units and t in percent_units)
+        or
+        (t in absolute_dose_units and s in percent_units)
+    )
 # Add near the top of graph_similarity.py, after imports
 
 def split_categories(categories: str | None) -> tuple[List[str], List[str]]:

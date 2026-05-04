@@ -22,6 +22,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
 from typing import Dict, Any, Tuple, List, Optional, Set, Protocol, runtime_checkable
+from unicodedata import category
 
 import numpy as np
 from .config import settings
@@ -35,8 +36,11 @@ from .data_model import (
     ContextMatchType,
     DATA_TYPE,
     MappingType,
+    MappingRelation
 )
-
+from .utils import is_absolute_vs_percent_dose
+# from .verdict import StructuralEvidence
+_GENERIC_BOOL = frozenset({"0", "1"})
 _BOOL_POS = frozenset({"1", "yes", "true", "y", "positive", "present", "on"})
 _BOOL_NEG = frozenset({"0", "no", "false", "n", "negative", "absent", "off"})
 
@@ -61,7 +65,6 @@ class MatcherProtocol(Protocol):
         target_study: str,
     ) -> Tuple[bool, Optional[str]]: ...
 
-
 # @dataclass
 # class TimepointResult:
 #     """Configuration for timepoint-gated results."""
@@ -73,15 +76,20 @@ class MatcherProtocol(Protocol):
 
 @dataclass
 class CandidateContext:
-    """Mutable state for constraint chain. Access variable data via src/tgt directly."""
+    """Mutable state for handler chain. Access variable data via src/tgt directly.
+
+    NOTE: Used internally by handlers via mutate-then-read. Compute_structural()
+    converts the final state to an immutable StructuralEvidence at the
+    boundary so the rest of the pipeline never sees this mutability.
+    """
     src: VariableNode
     tgt: VariableNode
-    current_level: MatchLevel = MatchLevel.IDENTICAL
+    current_level: MatchLevel = MatchLevel.PARTIAL
     details: Dict[str, Any] = field(default_factory=dict)
     should_stop: bool = False
     matcher: Optional[MatcherProtocol] = None
-    context_overlap: bool = False
     mapping_mode: MappingType = MappingType.OEH.value
+    mapping_relation:MappingRelation = MappingRelation.UnMatched.value
     # ── Only properties that add logic beyond VariableNode ────
     @property
     def is_exact_timepoint(self) -> bool:
@@ -103,6 +111,10 @@ class CandidateContext:
     def is_derived_variable(self) -> bool:
         return self.src.is_derived or self.tgt.is_derived
 
+    @property
+    def is_same_category(self) -> bool:
+        return self.src.category == self.tgt.category
+
 
     @property
     def timepoint_details(self) -> Dict[str, str]:
@@ -117,18 +129,6 @@ class CandidateContext:
         if extra_details:
             self.details.update(extra_details)
         self.should_stop = should_stop
-
-    # def set_result_with_timepoint(self, config: TimepointResult, should_stop: bool = False):
-    #     if self.is_exact_timepoint:
-    #         self.set_result(config.current_level, config.reason_exact,
-    #                         {**(config.extra_details or {})}, should_stop)
-    #     else:
-    #         extra = {**(config.extra_details or {})}
-    #         if 'transformation' not in extra:
-    #             extra['transformation'] = TransformationType.MANUAL_REVIEW
-    #         self.set_result(config.current_level, config.reason_undetermined, extra, should_stop)
-
-# 2. CategoryMapper
 
 
 class CategoryMapper:
@@ -259,7 +259,7 @@ class CategoryMapper:
 
        
         def c2l(values, labels):
-            return {v: l for v, l in zip(values, labels) if v and l}
+            return {val: lab for val, lab in zip(values, labels) if val and lab}
 
         src_c2l = c2l(src_original_categories, src_categories_labels)
         tgt_c2l = c2l(tgt_original_categories, tgt_categories_labels)
@@ -274,12 +274,12 @@ class CategoryMapper:
 
         def l2codes_fuzzy(c2l_map, fuzzy_map=None):
             lab2codes, pretty = {}, {}
-            for c, l in c2l_map.items():
-                key = l.lower()
+            for cat, lab in c2l_map.items():
+                key = lab.lower()
                 if fuzzy_map:
                     key = fuzzy_map.get(key) or fuzzy_map.get(next(iter(_canonical_cats([key])), key), key)
-                lab2codes.setdefault(key, []).append(c)
-                pretty.setdefault(key, l)
+                lab2codes.setdefault(key, []).append(cat)
+                pretty.setdefault(key, lab)
             for k in lab2codes:
                 lab2codes[k].sort()
             return lab2codes, pretty
@@ -302,6 +302,7 @@ class CategoryMapper:
             len(src_lab[k]) == len(tgt_lab[k]) for k in overlap_keys
         )
 
+        # if one side has yes no and other has other values and if symbolic relationship is 
         return {
             "mapping_str": "; ".join(items) if items else None,
             "code_map": code_map,
@@ -318,70 +319,6 @@ class CategoryMapper:
         }
 
 
-
-# 3. ContextGate — reads pre-computed context scores
-
-
-class ContextGate:
-    """Pre-gate using context scores computed upstream in resolve_matches.
-
-    Decision table:
-      context_match_type | action
-      ───────────────────┼─────────────────────────────
-      'exact'            | pass through, no cap
-      'close_match'      | pass through, flag for PARTIAL cap
-      'subsumed'         | pass through, flag for PARTIAL cap
-      'mismatch'         | NOT_APPLICABLE, stop
-      None + low score   | NOT_APPLICABLE, stop
-      None + high score  | pass through
-      no context         | pass through
-      one-sided context  | NOT_APPLICABLE, stop
-    """
-
-    def __init__(self, threshold: float = settings.ADAPTIVE_THRESHOLD):
-        self.threshold = threshold
-
-    def apply(self, ctx: CandidateContext):
-        def _has_ctx(labels):
-            return bool(labels) and any(label.strip().lower() != 'nan' for label in labels)
-
-        ctx_type = ctx.context_match_type
-     
-        if ctx_type == ContextMatchType.PENDING.value:
-            ctx_type = None
-
-        if ctx_type is not None:
-            if ctx_type == ContextMatchType.EXACT.value:
-                return                                   # pass, no cap
-            if ctx_type in (ContextMatchType.SUBSUMED.value,
-                            ContextMatchType.COMPATIBLE.value,
-                            ContextMatchType.PARTIAL.value) and ctx.mapping_mode != MappingType.NE.value:
-                ctx.context_overlap = True           # pass, cap to PARTIAL post-hoc
-                return
-            if ctx_type == ContextMatchType.NOT_APPLICABLE.value:
-                ctx.set_result(MatchLevel.NOT_APPLICABLE,
-                    reason="Context mismatch, variables measure different things.",
-                    extra_details={"transformation": TransformationType.MANUAL_REVIEW},
-                    should_stop=True)
-                return
-
-        # ── Fallback: ctx_type is None / PENDING ─────────────────
-        src_ctx, tgt_ctx = ctx.src.context_labels, ctx.tgt.context_labels
-        if not src_ctx and not tgt_ctx:
-            return
-        if _has_ctx(src_ctx) != _has_ctx(tgt_ctx):
-            ctx.set_result(MatchLevel.NOT_APPLICABLE,
-                reason="One variable has context, the other doesn't.",
-                extra_details={"transformation": TransformationType.MANUAL_REVIEW},
-                    should_stop=True
-                )
-            return
-        if ctx.sim_score is not None and round(ctx.sim_score, 2) < self.threshold:
-            ctx.set_result(MatchLevel.NOT_APPLICABLE,
-                reason=f"Context similarity {ctx.sim_score:.2f} below threshold {self.threshold}.",
-                extra_details={"transformation": TransformationType.MANUAL_REVIEW},
-                    should_stop=True
-                )
 
 
 
@@ -404,45 +341,67 @@ class ContinuousHandler:
         src_unit = str(ctx.src.unit).lower() if ctx.src.unit else None
         tgt_unit = str(ctx.tgt.unit).lower() if ctx.tgt.unit else None
         unit_info = {"source_unit": src_unit, "target_unit": tgt_unit}
-
-        # In NE mode the LLM saw the unit alongside the description; trust its EXACT verdict.
-        comparable_flag = (ctx.context_match_type == ContextMatchType.EXACT.value
-                        and ctx.mapping_mode == MappingType.NE.value)
-
+        dosage_unit = is_absolute_vs_percent_dose(src_unit, tgt_unit)
+    
         units_same   = (src_unit == tgt_unit) if (src_unit and tgt_unit) else False
         units_differ = (src_unit != tgt_unit) if (src_unit and tgt_unit) else False
         no_unit      = (not src_unit and not tgt_unit)
+        
 
         # Case 1: Neither side has a unit — concept is unitless on both sides.
+
         if no_unit:
-            ctx.set_result(
-                level=MatchLevel.IDENTICAL,
-                reason="Unit dimension not applicable.",
-                extra_details={**unit_info, "transformation": TransformationType.NONE}
-            )
-           
+            if ctx.context_match_type == ContextMatchType.PENDING.value and ctx.matcher.llm_matcher is not None:
+                # LLM-mode rows that haven't been resolved yet — defer.
+                ctx.set_result(
+                    level=MatchLevel.PARTIAL,
+                    reason="Unit dimension not applicable; concept equivalence pending semantic check.",
+                    extra_details={**unit_info, "transformation": TransformationType.MANUAL_REVIEW},
+                )
+            else:
+                ctx.set_result(
+                    level=MatchLevel.IDENTICAL,
+                    reason="Unit dimension not applicable.",
+                    extra_details={**unit_info, "transformation": TransformationType.NONE}
+                )
+
             return
 
-        # Case 2: Same units, OR LLM judged the pair exact under NE.
-        if units_same or comparable_flag:
+        # Case 2: Same units.
+        if units_same and ctx.context_match_type:
+            if ctx.context_match_type == ContextMatchType.PENDING.value:
+                # LLM-mode rows that haven't been resolved yet — defer.
+                ctx.set_result(
+                    level=MatchLevel.PARTIAL,
+                    reason="Same units; concept equivalence pending semantic check.",
+                    extra_details={**unit_info, "transformation": TransformationType.MANUAL_REVIEW},
+                )
+                return
             ctx.set_result(
                 level=MatchLevel.IDENTICAL,
                 reason="Same units.",
                 extra_details={**unit_info, "transformation": TransformationType.NONE}
             )
-          
-            return
 
+            return
+        
         # Case 3a: Both sides have units but they differ → unit conversion.
-        if units_differ:
-            ctx.set_result(
-                level=MatchLevel.COMPATIBLE,
-                reason=f"Units differ ({src_unit} vs {tgt_unit}).",
-                extra_details={**unit_info, "transformation": TransformationType.UNIT_CONVERSION}
-            )
-           
+        if units_differ and ctx.matcher.llm_matcher is None:
+            if dosage_unit and ctx.mapping_relation not in [MappingRelation.SymbolicBroadMatch.value, MappingRelation.SymbolicNarrowMatch.value]:
+                   # Case 4: Asymmetric — one side has a unit,             q the other doesn't. Genuinely incomplete.
+                ctx.set_result(
+                        level=MatchLevel.PARTIAL,
+                        reason=f"units: ({src_unit or tgt_unit}) conversion requires external knowledge.",
+                        extra_details={**unit_info, "transformation": TransformationType.MANUAL_REVIEW}
+                    )
+            else:
+                  ctx.set_result(
+                    level=MatchLevel.COMPATIBLE,
+                    reason=f"Units differ ({src_unit} vs {tgt_unit}).",
+                    extra_details={**unit_info, "transformation": TransformationType.UNIT_CONVERSION}
+                )
+              
             return
-
         # Case 3b: Derived variable → recomputation required (not the same as unit scaling).
         if ctx.is_derived_variable:
             ctx.set_result(
@@ -453,11 +412,10 @@ class ContinuousHandler:
           
             return
 
-        # Case 4: Asymmetric — one side has a unit, the other doesn't. Genuinely incomplete.
-
+        # Case 4: Asymmetric — one side has a unit,             q the other doesn't. Genuinely incomplete.
         ctx.set_result(
                 level=MatchLevel.PARTIAL,
-                reason=f"Unit declared on only one side ({src_unit or tgt_unit}); cannot verify equivalence.",
+                reason=f"units: ({src_unit or tgt_unit}); cannot verify equivalence.",
                 extra_details={**unit_info, "transformation": TransformationType.MANUAL_REVIEW}
             )
       
@@ -476,10 +434,24 @@ class CategoricalHandler:
 
         # trusted_raw_match = (s_raw == t_raw) and (has_overlap or context_is_exact)
         # Case 1: Equality
+       
         if s_raw_norm == t_raw_norm or s_lbl_norm == t_lbl_norm or _range_match:
-            level = MatchLevel.IDENTICAL if s_raw_norm == t_raw_norm else MatchLevel.COMPATIBLE
-            reason = "Same raw codes." if s_raw_norm == t_raw_norm else "Same categories (different format)."
-            extra = {"categories": s_lbl_norm, "transformation": TransformationType.VALUE_NORMALIZATION}
+            if s_raw_norm == t_raw_norm:
+                is_generic = (s_raw_norm == _GENERIC_BOOL)
+                ctx_is_exact = (ctx.context_match_type == ContextMatchType.EXACT.value)
+                if is_generic and not ctx_is_exact:
+                    level = MatchLevel.PARTIAL
+                    reason = "Same raw 0/1 codes; semantic equivalence unverified."
+                    extra = {"categories": s_lbl_norm,
+                     "transformation": TransformationType.MANUAL_REVIEW}
+                else:
+                    level = MatchLevel.IDENTICAL
+                    reason = "Same raw codes." 
+                    extra = {"categories": s_lbl_norm, "transformation": TransformationType.NONE}
+            else:
+                level = MatchLevel.COMPATIBLE
+                reason = "Same categories (different format)."
+                extra = {"categories": s_lbl_norm, "transformation": TransformationType.VALUE_NORMALIZATION} 
             if level == MatchLevel.COMPATIBLE and cat_label_map:
                 extra.update(cat_label_map)
             
@@ -516,8 +488,37 @@ class CategoricalHandler:
             )
            
             return
+        
 
         # Case 4: No overlap
+        # case 4.1: Detect if exactly ONE side is generic boolean (0/1/yes/no)
+
+        is_s_generic = s_lbl_norm.issubset(_GENERIC_BOOL) and bool(s_lbl_norm)
+        is_t_generic = t_lbl_norm.issubset(_GENERIC_BOOL) and bool(t_lbl_norm)
+
+        if is_s_generic != is_t_generic:  # XOR: One is generic, the other is not
+            generic_side = "source" if is_s_generic else "target"
+            specific_side = "target" if is_s_generic else "source"
+            specific_cats = t_lbl_norm if is_s_generic else s_lbl_norm
+            
+            extra = {
+                "transformation": TransformationType.MANUAL_REVIEW,
+                "generic_variable_side": generic_side,
+                "specific_variable_side": specific_side,
+                "specific_categories": specific_cats,
+                "mapping_hint": "binary_extraction_candidate"
+            }
+            if cat_label_map:
+                extra.update(cat_label_map)
+
+            ctx.set_result(
+                level=MatchLevel.PARTIAL,
+                reason=f"Potential dichotomization: generic boolean ({generic_side}) vs specific categories ({specific_side}).",
+                extra_details=extra
+            )
+            return
+
+        # Or no overlap
         ctx.set_result(MatchLevel.NOT_APPLICABLE, 
                     reason="No overlap in categorical codes.",
                      extra_details=
@@ -592,7 +593,7 @@ class ContinuousBinaryHandler:
              )
            
             return
-
+            
         ctx.set_result(
             level=MatchLevel.PARTIAL,
             reason=f"Continuous ({cont_side}) vs binary ({bin_side}) requires a "
@@ -837,9 +838,7 @@ class StatisticalLogicConstraint(Constraint):
         binary = StatisticalType.BINARY.value
         valid_types = {st.value for st in StatisticalType}
         qual = StatisticalType.QUALITATIVE.value
-        # datetime_val = DATA_TYPE.DATETIME.value
-        # non_temporal = {DATA_TYPE.INTEGER.value, DATA_TYPE.STRING.value, DATA_TYPE.FLOAT.value}
-        # Invalid or missing types
+        
         if s_type not in valid_types or t_type not in valid_types:
             if ctx.is_derived_variable:
                 ctx.set_result(MatchLevel.COMPATIBLE, 
@@ -904,8 +903,15 @@ class StatisticalLogicConstraint(Constraint):
                         "target_range": f"[{t_min}, {t_max}]",
                     }
                 )
-              
-            return
+                
+            else:
+                ctx.set_result(
+                level=MatchLevel.NOT_APPLICABLE,
+                reason="Continuous vs Multi-class mismatch; no valid numeric or structural overlap.",
+                extra_details={"transformation": TransformationType.MANUAL_REVIEW}
+                )
+                return
+           
 
     
         if s_type in cat_types or t_type in cat_types:
@@ -936,64 +942,67 @@ class StatisticalLogicConstraint(Constraint):
 
 
 
-# 7. ConstraintSolver — Orchestrator
+# 7. compute_structural — entry point into the new pipeline
 
+def compute_structural(src: VariableNode,
+                        tgt: VariableNode,
+                        mapping_mode: MappingType = MappingType.NE.value,
+                        matcher: Optional[MatcherProtocol] = None):
 
-class ConstraintSolver:
-    """Pipeline: ContextGate → StatisticalLogic → SubsumedCap.
-
-    Context scores are pre-computed upstream (in resolve_matches).
-    ContextGate reads them as a strict gate. If mismatch, structural
-    analysis is never performed. If subsumed, result is capped
-    to PARTIAL after structural analysis.
+    """Run the structural rules against a candidate pair and return an
+    immutable StructuralEvidence record.
     """
+    from .verdict import StructuralEvidence
+    ctx = CandidateContext(src=src, tgt=tgt, matcher=matcher,
+                            mapping_mode=mapping_mode)
 
-    def __init__(self, matcher: Optional[MatcherProtocol] = None):
-        self.neurosymbolic_matcher = matcher
-        self.context_gate = ContextGate(threshold=settings.ADAPTIVE_THRESHOLD)
-        self.statistical_logic = StatisticalLogicConstraint()
+    StatisticalLogicConstraint().apply(ctx)
+    reason = ctx.details.get("description", "").strip()
+    # Convert mutable ctx to frozen StructuralEvidence.
+    level = ctx.current_level
+    # if level == MatchLevel.IDENTICAL:
+    #     # Assuming ContextMatchType.PARTIAL.value maps to your '4' and SUBSUMED is '2'/'3'
+    #     if str(ctx.context_match_type) not in {ContextMatchType.EXACT.value, ContextMatchType.PENDING.value}:
+    #         level = MatchLevel.PARTIAL
+    #         reason += f" (Capped to Partial due to context match type {ctx.context_match_type})."
+    
+    transform_raw = ctx.details.get("transformation", TransformationType.NONE)
+    transformation = (transform_raw if isinstance(transform_raw, TransformationType)
+                       else TransformationType(transform_raw)
+                       if transform_raw in {t.value for t in TransformationType}
+                       else TransformationType.NONE)
+    # needs_review: handler couldn't reach a confident structural answer.
+    needs_review = (transformation == TransformationType.MANUAL_REVIEW) or (ctx.context_match_type == ContextMatchType.PENDING.value)
 
-    @staticmethod
-    def check_visit_string(visit_str_1: str, visit_str_2: str) -> str:
-        s_low = visit_str_1.lower()
-        t_low = visit_str_2.lower()
-        for hint in settings.DATE_HINTS:
-            if hint in s_low and hint in t_low:
-                return visit_str_1
-            elif hint in s_low:
-                return visit_str_2
-            elif hint in t_low:
-                return visit_str_1
-        return visit_str_1
+    # Strip transformation/description from extras (they're top-level fields).
+    extra = {k: v for k, v in ctx.details.items()
+             if k not in ("transformation", "description")}
+    extra={**extra, "mapping_relation": (src.mapping_relation or tgt.mapping_relation or "")}
+    
 
-    def solve(self, src: VariableNode, tgt: VariableNode, mapping_mode: MappingType = MappingType.OEH.value) -> Tuple[Dict, str]:
-        ctx = CandidateContext(src=src, tgt=tgt, matcher=self.neurosymbolic_matcher, mapping_mode=mapping_mode)
+    return StructuralEvidence(
+        level=level,
+        transformation=transformation,
+        reason=reason,
+        needs_review=needs_review,
+        extra=extra,
+    )
 
-        def _finalize(ctx: CandidateContext):
-            t = ctx.details.get("transformation")
-            ctx.details["transformation"] = t.value if isinstance(t, TransformationType) else (t or TransformationType.NONE.value)
-            return ctx.details, ctx.current_level.to_str()
 
-        self.context_gate.apply(ctx)
-        if ctx.should_stop:
-            return _finalize(ctx)
+def make_timepoint_info(src: VariableNode, tgt: VariableNode):
+    """Build TimepointInfo from a candidate pair.
 
-        self.statistical_logic.apply(ctx)
-
-        if ctx.context_overlap and ctx.current_level != MatchLevel.NOT_APPLICABLE:
-            ctx.details["transformation"] = TransformationType.MANUAL_REVIEW
-            ctx.details["description"] = "Need further review and analysis before harmonization."
-            ctx.current_level = MatchLevel.PARTIAL
-
-        # Timepoint annotation — informational only; does not change level or transformation.
-        aligned = ctx.is_exact_timepoint
-        ctx.details["timepoint_aligned"] = "yes" if aligned else "no"
-        if not aligned and ctx.current_level != MatchLevel.NOT_APPLICABLE:
-            ctx.details.update(ctx.timepoint_details)
-            desc = ctx.details.get("description", "").strip()
-            note = f"Timepoints differ ({ctx.src.visit} vs {ctx.tgt.visit})."
-            ctx.details["description"] = f"{desc} {note}".strip() if desc else note
-        return _finalize(ctx)
+    Pulled out so run.py doesn't need to know about VariableNode internals.
+    """
+    from .verdict import TimepointInfo
+    s_visit = src.visit or ""
+    t_visit = tgt.visit or ""
+    aligned = s_visit.lower().strip() == t_visit.lower().strip()
+    return TimepointInfo(
+        aligned=aligned,
+        source_visit=s_visit,
+        target_visit=t_visit,
+    )
         
 
        

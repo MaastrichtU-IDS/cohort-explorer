@@ -35,14 +35,13 @@ def load_vectordb(collection_name:str, vectordb_path: str ="komal.qdrant.137.120
     If recreate is True, the collection is deleted (if it exists) and then created.
     Otherwise, if the collection does not exist, it is created.
     """
-    # print("📥 Loading embedding model")
 
     embedding_model, embedding_size = get_embedding_model(model_name=model_name)
     vectordb = QdrantClient(host=vectordb_path, port=6333, timeout=240)
 
     try:
         if recreate:
-            print(f"🔄 Recreating collection '{collection_name}' on {vectordb_path}")
+            # print(f"🔄 Recreating collection '{collection_name}' on {vectordb_path}")
             vectordb.delete_collection(collection_name)
             vectordb.create_collection(
                 collection_name=collection_name,
@@ -57,8 +56,8 @@ def load_vectordb(collection_name:str, vectordb_path: str ="komal.qdrant.137.120
                     ),
             )
     except Exception as e:
-        print(f"Collection not found or error occurred: {e}")
-        print(f"Creating new collection '{collection_name}' on {vectordb_path}")
+        # print(f"Collection not found or error occurred: {e}")
+        # print(f"Creating new collection '{collection_name}' on {vectordb_path}")
         vectordb.create_collection(
             collection_name=collection_name,
             vectors_config=VectorParams(size=embedding_size, distance=Distance.COSINE),
@@ -180,7 +179,7 @@ def _prepare_var_metadata(row: Dict[str, Any], study_name: str) -> Dict[str, Any
 def insert_in_db(vectordb, embedding_model, points, collection_name):
     valid_points = [(p, p["text"]) for p in points if p.get("text")]
     if not valid_points:
-        print("⚠️ No valid points to insert")
+        # print("⚠️ No valid points to insert")
         return
 
     # Batch encode all texts in one forward pass
@@ -196,7 +195,7 @@ def insert_in_db(vectordb, embedding_model, points, collection_name):
         ))
 
     vectordb.upsert(collection_name=collection_name, wait=True, points=point_structs)
-    print(f"✔ Inserted {len(point_structs)} points into Qdrant")
+    # print(f"✔ Inserted {len(point_structs)} points into Qdrant")
 
 def _cache_key(model_name: str, text: str) -> str:
     return f"{model_name}::{text}"
@@ -328,10 +327,10 @@ def load_csv_points_dedup(csv_path: str, study_name: str = None,
                 points.append(cat_point)
                 category_seen[cat_dk] = True
 
-    print(f"📊 {len(points)} points from {csv_path} "
-          f"(deduped from {len(df)} rows, "
-          f"{len(concept_groups)} unique concepts, "
-          f"{len(category_seen)} unique categories)")
+    # print(f"📊 {len(points)} points from {csv_path} "
+    #       f"(deduped from {len(df)} rows, "
+    #       f"{len(concept_groups)} unique concepts, "
+    #       f"{len(category_seen)} unique categories)")
     return points
 
 
@@ -457,12 +456,11 @@ def search_category_by_id(vectordb: QdrantClient, embedding_model: Any,
             ] if target_study else []))
         )
 
-    # Dedup by (parent_concept, category_omop_id) — with index dedup
-    # this should already be unique, but safety check
+
     seen, matches = set(), []
     scores = np.array([r.score for r in results])
     cutoff = adaptive_retrieval(scores, min_score)
-    # print(f"total {len(results)} and cutoff =  {cutoff}")
+
     for point in results[:cutoff]:
         # if point.score < cutoff:
         #     continue

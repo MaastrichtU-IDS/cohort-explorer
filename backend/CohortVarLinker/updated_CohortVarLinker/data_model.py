@@ -54,6 +54,24 @@ class ContextMatchType(IntEnum):
     def to_str(self) -> str:
         return {0:"pending", 1:"exact match", 2:"compatible match",
                 3:"subsumed", 4:"partial match", 5:"not applicable"}[self]
+
+class MappingRelation(str, Enum):
+    """SKOS-style mapping relation reported by the candidate generator."""
+    SymbolicExactMatch  = "symbolic:exactmatch"
+    SymbolicCloseMatch  = "symbolic:closematch"
+    SymbolicBroadMatch  = "symbolic:broadmatch"
+    SymbolicNarrowMatch = "symbolic:narrowmatch"
+    NeuralMatch         = "neural match"
+    UnMatched           = "unmatched"
+
+    @classmethod
+    def is_hierarchical(cls, value: str) -> bool:
+        """True iff the relation crosses a hierarchy edge (broader/narrower).
+        These should not be treated as IDENTICAL when the LLM is unavailable
+        — the matcher already told you the concepts aren't equivalent."""
+        v = (value or "").strip().lower()
+        return v in (cls.SymbolicBroadMatch.value, cls.SymbolicNarrowMatch.value)
+
 class MatchLevel(IntEnum):
     """Hierarchy: Lower = Better Match"""
     IDENTICAL = 1
@@ -256,7 +274,10 @@ class VariableNode(BaseModel):
     
     # --- Category ---
     category: Optional[str] = Field(default=None, description="Variable category/domain (e.g., 'demographics', 'labs')")
-    
+
+    # --- Similarity Relationship either from vector or graph path ---
+    mapping_relation: str = Field(default="", description="SKOS relation from candidate generator")
+
     class Config:
         use_enum_values = True  # Serialize enums as their values
         extra = "allow"  # Allow additional fields for extensibility
@@ -510,7 +531,7 @@ class VariableNode(BaseModel):
         
         return cls(
             name=row.get("source", ""),
-            description=row.get("source_label", ""),
+            description = row.get("source_label") or row.get("slabel") or row.get("source"),
             study=study or row.get("study"),
             main_id=row.get("somop_id"),
             main_label=row.get("slabel", ""),
@@ -527,6 +548,7 @@ class VariableNode(BaseModel):
             category=row.get("category"),
             context_match_type = row.get("context_match_type"),
             data_type=row.get("source_data_type"),
+            mapping_relation=row.get("mapping_relation", "") or "",
         )
     
     @classmethod
@@ -544,7 +566,7 @@ class VariableNode(BaseModel):
         
         return cls(
             name=row.get("target", ""),
-            description=row.get("target_label", ""),
+            description = row.get("target_label") or row.get("tlabel") or row.get("target"),
             study=study or row.get("study"),
             main_id=row.get("tomop_id"),
             main_label=row.get("tlabel", ""),
@@ -561,6 +583,7 @@ class VariableNode(BaseModel):
             category=row.get("category"),
             context_match_type = row.get("context_match_type"),
             data_type=row.get("target_data_type"),
+            mapping_relation=row.get("mapping_relation", "") or "",
         )
     
     @classmethod

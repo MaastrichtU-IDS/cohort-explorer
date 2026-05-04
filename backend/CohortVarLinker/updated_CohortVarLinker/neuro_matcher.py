@@ -8,7 +8,7 @@ from .llm_call import LLMConceptMatcher
 from .config import settings
 from .data_model import (
     MappingType, VariableNode, StatisticalType, 
-    ContextMatchType,TransformationType
+    ContextMatchType, MappingRelation
 )
 from .vector_db import search_category_by_id, search_in_db, _embed_cache,  _cache_key
 from .fuzz_match import FuzzyMatcher
@@ -16,9 +16,12 @@ from .graph_similarity import (
     score_context,
     parse_post_cordinating_concepts_labels
 )
+from .unit_converter import UnitConverter 
 from .utils import setup_logger, clean_label_remove_temporal_context
+
 from sklearn.metrics.pairwise import cosine_similarity as cos_sim
-logger = setup_logger('llm_matcher.log')
+
+# logger = setup_logger('llm_matcher.log')
 
 def _node_to_profile_cols(node: VariableNode, side: str) -> Dict[str, Any]:
     """Flatten VariableNode profile fields into prefixed DataFrame columns.
@@ -81,7 +84,7 @@ def _build_match_dict(
 class NeuroSymbolicMatcher:
     def __init__(self, vector_db: Any, embed_model: Any, graph: Any = None,
                  collection_name: str = "concepts",
-                 mapping_mode: str = MappingType.OEH.value, llm_models: List[str] = None, similarity_threshold: float = 0.8):
+                 mapping_mode: str = MappingType.OEH.value, llm_model: List[str] = None, similarity_threshold: float = 0.8):
         self.vector_db = vector_db
         self.embed_model = embed_model
         self.graph = graph
@@ -91,11 +94,14 @@ class NeuroSymbolicMatcher:
         self.similarity_threshold = similarity_threshold
         # self.floor_threshold = floor_threshold
         #self.similarity_threshold = 0.5 if mapping_mode == MappingType.NE.value else self.similarity_threshold
-        if llm_models is not None:
+        if llm_model is not None:
             self.llm_matcher = LLMConceptMatcher(
-                            models=llm_models,
+                            models=[llm_model],
                             temperature=0, mode=mapping_mode)
-        print(f"similarity threshold: {self.similarity_threshold} for model: {embed_model.model_name}")
+        # self.unit_converter = (UnitConverter.from_csv(unit_csv)
+        #                        if unit_csv else UnitConverter())
+        # (f"similarity threshold: {self.similarity_threshold} for model: {embed_model.model_name}")
+
 
     # =================================================================
     # Vector query text for Qdrant search
@@ -116,12 +122,7 @@ class NeuroSymbolicMatcher:
             for label in node.context_labels:
                 if label not in query:
                     query += f", {label}"
-        # print(f"query: {query}")
-        # elif self.mapping_mode == MappingType.NE.value:
-        #     if node.unit and str(node.unit).strip():
-        #         query += f", unit:{node.unit.strip()}"
-        #     elif node.original_categories and len(node.original_categories) > 0:
-        #         query += f", values:{'|'.join(node.original_categories)}"
+      
         return query
 
 
@@ -326,7 +327,7 @@ class NeuroSymbolicMatcher:
                 "source_composite_code_omop_ids": f"{target_omop_id}",
                 "target_composite_code_labels": standard_derived_variable[1],
                 "target_composite_code_omop_ids": f"{target_omop_id}",
-                "mapping_relation": "Symbolic:closeMatch",
+                "mapping_relation": MappingRelation.SymbolicCloseMatch.value,
                 "context_match_type": ContextMatchType.EXACT.value,
                 "sim_score": 1.0,
                 "transformation_rule": f"Derived variable {variable_name} using parameter columns {parameters_omop_ids}.",
@@ -354,15 +355,7 @@ class NeuroSymbolicMatcher:
                 tgt_name_to_desc[nk] = dk
                 tgt_by_desc.setdefault(dk, []).append(v)
             unique_tgt_ids = set(tgt_map.keys())
-            # for v in tgt_collection.variables:
-            #     tgt_map.setdefault(v.name, []).append(v)
-            # tgt_name_to_desc = {v.name: clean_label_remove_temporal_context(
-            #     v.description or v.name) for v in tgt_collection.variables}
-            
-            # for v in tgt_collection.variables:
-            #     key = clean_label_remove_temporal_context(v.description or v.name)
-            #     tgt_by_desc.setdefault(key, []).append(v)
-            # unique_tgt_ids = set(tgt_map.keys())
+  
         else:
             src_grouped = src_collection._by_omop_id or {}
             tgt_map = tgt_collection._by_omop_id or {}
@@ -398,7 +391,7 @@ class NeuroSymbolicMatcher:
 
             if use_graph:
                 if sid in unique_tgt_ids:
-                    matched_candidates.add((sid, "Symbolic:exactMatch", None))
+                    matched_candidates.add((sid, MappingRelation.SymbolicExactMatch.value, None))
                 others = unique_tgt_ids - {sid}
                 if others:
                     reachable = self.graph.source_to_targets_paths(
@@ -428,12 +421,12 @@ class NeuroSymbolicMatcher:
                         tdesc = tgt_name_to_desc.get(tk)
                         if tdesc and tdesc not in seen_descs and tid not in graph_tids:
                             seen_descs.add(tdesc)
-                            matched_candidates.add((tid, "neural match", score))
+                            matched_candidates.add((tid, MappingRelation.NeuralMatch.value, score))
                 else:
                     for item in raw_matches:
                         tid, score = item if isinstance(item, tuple) else (item, 0.0)
                         if tid not in graph_tids:
-                            matched_candidates.add((tid, "neural match", score))  # score preserved
+                            matched_candidates.add((tid, MappingRelation.NeuralMatch.value, score))  # score preserved
 
             for tid, relation, score in matched_candidates:
                 if is_ne:
@@ -466,60 +459,110 @@ class NeuroSymbolicMatcher:
                     src_node, tgt_node, rel_str, ContextMatchType.PENDING.value, score))
         return final_matches
 
-    def resolve_pending_with_llm(self, df: pd.DataFrame, src_study: str, tgt_study: str) -> pd.DataFrame:
-        """Phase 2: Extract unresolved rows, apply structural pre-filter, and run LLM."""
+    def resolve_pending_with_llm(self,
+                                      ambiguous_indices,
+                                      structurals,
+                                      src_study,
+                                      tgt_study,
+                                      tuple_to_evidence):
+        """LLM consultation for the three-phase pipeline.
+
+        Returns:
+            Dict[int, LLMEvidence] — keyed by the input indices. An index
+            absent from the result means no LLM evidence is available;
+            policy.decide() will fall back to structural-only.
+        """
         if not self.llm_matcher or self.mapping_mode == MappingType.OO.value:
-            return df
-            
-        from .constraints import StatisticalLogicConstraint, CandidateContext
-        from .data_model import ContextMatchType, MatchLevel
-        
-        stat_logic = StatisticalLogicConstraint()
-        
-        # After compute_context_scores, unresolved rows will be NOT_APPLICABLE or pending/nan.
-        needs_llm = df['context_match_type'].isna() | \
-                    (df['context_match_type'] == ContextMatchType.PENDING.value) | \
-                    (df['context_match_type'] == ContextMatchType.NOT_APPLICABLE.value) | \
-                    (df['context_match_type'] == ContextMatchType.PARTIAL.value)
-        
-        
-        pending_indices = df[needs_llm].index
+            return {}
+
+        # ── Step 1: collapse rows by concept_key so identical concepts
+  
         concept_matches = {}
-        pending_keys = set()
-        print(f"pending_indices= {len(pending_indices)}")
-        for idx in pending_indices:
-            row = df.loc[idx]
-           
-            src_node = VariableNode.from_source_row(row, study=src_study)
-            tgt_node = VariableNode.from_target_row(row, study=tgt_study)
-            
-            # 🛡️ Structural Pre-filter (Blocks hallucinated pairings from reaching LLM)
-            c_ctx = CandidateContext(src=src_node, tgt=tgt_node, matcher=self, mapping_mode=self.mapping_mode)
-            stat_logic.apply(c_ctx)
-            transform = c_ctx.details.get("transformation")
-            needs_review = (transform ==TransformationType.MANUAL_REVIEW)
-            #  and (c_ctx.current_level == MatchLevel.PARTIAL or c_ctx.current_level == MatchLevel.NOT_APPLICABLE))
-            if c_ctx.current_level == MatchLevel.NOT_APPLICABLE and not needs_review:
-                print(f"src_node={src_node.description}---tgt_node={tgt_node.description}")
-                df.at[idx, 'context_match_type'] = ContextMatchType.NOT_APPLICABLE.value
-                continue
-                
+        idx_to_ckey = {}
+        for idx in ambiguous_indices:
+            src_node, tgt_node, _ = structurals[idx]
             ckey = self._concept_key(src_node, tgt_node)
             if ckey not in concept_matches:
-                concept_matches[ckey] = {"src_rep": src_node, "tgt_rep": tgt_node, "indices": []}
+                concept_matches[ckey] = {
+                    "src_rep": src_node,
+                    "tgt_rep": tgt_node,
+                    "indices": [],
+                }
             concept_matches[ckey]["indices"].append(idx)
-            pending_keys.add(ckey)
-            
-        if pending_keys:
-            print(f" 🤖 LLM resolving {len(pending_keys)} pending concept pairs (Structurally Pre-Filtered)...")
-            llm_results = self._llm_resolve_concepts(list(pending_keys), concept_matches)
-            
-            for ckey, (ctx_type, score) in llm_results.items():
-                for idx in concept_matches[ckey]["indices"]:
-                    df.at[idx, 'context_match_type'] = ctx_type
-                    df.at[idx, 'sim_score'] = score
-                    
-        return df
+            idx_to_ckey[idx] = ckey
+
+        if not concept_matches:
+            return {}
+
+        # ── Step 2: build LLM groups (mirrors _llm_resolve_concepts shape).
+        is_ne = self.mapping_mode == MappingType.NE.value
+        src_groups = defaultdict(list)
+        for ckey in concept_matches.keys():
+            src_sig = (ckey[0], ckey[1])
+            src_groups[src_sig].append(ckey)
+
+        groups, flat_keys = [], []
+        for src_sig, keys in src_groups.items():
+            entry0 = concept_matches[keys[0]]
+            src = entry0["src_rep"]
+            targets = []
+            for ckey in keys:
+                entry = concept_matches[ckey]
+                tgt = entry["tgt_rep"]
+                tgt_entry = {
+                    "tgt_cats": " | ".join(ckey[3]),
+                    "tgt_unit": tgt.unit or "",
+                    "desc": self._desc_for_mode(tgt),
+                }
+                if not is_ne:
+                    tgt_entry["tgt_concepts"] = ckey[2]
+                evidence = self._build_evidence_block(src, tgt)
+                if evidence:
+                    tgt_entry["evidence"] = evidence
+                targets.append(tgt_entry)
+                flat_keys.append(ckey)
+
+            group = {
+                "src_cats": " | ".join(src_sig[1]),
+                "src_unit": src.unit or "",
+                "src_desc": self._desc_for_mode(src),
+                "targets": targets,
+            }
+            if not is_ne:
+                group["src_concepts"] = src_sig[0]
+            groups.append(group)
+
+        # ── Step 3: call the LLM once across all groups.
+        case_ids = [f"P{i}" for i in range(len(flat_keys))]
+        # logger.info(f"  🤖 LLM Validating : {len(flat_keys)} concept pairs")
+        grouped_results, _stats = self.llm_matcher.assess(groups, case_ids=case_ids)
+
+        # ── Step 4: convert verdicts to LLMEvidence
+
+        ckey_to_evidence = {}
+        flat_pos = 0
+        for grp_verdicts in grouped_results:
+            for verdict_tuple in grp_verdicts:
+                ckey = flat_keys[flat_pos]
+                # tuple_to_evidence handles missing/empty tuples → IMPOSSIBLE.
+                ckey_to_evidence[ckey] = tuple_to_evidence(
+                    verdict_tuple if verdict_tuple else
+                    (None, ContextMatchType.NOT_APPLICABLE.value, 0.0, "")
+                )
+                flat_pos += 1
+
+        # ── Step 5: fan out concept-level verdicts to every row that
+        #           mapped to that concept. Runs ONCE, after all groups
+        #           have been processed.
+        results = {}
+        for idx, ckey in idx_to_ckey.items():
+            ev = ckey_to_evidence.get(ckey)
+            if ev is not None:
+                results[idx] = ev
+
+        return results
+
+    
 
     def compute_derived_variables(self, df: pd.DataFrame, src_collection, tgt_collection) -> pd.DataFrame:
         """Phase 3: Append derived variables to the mapped DataFrame."""
@@ -551,187 +594,6 @@ class NeuroSymbolicMatcher:
             df = pd.concat([df, new_df], ignore_index=True)
             
         return df
-    # def resolve_matches(self, src_collection, tgt_collection, target_study):
-    #     final_matches = []
-    #     is_ne = self.mapping_mode == MappingType.NE.value
-
-    #     if is_ne:
-    #         src_grouped = {}
-    #         for v in src_collection.variables:
-    #             key = clean_label_remove_temporal_context(v.description or v.name)
-    #             src_grouped.setdefault(key, []).append(v)
-    #         tgt_map = {}
-    #         for v in tgt_collection.variables:
-    #             tgt_map.setdefault(v.name, []).append(v)
-    #         tgt_name_to_desc = {v.name: clean_label_remove_temporal_context(
-    #             v.description or v.name) for v in tgt_collection.variables}
-    #         tgt_by_desc = {}
-    #         for v in tgt_collection.variables:
-    #             key = clean_label_remove_temporal_context(v.description or v.name)
-    #             tgt_by_desc.setdefault(key, []).append(v)
-    #         unique_tgt_ids = set(tgt_map.keys())
-    #     else:
-    #         src_grouped = src_collection._by_omop_id or {}
-    #         tgt_map = tgt_collection._by_omop_id or {}
-    #         unique_tgt_ids = tgt_collection.omop_ids
-
-    #     use_graph = bool(self.graph) and not is_ne # for symbolic match in stage 1
-    #     use_vector = (self.vector_db is not None and self.embed_model is not None
-    #                 and self.mapping_mode != MappingType.OO.value) # for semantic similatity match  in stage 1
-    #     use_llm = (self.llm_matcher is not None # for further reasoning of uncertain pairs in stage 2
-    #             and self.mapping_mode != MappingType.OO.value)
-
-    #     # if use_vector:
-    #     #     all_query_texts = list({
-    #     #         self._vector_query(nodes[0])
-    #     #         for nodes in src_grouped.values() if nodes
-    #     #     })
-    #     #     uncached = [t for t in all_query_texts if t not in _embed_cache]
-    #     #     if uncached:
-    #     #         vectors = self.embed_model.embed_batch(uncached, is_query=True)
-    #     #         for text, vec in zip(uncached, vectors):
-    #     #             _embed_cache[text] = vec.tolist()
-    #     #         print(f" ✅ Pre-embedded {len(uncached)} query texts (1 batch)")
-
-    #     # Line 334-338: use model-prefixed cache keys
-    #     if use_vector:
-    #         all_query_texts = list({
-    #             self._vector_query(nodes[0])
-    #             for nodes in src_grouped.values() if nodes
-    #         })
-    #         uncached = [t for t in all_query_texts
-    #                     if _cache_key(self.embed_model.model_name, t) not in _embed_cache]
-    #         if uncached:
-    #             vectors = self.embed_model.embed_batch(uncached, is_query=True)
-    #             for text, vec in zip[tuple[str, Any]](uncached, vectors):
-    #                 _embed_cache[_cache_key(self.embed_model.model_name, text)] = vec.tolist()
-    #             print(f" ✅ Pre-embedded {len(uncached)} query texts (1 batch)")
-
-    #     # ── Stage 1: Discover similar target candidates via graph/similarity ──
-    #     # concept_key → { "relation": str, "src_rep": node, "tgt_rep": node,
-    #     #                  "visit_pairs": [(src_node, tgt_node), ...] }
-    #     concept_matches = {}
-    #     total_groups = len(src_grouped)
-
-    #     for idx, (sid, s_group) in enumerate(src_grouped.items()):
-    #         if (idx + 1) % 50 == 0 or idx == 0:
-    #             print(f"resolve_matches: {idx + 1}/{total_groups} source groups...")
-
-    #         rep = s_group[0]
-    #         matched_candidates = set()
-
-    #         if use_graph:
-    #             if sid in unique_tgt_ids:
-    #                 # check if both source variable and target variable has equal number of exact concepts 
-    #                 matched_candidates.add((sid, "Symbolic:exactMatch", None))
-    #             others = unique_tgt_ids - {sid}
-    #             if others:
-    #                 reachable = self.graph.source_to_targets_paths(
-    #                     sid, others, max_depth=settings.DEFAULT_GRAPH_DEPTH)
-    #                 if reachable:
-    #                     matched_candidates.update(reachable)
-
-    #         if use_vector:
-    #             graph_tids = {tid for tid, _ in matched_candidates}
-    #             query = self._vector_query(rep)
-    #             raw_matches = search_in_db(
-    #                 vectordb=self.vector_db,
-    #                 embedding_model=self.embed_model,
-    #                 query_text=query,
-    #                 target_study=[target_study],
-    #                 limit=settings.LIMIT,
-    #                 # min_threshold=self.similarity_threshold,
-    #                 # start_threshold=self.similarity_threshold,
-    #                 collection_name=self.collection_name,
-    #                 mapping_mode=self.mapping_mode,
-    #             )
-    #             if is_ne:
-    #                 seen_descs = set()
-    #                 for tid in raw_matches:
-    #                     tid, score = tid if is_ne else (tid, 0.0)
-
-    #                     tdesc = tgt_name_to_desc.get(tid)
-    #                     if tdesc and tdesc not in seen_descs and tid not in graph_tids:
-    #                         seen_descs.add(tdesc)
-    #                         matched_candidates.add((tid, "Neural Match", score))
-    #             else:
-    #                 for tid in raw_matches:
-    #                     if tid not in graph_tids:
-    #                         matched_candidates.add((tid, "Neural Match", None))
-
-    #         # ── Collect visit-aligned pairs, keyed by concept signature ──
-    #         for tid, relation in matched_candidates:
-    #             if is_ne:
-    #                 tdesc = tgt_name_to_desc.get(tid)
-    #                 tgt_nodes = tgt_by_desc.get(tdesc, []) if tdesc else tgt_map.get(tid, [])
-    #             else:
-    #                 tgt_nodes = tgt_map.get(tid, [])
-
-    #             for tgt_node in tgt_nodes:
-    #                 for src_node in s_group:
-    #                     if not FuzzyMatcher.check_visit_string(src_node.visit, tgt_node.visit):
-    #                         continue
-    #                     ckey = self._concept_key(src_node, tgt_node)
-    #                     if ckey not in concept_matches:
-    #                         concept_matches[ckey] = {
-    #                             "relation": relation,
-    #                             "src_rep": src_node,
-    #                             "tgt_rep": tgt_node,
-    #                             "visit_pairs": [],
-    #                         }
-    #                     concept_matches[ckey]["visit_pairs"].append((src_node, tgt_node))
-
-    #     n_concepts = len(concept_matches)
-    #     n_visit_pairs = sum(len(v["visit_pairs"]) for v in concept_matches.values())
-    #     print(f"📊 {n_concepts} unique concept pairs ({n_visit_pairs} visit-expanded)")
-
-    #     # ── Phase 2: Graph context on CONCEPT representatives only ──
-    #     concept_keys = list(concept_matches.keys())
-    #     ctx_results = {}
-    #     for ckey in concept_keys:
-    #         entry = concept_matches[ckey]
-    #         ctx_results[ckey] = self._compute_pair_context_graph_only(
-    #             entry["src_rep"], entry["tgt_rep"])
-
-    #     # ── Phase 3: LLM for pending concept pairs ──
-    #     if use_llm:
-    #         pending_keys = [k for k in concept_keys if ctx_results[k][0] == "pending"]
-    #         if pending_keys:
-    #             print(f" 🤖 LLM resolving {len(pending_keys)}/{n_concepts} pending concept pairs...")
-    #             llm_results = self._llm_resolve_concepts(
-    #                 pending_keys, concept_matches)
-    #             ctx_results.update(llm_results)
-
-    #     # ── Phase 4: Expand to all visit variants ──
-    #     for ckey, entry in concept_matches.items():
-    #         ctx_type, sim_score = ctx_results.get(ckey, ("pending", 0.0))
-    #         rel_str = entry["relation"].strip().lower() if entry["relation"] else "unknown"
-    #         for src_node, tgt_node in entry["visit_pairs"]:
-    #             final_matches.append(_build_match_dict(
-    #                 src_node, tgt_node, rel_str, ctx_type, sim_score))
-
-    #     # ── Derived variables ──
-    #     if not is_ne:
-    #         single_source_context = {
-    #             "source": [n.to_element_dict("source") for n in src_collection.variables],
-    #             "target": [n.to_element_dict("target") for n in tgt_collection.variables],
-    #             "mapped": final_matches,
-    #         }
-    #         for derived_def in settings.DERIVED_VARIABLES_LIST:
-    #             derived_match = self._extend_with_derived_variables(
-    #                 single_source=single_source_context,
-    #                 standard_derived_variable=(
-    #                     derived_def["code"], derived_def["label"], derived_def["omop_id"]),
-    #                 parameters_omop_ids=derived_def["required_omops"],
-    #                 variable_name=derived_def["name"],
-    #                 category=derived_def["category"],
-    #                 unit_label=derived_def.get("unit", ""),
-    #             )
-    #             if derived_match:
-    #                 print(f"derived_match: {derived_match}")
-    #                 final_matches.extend(derived_match)
-
-    #     return final_matches
 
     def _concept_key(self, src_node, tgt_node):
         """Build a concept-level key that collapses visit variants."""
@@ -795,7 +657,7 @@ class NeuroSymbolicMatcher:
             groups.append(group)
 
         case_ids = [f"P{i}" for i in range(len(flat_keys))]
-        logger.info(f"  🤖 LLM: {len(flat_keys)} concept pairs")
+        # logger.info(f"  🤖 LLM: {len(flat_keys)} concept pairs")
 
         grouped_results, stats = self.llm_matcher.assess(groups, case_ids=case_ids)
 
@@ -805,7 +667,7 @@ class NeuroSymbolicMatcher:
             for verdict in grp_verdicts:
                 key = flat_keys[flat_pos]
                 if verdict and verdict[0] is True:
-                    results[key] = (verdict[1], verdict[2])
+                    results[key] = (verdict[1], verdict[2], verdict[3])
                 else:  # False OR None/empty → explicitly reject
                     results[key] = (ContextMatchType.NOT_APPLICABLE.value, 0.0)
                 flat_pos += 1
@@ -818,53 +680,7 @@ class NeuroSymbolicMatcher:
             return ", ".join(parts) if parts else node.main_label
         return clean_label_remove_temporal_context(node.description) or node.name
 
-    
-    # def check_categorical_subsumption(self, category_concept, main_concept, target_study):
-    #     cid, clabel = category_concept
-    #     mid, mlabel = main_concept
-
-    #     # Direct string match — always valid
-    #     if clabel.lower().strip() == mlabel.lower().strip():
-    #         return True, "Direct Label Match"
-
-    #     if self.mapping_mode == MappingType.NE.value:
-    #         # Pure embedding similarity between category label and main concept label
-    #         if self.embed_model:
-    #             # from numpy import dot
-    #             # from numpy.linalg import norm
-    #             c_key = clean_label_remove_temporal_context(clabel.lower().strip())
-    #             m_key = clean_label_remove_temporal_context(mlabel.lower().strip())
-                
-    #             c_vec = _embed_cache.get(_cache_key(self.embed_model.model_name, c_key)) or self.embed_model.embed_text(c_key, is_query=True)
-    #             m_vec = _embed_cache.get(_cache_key(self.embed_model.model_name, m_key)) or self.embed_model.embed_text(m_key, is_query=True)    
-
-    #             sim = float(cos_sim([c_vec], [m_vec])[0][0])
-    #             if sim >= self.similarity_threshold:
-    #                 return True, "Neural:closeMatch"
-    #         return False, None
-
-    #     # OMOP paths for ontology modes
-    #     if self.graph:
-    #         if cid and mid and str(cid).strip() and str(mid).strip():
-    #             if self.graph.source_to_targets_paths(int(cid), {int(mid)}, max_depth=1):
-    #                 return True, "Symbolic:closeMatch"
-    #             # print(f"cid={cid}, mid={mid}")
-
-    #     if self.embed_model:
-    #         t_raw_matches = search_category_by_id(
-    #             vectordb=self.vector_db, category_id=mid,
-    #             embedding_model=self.embed_model,
-    #             query_text=clabel.lower().strip(),
-    #             target_study=[target_study],
-    #             collection_name=self.collection_name,
-    #             limit=settings.LIMIT,
-    #         )
-    #         if t_raw_matches:
-    #             for match in t_raw_matches:
-    #                 if str(match.get("parent_variable_concept", '')).lower().strip() == cid.lower().strip():
-    #                     return True, "Neural:closeMatch"
-
-    #     return False, None
+  
 
     def check_categorical_subsumption(self, category_concept, main_concept, target_study):
         cid, clabel = category_concept
@@ -880,7 +696,7 @@ class NeuroSymbolicMatcher:
                 c_vec = _embed_cache.get(_cache_key(self.embed_model.model_name, c_key)) or self.embed_model.embed_text(c_key, is_query=True)
                 m_vec = _embed_cache.get(_cache_key(self.embed_model.model_name, m_key)) or self.embed_model.embed_text(m_key, is_query=True)
                 if float(cos_sim([c_vec], [m_vec])[0][0]) >= self.similarity_threshold:
-                    return True, "Neural:closeMatch"
+                    return True, MappingRelation.NeuralMatch.value
             return False, None
 
         cid_valid = str(cid).strip().lstrip('-').isdigit()   # guard both paths
@@ -889,7 +705,7 @@ class NeuroSymbolicMatcher:
         #     print(f"category label {cid} and main var label {mid}")
         if self.graph and cid_valid and mid_valid:
             if self.graph.source_to_targets_paths(int(cid), {int(mid)}, max_depth=1):
-                return True, "Symbolic:closeMatch"
+                return True, MappingRelation.SymbolicCloseMatch.value
 
         # Only enter vector fallback when both IDs are real — prevents empty-string false positives
         if self.embed_model and cid_valid and mid_valid:
@@ -904,7 +720,7 @@ class NeuroSymbolicMatcher:
             if t_raw_matches:
                 for match in t_raw_matches:
                     if str(match.get("parent_variable_concept", '')).strip() == str(cid).strip():
-                        return True, "Neural:closeMatch"
+                        return True, MappingRelation.NeuralMatch.value
 
         return False, None
     def _precompute_catvalues_similarity(self, df: pd.DataFrame, model_object: Any) -> pd.DataFrame:
@@ -948,7 +764,7 @@ class NeuroSymbolicMatcher:
             src_ids_per_row.append(s_row)
             tgt_ids_per_row.append(t_row)
 
-        print(f"🔤 Ontology cache: {len(label_cache)} label→OMOP mappings")
+        # print(f"🔤 Ontology cache: {len(label_cache)} label→OMOP mappings")
 
         if self.graph is not None:
             pairs_to_check = {
@@ -957,14 +773,14 @@ class NeuroSymbolicMatcher:
                 for sid in s_ids for tid in t_ids if sid != tid
             } - align_cache.keys()
             if pairs_to_check:
-                print(f"🧭 Resolving {len(pairs_to_check)} unique OMOP-pair alignments via graph...")
+                # print(f"🧭 Resolving {len(pairs_to_check)} unique OMOP-pair alignments via graph...")
                 resolve = self.graph.source_to_targets_paths
                 aligned = 0
                 for sid, tid in pairs_to_check:
                     hit = bool(resolve(sid, {tid}, max_depth=1))
                     align_cache[(sid, tid)] = hit
                     aligned += hit
-                print(f"✅ Alignment cache: {aligned} aligned / {len(pairs_to_check)} checked")
+                # print(f"✅ Alignment cache: {aligned} aligned / {len(pairs_to_check)} checked")
 
         if self.mapping_mode == MappingType.OO.value or not all_labels:
             return df
@@ -977,11 +793,11 @@ class NeuroSymbolicMatcher:
         if new_lbls or new_ctx:
             texts = new_lbls + [f"{c} {l}" for c, l in new_ctx]
             keys  = new_lbls + [f"{c}::{l}" for c, l in new_ctx]
-            print(f"🔤 Pre-encoding {len(texts)} NEW embeddings "
-                f"({len(new_lbls)} labels + {len(new_ctx)} contextualized; {cached_n} reused from cache)...")
+            # print(f"🔤 Pre-encoding {len(texts)} NEW embeddings "
+                # f"({len(new_lbls)} labels + {len(new_ctx)} contextualized; {cached_n} reused from cache)...")
             emb_cache.update(zip(keys, model_object.embed_batch(texts, show_progress=False)))
-        else:
-            print(f"🔤 All {cached_n} embeddings reused from cache — no encoding needed.")
+        # else:
+        #     print(f"🔤 All {cached_n} embeddings reused from cache — no encoding needed.")
 
-        print(f"✅ Cache size: {len(emb_cache)} embeddings")
+        # print(f"✅ Cache size: {len(emb_cache)} embeddings")
         return df

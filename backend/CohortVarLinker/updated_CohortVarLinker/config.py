@@ -11,9 +11,9 @@ class Settings:
     ADAPTIVE_THRESHOLD: float = 0.5 # minimum score for adaptive retrival from vector db
     ADAPTIVE_ALPHA = 0.85 # upper bound
     LIMIT: int = 5 # limit for adaptive retrival from vector db
-        # Text hints for logic
+
     DATE_HINTS: List[str] = field(default_factory=lambda: ["visit date", "date of visit", "date of event", "event date"])
-    TOGETHER_API_KEY: str = field(default_factory=lambda: os.getenv("TOGETHER_API_KEY"))   
+    # TOGETHER_API_KEY: str = field(default_factory=lambda: os.getenv("TOGETHER_API_KEY"))   
     OPENROUTER_API_KEY: str = field(default_factory=lambda: os.getenv("OPENROUTER_API_KEY"))
     OLLAMA_URL = "localhost:11434"
     CROSS_CATS: Set[str] = field(default_factory=lambda: {
@@ -24,16 +24,13 @@ class Settings:
     
     DEFAULT_GRAPH_DEPTH: int = 1 # additional cross-vocabulary depth is automatically added for concepts across vocabularies, but this is the default depth for all concepts
     
-    # LOCAL_LLM_MODELS: List[str] = field(default_factory=lambda:  ["mistral:latest", "llama3.3:70b", "qwen2.5:72b"])
-    # TOGETHER_LLM_MODELS: List[str] = field(default_factory=lambda:  [ "Qwen/Qwen3-Next-80B-A3B-Instruct", "openai/gpt-oss-120b","meta-llama/Llama-3.3-70B-Instruct-Turbo" , "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8"])
-    # LARGE_LMs: List[str] = field(default_factory=lambda:  ["gemini-2.5-flash"]) # "gpt-4.1-2025-04-14",
-    
     # External Resources
     OPENAI_API_KEY: str = field(default_factory=lambda: os.getenv("OPENAI_API_KEY"))
     GEMINI_API_KEY: str = field(default_factory=lambda: os.getenv("GEMINI_API_KEY"))
     GRAPH_REPO: str = "https://w3id.org/CMEO/graph"
 
     DATA_DOMAINS: List[str] = field(default_factory=lambda: ["drug_exposure","condition_occurrence","condition_era","observation","observation_era","measurement","visit_occurrence","procedure_occurrence","device_exposure","person"])
+
     # Derived Variable Rules (Example)
     DERIVED_VARIABLES_LIST: List[Dict[str, Any]] = field(default_factory=lambda: [
     {
