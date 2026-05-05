@@ -5,8 +5,8 @@ from typing import List, Tuple
 from collections import deque, OrderedDict
 from llm.data_model import MappingRelation
 
-LOINC_REQUIRED_AXES = ['component', 'specimen', 'time_aspect']
-LOINC_IGNORABLE_AXES = ['system', 'property', 'method', 'scale_type']
+LOINC_REQUIRED_AXES = ['component', 'system', 'time_aspect']
+LOINC_IGNORABLE_AXES = ['property', 'method', 'scale_type', 'specimen']
 VOCAB_ALIASES = {
     "snomed": "snomed", "snomedct": "snomed",
     "snomed_veterinary": "snomed veterinary", "snomedct_veterinary": "snomed veterinary",
@@ -413,27 +413,64 @@ class OmopGraphNX:
         except (ValueError, TypeError):
             return {}
 
+    # def compare_loinc_axes(self, sid: int, tid: int) -> dict:
+    #     try:
+    #         sid, tid = int(sid), int(tid)
+    #     except (ValueError, TypeError):
+    #         return {'is_match': False, 'reason': 'invalid IDs'}
+    #     sa, ta = self.get_loinc_axes(sid), self.get_loinc_axes(tid)
+    #     if 'component' not in sa or 'component' not in ta:
+    #         return {'is_match': False, 'reason': 'component missing',
+    #                 'source_axes': sa, 'target_axes': ta}
+    #     matched, mismatched = [], []
+    #     for ax in LOINC_REQUIRED_AXES:
+    #         s, t = sa.get(ax), ta.get(ax)
+    #         if s and t:
+    #             (matched if s[0] == t[0] else mismatched).append(
+    #                 (ax, s[1]) if s[0] == t[0] else (ax, s[1], t[1]))
+    #         elif ax == 'component':
+    #             mismatched.append((ax, s, t))
+    #     ignored = [(a, sa[a][1], ta[a][1]) for a in LOINC_IGNORABLE_AXES
+    #                if a in sa and a in ta and sa[a][0] != ta[a][0]]
+    #     return {'is_match': not mismatched,
+    #             'matched': matched, 'mismatched': mismatched or ignored}
+
     def compare_loinc_axes(self, sid: int, tid: int) -> dict:
         try:
             sid, tid = int(sid), int(tid)
         except (ValueError, TypeError):
             return {'is_match': False, 'reason': 'invalid IDs'}
+
         sa, ta = self.get_loinc_axes(sid), self.get_loinc_axes(tid)
-        if 'component' not in sa or 'component' not in ta:
-            return {'is_match': False, 'reason': 'component missing',
-                    'source_axes': sa, 'target_axes': ta}
+
         matched, mismatched = [], []
+
         for ax in LOINC_REQUIRED_AXES:
             s, t = sa.get(ax), ta.get(ax)
-            if s and t:
-                (matched if s[0] == t[0] else mismatched).append(
-                    (ax, s[1]) if s[0] == t[0] else (ax, s[1], t[1]))
-            elif ax == 'component':
+
+            if not s or not t:
                 mismatched.append((ax, s, t))
-        ignored = [(a, sa[a][1], ta[a][1]) for a in LOINC_IGNORABLE_AXES
-                   if a in sa and a in ta and sa[a][0] != ta[a][0]]
-        return {'is_match': not mismatched,
-                'matched': matched, 'mismatched': mismatched or ignored}
+                continue
+
+            if s[0] == t[0]:
+                matched.append((ax, s[1]))
+            else:
+                mismatched.append((ax, s[1], t[1]))
+
+        ignored = [
+            (a, sa[a][1], ta[a][1])
+            for a in LOINC_IGNORABLE_AXES
+            if a in sa and a in ta and sa[a][0] != ta[a][0]
+        ]
+
+        return {
+            'is_match': not mismatched,
+            'matched': matched,
+            'mismatched': mismatched,
+            'ignored': ignored,
+            'source_axes': sa,
+            'target_axes': ta,
+        }
 
     # ══════════════════════════════════════════════════════════════════
     # Matching methods
@@ -1072,7 +1109,9 @@ def run_pair_tests(omop_nx):
          (21601665, 1314002, True,
          "BETA BLOCKING AGENTS vs Atenolol"),
           (1314002, 21601665, True,
-         "Atenolol vs BETA BLOCKING AGENTS")
+         "Atenolol vs BETA BLOCKING AGENTS"),
+         (3000963,3009744, False,
+         "hemoglobin [mass/volume] in blood vs mchc [mass/volume] by automated count")
     ]
 
     passed = failed = 0
@@ -1107,3 +1146,4 @@ def run_pair_tests(omop_nx):
 
     print(f"\n  Pair tests: {passed} passed, {failed} failed, {passed + failed} total")
     return failed == 0
+
