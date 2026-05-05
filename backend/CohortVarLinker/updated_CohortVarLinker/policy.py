@@ -1,6 +1,13 @@
 """
 policy.py — Per-mode decision functions.
 
+Each policy is a pure function: (mode, structural, llm, timepoint) -> Verdict.
+The level is computed exactly once.
+
+The cap collapsed two distinct LLM verdicts (COMPATIBLE, PARTIAL) into a
+single output level (PARTIAL), making MatchLevel.COMPATIBLE structurally
+unreachable in NE+LLM mode. This module replaces those three steps with
+one explicit decision per mode.
 """
 
 from __future__ import annotations
@@ -26,7 +33,7 @@ def decide(mode: str,
 # Penalise broader vs specific pair matching
 
 def _demote_hierarchical(s: StructuralEvidence) -> tuple[MatchLevel, TransformationType, str]:
-
+    print(s)
     relation = s.extra.get("mapping_relation", "")
     if MappingRelation.is_hierarchical(relation) and s.level in (
         MatchLevel.IDENTICAL, MatchLevel.COMPATIBLE
@@ -58,8 +65,12 @@ def _ne_decide(s: StructuralEvidence,
         )
 
     if llm.verdict == "COMPLETE":
-        # Lower int = better match; min picks the better of IDENTICAL vs structural.
-        capped = min(MatchLevel.IDENTICAL, s.level, key=int)
+        # Preserve a structural COMPATIBLE verdict; otherwise allow IDENTICAL cap.
+        if s.level == MatchLevel.COMPATIBLE:
+            capped = MatchLevel.COMPATIBLE
+        else:
+            # Lower int = better match; min picks the better of IDENTICAL vs structural.
+            capped = min(MatchLevel.IDENTICAL, s.level, key=int)
         transformation = llm.transform or TransformationType.NONE   # COMPLETE ⇒ no transform
         reason = s.reason or "Handler verdict"
         if llm.reason:
@@ -114,7 +125,10 @@ def _symbolic_neural_with_llm_decide(s: StructuralEvidence,
         )
 
     if llm.verdict == "COMPLETE":
-        capped = min(MatchLevel.IDENTICAL, s.level, key=int)
+        if s.level == MatchLevel.COMPATIBLE:
+            capped = MatchLevel.COMPATIBLE
+        else:
+            capped = min(MatchLevel.IDENTICAL, s.level, key=int)
         transformation = llm.transform or TransformationType.NONE   # COMPLETE ⇒ no transform
         reason = s.reason or "Ontology match"
         if llm.reason:
@@ -123,20 +137,12 @@ def _symbolic_neural_with_llm_decide(s: StructuralEvidence,
         return _build_verdict(capped, transformation, reason, tp, s.extra)
 
     if llm.verdict == "COMPATIBLE":
-       
-        # return _build_verdict(
-        #     MatchLevel.PARTIAL,
-        #     TransformationType.MANUAL_REVIEW,
-        #     f"Ontology match with ambiguous context: {llm.reason}".strip(),
-        #     tp, s.extra,
-        # )
         return _build_verdict(
             MatchLevel.COMPATIBLE,
             _compatible_transformation(s),
             f"LLM compatible: {llm.reason}".strip(),
             tp, s.extra,
         )
-
     if llm.verdict == "PARTIAL":
         return _build_verdict(
             MatchLevel.PARTIAL,
@@ -146,7 +152,6 @@ def _symbolic_neural_with_llm_decide(s: StructuralEvidence,
         )
 
     return _build_verdict(s.level, s.transformation, s.reason, tp, s.extra)
-
 
 
 def _ontology_only_decide(s: StructuralEvidence, tp: TimepointInfo) -> Verdict:
