@@ -16,7 +16,6 @@ from .graph_similarity import (
     score_context,
     parse_post_cordinating_concepts_labels
 )
-from .unit_converter import UnitConverter 
 from .utils import setup_logger, clean_label_remove_temporal_context
 
 from sklearn.metrics.pairwise import cosine_similarity as cos_sim
