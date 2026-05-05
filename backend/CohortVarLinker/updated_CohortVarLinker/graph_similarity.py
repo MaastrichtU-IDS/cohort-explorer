@@ -144,7 +144,7 @@ def score_context(
             return ContextMatchType.SUBSUMED.value, 1.0
 
         if (len(src_codes) <= 2 and len(tgt_codes) <= 2):  # one might have an extra concept -- still acceptable as partial? 
-                return ContextMatchType.PENDING.value, 0.65 
+                return ContextMatchType.PENDING.value, 0.5 
         # ── Step 2.5: Category structure guard ────────────────
         if len(src_codes) != len(tgt_codes) and _category_guard(src_val_labels, tgt_val_labels):
             atomic_vs_post = (

@@ -977,8 +977,8 @@ def compute_structural(src: VariableNode,
     # Strip transformation/description from extras (they're top-level fields).
     extra = {k: v for k, v in ctx.details.items()
              if k not in ("transformation", "description")}
-    extra={**extra, "mapping_relation": (src.mapping_relation or tgt.mapping_relation or "")}
-    
+    extra={**extra, "mapping_relation": (src.mapping_relation or tgt.mapping_relation or ""),
+        "context_match_type": ctx.context_match_type}
 
     return StructuralEvidence(
         level=level,
@@ -987,7 +987,6 @@ def compute_structural(src: VariableNode,
         needs_review=needs_review,
         extra=extra,
     )
-
 
 def make_timepoint_info(src: VariableNode, tgt: VariableNode):
     """Build TimepointInfo from a candidate pair.

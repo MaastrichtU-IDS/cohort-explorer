@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import Optional
 
 from .verdict import StructuralEvidence, LLMEvidence, Verdict, TimepointInfo
-from .data_model import MatchLevel, TransformationType, MappingType, MappingRelation
+from .data_model import MatchLevel, TransformationType, MappingType, MappingRelation, ContextMatchType
 
 
 def decide(mode: str,
@@ -148,9 +148,25 @@ def _symbolic_neural_with_llm_decide(s: StructuralEvidence,
     return _build_verdict(s.level, s.transformation, s.reason, tp, s.extra)
 
 
+
 def _ontology_only_decide(s: StructuralEvidence, tp: TimepointInfo) -> Verdict:
     """OO mode: no LLM, structural verdict is final by definition."""
+    # level, transformation, reason = _demote_hierarchical(s)
+    # return _build_verdict(level, transformation, reason, tp, s.extra)
     level, transformation, reason = _demote_hierarchical(s)
+
+    ctx_type = s.extra.get("context_match_type")
+
+    if (
+        ctx_type == ContextMatchType.PENDING.value
+    ):
+        level = MatchLevel.NOT_APPLICABLE
+        transformation = TransformationType.MANUAL_REVIEW
+        reason = (
+            f"{reason} | Ontology-only mode could not verify full concept-context equivalence; "
+            "manual review required."
+        ).strip()
+
     return _build_verdict(level, transformation, reason, tp, s.extra)
 
 
