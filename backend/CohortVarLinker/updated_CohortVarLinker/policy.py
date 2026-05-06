@@ -137,10 +137,18 @@ def _symbolic_neural_with_llm_decide(s: StructuralEvidence,
         return _build_verdict(capped, transformation, reason, tp, s.extra)
 
     if llm.verdict == "COMPATIBLE":
+        if s.transformation == TransformationType.NONE:
+            capped = min(MatchLevel.IDENTICAL, s.level, key=int)
+        else:
+            capped = MatchLevel.COMPATIBLE
+        transformation = llm.transform or _compatible_transformation(s)
+        reason = s.reason or "Ontology match"
+        if llm.reason:
+            reason = f"{reason} | LLM confirmed: {llm.reason}"
         return _build_verdict(
-            MatchLevel.COMPATIBLE,
-            _compatible_transformation(s),
-            f"LLM compatible: {llm.reason}".strip(),
+            capped,
+            transformation,
+            reason,
             tp, s.extra,
         )
     if llm.verdict == "PARTIAL":
