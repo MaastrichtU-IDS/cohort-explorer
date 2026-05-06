@@ -1,59 +1,102 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { apiUrl } from '@/utils';
-import { AlertTriangle, CheckCircle, Clock, Users } from 'react-feather';
-import {
-  DcrEvent,
-  DcrSession,
-  formatTimestamp,
-  groupEventsBySession,
-} from '@/components/dcrSessions';
+import { AlertTriangle, Clock, RefreshCw, Users, ExternalLink } from 'react-feather';
 import { DcrLogPanel } from '@/components/DcrLogPanel';
 
+/** Shape of a single DCR record returned by the /my-dcrs endpoint. */
+interface DcrRecord {
+  id?: string;
+  title?: string;
+  description?: string;
+  createdAt?: string;
+  owner?: { email?: string; [key: string]: any };
+  participants?: { email?: string; roles?: string[]; data_owner_of?: string[]; analyst_of?: string[] }[];
+  nodes?: { name?: string; type?: string }[];
+  error?: string;
+  [key: string]: any;
+}
+
 export default function DcrsPage() {
-  const [sessions, setSessions] = useState<DcrSession[]>([]);
+  const [dcrs, setDcrs] = useState<DcrRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+
+  const fetchMyDcrs = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(`${apiUrl}/my-dcrs`, { credentials: 'include' });
+      if (response.status === 401 || response.status === 403) {
+        throw new Error('You must be signed in to view this page.');
+      }
+      if (!response.ok) {
+        throw new Error(`Failed to fetch DCRs: ${response.status} ${response.statusText}`);
+      }
+      const data = await response.json();
+      setDcrs(Array.isArray(data?.dcrs) ? data.dcrs : []);
+      setUserEmail(data?.email ?? null);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to load DCRs');
+      setDcrs([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    setError(null);
+    try {
+      const response = await fetch(`${apiUrl}/my-dcrs/refresh`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (response.status === 401 || response.status === 403) {
+        throw new Error('You must be signed in to refresh.');
+      }
+      if (!response.ok) {
+        throw new Error(`Refresh failed: ${response.status} ${response.statusText}`);
+      }
+      const data = await response.json();
+      setDcrs(Array.isArray(data?.dcrs) ? data.dcrs : []);
+      setUserEmail(data?.email ?? null);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to refresh DCRs');
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, []);
 
   useEffect(() => {
-    const fetchEvents = async () => {
-      setIsLoading(true);
-      setError(null);
-      try {
-        const response = await fetch(`${apiUrl}/dcr-events/successful`, {
-          credentials: 'include',
-        });
-        if (response.status === 401 || response.status === 403) {
-          throw new Error('You must be signed in to view this page.');
-        }
-        if (!response.ok) {
-          throw new Error(`Failed to fetch events: ${response.status} ${response.statusText}`);
-        }
-        const data = await response.json();
-        const events: DcrEvent[] = Array.isArray(data?.events) ? data.events : [];
-        // Backend already filters to successful sessions; still run through the
-        // grouper to consolidate events by session_id.
-        setSessions(groupEventsBySession(events).filter((s) => s.outcome === 'completed'));
-      } catch (err: any) {
-        setError(err?.message || 'Failed to load DCRs');
-        setSessions([]);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    fetchEvents();
-  }, []);
+    fetchMyDcrs();
+  }, [fetchMyDcrs]);
 
   return (
     <main className="flex flex-col items-center justify-start p-6 min-h-screen bg-base-200">
       <div className="w-full max-w-5xl space-y-6">
         <header className="text-center">
-          <h1 className="text-3xl font-bold">Data Clean Rooms</h1>
+          <h1 className="text-3xl font-bold">My Data Clean Rooms</h1>
           <p className="text-sm text-base-content/70 mt-1">
-            All successfully created Data Clean Rooms.
+            Data Clean Rooms you participate in{userEmail ? ` (${userEmail})` : ''}.
           </p>
         </header>
+
+        {/* Refresh button */}
+        <div className="flex justify-end">
+          <button
+            className="btn btn-sm btn-outline gap-2"
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            title="Re-fetch DCR data from Decentriq"
+          >
+            <RefreshCw size={14} className={isRefreshing ? 'animate-spin' : ''} />
+            {isRefreshing ? 'Refreshing...' : 'Refresh from Decentriq'}
+          </button>
+        </div>
 
         {isLoading && (
           <div className="flex justify-center py-16">
@@ -68,19 +111,16 @@ export default function DcrsPage() {
           </div>
         )}
 
-        {!isLoading && !error && sessions.length === 0 && (
+        {!isLoading && !error && dcrs.length === 0 && (
           <div className="text-center text-base-content/60 py-16">
-            No Data Clean Rooms have been successfully created yet.
+            No Data Clean Rooms found for your account.
           </div>
         )}
 
-        {!isLoading && !error && sessions.length > 0 && (
+        {!isLoading && !error && dcrs.length > 0 && (
           <div className="space-y-3">
-            {sessions.map((session) => (
-              <SimpleSessionCard
-                key={session.session_id || `${session.started_at}-${session.user_email}`}
-                session={session}
-              />
+            {dcrs.map((dcr, idx) => (
+              <DcrCard key={dcr.id || idx} dcr={dcr} />
             ))}
           </div>
         )}
@@ -91,95 +131,97 @@ export default function DcrsPage() {
 
 // ---------- Subcomponents ----------------------------------------------------
 
-function SimpleSessionCard({ session }: { session: DcrSession }) {
-  const hasShuffled = session.include_shuffled_samples !== null && session.include_shuffled_samples !== undefined;
-  const hasAirlock = session.airlock_settings && Object.keys(session.airlock_settings).length > 0;
+function formatTimestamp(iso?: string): string {
+  if (!iso) return '';
+  try {
+    return new Date(iso).toLocaleString();
+  } catch {
+    return iso;
+  }
+}
+
+function DcrCard({ dcr }: { dcr: DcrRecord }) {
+  const ownerEmail = dcr.owner?.email;
+  const participantCount = dcr.participants?.length ?? 0;
+  const dcrUrl = dcr.id
+    ? `https://platform.decentriq.com/datarooms/p/${dcr.id}`
+    : null;
 
   return (
     <div className="card bg-base-100 shadow-sm border border-base-300">
       <div className="card-body p-4">
         <div className="flex flex-wrap items-center gap-2 mb-1">
-          <span className="badge badge-success font-semibold gap-1">
-            <CheckCircle size={12} /> Successfully created
-          </span>
           <h2 className="font-semibold text-lg">
-            {session.dcr_title || session.dcr_name || (
-              <span className="text-base-content/50">Untitled DCR</span>
-            )}
+            {dcr.title || <span className="text-base-content/50">Untitled DCR</span>}
           </h2>
         </div>
 
         <div className="flex flex-wrap gap-4 text-sm text-base-content/70">
-          <span className="flex items-center gap-1">
-            <Users size={14} /> {session.user_email || 'unknown'}
-          </span>
-          <span className="flex items-center gap-1">
-            <Clock size={14} /> {formatTimestamp(session.started_at)}
-          </span>
-        </div>
-
-        <div className="mt-3 text-sm space-y-2">
-          {session.cohorts.length > 0 && (
-            <div>
-              <span className="font-semibold">Cohorts:</span>{' '}
-              <span className="text-base-content/80">{session.cohorts.join(', ')}</span>
-            </div>
+          {ownerEmail && (
+            <span className="flex items-center gap-1">
+              <Users size={14} /> {ownerEmail}
+            </span>
           )}
-          {session.research_question && (
-            <div>
-              <span className="font-semibold">Research question:</span>{' '}
-              <span className="text-base-content/80">{session.research_question}</span>
-            </div>
+          {dcr.createdAt && (
+            <span className="flex items-center gap-1">
+              <Clock size={14} /> {formatTimestamp(dcr.createdAt)}
+            </span>
           )}
-          {(hasShuffled || hasAirlock) && (
-            <div>
-              <span className="font-semibold">Data sample choices:</span>
-              <ul className="list-disc ml-5 mt-1 text-base-content/80">
-                {hasShuffled && (
-                  <li>
-                    Shuffled samples:{' '}
-                    {typeof session.include_shuffled_samples === 'boolean'
-                      ? session.include_shuffled_samples
-                        ? 'enabled for all cohorts'
-                        : 'disabled for all cohorts'
-                      : Object.entries(
-                          session.include_shuffled_samples as Record<string, boolean>
-                        )
-                          .map(([cohort, enabled]) => `${cohort}: ${enabled ? 'yes' : 'no'}`)
-                          .join(' · ')}
-                  </li>
-                )}
-                {hasAirlock && (
-                  <li>
-                    Airlock:{' '}
-                    {Object.entries(session.airlock_settings!)
-                      .map(([cohort, value]) => {
-                        const label =
-                          typeof value === 'boolean' ? (value ? 'on' : 'off') : `quota ${value}`;
-                        return `${cohort}: ${label}`;
-                      })
-                      .join(' · ')}
-                  </li>
-                )}
-              </ul>
-            </div>
-          )}
-          {session.dcr_url && (
-            <div>
-              <span className="font-semibold">DCR URL:</span>{' '}
-              <a
-                href={session.dcr_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="link link-primary break-all"
-              >
-                {session.dcr_url}
-              </a>
-            </div>
+          {participantCount > 0 && (
+            <span className="badge badge-ghost badge-sm">
+              {participantCount} participant{participantCount !== 1 ? 's' : ''}
+            </span>
           )}
         </div>
 
-        {session.dcr_id && <DcrLogPanel dcrId={session.dcr_id} />}
+        {dcr.description && (
+          <div className="mt-2 text-sm text-base-content/80">{dcr.description}</div>
+        )}
+
+        {/* Participants detail */}
+        {dcr.participants && dcr.participants.length > 0 && (
+          <div className="mt-3 text-sm">
+            <span className="font-semibold">Participants:</span>
+            <ul className="list-disc ml-5 mt-1 text-base-content/80">
+              {dcr.participants.map((p, i) => (
+                <li key={p.email || i}>
+                  {p.email || 'unknown'}
+                  {p.roles && p.roles.length > 0 && (
+                    <span className="text-xs text-base-content/60 ml-1">
+                      ({p.roles.join(', ')})
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Nodes summary */}
+        {dcr.nodes && dcr.nodes.length > 0 && (
+          <div className="mt-2 text-sm">
+            <span className="font-semibold">Nodes:</span>{' '}
+            <span className="text-base-content/80">
+              {dcr.nodes.length} node{dcr.nodes.length !== 1 ? 's' : ''}
+            </span>
+          </div>
+        )}
+
+        {/* Link to platform */}
+        {dcrUrl && (
+          <div className="mt-2">
+            <a
+              href={dcrUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="link link-primary text-sm flex items-center gap-1 w-fit"
+            >
+              <ExternalLink size={14} /> Open on Decentriq
+            </a>
+          </div>
+        )}
+
+        {dcr.id && <DcrLogPanel dcrId={dcr.id} />}
       </div>
     </div>
   );

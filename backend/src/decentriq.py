@@ -3,6 +3,7 @@ from copy import deepcopy
 from typing import Any
 import os, json
 import logging # Add logging import
+import threading
 import zipfile
 import tempfile
 from importlib.metadata import version, PackageNotFoundError
@@ -1985,6 +1986,363 @@ async def api_list_successful_dcr_events(
         if evt.get("session_id") in successful_sessions
     ]
     return {"events": filtered, "count": len(filtered)}
+
+
+def _require_admin(user: Any) -> None:
+    """Raise 403 unless the authenticated user is in ``settings.admins_list``."""
+    user_email = user.get("email") if isinstance(user, dict) else None
+    admins = getattr(settings, "admins_list", []) or []
+    if not user_email or user_email.strip().lower() not in admins:
+        raise HTTPException(status_code=403, detail="Admins only")
+
+
+def _decentriq_history_dir() -> str:
+    """Return (and create) the directory used for Decentriq history exports."""
+    history_dir = os.path.join(settings.data_folder, "logs")
+    os.makedirs(history_dir, exist_ok=True)
+    return history_dir
+
+
+def _dcr_history_path() -> str:
+    """Return the path of the DCR history JSONL file."""
+    return os.path.join(_decentriq_history_dir(), "decentriq_dcrs_history.jsonl")
+
+
+# In-memory DCR history state. Populated by ``refresh_all_dcrs_via_decentriq_api``
+# at startup and lazily on first access if the JSONL already exists on disk.
+# ``_dcr_history_mtime_ns`` tracks the JSONL file's mtime at the moment the
+# in-memory state was last synced, so each accessor can detect whether another
+# worker rewrote the file and trigger a cheap reload.
+_dcr_history_lock = threading.RLock()
+_dcr_history_records: list[dict[str, Any]] = []
+_dcr_history_by_participant: dict[str, list[dict[str, Any]]] = {}
+_dcr_history_loaded: bool = False
+_dcr_history_mtime_ns: int | None = None
+
+
+def _extract_participants(dcr: Any) -> list[dict[str, Any]]:
+    """Pull detailed participant info from ``dcr.high_level``.
+
+    Returns a list of ``{"email", "roles", "data_owner_of", "analyst_of"}``
+    dicts. Returns ``[]`` (and never raises) if the structure is missing /
+    different than expected.
+    """
+    try:
+        config = getattr(dcr, "high_level", None)
+        if not isinstance(config, dict) or not config:
+            return []
+        # Top-level key is the DCR version (e.g. "v15"); take the first.
+        version_key = next(iter(config))
+        participants_data = (
+            config.get(version_key, {})
+            .get("interactive", {})
+            .get("initialConfiguration", {})
+            .get("participants", [])
+            or []
+        )
+    except Exception:
+        return []
+
+    out: list[dict[str, Any]] = []
+    for participant in participants_data:
+        if not isinstance(participant, dict):
+            continue
+        email = participant.get("user")
+        permissions = participant.get("permissions") or []
+        roles: list[str] = []
+        data_owner_of: list[str] = []
+        analyst_of: list[str] = []
+        for perm in permissions:
+            if not isinstance(perm, dict):
+                continue
+            if "manager" in perm:
+                roles.append("Owner")
+            if "analyst" in perm:
+                node_id = (perm.get("analyst") or {}).get("nodeId")
+                if node_id:
+                    analyst_of.append(node_id)
+            if "dataOwner" in perm:
+                node_id = (perm.get("dataOwner") or {}).get("nodeId")
+                if node_id:
+                    data_owner_of.append(node_id)
+        out.append({
+            "email": email,
+            "roles": roles,
+            "data_owner_of": data_owner_of,
+            "analyst_of": analyst_of,
+        })
+    return out
+
+
+def _build_participant_index(records: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    """Return a mapping ``email -> [dcr_record, ...]`` covering every email
+    referenced in either the DCR's ``owner`` or its ``participants`` list.
+    """
+    index: dict[str, list[dict[str, Any]]] = {}
+    for record in records:
+        emails: set[str] = set()
+        owner = record.get("owner") or {}
+        if isinstance(owner, dict):
+            owner_email = owner.get("email")
+            if owner_email:
+                emails.add(owner_email)
+        for p in record.get("participants") or []:
+            email = (p or {}).get("email") if isinstance(p, dict) else None
+            if email:
+                emails.add(email)
+        for email in emails:
+            index.setdefault(email, []).append(record)
+    return index
+
+
+def _file_mtime_ns(path: str) -> int | None:
+    """Return ``st_mtime_ns`` for ``path`` or ``None`` if it can't be read."""
+    try:
+        return os.stat(path).st_mtime_ns
+    except OSError:
+        return None
+
+
+def _set_dcr_history_state(records: list[dict[str, Any]], source_mtime_ns: int | None) -> None:
+    """Atomically replace the in-memory DCR history state and record the mtime
+    of the JSONL the state was synced from (so future accessors can detect a
+    fresher file written by another worker).
+    """
+    global _dcr_history_records, _dcr_history_by_participant
+    global _dcr_history_loaded, _dcr_history_mtime_ns
+    index = _build_participant_index(records)
+    with _dcr_history_lock:
+        _dcr_history_records = records
+        _dcr_history_by_participant = index
+        _dcr_history_loaded = True
+        _dcr_history_mtime_ns = source_mtime_ns
+
+
+def load_dcr_history_from_disk() -> int:
+    """Populate the in-memory DCR history from the JSONL file on disk.
+
+    Used as a lazy fallback so other request handlers don't have to wait for
+    the background refresh task to finish before they can query the index.
+    Returns the number of records loaded (0 if the file does not exist).
+    """
+    path = _dcr_history_path()
+    if not os.path.isfile(path):
+        return 0
+    records: list[dict[str, Any]] = []
+    try:
+        # Snapshot the mtime *before* reading so a concurrent rewrite mid-read
+        # is detected next time (rather than us claiming we have the latest).
+        mtime_ns = _file_mtime_ns(path)
+        with open(path, "r", encoding="utf-8") as fh:
+            for raw in fh:
+                raw = raw.strip()
+                if not raw:
+                    continue
+                try:
+                    records.append(json.loads(raw))
+                except json.JSONDecodeError:
+                    continue
+    except OSError as exc:
+        logging.warning("Failed to read DCR history file %s: %s", path, exc)
+        return 0
+    _set_dcr_history_state(records, mtime_ns)
+    logging.info("Loaded %d DCR records into memory from %s", len(records), path)
+    return len(records)
+
+
+def _reload_if_stale() -> None:
+    """Reload the in-memory state if (a) it was never loaded, or (b) the
+    JSONL on disk has a newer mtime than what we last synced from. Cheap:
+    one ``os.stat`` per call. No-op if the file is missing.
+    """
+    path = _dcr_history_path()
+    disk_mtime = _file_mtime_ns(path)
+    if disk_mtime is None:
+        return
+    with _dcr_history_lock:
+        loaded = _dcr_history_loaded
+        last_mtime = _dcr_history_mtime_ns
+    if not loaded or last_mtime is None or disk_mtime != last_mtime:
+        load_dcr_history_from_disk()
+
+
+def get_all_dcrs() -> list[dict[str, Any]]:
+    """Return a snapshot of the full in-memory DCR history list.
+
+    Reloads from disk transparently if another worker has rewritten the JSONL
+    (detected via mtime) or the index hasn't been populated yet in this worker.
+    """
+    _reload_if_stale()
+    with _dcr_history_lock:
+        return list(_dcr_history_records)
+
+
+def get_dcrs_for_participant(email: str) -> list[dict[str, Any]]:
+    """Return DCR records the given email participates in (owner or participant)."""
+    if not email:
+        return []
+    target = email.strip().lower()
+    _reload_if_stale()
+    with _dcr_history_lock:
+        index = _dcr_history_by_participant
+        # Case-insensitive match on email; copy into a list while holding the
+        # lock so we don't expose the live dict to the caller.
+        return [
+            record
+            for stored_email, records in index.items()
+            if stored_email and stored_email.strip().lower() == target
+            for record in records
+        ]
+
+
+def refresh_all_dcrs_via_decentriq_api() -> dict[str, Any]:
+    """Fetch every DCR the cohort-explorer service account is a member of,
+    enrich each with its node titles/types and detailed participant list,
+    persist them to a single JSONL file at
+    ``<data_folder>/logs/decentriq_dcrs_history.jsonl``, and rebuild the
+    in-memory ``email -> [dcr_records]`` index used by ``get_dcrs_for_participant``.
+
+    Returns a summary dict (count, earliest / latest ``createdAt``, processed /
+    failures / total_nodes / total_participants, output path). Synchronous;
+    safe to run inside ``asyncio.to_thread`` from a non-blocking startup task.
+    """
+    client = dq.create_client(settings.decentriq_email, settings.decentriq_token)
+    logging.info("Fetching all DCR descriptions from Decentriq...")
+    descriptions = client.get_data_room_descriptions()
+
+    output_path = _dcr_history_path()
+
+    earliest: str | None = None
+    latest: str | None = None
+    count = 0
+    processed = 0
+    failures = 0
+    total_nodes = 0
+    total_participants = 0
+    records: list[dict[str, Any]] = []
+
+    with open(output_path, "w", encoding="utf-8") as fh:
+        for desc in descriptions:
+            count += 1
+            record: dict[str, Any] = dict(desc) if isinstance(desc, dict) else {"raw": desc}
+
+            created_at = record.get("createdAt")
+            if created_at:
+                if earliest is None or created_at < earliest:
+                    earliest = created_at
+                if latest is None or created_at > latest:
+                    latest = created_at
+
+            dcr_id = record.get("id")
+            record["nodes"] = []
+            record["participants"] = []
+            if dcr_id:
+                try:
+                    dcr = client.retrieve_analytics_dcr(dcr_id=dcr_id)
+                    for node_def in getattr(dcr, "node_definitions", []) or []:
+                        record["nodes"].append({
+                            "name": getattr(node_def, "name", None),
+                            "type": type(node_def).__name__,
+                        })
+                    total_nodes += len(record["nodes"])
+                    record["participants"] = _extract_participants(dcr)
+                    total_participants += len(record["participants"])
+                    processed += 1
+                except Exception as exc:
+                    # Non-analytics DCRs (e.g. MEDIA) or transient errors land here.
+                    record["error"] = f"{type(exc).__name__}: {exc}"
+                    failures += 1
+            else:
+                record["error"] = "missing_dcr_id"
+                failures += 1
+
+            fh.write(json.dumps(record, default=str, ensure_ascii=False) + "\n")
+            records.append(record)
+
+            if count % 25 == 0:
+                logging.info(
+                    "DCR refresh progress: count=%d processed=%d failures=%d",
+                    count, processed, failures,
+                )
+
+    # Replace the in-memory state with the freshly fetched records, recording
+    # the file's mtime so other workers (and this one) can detect the rewrite.
+    _set_dcr_history_state(records, _file_mtime_ns(output_path))
+
+    logging.info(
+        "DCR refresh done: wrote %d records to %s (processed=%d, failures=%d, "
+        "total_nodes=%d, total_participants=%d, indexed_emails=%d, earliest=%s, "
+        "latest=%s)",
+        count, output_path, processed, failures, total_nodes,
+        total_participants, len(_dcr_history_by_participant), earliest, latest,
+    )
+    return {
+        "count": count,
+        "processed": processed,
+        "failures": failures,
+        "total_nodes": total_nodes,
+        "total_participants": total_participants,
+        "indexed_emails": len(_dcr_history_by_participant),
+        "earliest_created_at": earliest,
+        "latest_created_at": latest,
+        "output_path": output_path,
+    }
+
+
+@router.post(
+    "/refresh-all-dcrs-via-decentriq-api",
+    name="Refresh the local DCR history JSONL via the Decentriq API",
+    response_description="Summary stats and path to the JSONL file",
+)
+async def api_refresh_all_dcrs_via_decentriq_api(
+    user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Admin-only. Fetch all DCRs from the Decentriq account, enrich each with
+    its node titles + types and detailed participants, persist the result to
+    one JSONL file, and rebuild the in-memory participant index.
+    """
+    _require_admin(user)
+    # Run the (blocking) SDK calls off the event loop.
+    import asyncio
+    return await asyncio.to_thread(refresh_all_dcrs_via_decentriq_api)
+
+
+@router.get(
+    "/my-dcrs",
+    name="List DCRs for the current user",
+    response_description="DCR records where the current user is a participant",
+)
+async def api_my_dcrs(
+    user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Return all DCR records (from the Decentriq API history) where the
+    authenticated user appears as owner or participant.
+    """
+    user_email = user.get("email") if isinstance(user, dict) else None
+    if not user_email:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    records = get_dcrs_for_participant(user_email)
+    return {"dcrs": records, "count": len(records), "email": user_email}
+
+
+@router.post(
+    "/my-dcrs/refresh",
+    name="Refresh DCR history and return current user's DCRs",
+    response_description="Summary of the refresh plus the user's DCR records",
+)
+async def api_refresh_my_dcrs(
+    user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Trigger a full refresh of the DCR history from the Decentriq API, then
+    return the records relevant to the authenticated user.
+    """
+    user_email = user.get("email") if isinstance(user, dict) else None
+    if not user_email:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    import asyncio
+    summary = await asyncio.to_thread(refresh_all_dcrs_via_decentriq_api)
+    records = get_dcrs_for_participant(user_email)
+    return {"dcrs": records, "count": len(records), "email": user_email, "refresh_summary": summary}
 
 
 @router.post("/check-shuffled-samples")
