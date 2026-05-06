@@ -43,7 +43,7 @@ def _llm_tuple_to_evidence(parsed_tuple) -> LLMEvidence:
         d = json.loads(reason_json) if isinstance(reason_json, str) else {}
         reason = d.get("reason", "") or ""
         transform = d.get("transform", "") or ""
-        transform_dir = d.get("transform_direction", "") or ""
+        transform_dir = d.get("alignment_direction", "") or ""
     except (json.JSONDecodeError, TypeError):
         pass
 
