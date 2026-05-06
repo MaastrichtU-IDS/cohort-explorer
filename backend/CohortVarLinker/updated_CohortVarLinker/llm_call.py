@@ -40,7 +40,7 @@ class LLMDiskCache:
 
 
 SYSTEM_PROMPT_NE = """
-You are a clinical data harmonization expert assessing whether two variables have the same clinical meaning and whether they can be aligned for pooled statistical analysis.
+You are a clinical data harmonization expert assessing whether two variables have the same clinical meaning and whether they can be aligned and merged for pooled statistical analysis.
 
 # INPUT
 Two variables are provided: Source and Target. The Source/Target labels are positional only — they do not imply which side is finer or coarser, nor which side is the reference.
@@ -54,7 +54,7 @@ Each variable has:
 Using only the provided metadata, assign exactly ONE of the following statuses.
 
 - COMPLETE:
-  Identical clinical meaning AND identical data representation (same units, same coding, same granularity). Values from one side can be used as-is for the other with no transformation.
+  Identical clinical meaning AND identical data representation (same units, same coding, same granularity). Values from one side can be merged as-is for the other with no transformation.
   Examples:
   - systolic BP (mmHg) vs sitting systolic BP (mmHg)
   - history of myocardial infarction (yes/no) vs myocardial infarction (yes/no)
@@ -62,7 +62,7 @@ Using only the provided metadata, assign exactly ONE of the following statuses.
 
 - COMPATIBLE:
   Same clinical meaning and same analysis-level granularity, but different data representation. Thresholds are COMPATIBLE ONLY if both variables already represent an interpreted clinical state (e.g., general "high blood pressure" vs threshold "SBP ≥ 140 mmHg").
-  Values can be aligned through deterministic recoding, unit conversion, rescaling, or clinically justified threshold interpretation.  
+  Values can be merged through deterministic recoding, unit conversion, rescaling, or clinically justified threshold interpretation.  
 
   Examples:
   - weight (kg) vs weight (lb)
@@ -96,7 +96,7 @@ Using only the provided metadata, assign exactly ONE of the following statuses.
 
 
 - IMPOSSIBLE:
-  The two variables measure different clinical entities, even if they share a therapeutic area, organ system, or surface vocabulary. No transformation can align them without fabricating data.
+ The variables measure different clinical entities, even if superficially related. No valid transformation or alignment is possible.
   Examples:
   - sitting SBP vs standing SBP (different physiological states)
   - diabetes medication use vs diabetes diagnosis (treatment ≠ condition)
@@ -152,7 +152,7 @@ Return ONLY one valid JSON object with exactly these keys, in this order:
 
 
 SYSTEM_PROMPT_EV = """
-You are a clinical data harmonization expert assessing whether two variables have the same clinical meaning and whether they can be aligned for pooled statistical analysis.
+You are a clinical data harmonization expert assessing whether two variables have the same clinical meaning and whether they can be aligned and merged for pooled statistical analysis.
 
 # INPUT
 Two variables are provided: Source and Target. The Source/Target labels are positional only — they do not imply which side is finer or coarser, nor which side is the reference.
@@ -170,7 +170,7 @@ Each variable may include:
 Using only the provided metadata, assign exactly ONE of the following statuses.
 
 - COMPLETE:
-  Identical clinical meaning AND identical data representation (same units, same coding, same granularity). Values from one side can be used as-is for the other with no transformation.
+  Identical clinical meaning AND identical data representation (same units, same coding, same granularity). Values from one side can be merged as-is for the other with no transformation.
   Examples:
   - systolic BP (mmHg) vs sitting systolic BP (mmHg)
   - history of myocardial infarction (yes/no) vs myocardial infarction (yes/no)
@@ -178,7 +178,7 @@ Using only the provided metadata, assign exactly ONE of the following statuses.
 
 - COMPATIBLE:
   Same clinical meaning and same analysis-level granularity, but different data representation. Thresholds are COMPATIBLE ONLY if both variables already represent an interpreted clinical state (e.g., general "high blood pressure" vs threshold "SBP ≥ 140 mmHg").
-  Values can be aligned through deterministic recoding, unit conversion, rescaling, or clinically justified threshold interpretation.  
+  Values can be merged through deterministic recoding, unit conversion, rescaling, or clinically justified threshold interpretation.  
 
   Examples:
   - weight (kg) vs weight (lb)
@@ -211,7 +211,7 @@ Using only the provided metadata, assign exactly ONE of the following statuses.
       - bumetanide (mg) vs furosemide-equivalent (mg)
 
 - IMPOSSIBLE:
-  The two variables measure different clinical entities, even if they share a therapeutic area, organ system, or surface vocabulary. No transformation can align them without fabricating data. Also use this when the variables have no clinical relationship at all.
+  The variables measure different clinical entities, even if superficially related. No valid transformation or alignment is possible.
   Examples:
   - sitting SBP vs standing SBP (different physiological states)
   - diabetes medication use vs diabetes diagnosis (treatment ≠ condition)
@@ -266,7 +266,6 @@ Return ONLY one valid JSON object with exactly these keys, in this order:
   "alignment_direction": "<source to target|target to source|bidirectional|empty string>"
 }
 """
-
 
 
 
