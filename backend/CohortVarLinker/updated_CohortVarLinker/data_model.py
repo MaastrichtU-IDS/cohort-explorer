@@ -44,6 +44,7 @@ class MappingType(str, Enum):
 
 
 class ContextMatchType(IntEnum):
+    PENDING = 0
     EXACT = 1
     COMPATIBLE = 2
     SUBSUMED = 3
@@ -51,14 +52,26 @@ class ContextMatchType(IntEnum):
     NOT_APPLICABLE = 5
 
     def to_str(self) -> str:
-        mapping = {
-            1: "exact match",
-            2: "compatible match",
-            3: "subsumed",
-            4: "partial match",
-            5: "not applicable"
-        }
-        return mapping[self]
+        return {0:"pending", 1:"exact match", 2:"compatible match",
+                3:"subsumed", 4:"partial match", 5:"not applicable"}[self]
+
+class MappingRelation(str, Enum):
+    """SKOS-style mapping relation reported by the candidate generator."""
+    SymbolicExactMatch  = "symbolic:exactmatch"
+    SymbolicCloseMatch  = "symbolic:closematch"
+    SymbolicBroadMatch  = "symbolic:broadmatch"
+    SymbolicNarrowMatch = "symbolic:narrowmatch"
+    NeuralMatch         = "neural match"
+    UnMatched           = "unmatched"
+
+    @classmethod
+    def is_hierarchical(cls, value: str) -> bool:
+        """True iff the relation crosses a hierarchy edge (broader/narrower).
+        These should not be treated as IDENTICAL when the LLM is unavailable
+        — the matcher already told you the concepts aren't equivalent."""
+        v = (value or "").strip().lower()
+        return v in (cls.SymbolicBroadMatch.value, cls.SymbolicNarrowMatch.value)
+
 class MatchLevel(IntEnum):
     """Hierarchy: Lower = Better Match"""
     IDENTICAL = 1
@@ -99,12 +112,6 @@ class TransformationType(str, Enum):
     TIMEPOINT_ALIGNMENT = "Require Transformation for Timepoints Alignment"
     DERIVATION = "Require Transformation to compute derived variable"
     MANUAL_REVIEW = "Require Manual Review before harmonization"
-    
-# class EmbeddingType(str, Enum):
-#     """Types of embedding strategies for neural matching."""
-#     ED = "embedding(description)"
-#     EC = "embedding(concept)"
-#     EH = "embedding(hybrid)"
 
 
 class StatisticalType(str, Enum):
@@ -267,7 +274,10 @@ class VariableNode(BaseModel):
     
     # --- Category ---
     category: Optional[str] = Field(default=None, description="Variable category/domain (e.g., 'demographics', 'labs')")
-    
+
+    # --- Similarity Relationship either from vector or graph path ---
+    mapping_relation: str = Field(default="", description="SKOS relation from candidate generator")
+
     class Config:
         use_enum_values = True  # Serialize enums as their values
         extra = "allow"  # Allow additional fields for extensibility
@@ -521,6 +531,7 @@ class VariableNode(BaseModel):
         
         return cls(
             name=row.get("source", ""),
+            description = row.get("source_label") or row.get("slabel") or row.get("source"),
             study=study or row.get("study"),
             main_id=row.get("somop_id"),
             main_label=row.get("slabel", ""),
@@ -537,6 +548,7 @@ class VariableNode(BaseModel):
             category=row.get("category"),
             context_match_type = row.get("context_match_type"),
             data_type=row.get("source_data_type"),
+            mapping_relation=row.get("mapping_relation", "") or "",
         )
     
     @classmethod
@@ -554,6 +566,7 @@ class VariableNode(BaseModel):
         
         return cls(
             name=row.get("target", ""),
+            description = row.get("target_label") or row.get("tlabel") or row.get("target"),
             study=study or row.get("study"),
             main_id=row.get("tomop_id"),
             main_label=row.get("tlabel", ""),
@@ -570,6 +583,7 @@ class VariableNode(BaseModel):
             category=row.get("category"),
             context_match_type = row.get("context_match_type"),
             data_type=row.get("target_data_type"),
+            mapping_relation=row.get("mapping_relation", "") or "",
         )
     
     @classmethod
@@ -771,6 +785,8 @@ class MatchResult(BaseModel):
             # Composite codes
             "source_composite_code_labels": self.source.composite_code_labels,
             "target_composite_code_labels": self.target.composite_code_labels,
+            "source_composite_code_omop_ids": "|".join(str(x) for x in self.source.context_ids),
+            "target_composite_code_omop_ids": "|".join(str(x) for x in self.target.context_ids),
             
             # Statistics
             "source_min_val": self.source.statistics.min_val,
@@ -803,7 +819,7 @@ class VariableCollection(BaseModel):
     # Indexes built on first access
     _by_omop_id: Optional[Dict[int, List[VariableNode]]] = None
     _by_name: Optional[Dict[str, VariableNode]] = None
-    
+    _by_visit:Optional[Dict[str, List[VariableNode]]] = None
     class Config:
         extra = "allow"
         arbitrary_types_allowed = True
@@ -816,7 +832,7 @@ class VariableCollection(BaseModel):
         """Build lookup indexes."""
         self._by_omop_id = {}
         self._by_name = {}
-        
+        self._by_visit = {}
         for var in self.variables:
             var.study = self.study  # Ensure study is set
             
@@ -828,6 +844,7 @@ class VariableCollection(BaseModel):
             
             # Index by name (unique)
             self._by_name[var.name] = var
+            # we need to combine all visits and append them as str for a variable ???
     
     def get_by_omop_id(self, omop_id: int) -> List[VariableNode]:
         """Get all variables with given OMOP ID."""
