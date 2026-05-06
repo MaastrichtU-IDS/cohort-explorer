@@ -623,15 +623,16 @@ def generate_mapping_csv(
 
     # Instantiate the StudyMapper once — it reuses vector_db, embedding model,
     # and OMOP graph across every target study. LLM adjudication is gated on
-    # settings.llm_models (driven by MAPPING_LLM_MODELS env var); empty means
+    # settings.llm_model (driven by MAPPING_LLM_MODEL env var); None means
     # purely embedding + graph + constraint-solver, no LLM / API keys required.
+    # The new branch's StudyMapper takes a single LLM string, not a list.
     study_mapper = StudyMapper(
         vector_db=vector_db,
         embedding_model=embedding_model,
         omop_graph=graph,
         vector_collection=collection_name,
         mapping_mode=mapping_mode,
-        llm_models=settings.llm_models or None,
+        llm_model=settings.llm_model,
     )
 
     for tstudy in target_studies:
