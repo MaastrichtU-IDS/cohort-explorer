@@ -32,6 +32,18 @@ def decide(mode: str,
 
 # Penalise broader vs specific pair matching
 
+def _extra_info_from_llm(extra: dict, llm: Optional[LLMEvidence]) -> dict:
+    out = dict(extra)
+
+    if llm is not None:
+        if llm.transform_direction:
+            out["transformation_direction"] = llm.transform_direction
+        if llm.transform:
+            out["llm_transform"] = llm.transform
+        out["llm_verdict"] = llm.verdict
+        out["llm_confidence"] = llm.confidence
+        print(out)
+    return out
 def _demote_hierarchical(s: StructuralEvidence) -> tuple[MatchLevel, TransformationType, str]:
     print(s)
     relation = s.extra.get("mapping_relation", "")
@@ -61,7 +73,7 @@ def _ne_decide(s: StructuralEvidence,
             MatchLevel.NOT_APPLICABLE,
             TransformationType.MANUAL_REVIEW,
             f"LLM rejected pair: {llm.reason}".strip(),
-            tp, s.extra,
+            tp, _extra_info_from_llm(s.extra, llm),
         )
 
     if llm.verdict == "COMPLETE":
@@ -75,7 +87,7 @@ def _ne_decide(s: StructuralEvidence,
         reason = s.reason or "Handler verdict"
         if llm.reason:
             reason = f"{reason} | LLM confirmed: {llm.reason}"
-        return _build_verdict(capped, transformation, reason, tp, s.extra)
+        return _build_verdict(capped, transformation, reason, tp, _extra_info_from_llm(s.extra, llm))
        
 
     if llm.verdict == "COMPATIBLE":
@@ -84,7 +96,7 @@ def _ne_decide(s: StructuralEvidence,
             MatchLevel.COMPATIBLE,
             _compatible_transformation(s),
             f"LLM compatible: {llm.reason}".strip(),
-            tp, s.extra,
+            tp, _extra_info_from_llm(s.extra, llm),
         )
 
     if llm.verdict == "PARTIAL":
@@ -92,7 +104,7 @@ def _ne_decide(s: StructuralEvidence,
             MatchLevel.PARTIAL,
             TransformationType.MANUAL_REVIEW,
             f"LLM partial: {llm.reason}".strip(),
-            tp, s.extra,
+            tp,  _extra_info_from_llm(s.extra, llm),
         )
 
     # Unknown verdict (shouldn't happen — LLMEvidence.__post_init__
@@ -103,9 +115,7 @@ def _ne_decide(s: StructuralEvidence,
 
 # OEH/OEC: ontology gives the structural answer. LLM is consulted only
 # when the ontology evidence is ambiguous, and acts as a tiebreaker on
-# additional context. The semantics here are intentionally different
-# from NE — and now they're written down explicitly instead of emerging
-# from a flag interaction.
+# additional context.
 
 
 def _symbolic_neural_with_llm_decide(s: StructuralEvidence,
@@ -121,7 +131,7 @@ def _symbolic_neural_with_llm_decide(s: StructuralEvidence,
             MatchLevel.NOT_APPLICABLE,
             TransformationType.MANUAL_REVIEW,
             f"LLM rejected pair: {llm.reason}".strip(),
-            tp, s.extra,
+            tp, _extra_info_from_llm(s.extra, llm),
         )
 
     if llm.verdict == "COMPLETE":
@@ -134,7 +144,7 @@ def _symbolic_neural_with_llm_decide(s: StructuralEvidence,
         if llm.reason:
             reason = f"{reason} | LLM confirmed: {llm.reason}"
         # Ontology + LLM both agree → structural verdict survives.
-        return _build_verdict(capped, transformation, reason, tp, s.extra)
+        return _build_verdict(capped, transformation, reason, tp, _extra_info_from_llm(s.extra, llm))
 
     if llm.verdict == "COMPATIBLE":
         if s.transformation == TransformationType.NONE:
@@ -149,14 +159,14 @@ def _symbolic_neural_with_llm_decide(s: StructuralEvidence,
             capped,
             transformation,
             reason,
-            tp, s.extra,
+            tp, _extra_info_from_llm(s.extra, llm),
         )
     if llm.verdict == "PARTIAL":
         return _build_verdict(
             MatchLevel.PARTIAL,
             TransformationType.MANUAL_REVIEW,
             f"LLM partial: {llm.reason}".strip(),
-            tp, s.extra,
+            tp,  _extra_info_from_llm(s.extra, llm),
         )
 
     return _build_verdict(s.level, s.transformation, s.reason, tp, s.extra)
