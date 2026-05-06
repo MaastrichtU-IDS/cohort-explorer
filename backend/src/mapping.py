@@ -145,8 +145,11 @@ async def get_available_mapping_files(
     Get all available mapping files for the given cohort IDs.
     
     Mapping files are .json files with naming pattern:
-    {cohort1}_{cohort2}_{cohortN}_sapbert_ontology+embedding(concept).json
-    
+    {cohort1}_{cohort2}_..._{cohortN}_sapbert_OEC.json
+    (after the cross-mapping branch integration, the mapping-mode token is the
+    short MappingType abbreviation 'OEC' rather than the legacy long form
+    'ontology+embedding(concept)'.)
+
     All parts before 'sapbert' are cohort names. A file is only included
     if ALL cohorts in its filename are among the selected cohorts.
     """
