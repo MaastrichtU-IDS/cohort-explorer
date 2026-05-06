@@ -55,7 +55,13 @@ class Settings:
     # Matching / thresholds
     # ------------------------------------------------------------------ #
     SIMILARITY_THRESHOLD: float = 0.8
-    ADAPTIVE_THRESHOLD: float = 0.45
+    # Aligned with the new cross-mapping branch (0.55, was 0.45 in our copy
+    # before integration). Tuned together with ADAPTIVE_ALPHA below — see
+    # `vector_db.adaptive_retrieval` for how they interact.
+    ADAPTIVE_THRESHOLD: float = 0.55
+    # Upper-bound score gate used by `vector_db.adaptive_retrieval`. Carried
+    # over from the branch's config; required by the function default.
+    ADAPTIVE_ALPHA: float = 0.9
     LIMIT: int = 5
     DEFAULT_GRAPH_DEPTH: int = 1
 
