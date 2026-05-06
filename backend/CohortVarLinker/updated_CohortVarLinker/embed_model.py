@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 MODEL_MAP = {
     # --- Biomedical domain models ---
+    "cardioembed":"michiyasunaga/BioLinkBERT-large",
     "sapbert":  "cambridgeltl/SapBERT-from-PubMedBERT-fulltext",
     "biolord":  "FremyCompany/BioLORD-2023",
     # "coder":"GanjinZero/UMLSBert_ENG",
@@ -47,6 +48,7 @@ MODEL_MAP = {
 }
 OLLAMA_MODELS = {"qwen3-8b"}
 POOLING_STRATEGY = {
+    "cardioembed":"cls",
     "sapbert": "cls", "biolord": "cls", "coder": "cls", "medembed": "mean",
     "bge": "cls", "nomic": "mean", "mxbai": "cls",
     "minilm": "mean", "e5": "mean", "gte": "cls",
@@ -60,10 +62,12 @@ POOLING_STRATEGY = {
 EMBEDDING_DIMS = {
     # Biomedical
     "sapbert":  768,
+    "cardioembed":1024,
     "biolord":  768,
     "medembed":  768,
     "sentence_sapbert":  768,
-       # General-purpose
+    
+    # General-purpose
     "kalm": 896,
     "minilm":   384,
     "mxbai":    1024,
@@ -120,15 +124,21 @@ class UnifiedEmbeddingModel:
         print(f"🔥 Loading embedding model: {model_name_or_path}...")
         self.tokenizer = AutoTokenizer.from_pretrained(
             model_name_or_path, cache_dir=cache, trust_remote_code=True)
-        self.model = AutoModel.from_pretrained(
-            model_name_or_path, cache_dir=cache, trust_remote_code=True,
-            torch_dtype=dtype)
+        # self.model = AutoModel.from_pretrained(
+        #     model_name_or_path, cache_dir=cache, trust_remote_code=True,
+        #     dtype=dtype)
+        if backend_key == "cardioembed":
+                from peft import PeftModel
+                base = AutoModel.from_pretrained("michiyasunaga/BioLinkBERT-large", cache_dir=cache, torch_dtype=dtype)
+                self.model = PeftModel.from_pretrained(base, "richardyoung/CardioEmbed-BioLinkBERT").merge_and_unload()
+        else:
+            self.model = AutoModel.from_pretrained(model_name_or_path, cache_dir=cache, trust_remote_code=True, torch_dtype=dtype)
 
         if self._is_decoder:
             self.tokenizer.padding_side = "left"
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
-
+        
         self.device = "cuda" if torch.cuda.is_available() else \
                       "mps" if torch.backends.mps.is_available() else "cpu"
         if not self._is_decoder:
