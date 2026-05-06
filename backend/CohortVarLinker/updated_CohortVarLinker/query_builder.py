@@ -81,29 +81,55 @@ class SPARQLQueryBuilder:
             GROUP BY ?omop_id
             ORDER BY ?omop_id
         """
-        # print("Generated SPARQL Query:")
-        # print(query)
+  
         return query
 
     # query_builder.py — add new method
 
     @classmethod
-    def build_unmapped_variables_query(cls, study: str, graph_repo: str) -> str:
-        """Fetch variables that have NO skos:closeMatch (unmapped to any ontology concept)."""
-        return f"""
-        {cls.PREFIXES}
-        SELECT ?var ?var_label ?visit_label ?domain_val
-        WHERE {{
-            GRAPH <{graph_repo}/{study}> {{
-                ?de a cmeo:data_element ;
-                    dc:identifier ?var ;
-                    rdfs:label ?var_label .
-                FILTER NOT EXISTS {{ ?de skos:closeMatch ?any }}
-                OPTIONAL {{ ?de sio:has_attribute/skos:closeMatch/rdfs:label ?visit_label . }}
-                OPTIONAL {{ ?de sio:has_annotation/cmeo:has_value ?domain_val . }}
+
+
+   
+    def build_unmapped_variables_query(cls, study: str, graph_repo: str, use_filter:bool=False) -> str:
+        """Variables with no skos:closeMatch — raw label/visit/unit/stat for NE mode."""
+        if use_filter:
+            return f"""
+            {cls.PREFIXES}
+            SELECT ?var ?var_label ?visit_label ?domain_val ?stat_label ?unit_label
+            WHERE {{
+                GRAPH <{graph_repo}/{study}> {{
+                    ?de a cmeo:data_element ;
+                        dc:identifier ?var ;
+                        rdfs:label ?var_label .
+                    FILTER NOT EXISTS {{ ?de skos:closeMatch ?any }}
+                    OPTIONAL {{ ?de iao:is_denoted_by/cmeo:has_value ?stat_label. }}
+                    OPTIONAL {{ ?de sio:has_attribute ?visit.
+                                ?visit a cmeo:visit_type;
+                                  cmeo:has_value ?visit_label. }}
+                    OPTIONAL {{ ?de sio:has_annotation/cmeo:has_value ?domain_val. }}
+                    OPTIONAL {{ ?de obi:has_measurement_unit_label/cmeo:has_value ?unit_label. }}
+                }}
             }}
-        }}
-        """
+            """
+        else:
+            return f"""
+            {cls.PREFIXES}
+            SELECT ?var ?var_label ?visit_label ?domain_val ?stat_label ?unit_label
+            WHERE {{
+                GRAPH <{graph_repo}/{study}> {{
+                    ?de a cmeo:data_element ;
+                        dc:identifier ?var ;
+                        rdfs:label ?var_label .
+                  
+                    OPTIONAL {{ ?de iao:is_denoted_by/cmeo:has_value ?stat_label. }}
+                    OPTIONAL {{ ?de sio:has_attribute ?visit.
+                                  ?visit a cmeo:visit_type;
+                                  cmeo:has_value ?visit_label . }}
+                    OPTIONAL {{ ?de sio:has_annotation/cmeo:has_value ?domain_val. }}
+                    OPTIONAL {{ ?de obi:has_measurement_unit_label/cmeo:has_value ?unit_label. }}
+                }}
+            }}
+            """
     @classmethod
     def build_statistic_query(cls, source: str, values_str: str, graph_repo: str) -> str:
         query =  f"""
@@ -159,8 +185,8 @@ class SPARQLQueryBuilder:
             # Categories
             OPTIONAL {{
             ?cat_val a obi:categorical_value_specification ;
-            obi:specifies_value_of ?dataElement ;
-            cmeo:has_value ?_catV .
+                obi:specifies_value_of ?dataElement ;
+                cmeo:has_value ?_catV .
             OPTIONAL {{
             ?cat_val skos:closeMatch ?cat_code .
             ?cat_code a skos:concept ;
@@ -200,8 +226,7 @@ class SPARQLQueryBuilder:
 
                 
         """
-        # print("Generated SPARQL Query:")
-        # print(query)
+
         return query
         
         

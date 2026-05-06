@@ -2,7 +2,6 @@ from __future__ import annotations
 import json, re, time
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass, field
-from collections import Counter
 from .config import settings
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from .data_model import ContextMatchType, MappingType
@@ -38,11 +37,13 @@ class LLMDiskCache:
     def delete(self, model: str, prompt: str, mode: str = "", batch: bool = False):
         self._path(model, prompt, mode, batch).unlink(missing_ok=True)
 
+
+
 SYSTEM_PROMPT_NE = """
-You are a clinical data harmonization expert assessing whether two variables have the same clinical meaning and whether they can be aligned for pooled statistical analysis.
+You are a clinical data harmonization expert assessing whether two variables have the same clinical meaning and whether they can be aligned and merged for pooled statistical analysis.
 
 # INPUT
-Two variables are provided: Source and Target.
+Two variables are provided: Source and Target. The Source/Target labels are positional only — they do not imply which side is finer or coarser, nor which side is the reference.
 
 Each variable has:
 - description: variable label from study metadata
@@ -52,91 +53,115 @@ Each variable has:
 # TASK
 Using only the provided metadata, assign exactly ONE of the following statuses.
 
-
 - COMPLETE:
-  Same clinical meaning or safely alignable to a broader clinically acceptable class with no data transformation needed.
-  Examples: sitting systolic blood pressure mmHg vs systolic blood pressure mmHg, furosemide(mg) vs sulfonamides plain (mg), myocardia infraction vs actue myocardia infraction etc.
-
+  Identical clinical meaning AND identical data representation (same units, same coding, same granularity). Values from one side can be merged as-is for the other with no transformation.
+  Examples:
+  - systolic BP (mmHg) vs sitting systolic BP (mmHg)
+  - history of myocardial infarction (yes/no) vs myocardial infarction (yes/no)
+  - HbA1c (%) vs HbA1c (%)
 
 - COMPATIBLE:
-  Same clinical meaning, or safely alignable to a broader clinically acceptable class through deterministic data transformation.
-  Examples: weight (kg) vs weight (lb), Blood glucose (mmol/L) vs Blood glucose(mg/dL), Gender: Female/Male vs Gender: 0/1, furosemide (%) vs sulfonamides plain (mg)
+  Same clinical meaning and same analysis-level granularity, but different data representation. Thresholds are COMPATIBLE ONLY if both variables already represent an interpreted clinical state (e.g., general "high blood pressure" vs threshold "SBP ≥ 140 mmHg").
+  Values can be merged through deterministic recoding, unit conversion, rescaling, or clinically justified threshold interpretation.  
+
+  Examples:
+  - weight (kg) vs weight (lb)
+  - blood glucose (mmol/L) vs blood glucose (mg/dL)
+  - Gender (Female/Male) vs Gender (m/f)
+  - jugular vein elevated (yes/no) vs central venous pressure > 6 cm H2O (yes/no)
+  - high blood pressure (yes/no) vs systolic BP ≥ 140 mmHg (yes/no)
 
 - PARTIAL:
-  Both must refer to the same entity — one just captures it more or less precisely. Requires category collapse or dichotomization tranformation.
-  Examples:
-  - multi-category smoking status vs smoker yes/no
-  - specific beta-blocker taken vs beta-blocker taken yes/no
-  - diagnosis date vs diagnosis yes/no
-  - heart failure hospitalization or death vs all-cause death
+  Both variables describe the same clinical entity but at different levels of granularity. Either of the following situations qualifies as PARTIAL and requires manual review.
+
+  (a) Granularity reduction. The two variables describe the same clinical entity
+      at different levels of granularity. A coarser variable can be derived from
+      the finer side via category collapse, dichotomization, or aggregation.
+      Lossy and one-directional (specific → general only).
+
+      Examples:
+      - multi-category smoking status vs smoker (yes/no)
+      - specific beta-blocker taken vs beta-blocker taken (yes/no)
+      - diagnosis date vs diagnosis (yes/no)
+      - HF hospitalization or death vs all-cause death
+      - furosemide (mg) vs loop diuretic (any-use)
+
+  (b) External-reference alignment. The two variables represent the same (or
+      class-related) clinical entity in different scales, and conversion is
+      computable but requires a external knowledge and may involve clinical approximations.
+      Examples:
+      - spironolactone (mg) vs MRA class as % of target dose
+      - furosemide (mg) vs furosemide (% of target dose)
+      - bumetanide (mg) vs furosemide-equivalent (mg)
+
 
 - IMPOSSIBLE:
-  This includes variables that share a broad therapeutic area or clinical domain but measure DIFFERENT entities.
+ The variables measure different clinical entities, even if superficially related. No valid transformation or alignment is possible.
   Examples:
-  - sitting systolic blood pressure vs standing systolic blood pressure (different)
-  - diabetes medication use vs diabetes diagnosis
-  - ACE inhibitor vs ARBs inhibitor 
-
+  - sitting SBP vs standing SBP (different physiological states)
+  - diabetes medication use vs diabetes diagnosis (treatment ≠ condition)
+  - ACE inhibitor vs ARB (different drug classes)
+  - hemoglobin concentration vs MCHC (both mention hemoglobin, but one measures total blood hemoglobin and the other a red-cell index)
 
 # IMPORTANT RULES
-- Judge based on clinical context and relevance, not surface word overlap.
-- Base the decision only on the provided metadata. Do not invent missing details, and do not over-classify alignment unless it is supported by the available evidence.
-- A transformation is considered safe only if it is a pure representation normalization and does not change granularity or meaning.
+- Judge based on clinical meaning, not surface word overlap.
+- Use only the provided metadata. Do not invent units, categories, or details that are not stated.
+- When in doubt between two statuses, prefer the more conservative one: COMPATIBLE over COMPLETE; PARTIAL over COMPATIBLE; IMPOSSIBLE over PARTIAL.
 
 # CONFIDENCE
-Confidence is your confidence that the assigned status is correct. Use these ranges:
-- COMPLETE: 1.0
-- COMPATIBLE: 0.85 to 0.95
-- PARTIAL: 0.75 to 0.85
-- IMPOSSIBLE: 0.0
+Confidence reflects genuine uncertainty in the status assignment based on metadata completeness and ambiguity:
+- 0.95–1.00: metadata is unambiguous; status is clear
+- 0.80–0.94: minor ambiguity (e.g., unit missing but inferable from description)
+- 0.6–0.79: meaningful ambiguity (e.g., descriptions conflict, categories unclear)
+- below 0.6: do not assign a positive alignment — return IMPOSSIBLE instead
+
+For IMPOSSIBLE:
+- 0.0 when the variables have no clinical relationship
+- 0.70–0.95 when they share a domain but measure different entities
 
 # TRANSFORM
-- COMPLETE: ""
+Describes the data operation needed to align the two variables. Limitations and caveats belong in `reason`, not here.
+- COMPLETE: ""  (no transformation)
+- COMPATIBLE: the deterministic conversion or alignment operation (e.g., "kg = lb × 0.4536", "recode {0→Male, 1→Female}", "interpret threshold as indicators")
+- PARTIAL: the lossy reduction (e.g., "collapse smoking categories to ever/never", "dichotomize specific drug to any-use yes/no", "derive presence indicator from diagnosis date")
 - IMPOSSIBLE: ""
-- COMPATIBLE: exact normalization
-- PARTIAL: required transformation or main limitation
 
-# TRANSFORM DIRECTION
-Use one of:
-- "source to target"
-- "target to source"
-- "bidirectional"
-- ""
-
-Use "bidirectional" only when both sides can be aligned without loss of meaning.
-Use "" for COMPLETE and IMPOSSIBLE.
+ALIGNMENT DIRECTION Rules:
+- COMPLETE: "bidirectional"; same meaning and representation.
+- COMPATIBLE: "bidirectional" if deterministic and reversible; otherwise use the valid one-way direction.
+- PARTIAL: never "bidirectional"; use the direction from finer-grained to coarser-grained variable. If neither side can be derived, return IMPOSSIBLE.
+- IMPOSSIBLE: ""; no valid alignment direction exists.
 
 # OUTPUT CONSTRAINTS
 - status must be one of: COMPLETE, COMPATIBLE, PARTIAL, IMPOSSIBLE
 - confidence must be a number between 0.0 and 1.0
-- reason must be 25 words or fewer
+- reason must be 25 words or fewer; briefly justify the status with reference to the specific metadata that drove the decision
 - transform must be 35 words or fewer, or ""
-- transform_direction must be one of:
-  "source to target", "target to source", "bidirectional", ""
+- alignment_direction must be one of: "bidirectional", "source to target", "target to source", ""
 
 # OUTPUT FORMAT
-Return ONLY one valid JSON object with this structure:
-
+Return ONLY one valid JSON object with exactly these keys, in this order:
 {
-  "status": "COMPLETE",
-  "confidence": 1.0,
-  "reason": "Same variable meaning and representation.",
-  "transform": "",
-  "transform_direction": ""
+  "status": "<COMPLETE|COMPATIBLE|PARTIAL|IMPOSSIBLE>",
+  "confidence": <float 0.0–1.0>,
+  "reason": "<≤25 words>",
+  "transform": "<≤35 words, or empty string>",
+  "alignment_direction": "<source to target|target to source|bidirectional|empty string>"
 }
 """
 
+
 SYSTEM_PROMPT_EV = """
-You are a clinical data harmonization expert assessing whether two variables have the same clinical meaning and whether they can be aligned for pooled statistical analysis.
+You are a clinical data harmonization expert assessing whether two variables have the same clinical meaning and whether they can be aligned and merged for pooled statistical analysis.
 
 # INPUT
-Two variables are provided: Source and Target.
+Two variables are provided: Source and Target. The Source/Target labels are positional only — they do not imply which side is finer or coarser, nor which side is the reference.
 
 Each variable may include:
 - Description: short variable label
-- Concepts: pipe-separated ordered concepts
-  - first concept = primary concept of the variable
-  - remaining concepts = additional concepts that may refine the meaning
+- Concepts: ordered concepts separated by " | "
+  - first concept = primary concept of the variable (authoritative for meaning)
+  - remaining concepts = refinements that may narrow or qualify the meaning
 - Categories: allowed values, if available
 - Unit: measurement unit, if available
 - Graph evidence: optional semantic evidence from OMOP vocabularies
@@ -144,112 +169,104 @@ Each variable may include:
 # TASK
 Using only the provided metadata, assign exactly ONE of the following statuses.
 
-
 - COMPLETE:
-  Same clinical meaning or safely alignable to a broader clinically acceptable class with no data transformation needed.
-  Examples: sitting systolic blood pressure mmHg vs systolic blood pressure mmHg, furosemide(mg) vs sulfonamides plain (mg), myocardia infraction vs actue myocardia infraction etc.
+  Identical clinical meaning AND identical data representation (same units, same coding, same granularity). Values from one side can be merged as-is for the other with no transformation.
+  Examples:
+  - systolic BP (mmHg) vs sitting systolic BP (mmHg)
+  - history of myocardial infarction (yes/no) vs myocardial infarction (yes/no)
+  - HbA1c (%) vs HbA1c (%)
 
 - COMPATIBLE:
-  Same clinical meaning, or safely alignable to a broader clinically acceptable class through deterministic data transformation.
-  Examples: weight (kg) vs weight (lb), Blood glucose (mmol/L) vs Blood glucose(mg/dL), Gender: Female/Male vs Gender: 0/1, furosemide (%) vs sulfonamides plain (mg)
+  Same clinical meaning and same analysis-level granularity, but different data representation. Thresholds are COMPATIBLE ONLY if both variables already represent an interpreted clinical state (e.g., general "high blood pressure" vs threshold "SBP ≥ 140 mmHg").
+  Values can be merged through deterministic recoding, unit conversion, rescaling, or clinically justified threshold interpretation.  
+
+  Examples:
+  - weight (kg) vs weight (lb)
+  - blood glucose (mmol/L) vs blood glucose (mg/dL)
+  - Gender (Female/Male) vs Gender (m/f)
+  - jugular vein elevated (yes/no) vs central venous pressure > 6 cm H2O (yes/no)
+  - high blood pressure (yes/no) vs systolic BP ≥ 140 mmHg (yes/no)
 
 - PARTIAL:
-  Both must refer to the same entity — one just captures it more or less precisely. Requires category collapse or dichotomization tranformation.
-  Examples:
-  - multi-category smoking status vs smoker yes/no
-  - specific beta-blockers taken vs beta-blocker taken yes/no
-  - diagnosis date vs diagnosis yes/no
-  - heart failure hospitalization or death vs all-cause death
+  Both variables describe the same clinical entity but at different levels of granularity. Either of the following situations qualifies as PARTIAL and requires manual review.
+
+  (a) Granularity reduction. The two variables describe the same clinical entity
+      at different levels of granularity. A coarser variable can be derived from
+      the finer side via category collapse, dichotomization, or aggregation.
+      Lossy and one-directional (specific → general only).
+
+      Examples:
+      - multi-category smoking status vs smoker (yes/no)
+      - specific beta-blocker taken  vs beta-blocker taken (yes/no)
+      - diagnosis date vs diagnosis (yes/no)
+      - HF hospitalization or death vs all-cause death
+      - furosemide (mg) vs loop diuretic (any-use)
+
+  (b) External-reference alignment. The two variables represent the same (or
+      class-related) clinical entity in different scales, and conversion is
+      computable but requires a external knowledge and may involve clinical approximations.
+      Examples:
+      - spironolactone (mg) vs MRA class as % of target dose
+      - furosemide (mg) vs furosemide (% of target dose)
+      - bumetanide (mg) vs furosemide-equivalent (mg)
 
 - IMPOSSIBLE:
-  This includes variables that share a broad therapeutic area or clinical domain but measure DIFFERENT entities.
+  The variables measure different clinical entities, even if superficially related. No valid transformation or alignment is possible.
   Examples:
-  - sitting systolic blood pressure vs standing systolic blood pressure (different)
-  - diabetes medication use vs diabetes diagnosis
-  - ACE inhibitor vs ARBs inhibitor 
-
+  - sitting SBP vs standing SBP (different physiological states)
+  - diabetes medication use vs diabetes diagnosis (treatment ≠ condition)
+  - ACE inhibitor vs ARB (different drug classes)
+  - hemoglobin concentration vs MCHC (both mention hemoglobin, but one measures total blood hemoglobin and the other a red-cell index)
 
 # IMPORTANT RULES
-- Judge based on clinical context and relevance, not surface word overlap.
-- Base the decision only on the provided metadata. Do not invent missing details, and do not over-classify alignment unless it is supported by the available evidence.
-- Treat an additional concept as important only if it changes the actual variable meaning; otherwise ignore it as annotation noise or redundant wording
-- Use graph evidence only as supporting evidence for semantic clarity.
+- Judge based on clinical meaning, not surface word overlap.
+- Use only the provided metadata. Do not invent units, categories, or concepts.
+- Treat the first concept as authoritative for variable meaning; treat additional concepts as refinements only if they materially change clinical interpretation. Otherwise ignore them as annotation noise.
+- When graph evidence conflicts with description or concepts, prefer the explicit metadata. Use graph evidence to break ties or confirm semantic relationships, not to override stated meaning.
+- When in doubt between two statuses, prefer the more conservative one: COMPATIBLE over COMPLETE; PARTIAL over COMPATIBLE; IMPOSSIBLE over PARTIAL.
 
 # CONFIDENCE
-Confidence means confidence that the assigned status is correct.
-- COMPLETE: 1.0
-- COMPATIBLE: 0.85 to 0.95
-- PARTIAL: 0.75 to 0.85
-- IMPOSSIBLE: 0.0
+Confidence reflects genuine uncertainty in the status assignment based on metadata completeness and ambiguity:
+- 0.95–1.00: metadata is unambiguous; status is clear
+- 0.80–0.94: minor ambiguity (e.g., unit missing but inferable from description)
+- 0.6–0.79: meaningful ambiguity (e.g., concepts conflict, categories unclear)
+- below 0.6: do not assign a positive alignment — return IMPOSSIBLE instead
+
+For IMPOSSIBLE:
+- 0.0 when the variables have no clinical relationship
+- 0.70–0.95 when they share a domain but measure different entities
 
 # TRANSFORM
-- COMPLETE: ""
+Describes the data operation needed to align the two variables. Limitations and caveats belong in `reason`, not here.
+- COMPLETE: ""  (no transformation)
+- COMPATIBLE: the deterministic conversion or alignment operation (e.g., "kg = lb × 0.4536", "recode {0→Male, 1→Female}", "interpret threshold as indicators")
+- PARTIAL: the lossy reduction (e.g., "collapse smoking categories to ever/never", "dichotomize specific drug to any-use yes/no", "derive presence indicator from diagnosis date")
 - IMPOSSIBLE: ""
-- COMPATIBLE: exact normalization
-- PARTIAL: required transformation or main limitation
 
-# TRANSFORM DIRECTION
-Use one of:
-- "source to target"
-- "target to source"
-- "bidirectional"
-- ""
-
-Use "bidirectional" only when both sides can be aligned without loss of meaning.
-Use "" for COMPLETE and IMPOSSIBLE.
+ALIGNMENT DIRECTION Rules:
+- COMPLETE: "bidirectional"; same meaning and representation.
+- COMPATIBLE: "bidirectional" if deterministic and reversible; otherwise use the valid one-way direction.
+- PARTIAL: never "bidirectional"; use the direction from finer-grained to coarser-grained variable. If neither side can be derived, return IMPOSSIBLE.
+- IMPOSSIBLE: ""; no valid alignment direction exists.
 
 # OUTPUT CONSTRAINTS
 - status must be one of: COMPLETE, COMPATIBLE, PARTIAL, IMPOSSIBLE
 - confidence must be a number between 0.0 and 1.0
-- reason must be 25 words or fewer
+- reason must be 25 words or fewer; briefly justify the status with reference to the specific metadata that drove the decision
 - transform must be 35 words or fewer, or ""
-- transform_direction must be one of:
-  "source to target", "target to source", "bidirectional", ""
+- alignment_direction must be one of: "bidirectional", "source to target", "target to source", ""
 
 # OUTPUT FORMAT
-Return ONLY one valid JSON object with exactly these keys:
+Return ONLY one valid JSON object with exactly these keys, in this order:
 {
-  "status": "COMPLETE",
-  "confidence": 1.0,
-  "reason": "Same variable meaning and representation.",
-  "transform": "",
-  "transform_direction": ""
+  "status": "<COMPLETE|COMPATIBLE|PARTIAL|IMPOSSIBLE>",
+  "confidence": <float 0.0–1.0>,
+  "reason": "<≤25 words>",
+  "transform": "<≤35 words, or empty string>",
+  "alignment_direction": "<source to target|target to source|bidirectional|empty string>"
 }
 """
 
-
-
-def _truncate_cats(cats: str, max_items: int = 10) -> str:
-    if not cats:
-        return ""
-    items = [c.strip() for c in cats.split("|") if c.strip()]
-    if len(items) <= max_items:
-        return " | ".join(items)
-    return " | ".join(items[:max_items]) + f" | ... ({len(items)} total)"
-
-
-# def _build_batch_prompt(src_desc: str, src_concepts: str, src_cats: str,
-#                         src_unit: str, targets: List[Dict],
-#                         mode: str = MappingType.OEH.value) -> str:
-#     is_ne = mode == MappingType.NE.value
-#     src = f"Source: description: {src_desc}"
-#     if not is_ne and src_concepts:
-#         src += f", concepts: {src_concepts}"
-#     if src_unit:
-#         src += f", unit: {src_unit}"
-#     src += f", categories: [{_truncate_cats(src_cats)}]"
-
-#     tgts = []
-#     for i, t in enumerate(targets):
-#         line = f"Target[{i}]: description: {t.get('desc', '')}"
-#         if not is_ne and t.get('tgt_concepts'):
-#             line += f", concepts: {t['tgt_concepts']}"
-#         if t.get('tgt_unit'):
-#             line += f", unit: {t['tgt_unit']}"
-#         line += f", categories: [{_truncate_cats(t.get('tgt_cats', ''))}]"
-#         tgts.append(line)
-
-#     return f"## INPUT\n{src}\n" + "\n".join(tgts)
 
 
 def _build_pair_prompt(src_concepts:str = "", src_cats:str = "", tgt_concepts:str = "", tgt_cats:str = "",
@@ -321,15 +338,15 @@ def _parse_single(text: str) -> Tuple[Optional[bool], str, float, str]:
     reason_m = re.search(r'"reason"\s*:\s*"((?:[^"\\]|\\.)*)"?', text)
     transform_m = re.search(r'"transform"\s*:\s*"((?:[^"\\]|\\.)*)"?', text)
     transform = transform_m.group(1) if transform_m else ""
-    transform_direction_m = re.search(r'"transform_direction"\s*:\s*"([^"]+)"', text)
+    alignment_direction_m = re.search(r'"alignment_direction"\s*:\s*"([^"]+)"', text)
     
     if status_m:
 
-        transform_direction = transform_direction_m.group(1) if transform_direction_m else "none"
+        alignment_direction = alignment_direction_m.group(1) if alignment_direction_m else "none"
         status = status_m.group(1).upper()
         conf = float(conf_m.group(1)) if conf_m else 0.8
         reason = reason_m.group(1) if reason_m else "truncated"
-        reason = json.dumps({"status": status,"reason": reason, "transform": transform, "transform_direction": transform_direction})
+        reason = json.dumps({"status": status,"reason": reason, "transform": transform, "alignment_direction": alignment_direction})
         # print(f"status: {status}, conf: {conf}, reason: {reason}, transform: {transform}")
         if status.startswith("IMPOSSIBLE"):
             return (False, ContextMatchType.NOT_APPLICABLE.value, 0.0, reason)
@@ -346,7 +363,7 @@ class LLMConceptMatcher:
     models: List[str] = field(default_factory=list)
     max_retries: int = 5
     temperature: float = 0
-    timeout: int = 500
+    timeout: int = 1000
     mode: str = MappingType.OEH.value
     _clients: Dict[str, Any] = field(default_factory=dict, repr=False)
 
@@ -503,7 +520,7 @@ class LLMConceptMatcher:
                     src_desc=g.get("src_desc", ""), tgt_desc=t.get("desc", ""),
                     src_unit=g.get("src_unit", ""), tgt_unit=t.get("tgt_unit", ""),
                     evidence=t.get("evidence", ""), mode=self.mode))
-        with ThreadPoolExecutor(max_workers=1) as pool:
+        with ThreadPoolExecutor(max_workers=3) as pool:
             futures = {pool.submit(self._eval_pair, model, p): i for i, p in enumerate(prompts)}
             results = [None] * len(prompts)
             for fut in as_completed(futures):
@@ -513,23 +530,4 @@ class LLMConceptMatcher:
             grouped[g_idx].append(results[fi])
         return grouped, {"total_targets": len(prompts), "model": model}
 
-    # def assess_batch(self, groups: List[Dict], case_ids: List[str] = None) -> Tuple[List[List[Tuple]], Dict]:
-    #     if not groups: return [], {}
-    #     model = self.models[0]
-    #     prompts, sizes = [], []
-    #     for g in groups:
-    #         prompts.append(_build_batch_prompt(
-    #             src_desc=g.get("src_desc", ""), src_concepts=g.get("src_concepts", ""),
-    #             src_cats=g.get("src_cats", ""), src_unit=g.get("src_unit", ""),
-    #             targets=g["targets"], mode=self.mode))
-    #         sizes.append(len(g["targets"]))
-    #     with ThreadPoolExecutor(max_workers=5) as pool:
-    #         futures = {pool.submit(self._eval_batch, model, prompts[i], sizes[i]): i
-    #                    for i in range(len(prompts))}
-    #         results = [None] * len(prompts)
-    #         for fut in as_completed(futures):
-    #             i = futures[fut]
-    #             try: results[i] = fut.result()
-    #             except Exception as e:
-    #                 results[i] = [(None, ContextMatchType.NOT_APPLICABLE.value, 0.0, str(e))] * sizes[i]
-    #     return results, {"total_groups": len(prompts), "total_targets": sum(sizes), "model": model}
+   
