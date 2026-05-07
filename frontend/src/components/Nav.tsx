@@ -681,9 +681,9 @@ export function Nav() {
   );
 
   return (
-    <div className="navbar bg-base-300 min-h-20 h-20 p-0">
-      <div className="navbar-start flex-1">
-        <ul className="menu menu-horizontal gap-4 my-0 py-0 pl-6 lg:flex flex-wrap">
+    <div className="navbar bg-base-300 min-h-16 py-2 px-0 flex-wrap">
+      <div className="navbar-start">
+        <ul className="menu menu-horizontal gap-3 my-0 py-0 pl-6 lg:flex flex-wrap">
           <li>
             <Link href="/upload" className={pathname === '/upload' ? 'active' : ''}>
               <Upload size={24} />
@@ -745,14 +745,14 @@ export function Nav() {
           )}
 
           {userEmail ? (
-            <button onClick={handleLogout} className="flex space-x-2 p-2 rounded-lg hover:bg-neutral-300">
-              <LogOut />
-              <span>Logout</span>
+            <button onClick={handleLogout} className="flex items-center space-x-2 p-2 rounded-lg hover:bg-neutral-300">
+              <LogOut size={24} />
+              <span className="text-base">Logout</span>
             </button>
           ) : (
-            <a href={`${apiUrl}/login`} className="flex space-x-2 p-2 rounded-lg hover:bg-neutral-300">
-              <LogIn />
-              <span>Login</span>
+            <a href={`${apiUrl}/login`} className="flex items-center space-x-2 p-2 rounded-lg hover:bg-neutral-300">
+              <LogIn size={24} />
+              <span className="text-base">Login</span>
             </a>
           )}
 
