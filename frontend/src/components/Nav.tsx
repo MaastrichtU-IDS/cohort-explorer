@@ -3,7 +3,7 @@
 import React, {useState, useEffect, useMemo, useCallback, useRef} from 'react';
 import Link from 'next/link';
 import {useRouter} from 'next/router';
-import {LogIn, LogOut, Compass, Upload, HardDrive, Map} from 'react-feather';
+import {LogIn, LogOut, Compass, Upload, HardDrive, Map, Lock} from 'react-feather';
 import {useCohorts} from '@/components/CohortsContext';
 import {DarkThemeIcon, LightThemeIcon} from '@/components/Icons';
 import {apiUrl} from '@/utils';
@@ -702,9 +702,15 @@ export function Nav() {
               Mapping
             </Link>
           </li>
-          <li> 
+          <li>
+            <Link href="/dcrs">
+              <Lock />
+              My DCRs
+            </Link>
+          </li>
+          <li>
             <Link href="/docs_store">
-              <HardDrive /> 
+              <HardDrive />
               Documents
             </Link>
           </li>
@@ -717,6 +723,7 @@ export function Nav() {
             <li><Link href="/upload">Upload</Link></li>
             <li><Link href="/cohorts">Explore</Link></li>
             <li><Link href="/mapping">Mapping</Link></li>
+            <li><Link href="/dcrs">My DCRs</Link></li>
             <li><Link href="/docs_store">Documents</Link></li>
           </ul>
         </div>
