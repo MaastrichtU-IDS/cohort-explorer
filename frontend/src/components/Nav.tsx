@@ -681,7 +681,7 @@ export function Nav() {
   );
 
   return (
-    <div className="navbar bg-base-300 min-h-16 py-2 px-0 flex-wrap">
+    <div className="navbar bg-base-300 min-h-16 py-2 px-0">
       <div className="navbar-start">
         <ul className="menu menu-horizontal gap-3 my-0 py-0 pl-6 lg:flex flex-wrap">
           <li>
