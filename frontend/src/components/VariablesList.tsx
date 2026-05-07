@@ -501,11 +501,13 @@ const VariablesList = ({
       <div className="flex flex-col">
         {/* Source tabs for multi-source cohorts */}
         {sourceTabs.length > 0 && (
-          <div className="flex items-center gap-2 mb-4">
-            <span className="font-semibold text-sm whitespace-nowrap">Sources:</span>
-            <div className="tabs tabs-boxed bg-base-200">
+          <div className="mb-4">
+            <div className="flex items-center gap-3 mb-1">
+              <span className="font-semibold text-sm text-base-content/70">Sources:</span>
+            </div>
+            <div className="tabs tabs-lifted tabs-lg">
               <button
-                className={`tab ${!activeSourceTab || activeSourceTab === '__all__' ? 'tab-active' : ''}`}
+                className={`tab tab-lg font-medium ${!activeSourceTab || activeSourceTab === '__all__' ? 'tab-active [--tab-bg:var(--b1)] [--tab-border-color:var(--b3)]' : ''}`}
                 onClick={() => setActiveSourceTab('__all__')}
               >
                 All
@@ -516,7 +518,7 @@ const VariablesList = ({
               {sourceTabs.map((source) => (
                 <button
                   key={source}
-                  className={`tab ${activeSourceTab === source ? 'tab-active' : ''}`}
+                  className={`tab tab-lg font-medium ${activeSourceTab === source ? 'tab-active [--tab-bg:var(--b1)] [--tab-border-color:var(--b3)]' : ''}`}
                   onClick={() => setActiveSourceTab(source)}
                 >
                   {source}
