@@ -84,7 +84,14 @@ export default function DcrsPage() {
         throw new Error(`Refresh failed: ${response.status} ${response.statusText}`);
       }
       const data = await response.json();
-      setDcrs(Array.isArray(data?.dcrs) ? data.dcrs : []);
+      const dcrs = Array.isArray(data?.dcrs) ? data.dcrs : [];
+      // Sort reverse chronologically by createdAt (newest first)
+      dcrs.sort((a: DcrRecord, b: DcrRecord) => {
+        if (!a.createdAt) return 1;
+        if (!b.createdAt) return -1;
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+      setDcrs(dcrs);
       setUserEmail(data?.email ?? null);
       setLastRefreshedAt(new Date());
     } catch (err: any) {
@@ -207,9 +214,9 @@ function DcrCard({ dcr }: { dcr: DcrRecord }) {
               <Clock size={14} /> {formatTimestamp(dcr.createdAt)}
             </span>
           )}
-          {participantCount > 0 && (
+          {dcr.cohorts && dcr.cohorts.length > 0 && (
             <span className="badge badge-ghost badge-sm">
-              {participantCount} participant{participantCount !== 1 ? 's' : ''}
+              {dcr.cohorts.join(', ')}
             </span>
           )}
         </div>
@@ -228,7 +235,10 @@ function DcrCard({ dcr }: { dcr: DcrRecord }) {
                 const dataOwnerOf = p.data_owner_of || [];
                 const isDataOwner = dataOwnerOf.some(
                   nodeId => {
-                    const lowerName = nodeId.toLowerCase();
+                    // Look up the node name from the nodes array
+                    const node = dcr.nodes?.find(n => n.name === nodeId);
+                    if (!node) return false;
+                    const lowerName = node.name?.toLowerCase() || '';
                     return !lowerName.includes('metadata') &&
                            !lowerName.includes('sample') &&
                            !lowerName.includes('mapping');
@@ -246,16 +256,6 @@ function DcrCard({ dcr }: { dcr: DcrRecord }) {
                 );
               })}
             </ul>
-          </div>
-        )}
-
-        {/* Cohorts */}
-        {dcr.cohorts && dcr.cohorts.length > 0 && (
-          <div className="mt-2 text-sm">
-            <span className="font-semibold">Cohort(s):</span>{' '}
-            <span className="text-base-content/80">
-              {dcr.cohorts.join(', ')}
-            </span>
           </div>
         )}
 
