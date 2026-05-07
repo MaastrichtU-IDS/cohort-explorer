@@ -39,6 +39,7 @@ class CohortVariable:
     mapped_id: Optional[str] = None
     mapped_label: Optional[str] = None
     omop_domain: Optional[str] = None
+    source_name: Optional[str] = None
     index: Optional[int] = None
     na: int = 0
     categories: list[VariableCategory] = field(default_factory=list)

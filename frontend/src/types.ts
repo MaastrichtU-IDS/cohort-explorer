@@ -85,6 +85,7 @@ export interface Variable {
   omop_id?: string;
   mapped_id: string | null;
   mapped_label: string | null;
+  source_name?: string | null;
   categories: Category[];
   [key: string]: any;
 }

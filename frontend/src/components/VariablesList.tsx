@@ -62,6 +62,7 @@ const VariablesList = ({
   const {cohortsData, updateCohortData, dataCleanRoom, setDataCleanRoom} = useCohorts();
   const [openedModal, setOpenedModal] = useState('');
   const [openedGraphModal, setOpenedGraphModal] = useState<string | null>(null);
+  const [activeSourceTab, setActiveSourceTab] = useState<string | null>(null);
 
   // When concept is selected, insert the triples into the database
   const handleConceptSelect = (varId: any, concept: Concept, categoryId: any = null) => {
@@ -308,6 +309,25 @@ const VariablesList = ({
     searchMode
   ]);
 
+  // Compute unique source names from the filtered variables (for multi-source cohorts)
+  const sourceTabs = useMemo(() => {
+    const sources = new Set<string>();
+    filteredVars.forEach((variable: any) => {
+      if (variable.source_name) {
+        sources.add(variable.source_name);
+      }
+    });
+    // Only show tabs if there are 2+ distinct sources
+    return sources.size >= 2 ? Array.from(sources).sort() : [];
+  }, [filteredVars]);
+
+  // Variables to display: filtered by active source tab (if tabs exist)
+  const displayedVars = useMemo(() => {
+    if (sourceTabs.length === 0) return filteredVars;
+    if (!activeSourceTab || activeSourceTab === '__all__') return filteredVars;
+    return filteredVars.filter((v: any) => v.source_name === activeSourceTab);
+  }, [filteredVars, sourceTabs, activeSourceTab]);
+
   // Report variable counts to parent - only when they actually change
   useEffect(() => {
     if (onVariableCountsChange && cohortsData[cohortId]) {
@@ -474,8 +494,34 @@ const VariablesList = ({
 
       {/* List of variables */}
       <div className="flex flex-col">
+        {/* Source tabs for multi-source cohorts */}
+        {sourceTabs.length > 0 && (
+          <div className="tabs tabs-boxed mb-4 bg-base-200">
+            <button
+              className={`tab ${!activeSourceTab || activeSourceTab === '__all__' ? 'tab-active' : ''}`}
+              onClick={() => setActiveSourceTab('__all__')}
+            >
+              All
+              <span className="badge badge-sm ml-2">
+                {filteredVars.length}
+              </span>
+            </button>
+            {sourceTabs.map((source) => (
+              <button
+                key={source}
+                className={`tab ${activeSourceTab === source ? 'tab-active' : ''}`}
+                onClick={() => setActiveSourceTab(source)}
+              >
+                {source}
+                <span className="badge badge-sm ml-2">
+                  {filteredVars.filter((v: any) => v.source_name === source).length}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
         <div className="space-y-2">
-          {filteredVars?.map((variable: any) => (
+          {displayedVars?.map((variable: any) => (
             <div key={variable.var_name} className="card card-compact card-bordered bg-base-100 shadow-xl">
               <div className="card-body">
                 <div className="flex justify-between">

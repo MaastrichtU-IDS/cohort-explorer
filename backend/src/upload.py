@@ -776,9 +776,11 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
                 missing_columns.append(required_col_name)
         
         # Check for extra columns not in the approved list
+        # SOURCENAME is an optional column for multi-source cohorts (not required, but allowed)
+        optional_cols_lower = {"sourcename"}
         extra_columns = []
         for col_name in df.columns:
-            if col_name.lower() not in critical_cols_lower:
+            if col_name.lower() not in critical_cols_lower and col_name.lower() not in optional_cols_lower:
                 extra_columns.append(col_name)
         
         # If critical columns are missing or extra columns exist, reject the upload
