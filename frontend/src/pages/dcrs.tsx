@@ -190,7 +190,7 @@ function DcrCard({ dcr }: { dcr: DcrRecord }) {
   const badgeColor = hasC3EdaScript ? 'badge-success' : 'badge-secondary';
 
   return (
-    <div className={`card bg-base-100 shadow-sm border-2 ${hasC3EdaScript ? 'border-success' : 'border-secondary'}`}>
+    <div className={`card bg-base-100 shadow-sm border ${hasC3EdaScript ? 'border-success/30' : 'border-secondary/30'}`}>
       <div className="card-body p-4">
         <div className="flex flex-wrap items-center gap-2 mb-1">
           <span className={`badge ${badgeColor} badge-lg font-semibold text-base px-4 py-2`}>
