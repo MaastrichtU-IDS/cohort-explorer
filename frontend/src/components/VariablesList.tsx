@@ -309,23 +309,28 @@ const VariablesList = ({
     searchMode
   ]);
 
+  // Helper: parse a variable's source_name into an array of capitalized source names
+  const parseSources = (sourceName: string | null | undefined): string[] => {
+    if (!sourceName) return [];
+    return sourceName.split('|').map(s => s.trim().toUpperCase()).filter(Boolean);
+  };
+
   // Compute unique source names from the filtered variables (for multi-source cohorts)
   const sourceTabs = useMemo(() => {
     const sources = new Set<string>();
     filteredVars.forEach((variable: any) => {
-      if (variable.source_name) {
-        sources.add(variable.source_name);
-      }
+      parseSources(variable.source_name).forEach(s => sources.add(s));
     });
     // Only show tabs if there are 2+ distinct sources
     return sources.size >= 2 ? Array.from(sources).sort() : [];
   }, [filteredVars]);
 
   // Variables to display: filtered by active source tab (if tabs exist)
+  // A variable belongs to a tab if any of its pipe-separated sources matches
   const displayedVars = useMemo(() => {
     if (sourceTabs.length === 0) return filteredVars;
     if (!activeSourceTab || activeSourceTab === '__all__') return filteredVars;
-    return filteredVars.filter((v: any) => v.source_name === activeSourceTab);
+    return filteredVars.filter((v: any) => parseSources(v.source_name).includes(activeSourceTab));
   }, [filteredVars, sourceTabs, activeSourceTab]);
 
   // Report variable counts to parent - only when they actually change
@@ -496,28 +501,31 @@ const VariablesList = ({
       <div className="flex flex-col">
         {/* Source tabs for multi-source cohorts */}
         {sourceTabs.length > 0 && (
-          <div className="tabs tabs-boxed mb-4 bg-base-200">
-            <button
-              className={`tab ${!activeSourceTab || activeSourceTab === '__all__' ? 'tab-active' : ''}`}
-              onClick={() => setActiveSourceTab('__all__')}
-            >
-              All
-              <span className="badge badge-sm ml-2">
-                {filteredVars.length}
-              </span>
-            </button>
-            {sourceTabs.map((source) => (
+          <div className="flex items-center gap-2 mb-4">
+            <span className="font-semibold text-sm whitespace-nowrap">Sources:</span>
+            <div className="tabs tabs-boxed bg-base-200">
               <button
-                key={source}
-                className={`tab ${activeSourceTab === source ? 'tab-active' : ''}`}
-                onClick={() => setActiveSourceTab(source)}
+                className={`tab ${!activeSourceTab || activeSourceTab === '__all__' ? 'tab-active' : ''}`}
+                onClick={() => setActiveSourceTab('__all__')}
               >
-                {source}
+                All
                 <span className="badge badge-sm ml-2">
-                  {filteredVars.filter((v: any) => v.source_name === source).length}
+                  {filteredVars.length}
                 </span>
               </button>
-            ))}
+              {sourceTabs.map((source) => (
+                <button
+                  key={source}
+                  className={`tab ${activeSourceTab === source ? 'tab-active' : ''}`}
+                  onClick={() => setActiveSourceTab(source)}
+                >
+                  {source}
+                  <span className="badge badge-sm ml-2">
+                    {filteredVars.filter((v: any) => parseSources(v.source_name).includes(source)).length}
+                  </span>
+                </button>
+              ))}
+            </div>
           </div>
         )}
         <div className="space-y-2">
