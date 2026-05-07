@@ -2240,10 +2240,16 @@ def refresh_all_dcrs_via_decentriq_api() -> dict[str, Any]:
                 try:
                     dcr = client.retrieve_analytics_dcr(dcr_id=dcr_id)
                     for node_def in getattr(dcr, "node_definitions", []) or []:
-                        record["nodes"].append({
+                        node_info = {
                             "name": getattr(node_def, "name", None),
                             "type": type(node_def).__name__,
-                        })
+                        }
+                        # Capture script name for compute nodes
+                        if type(node_def).__name__ in ("PreviewComputeNodeDefinition", "PythonComputeNodeDefinition"):
+                            script = getattr(node_def, "script", None)
+                            if script:
+                                node_info["script"] = str(script).split("\n")[0] if isinstance(script, str) else str(script)
+                        record["nodes"].append(node_info)
                     total_nodes += len(record["nodes"])
                     record["participants"] = _extract_participants(dcr)
                     total_participants += len(record["participants"])

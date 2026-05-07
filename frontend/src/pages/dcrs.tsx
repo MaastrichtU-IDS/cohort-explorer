@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { apiUrl } from '@/utils';
-import { AlertTriangle, Clock, RefreshCw, Users, ExternalLink } from 'react-feather';
+import { AlertTriangle, Clock, RefreshCw, ExternalLink } from 'react-feather';
 import { DcrLogPanel } from '@/components/DcrLogPanel';
 
 /** Shape of a single DCR record returned by the /my-dcrs endpoint. */
@@ -13,7 +13,7 @@ interface DcrRecord {
   createdAt?: string;
   owner?: { email?: string; [key: string]: any };
   participants?: { email?: string; roles?: string[]; data_owner_of?: string[]; analyst_of?: string[] }[];
-  nodes?: { name?: string; type?: string }[];
+  nodes?: { name?: string; type?: string; script?: string }[];
   error?: string;
   [key: string]: any;
 }
@@ -24,6 +24,7 @@ export default function DcrsPage() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
 
   const fetchMyDcrs = useCallback(async () => {
     setIsLoading(true);
@@ -37,7 +38,14 @@ export default function DcrsPage() {
         throw new Error(`Failed to fetch DCRs: ${response.status} ${response.statusText}`);
       }
       const data = await response.json();
-      setDcrs(Array.isArray(data?.dcrs) ? data.dcrs : []);
+      const dcrs = Array.isArray(data?.dcrs) ? data.dcrs : [];
+      // Sort reverse chronologically by createdAt (newest first)
+      dcrs.sort((a: DcrRecord, b: DcrRecord) => {
+        if (!a.createdAt) return 1;
+        if (!b.createdAt) return -1;
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+      setDcrs(dcrs);
       setUserEmail(data?.email ?? null);
     } catch (err: any) {
       setError(err?.message || 'Failed to load DCRs');
@@ -64,6 +72,7 @@ export default function DcrsPage() {
       const data = await response.json();
       setDcrs(Array.isArray(data?.dcrs) ? data.dcrs : []);
       setUserEmail(data?.email ?? null);
+      setLastRefreshedAt(new Date());
     } catch (err: any) {
       setError(err?.message || 'Failed to refresh DCRs');
     } finally {
@@ -86,7 +95,7 @@ export default function DcrsPage() {
         </header>
 
         {/* Refresh button */}
-        <div className="flex justify-end">
+        <div className="flex justify-start items-center gap-3">
           <button
             className="btn btn-sm btn-outline gap-2"
             onClick={handleRefresh}
@@ -96,6 +105,11 @@ export default function DcrsPage() {
             <RefreshCw size={14} className={isRefreshing ? 'animate-spin' : ''} />
             {isRefreshing ? 'Refreshing...' : 'Refresh from Decentriq'}
           </button>
+          {lastRefreshedAt && (
+            <span className="text-xs text-base-content/60">
+              last refreshed {lastRefreshedAt.toLocaleTimeString()}
+            </span>
+          )}
         </div>
 
         {isLoading && (
@@ -134,34 +148,46 @@ export default function DcrsPage() {
 function formatTimestamp(iso?: string): string {
   if (!iso) return '';
   try {
-    return new Date(iso).toLocaleString();
+    const date = new Date(iso);
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return `${day}.${month}.${year} ${hours}:${minutes}`;
   } catch {
     return iso;
   }
 }
 
 function DcrCard({ dcr }: { dcr: DcrRecord }) {
-  const ownerEmail = dcr.owner?.email;
   const participantCount = dcr.participants?.length ?? 0;
   const dcrUrl = dcr.id
     ? `https://platform.decentriq.com/datarooms/p/${dcr.id}`
     : null;
 
+  // Determine DCR type based on whether any compute node has a script starting with c3_eda
+  const hasC3EdaScript = dcr.nodes?.some(
+    (node) =>
+      (node.type === 'PreviewComputeNodeDefinition' || node.type === 'PythonComputeNodeDefinition') &&
+      node.script?.startsWith('c3_eda')
+  );
+  const dcrType = hasC3EdaScript ? 'Provision/EDA' : 'Analysis';
+  const badgeColor = hasC3EdaScript ? 'badge-success' : 'badge-secondary';
+
   return (
     <div className="card bg-base-100 shadow-sm border border-base-300">
       <div className="card-body p-4">
         <div className="flex flex-wrap items-center gap-2 mb-1">
+          <span className={`badge ${badgeColor} badge-sm font-semibold`}>
+            {dcrType}
+          </span>
           <h2 className="font-semibold text-lg">
             {dcr.title || <span className="text-base-content/50">Untitled DCR</span>}
           </h2>
         </div>
 
         <div className="flex flex-wrap gap-4 text-sm text-base-content/70">
-          {ownerEmail && (
-            <span className="flex items-center gap-1">
-              <Users size={14} /> {ownerEmail}
-            </span>
-          )}
           {dcr.createdAt && (
             <span className="flex items-center gap-1">
               <Clock size={14} /> {formatTimestamp(dcr.createdAt)}
@@ -201,9 +227,14 @@ function DcrCard({ dcr }: { dcr: DcrRecord }) {
         {dcr.nodes && dcr.nodes.length > 0 && (
           <div className="mt-2 text-sm">
             <span className="font-semibold">Nodes:</span>{' '}
-            <span className="text-base-content/80">
-              {dcr.nodes.length} node{dcr.nodes.length !== 1 ? 's' : ''}
-            </span>
+            <div className="flex gap-4 ml-4">
+              <div className="text-base-content/80">
+                Data nodes: {dcr.nodes.filter(n => n.type === 'TableDataNodeDefinition' || n.type === 'RawDataNodeDefinition').length}
+              </div>
+              <div className="text-base-content/80">
+                Compute nodes: {dcr.nodes.filter(n => n.type === 'PreviewComputeNodeDefinition' || n.type === 'PythonComputeNodeDefinition').length}
+              </div>
+            </div>
           </div>
         )}
 
