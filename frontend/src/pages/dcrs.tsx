@@ -209,16 +209,24 @@ function DcrCard({ dcr }: { dcr: DcrRecord }) {
           <div className="mt-3 text-sm">
             <span className="font-semibold">Participants:</span>
             <ul className="list-disc ml-5 mt-1 text-base-content/80">
-              {dcr.participants.map((p, i) => (
-                <li key={p.email || i}>
-                  {p.email || 'unknown'}
-                  {p.roles && p.roles.length > 0 && (
+              {dcr.participants.map((p, i) => {
+                // Determine if participant is data owner (owns non-metadata data nodes)
+                // Metadata nodes have names ending with "-metadata" or "_metadata_dictionary"
+                const dataOwnerOf = p.data_owner_of || [];
+                const isDataOwner = dataOwnerOf.some(
+                  nodeId => !nodeId.endsWith('-metadata') && !nodeId.endsWith('_metadata_dictionary')
+                );
+                const role = isDataOwner ? 'data owner' : 'analyst';
+
+                return (
+                  <li key={p.email || i}>
+                    {p.email || 'unknown'}
                     <span className="text-xs text-base-content/60 ml-1">
-                      ({p.roles.join(', ')})
+                      ({role})
                     </span>
-                  )}
-                </li>
-              ))}
+                  </li>
+                );
+              })}
             </ul>
           </div>
         )}
@@ -226,13 +234,29 @@ function DcrCard({ dcr }: { dcr: DcrRecord }) {
         {/* Nodes summary */}
         {dcr.nodes && dcr.nodes.length > 0 && (
           <div className="mt-2 text-sm">
-            <span className="font-semibold">Nodes:</span>{' '}
-            <div className="flex gap-4 ml-4">
+            <span className="font-semibold">Nodes:</span>
+            <div className="ml-4 space-y-1">
               <div className="text-base-content/80">
-                Data nodes: {dcr.nodes.filter(n => n.type === 'TableDataNodeDefinition' || n.type === 'RawDataNodeDefinition').length}
+                <span className="font-medium">Data nodes:</span>
+                <ul className="list-disc ml-4 mt-1">
+                  {dcr.nodes
+                    .filter(n => n.type === 'TableDataNodeDefinition' || n.type === 'RawDataNodeDefinition')
+                    .map(n => n.name)
+                    .filter(Boolean)
+                    .map((name, idx) => <li key={idx}>{name}</li>)}
+                  {dcr.nodes.filter(n => n.type === 'TableDataNodeDefinition' || n.type === 'RawDataNodeDefinition').length === 0 && <li>none</li>}
+                </ul>
               </div>
               <div className="text-base-content/80">
-                Compute nodes: {dcr.nodes.filter(n => n.type === 'PreviewComputeNodeDefinition' || n.type === 'PythonComputeNodeDefinition').length}
+                <span className="font-medium">Compute nodes:</span>
+                <ul className="list-disc ml-4 mt-1">
+                  {dcr.nodes
+                    .filter(n => n.type === 'PreviewComputeNodeDefinition' || n.type === 'PythonComputeNodeDefinition')
+                    .map(n => n.name)
+                    .filter(Boolean)
+                    .map((name, idx) => <li key={idx}>{name}</li>)}
+                  {dcr.nodes.filter(n => n.type === 'PreviewComputeNodeDefinition' || n.type === 'PythonComputeNodeDefinition').length === 0 && <li>none</li>}
+                </ul>
               </div>
             </div>
           </div>

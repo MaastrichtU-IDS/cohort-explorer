@@ -731,7 +731,7 @@ export function Nav() {
       <div className="navbar-end">
         {/* Desktop */}
         <div className="menu menu-horizontal my-0 py-0 space-x-6 pr-6 items-center">
-          {(pathname === '/' || pathname === '/cohorts' || pathname === '/mapping') && (
+          {(pathname === '/' || pathname === '/cohorts' || pathname === '/mapping' || pathname === '/dcrs') && (
             <button id="dcr-button" onClick={() => { setShowModal(true); setWizardStep(0); }} className="btn bg-white border-2 border-gray-300 shadow-md hover:shadow-lg hover:bg-gray-50 transition-all duration-200 py-3 px-6" style={{ minWidth: '280px' }}>
               Create a Data Clean Room <div className="badge badge-neutral badge-sm">{Object.keys(dataCleanRoom?.cohorts).length || 0}</div>
             </button>
