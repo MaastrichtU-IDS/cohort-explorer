@@ -110,8 +110,8 @@ export default function DcrsPage() {
       <div className="w-full max-w-5xl space-y-6">
         <header className="text-center">
           <h1 className="text-3xl font-bold">My Data Clean Rooms</h1>
-          <p className="text-sm text-base-content/70 mt-1">
-            Data Clean Rooms you participate in{userEmail ? ` (${userEmail})` : ''}.
+          <p className="text-base text-base-content/70 mt-1">
+            Data Clean Rooms you participate in{userEmail ? ` (<span className="font-semibold">${userEmail}</span>)` : ''}.
           </p>
         </header>
 
@@ -197,7 +197,7 @@ function DcrCard({ dcr }: { dcr: DcrRecord }) {
   const badgeColor = hasC3EdaScript ? 'badge-success' : 'badge-secondary';
 
   return (
-    <div className={`card bg-base-100 shadow-sm border ${hasC3EdaScript ? 'border-success/30' : 'border-secondary/30'}`}>
+    <div className={`card bg-base-100 shadow-sm border ${hasC3EdaScript ? 'border-success/30' : 'border-secondary/60'}`}>
       <div className="card-body p-4">
         <div className="flex flex-wrap items-center gap-2 mb-1">
           <span className={`badge ${badgeColor} badge-lg font-semibold text-base px-4 py-2`}>
@@ -215,9 +215,13 @@ function DcrCard({ dcr }: { dcr: DcrRecord }) {
             </span>
           )}
           {dcr.cohorts && dcr.cohorts.length > 0 && (
-            <span className="badge badge-ghost badge-sm">
-              {dcr.cohorts.join(', ')}
-            </span>
+            <div className="flex gap-1 flex-wrap">
+              {dcr.cohorts.map((cohort, idx) => (
+                <span key={idx} className="badge badge-primary badge-sm">
+                  {cohort}
+                </span>
+              ))}
+            </div>
           )}
         </div>
 
@@ -264,7 +268,7 @@ function DcrCard({ dcr }: { dcr: DcrRecord }) {
           <div className="mt-2 text-sm">
             <div className="flex gap-8">
               <div className="flex-1 text-base-content/80">
-                <span className="font-medium">Data nodes:</span>
+                <span className="font-semibold">Data nodes:</span>
                 <ul className="list-disc ml-4 mt-1">
                   {dcr.nodes
                     .filter(n => n.type === 'TableDataNodeDefinition' || n.type === 'RawDataNodeDefinition')
@@ -275,7 +279,7 @@ function DcrCard({ dcr }: { dcr: DcrRecord }) {
                 </ul>
               </div>
               <div className="flex-1 text-base-content/80">
-                <span className="font-medium">Compute nodes:</span>
+                <span className="font-semibold">Compute nodes:</span>
                 <ul className="list-disc ml-4 mt-1">
                   {dcr.nodes
                     .filter(n => n.type === 'PreviewComputeNodeDefinition' || n.type === 'PythonComputeNodeDefinition')

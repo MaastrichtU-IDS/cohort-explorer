@@ -681,36 +681,36 @@ export function Nav() {
   );
 
   return (
-    <div className="navbar bg-base-300 min-h-14 h-14 p-0">
+    <div className="navbar bg-base-300 min-h-20 h-20 p-0">
       <div className="navbar-start">
-        <ul className="menu menu-horizontal gap-2 my-0 py-0 pl-6 lg:flex">
+        <ul className="menu menu-horizontal gap-4 my-0 py-0 pl-6 lg:flex flex-wrap">
           <li>
-            <Link href="/upload">
-              <Upload />
+            <Link href="/upload" className={pathname === '/upload' ? 'active' : ''}>
+              <Upload size={20} />
               Upload
             </Link>
           </li>
           <li>
-            <Link href="/cohorts">
-              <Compass />
+            <Link href="/cohorts" className={pathname === '/cohorts' ? 'active' : ''}>
+              <Compass size={20} />
               Explore
             </Link>
-          </li>   
+          </li>
           <li>
-            <Link href="/mapping">
-              <Map />
+            <Link href="/mapping" className={pathname === '/mapping' ? 'active' : ''}>
+              <Map size={20} />
               Mapping
             </Link>
           </li>
           <li>
-            <Link href="/dcrs">
-              <Box />
+            <Link href="/dcrs" className={pathname === '/dcrs' ? 'active' : ''}>
+              <Box size={20} />
               My DCRs
             </Link>
           </li>
           <li>
-            <Link href="/docs_store">
-              <FileText />
+            <Link href="/docs_store" className={pathname === '/docs_store' ? 'active' : ''}>
+              <FileText size={20} />
               Documents
             </Link>
           </li>
