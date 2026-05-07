@@ -224,12 +224,12 @@ function DcrCard({ dcr }: { dcr: DcrRecord }) {
             <span className="font-semibold">Participants:</span>
             <ul className="list-disc ml-5 mt-1 text-base-content/80">
               {dcr.participants.map((p, i) => {
-                // Determine if participant is data owner (owns data nodes without "dictionary", "sample", or "mapping" in name)
+                // Determine if participant is data owner (owns data nodes without "metadata", "sample", or "mapping" in name)
                 const dataOwnerOf = p.data_owner_of || [];
                 const isDataOwner = dataOwnerOf.some(
                   nodeId => {
                     const lowerName = nodeId.toLowerCase();
-                    return !lowerName.includes('dictionary') &&
+                    return !lowerName.includes('metadata') &&
                            !lowerName.includes('sample') &&
                            !lowerName.includes('mapping');
                   }

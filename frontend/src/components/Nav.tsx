@@ -3,7 +3,7 @@
 import React, {useState, useEffect, useMemo, useCallback, useRef} from 'react';
 import Link from 'next/link';
 import {useRouter} from 'next/router';
-import {LogIn, LogOut, Compass, Upload, HardDrive, Map, Lock} from 'react-feather';
+import {LogIn, LogOut, Compass, Upload, HardDrive, Map} from 'react-feather';
 import {useCohorts} from '@/components/CohortsContext';
 import {DarkThemeIcon, LightThemeIcon} from '@/components/Icons';
 import {apiUrl} from '@/utils';
@@ -704,7 +704,7 @@ export function Nav() {
           </li>
           <li>
             <Link href="/dcrs">
-              <Lock />
+              <HardDrive />
               My DCRs
             </Link>
           </li>
