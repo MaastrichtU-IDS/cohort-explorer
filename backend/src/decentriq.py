@@ -2236,12 +2236,14 @@ def refresh_all_dcrs_via_decentriq_api() -> dict[str, Any]:
             dcr_id = record.get("id")
             record["nodes"] = []
             record["participants"] = []
+            record["cohorts"] = []
             if dcr_id:
                 try:
                     dcr = client.retrieve_analytics_dcr(dcr_id=dcr_id)
                     for node_def in getattr(dcr, "node_definitions", []) or []:
+                        node_name = getattr(node_def, "name", None)
                         node_info = {
-                            "name": getattr(node_def, "name", None),
+                            "name": node_name,
                             "type": type(node_def).__name__,
                         }
                         # Capture script name for compute nodes
@@ -2250,6 +2252,21 @@ def refresh_all_dcrs_via_decentriq_api() -> dict[str, Any]:
                             if script:
                                 node_info["script"] = str(script).split("\n")[0] if isinstance(script, str) else str(script)
                         record["nodes"].append(node_info)
+                    # Extract cohort names from metadata nodes (nodes with "metadata" in the name)
+                    # The cohort name is at the start of the node name before "metadata"
+                    cohort_names = set()
+                    for node in record["nodes"]:
+                        if node["name"] and "metadata" in node["name"].lower():
+                            # Extract cohort name from node name (e.g., "cohort1-metadata" -> "cohort1")
+                            # Handle both "-metadata" and "_metadata" suffixes
+                            name_lower = node["name"].lower()
+                            for suffix in ["-metadata", "_metadata", "-metadata_dictionary", "_metadata_dictionary"]:
+                                if name_lower.endswith(suffix):
+                                    cohort_name = node["name"][:-len(suffix)]
+                                    if cohort_name:
+                                        cohort_names.add(cohort_name)
+                                    break
+                    record["cohorts"] = sorted(list(cohort_names))
                     total_nodes += len(record["nodes"])
                     record["participants"] = _extract_participants(dcr)
                     total_participants += len(record["participants"])
@@ -2349,6 +2366,30 @@ async def api_refresh_my_dcrs(
     summary = await asyncio.to_thread(refresh_all_dcrs_via_decentriq_api)
     records = get_dcrs_for_participant(user_email)
     return {"dcrs": records, "count": len(records), "email": user_email, "refresh_summary": summary}
+
+
+@router.get(
+    "/my-dcrs/last-modified",
+    name="Get last modified timestamp of DCR history",
+    response_description="ISO timestamp of when the DCR history JSONL file was last modified",
+)
+async def api_dcr_history_last_modified(
+    user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Return the last modified timestamp of the DCR history JSONL file."""
+    user_email = user.get("email") if isinstance(user, dict) else None
+    if not user_email:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    history_path = _dcr_history_path()
+    try:
+        mtime_ns = os.path.getmtime(history_path)
+        mtime = datetime.fromtimestamp(mtime_ns)
+        return {"last_modified": mtime.isoformat()}
+    except FileNotFoundError:
+        return {"last_modified": None}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to get last modified: {exc}")
 
 
 @router.post("/check-shuffled-samples")

@@ -14,6 +14,7 @@ interface DcrRecord {
   owner?: { email?: string; [key: string]: any };
   participants?: { email?: string; roles?: string[]; data_owner_of?: string[]; analyst_of?: string[] }[];
   nodes?: { name?: string; type?: string; script?: string }[];
+  cohorts?: string[];
   error?: string;
   [key: string]: any;
 }
@@ -47,6 +48,19 @@ export default function DcrsPage() {
       });
       setDcrs(dcrs);
       setUserEmail(data?.email ?? null);
+
+      // Fetch the last modified timestamp of the DCR history file
+      try {
+        const lastModResponse = await fetch(`${apiUrl}/my-dcrs/last-modified`, { credentials: 'include' });
+        if (lastModResponse.ok) {
+          const lastModData = await lastModResponse.json();
+          if (lastModData?.last_modified) {
+            setLastRefreshedAt(new Date(lastModData.last_modified));
+          }
+        }
+      } catch {
+        // Silently fail if we can't get the last modified timestamp
+      }
     } catch (err: any) {
       setError(err?.message || 'Failed to load DCRs');
       setDcrs([]);
@@ -166,20 +180,20 @@ function DcrCard({ dcr }: { dcr: DcrRecord }) {
     ? `https://platform.decentriq.com/datarooms/p/${dcr.id}`
     : null;
 
-  // Determine DCR type based on whether any compute node has a script starting with c3_eda
+  // Determine DCR type based on whether any compute node name starts with c3_eda
   const hasC3EdaScript = dcr.nodes?.some(
     (node) =>
       (node.type === 'PreviewComputeNodeDefinition' || node.type === 'PythonComputeNodeDefinition') &&
-      node.script?.startsWith('c3_eda')
+      node.name?.startsWith('c3_eda')
   );
   const dcrType = hasC3EdaScript ? 'Provision/EDA' : 'Analysis';
   const badgeColor = hasC3EdaScript ? 'badge-success' : 'badge-secondary';
 
   return (
-    <div className="card bg-base-100 shadow-sm border border-base-300">
+    <div className={`card bg-base-100 shadow-sm border-2 ${hasC3EdaScript ? 'border-success' : 'border-secondary'}`}>
       <div className="card-body p-4">
         <div className="flex flex-wrap items-center gap-2 mb-1">
-          <span className={`badge ${badgeColor} badge-sm font-semibold`}>
+          <span className={`badge ${badgeColor} badge-lg font-semibold text-base px-4 py-2`}>
             {dcrType}
           </span>
           <h2 className="font-semibold text-lg">
@@ -210,11 +224,15 @@ function DcrCard({ dcr }: { dcr: DcrRecord }) {
             <span className="font-semibold">Participants:</span>
             <ul className="list-disc ml-5 mt-1 text-base-content/80">
               {dcr.participants.map((p, i) => {
-                // Determine if participant is data owner (owns non-metadata data nodes)
-                // Metadata nodes have names ending with "-metadata" or "_metadata_dictionary"
+                // Determine if participant is data owner (owns data nodes without "dictionary", "sample", or "mapping" in name)
                 const dataOwnerOf = p.data_owner_of || [];
                 const isDataOwner = dataOwnerOf.some(
-                  nodeId => !nodeId.endsWith('-metadata') && !nodeId.endsWith('_metadata_dictionary')
+                  nodeId => {
+                    const lowerName = nodeId.toLowerCase();
+                    return !lowerName.includes('dictionary') &&
+                           !lowerName.includes('sample') &&
+                           !lowerName.includes('mapping');
+                  }
                 );
                 const role = isDataOwner ? 'data owner' : 'analyst';
 
@@ -231,12 +249,21 @@ function DcrCard({ dcr }: { dcr: DcrRecord }) {
           </div>
         )}
 
+        {/* Cohorts */}
+        {dcr.cohorts && dcr.cohorts.length > 0 && (
+          <div className="mt-2 text-sm">
+            <span className="font-semibold">Cohort(s):</span>{' '}
+            <span className="text-base-content/80">
+              {dcr.cohorts.join(', ')}
+            </span>
+          </div>
+        )}
+
         {/* Nodes summary */}
         {dcr.nodes && dcr.nodes.length > 0 && (
           <div className="mt-2 text-sm">
-            <span className="font-semibold">Nodes:</span>
-            <div className="ml-4 space-y-1">
-              <div className="text-base-content/80">
+            <div className="flex gap-8">
+              <div className="flex-1 text-base-content/80">
                 <span className="font-medium">Data nodes:</span>
                 <ul className="list-disc ml-4 mt-1">
                   {dcr.nodes
@@ -247,7 +274,7 @@ function DcrCard({ dcr }: { dcr: DcrRecord }) {
                   {dcr.nodes.filter(n => n.type === 'TableDataNodeDefinition' || n.type === 'RawDataNodeDefinition').length === 0 && <li>none</li>}
                 </ul>
               </div>
-              <div className="text-base-content/80">
+              <div className="flex-1 text-base-content/80">
                 <span className="font-medium">Compute nodes:</span>
                 <ul className="list-disc ml-4 mt-1">
                   {dcr.nodes
