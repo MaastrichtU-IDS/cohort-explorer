@@ -110,8 +110,10 @@ export default function DcrsPage() {
       <div className="w-full max-w-5xl space-y-6">
         <header className="text-center">
           <h1 className="text-3xl font-bold">My Data Clean Rooms</h1>
-          <p className="text-base text-base-content/70 mt-1">
-            Data Clean Rooms you participate in{userEmail ? ` (<span className="font-semibold">${userEmail}</span>)` : ''}.
+          <p className="text-lg text-base-content/70 mt-1">
+            Data Clean Rooms you participate in{userEmail && (
+              <> (<span className="italic">{userEmail}</span>)</>
+            )}.
           </p>
         </header>
 
@@ -217,7 +219,7 @@ function DcrCard({ dcr }: { dcr: DcrRecord }) {
           {dcr.cohorts && dcr.cohorts.length > 0 && (
             <div className="flex gap-1 flex-wrap">
               {dcr.cohorts.map((cohort, idx) => (
-                <span key={idx} className="badge badge-primary badge-sm">
+                <span key={idx} className="badge badge-primary badge-lg">
                   {cohort}
                 </span>
               ))}
