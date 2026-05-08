@@ -745,7 +745,7 @@ def validate_timepoint(r: pd.Series, omop_graph_obj: OmopGraphNX) -> ValidationL
             else:
                 if '|' in str(r.get("visit concept code",None)) or '|' in str(r.get("visit omop id",None)):
                     vi_log = ValidationLog(status="FAIL", description="Multiple visit concept codes/ids found for single visit.")
-                elif not isinstance(r.get("visit concept code",None), str) or not isinstance(r.get("visit omop id",None), int|float) or not isinstance(r.get("visit concept name",None), str):
+                elif to_int_or_none(r.get("visit omop id", None)) is None :                    
                     vi_log = ValidationLog(status="FAIL", description="Invalid data type for visit concept columns details.")
                 else:
                     vi_log = validate_component(
