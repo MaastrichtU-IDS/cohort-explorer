@@ -42,12 +42,8 @@ class VariableProfile:
 
     @classmethod
     def fetch_profiles(cls, var_names: list, study: str, graph_repo: str) -> pd.DataFrame:
-        """Fetch variable profiles from the KG. Returns raw DataFrame keyed by 'identifier'.
-        
-        O(n) per study. Called once per study before matching.
-        Derived variables are excluded (they set their own profile).
-        """
-        vars_ = [v for v in var_names if not v.startswith('derived_')]
+        # Dedup while preserving order; drop derived
+        vars_ = list(dict.fromkeys(v for v in var_names if not v.startswith('derived_')))
         if not vars_:
             return pd.DataFrame()
         data = []
@@ -56,7 +52,10 @@ class VariableProfile:
             futures = {executor.submit(cls._fetch_chunk, c, study, graph_repo): c for c in chunks}
             for f in as_completed(futures):
                 data.extend(f.result())
-        return pd.DataFrame(data)
+        df = pd.DataFrame(data)
+        if not df.empty and "identifier" in df.columns:
+            df = df.drop_duplicates(subset="identifier", keep="last")
+        return df
 
     # =================================================================
     # Legacy: combined fetch + merge (backward compatibility)
