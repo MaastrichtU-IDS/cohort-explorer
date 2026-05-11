@@ -129,10 +129,10 @@ class UnifiedEmbeddingModel:
         #     dtype=dtype)
         if backend_key == "cardioembed":
                 from peft import PeftModel
-                base = AutoModel.from_pretrained("michiyasunaga/BioLinkBERT-large", cache_dir=cache, dtype=dtype)
+                base = AutoModel.from_pretrained("michiyasunaga/BioLinkBERT-large", cache_dir=cache, torch_dtype=dtype)
                 self.model = PeftModel.from_pretrained(base, "richardyoung/CardioEmbed-BioLinkBERT").merge_and_unload()
         else:
-            self.model = AutoModel.from_pretrained(model_name_or_path, cache_dir=cache, trust_remote_code=True, dtype=dtype)
+            self.model = AutoModel.from_pretrained(model_name_or_path, cache_dir=cache, trust_remote_code=True, torch_dtype=dtype)
 
         if self._is_decoder:
             self.tokenizer.padding_side = "left"
