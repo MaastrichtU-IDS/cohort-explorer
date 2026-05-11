@@ -5,6 +5,8 @@ interface VariableGraphModalProps {
   cohortId: string;
   variableName: string;
   variableLabel?: string;
+  omopId?: string;
+  conceptCode?: string;
   onClose: () => void; // Add this new prop
 }
 
@@ -13,6 +15,8 @@ const VariableGraphModal: React.FC<VariableGraphModalProps> = ({
   cohortId,
   variableName,
   variableLabel,
+  omopId,
+  conceptCode,
   onClose // Use this prop to handle closing
 }) => {
   const [imageState, setImageState] = useState<'loading' | 'error' | 'loaded'>('loading');
@@ -24,6 +28,8 @@ const VariableGraphModal: React.FC<VariableGraphModalProps> = ({
   }, [isOpen, cohortId, variableName]);
 
   if (!isOpen) return null;
+
+  const isPatientIdVariable = omopId === '4086934' || conceptCode === 'snomed:184107009';
 
   const imageUrl = `/api/variable-graph/${encodeURIComponent(cohortId)}/${encodeURIComponent(variableName.toLowerCase())}`;
 
@@ -43,30 +49,38 @@ const VariableGraphModal: React.FC<VariableGraphModalProps> = ({
         </div>
         
         <div className="flex justify-center items-center min-h-[200px]">
-          {imageState === 'loading' && (
-            <div className="absolute">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
-            </div>
-          )}
-          
-          {imageState !== 'error' && (
-            <img
-              key={`${cohortId}-${variableName}`}
-              src={imageUrl}
-              alt={`${variableName} distribution graph`}
-              className={`max-w-full transition-opacity duration-300 ${
-                imageState === 'loaded' ? 'opacity-100' : 'opacity-0'
-              }`}
-              onError={() => setImageState('error')}
-              onLoad={() => setImageState('loaded')}
-              crossOrigin="use-credentials"
-            />
-          )}
-
-          {imageState === 'error' && (
+          {isPatientIdVariable ? (
             <div className="text-center p-4">
-              <p>No graph available for this variable, or the computation for the cohort has not been run yet.</p>
+              <p>This is the patient ID variable, and is not included in the visualization.</p>
             </div>
+          ) : (
+            <>
+              {imageState === 'loading' && (
+                <div className="absolute">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+                </div>
+              )}
+              
+              {imageState !== 'error' && (
+                <img
+                  key={`${cohortId}-${variableName}`}
+                  src={imageUrl}
+                  alt={`${variableName} distribution graph`}
+                  className={`max-w-full transition-opacity duration-300 ${
+                    imageState === 'loaded' ? 'opacity-100' : 'opacity-0'
+                  }`}
+                  onError={() => setImageState('error')}
+                  onLoad={() => setImageState('loaded')}
+                  crossOrigin="use-credentials"
+                />
+              )}
+
+              {imageState === 'error' && (
+                <div className="text-center p-4">
+                  <p>No graph available for this variable, or the computation for the cohort has not been run yet.</p>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>

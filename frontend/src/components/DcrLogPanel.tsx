@@ -63,7 +63,7 @@ export function DcrLogPanel({ dcrId }: Props) {
           disabled={isLoading || !dcrId}
         >
           <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
-          {events === null ? 'Fetch latest events' : 'Refresh'}
+          {events === null ? 'Fetch DCR log' : 'Refresh'}
         </button>
         {lastFetchedAt && (
           <span className="text-xs text-base-content/60">

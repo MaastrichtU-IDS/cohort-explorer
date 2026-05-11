@@ -708,6 +708,8 @@ const VariablesList = ({
                   cohortId={cohortId}
                   variableName={variable.var_name}
                   variableLabel={variable.var_label}
+                  omopId={variable.omop_id}
+                  conceptCode={variable.concept_code}
                   onClose={handleCloseGraphModal}
                 />
                 {/* <div className='flex-grow'/>
