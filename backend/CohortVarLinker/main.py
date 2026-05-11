@@ -20,7 +20,62 @@ from CohortVarLinker.updated_CohortVarLinker.utils import (
 from CohortVarLinker.updated_CohortVarLinker.data_model import MappingType, EmbeddingType
 from CohortVarLinker.updated_CohortVarLinker.run import StudyMapper
 from CohortVarLinker.updated_CohortVarLinker.config import settings
+from CohortVarLinker.updated_CohortVarLinker.vector_db import _embed_cache
+from CohortVarLinker.updated_CohortVarLinker.graph_similarity import _EMBED_CACHE
+from CohortVarLinker.updated_CohortVarLinker.constraints import CategoryMapper
 from CohortVarLinker.validate_cde import get_omop_graph
+
+
+def clear_all_caches():
+    """Clear the embedding cache (e.g. when the embedding model changes)."""
+    _embed_cache.clear()
+    _EMBED_CACHE.clear()
+    CategoryMapper._label_embedding_cache.clear()
+    CategoryMapper._label_omop_cache.clear()
+    CategoryMapper._alignment_cache.clear()
+
+
+def concatenate_member_csvs_to_parent(
+    source_study: str,
+    parent_study: str,
+    member_studies: list,
+    output_dir: str,
+    model_name: str,
+    mapping_mode: str,
+    llm: str
+):
+    """
+    Concatenate member study CSVs into the parent study CSV.
+    Adds a 'member_study' column to track the origin of each row.
+    """
+    parent_csv_path = f'{output_dir}/{source_study}_{parent_study}_{model_name}+{llm}_{mapping_mode}_full.csv'
+
+    if not os.path.exists(parent_csv_path):
+        print(f"⚠️ Parent CSV not found: {parent_csv_path}")
+        return
+
+    parent_df = pd.read_csv(parent_csv_path)
+    parent_df['member_study'] = parent_study
+
+    dfs_to_concat = [parent_df]
+
+    for member in member_studies:
+        member_csv_path = f'{output_dir}/{source_study}_{member}_{model_name}+{llm}_{mapping_mode}_full.csv'
+
+        if os.path.exists(member_csv_path):
+            member_df = pd.read_csv(member_csv_path)
+            member_df['member_study'] = member
+            dfs_to_concat.append(member_df)
+        else:
+            print(f"  ⚠️ Member CSV not found: {member_csv_path}")
+
+    if len(dfs_to_concat) > 1:
+        combined_df = pd.concat(dfs_to_concat, ignore_index=True)
+        if 'member_study' in combined_df.columns:
+            combined_df.drop(columns=['member_study'], inplace=True)
+
+        combined_df.to_csv(parent_csv_path, encoding='utf-8', index=False)
+        print(f"✅ Combined {len(dfs_to_concat)} CSVs into {parent_study}: {len(combined_df)} total rows")
 
 
 def create_study_metadata_graph(file_path, recreate=False):

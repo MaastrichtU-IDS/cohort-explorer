@@ -1,6 +1,7 @@
 
 import json
 import pandas as pd
+# from collections import Counter
 from typing import Any, List, Tuple
 from .config import settings
 from .query_builder import SPARQLQueryBuilder
@@ -179,8 +180,16 @@ class StudyMapper:
         so we parse pipe-separated strings into typed lists before setting.
         """
         var_names = [v.name for v in collection.variables]
+        # dup_counts = {name: count for name, count in Counter(var_names).items() if count > 1}
+        # if dup_counts:
+        #     logger.debug( 
+        #         "Variables with multiple OMOP alignments in %s (expected for composite-coded vars): %s",
+        #         collection.study,
+        #                     dup_counts,
+        #     )
         if not var_names:
             return
+
 
         profiles_df = VariableProfile.fetch_profiles(var_names, collection.study, graph_repo)
         if profiles_df.empty:
