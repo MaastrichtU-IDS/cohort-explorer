@@ -62,6 +62,18 @@ a.link {
   overflow: hidden;
 }
 
+/* Staggered fade-in for variable cards on source-tab switch */
+@keyframes varFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .shimmer-effect::before {
   content: '';
   position: absolute;

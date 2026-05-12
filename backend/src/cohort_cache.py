@@ -331,6 +331,7 @@ def cohort_to_dict(cohort: Cohort) -> Dict[str, Any]:
             "mapped_label": variable.mapped_label,
             "omop_domain": variable.omop_domain,
             "source_name": variable.source_name,
+            "source_label": variable.source_label,
             "index": variable.index,
             "na": variable.na,
             "categories": []
@@ -1244,8 +1245,9 @@ def build_cohort_variables_from_csv(cohort_id: str, csv_path: str) -> bool:
                         )
                     )
 
-            # Extract optional SOURCENAME column for multi-source cohorts
+            # Extract optional SOURCENAME and SOURCE LABEL columns for multi-source cohorts
             source_name_val = _opt("SOURCENAME")
+            source_label_val = _opt("SOURCE LABEL")
 
             variable = CohortVariable(
                 var_name=var_name,
@@ -1267,6 +1269,7 @@ def build_cohort_variables_from_csv(cohort_id: str, csv_path: str) -> bool:
                 mapped_label=None,
                 omop_domain=_opt("DOMAIN"),
                 source_name=source_name_val,
+                source_label=source_label_val,
                 index=None,
                 na=na_val,
                 categories=categories,

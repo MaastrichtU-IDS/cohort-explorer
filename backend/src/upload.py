@@ -777,7 +777,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
         
         # Check for extra columns not in the approved list
         # SOURCENAME is an optional column for multi-source cohorts (not required, but allowed)
-        optional_cols_lower = {"sourcename"}
+        optional_cols_lower = {"sourcename", "source label"}
         extra_columns = []
         for col_name in df.columns:
             if col_name.lower() not in critical_cols_lower and col_name.lower() not in optional_cols_lower:

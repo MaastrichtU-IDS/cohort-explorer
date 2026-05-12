@@ -63,6 +63,7 @@ const VariablesList = ({
   const [openedModal, setOpenedModal] = useState('');
   const [openedGraphModal, setOpenedGraphModal] = useState<string | null>(null);
   const [activeSourceTab, setActiveSourceTab] = useState<string | null>(null);
+  const [isTabSwitching, setIsTabSwitching] = useState(false);
 
   // When concept is selected, insert the triples into the database
   const handleConceptSelect = (varId: any, concept: Concept, categoryId: any = null) => {
@@ -309,13 +310,31 @@ const VariablesList = ({
     searchMode
   ]);
 
-  // Helper: parse a variable's source_name into an array of capitalized source names
+  // Helper: parse a variable's source_name into an array of capitalized source keys
   const parseSources = (sourceName: string | null | undefined): string[] => {
     if (!sourceName) return [];
     return sourceName.split('|').map(s => s.trim().toUpperCase()).filter(Boolean);
   };
 
-  // Compute unique source names from the filtered variables (for multi-source cohorts)
+  // Build a map from source key (SOURCENAME, uppercased) → display label (SOURCE LABEL or fallback)
+  const sourceDisplayMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    filteredVars.forEach((variable: any) => {
+      const keys = parseSources(variable.source_name);
+      const labels = variable.source_label
+        ? variable.source_label.split('|').map((s: string) => s.trim()).filter(Boolean)
+        : [];
+      keys.forEach((key, idx) => {
+        if (!map[key]) {
+          // Use source_label at same pipe-index if available, otherwise fall back to key
+          map[key] = labels[idx] || key;
+        }
+      });
+    });
+    return map;
+  }, [filteredVars]);
+
+  // Compute unique source keys from the filtered variables (for multi-source cohorts)
   const sourceTabs = useMemo(() => {
     const sources = new Set<string>();
     filteredVars.forEach((variable: any) => {
@@ -332,6 +351,16 @@ const VariablesList = ({
     if (!activeSourceTab || activeSourceTab === '__all__') return filteredVars;
     return filteredVars.filter((v: any) => parseSources(v.source_name).includes(activeSourceTab));
   }, [filteredVars, sourceTabs, activeSourceTab]);
+
+  // Handle tab switching with animation
+  const handleSourceTabClick = (tab: string) => {
+    if (tab === activeSourceTab || (tab === '__all__' && (!activeSourceTab || activeSourceTab === '__all__'))) return;
+    setIsTabSwitching(true);
+    setTimeout(() => {
+      setActiveSourceTab(tab);
+      setIsTabSwitching(false);
+    }, 250);
+  };
 
   // Report variable counts to parent - only when they actually change
   useEffect(() => {
@@ -499,40 +528,66 @@ const VariablesList = ({
 
       {/* List of variables */}
       <div className="flex flex-col">
-        {/* Source tabs for multi-source cohorts */}
+        {/* Source tabs for multi-source cohorts — paper-folder style */}
         {sourceTabs.length > 0 && (
-          <div className="mb-4">
-            <div className="flex items-center gap-3 mb-1">
-              <span className="font-semibold text-sm text-base-content/70">Sources:</span>
-            </div>
-            <div className="tabs tabs-lifted tabs-lg">
+          <div className="mb-0">
+            <div className="flex items-end" style={{ position: 'relative' }}>
+              {/* ALL tab — subtle/faded distinction */}
               <button
-                className={`tab tab-lg font-medium ${!activeSourceTab || activeSourceTab === '__all__' ? 'tab-active [--tab-bg:var(--b1)] [--tab-border-color:var(--b3)]' : ''}`}
-                onClick={() => setActiveSourceTab('__all__')}
+                className="relative px-5 py-2 text-sm font-medium rounded-t-lg border border-b-0 transition-all duration-200"
+                style={{
+                  zIndex: !activeSourceTab || activeSourceTab === '__all__' ? sourceTabs.length + 2 : 0,
+                  backgroundColor: !activeSourceTab || activeSourceTab === '__all__' ? 'oklch(var(--b1))' : 'oklch(var(--b2) / 0.5)',
+                  borderColor: !activeSourceTab || activeSourceTab === '__all__' ? 'oklch(var(--bc) / 0.3)' : 'oklch(var(--bc) / 0.12)',
+                  color: !activeSourceTab || activeSourceTab === '__all__' ? 'oklch(var(--bc) / 0.55)' : 'oklch(var(--bc) / 0.3)',
+                  marginRight: '-8px',
+                  marginBottom: !activeSourceTab || activeSourceTab === '__all__' ? '0px' : '2px',
+                  borderBottomWidth: !activeSourceTab || activeSourceTab === '__all__' ? '0' : '1px',
+                  fontStyle: 'italic',
+                  letterSpacing: '0.03em',
+                }}
+                onClick={() => handleSourceTabClick('__all__')}
               >
                 All
-                <span className="badge badge-sm ml-2">
-                  {filteredVars.length}
-                </span>
+                <span className="badge badge-xs ml-1.5 opacity-60">{filteredVars.length}</span>
               </button>
-              {sourceTabs.map((source) => (
-                <button
-                  key={source}
-                  className={`tab tab-lg font-medium ${activeSourceTab === source ? 'tab-active [--tab-bg:var(--b1)] [--tab-border-color:var(--b3)]' : ''}`}
-                  onClick={() => setActiveSourceTab(source)}
-                >
-                  {source}
-                  <span className="badge badge-sm ml-2">
-                    {filteredVars.filter((v: any) => parseSources(v.source_name).includes(source)).length}
-                  </span>
-                </button>
-              ))}
+              {/* Source tabs — overlapping paper-folder style */}
+              {sourceTabs.map((source, idx) => {
+                const isActive = activeSourceTab === source;
+                const count = filteredVars.filter((v: any) => parseSources(v.source_name).includes(source)).length;
+                return (
+                  <button
+                    key={source}
+                    className="relative px-5 py-2.5 text-sm font-semibold rounded-t-lg border border-b-0 transition-all duration-200"
+                    style={{
+                      zIndex: isActive ? sourceTabs.length + 1 : sourceTabs.length - idx,
+                      backgroundColor: isActive ? 'oklch(var(--b1))' : 'oklch(var(--b2) / 0.7)',
+                      borderColor: isActive ? 'oklch(var(--bc) / 0.3)' : 'oklch(var(--bc) / 0.12)',
+                      color: isActive ? 'oklch(var(--bc))' : 'oklch(var(--bc) / 0.5)',
+                      marginRight: '-8px',
+                      marginBottom: isActive ? '0px' : '2px',
+                      boxShadow: isActive ? '2px -2px 4px oklch(var(--bc) / 0.08)' : 'none',
+                    }}
+                    onClick={() => handleSourceTabClick(source)}
+                  >
+                    {sourceDisplayMap[source] || source}
+                    <span className={`badge badge-xs ml-1.5 ${isActive ? '' : 'opacity-50'}`}>{count}</span>
+                  </button>
+                );
+              })}
             </div>
+            {/* Bottom border line that sits behind the active tab */}
+            <div style={{ borderTop: '1px solid oklch(var(--bc) / 0.3)', marginTop: '-1px' }} />
           </div>
         )}
-        <div className="space-y-2">
-          {displayedVars?.map((variable: any) => (
-            <div key={variable.var_name} className="card card-compact card-bordered bg-base-100 shadow-xl">
+        <div className={`space-y-2 transition-opacity duration-200 ${isTabSwitching ? 'opacity-0' : 'opacity-100'}`}>
+          {displayedVars?.map((variable: any, varIdx: number) => (
+            <div
+              key={variable.var_name}
+              className="card card-compact card-bordered bg-base-100 shadow-xl"
+              style={{
+                animation: !isTabSwitching ? `varFadeIn 0.3s ease-out ${varIdx * 0.03}s both` : 'none',
+              }}>
               <div className="card-body">
                 <div className="flex justify-between">
                   <div className="flex flex-wrap items-center space-x-3">
