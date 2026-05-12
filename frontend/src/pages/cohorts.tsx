@@ -13,6 +13,7 @@ import AgeRangeWhisker from '@/components/AgeRangeWhisker';
 import {Users} from 'react-feather';
 import {parseSearchQuery, searchInObject, highlightSearchTerms} from '@/utils/search';
 import {apiUrl} from '@/utils';
+import EdaDashboard from '@/components/eda/EdaDashboard';
 
 // Helper component to render highlighted text
 const HighlightedText = ({text, searchTerms, searchMode}: {text: string, searchTerms: string[], searchMode?: 'or' | 'and' | 'exact'}) => {
@@ -448,8 +449,10 @@ export default function CohortsList() {
   const [expandedCohorts, setExpandedCohorts] = useState<{[key: string]: boolean}>({});
   // State to track which cohorts have collapsed metadata
   const [collapsedMetadata, setCollapsedMetadata] = useState<{[key: string]: boolean}>({});
-  // State to track active sub-tab for each cohort ('metadata' | 'graphs' | 'list')
-  const [activeSubTab, setActiveSubTab] = useState<{[key: string]: 'metadata' | 'graphs' | 'list'}>({});
+  // State to track active sub-tab for each cohort ('metadata' | 'graphs' | 'list' | 'eda')
+  const [activeSubTab, setActiveSubTab] = useState<{[key: string]: 'metadata' | 'graphs' | 'list' | 'eda'}>({});
+  // State to track which cohorts have EDA data available
+  const [edaAvailability, setEdaAvailability] = useState<{[key: string]: boolean}>({});
   // State to track shimmer effect for each cohort
   const [shimmerActive, setShimmerActive] = useState<{[key: string]: boolean}>({});
   // Search configuration states
@@ -653,43 +656,44 @@ export default function CohortsList() {
     }));
   };
 
-  // Check for analysis folder availability when cohorts data changes
+  // Check for analysis folder and EDA data availability when cohorts data changes
   useEffect(() => {
     let isMounted = true;
     const abortController = new AbortController();
     
-    const checkAnalysisAvailability = async () => {
-      const availability: Record<string, boolean> = {};
+    const checkAvailability = async () => {
+      const analysisAvail: Record<string, boolean> = {};
+      const edaAvail: Record<string, boolean> = {};
       
       // Only proceed if we have cohorts data
       if (!cohortsData || Object.keys(cohortsData).length === 0) return;
       
-      // Check each cohort for analysis folder availability
+      // Check each cohort for analysis folder and EDA availability
       for (const cohortId of Object.keys(cohortsData)) {
-        if (!isMounted) break; // Stop if component unmounted
+        if (!isMounted) break;
         
         try {
-          const response = await fetch(`/api/check-analysis-folder/${cohortId}`, {
-            signal: abortController.signal
-          });
-          const data = await response.json();
-          availability[cohortId] = data.exists;
+          const [analysisRes, edaRes] = await Promise.all([
+            fetch(`/api/check-analysis-folder/${cohortId}`, { signal: abortController.signal }),
+            fetch(`/api/cohort-eda-output/${encodeURIComponent(cohortId)}`, { signal: abortController.signal, method: 'HEAD' }).catch(() => null),
+          ]);
+          const analysisData = await analysisRes.json();
+          analysisAvail[cohortId] = analysisData.exists;
+          edaAvail[cohortId] = edaRes ? edaRes.ok : false;
         } catch (error: any) {
-          if (error.name === 'AbortError') {
-            console.log('Analysis check aborted');
-            break;
-          }
-          console.error(`Error checking analysis for cohort ${cohortId}:`, error);
-          availability[cohortId] = false;
+          if (error.name === 'AbortError') break;
+          analysisAvail[cohortId] = false;
+          edaAvail[cohortId] = false;
         }
       }
       
       if (isMounted) {
-        setAnalysisAvailability(availability);
+        setAnalysisAvailability(analysisAvail);
+        setEdaAvailability(edaAvail);
       }
     };
     
-    checkAnalysisAvailability();
+    checkAvailability();
     
     return () => {
       isMounted = false;
@@ -1093,6 +1097,11 @@ export default function CohortsList() {
                       aggregate analysis added
                     </span>
                   )}
+                  {edaAvailability[cohortData.cohort_id] && (
+                    <span className="badge mx-1" style={{ backgroundColor: '#dcfce7', color: '#166534', border: '1px solid #bbf7d0' }}>
+                      EDA available
+                    </span>
+                  )}
                   {/* Removed start date - end date tag as it's shown in the More Details section */}
                   {/* Removed contact email tags as they're shown in the More Details section */}
                 </div>
@@ -1147,6 +1156,22 @@ export default function CohortsList() {
                       >
                         Variables List
                       </button>
+                      {edaAvailability[cohortData.cohort_id] && (
+                        <button 
+                          onClick={(e: React.MouseEvent) => {
+                            e.stopPropagation();
+                            setActiveSubTab(prev => ({...prev, [cohortData.cohort_id]: 'eda'}));
+                          }} 
+                          className={`btn btn-lg rounded-full ${
+                            activeSubTab[cohortData.cohort_id] === 'eda'
+                              ? 'bg-black text-white hover:bg-gray-800' 
+                              : 'btn-outline btn-neutral text-black hover:bg-gray-100'
+                          } ${shimmerActive[cohortData.cohort_id] ? 'shimmer-effect' : ''}`}
+                          style={{ minWidth: '200px' }}
+                        >
+                          EDA Insights
+                        </button>
+                      )}
                     </div>
                     
                     {/* Action buttons - below the sub-tabs */}
@@ -1662,6 +1687,11 @@ export default function CohortsList() {
                     onResetFilters={() => resetCohortFilters(cohortData.cohort_id)}
                     onCloseCohort={() => setExpandedCohorts(prev => ({...prev, [cohortData.cohort_id]: false}))}
                   />
+                )}
+                
+                {/* EDA Insights Tab Content */}
+                {activeSubTab[cohortData.cohort_id] === 'eda' && (
+                  <EdaDashboard cohortId={cohortData.cohort_id} />
                 )}
               </div>
             </div>
