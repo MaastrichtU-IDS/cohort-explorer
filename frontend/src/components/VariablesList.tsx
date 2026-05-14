@@ -757,16 +757,6 @@ const VariablesList = ({
 
 
                
-                {/* Graph modal - now using the separate component */}
-                <VariableGraphModal
-                  isOpen={openedGraphModal === variable.var_name}
-                  cohortId={cohortId}
-                  variableName={variable.var_name}
-                  variableLabel={variable.var_label}
-                  omopId={variable.omop_id}
-                  conceptCode={variable.concept_code}
-                  onClose={handleCloseGraphModal}
-                />
                 {/* <div className='flex-grow'/>
                   <AutocompleteConcept
                     query={variable.var_label}
@@ -780,6 +770,22 @@ const VariablesList = ({
           ))}
         </div>
       </div>
+      {/* Graph modal - rendered outside the card loop so it's not clipped */}
+      {openedGraphModal && (() => {
+        const variable = displayedVars.find((v: any) => v.var_name === openedGraphModal);
+        if (!variable) return null;
+        return (
+          <VariableGraphModal
+            isOpen={true}
+            cohortId={cohortId}
+            variableName={variable.var_name}
+            variableLabel={variable.var_label}
+            omopId={variable.omop_id}
+            conceptCode={variable.concept_code}
+            onClose={handleCloseGraphModal}
+          />
+        );
+      })()}
     </main>
   );
 };

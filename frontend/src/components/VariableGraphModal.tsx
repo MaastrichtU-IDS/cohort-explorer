@@ -35,9 +35,9 @@ const VariableGraphModal: React.FC<VariableGraphModalProps> = ({
 
   return (
     <div className="modal modal-open">
-      <div className="modal-box space-y-2 max-w-6xl max-h-[90vh] overflow-y-auto">
+      <div className="modal-box space-y-2 max-w-5xl">
         {/* Add a header with the close button */}
-        <div className="flex justify-between items-center sticky top-0 bg-base-100 z-10 pb-2">
+        <div className="flex justify-between items-center">
           <h3 className="font-bold text-lg">{variableLabel || variableName} Distribution</h3>
           <button 
             onClick={onClose}
@@ -48,7 +48,7 @@ const VariableGraphModal: React.FC<VariableGraphModalProps> = ({
           </button>
         </div>
         
-        <div className="flex justify-center items-center min-h-[400px]">
+        <div className="flex justify-center items-center min-h-[200px]">
           {isPatientIdVariable ? (
             <div className="text-center p-4">
               <p>This is the patient ID variable, and is not included in the visualization.</p>
@@ -66,7 +66,7 @@ const VariableGraphModal: React.FC<VariableGraphModalProps> = ({
                   key={`${cohortId}-${variableName}`}
                   src={imageUrl}
                   alt={`${variableName} distribution graph`}
-                  className={`max-w-full h-auto transition-opacity duration-300 ${
+                  className={`max-w-full transition-opacity duration-300 ${
                     imageState === 'loaded' ? 'opacity-100' : 'opacity-0'
                   }`}
                   onError={() => setImageState('error')}
