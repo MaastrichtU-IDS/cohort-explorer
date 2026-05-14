@@ -15,7 +15,7 @@ interface EdaDashboardProps {
   cohortId: string;
 }
 
-type EdaSection = 'overview' | 'numeric' | 'categorical' | 'quality' | 'timepoints' | 'longitudinal' | 'table' | 'outliers';
+type EdaSection = 'overview' | 'numeric' | 'categorical' | 'quality' | 'timepoints' | 'longitudinal' | 'longOutliersZ' | 'longOutliersIqr' | 'longIqr' | 'table' | 'outliers';
 
 const SECTIONS: { key: EdaSection; label: string; icon: string }[] = [
   { key: 'overview', label: 'Overview', icon: '📊' },
@@ -23,7 +23,10 @@ const SECTIONS: { key: EdaSection; label: string; icon: string }[] = [
   { key: 'categorical', label: 'Categorical Distributions', icon: '📉' },
   { key: 'quality', label: 'Data Quality Matrix', icon: '🔍' },
   { key: 'timepoints', label: 'Time-Point Comparison', icon: '⏱️' },
-  { key: 'longitudinal', label: 'Longitudinal Ranking', icon: '📐' },
+  { key: 'longitudinal', label: 'Δ Mean Ranking', icon: '📐' },
+  { key: 'longOutliersZ', label: 'Δ Outliers (Z)', icon: '📉' },
+  { key: 'longOutliersIqr', label: 'Δ Outliers (IQR)', icon: '📉' },
+  { key: 'longIqr', label: 'Δ IQR Ranking', icon: '�' },
   { key: 'outliers', label: 'Outlier Analysis', icon: '🎯' },
   { key: 'table', label: 'Statistics Table', icon: '📋' },
 ];
@@ -129,6 +132,9 @@ const EdaDashboard: React.FC<EdaDashboardProps> = ({ cohortId }) => {
           if (key === 'categorical' && categoricalVars.length === 0) return null;
           if (key === 'timepoints' && timePointGroups.length === 0) return null;
           if (key === 'longitudinal' && timePointGroups.length === 0) return null;
+          if (key === 'longOutliersZ' && timePointGroups.length === 0) return null;
+          if (key === 'longOutliersIqr' && timePointGroups.length === 0) return null;
+          if (key === 'longIqr' && timePointGroups.length === 0) return null;
           if (key === 'outliers' && numericVars.length === 0) return null;
           return (
             <button
@@ -160,7 +166,16 @@ const EdaDashboard: React.FC<EdaDashboardProps> = ({ cohortId }) => {
           <EdaTimePointComparison groups={timePointGroups} onVariableClick={setSelectedVariable} />
         )}
         {activeSection === 'longitudinal' && (
-          <EdaLongitudinalRanking groups={timePointGroups} onVariableClick={setSelectedVariable} />
+          <EdaLongitudinalRanking groups={timePointGroups} onVariableClick={setSelectedVariable} metric="mean" />
+        )}
+        {activeSection === 'longOutliersZ' && (
+          <EdaLongitudinalRanking groups={timePointGroups} onVariableClick={setSelectedVariable} metric="outliersZ" />
+        )}
+        {activeSection === 'longOutliersIqr' && (
+          <EdaLongitudinalRanking groups={timePointGroups} onVariableClick={setSelectedVariable} metric="outliersIqr" />
+        )}
+        {activeSection === 'longIqr' && (
+          <EdaLongitudinalRanking groups={timePointGroups} onVariableClick={setSelectedVariable} metric="iqr" />
         )}
         {activeSection === 'outliers' && (
           <EdaOutlierAnalysis variables={numericVars} onVariableClick={setSelectedVariable} />

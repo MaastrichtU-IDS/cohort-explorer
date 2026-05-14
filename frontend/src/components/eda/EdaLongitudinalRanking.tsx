@@ -2,28 +2,63 @@ import React, { useMemo, useState } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { TimePointGroup, EdaVariable, completenessScore } from '@/utils/edaParsing';
 
+export type RankingMetric = 'mean' | 'outliersZ' | 'outliersIqr' | 'iqr';
+
 interface Props {
   groups: TimePointGroup[];
   onVariableClick: (v: EdaVariable) => void;
+  metric: RankingMetric;
 }
 
 interface RankedGroup {
   baseName: string;
   label: string;
-  baselineMean: number;
-  latestMean: number;
+  baselineValue: number;
+  latestValue: number;
   absoluteChange: number;
   percentChange: number;
   baselineVisit: string;
   latestVisit: string;
   timePoints: number;
   units?: string;
-  allMeans: { visit: string; mean: number; sortOrder: number }[];
+  allValues: { visit: string; value: number; sortOrder: number }[];
   variables: { visit: string; variable: EdaVariable }[];
 }
 
 type SortKey = 'absChange' | 'pctChange' | 'name' | 'timePoints';
 type ViewMode = 'table' | 'heatmap';
+
+const METRIC_CONFIG: Record<RankingMetric, {
+  title: string;
+  description: string;
+  valueLabel: string;
+  extractor: (v: EdaVariable) => number | undefined;
+}> = {
+  mean: {
+    title: 'Rank Longitudinal Variables by Change in Mean',
+    description: 'ranked by absolute change in mean from baseline to latest measurement.',
+    valueLabel: 'Mean',
+    extractor: v => v.mean,
+  },
+  outliersZ: {
+    title: 'Rank Longitudinal Variables by Change in Outliers (Z-Score)',
+    description: 'ranked by absolute change in Z-score outlier count from baseline to latest.',
+    valueLabel: 'Outliers (Z)',
+    extractor: v => v.outliersZ,
+  },
+  outliersIqr: {
+    title: 'Rank Longitudinal Variables by Change in Outliers (IQR)',
+    description: 'ranked by absolute change in IQR outlier count from baseline to latest.',
+    valueLabel: 'Outliers (IQR)',
+    extractor: v => v.outliersIqr,
+  },
+  iqr: {
+    title: 'Rank Longitudinal Variables by Change in IQR',
+    description: 'ranked by absolute change in interquartile range from baseline to latest.',
+    valueLabel: 'IQR',
+    extractor: v => v.iqr,
+  },
+};
 
 /** Extract a numeric sort order from a visit label like "month 12", "month 0/ baseline", "prior baseline", etc. */
 function visitSortOrder(visit: string): number {
@@ -36,48 +71,49 @@ function visitSortOrder(visit: string): number {
   return 5000; // unknown — sort near the end
 }
 
-const EdaLongitudinalRanking: React.FC<Props> = ({ groups, onVariableClick }) => {
+const EdaLongitudinalRanking: React.FC<Props> = ({ groups, onVariableClick, metric }) => {
   const [viewMode, setViewMode] = useState<ViewMode>('table');
   const [sortKey, setSortKey] = useState<SortKey>('absChange');
   const [searchFilter, setSearchFilter] = useState('');
   const [expandedGroup, setExpandedGroup] = useState<RankedGroup | null>(null);
 
-  // Compute ranked groups — only numeric groups with mean data at 2+ time points
+  const config = METRIC_CONFIG[metric];
+
+  // Compute ranked groups — only numeric groups with the metric available at 2+ time points
   const ranked: RankedGroup[] = useMemo(() => {
     return groups
       .map(g => {
-        // Only keep members with a defined mean
-        const withMean = g.variables.filter(m => m.variable.mean !== undefined && m.variable.type === 'numeric');
-        if (withMean.length < 2) return null;
+        const withValue = g.variables.filter(m => config.extractor(m.variable) !== undefined && m.variable.type === 'numeric');
+        if (withValue.length < 2) return null;
 
         // Sort members by visit time (numeric extraction)
-        const sorted = [...withMean].sort((a, b) => visitSortOrder(a.visit) - visitSortOrder(b.visit));
+        const sorted = [...withValue].sort((a, b) => visitSortOrder(a.visit) - visitSortOrder(b.visit));
 
-        const allMeans = sorted.map(m => ({ visit: m.visit, mean: m.variable.mean!, sortOrder: visitSortOrder(m.visit) }));
+        const allValues = sorted.map(m => ({ visit: m.visit, value: config.extractor(m.variable)!, sortOrder: visitSortOrder(m.visit) }));
         const baseline = sorted[0];
         const latest = sorted[sorted.length - 1];
-        const baselineMean = baseline.variable.mean!;
-        const latestMean = latest.variable.mean!;
-        const absoluteChange = latestMean - baselineMean;
-        const percentChange = baselineMean !== 0 ? ((latestMean - baselineMean) / Math.abs(baselineMean)) * 100 : 0;
+        const baselineValue = config.extractor(baseline.variable)!;
+        const latestValue = config.extractor(latest.variable)!;
+        const absoluteChange = latestValue - baselineValue;
+        const percentChange = baselineValue !== 0 ? ((latestValue - baselineValue) / Math.abs(baselineValue)) * 100 : 0;
 
         return {
           baseName: g.baseName,
           label: g.label,
-          baselineMean,
-          latestMean,
+          baselineValue,
+          latestValue,
           absoluteChange,
           percentChange,
           baselineVisit: baseline.visit,
           latestVisit: latest.visit,
           timePoints: sorted.length,
           units: baseline.variable.units,
-          allMeans,
+          allValues,
           variables: sorted,
         } as RankedGroup;
       })
       .filter((g): g is RankedGroup => g !== null);
-  }, [groups]);
+  }, [groups, config]);
 
   // Filter and sort — always descending (biggest absolute changes first)
   const sorted = useMemo(() => {
@@ -96,7 +132,7 @@ const EdaLongitudinalRanking: React.FC<Props> = ({ groups, onVariableClick }) =>
       }
     });
     return list;
-  }, [ranked, searchFilter, sortKey]);
+  }, [ranked, searchFilter, sortKey, config]);
 
   // Heatmap option
   const heatmapOption = useMemo(() => {
@@ -105,7 +141,7 @@ const EdaLongitudinalRanking: React.FC<Props> = ({ groups, onVariableClick }) =>
     // Collect all unique visits and sort by numeric time
     const visitMap = new Map<string, number>();
     for (const g of sorted) {
-      for (const m of g.allMeans) {
+      for (const m of g.allValues) {
         if (!visitMap.has(m.visit)) {
           visitMap.set(m.visit, m.sortOrder);
         }
@@ -121,14 +157,14 @@ const EdaLongitudinalRanking: React.FC<Props> = ({ groups, onVariableClick }) =>
 
     for (let gi = 0; gi < sorted.length; gi++) {
       const g = sorted[gi];
-      const baseline = g.allMeans[0].mean;
+      const baseline = g.allValues[0].value;
       for (let vi = 0; vi < allVisits.length; vi++) {
-        const entry = g.allMeans.find(m => m.visit === allVisits[vi]);
+        const entry = g.allValues.find(m => m.visit === allVisits[vi]);
         if (entry && baseline !== 0) {
-          const pctFromBaseline = ((entry.mean - baseline) / Math.abs(baseline)) * 100;
+          const pctFromBaseline = ((entry.value - baseline) / Math.abs(baseline)) * 100;
           heatData.push([vi, gi, parseFloat(pctFromBaseline.toFixed(2))]);
         } else if (entry) {
-          heatData.push([vi, gi, parseFloat((entry.mean - baseline).toFixed(2))]);
+          heatData.push([vi, gi, parseFloat((entry.value - baseline).toFixed(2))]);
         } else {
           heatData.push([vi, gi, null]);
         }
@@ -143,10 +179,10 @@ const EdaLongitudinalRanking: React.FC<Props> = ({ groups, onVariableClick }) =>
           const g = sorted[p.data[1]];
           const visit = allVisits[p.data[0]];
           const val = p.data[2];
-          const entry = g.allMeans.find(m => m.visit === visit);
+          const entry = g.allValues.find(m => m.visit === visit);
           return `<strong>${g.baseName}</strong><br/>${g.label}<br/>` +
             `Visit: ${visit}<br/>` +
-            `Mean: ${entry?.mean.toFixed(2) ?? 'N/A'}${g.units ? ' ' + g.units : ''}<br/>` +
+            `${config.valueLabel}: ${entry?.value.toFixed(2) ?? 'N/A'}${g.units ? ' ' + g.units : ''}<br/>` +
             `Change from baseline: ${val !== null ? val.toFixed(2) + '%' : 'N/A'}`;
         },
       },
@@ -188,12 +224,12 @@ const EdaLongitudinalRanking: React.FC<Props> = ({ groups, onVariableClick }) =>
         },
       }],
     };
-  }, [sorted]);
+  }, [sorted, config]);
 
   if (ranked.length === 0) {
     return (
       <div className="alert alert-info max-w-xl mx-auto my-8">
-        <span>No longitudinal variable groups with numeric mean data found at 2+ time points.</span>
+        <span>No longitudinal variable groups with {config.valueLabel.toLowerCase()} data found at 2+ time points.</span>
       </div>
     );
   }
@@ -202,9 +238,9 @@ const EdaLongitudinalRanking: React.FC<Props> = ({ groups, onVariableClick }) =>
     <div className="space-y-4">
       {/* Header */}
       <div className="text-center">
-        <h2 className="text-lg font-bold">Rank Longitudinal Variables by Change in Mean</h2>
+        <h2 className="text-lg font-bold">{config.title}</h2>
         <p className="text-sm text-gray-500 mt-1">
-          {ranked.length} variable groups measured across multiple time points, ranked by absolute change from baseline to latest measurement.
+          {ranked.length} variable groups measured across multiple time points, {config.description}
         </p>
       </div>
 
@@ -266,8 +302,8 @@ const EdaLongitudinalRanking: React.FC<Props> = ({ groups, onVariableClick }) =>
                   <th className="cursor-pointer select-none" onClick={() => setSortKey('timePoints')}>
                     Points {sortKey === 'timePoints' ? '▼' : ''}
                   </th>
-                  <th>Baseline Mean</th>
-                  <th>Latest Mean</th>
+                  <th>Baseline {config.valueLabel}</th>
+                  <th>Latest {config.valueLabel}</th>
                   <th className="cursor-pointer select-none" onClick={() => setSortKey('absChange')}>
                     Abs Change {sortKey === 'absChange' ? '▼' : ''}
                   </th>
@@ -290,11 +326,11 @@ const EdaLongitudinalRanking: React.FC<Props> = ({ groups, onVariableClick }) =>
                     <td className="text-xs">{g.units || '—'}</td>
                     <td className="text-center">{g.timePoints}</td>
                     <td className="text-xs">
-                      {g.baselineMean.toFixed(2)}
+                      {g.baselineValue.toFixed(2)}
                       <span className="text-gray-400 text-[10px] ml-1">({g.baselineVisit})</span>
                     </td>
                     <td className="text-xs">
-                      {g.latestMean.toFixed(2)}
+                      {g.latestValue.toFixed(2)}
                       <span className="text-gray-400 text-[10px] ml-1">({g.latestVisit})</span>
                     </td>
                     <td className={`font-medium ${g.absoluteChange > 0 ? 'text-red-500' : g.absoluteChange < 0 ? 'text-blue-500' : ''}`}>
@@ -306,11 +342,11 @@ const EdaLongitudinalRanking: React.FC<Props> = ({ groups, onVariableClick }) =>
                     <td>
                       {/* Mini sparkline showing mean trajectory */}
                       <div className="flex items-end gap-[2px] h-5">
-                        {g.allMeans.map((m, mi) => {
-                          const minM = Math.min(...g.allMeans.map(x => x.mean));
-                          const maxM = Math.max(...g.allMeans.map(x => x.mean));
+                        {g.allValues.map((m, mi) => {
+                          const minM = Math.min(...g.allValues.map(x => x.value));
+                          const maxM = Math.max(...g.allValues.map(x => x.value));
                           const range = maxM - minM || 1;
-                          const h = ((m.mean - minM) / range) * 16 + 4;
+                          const h = ((m.value - minM) / range) * 16 + 4;
                           return (
                             <div
                               key={mi}
@@ -318,9 +354,9 @@ const EdaLongitudinalRanking: React.FC<Props> = ({ groups, onVariableClick }) =>
                               style={{
                                 width: 4,
                                 height: h,
-                                backgroundColor: mi === 0 ? '#3b82f6' : mi === g.allMeans.length - 1 ? (g.absoluteChange > 0 ? '#ef4444' : '#10b981') : '#94a3b8',
+                                backgroundColor: mi === 0 ? '#3b82f6' : mi === g.allValues.length - 1 ? (g.absoluteChange > 0 ? '#ef4444' : '#10b981') : '#94a3b8',
                               }}
-                              title={`${m.visit}: ${m.mean.toFixed(2)}`}
+                              title={`${m.visit}: ${m.value.toFixed(2)}`}
                             />
                           );
                         })}
