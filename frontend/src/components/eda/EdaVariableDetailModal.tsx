@@ -11,91 +11,110 @@ interface Props {
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316'];
 
 const EdaVariableDetailModal: React.FC<Props> = ({ variable: v, onClose, cohortId }) => {
-  const [showImage, setShowImage] = useState(false);
   const [imageState, setImageState] = useState<'loading' | 'loaded' | 'error'>('loading');
   const score = completenessScore(v);
 
-  // Main chart based on type
-  const mainChartOption = useMemo(() => {
-    if (v.type === 'numeric') {
-      // Gaussian approximation + box plot markers
-      const mean = v.mean ?? 0;
-      const sd = v.stdDev ?? 1;
-      const xMin = v.min ?? (mean - 3.5 * sd);
-      const xMax = v.max ?? (mean + 3.5 * sd);
-      const nPoints = 80;
-      const step = (xMax - xMin) / nPoints;
-      const curveData: [number, number][] = [];
-      for (let i = 0; i <= nPoints; i++) {
-        const x = xMin + i * step;
-        const y = Math.exp(-0.5 * Math.pow((x - mean) / sd, 2)) / (sd * Math.sqrt(2 * Math.PI));
-        curveData.push([x, y]);
-      }
+  // Box plot chart for numeric variables
+  const boxPlotOption = useMemo(() => {
+    if (v.type !== 'numeric') return null;
 
-      return {
-        tooltip: { trigger: 'axis' },
-        xAxis: { type: 'value', min: xMin, max: xMax },
-        yAxis: { type: 'value', show: false },
-        series: [
-          {
-            type: 'line',
-            data: curveData,
-            smooth: true,
-            areaStyle: { color: 'rgba(59, 130, 246, 0.15)' },
-            lineStyle: { color: '#3b82f6', width: 2.5 },
-            symbol: 'none',
-          },
-          {
-            type: 'line',
-            markLine: {
-              silent: true,
-              symbol: 'none',
-              data: [
-                { xAxis: v.median, lineStyle: { color: '#10b981', type: 'solid', width: 2.5 }, label: { formatter: `Median: ${v.median}`, fontSize: 11 } },
-                { xAxis: v.mean, lineStyle: { color: '#ef4444', type: 'dashed', width: 2 }, label: { formatter: `Mean: ${v.mean?.toFixed(2)}`, fontSize: 11 } },
-                { xAxis: v.q1, lineStyle: { color: '#94a3b8', type: 'dotted', width: 1.5 }, label: { formatter: `Q1: ${v.q1}`, fontSize: 10 } },
-                { xAxis: v.q3, lineStyle: { color: '#94a3b8', type: 'dotted', width: 1.5 }, label: { formatter: `Q3: ${v.q3}`, fontSize: 10 } },
-              ].filter(d => d.xAxis !== undefined),
-            },
-            data: [],
-          },
-        ],
-        grid: { left: 30, right: 30, top: 20, bottom: 30 },
-      };
-    }
+    const min = v.min ?? 0;
+    const q1 = v.q1 ?? 0;
+    const median = v.median ?? 0;
+    const q3 = v.q3 ?? 0;
+    const max = v.max ?? 0;
+    const mean = v.mean ?? 0;
+    const iqr = v.iqr ?? (q3 - q1);
 
-    if (v.type === 'categorical' && v.classBalance) {
-      const categories = v.classBalance;
-      return {
-        tooltip: {
-          trigger: 'axis',
-          axisPointer: { type: 'shadow' },
-          formatter: (params: any) => {
-            const p = params[0];
-            const cat = categories[p.dataIndex];
-            return `<strong>${cat.label}</strong><br/>${cat.count} observations (${cat.percentage.toFixed(1)}%)`;
-          },
+    // Whisker bounds (1.5 * IQR)
+    const lowerWhisker = Math.max(min, q1 - 1.5 * iqr);
+    const upperWhisker = Math.min(max, q3 + 1.5 * iqr);
+
+    // Outlier points (approximate: we know count but not exact values, so show min/max if outside whiskers)
+    const outlierPoints: number[][] = [];
+    if (min < lowerWhisker) outlierPoints.push([min, 0]);
+    if (max > upperWhisker) outlierPoints.push([max, 0]);
+
+    // Use x-tick range for axis if available
+    const xTickNums = v.xTicksNumeric ?? [];
+    const axisMin = xTickNums.length > 0 ? Math.min(...xTickNums) : Math.min(min, lowerWhisker) - (max - min) * 0.05;
+    const axisMax = xTickNums.length > 0 ? Math.max(...xTickNums) : Math.max(max, upperWhisker) + (max - min) * 0.05;
+
+    return {
+      tooltip: {
+        trigger: 'item',
+        formatter: () =>
+          `<strong>${v.name}</strong><br/>` +
+          `Min: ${min} &nbsp; Q1: ${q1}<br/>` +
+          `Median: <strong>${median}</strong> &nbsp; Mean: <strong>${mean.toFixed(2)}</strong><br/>` +
+          `Q3: ${q3} &nbsp; Max: ${max}<br/>` +
+          `IQR: ${iqr} &nbsp; Range: ${v.range}<br/>` +
+          `Std Dev: ${v.stdDev?.toFixed(2)} &nbsp; Skewness: ${v.skewness?.toFixed(2)}<br/>` +
+          (v.yTickMax ? `Peak histogram count: ~${v.yTickMax}` : ''),
+      },
+      xAxis: { type: 'value' as const, min: axisMin, max: axisMax, name: v.units || '', nameLocation: 'center' as const, nameGap: 25 },
+      yAxis: { type: 'category' as const, data: [''], axisLine: { show: false }, axisTick: { show: false }, axisLabel: { show: false } },
+      series: [
+        {
+          type: 'boxplot' as const,
+          data: [[lowerWhisker, q1, median, q3, upperWhisker]],
+          itemStyle: { color: '#dbeafe', borderColor: '#3b82f6', borderWidth: 2 },
+          boxWidth: ['40%', '40%'],
         },
-        xAxis: {
-          type: 'category',
-          data: categories.map(c => c.label),
-          axisLabel: { rotate: categories.length > 6 ? 45 : 0, fontSize: 11, interval: 0 },
+        // Mean marker
+        {
+          type: 'scatter' as const,
+          data: [[mean, 0]],
+          symbolSize: 12,
+          symbol: 'diamond',
+          itemStyle: { color: '#ef4444', borderColor: '#fff', borderWidth: 1 },
+          z: 10,
+          tooltip: { formatter: () => `Mean: ${mean.toFixed(2)}` },
         },
-        yAxis: { type: 'value', name: 'Count' },
-        series: [{
-          type: 'bar',
-          data: categories.map((c, i) => ({
-            value: c.count,
-            itemStyle: { color: COLORS[i % COLORS.length] },
-          })),
-          barMaxWidth: 60,
-          label: { show: true, position: 'top', fontSize: 10, formatter: (p: any) => `${categories[p.dataIndex].percentage.toFixed(1)}%` },
-        }],
-        grid: { left: 50, right: 20, top: 20, bottom: categories.some(c => c.label.length > 5) ? 80 : 40 },
-      };
-    }
+        // Outlier points
+        ...(outlierPoints.length > 0 ? [{
+          type: 'scatter' as const,
+          data: outlierPoints,
+          symbolSize: 8,
+          itemStyle: { color: '#f59e0b' },
+          tooltip: { formatter: (p: any) => `Outlier: ${p.data[0]}` },
+        }] : []),
+      ],
+      grid: { left: 20, right: 30, top: 15, bottom: 35 },
+    };
+  }, [v]);
 
-    return null;
+  // Bar chart for categorical variables
+  const categoricalChartOption = useMemo(() => {
+    if (v.type !== 'categorical' || !v.classBalance) return null;
+    const categories = v.classBalance;
+    return {
+      tooltip: {
+        trigger: 'axis' as const,
+        axisPointer: { type: 'shadow' as const },
+        formatter: (params: any) => {
+          const p = params[0];
+          const cat = categories[p.dataIndex];
+          return `<strong>${cat.label}</strong><br/>${cat.count} observations (${cat.percentage.toFixed(1)}%)`;
+        },
+      },
+      xAxis: {
+        type: 'category' as const,
+        data: categories.map(c => c.label),
+        axisLabel: { rotate: categories.length > 6 ? 45 : 0, fontSize: 11, interval: 0 },
+      },
+      yAxis: { type: 'value' as const, name: 'Count' },
+      series: [{
+        type: 'bar' as const,
+        data: categories.map((c, i) => ({
+          value: c.count,
+          itemStyle: { color: COLORS[i % COLORS.length] },
+        })),
+        barMaxWidth: 60,
+        label: { show: true, position: 'top' as const, fontSize: 10, formatter: (p: any) => `${categories[p.dataIndex].percentage.toFixed(1)}%` },
+      }],
+      grid: { left: 50, right: 20, top: 20, bottom: categories.some(c => c.label.length > 5) ? 80 : 40 },
+    };
   }, [v]);
 
   // Donut chart for completeness
@@ -146,39 +165,44 @@ const EdaVariableDetailModal: React.FC<Props> = ({ variable: v, onClose, cohortI
 
         {/* Main content: chart + stats side by side */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {/* Chart */}
-          <div className="lg:col-span-2">
-            {mainChartOption && (
+          {/* Charts */}
+          <div className="lg:col-span-2 space-y-3">
+            {/* Box plot for numeric */}
+            {boxPlotOption && (
               <div className="card bg-base-200 p-3">
-                <h3 className="font-semibold text-sm mb-2">
-                  {v.type === 'numeric' ? 'Distribution (Gaussian approximation)' : 'Category Distribution'}
-                </h3>
-                <ReactECharts option={mainChartOption} style={{ height: 280 }} />
+                <h3 className="font-semibold text-sm mb-1">Box Plot</h3>
+                <p className="text-xs text-gray-500 mb-1">
+                  Box = IQR (Q1–Q3), line = median, <span className="text-red-500">◆</span> = mean
+                  {v.outliersIqr ? `, ${v.outliersIqr} outliers (${v.outliersIqrPct?.toFixed(1)}%)` : ''}
+                  {v.yTickMax ? ` · Original histogram peak: ~${v.yTickMax} observations` : ''}
+                </p>
+                <ReactECharts option={boxPlotOption} style={{ height: 120 }} />
               </div>
             )}
 
-            {/* Original graph toggle */}
-            <div className="mt-3">
-              <button
-                className="btn btn-sm btn-outline"
-                onClick={() => { setShowImage(!showImage); setImageState('loading'); }}
-              >
-                {showImage ? 'Hide' : 'Show'} Original EDA Graph (PNG)
-              </button>
-              {showImage && (
-                <div className="mt-2 flex justify-center min-h-[100px] bg-white rounded-lg p-2">
-                  {imageState === 'loading' && <span className="loading loading-spinner loading-md"></span>}
-                  <img
-                    src={imageUrl}
-                    alt={`${v.name} EDA graph`}
-                    className={`max-w-full ${imageState === 'loaded' ? '' : 'hidden'}`}
-                    onLoad={() => setImageState('loaded')}
-                    onError={() => setImageState('error')}
-                    crossOrigin="use-credentials"
-                  />
-                  {imageState === 'error' && <p className="text-gray-500 text-sm">Original graph not available</p>}
-                </div>
-              )}
+            {/* Bar chart for categorical */}
+            {categoricalChartOption && (
+              <div className="card bg-base-200 p-3">
+                <h3 className="font-semibold text-sm mb-2">Category Distribution</h3>
+                <ReactECharts option={categoricalChartOption} style={{ height: 280 }} />
+              </div>
+            )}
+
+            {/* Original EDA graph — shown inline */}
+            <div className="card bg-base-200 p-3">
+              <h3 className="font-semibold text-sm mb-2">Original EDA Graph</h3>
+              <div className="flex justify-center min-h-[80px] bg-white rounded-lg p-2">
+                {imageState === 'loading' && <span className="loading loading-spinner loading-md"></span>}
+                <img
+                  src={imageUrl}
+                  alt={`${v.name} EDA graph`}
+                  className={`max-w-full ${imageState === 'loaded' ? '' : 'hidden'}`}
+                  onLoad={() => setImageState('loaded')}
+                  onError={() => setImageState('error')}
+                  crossOrigin="use-credentials"
+                />
+                {imageState === 'error' && <p className="text-gray-500 text-sm self-center">Original graph not available</p>}
+              </div>
             </div>
           </div>
 

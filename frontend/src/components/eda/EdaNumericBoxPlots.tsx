@@ -103,62 +103,66 @@ const EdaNumericBoxPlots: React.FC<Props> = ({ variables, onVariableClick }) => 
     };
   }, [pageVars, page, filtered.length]);
 
-  // Individual mini-charts for more detail
+  // Individual mini box plots for more detail
   const miniChartOptions = useMemo(() => {
     return pageVars.map(v => {
-      // Build a simplified histogram approximation from x-ticks / y-ticks
-      // We use a gaussian approximation centered on mean with stdDev
-      const nPoints = 50;
+      const min = v.min ?? 0;
+      const q1 = v.q1 ?? 0;
+      const median = v.median ?? 0;
+      const q3 = v.q3 ?? 0;
+      const max = v.max ?? 0;
       const mean = v.mean ?? 0;
-      const sd = v.stdDev ?? 1;
-      const xMin = v.min ?? (mean - 3 * sd);
-      const xMax = v.max ?? (mean + 3 * sd);
-      const step = (xMax - xMin) / nPoints;
-      const curveData: [number, number][] = [];
-      for (let i = 0; i <= nPoints; i++) {
-        const x = xMin + i * step;
-        const y = Math.exp(-0.5 * Math.pow((x - mean) / sd, 2)) / (sd * Math.sqrt(2 * Math.PI));
-        curveData.push([x, y]);
-      }
+      const iqr = v.iqr ?? (q3 - q1);
+      const lowerWhisker = Math.max(min, q1 - 1.5 * iqr);
+      const upperWhisker = Math.min(max, q3 + 1.5 * iqr);
+
+      const outlierPoints: number[][] = [];
+      if (min < lowerWhisker) outlierPoints.push([min, 0]);
+      if (max > upperWhisker) outlierPoints.push([max, 0]);
+
+      const xTickNums = v.xTicksNumeric ?? [];
+      const axisMin = xTickNums.length > 0 ? Math.min(...xTickNums) : min - (max - min) * 0.05;
+      const axisMax = xTickNums.length > 0 ? Math.max(...xTickNums) : max + (max - min) * 0.05;
 
       return {
         variable: v,
         option: {
-          tooltip: { trigger: 'axis' },
+          tooltip: {
+            trigger: 'item' as const,
+            formatter: () =>
+              `<strong>${v.name}</strong><br/>Min: ${min} · Q1: ${q1}<br/>Med: ${median} · Mean: ${mean.toFixed(1)}<br/>Q3: ${q3} · Max: ${max}`,
+          },
           xAxis: {
-            type: 'value',
-            min: xMin,
-            max: xMax,
-            axisLabel: { fontSize: 9 },
+            type: 'value' as const,
+            min: axisMin,
+            max: axisMax,
+            axisLabel: { fontSize: 8 },
             splitLine: { show: false },
           },
-          yAxis: { type: 'value', show: false },
+          yAxis: { type: 'category' as const, data: [''], show: false },
           series: [
             {
-              type: 'line',
-              data: curveData,
-              smooth: true,
-              areaStyle: { color: 'rgba(59, 130, 246, 0.15)' },
-              lineStyle: { color: '#3b82f6', width: 2 },
-              symbol: 'none',
+              type: 'boxplot' as const,
+              data: [[lowerWhisker, q1, median, q3, upperWhisker]],
+              itemStyle: { color: '#dbeafe', borderColor: '#3b82f6', borderWidth: 1.5 },
+              boxWidth: ['50%', '50%'],
             },
-            // Mark lines for key stats
             {
-              type: 'line',
-              markLine: {
-                silent: true,
-                symbol: 'none',
-                data: [
-                  { xAxis: v.median, lineStyle: { color: '#10b981', type: 'solid', width: 2 }, label: { formatter: 'Med', fontSize: 9 } },
-                  { xAxis: v.mean, lineStyle: { color: '#ef4444', type: 'dashed', width: 1.5 }, label: { formatter: 'Mean', fontSize: 9 } },
-                  ...(v.q1 !== undefined ? [{ xAxis: v.q1, lineStyle: { color: '#94a3b8', type: 'dotted', width: 1 }, label: { formatter: 'Q1', fontSize: 8 } }] : []),
-                  ...(v.q3 !== undefined ? [{ xAxis: v.q3, lineStyle: { color: '#94a3b8', type: 'dotted', width: 1 }, label: { formatter: 'Q3', fontSize: 8 } }] : []),
-                ],
-              },
-              data: [],
+              type: 'scatter' as const,
+              data: [[mean, 0]],
+              symbolSize: 8,
+              symbol: 'diamond',
+              itemStyle: { color: '#ef4444' },
+              z: 10,
             },
+            ...(outlierPoints.length > 0 ? [{
+              type: 'scatter' as const,
+              data: outlierPoints,
+              symbolSize: 5,
+              itemStyle: { color: '#f59e0b' },
+            }] : []),
           ],
-          grid: { left: 10, right: 10, top: 10, bottom: 20 },
+          grid: { left: 5, right: 5, top: 8, bottom: 18 },
         },
       };
     });
@@ -206,11 +210,11 @@ const EdaNumericBoxPlots: React.FC<Props> = ({ variables, onVariableClick }) => 
         </div>
       )}
 
-      {/* Mini distribution curves grid */}
+      {/* Mini box plots grid */}
       <div className="card bg-base-100 shadow-md p-4">
-        <h3 className="font-bold text-lg mb-3">Approximate Distribution Curves</h3>
+        <h3 className="font-bold text-lg mb-3">Individual Box Plots</h3>
         <p className="text-sm text-gray-500 mb-3">
-          Gaussian approximation based on mean and std dev. Green = median, Red dashed = mean, Gray dotted = Q1/Q3.
+          Box = IQR (Q1–Q3), line = median, <span className="text-red-500">◆</span> = mean, <span className="text-amber-500">●</span> = outliers (min/max beyond whiskers).
           Click for details.
         </p>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">

@@ -7,6 +7,7 @@ import EdaDataQualityMatrix from './EdaDataQualityMatrix';
 import EdaTimePointComparison from './EdaTimePointComparison';
 import EdaStatisticsTable from './EdaStatisticsTable';
 import EdaOutlierAnalysis from './EdaOutlierAnalysis';
+import EdaLongitudinalRanking from './EdaLongitudinalRanking';
 import EdaVariableDetailModal from './EdaVariableDetailModal';
 import { EdaVariable } from '@/utils/edaParsing';
 
@@ -14,7 +15,7 @@ interface EdaDashboardProps {
   cohortId: string;
 }
 
-type EdaSection = 'overview' | 'numeric' | 'categorical' | 'quality' | 'timepoints' | 'table' | 'outliers';
+type EdaSection = 'overview' | 'numeric' | 'categorical' | 'quality' | 'timepoints' | 'longitudinal' | 'table' | 'outliers';
 
 const SECTIONS: { key: EdaSection; label: string; icon: string }[] = [
   { key: 'overview', label: 'Overview', icon: '📊' },
@@ -22,6 +23,7 @@ const SECTIONS: { key: EdaSection; label: string; icon: string }[] = [
   { key: 'categorical', label: 'Categorical Distributions', icon: '📉' },
   { key: 'quality', label: 'Data Quality Matrix', icon: '🔍' },
   { key: 'timepoints', label: 'Time-Point Comparison', icon: '⏱️' },
+  { key: 'longitudinal', label: 'Longitudinal Ranking', icon: '📐' },
   { key: 'outliers', label: 'Outlier Analysis', icon: '🎯' },
   { key: 'table', label: 'Statistics Table', icon: '📋' },
 ];
@@ -114,7 +116,7 @@ const EdaDashboard: React.FC<EdaDashboardProps> = ({ cohortId }) => {
           </div>
         )}
         <div className="stat">
-          <div className="stat-title">Time-Point Groups</div>
+          <div className="stat-title">Longitudinal Variables</div>
           <div className="stat-value text-purple-500">{timePointGroups.length}</div>
         </div>
       </div>
@@ -126,6 +128,7 @@ const EdaDashboard: React.FC<EdaDashboardProps> = ({ cohortId }) => {
           if (key === 'numeric' && numericVars.length === 0) return null;
           if (key === 'categorical' && categoricalVars.length === 0) return null;
           if (key === 'timepoints' && timePointGroups.length === 0) return null;
+          if (key === 'longitudinal' && timePointGroups.length === 0) return null;
           if (key === 'outliers' && numericVars.length === 0) return null;
           return (
             <button
@@ -155,6 +158,9 @@ const EdaDashboard: React.FC<EdaDashboardProps> = ({ cohortId }) => {
         )}
         {activeSection === 'timepoints' && (
           <EdaTimePointComparison groups={timePointGroups} onVariableClick={setSelectedVariable} />
+        )}
+        {activeSection === 'longitudinal' && (
+          <EdaLongitudinalRanking groups={timePointGroups} onVariableClick={setSelectedVariable} />
         )}
         {activeSection === 'outliers' && (
           <EdaOutlierAnalysis variables={numericVars} onVariableClick={setSelectedVariable} />

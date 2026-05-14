@@ -63,7 +63,9 @@ export interface EdaVariable {
 
   // Tick data (parsed)
   xTicks?: string[];
+  xTicksNumeric?: number[];
   yTicks?: number[];
+  yTickMax?: number;
 
   // Graph URL
   graphUrl?: string;
@@ -218,7 +220,9 @@ export function parseEdaJson(raw: Record<string, any>): EdaData {
 
       graphUrl: entry['url'],
       xTicks: parseXTicks(entry['x-ticks']),
+      xTicksNumeric: parseXTicks(entry['x-ticks']).map(Number).filter(n => !isNaN(n)),
       yTicks: parseYTicks(entry['y-ticks']),
+      yTickMax: (() => { const yt = parseYTicks(entry['y-ticks']); return yt.length > 0 ? Math.max(...yt) : undefined; })(),
 
       raw: entry,
     };
