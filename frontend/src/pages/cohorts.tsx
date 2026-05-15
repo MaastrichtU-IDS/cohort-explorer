@@ -1156,7 +1156,7 @@ export default function CohortsList() {
                       >
                         Variables List
                       </button>
-                      {edaAvailability[cohortData.cohort_id] && ['TIME-CHF', 'AachenHF', 'GISSI-HF'].includes(cohortData.cohort_id) && (
+                      {edaAvailability[cohortData.cohort_id] && (
                         <button 
                           onClick={(e: React.MouseEvent) => {
                             e.stopPropagation();
