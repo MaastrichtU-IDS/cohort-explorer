@@ -1097,11 +1097,6 @@ export default function CohortsList() {
                       aggregate analysis added
                     </span>
                   )}
-                  {edaAvailability[cohortData.cohort_id] && (
-                    <span className="badge mx-1" style={{ backgroundColor: '#dcfce7', color: '#166534', border: '1px solid #bbf7d0' }}>
-                      EDA available
-                    </span>
-                  )}
                   {/* Removed start date - end date tag as it's shown in the More Details section */}
                   {/* Removed contact email tags as they're shown in the More Details section */}
                 </div>
@@ -1156,7 +1151,7 @@ export default function CohortsList() {
                       >
                         Variables List
                       </button>
-                      {edaAvailability[cohortData.cohort_id] && (
+                      {edaAvailability[cohortData.cohort_id] && ['Aachen-HF', 'LUPS', 'PNH-N1', 'TIME-CHF'].includes(cohortData.cohort_id) && (
                         <button 
                           onClick={(e: React.MouseEvent) => {
                             e.stopPropagation();

@@ -29,10 +29,10 @@ const LONGITUDINAL_SECTIONS = [
 ];
 
 const ALL_VARIABLES_SECTIONS = [
-  { key: 'skewnessIqr' as const, label: 'Skewness vs IQR', icon: '' },
+  { key: 'cvRank' as const, label: 'CV Ranking', icon: '' },
   { key: 'coverage' as const, label: 'Coverage Ranking', icon: '' },
   { key: 'outlierRank' as const, label: 'Outlier Ranking', icon: '' },
-  { key: 'cvRank' as const, label: 'CV Ranking', icon: '' },
+  { key: 'skewnessIqr' as const, label: 'Skewness vs IQR', icon: '' },
   { key: 'outliers' as const, label: 'Outlier Analysis', icon: '' },
   { key: 'table' as const, label: 'Statistics Table', icon: '' },
 ];
@@ -41,7 +41,7 @@ const EdaDashboard: React.FC<EdaDashboardProps> = ({ cohortId }) => {
   const [rawData, setRawData] = useState<Record<string, any> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeSection, setActiveSection] = useState<EdaSection>('skewnessIqr');
+  const [activeSection, setActiveSection] = useState<EdaSection>('cvRank');
   const [selectedVariable, setSelectedVariable] = useState<EdaVariable | null>(null);
 
   useEffect(() => {
@@ -150,21 +150,24 @@ const EdaDashboard: React.FC<EdaDashboardProps> = ({ cohortId }) => {
             );
           })}
         </div>
-        <div className="text-sm font-semibold text-gray-600">Longitudinal Variables</div>
-        <div className="tabs tabs-boxed bg-base-200 p-1 flex flex-wrap gap-1">
-          {LONGITUDINAL_SECTIONS.map(({ key, label, icon }) => {
-            if (timePointGroups.length === 0) return null;
-            return (
-              <button
-                key={key}
-                className={`tab tab-lg ${activeSection === key ? 'tab-active font-bold' : ''}`}
-                onClick={() => setActiveSection(key)}
-              >
-                {icon} {label}
-              </button>
-            );
-          })}
-        </div>
+        {timePointGroups.length > 2 && (
+          <>
+            <div className="text-sm font-semibold text-gray-600">Longitudinal Variables</div>
+            <div className="tabs tabs-boxed bg-base-200 p-1 flex flex-wrap gap-1">
+              {LONGITUDINAL_SECTIONS.map(({ key, label, icon }) => {
+                return (
+                  <button
+                    key={key}
+                    className={`tab tab-lg ${activeSection === key ? 'tab-active font-bold' : ''}`}
+                    onClick={() => setActiveSection(key)}
+                  >
+                    {icon} {label}
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        )}
       </div>
 
       {/* Section content */}
