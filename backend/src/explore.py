@@ -47,6 +47,19 @@ def get_cohorts_metadata(summary: bool = False, user: Any = Depends(get_current_
     return {**result, "userEmail": user_email}
 
 
+@router.head("/cohort-eda-output/{cohort_name}")
+async def head_cohort_eda_output(
+    cohort_name: str,
+    user: Any = Depends(get_current_user),
+):
+    """Quick check whether EDA output exists for a cohort (HEAD request)."""
+    dcr_output_dir = os.path.join(settings.data_folder, f"dcr_output_{cohort_name}")
+    eda_file_path = os.path.join(dcr_output_dir, f"eda_output_{cohort_name}.json")
+    if not os.path.exists(eda_file_path):
+        raise HTTPException(status_code=404, detail="Not found")
+    return {}
+
+
 @router.get("/cohort-eda-output/{cohort_name}")
 async def get_cohort_eda_output(
     cohort_name: str,
