@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import ReactECharts from 'echarts-for-react';
-import { TimePointGroup, EdaVariable, completenessScore } from '@/utils/edaParsing';
+import { EdaVariable, TimePointGroup, completenessScore } from '@/utils/edaParsing';
+import DomainFilterBar from './DomainFilterBar';
 
 export type RankingMetric = 'mean' | 'outliersZ' | 'outliersIqr' | 'iqr';
 
@@ -33,30 +34,35 @@ const METRIC_CONFIG: Record<RankingMetric, {
   description: string;
   valueLabel: string;
   extractor: (v: EdaVariable) => number | undefined;
+  showPctChange: boolean;
 }> = {
   mean: {
     title: 'Rank Longitudinal Variables by Change in Mean',
     description: 'ranked by absolute change in mean from baseline to latest measurement.',
     valueLabel: 'Mean',
     extractor: v => v.mean,
+    showPctChange: true,
   },
   outliersZ: {
     title: 'Rank Longitudinal Variables by Change in Outliers (Z-Score)',
     description: 'ranked by absolute change in Z-score outlier count from baseline to latest.',
     valueLabel: 'Outliers (Z)',
     extractor: v => v.outliersZ,
+    showPctChange: true,
   },
   outliersIqr: {
     title: 'Rank Longitudinal Variables by Change in Outliers (IQR)',
     description: 'ranked by absolute change in IQR outlier count from baseline to latest.',
     valueLabel: 'Outliers (IQR)',
     extractor: v => v.outliersIqr,
+    showPctChange: true,
   },
   iqr: {
     title: 'Rank Longitudinal Variables by Change in IQR',
     description: 'ranked by absolute change in interquartile range from baseline to latest.',
     valueLabel: 'IQR',
     extractor: v => v.iqr,
+    showPctChange: true,
   },
 };
 
@@ -75,6 +81,7 @@ const EdaLongitudinalRanking: React.FC<Props> = ({ groups, onVariableClick, metr
   const [viewMode, setViewMode] = useState<ViewMode>('table');
   const [sortKey, setSortKey] = useState<SortKey>('absChange');
   const [searchFilter, setSearchFilter] = useState('');
+  const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
   const [expandedGroup, setExpandedGroup] = useState<RankedGroup | null>(null);
 
   const config = METRIC_CONFIG[metric];
@@ -115,12 +122,18 @@ const EdaLongitudinalRanking: React.FC<Props> = ({ groups, onVariableClick, metr
       .filter((g): g is RankedGroup => g !== null);
   }, [groups, config]);
 
+  // Flatten all variables from all groups for domain filter
+  const allVariables = useMemo(() => {
+    return groups.flatMap(g => g.variables.map(m => m.variable));
+  }, [groups]);
+
   // Filter and sort — always descending (biggest absolute changes first)
   const sorted = useMemo(() => {
     let list = [...ranked];
+    if (selectedDomain) list = list.filter(g => g.variables.some(m => m.variable.domain === selectedDomain));
     if (searchFilter) {
       const q = searchFilter.toLowerCase();
-      list = list.filter(g => g.baseName.toLowerCase().includes(q) || g.label.toLowerCase().includes(q));
+      list = list.filter(g => g.baseName.toLowerCase().includes(q) || g.label.toLowerCase().includes(q) || g.variables.some(m => m.variable.conceptName?.toLowerCase().includes(q)));
     }
     list.sort((a, b) => {
       switch (sortKey) {
@@ -132,7 +145,7 @@ const EdaLongitudinalRanking: React.FC<Props> = ({ groups, onVariableClick, metr
       }
     });
     return list;
-  }, [ranked, searchFilter, sortKey, config]);
+  }, [ranked, searchFilter, sortKey, config, selectedDomain]);
 
   // Heatmap option
   const heatmapOption = useMemo(() => {
@@ -187,12 +200,20 @@ const EdaLongitudinalRanking: React.FC<Props> = ({ groups, onVariableClick, metr
         },
       },
       grid: { left: 160, right: 80, top: 30, bottom: 60 },
-      xAxis: {
-        type: 'category' as const,
-        data: allVisits,
-        axisLabel: { rotate: 30, fontSize: 10 },
-        position: 'bottom' as const,
-      },
+      xAxis: [
+        {
+          type: 'category' as const,
+          data: allVisits,
+          axisLabel: { rotate: 30, fontSize: 10 },
+          position: 'top' as const,
+        },
+        {
+          type: 'category' as const,
+          data: allVisits,
+          axisLabel: { rotate: 30, fontSize: 10 },
+          position: 'bottom' as const,
+        },
+      ],
       yAxis: {
         type: 'category' as const,
         data: varNames,
@@ -283,6 +304,7 @@ const EdaLongitudinalRanking: React.FC<Props> = ({ groups, onVariableClick, metr
             <option value="timePoints">Sort by # Time Points</option>
           </select>
         )}
+        <DomainFilterBar variables={allVariables} selectedDomain={selectedDomain} onChange={setSelectedDomain} />
         <span className="text-sm text-gray-500">{sorted.length} groups</span>
       </div>
 
@@ -389,7 +411,7 @@ const EdaLongitudinalRanking: React.FC<Props> = ({ groups, onVariableClick, metr
 
       {/* Group detail modal — box plots for all time points */}
       {expandedGroup && (
-        <GroupDetailModal group={expandedGroup} onClose={() => setExpandedGroup(null)} />
+        <GroupDetailModal group={expandedGroup} onClose={() => setExpandedGroup(null)} metric={metric} />
       )}
     </div>
   );
@@ -402,9 +424,10 @@ const EdaLongitudinalRanking: React.FC<Props> = ({ groups, onVariableClick, metr
 interface GroupDetailModalProps {
   group: RankedGroup;
   onClose: () => void;
+  metric: RankingMetric;
 }
 
-const GroupDetailModal: React.FC<GroupDetailModalProps> = ({ group: g, onClose }) => {
+const GroupDetailModal: React.FC<GroupDetailModalProps> = ({ group: g, onClose, metric }) => {
   const boxPlotOption = useMemo(() => {
     const numericVars = g.variables
       .filter(m => m.variable.type === 'numeric' && m.variable.mean !== undefined)
@@ -525,8 +548,8 @@ const GroupDetailModal: React.FC<GroupDetailModalProps> = ({ group: g, onClose }
             <div className="flex gap-2 mt-2">
               <span className="badge badge-primary">{g.timePoints} time points</span>
               {g.units && <span className="badge badge-outline">{g.units}</span>}
-              <span className={`badge ${Math.abs(g.percentChange) > 10 ? 'badge-error' : 'badge-info'}`}>
-                {g.percentChange > 0 ? '+' : ''}{g.percentChange.toFixed(1)}% change
+              <span className={`badge ${Math.abs(g.absoluteChange) > 0 ? 'badge-warning' : 'badge-info'}`}>
+                {METRIC_CONFIG[metric].valueLabel}: {g.baselineValue} → {g.latestValue} ({g.absoluteChange > 0 ? '+' : ''}{g.absoluteChange.toFixed(metric === 'outliersZ' || metric === 'outliersIqr' ? 0 : 2)})
               </span>
             </div>
           </div>

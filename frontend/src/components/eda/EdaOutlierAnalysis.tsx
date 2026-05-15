@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { EdaVariable } from '@/utils/edaParsing';
+import DomainFilterBar from './DomainFilterBar';
 
 interface Props {
   variables: EdaVariable[];
@@ -9,20 +10,22 @@ interface Props {
 
 const EdaOutlierAnalysis: React.FC<Props> = ({ variables, onVariableClick }) => {
   const [sortBy, setSortBy] = useState<'iqr_count' | 'iqr_pct' | 'z_count' | 'name'>('iqr_pct');
+  const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
 
   // Only vars with outlier data
   const withOutliers = useMemo(() => {
-    return variables
-      .filter(v => (v.outliersIqr !== undefined && v.outliersIqr > 0) || (v.outliersZ !== undefined && v.outliersZ > 0))
-      .sort((a, b) => {
-        switch (sortBy) {
-          case 'iqr_count': return (b.outliersIqr ?? 0) - (a.outliersIqr ?? 0);
-          case 'iqr_pct': return (b.outliersIqrPct ?? 0) - (a.outliersIqrPct ?? 0);
-          case 'z_count': return (b.outliersZ ?? 0) - (a.outliersZ ?? 0);
-          default: return a.name.localeCompare(b.name);
-        }
-      });
-  }, [variables, sortBy]);
+    let list = variables
+      .filter(v => (v.outliersIqr !== undefined && v.outliersIqr > 0) || (v.outliersZ !== undefined && v.outliersZ > 0));
+    if (selectedDomain) list = list.filter(v => v.domain === selectedDomain);
+    return list.sort((a, b) => {
+      switch (sortBy) {
+        case 'iqr_count': return (b.outliersIqr ?? 0) - (a.outliersIqr ?? 0);
+        case 'iqr_pct': return (b.outliersIqrPct ?? 0) - (a.outliersIqrPct ?? 0);
+        case 'z_count': return (b.outliersZ ?? 0) - (a.outliersZ ?? 0);
+        default: return a.name.localeCompare(b.name);
+      }
+    });
+  }, [variables, sortBy, selectedDomain]);
 
   // Summary stats
   const summary = useMemo(() => {
@@ -139,6 +142,7 @@ const EdaOutlierAnalysis: React.FC<Props> = ({ variables, onVariableClick }) => 
     <div className="space-y-4">
       {/* Summary */}
       <div className="stats shadow w-full bg-base-100">
+        <DomainFilterBar variables={variables} selectedDomain={selectedDomain} onChange={setSelectedDomain} />
         <div className="stat">
           <div className="stat-title">Variables with Outliers</div>
           <div className="stat-value text-amber-500">{summary.withAny}</div>

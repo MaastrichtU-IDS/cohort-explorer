@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { EdaVariable, completenessScore } from '@/utils/edaParsing';
+import DomainFilterBar from './DomainFilterBar';
 
 interface Props {
   variables: EdaVariable[];
@@ -13,6 +14,7 @@ const EdaStatisticsTable: React.FC<Props> = ({ variables, onVariableClick }) => 
   const [sortAsc, setSortAsc] = useState(true);
   const [filterType, setFilterType] = useState<'all' | 'numeric' | 'categorical'>('all');
   const [searchFilter, setSearchFilter] = useState('');
+  const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 50;
 
@@ -24,9 +26,10 @@ const EdaStatisticsTable: React.FC<Props> = ({ variables, onVariableClick }) => 
   const filtered = useMemo(() => {
     let list = [...variables];
     if (filterType !== 'all') list = list.filter(v => v.type === filterType);
+    if (selectedDomain) list = list.filter(v => v.domain === selectedDomain);
     if (searchFilter) {
       const q = searchFilter.toLowerCase();
-      list = list.filter(v => v.name.toLowerCase().includes(q) || v.label.toLowerCase().includes(q));
+      list = list.filter(v => v.name.toLowerCase().includes(q) || v.label.toLowerCase().includes(q) || (v.conceptName && v.conceptName.toLowerCase().includes(q)));
     }
 
     const dir = sortAsc ? 1 : -1;
@@ -53,7 +56,7 @@ const EdaStatisticsTable: React.FC<Props> = ({ variables, onVariableClick }) => 
       return ((va as number) - (vb as number)) * dir;
     });
     return list;
-  }, [variables, filterType, searchFilter, sortKey, sortAsc]);
+  }, [variables, filterType, searchFilter, sortKey, sortAsc, selectedDomain]);
 
   const pageCount = Math.ceil(filtered.length / PAGE_SIZE);
   const pageVars = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
@@ -78,6 +81,7 @@ const EdaStatisticsTable: React.FC<Props> = ({ variables, onVariableClick }) => 
           value={searchFilter}
           onChange={e => { setSearchFilter(e.target.value); setPage(0); }}
         />
+        <DomainFilterBar variables={variables} selectedDomain={selectedDomain} onChange={d => { setSelectedDomain(d); setPage(0); }} />
         <div className="join">
           {(['all', 'numeric', 'categorical'] as const).map(t => (
             <button

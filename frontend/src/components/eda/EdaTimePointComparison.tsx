@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { EdaVariable, TimePointGroup } from '@/utils/edaParsing';
+import DomainFilterBar from './DomainFilterBar';
 
 interface Props {
   groups: TimePointGroup[];
@@ -12,17 +13,25 @@ const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'
 const EdaTimePointComparison: React.FC<Props> = ({ groups, onVariableClick }) => {
   const [selectedGroup, setSelectedGroup] = useState<string>(groups[0]?.baseName || '');
   const [searchFilter, setSearchFilter] = useState('');
+  const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
   const [metric, setMetric] = useState<'mean' | 'median' | 'stdDev' | 'completeness' | 'observations'>('mean');
 
+  // Flatten all variables from all groups for domain filter
+  const allVariables = useMemo(() => {
+    return groups.flatMap(g => g.variables.map(m => m.variable));
+  }, [groups]);
+
   const filteredGroups = useMemo(() => {
-    if (!searchFilter) return groups;
+    let list = groups;
+    if (selectedDomain) list = list.filter(g => g.variables.some(m => m.variable.domain === selectedDomain));
+    if (!searchFilter) return list;
     const q = searchFilter.toLowerCase();
-    return groups.filter(g =>
+    return list.filter(g =>
       g.baseName.toLowerCase().includes(q) ||
       g.label.toLowerCase().includes(q) ||
-      g.variables.some(v => v.variable.label.toLowerCase().includes(q))
+      g.variables.some(v => v.variable.label.toLowerCase().includes(q) || (v.variable.conceptName && v.variable.conceptName.toLowerCase().includes(q)))
     );
-  }, [groups, searchFilter]);
+  }, [groups, searchFilter, selectedDomain]);
 
   const activeGroup = useMemo(
     () => filteredGroups.find(g => g.baseName === selectedGroup) || filteredGroups[0],
@@ -235,6 +244,7 @@ const EdaTimePointComparison: React.FC<Props> = ({ groups, onVariableClick }) =>
           value={searchFilter}
           onChange={e => setSearchFilter(e.target.value)}
         />
+        <DomainFilterBar variables={allVariables} selectedDomain={selectedDomain} onChange={setSelectedDomain} />
         <select
           className="select select-sm select-bordered"
           value={metric}

@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { EdaVariable, completenessScore } from '@/utils/edaParsing';
+import DomainFilterBar from './DomainFilterBar';
 
 interface Props {
   variables: EdaVariable[];
@@ -10,10 +11,12 @@ interface Props {
 const EdaDataQualityMatrix: React.FC<Props> = ({ variables, onVariableClick }) => {
   const [sortBy, setSortBy] = useState<'name' | 'empty' | 'missing' | 'completeness'>('completeness');
   const [filterType, setFilterType] = useState<'all' | 'numeric' | 'categorical'>('all');
+  const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     let list = [...variables];
     if (filterType !== 'all') list = list.filter(v => v.type === filterType);
+    if (selectedDomain) list = list.filter(v => v.domain === selectedDomain);
     list.sort((a, b) => {
       switch (sortBy) {
         case 'empty': return b.countEmptyPct - a.countEmptyPct;
@@ -23,7 +26,7 @@ const EdaDataQualityMatrix: React.FC<Props> = ({ variables, onVariableClick }) =
       }
     });
     return list;
-  }, [variables, sortBy, filterType]);
+  }, [variables, sortBy, filterType, selectedDomain]);
 
   // Heatmap: variables (y) vs quality metrics (x)
   const heatmapOption = useMemo(() => {
@@ -165,6 +168,7 @@ const EdaDataQualityMatrix: React.FC<Props> = ({ variables, onVariableClick }) =
             </button>
           ))}
         </div>
+        <DomainFilterBar variables={variables} selectedDomain={selectedDomain} onChange={setSelectedDomain} />
       </div>
 
       {/* Charts */}

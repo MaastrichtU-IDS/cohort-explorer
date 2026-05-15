@@ -1156,7 +1156,7 @@ export default function CohortsList() {
                       >
                         Variables List
                       </button>
-                      {edaAvailability[cohortData.cohort_id] && (
+                      {edaAvailability[cohortData.cohort_id] && ['TIME-CHF', 'AachenHF', 'GISSI-HF'].includes(cohortData.cohort_id) && (
                         <button 
                           onClick={(e: React.MouseEvent) => {
                             e.stopPropagation();
@@ -1169,7 +1169,7 @@ export default function CohortsList() {
                           } ${shimmerActive[cohortData.cohort_id] ? 'shimmer-effect' : ''}`}
                           style={{ minWidth: '200px' }}
                         >
-                          EDA Insights
+                          Analyses & Insights
                         </button>
                       )}
                     </div>
@@ -1689,7 +1689,7 @@ export default function CohortsList() {
                   />
                 )}
                 
-                {/* EDA Insights Tab Content */}
+                {/* Analyses & Insights Tab Content */}
                 {activeSubTab[cohortData.cohort_id] === 'eda' && (
                   <EdaDashboard cohortId={cohortData.cohort_id} />
                 )}

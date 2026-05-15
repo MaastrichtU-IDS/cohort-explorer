@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { EdaVariable } from '@/utils/edaParsing';
+import DomainFilterBar from './DomainFilterBar';
 
 interface Props {
   variables: EdaVariable[];
@@ -14,6 +15,7 @@ const EdaCategoricalCharts: React.FC<Props> = ({ variables, onVariableClick }) =
   const [page, setPage] = useState(0);
   const [sortBy, setSortBy] = useState<'name' | 'categories' | 'completeness'>('name');
   const [searchFilter, setSearchFilter] = useState('');
+  const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
   const [chartType, setChartType] = useState<'bar' | 'pie' | 'treemap'>('bar');
 
   // Filter out variables that are essentially all empty (>99% NA with ≤1 real category)
@@ -27,9 +29,10 @@ const EdaCategoricalCharts: React.FC<Props> = ({ variables, onVariableClick }) =
 
   const filtered = useMemo(() => {
     let list = [...meaningfulVars];
+    if (selectedDomain) list = list.filter(v => v.domain === selectedDomain);
     if (searchFilter) {
       const q = searchFilter.toLowerCase();
-      list = list.filter(v => v.name.toLowerCase().includes(q) || v.label.toLowerCase().includes(q));
+      list = list.filter(v => v.name.toLowerCase().includes(q) || v.label.toLowerCase().includes(q) || (v.conceptName && v.conceptName.toLowerCase().includes(q)));
     }
     list.sort((a, b) => {
       switch (sortBy) {
@@ -39,7 +42,7 @@ const EdaCategoricalCharts: React.FC<Props> = ({ variables, onVariableClick }) =
       }
     });
     return list;
-  }, [meaningfulVars, sortBy, searchFilter]);
+  }, [meaningfulVars, sortBy, searchFilter, selectedDomain]);
 
   const pageCount = Math.ceil(filtered.length / PAGE_SIZE);
   const pageVars = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
@@ -188,6 +191,7 @@ const EdaCategoricalCharts: React.FC<Props> = ({ variables, onVariableClick }) =
           value={searchFilter}
           onChange={e => { setSearchFilter(e.target.value); setPage(0); }}
         />
+        <DomainFilterBar variables={variables} selectedDomain={selectedDomain} onChange={d => { setSelectedDomain(d); setPage(0); }} />
         <select className="select select-sm select-bordered" value={sortBy} onChange={e => { setSortBy(e.target.value as any); setPage(0); }}>
           <option value="name">Sort by Name</option>
           <option value="categories">Sort by # Categories</option>

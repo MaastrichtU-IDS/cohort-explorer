@@ -8,6 +8,10 @@ import EdaTimePointComparison from './EdaTimePointComparison';
 import EdaStatisticsTable from './EdaStatisticsTable';
 import EdaOutlierAnalysis from './EdaOutlierAnalysis';
 import EdaLongitudinalRanking from './EdaLongitudinalRanking';
+import EdaSkewnessIqrScatter from './EdaSkewnessIqrScatter';
+import EdaCoverageRanking from './EdaCoverageRanking';
+import EdaOutlierRanking from './EdaOutlierRanking';
+import EdaCVRanking from './EdaCVRanking';
 import EdaVariableDetailModal from './EdaVariableDetailModal';
 import { EdaVariable } from '@/utils/edaParsing';
 
@@ -15,27 +19,29 @@ interface EdaDashboardProps {
   cohortId: string;
 }
 
-type EdaSection = 'overview' | 'numeric' | 'categorical' | 'quality' | 'timepoints' | 'longitudinal' | 'longOutliersZ' | 'longOutliersIqr' | 'longIqr' | 'table' | 'outliers';
+type EdaSection = 'longitudinal' | 'longOutliersZ' | 'longOutliersIqr' | 'longIqr' | 'skewnessIqr' | 'coverage' | 'outlierRank' | 'cvRank' | 'table' | 'outliers';
 
-const SECTIONS: { key: EdaSection; label: string; icon: string }[] = [
-  { key: 'overview', label: 'Overview', icon: '📊' },
-  { key: 'numeric', label: 'Numeric Distributions', icon: '📈' },
-  { key: 'categorical', label: 'Categorical Distributions', icon: '📉' },
-  { key: 'quality', label: 'Data Quality Matrix', icon: '🔍' },
-  { key: 'timepoints', label: 'Time-Point Comparison', icon: '⏱️' },
-  { key: 'longitudinal', label: 'Δ Mean Ranking', icon: '📐' },
-  { key: 'longOutliersZ', label: 'Δ Outliers (Z)', icon: '📉' },
-  { key: 'longOutliersIqr', label: 'Δ Outliers (IQR)', icon: '📉' },
-  { key: 'longIqr', label: 'Δ IQR Ranking', icon: '�' },
-  { key: 'outliers', label: 'Outlier Analysis', icon: '🎯' },
-  { key: 'table', label: 'Statistics Table', icon: '📋' },
+const LONGITUDINAL_SECTIONS = [
+  { key: 'longitudinal' as const, label: 'Δ Mean Ranking', icon: '' },
+  { key: 'longOutliersZ' as const, label: 'Δ Outliers (Z)', icon: '' },
+  { key: 'longOutliersIqr' as const, label: 'Δ Outliers (IQR)', icon: '' },
+  { key: 'longIqr' as const, label: 'Δ IQR Ranking', icon: '' },
+];
+
+const ALL_VARIABLES_SECTIONS = [
+  { key: 'skewnessIqr' as const, label: 'Skewness vs IQR', icon: '' },
+  { key: 'coverage' as const, label: 'Coverage Ranking', icon: '' },
+  { key: 'outlierRank' as const, label: 'Outlier Ranking', icon: '' },
+  { key: 'cvRank' as const, label: 'CV Ranking', icon: '' },
+  { key: 'outliers' as const, label: 'Outlier Analysis', icon: '' },
+  { key: 'table' as const, label: 'Statistics Table', icon: '' },
 ];
 
 const EdaDashboard: React.FC<EdaDashboardProps> = ({ cohortId }) => {
   const [rawData, setRawData] = useState<Record<string, any> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeSection, setActiveSection] = useState<EdaSection>('overview');
+  const [activeSection, setActiveSection] = useState<EdaSection>('skewnessIqr');
   const [selectedVariable, setSelectedVariable] = useState<EdaVariable | null>(null);
 
   useEffect(() => {
@@ -125,46 +131,44 @@ const EdaDashboard: React.FC<EdaDashboardProps> = ({ cohortId }) => {
       </div>
 
       {/* Section navigation */}
-      <div className="tabs tabs-boxed bg-base-200 p-1 flex flex-wrap gap-1">
-        {SECTIONS.map(({ key, label, icon }) => {
-          // Hide sections with no data
-          if (key === 'numeric' && numericVars.length === 0) return null;
-          if (key === 'categorical' && categoricalVars.length === 0) return null;
-          if (key === 'timepoints' && timePointGroups.length === 0) return null;
-          if (key === 'longitudinal' && timePointGroups.length === 0) return null;
-          if (key === 'longOutliersZ' && timePointGroups.length === 0) return null;
-          if (key === 'longOutliersIqr' && timePointGroups.length === 0) return null;
-          if (key === 'longIqr' && timePointGroups.length === 0) return null;
-          if (key === 'outliers' && numericVars.length === 0) return null;
-          return (
-            <button
-              key={key}
-              className={`tab tab-lg ${activeSection === key ? 'tab-active font-bold' : ''}`}
-              onClick={() => setActiveSection(key)}
-            >
-              {icon} {label}
-            </button>
-          );
-        })}
+      <div className="space-y-2">
+        <div className="text-sm font-semibold text-gray-600">All Variables</div>
+        <div className="tabs tabs-boxed bg-base-200 p-1 flex flex-wrap gap-1">
+          {ALL_VARIABLES_SECTIONS.map(({ key, label, icon }) => {
+            if (key === 'skewnessIqr' && numericVars.length === 0) return null;
+            if (key === 'outlierRank' && numericVars.length === 0) return null;
+            if (key === 'cvRank' && numericVars.length === 0) return null;
+            if (key === 'outliers' && numericVars.length === 0) return null;
+            return (
+              <button
+                key={key}
+                className={`tab tab-lg ${activeSection === key ? 'tab-active font-bold' : ''}`}
+                onClick={() => setActiveSection(key)}
+              >
+                {icon} {label}
+              </button>
+            );
+          })}
+        </div>
+        <div className="text-sm font-semibold text-gray-600">Longitudinal Variables</div>
+        <div className="tabs tabs-boxed bg-base-200 p-1 flex flex-wrap gap-1">
+          {LONGITUDINAL_SECTIONS.map(({ key, label, icon }) => {
+            if (timePointGroups.length === 0) return null;
+            return (
+              <button
+                key={key}
+                className={`tab tab-lg ${activeSection === key ? 'tab-active font-bold' : ''}`}
+                onClick={() => setActiveSection(key)}
+              >
+                {icon} {label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Section content */}
       <div className="min-h-[400px]">
-        {activeSection === 'overview' && (
-          <EdaOverviewPanel edaData={edaData} onVariableClick={setSelectedVariable} />
-        )}
-        {activeSection === 'numeric' && (
-          <EdaNumericBoxPlots variables={numericVars} onVariableClick={setSelectedVariable} />
-        )}
-        {activeSection === 'categorical' && (
-          <EdaCategoricalCharts variables={categoricalVars} onVariableClick={setSelectedVariable} />
-        )}
-        {activeSection === 'quality' && (
-          <EdaDataQualityMatrix variables={variables} onVariableClick={setSelectedVariable} />
-        )}
-        {activeSection === 'timepoints' && (
-          <EdaTimePointComparison groups={timePointGroups} onVariableClick={setSelectedVariable} />
-        )}
         {activeSection === 'longitudinal' && (
           <EdaLongitudinalRanking groups={timePointGroups} onVariableClick={setSelectedVariable} metric="mean" />
         )}
@@ -176,6 +180,18 @@ const EdaDashboard: React.FC<EdaDashboardProps> = ({ cohortId }) => {
         )}
         {activeSection === 'longIqr' && (
           <EdaLongitudinalRanking groups={timePointGroups} onVariableClick={setSelectedVariable} metric="iqr" />
+        )}
+        {activeSection === 'skewnessIqr' && (
+          <EdaSkewnessIqrScatter variables={numericVars} timePointGroups={timePointGroups} onVariableClick={setSelectedVariable} />
+        )}
+        {activeSection === 'coverage' && (
+          <EdaCoverageRanking variables={variables} onVariableClick={setSelectedVariable} />
+        )}
+        {activeSection === 'outlierRank' && (
+          <EdaOutlierRanking variables={numericVars} onVariableClick={setSelectedVariable} />
+        )}
+        {activeSection === 'cvRank' && (
+          <EdaCVRanking variables={numericVars} onVariableClick={setSelectedVariable} />
         )}
         {activeSection === 'outliers' && (
           <EdaOutlierAnalysis variables={numericVars} onVariableClick={setSelectedVariable} />
