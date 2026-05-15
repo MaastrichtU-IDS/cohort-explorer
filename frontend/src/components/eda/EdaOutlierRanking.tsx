@@ -239,7 +239,7 @@ const EdaOutlierRanking: React.FC<Props> = ({ variables, onVariableClick }) => {
           <div><strong>Outliers (IQR):</strong> Values below Q1−1.5×IQR or above Q3+1.5×IQR</div>
           <div><strong>Outliers (Z-Score):</strong> Values with |z| &gt; 3 (more than 3 SD from mean)</div>
           <div><strong>CV (Coefficient of Variation):</strong> StdDev/|Mean| × 100% — unit-free relative spread</div>
-          <div><strong>Why %?</strong> Raw counts aren't comparable across variables with different n</div>
+          <div><strong>Why %?</strong> Raw counts aren&apos;t comparable across variables with different n</div>
         </div>
       </div>
     </div>
