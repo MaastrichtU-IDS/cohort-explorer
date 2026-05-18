@@ -127,7 +127,8 @@ def process_variables_metadata_file(file_path:str, study_metadata_graph_file_pat
                     multi_class_categorical,
                     binary_categorical,
                     data_type=row["vartype"],
-                    unit = row['units'] if pd.notna(row['units']) else None
+                    unit = row['units'] if pd.notna(row['units']) else None,
+                    var_label = row['variablelabel'] if pd.notna(row['variablelabel']) else None,
                 )
             g.add((statistical_type_uri, RDF.type, URIRef(f"{OntologyNamespaces.CMEO.value}{statistical_type}"), cohort_graph))
             g.add((statistical_type_uri, OntologyNamespaces.CMEO.value.has_value, Literal(statistical_type, datatype=XSD.string), cohort_graph))
