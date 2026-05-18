@@ -219,18 +219,6 @@ const EdaCVRanking: React.FC<Props> = ({ variables, onVariableClick }) => {
         </div>
       )}
 
-      {/* Explanation */}
-      <div className="card bg-base-200 p-4 text-sm">
-        <h3 className="font-semibold mb-2">What is Coefficient of Variation?</h3>
-        <div className="grid grid-cols-2 gap-2 text-xs">
-          <div><strong>CV &lt; 15%:</strong> Low relative variability — data is tightly clustered around the mean</div>
-          <div><strong>CV 15-30%:</strong> Moderate variability — typical for many biological measurements</div>
-          <div><strong>CV 30-50%:</strong> High variability — considerable spread relative to the mean</div>
-          <div><strong>CV &gt; 50%:</strong> Very high variability — mean may not be representative; consider transformation</div>
-          <div><strong>Formula:</strong> CV = (StdDev / |Mean|) × 100%</div>
-          <div><strong>Use case:</strong> Unit-free measure of relative spread; enables comparison across variables with different units</div>
-        </div>
-      </div>
     </div>
   );
 };

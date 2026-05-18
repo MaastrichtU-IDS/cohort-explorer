@@ -63,13 +63,15 @@ const EdaCoverageRanking: React.FC<Props> = ({ variables, onVariableClick }) => 
       tooltip: {
         formatter: (params: any) => {
           const meta = params.data[3];
+          const available = Math.round(meta.n * (meta.completeness / 100));
+          const missing = Math.round(meta.n * (meta.missingPct / 100));
           return `<strong>${meta.variable.name}</strong><br/>` +
             `Label: ${meta.variable.label}<br/>` +
             `Concept Name: ${meta.variable.conceptName || '—'}<br/>` +
             `Domain: ${meta.variable.domain || '—'}<br/>` +
             `Type: ${meta.variable.type}<br/>` +
-            `Completeness: ${meta.completeness.toFixed(1)}%<br/>` +
-            `Missing: ${meta.missingPct.toFixed(1)}% · n=${meta.n}`;
+            `Completeness: ${meta.completeness.toFixed(1)}% (${available})<br/>` +
+            `Missing: ${meta.missingPct.toFixed(1)}% (${missing})`;
         },
       },
       grid: { left: 60, right: 20, top: 30, bottom: 40 },

@@ -19,21 +19,22 @@ interface EdaDashboardProps {
   cohortId: string;
 }
 
-type EdaSection = 'longitudinal' | 'longOutliersZ' | 'longOutliersIqr' | 'longIqr' | 'skewnessIqr' | 'coverage' | 'outlierRank' | 'cvRank' | 'table' | 'outliers';
+type EdaSection = 'longitudinal' | 'longOutliersZ' | 'longOutliersIqr' | 'longIqr' | 'skewnessIqr' | 'coverage' | 'outlierRank' | 'cvRank' | 'table' | 'outliersIqr' | 'outliersZ';
 
 const LONGITUDINAL_SECTIONS = [
-  { key: 'longitudinal' as const, label: 'Δ Mean Ranking', icon: '' },
-  { key: 'longOutliersZ' as const, label: 'Δ Outliers (Z)', icon: '' },
-  { key: 'longOutliersIqr' as const, label: 'Δ Outliers (IQR)', icon: '' },
-  { key: 'longIqr' as const, label: 'Δ IQR Ranking', icon: '' },
+  { key: 'longitudinal' as const, label: 'Change in Mean Ranking', icon: '' },
+  { key: 'longOutliersZ' as const, label: 'Change in Outliers (Z)', icon: '' },
+  { key: 'longOutliersIqr' as const, label: 'Change in Outliers (IQR)', icon: '' },
+  { key: 'longIqr' as const, label: 'Change in IQR Ranking', icon: '' },
 ];
 
 const ALL_VARIABLES_SECTIONS = [
-  { key: 'cvRank' as const, label: 'CV Ranking', icon: '' },
+  { key: 'cvRank' as const, label: 'Variance Ranking', icon: '' },
   { key: 'coverage' as const, label: 'Coverage Ranking', icon: '' },
   { key: 'outlierRank' as const, label: 'Outlier Ranking', icon: '' },
   { key: 'skewnessIqr' as const, label: 'Skewness vs IQR', icon: '' },
-  { key: 'outliers' as const, label: 'Outlier Analysis', icon: '' },
+  { key: 'outliersIqr' as const, label: 'Count of Outliers (IQR)', icon: '' },
+  { key: 'outliersZ' as const, label: 'Count of Outliers (Z-scores)', icon: '' },
   { key: 'table' as const, label: 'Statistics Table', icon: '' },
 ];
 
@@ -138,7 +139,8 @@ const EdaDashboard: React.FC<EdaDashboardProps> = ({ cohortId }) => {
             if (key === 'skewnessIqr' && numericVars.length === 0) return null;
             if (key === 'outlierRank' && numericVars.length === 0) return null;
             if (key === 'cvRank' && numericVars.length === 0) return null;
-            if (key === 'outliers' && numericVars.length === 0) return null;
+            if (key === 'outliersIqr' && numericVars.length === 0) return null;
+            if (key === 'outliersZ' && numericVars.length === 0) return null;
             return (
               <button
                 key={key}
@@ -196,8 +198,11 @@ const EdaDashboard: React.FC<EdaDashboardProps> = ({ cohortId }) => {
         {activeSection === 'cvRank' && (
           <EdaCVRanking variables={numericVars} onVariableClick={setSelectedVariable} />
         )}
-        {activeSection === 'outliers' && (
-          <EdaOutlierAnalysis variables={numericVars} onVariableClick={setSelectedVariable} />
+        {activeSection === 'outliersIqr' && (
+          <EdaOutlierAnalysis variables={numericVars} onVariableClick={setSelectedVariable} metric="iqr" />
+        )}
+        {activeSection === 'outliersZ' && (
+          <EdaOutlierAnalysis variables={numericVars} onVariableClick={setSelectedVariable} metric="z" />
         )}
         {activeSection === 'table' && (
           <EdaStatisticsTable variables={variables} onVariableClick={setSelectedVariable} />

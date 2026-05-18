@@ -1164,7 +1164,7 @@ export default function CohortsList() {
                           } ${shimmerActive[cohortData.cohort_id] ? 'shimmer-effect' : ''}`}
                           style={{ minWidth: '200px' }}
                         >
-                          Analyses & Insights <span className="text-xs font-normal opacity-70">&quot;(beta)&quot;</span>
+                          Analyses & Insights <span className="text-xs font-normal opacity-70">(beta)</span>
                         </button>
                       )}
                     </div>

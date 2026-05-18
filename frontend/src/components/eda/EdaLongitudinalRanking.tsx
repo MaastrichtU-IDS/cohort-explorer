@@ -38,7 +38,7 @@ const METRIC_CONFIG: Record<RankingMetric, {
 }> = {
   mean: {
     title: 'Rank Longitudinal Variables by Change in Mean',
-    description: 'ranked by absolute change in mean from baseline to latest measurement.',
+    description: 'ranked by absolute percentage change in mean from baseline to latest measurement.',
     valueLabel: 'Mean',
     extractor: v => v.mean,
     showPctChange: true,
@@ -59,7 +59,7 @@ const METRIC_CONFIG: Record<RankingMetric, {
   },
   iqr: {
     title: 'Rank Longitudinal Variables by Change in IQR',
-    description: 'ranked by absolute change in interquartile range from baseline to latest.',
+    description: 'ranked by absolute percentage change in IQR from baseline to latest.',
     valueLabel: 'IQR',
     extractor: v => v.iqr,
     showPctChange: true,

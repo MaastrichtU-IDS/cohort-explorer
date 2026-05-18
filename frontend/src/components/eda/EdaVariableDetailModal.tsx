@@ -174,7 +174,6 @@ const EdaVariableDetailModal: React.FC<Props> = ({ variable: v, onClose, cohortI
                 <p className="text-xs text-gray-500 mb-1">
                   Box = IQR (Q1–Q3), line = median, <span className="text-red-500">◆</span> = mean
                   {v.outliersIqr ? `, ${v.outliersIqr} outliers (${v.outliersIqrPct?.toFixed(1)}%)` : ''}
-                  {v.yTickMax ? ` · Original histogram peak: ~${v.yTickMax} observations` : ''}
                 </p>
                 <ReactECharts option={boxPlotOption} style={{ height: 120 }} />
               </div>
