@@ -389,25 +389,37 @@ def extract_age_range(text):
         return min_age, max_age
 
     return None
-def determine_var_uri(cohort_id: str | URIRef, var_name: str,multi_class_categorical: list[str], binary_categorical: list[str], data_type: str = None, unit:str=None) -> tuple[URIRef, str]:
-    print(f"data_type: {data_type}")
-    # cohort_uri = get_cohort_uri(cohort_id)
+
+
+
+
+def determine_var_uri(cohort_id, var_name, multi_class_categorical, binary_categorical,
+                     data_type=None, unit=None, var_label=None):
     var_uri = get_var_uri(cohort_id, var_name)
+
     if var_name in binary_categorical:
-        statistical_type_uri =  URIRef(var_uri + "/binary_class_variable")
-        statistical_type = "binary_class_variable"
-        
-    elif var_name in multi_class_categorical:
-        statistical_type_uri =  URIRef(var_uri + "/multi_class_variable")
-        statistical_type = "multi_class_variable"
-    elif data_type  and data_type in  ["str",] and unit is None:
-        statistical_type_uri =  URIRef(var_uri + "/qualitative_variable")
-        statistical_type = "qualitative_variable"
-    else:
-        # date/time --- dosage/measurement variables variables
-        statistical_type_uri =  URIRef(var_uri + "/continuous_variable")
-        statistical_type = "continuous_variable"
-    return statistical_type_uri,statistical_type
+        return URIRef(var_uri + "/binary_class_variable"), "binary_class_variable"
+    if var_name in multi_class_categorical:
+        return URIRef(var_uri + "/multi_class_variable"), "multi_class_variable"
+
+    # NEW: date/time variables → continuous (or a new temporal type)
+    label = (var_label or "").lower()
+    name  = (var_name or "").lower()
+    is_temporal = (
+        data_type == "datetime"
+        or any(tok in name  for tok in ("date", "dat", "dt_", "_dt", "time", "month", "year", "visit"))
+        or any(tok in label for tok in ("date", "time", "month", "year"))
+    )
+    if is_temporal:
+        return URIRef(var_uri + "/continuous_variable"), "continuous_variable"
+
+    # Only now does str + no unit mean free-text
+    if data_type in ["str"] and unit is None:
+        return URIRef(var_uri + "/qualitative_variable"), "qualitative_variable"
+
+    return URIRef(var_uri + "/continuous_variable"), "continuous_variable"
+    
+
 
 def parse_post_cordinating_concepts_ids(pipe_str) -> List[int]:
     if pd.isna(pipe_str) or not pipe_str: return []
