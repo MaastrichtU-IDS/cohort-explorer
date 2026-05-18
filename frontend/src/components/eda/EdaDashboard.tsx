@@ -8,10 +8,12 @@ import EdaTimePointComparison from './EdaTimePointComparison';
 import EdaStatisticsTable from './EdaStatisticsTable';
 import EdaOutlierAnalysis from './EdaOutlierAnalysis';
 import EdaLongitudinalRanking from './EdaLongitudinalRanking';
+import EdaLongitudinalClassBalance from './EdaLongitudinalClassBalance';
 import EdaSkewnessIqrScatter from './EdaSkewnessIqrScatter';
 import EdaCoverageRanking from './EdaCoverageRanking';
 import EdaOutlierRanking from './EdaOutlierRanking';
 import EdaCVRanking from './EdaCVRanking';
+import EdaImbalanceRanking from './EdaImbalanceRanking';
 import EdaVariableDetailModal from './EdaVariableDetailModal';
 import { EdaVariable } from '@/utils/edaParsing';
 
@@ -19,17 +21,19 @@ interface EdaDashboardProps {
   cohortId: string;
 }
 
-type EdaSection = 'longitudinal' | 'longOutliersZ' | 'longOutliersIqr' | 'longIqr' | 'skewnessIqr' | 'coverage' | 'outlierRank' | 'cvRank' | 'table' | 'outliersIqr' | 'outliersZ';
+type EdaSection = 'longitudinal' | 'longClassBalance' | 'longOutliersZ' | 'longOutliersIqr' | 'longIqr' | 'skewnessIqr' | 'coverage' | 'outlierRank' | 'cvRank' | 'imbalanceRank' | 'table' | 'outliersIqr' | 'outliersZ';
 
 const LONGITUDINAL_SECTIONS = [
   { key: 'longitudinal' as const, label: 'Change in Mean Ranking', icon: '' },
+  { key: 'longClassBalance' as const, label: 'Change in Class Balance', icon: '' },
   { key: 'longOutliersZ' as const, label: 'Change in Outliers (Z)', icon: '' },
   { key: 'longOutliersIqr' as const, label: 'Change in Outliers (IQR)', icon: '' },
   { key: 'longIqr' as const, label: 'Change in IQR Ranking', icon: '' },
 ];
 
 const ALL_VARIABLES_SECTIONS = [
-  { key: 'cvRank' as const, label: 'Variance Ranking', icon: '' },
+  { key: 'cvRank' as const, label: 'Variance Ranking (numeric vars)', icon: '' },
+  { key: 'imbalanceRank' as const, label: 'Imbalance Ranking (categorical vars)', icon: '' },
   { key: 'coverage' as const, label: 'Coverage Ranking', icon: '' },
   { key: 'outlierRank' as const, label: 'Outlier Ranking', icon: '' },
   { key: 'skewnessIqr' as const, label: 'Skewness vs IQR', icon: '' },
@@ -139,6 +143,7 @@ const EdaDashboard: React.FC<EdaDashboardProps> = ({ cohortId }) => {
             if (key === 'skewnessIqr' && numericVars.length === 0) return null;
             if (key === 'outlierRank' && numericVars.length === 0) return null;
             if (key === 'cvRank' && numericVars.length === 0) return null;
+            if (key === 'imbalanceRank' && categoricalVars.length === 0) return null;
             if (key === 'outliersIqr' && numericVars.length === 0) return null;
             if (key === 'outliersZ' && numericVars.length === 0) return null;
             return (
@@ -157,6 +162,8 @@ const EdaDashboard: React.FC<EdaDashboardProps> = ({ cohortId }) => {
             <div className="text-sm font-semibold text-gray-600">Longitudinal Variables</div>
             <div className="tabs tabs-boxed bg-base-200 p-1 flex flex-wrap gap-1">
               {LONGITUDINAL_SECTIONS.map(({ key, label, icon }) => {
+                const categoricalLongitudinalVars = timePointGroups.flatMap(g => g.variables.filter(m => m.variable.type === 'categorical' && m.variable.classBalance));
+                if (key === 'longClassBalance' && categoricalLongitudinalVars.length === 0) return null;
                 return (
                   <button
                     key={key}
@@ -176,6 +183,9 @@ const EdaDashboard: React.FC<EdaDashboardProps> = ({ cohortId }) => {
       <div className="min-h-[400px]">
         {activeSection === 'longitudinal' && (
           <EdaLongitudinalRanking groups={timePointGroups} onVariableClick={setSelectedVariable} metric="mean" />
+        )}
+        {activeSection === 'longClassBalance' && (
+          <EdaLongitudinalClassBalance groups={timePointGroups} onVariableClick={setSelectedVariable} />
         )}
         {activeSection === 'longOutliersZ' && (
           <EdaLongitudinalRanking groups={timePointGroups} onVariableClick={setSelectedVariable} metric="outliersZ" />
@@ -197,6 +207,9 @@ const EdaDashboard: React.FC<EdaDashboardProps> = ({ cohortId }) => {
         )}
         {activeSection === 'cvRank' && (
           <EdaCVRanking variables={numericVars} onVariableClick={setSelectedVariable} />
+        )}
+        {activeSection === 'imbalanceRank' && (
+          <EdaImbalanceRanking variables={categoricalVars} onVariableClick={setSelectedVariable} />
         )}
         {activeSection === 'outliersIqr' && (
           <EdaOutlierAnalysis variables={numericVars} onVariableClick={setSelectedVariable} metric="iqr" />
