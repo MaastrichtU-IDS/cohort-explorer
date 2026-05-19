@@ -130,7 +130,6 @@ const EdaLongitudinalClassBalance: React.FC<Props> = ({ groups, onVariableClick 
     for (let i = 0; i < cols; i++) xLabels.push(`Col ${i + 1}`);
 
     return {
-      title: { text: 'Change in Class Balance Heatmap', left: 'center', textStyle: { fontSize: 14 } },
       tooltip: {
         formatter: (params: any) => {
           const g = params.data[3].group;
@@ -163,12 +162,20 @@ const EdaLongitudinalClassBalance: React.FC<Props> = ({ groups, onVariableClick 
       series: [{
         type: 'heatmap',
         data,
-        label: { show: false },
-        emphasis: {
-          itemStyle: {
-            shadowBlur: 10,
-            shadowColor: 'rgba(0, 0, 0, 0.5)',
+        itemStyle: {
+          borderWidth: 1,
+          borderColor: '#fff',
+        },
+        label: {
+          show: true,
+          fontSize: 8,
+          formatter: (p: any) => {
+            const name = p.data[3].group.baseName;
+            return name.length > 12 ? name.substring(0, 10) + '...' : name;
           },
+        },
+        emphasis: {
+          itemStyle: { shadowBlur: 10, shadowColor: 'rgba(0,0,0,0.5)' },
         },
       }],
     };
@@ -228,7 +235,7 @@ const EdaLongitudinalClassBalance: React.FC<Props> = ({ groups, onVariableClick 
           <div className="card bg-base-100 shadow-md p-4">
             <ReactECharts
               option={heatmapOption}
-              style={{ height: Math.max(300, Math.min(filtered.length, 50) * 20 + 80) }}
+              style={{ height: Math.max(400, Math.ceil(Math.min(filtered.length, 50) / 10) * 50 + 80) }}
               onEvents={{
                 click: (params: any) => {
                   if (params.data && params.data[3]) {
