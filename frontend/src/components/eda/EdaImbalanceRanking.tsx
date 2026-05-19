@@ -90,6 +90,7 @@ const EdaImbalanceRanking: React.FC<Props> = ({ variables, onVariableClick }) =>
         orient: 'horizontal',
         left: 'center',
         bottom: 10,
+        dimension: 2,
         inRange: {
           color: ['#90EE90', '#FFD700', '#FF6347', '#8B0000'],
         },

@@ -87,7 +87,7 @@ const EdaLongitudinalClassBalance: React.FC<Props> = ({ groups, onVariableClick 
           variables: sorted,
         };
       })
-      .filter((g): g is RankedGroup => g !== null && selectedDomain ? g.variables[0].variable.domain === selectedDomain : true)
+      .filter((g): g is RankedGroup => g !== null && (selectedDomain ? g.variables[0].variable.domain === selectedDomain : true))
       .sort((a, b) => {
         switch (sortKey) {
           case 'absChange': return Math.abs(b.absoluteChange) - Math.abs(a.absoluteChange);
@@ -155,6 +155,7 @@ const EdaLongitudinalClassBalance: React.FC<Props> = ({ groups, onVariableClick 
         orient: 'horizontal',
         left: 'center',
         bottom: 10,
+        dimension: 2,
         inRange: {
           color: ['#90EE90', '#FFD700', '#FF6347', '#8B0000'],
         },
