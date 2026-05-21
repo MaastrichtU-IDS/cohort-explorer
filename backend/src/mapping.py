@@ -264,6 +264,11 @@ async def get_available_mapping_files(
                 # Read sidecar stats (lazy-generate if missing/stale)
                 stats = _read_or_generate_meta(filepath)
                 
+                # Skip files with 0 mappings (failed or empty runs)
+                if stats and stats.get("total_mappings", 0) == 0:
+                    logger.info(f"[DEBUG] Skipping '{filename}': 0 total mappings")
+                    continue
+                
                 available_mappings.append({
                     'cohorts': file_cohorts,
                     'filename': filename,
@@ -274,8 +279,19 @@ async def get_available_mapping_files(
                     'stats': stats,
                 })
     
+    # De-duplicate: for each unique cohort set, keep only the most recent file
+    seen: dict[str, int] = {}  # cohort_key -> index in available_mappings
+    deduped = []
+    # Sort by timestamp descending so we encounter newest first
+    available_mappings.sort(key=lambda x: x['timestamp'], reverse=True)
+    for entry in available_mappings:
+        key = "_".join(sorted(entry['cohorts']))
+        if key not in seen:
+            seen[key] = len(deduped)
+            deduped.append(entry)
+    
     return JSONResponse(content={
-        'available_mappings': available_mappings,
+        'available_mappings': deduped,
         'cohort_count': len(cohort_ids)
     })
 

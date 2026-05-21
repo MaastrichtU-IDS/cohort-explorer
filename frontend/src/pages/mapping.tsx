@@ -582,44 +582,41 @@ export default function MappingPage() {
         {/* Cohort selection - constrained width */}
         <div className="max-w-6xl mx-auto">
 
+        {!showCachePanel && (
         <div className="flex gap-4 justify-center">
           {/* Source Cohort - searchable single-select */}
-          <div className="form-control w-full max-w-xs">
+          <div className="form-control w-full max-w-sm">
             <label className="label">
               <span className="label-text">Source Cohort</span>
-            </label>
-            <div className="relative" ref={sourceDropdownRef}>
-              <input
-                type="text"
-                placeholder="Type to search..."
-                className="input input-bordered w-full"
-                value={sourceFilter}
-                onChange={(e) => { setSourceFilter(e.target.value); setSourceDropdownOpen(true); }}
-                onFocus={() => setSourceDropdownOpen(true)}
-              />
               {sourceCohort && (
-                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                  <span className="badge badge-sm badge-primary">{sourceCohort}</span>
-                  <button className="btn btn-ghost btn-xs px-1" onClick={() => { setSourceCohort(''); setSourceFilter(''); }}>✕</button>
-                </div>
+                <span className="label-text-alt">
+                  <button className="link link-error text-xs" onClick={() => { setSourceCohort(''); setSourceFilter(''); }}>clear</button>
+                </span>
               )}
-              {sourceDropdownOpen && (
-                <ul className="absolute z-50 mt-1 w-full max-h-48 overflow-y-auto border rounded bg-base-100 shadow-lg">
-                  {filteredCohorts
-                    .filter(([id]) => id.toLowerCase().includes(sourceFilter.toLowerCase()))
-                    .map(([cohortId]) => (
-                    <li
-                      key={cohortId}
-                      className={`px-3 py-1.5 cursor-pointer hover:bg-base-200 text-sm ${cohortId === sourceCohort ? 'bg-primary/10 font-semibold' : ''}`}
-                      onClick={() => { setSourceCohort(cohortId); setSourceFilter(''); setSourceDropdownOpen(false); }}
-                    >
-                      {cohortId}
-                    </li>
-                  ))}
-                  {filteredCohorts.filter(([id]) => id.toLowerCase().includes(sourceFilter.toLowerCase())).length === 0 && (
-                    <li className="px-3 py-2 text-sm text-gray-400">No matches</li>
-                  )}
-                </ul>
+            </label>
+            <input
+              type="text"
+              placeholder="Type to search..."
+              className="input input-bordered input-sm w-full mb-1"
+              value={sourceCohort || sourceFilter}
+              onChange={(e) => { setSourceFilter(e.target.value); setSourceCohort(''); setSourceDropdownOpen(true); }}
+              onFocus={() => { if (!sourceCohort) setSourceDropdownOpen(true); }}
+              readOnly={!!sourceCohort}
+            />
+            <div className="flex flex-col max-h-48 overflow-y-auto border rounded p-2 bg-base-100" ref={sourceDropdownRef}>
+              {filteredCohorts
+                .filter(([id]) => id.toLowerCase().includes(sourceFilter.toLowerCase()))
+                .map(([cohortId]) => (
+                <label
+                  key={cohortId}
+                  className={`cursor-pointer flex items-center gap-2 py-0.5 text-sm ${cohortId === sourceCohort ? 'bg-primary/10 font-semibold' : ''}`}
+                  onClick={() => { setSourceCohort(cohortId); setSourceFilter(''); setSourceDropdownOpen(false); }}
+                >
+                  <span>{cohortId}</span>
+                </label>
+              ))}
+              {filteredCohorts.filter(([id]) => id.toLowerCase().includes(sourceFilter.toLowerCase())).length === 0 && (
+                <span className="text-sm text-gray-400 py-1">No matches</span>
               )}
             </div>
           </div>
@@ -681,11 +678,12 @@ export default function MappingPage() {
             )}
           </div>
         </div>
+        )}
 
         {/* Show cached pairs link */}
-        <div className="text-center mt-4">
+        <div className="text-right mt-2">
           <button
-            className="link link-primary text-sm"
+            className="link link-primary text-xs italic"
             onClick={() => {
               if (!showCachePanel) fetchCachedFiles();
               setShowCachePanel(!showCachePanel);
@@ -695,9 +693,13 @@ export default function MappingPage() {
           </button>
         </div>
 
-        {/* Inline cached pairs panel */}
+        {/* Cached pairs panel - replaces source/target boxes */}
         {showCachePanel && (
-          <div className="mt-4 p-4 border rounded-lg bg-base-100 shadow-sm">
+          <div className="p-4 border rounded-lg bg-base-100 shadow-sm relative">
+            <button
+              className="btn btn-ghost btn-xs absolute top-2 right-2"
+              onClick={() => setShowCachePanel(false)}
+            >✕</button>
             {loadingCacheFiles ? (
               <div className="flex items-center gap-2 py-4 justify-center">
                 <span className="loading loading-spinner loading-sm"></span>
@@ -710,11 +712,9 @@ export default function MappingPage() {
                 <table className="table table-zebra table-sm w-full">
                   <thead>
                     <tr>
-                      <th className="bg-base-300">Cohorts</th>
+                      <th className="bg-base-300 whitespace-nowrap">Cohorts</th>
                       <th className="bg-base-300">Generated</th>
                       <th className="bg-base-300">Mappings</th>
-                      <th className="bg-base-300">Harmonization Status</th>
-                      <th className="bg-base-300">Mapping Relation</th>
                       <th className="bg-base-300">Actions</th>
                     </tr>
                   </thead>
@@ -723,7 +723,7 @@ export default function MappingPage() {
                       .sort((a, b) => b.timestamp - a.timestamp)
                       .map((file, idx) => (
                       <tr key={idx}>
-                        <td className="font-medium text-xs">
+                        <td className="font-medium text-xs whitespace-nowrap">
                           {file.cohorts.join(' → ')}
                         </td>
                         <td className="text-xs whitespace-nowrap">
@@ -736,35 +736,9 @@ export default function MappingPage() {
                           {file.stats?.total_mappings ?? '—'}
                         </td>
                         <td className="text-xs">
-                          {file.stats?.harmonization_status ? (
-                            <div className="flex flex-wrap gap-1">
-                              {Object.entries(file.stats.harmonization_status)
-                                .sort(([,a], [,b]) => (b as number) - (a as number))
-                                .map(([status, count]) => (
-                                <span key={status} className="badge badge-sm badge-ghost">
-                                  {status}: {count as number}
-                                </span>
-                              ))}
-                            </div>
-                          ) : '—'}
-                        </td>
-                        <td className="text-xs">
-                          {file.stats?.mapping_relation ? (
-                            <div className="flex flex-wrap gap-1">
-                              {Object.entries(file.stats.mapping_relation)
-                                .sort(([,a], [,b]) => (b as number) - (a as number))
-                                .map(([relation, count]) => (
-                                <span key={relation} className="badge badge-sm badge-ghost">
-                                  {relation || '(empty)'}: {count as number}
-                                </span>
-                              ))}
-                            </div>
-                          ) : '—'}
-                        </td>
-                        <td className="text-xs">
                           <div className="flex gap-1">
                             <button
-                              className="btn btn-xs btn-primary"
+                              className="btn btn-xs btn-outline"
                               onClick={() => handleCachePreview(file)}
                               disabled={loadingCacheAction === file.filename}
                             >
