@@ -7,22 +7,22 @@ import os
 import glob
 import time
 import json
-from CohortVarLinker.updated_CohortVarLinker.variables_kg import process_variables_metadata_file
-from CohortVarLinker.updated_CohortVarLinker.study_kg import generate_studies_kg
-from CohortVarLinker.updated_CohortVarLinker.vector_db import generate_studies_embeddings
-from CohortVarLinker.updated_CohortVarLinker.utils import (
+from CohortVarLinker.src.variables_kg import process_variables_metadata_file
+from CohortVarLinker.src.study_kg import generate_studies_kg
+from CohortVarLinker.src.vector_db import generate_studies_embeddings
+from CohortVarLinker.src.utils import (
         get_cohort_mapping_uri,
         delete_existing_triples,
         publish_graph_to_endpoint,
         OntologyNamespaces,
         get_member_studies,
     )
-from CohortVarLinker.updated_CohortVarLinker.data_model import MappingType, EmbeddingType
-from CohortVarLinker.updated_CohortVarLinker.run import StudyMapper
-from CohortVarLinker.updated_CohortVarLinker.config import settings
-from CohortVarLinker.updated_CohortVarLinker.vector_db import _embed_cache
-from CohortVarLinker.updated_CohortVarLinker.graph_similarity import _EMBED_CACHE
-from CohortVarLinker.updated_CohortVarLinker.constraints import CategoryMapper
+from CohortVarLinker.src.data_model import MappingType, EmbeddingType
+from CohortVarLinker.src.run import StudyMapper
+from CohortVarLinker.src.config import settings
+from CohortVarLinker.src.vector_db import _embed_cache
+from CohortVarLinker.src.graph_similarity import _EMBED_CACHE
+from CohortVarLinker.src.constraints import CategoryMapper
 from CohortVarLinker.validate_cde import get_omop_graph
 
 

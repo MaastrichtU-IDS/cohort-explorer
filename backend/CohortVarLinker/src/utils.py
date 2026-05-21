@@ -10,12 +10,200 @@ import os
 import re
 import urllib.parse
 from enum import Enum
-from typing import Dict, Any
-
-
-
-
+from typing import Dict, Any, List, Optional
 from datetime import datetime
+import logging
+
+_VISIT_MONTH_RE = re.compile(r'(\d+)\s*months?', re.IGNORECASE)
+_VISIT_BASELINE_RE = re.compile(r'baseline|month\s*0|randomization', re.IGNORECASE)
+
+
+_TEMPORAL_CONTEXT_RE = re.compile(
+    r'(?:'
+      # Pattern A: 'at <temporal-expression>' (with optional double-stamp)
+      r'\s*(?:at\s+)?at\s+(?:'
+        r'baseline\s*(?:visit)?'
+        r'|randomization'
+        r'|end\s+of\s+study'
+        r'|\d+\s*(?:months?|years?|weeks?|days?)'
+        r'|(?:visit\s+)?(?:month\s*)?\d+'
+        r'|(?:visit\s*|v)\d+'
+      r')'
+      # Pattern B: trailing bare 'Month12' (no 'at' prefix)
+      r'|\s+Month\s*\d+\s*$'
+      # Pattern C: '[N months] prior to randomization' (no 'at' prefix)
+      r'|\s+(?:\d+\s*months?\s+)?prior\s+to\s+randomization'
+    r')',
+    re.IGNORECASE
+)
+def clean_label_remove_temporal_context(label: str) -> str:
+    if not label:
+        return label
+    
+    # Apply repeatedly for double-stamped labels like
+    # "Pulmonary valve velocity at visit month 18 at visit month 18"
+    cleaned = label
+    prev = None
+    while prev != cleaned:
+        prev = cleaned
+        cleaned = _TEMPORAL_CONTEXT_RE.sub('', cleaned)
+    
+    # Normalize whitespace and strip punctuation artifacts
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip().strip(' ,;-')
+    
+    # Safety: never return empty string
+    return cleaned if cleaned else label
+
+# check if variable is identifier-code like to determine its statistical type
+
+STRONG_ID_PHRASES = [
+    "id",
+    "identifier",
+    "identification",
+    "patient code",
+    "patient id",
+    "patient number",
+    "subject code",
+    "subject id",
+    "subject number",
+    "participant code",
+    "participant id",
+    "participant number",
+    "hospital code",
+    "hospital id",
+    "hospital number",
+    "record code",
+    "record id",
+    "record number",
+    "registry code",
+    "registry id",
+    "registry number",
+    "screening code",
+    "screening id",
+    "screening number",
+    "randomization code",
+    "randomization id",
+    "randomization number",
+    "randomisation code",
+    "randomisation id",
+    "randomisation number",
+    "case report form",
+    "code",
+    "crf",
+]
+
+CLINICAL_CODE_EXCLUSIONS = [
+    "code",
+    "diagnosis code",
+    "procedure code",
+    "medication code",
+    "device code",
+]
+
+
+_STRONG_ID_RE = re.compile(
+    r'\b(?:' + '|'.join(re.escape(p) for p in STRONG_ID_PHRASES) + r')\b'
+)
+_EXCLUSION_RE = re.compile(
+    r'\b(?:' + '|'.join(re.escape(p) for p in CLINICAL_CODE_EXCLUSIONS) + r')\b'
+)
+def is_identifier_like_variable(row: pd.Series) -> tuple[bool, list[str]]:
+    def _clean_text(x):
+        if x is None or pd.isna(x):
+            return ""
+        return str(x).lower().replace("_", " ").replace("-", " ").strip()
+
+    fields = {
+        "variablename":          _clean_text(row.get("variablename", "")),
+        "variablelabel":         _clean_text(row.get("variablelabel", "")),
+        "variable concept name": _clean_text(row.get("variable concept name", "")),
+    }
+
+    reasons = []
+    for field, text in fields.items():
+        if not text or _EXCLUSION_RE.search(text):
+            continue
+        m = _STRONG_ID_RE.search(text)
+        if m:
+            reasons.append(f"{field} contains '{m.group(0)}'")
+    return bool(reasons), reasons
+
+
+
+def is_absolute_vs_percent_dose(src_unit: Optional[str], tgt_unit: Optional[str]) -> bool:
+    """
+    Detect whether a unit pair represents an absolute medication dose
+    versus a percent/target-dose-normalised value.
+
+    Examples:
+        mg vs %          -> True
+        mg/day vs %      -> True
+        ucum:mg vs percent -> True
+        kg vs %          -> False
+        mg/dl vs %       -> False
+        mg vs mg         -> False
+    """
+
+    if not src_unit or not tgt_unit:
+        return False
+
+    s = str(src_unit).lower().strip()
+    t = str(tgt_unit).lower().strip()
+
+    # Light normalization
+    s = (
+        s.replace("ucum:", "")
+         .replace("milligram", "mg")
+         .replace("microgram", "mcg")
+         .replace("µg", "mcg")
+         .replace("μg", "mcg")
+         .replace("percentage", "percent")
+    )
+
+    t = (
+        t.replace("ucum:", "")
+         .replace("milligram", "mg")
+         .replace("microgram", "mcg")
+         .replace("µg", "mcg")
+         .replace("μg", "mcg")
+         .replace("percentage", "percent")
+    )
+
+    percent_units = {"%", "percent"}
+
+    absolute_dose_units = {
+        "mg", "mg/day", "mg/d", "mg/24h",
+        "g", "g/day", "g/d", "g/24h",
+        "mcg", "mcg/day", "mcg/d", "mcg/24h",
+        "ug", "ug/day", "ug/d", "ug/24h"
+    }
+
+    return (
+        (s in absolute_dose_units and t in percent_units)
+        or
+        (t in absolute_dose_units and s in percent_units)
+    )
+# Add near the top of graph_similarity.py, after imports
+
+def split_categories(categories: str | None) -> tuple[List[str], List[str]]:
+    if not categories or not isinstance(categories, str):
+        return [], []
+    parts = [c.strip().lower() for c in categories.split("|") if c.strip()]
+    if not parts:
+        return [], []
+    # Per-part split so a mixed string like "1=Yes|2=No|3" doesn't crash:
+    # any token without '=' is treated as both the code and the label,
+    # matching the existing fallback when no token contains '='.
+    original_categories: List[str] = []
+    category_labels: List[str] = []
+    for c in parts:
+        code, sep, label = c.partition("=")
+        code = code.strip()
+        label = label.strip() if sep else code
+        original_categories.append(code)
+        category_labels.append(label)
+    return original_categories, category_labels
+
 
 def day_month_year(date_str: str) -> tuple:
     formats = [
@@ -25,12 +213,13 @@ def day_month_year(date_str: str) -> tuple:
         try:
             dt = datetime.strptime(date_str.strip(), fmt)
             return (str(dt.day).zfill(2), str(dt.month).zfill(2), str(dt.year))
-        except:
-            continue
+        except Exception as e:
+            pass
     return None
+
 class OntologyNamespaces(Enum):
     CMEO = Namespace("https://w3id.org/CMEO/")
-    OMOP = Namespace("http://omop.org/OMOP/")
+    OMOP = Namespace("https://ohdsi.org/")
     ATC = Namespace("http://purl.bioontology.org/ontology/ATC/")
     RXNORM = Namespace("http://purl.bioontology.org/ontology/RXNORM/")
     UCUM = Namespace("http://unitsofmeasure.org/")
@@ -52,6 +241,13 @@ class OntologyNamespaces(Enum):
     DUO = Namespace("http://purl.obolibrary.org/obo/duo.owl/")
     NCBI = Namespace("http://purl.bioontology.org/ontology/NCBITAXON/")
     SKOS = Namespace("http://www.w3.org/2004/02/skos/core#")
+    CPT4 = Namespace("http://purl.bioontology.org/ontology/CPT4/")
+    MESH = Namespace("http://purl.bioontology.org/ontology/MESH/")
+    NCI = Namespace("http://purl.bioontology.org/ontology/NCI/")
+    # OMOP = Namespace("http://purl.bioontology.org/ontology/OMOP/")
+    ICARE = Namespace("https://icare4cvd.eu/")
+    UKBiobank = Namespace("https://biobank.ndph.ox.ac.uk/ukb/field.cgi?id=")
+    CDISC = Namespace("http://rdf.cdisc.org/mms#")
     # UCUM = Namespace("http://purl.bioontology.org/ontology/UCUM/")
     # RXNORM = Namespace("http://purl.bioontology.org/ontology/RXNORM/")
 
@@ -200,7 +396,8 @@ def extract_age_range(text):
         return min_age, max_age
 
     return None
-def determine_var_uri(g, cohort_id, var_name,multi_class_categorical, binary_categorical, data_type=None):
+def determine_var_uri(cohort_id: str | URIRef, var_name: str,multi_class_categorical: list[str], binary_categorical: list[str], data_type: str = None, unit:str=None) -> tuple[URIRef, str]:
+    print(f"data_type: {data_type}")
     # cohort_uri = get_cohort_uri(cohort_id)
     var_uri = get_var_uri(cohort_id, var_name)
     if var_name in binary_categorical:
@@ -210,16 +407,60 @@ def determine_var_uri(g, cohort_id, var_name,multi_class_categorical, binary_cat
     elif var_name in multi_class_categorical:
         statistical_type_uri =  URIRef(var_uri + "/multi_class_variable")
         statistical_type = "multi_class_variable"
-    elif data_type  and data_type in  ["str", "datetime"]:
+    elif data_type  and data_type in  ["str",] and unit is None:
         statistical_type_uri =  URIRef(var_uri + "/qualitative_variable")
         statistical_type = "qualitative_variable"
     else:
+        # date/time --- dosage/measurement variables variables
         statistical_type_uri =  URIRef(var_uri + "/continuous_variable")
         statistical_type = "continuous_variable"
     return statistical_type_uri,statistical_type
 
+def parse_post_cordinating_concepts_ids(pipe_str) -> List[int]:
+    if pd.isna(pipe_str) or not pipe_str: return []
+    out = []
+    for p in str(pipe_str).replace("||","|").split("|"):
+        try: out.append(int(p.strip()))
+        except (ValueError, TypeError): pass
+    return out
 
-def extract_tick_values(texts: str) -> list[float]:
+def parse_post_cordinating_concepts_labels(pipe_str) -> List[str]:
+    if pd.isna(pipe_str) or not pipe_str: return []
+    pipe_str = pipe_str.replace("||", "|")
+    return [p.strip().lower() for p in str(pipe_str).split("|") if p.strip()]
+
+def build_concept_parts(main_label, composite_labels_str) -> List[str]:
+    """Merge main label with composite labels into an ordered, deduped list.
+    """
+    parts = []
+    if main_label is not None and not pd.isna(main_label):
+        m = str(main_label).strip().lower()
+        if m:
+            parts.append(m)
+    for l in parse_post_cordinating_concepts_labels(composite_labels_str):
+        if l not in parts:
+            parts.append(l)
+    return parts
+
+def build_concept_text(main_label, composite_labels_str) -> str:
+    """String form of the concept signature (kept for callers that expect a string)."""
+    return " ".join(build_concept_parts(main_label, composite_labels_str)).strip()
+
+def extract_visit_period(visit: str) -> str:
+    """Normalize visit string to comparable period label."""
+    if not visit:
+        return ""
+    if _VISIT_BASELINE_RE.search(visit):
+        return "baseline time"
+    m = _VISIT_MONTH_RE.search(visit)
+    if m:
+        return f"follow-up {m.group(1)} months"
+    m2 = re.search(r'month\s*(\d+)', visit, re.IGNORECASE)
+    if m2:
+        return f"follow-up {m2.group(1)} months"
+    return visit
+
+def extract_tick_values(texts: str) -> List[float]:
     """Extract numeric tick labels from a matplotlib Text() list‑string.
 
     Example input (single string):
@@ -247,16 +488,12 @@ def is_categorical_variable(df):
     # create dict using variable name and CATREGORICAL
     column_dict = dict(zip(df['variablename'], df['categorical']))
     for key, value in column_dict.items():
-        # if pd.notna(value) and value:
-            if pd.notna(value) and value != "":
+        if pd.notna(value) and value and value != "":
                 if len(value.split("|")) == 2:
                     binary_categorical.append(normalize_text(key))
                 else:
                     multi_class_categorical.append(normalize_text(key))
     return binary_categorical, multi_class_categorical
-
-
-
 
 def safe_int(value):
     """Safely convert a value to an integer, returning None if the value is invalid."""
@@ -355,33 +592,27 @@ def adjust_for_additional_context(result_dict, status, src_info, tgt_info, mappi
     # No context on either side -> nothing to adjust
     if not src_codes and not tgt_codes:
         if src_visit == tgt_visit:
-            return result_dict, status, mapping_relation
+            return result_dict, mapping_relation, status
         else:
-            if (('event' in src_visit.lower() and  'baseline' in tgt_visit.lower()) or ('baseline' in src_visit.lower() and  'event' in tgt_visit.lower())):
-                status = lower_stat_by_1(status)
             result_dict["description"] = desc + (
                 "Temporal context differs between source and target at metadata level.")
-            # status = lower_stat_by_1(status)
-            return result_dict, status, mapping_relation
+            if (('event' in src_visit.lower() and  'baseline' in tgt_visit.lower()) or ('baseline' in src_visit.lower() and  'event' in tgt_visit.lower())):
+                status = lower_stat_by_1(status)
+            return result_dict, mapping_relation, status
 
     # Exact match
     elif src_codes == tgt_codes:
-        # Optionally, store what matched (can help debugging)
-        # if src_codes:
-            # result_dict.setdefault("additional_context_comparison", "exact")
-            # result_dict.setdefault("additional_context_source",src_codes)
-            # result_dict.setdefault("additional_context_target",tgt_codes)
         if src_visit == tgt_visit:
-            return result_dict, status, mapping_relation
+            return result_dict, mapping_relation, status
         else:
             # status = lower_stat_by_1(status)
             if (('event' in src_visit.lower() and  'baseline' in tgt_visit.lower()) or ('baseline' in src_visit.lower() and  'event' in tgt_visit.lower())):
                 status = lower_stat_by_1(status)
             result_dict["description"] = desc + (
                 "Temporal context differs between source and target at metadata level.")
-            return result_dict, status, "skos:relatedMatch"
+            return result_dict, "skos:relatedMatch", status
     else:
-        print(f"Adjusting for additional context: src_codes={src_codes}: {src_info}, tgt_codes={tgt_codes}: {tgt_info}")
+        # print(f"Adjusting for additional context: src_codes={src_codes}: {src_info}, tgt_codes={tgt_codes}: {tgt_info}")
         src_codes_lst = src_codes.split("|") if src_codes else []
         
         tgt_codes_lst = tgt_codes.split("|") if tgt_codes else []
@@ -406,14 +637,12 @@ def adjust_for_additional_context(result_dict, status, src_info, tgt_info, mappi
 
         
         result_dict["description"] =  desc + extra_note
-        # result_dict["additional_context_comparison"] = comparison_kind
-        # result_dict["additional_context_source"] = src_codes
-        # result_dict["additional_context_target"] = tgt_codes
+       
         if src_visit != tgt_visit:
             result_dict["description"] += " Temporal context also differs between source and target at metadata level."
             # status = lower_stat_by_1(status)
 
-        return result_dict, status, mapping_relation
+        return result_dict,  mapping_relation, status
 
 
 def execute_query(query: str) -> Iterable[Dict[str, Any]]:
@@ -422,8 +651,9 @@ def execute_query(query: str) -> Iterable[Dict[str, Any]]:
     sparql.setReturnFormat(JSON)
     return sparql.query().convert()
 
-
-
+def get_embedding_model(model_name="biolord"):
+    from .embed_model import get_model
+    return get_model(backend=model_name)
    
 def apply_rules(domain, mapping_relation, src_info, tgt_info):
     
@@ -484,7 +714,7 @@ def apply_rules(domain, mapping_relation, src_info, tgt_info):
                     
                 }
                 return finalize(details, "Partial Match (Proximate)", src_info, tgt_info, mapping_relation)
-            
+
             if src_unit and tgt_unit and src_unit != tgt_unit:
                 details = {
                     "description": (
@@ -494,6 +724,13 @@ def apply_rules(domain, mapping_relation, src_info, tgt_info):
                 return finalize(details, "Compatible Match", src_info, tgt_info, mapping_relation)
 
             # Same type and compatible units (or units missing on one side)
+            if mapping_relation not in {"skos:exactMatch", "skos:closeMatch"}:
+                details = {
+                "description": "Variables are broadly similar continuous types; manual review required to confirm exact transformation."
+                
+                }
+                return finalize(details, "Partial Match (Proximate)", src_info, tgt_info, mapping_relation)
+           
             details = {
                 "description": "No transformation required. Continuous types and units match."
             }
@@ -502,13 +739,21 @@ def apply_rules(domain, mapping_relation, src_info, tgt_info):
         # categorical/qualitative — align by labels
         elif src_type == "qualitative_variable":
             if src_data_type == tgt_data_type:
-                return finalize(
-                    {"description": "The qualitative variables share semantics and statistics."},
-                    "Identical Match",
-                    src_info,
-                    tgt_info,
-                    mapping_relation,
-                )
+                if mapping_relation not in {"skos:exactMatch", "skos:closeMatch"}:
+                    details = {
+                    "description": "Variables are broadly similar qualitative types; manual review required to confirm exact transformation."
+                    
+                    }
+                    return finalize(details, "Partial Match (Proximate)", src_info, tgt_info, mapping_relation)
+            
+                else:
+                    return finalize(
+                        {"description": "The qualitative variables share semantics and statistics."},
+                        "Identical Match",
+                        src_info,
+                        tgt_info,
+                        mapping_relation,
+                    )
             else:
                 details = {
                     "description": "Qualitative variables share semantics and statistics but differ in data type."
@@ -519,12 +764,20 @@ def apply_rules(domain, mapping_relation, src_info, tgt_info):
             
             if label_mapping["has_overlap"]:
                 if label_mapping["identical"]:
-                    details = {
+                    if mapping_relation not in {"skos:exactMatch", "skos:closeMatch"}:
+                        details = {
+                        "description": "Variables are broadly similar categorical types; manual review required to confirm exact transformation."
+                        
+                        }
+                        return finalize(details, "Partial Match (Proximate)", src_info, tgt_info, mapping_relation)
+                
+                    else:
+                        details = {
                         "description": "Categorical values are identical and aligned by standard labels.",
                         "categorical_mapping": label_mapping["mapping_str"],
                         "standard_labels": "; ".join(sorted(label_mapping["overlap_labels"])),
                     }
-                    return finalize(details, "Identical Match", src_info, tgt_info, mapping_relation)
+                        return finalize(details, "Identical Match", src_info, tgt_info, mapping_relation)
                 else:
                     details = {
                         "description": "Original categorical values differ but overlap on standard labels.",
@@ -626,9 +879,9 @@ def apply_rules(domain, mapping_relation, src_info, tgt_info):
         }
         return finalize(details, "Not Applicable", src_info, tgt_info, mapping_relation)
      
-      # -------------------------------------------------------------------------
+
     # CASE 3: continuous vs categorical
-    # -------------------------------------------------------------------------
+    
     
     elif ((src_type == "continuous_variable" and tgt_type in {"binary_class_variable", "multi_class_variable"}) or 
         (tgt_type == "continuous_variable" and src_type in {"binary_class_variable", "multi_class_variable"})):
@@ -659,7 +912,7 @@ def apply_rules(domain, mapping_relation, src_info, tgt_info):
     return finalize({"description": "No specific transformation rule available."}, "Not Applicable", src_info, tgt_info, mapping_relation)
 
 
-def get_member_studies(study_name: str) -> URIRef | None:
+def get_member_studies(study_name: str) -> List[str]:
     query = f"""PREFIX dc:   <http://purl.org/dc/elements/1.1/>
                     PREFIX obi:  <http://purl.obolibrary.org/obo/obi.owl/>
                     PREFIX ro:   <http://purl.obolibrary.org/obo/ro.owl/>
@@ -671,13 +924,13 @@ def get_member_studies(study_name: str) -> URIRef | None:
                         # anchor the index study
                         ?study_design  dc:identifier ?study_name.
                         VALUES (?study_name) {{ ("{study_name}") }} 
-                    # membership in BOTH directions
+                        # membership in BOTH directions
                         {{
                         ?study_design obi:has_member ?related_study .
                         }} UNION {{
                         ?related_study obi:has_member ?study_design .
                         }} UNION {{
-                        ?study_design obi:member_of ?related_study .
+                         ?study_design obi:member_of ?related_study .
                         }} UNION {{
                         ?related_study obi:member_of ?study_design .
                         }}
@@ -700,431 +953,9 @@ def get_member_studies(study_name: str) -> URIRef | None:
     return studies_uris
     
     
-    
-
-# def apply_rules(domain, src_info, tgt_info):
-#     def parse_categories(cat_str):
-#         if pd.notna(cat_str) and cat_str not in [None, '']:
-#             return [c.strip().lower() for c in str(cat_str).split(";")]
-#         return []
-
-#     def map_category_to_code(code_str:list, label_str:list):
-#         codes = [c.strip() for c in code_str]
-#         labels = [l.strip().lower() for l in label_str]
-#         # Returns a dict: label → code
-#         return {code: label for code, label in zip(codes, labels) if code and label}
-    
-#     print(f"src_info: {src_info}  tgt_info: {tgt_info}")
-#     src_var_name = src_info.get('var_name', '').lower()
-#     tgt_var_name = tgt_info.get('var_name', '').lower()
-#     src_type = str(src_info.get('stats_type')).lower() if pd.notna(src_info.get('stats_type')) and src_info.get('stats_type') not in [None, ''] else None
-#     tgt_type = str(tgt_info.get('stats_type')).lower() if pd.notna(tgt_info.get('stats_type')) and tgt_info.get('stats_type') not in [None, ''] else None
-
-#     src_unit = str(src_info.get('unit', '').lower() if pd.notna(src_info.get('unit', '')) else None)
-#     tgt_unit = str(tgt_info.get('unit', '').lower() if pd.notna(tgt_info.get('unit', '')) else None)
-#     src_data_type = str(src_info.get('data_type', '').lower() if pd.notna(src_info.get('data_type', '')) else None)
-#     tgt_data_type = str(tgt_info.get('data_type', '').lower() if pd.notna(tgt_info.get('data_type', '')) else None)
-#     src_categories = parse_categories(src_info.get('categories_codes', ''))
-#     tgt_categories = parse_categories(tgt_info.get('categories_codes', ''))
-#     original_src_categories = parse_categories(src_info.get('original_categories', ''))
-#     original_tgt_categories = parse_categories(tgt_info.get('original_categories', ''))
- 
-#     valid_types = {"continuous_variable", "binary_class_variable", "multi_class_variable", "qualitative_variable"}
-#     if (src_type not in valid_types or tgt_type not in valid_types) or (src_type is None or tgt_type is None):
-#         if "derived" not in src_var_name and "derived" not in tgt_var_name:
-#             return {
-#                 "description": "Transformation not applicable (invalid or missing statistical type)."
-#             }, "Not Applicable"
-#         else:
-#             return {
-#                 "description": "Derived variable - Transformation depends on derivation logic."
-#             }, "Compatible Match"
-#     elif src_type == tgt_type:
-#         if src_type == "continuous_variable":
-#             if src_unit and tgt_unit and src_unit != tgt_unit:
-#                 # if (src_unit in ["mg", "milligram"] and tgt_unit in ["%", "percent"]) or \
-#                 #    (src_unit in ["%", "percent"] and tgt_unit in ["mg", "milligram"]):
-#                 return {
-#                         "description": "Unit conversion in dataset required from {src_unit} to {tgt_unit} or vice versa.",
-#                     }, "Compatible Match"
-#                 # return {
-#                 #     "description": "Unit conversion required. Evaluate based on research question."
-#                 # }
-#             return {
-#                 "description": "No transformation required. Continuous types and units match."
-#             }, "Identical Match"
-        
-#         else:
-            
-#             src_pairs = map_category_to_code(src_categories, original_src_categories)
-#             tgt_pairs = map_category_to_code(tgt_categories, original_tgt_categories)
-
-#             print(f"src_label_to_code: {src_pairs}")
-#             print(f"tgt_label_to_code: {tgt_pairs}")
-#             # Try to match on label (case-insensitive)
-#             common_codes = set(src_pairs) & set(tgt_pairs)
-
-#             if common_codes:
-#                 if set(original_src_categories) == set(original_tgt_categories):
-#                     mapping_str = [f"{sl} ↔ {tl}" for sl, tl in zip(original_src_categories, original_tgt_categories)]
-#                     print(f"mapping_str: {mapping_str}")
-#                     return {
-#                         "description": "Categorical values are identical and aligned by standard codes.",
-#                         "categorical_mapping": "; ".join(mapping_str),
-#                         "standard_codes": "; ".join(common_codes) if common_codes else "No common codes found",
-#                     }, "Identical Match"
-#                 else:
-#                     mapping_str = [f"{sl} -> {tl}" for sl, tl in zip(src_pairs.values(), tgt_pairs.values())]
-#                     print(f"mapping_str: {mapping_str}")
-#                     return {
-#                         "description": f"The original categorical values are not similar however aligned by standard codes.",
-#                         "categorical_mapping": "; ".join(mapping_str),
-#                         "standard_codes": "; ".join(common_codes) if common_codes else "No common codes found",
-#                     }, "Compatible Match"
-#             else:
-                
-#                 return {
-#                     "description": "Found no matching standard labels for categories values. Mapping/review is required for harmonization.",
-#                     "source_categories": "; ".join(src_categories),
-#                     "target_categories": "; ".join(tgt_categories)
-#                 }, "Partial Match (Tentative)"
-           
-#     elif (
-#         (src_type == "binary_class_variable" and tgt_type == "multi_class_variable") or
-#         (src_type == "multi_class_variable" and tgt_type == "binary_class_variable")
-#     ):
-#         print(f"src_categories: {src_categories} and tgt_categories: {tgt_categories} for vars {src_var_name} and {tgt_var_name}")
-#         msg = (
-#             "multi-class to binary class requires justification of information loss for specific research question. For drug-related variables, consider therapy details and surrounding context."
-#             if domain in ["drug_exposure", "drug_era"]
-#             else "Both variables don't share similar categories. The conversion of multi-class to binary class (e.g. yes/no) requires justification of information loss for specific research question."
-#         )
-        
-#         # src_codes = map_category_to_code(src_categories, original_src_categories)
-#         # tgt_codes = map_category_to_code(tgt_categories, original_tgt_categories)
-        
-#         # check if src code exists in tgt codes
-        
-#          # Check if all source categories exist in target categories or vice versa
-#         if (src_type == "multi_class_variable" and tgt_type == "binary_class_variable"):
-#             proximate_ok = set(tgt_categories).issubset(set(src_categories))
-#         elif (src_type == "binary_class_variable" and tgt_type == "multi_class_variable"):
-#             proximate_ok = set(src_categories).issubset(set(tgt_categories))
-#         else:
-#             proximate_ok = False
-#         if proximate_ok:
-#             return {
-#                 "description": f"Both variables share some categories. Expand binary categories in one variable by extending with additional categories from other variables",
-#                 "source_categories": "; ".join([f"{s} <-> {t}" for s, t in zip(src_categories, original_src_categories)]),
-#                 "target_categories": "; ".join([f"{s} <-> {t}" for s, t in zip(tgt_categories, original_tgt_categories)])
-#             }, "Partial Match (Proximate)"
-#         else:   
-#             return {
-#                 "description": msg,
-#                 "source_categories": "; ".join([f"{s} <-> {t}" for s, t in zip(src_categories, original_src_categories)]),
-#                 "target_categories": "; ".join([f"{s} <-> {t}" for s, t in zip(tgt_categories, original_tgt_categories)])
-#             }, "Partial Match (Tentative)"
-
-#     elif (
-#         (src_type == "continuous_variable" and tgt_type in {"binary_class_variable", "multi_class_variable"}) or
-#         (tgt_type == "continuous_variable" and src_type in {"binary_class_variable", "multi_class_variable"})
-#     ):
-#         if src_data_type == "datetime" or tgt_data_type == "datetime":
-#             return {
-#                 "description": "Unable to align datetime to binary indicator (presence/absence)",
-#                 "source_categories": "; ".join(src_categories),
-#                 "target_categories": "; ".join(tgt_categories),
-#             }, "Not Applicable"
-#         msg = (
-#             "Discretize continuous variable to categories. Acceptable only if information loss is minimal. Represent as: (1) binary flag for event presence, (2) category of event type."
-#             if domain not in ["drug_exposure", "drug_era"]
-#             else "Harmonization may not be possible for drug-related continuous to categorical mappings. Review medication normalization depending on research question."
-#         )
-#         match = "Not Applicable" if domain in ["drug_exposure", "drug_era"] else "Partial Match (Tentative)"
-#         return {
-#             "description": msg,
-#             "source_categories": "; ".join(src_categories),
-#             "target_categories": "; ".join(tgt_categories)
-#         }, match
-
-#     elif src_type in {"binary_class_variable", "multi_class_variable"} and tgt_type == "qualitative_variable":
-#         return {
-#             "description": (
-#                 "Map structured categorical codes to consistent/unique text labels. Requires normalization."
-#                 "Only suitable for qualitative fields with finite, structured values."
-#             ),
-#             "source_categories": "; ".join(src_categories),
-#             "target_categories": ""
-#         }, "Partial Match (Tentative)"
-
-#     elif src_type == "qualitative_variable" and tgt_type in {"binary_class_variable", "multi_class_variable"}:
-#         return {
-#             "description": (
-#                 "Map qualitative text to standard categories. Normalize and encode."
-#                 "Applicable only if text values are consistently structured."
-#             ),
-#             "source_categories": "",
-#             "target_categories": "; ".join(tgt_categories)
-#         }, "Partial Match (Tentative)"
-#     elif src_type == "qualitative_variable" and tgt_type == "continuous_variable" or src_type == "continuous_variable" and tgt_type == "qualitative_variable":
-#         return {
-#             "description": (
-#                 "Map qualitative text to binary indicators."
-#                 "Applicable only if text values are consistently structured."
-#             ),
-#             "source_categories": "",
-#             "target_categories": "; ".join(tgt_categories)
-#         }, "Partial Match (Tentative)"
-#     return {
-#         "description": "No specific transformation rule available."
-#     }, "Not Applicable"
 
 
-# def apply_rules(domain, src_info, tgt_info):
-#     def parse_categories(cat_str):
-#         if pd.notna(cat_str) and cat_str not in [None, '']:
-#             return [c.strip().lower() for c in str(cat_str).split(";")]
-#         return []
-
-#     def map_category_to_code(code_str:list, label_str:list):
-#         codes = [c.strip() for c in code_str]
-#         labels = [l.strip().lower() for l in label_str]
-#         # Returns a dict: label → code
-#         return {code: label for code, label in zip(codes, labels) if code and label}
-    
-#     print(f"src_info: {src_info}  tgt_info: {tgt_info}")
-#     src_var_name = src_info.get('var_name', '').lower()
-#     tgt_var_name = tgt_info.get('var_name', '').lower()
-#     src_type = str(src_info.get('stats_type')).lower() if pd.notna(src_info.get('stats_type')) and src_info.get('stats_type') not in [None, ''] else None
-#     tgt_type = str(tgt_info.get('stats_type')).lower() if pd.notna(tgt_info.get('stats_type')) and tgt_info.get('stats_type') not in [None, ''] else None
-
-#     src_unit = str(src_info.get('unit', '').lower() if pd.notna(src_info.get('unit', '')) else None)
-#     tgt_unit = str(tgt_info.get('unit', '').lower() if pd.notna(tgt_info.get('unit', '')) else None)
-#     src_data_type = str(src_info.get('data_type', '').lower() if pd.notna(src_info.get('data_type', '')) else None)
-#     tgt_data_type = str(tgt_info.get('data_type', '').lower() if pd.notna(tgt_info.get('data_type', '')) else None)
-#     src_categories = parse_categories(src_info.get('categories_codes', ''))
-#     tgt_categories = parse_categories(tgt_info.get('categories_codes', ''))
-#     original_src_categories = parse_categories(src_info.get('original_categories', ''))
-#     original_tgt_categories = parse_categories(tgt_info.get('original_categories', ''))
- 
-#     valid_types = {"continuous_variable", "binary_class_variable", "multi_class_variable", "qualitative_variable"}
-#     if src_type not in valid_types or tgt_type not in valid_types:
-#         if "derived" not in src_var_name and "derived" not in tgt_var_name:
-#             return {
-#                 "description": "Transformation not applicable (invalid or missing statistical type)."
-#             }, "Not Applicable"
-
-#     elif src_type == tgt_type:
-#         if src_type == "continuous_variable":
-#             if src_unit and tgt_unit and src_unit != tgt_unit:
-#                 # if (src_unit in ["mg", "milligram"] and tgt_unit in ["%", "percent"]) or \
-#                 #    (src_unit in ["%", "percent"] and tgt_unit in ["mg", "milligram"]):
-#                 return {
-#                         "description": "Unit conversion in dataset required from {src_unit} to {tgt_unit} or vice versa.",
-#                     }, "Compatible Match"
-#                 # return {
-#                 #     "description": "Unit conversion required. Evaluate based on research question."
-#                 # }
-#             return {
-#                 "description": "No transformation required. Continuous types and units match."
-#             }, "Identical Match"
-#         elif set(src_categories) == set(tgt_categories):
-#             src_pairs = map_category_to_code(src_categories, original_src_categories)
-#             tgt_pairs = map_category_to_code(tgt_categories, original_tgt_categories)
-
-#             print(f"src_label_to_code: {src_pairs}")
-#             print(f"tgt_label_to_code: {tgt_pairs}")
-#             # Try to match on label (case-insensitive)
-#             common_codes = set(src_pairs) & set(tgt_pairs)
-
-#             if common_codes:
-#                 if set(original_src_categories) == set(original_tgt_categories):
-#                     mapping_str = [f"{sl} ↔ {tl}" for sl, tl in zip(original_src_categories, original_tgt_categories)]
-#                     print(f"mapping_str: {mapping_str}")
-#                     return {
-#                         "description": "Categorical values are identical and aligned by standard codes.",
-#                         "categorical_mapping": "; ".join(mapping_str),
-#                         "standard_codes": "; ".join(common_codes) if common_codes else "No common codes found",
-#                     }, "Identical Match"
-#                 else:
-#                     mapping_str = [f"{sl} -> {tl}" for sl, tl in zip(src_pairs.values(), tgt_pairs.values())]
-#                     print(f"mapping_str: {mapping_str}")
-#                     return {
-#                         "description": f"The original categorical values are not similar however aligned by standard codes.",
-#                         "categorical_mapping": "; ".join(mapping_str),
-#                         "standard_codes": "; ".join(common_codes) if common_codes else "No common codes found",
-#                     }, "Compatible Match"
-#             else:
-                
-#                 return {
-#                     "description": "Found no matching standard labels for categories values. Mapping/review is required for harmonization.",
-#                     "source_categories": "; ".join(src_categories),
-#                     "target_categories": "; ".join(tgt_categories)
-#                 }, "Partial Match (Tentative)"
-           
-#     elif (
-#         (src_type == "binary_class_variable" and tgt_type == "multi_class_variable") or
-#         (src_type == "multi_class_variable" and tgt_type == "binary_class_variable")
-#     ):
-#         print(f"src_categories: {src_categories} and tgt_categories: {tgt_categories} for vars {src_var_name} and {tgt_var_name}")
-#         msg = (
-#             "multi-class to binary class requires justification of information loss for specific research question. For drug-related variables, consider therapy details and surrounding context."
-#             if domain in ["drug_exposure", "drug_era"]
-#             else "Both variables don't share similar categories. The conversion of multi-class to binary class (e.g. yes/no) requires justification of information loss for specific research question."
-#         )
-        
-#         # src_codes = map_category_to_code(src_categories, original_src_categories)
-#         # tgt_codes = map_category_to_code(tgt_categories, original_tgt_categories)
-        
-#         # check if src code exists in tgt codes
-        
-#          # Check if all source categories exist in target categories or vice versa
-#         if (src_type == "multi_class_variable" and tgt_type == "binary_class_variable"):
-#             proximate_ok = set(tgt_categories).issubset(set(src_categories))
-#         elif (src_type == "binary_class_variable" and tgt_type == "multi_class_variable"):
-#             proximate_ok = set(src_categories).issubset(set(tgt_categories))
-#         else:
-#             proximate_ok = False
-#         if proximate_ok:
-#             return {
-#                 "description": f"Both variables share some categories. Expand binary categories in one variable by extending with additional categories from other variables",
-#                 "source_categories": "; ".join([f"{s} <-> {t}" for s, t in zip(src_categories, original_src_categories)]),
-#                 "target_categories": "; ".join([f"{s} <-> {t}" for s, t in zip(tgt_categories, original_tgt_categories)])
-#             }, "Partial Match (Proximate)"
-#         else:   
-#             return {
-#                 "description": msg,
-#                 "source_categories": "; ".join([f"{s} <-> {t}" for s, t in zip(src_categories, original_src_categories)]),
-#                 "target_categories": "; ".join([f"{s} <-> {t}" for s, t in zip(tgt_categories, original_tgt_categories)])
-#             }, "Partial Match (Tentative)"
-
-#     elif (
-#         (src_type == "continuous_variable" and tgt_type in {"binary_class_variable", "multi_class_variable"}) or
-#         (tgt_type == "continuous_variable" and src_type in {"binary_class_variable", "multi_class_variable"})
-#     ):
-#         if src_data_type == "datetime" or tgt_data_type == "datetime":
-#             return {
-#                 "description": "Convert datetime to binary indicator (presence/absence) if needed.",
-#                 "source_categories": "; ".join(src_categories),
-#                 "target_categories": "; ".join(tgt_categories)
-#             }, "Partial Match (Tentative)"
-#         msg = (
-#             "Discretize continuous variable to categories. Acceptable only if information loss is minimal. Represent as: (1) binary flag for event presence, (2) category of event type."
-#             if domain not in ["drug_exposure", "drug_era"]
-#             else "Harmonization may not be possible for drug-related continuous to categorical mappings. Review medication normalization depending on research question."
-#         )
-#         return {
-#             "description": msg,
-#             "source_categories": "; ".join(src_categories),
-#             "target_categories": "; ".join(tgt_categories)
-#         }, "Partial Match (Tentative)"
-
-#     elif src_type in {"binary_class_variable", "multi_class_variable"} and tgt_type == "qualitative_variable":
-#         return {
-#             "description": (
-#                 "Map structured categorical codes to consistent/unique text labels. Requires normalization."
-#                 "Only suitable for qualitative fields with finite, structured values."
-#             ),
-#             "source_categories": "; ".join(src_categories),
-#             "target_categories": ""
-#         }, "Partial Match (Tentative)"
-
-#     elif src_type == "qualitative_variable" and tgt_type in {"binary_class_variable", "multi_class_variable"}:
-#         return {
-#             "description": (
-#                 "Map qualitative text to standard categories. Normalize and encode."
-#                 "Applicable only if text values are consistently structured."
-#             ),
-#             "source_categories": "",
-#             "target_categories": "; ".join(tgt_categories)
-#         }, "Partial Match (Tentative)"
-#     elif src_type == "qualitative_variable" and tgt_type == "continuous_variable" or src_type == "continuous_variable" and tgt_type == "qualitative_variable":
-#         return {
-#             "description": (
-#                 "Map qualitative text to binary indicators."
-#                 "Applicable only if text values are consistently structured."
-#             ),
-#             "source_categories": "",
-#             "target_categories": "; ".join(tgt_categories)
-#         }, "Partial Match (Tentative)"
-#     return {
-#         "description": "No specific transformation rule available."
-#     }, "Not Applicable"
-
-
-# def apply_rules_v0(domain, src_info, tgt_info):
-#     # print(f"src_info: {src_info}  tgt_info: {tgt_info}")
-#     src_var_name = src_info.get('var_name', '').lower()
-#     tgt_var_name = tgt_info.get('var_name', '').lower()
-#     src_type = src_info.get('stats_type', '').lower()
-#     tgt_type = tgt_info.get('stats_type', '').lower()
-#     src_unit = src_info.get('unit', '').lower()
-#     tgt_unit = tgt_info.get('unit', '').lower()
-#     src_data_type = src_info.get('data_type', '').lower()
-#     tgt_data_type = tgt_info.get('data_type', '').lower()
-#     src_categories = src_info.get('categories', '').lower().split("|") if src_info.get('categories') else []
-#     tgt_categories = tgt_info.get('categories', '').lower().split("|") if tgt_info.get('categories') else []
-#     domains_list = ["observation", "drug_exposure", "device_exposure", "condition_era", "condition_occurrence","measurement", "procedure_occurrence", "observation_period", "demographic", "person"]
-#   #  print(f"src_type: {src_type} tgt_type: {tgt_type} src_unit: {src_unit} tgt_unit: {tgt_unit}")
-#     valid_types = {"continuous_variable", "binary_class_variable", "multi_class_variable","qualitative_variable"}
-#     if src_type not in valid_types or tgt_type not in valid_types and ("derived" not in src_var_name or "derived" not in tgt_var_name):
-#         return "Transformation Not applicable (invalid statistical type)"
-
-    
-#     if '|' in domain:
-#         domains = domain.split("|")[0].strip()
-#         for d in domains:
-#             if d not in domains:
-#                 return "Transformation not applicable for given domain(s)"
-#     # Case 1: Same type
-#     if src_type == tgt_type:
-#         # Check if units differ for continuous variables
-#         if src_type == "continuous_variable":
-#             if src_unit and tgt_unit and src_unit != tgt_unit:
-#                 if (src_unit in ["mg", "milligram"] and tgt_unit in ["%", "percent"]) or \
-#                     (src_unit in ["%", "percent"] and tgt_unit in ["mg", "milligram"]):
-#                     return "Unit conversion required (e.g., mg to %)"
-#                 return "Unit conversion required (Research Question dependent)"
-#             return "For harmonization, no transformation required."
-#         else:
-#             # check if categorical values are the same
-#             if set(src_categories) == set(tgt_categories):
-#                 return f"For harmonization, no transformation required if categorical values of the source variable: {src_categories} and target variable: {tgt_categories} are the same."
-#             else:
-#                 return f"For harmonization, alignment of categorical values is needed. Ensure that the categorical values of  the source variable : {src_categories} and target: {tgt_categories} variables are consistent. If they differ, transformation is needed to align them. This may involve semantical alignment of categories to ensure they match across datasets."
-
-#     # Case 2: Binary ↔ Multiclass
-#     if (
-#         (src_type == "binary_class_variable" and tgt_type == "multi_class_variable") or
-#         (src_type == "multi_class_variable" and tgt_type == "binary_class_variable")
-#     ):
-#         if domain in [ "drug_exposure", "drug_era"]:
-#             return "For harmonization convert multi-class variables to binary classes, but accept only the degree of information loss justified by the research question. For drug-related variables, scrutinize the surrounding categorical context—e.g., therapy adjustments or supplemental medication descriptors—before deciding on the optimal harmonization, because these details may not map cleanly onto a binary split."
-#         else:
-#             return "For harmonization, convert multi-class variables to binary classes, but accept only the degree of information loss justified by the research question"
-
-#     # Case 3: Continuous → Categorical
-#     if (src_type == "continuous_variable" and tgt_type in {"binary_class_variable", "multi_class_variable"}) or src_type in {"binary_class_variable", "multi_class_variable"} and tgt_type == "continuous_variable":
-#         if src_data_type == "datetime" or tgt_data_type == "datetime":
-#             return "When harmonizing a datetime variable with a binary or multi class variable, transform the datetime into a presence/absence indicator. Any non-missing datetime value indicates 'presence'; a missing or null datetime indicates 'absence'."
-#         if domain in [ "drug_exposure", "drug_era"]:
-#             return "For drug-related variables in harmonization, first examine any accompanying categorical context—such as therapy adjustments or descriptive qualifiers—because these details may not align neatly with the drug-dosage columns and harmonization may not be possible."
-#         return "For harmonization, you may discretize continuous variables into categorical classes: {tgt_categories}, but only when the resulting information loss is acceptable for the research question. Represent each clinical domain with two elements: 1Presence/absence flag:a binary indicator showing whether an event exists, 2) Event category: a categorical field specifying which event occurred (e.g., which condition, which procedure, which device etc)."
-#     if src_type in {"binary_class_variable", "multi_class_variable"} and tgt_type == "qualitative_variable":
-#         return "This variable pair involves categorical variable with values: {src_categories} and a qualitative variable (string/text-based). Harmonization is conditionally possible if the qualitative variable contains a finite and consistently used set of values that can be reliably mapped to the categorical codes. Transformation requires: (1) value normalization (e.g., spelling, casing), and (2) manual or automated mapping to standardized categories. This process may incur minor information loss and should be justified based on the harmonization goal. Applicability is limited to cases where the qualitative variable represents discrete categories, not unstructured narrative text."
-#     if src_type == "qualitative_variable" and tgt_type in {"binary_class_variable", "multi_class_variable"}:
-#         return "This variable pair involves a qualitative variable (string/text-based) and a categorical variable with values: {tgt_categories}. Harmonization is conditionally possible if the qualitative variable contains a finite and consistently used set of values that can be reliably mapped to the categorical codes. Transformation requires: (1) value normalization (e.g., spelling, casing), and (2) manual or automated mapping to standardized categories. This process may incur minor information loss and should be justified based on the harmonization goal. Applicability is limited to cases where the qualitative variable represents discrete categories, not unstructured narrative text."
-#     # # Case 4: Categorical → Continuous (rare)
-#     # if src_type in {"binary_class_variable", "multi_class_variable"} and tgt_type == "continuous_variable":
-#     #     if src_data_type == "datetime" or src_data_type == "datetime":
-#     #         return "transformation Not applicable"
-#     #     return "Transform categorical to continuous (acceptable loss, RQ dependent)"
-
-#     return "Transformation rule not defined"
-
-
-
-def parse_joined_string(input_str: str) -> list:
+def parse_joined_string(input_str: str) -> List[str]:
     """
     Parses a string that may be either:
     - a key-value categorical string like '1=No|2=Yes' or '1="mmol|l"|2="g|dl"'
@@ -1170,7 +1001,7 @@ def delete_existing_triples(graph_uri: str | URIRef, subject="?s", predicate="?p
             GRAPH <{graph_uri!s}> {{ {subject} {predicate} ?o . }}
         }}
         """
-        print(f"Query = {query}")
+        # print(f"Query = {query}")
         
         query_endpoint = SPARQLWrapper(settings.update_endpoint)
         query_endpoint.setMethod("POST")
@@ -1189,7 +1020,7 @@ def graph_exists(graph_uri: str | URIRef):
         GRAPH <{graph_uri!s}> {{ ?s ?p ?o }}
     }}
     """
-    print(f"Checking if graph exists: {query}")
+    # print(f"Checking if graph exists: {query}")
     query_endpoint = SPARQLWrapper(settings.query_endpoint)
     query_endpoint.setReturnFormat(JSON)
     query_endpoint.setQuery(query)
@@ -1204,7 +1035,7 @@ def check_triple_exists(graph_uri: str | URIRef, subject: URIRef, predicate: URI
         GRAPH <{graph_uri!s}> {{ <{subject}> <{predicate}> {f'<{obj}>' if isinstance(obj, URIRef) else f'"{obj}"'} }}
     }}
     """
-    print(f"Checking if triple exists: {query}")
+    # print(f"Checking if triple exists: {query}")
     query_endpoint = SPARQLWrapper(settings.query_endpoint)
     query_endpoint.setReturnFormat(JSON)
     query_endpoint.setQuery(query)
@@ -1294,72 +1125,6 @@ def publish_graph_to_endpoint(g: Graph, graph_uri: str | None = None) -> bool:
         print(f"Failed to upload data: {response.status_code}, {response.text}")
     return response.ok
 
-# def chunks(iterable, batch_size):
-#     batch = []
-#     for triple in iterable:
-#         batch.append(triple)
-#         if len(batch) == batch_size:
-#             yield batch
-#             batch = []
-#     if batch:
-#         yield batch
-
-# def publish_graph_in_batches(g: Graph, graph_uri: str, batch_size: int = 10000) -> bool:
-#     url = f"{settings.sparql_endpoint}/store?graph={graph_uri}"
-#     headers = {"Content-Type": "application/trig"}
-#     success = True
-
-#     for batch in chunks(g, batch_size):
-#         batch_graph = Graph()
-#         for triple in batch:
-#             print(f"Triple: {triple}")
-#             batch_graph.add(triple)
-#         batch_data = batch_graph.serialize(format="trig")
-#         response = requests.post(url, headers=headers, data=batch_data, timeout=300)
-#         if not response.ok:
-#             print(f"Failed to upload a batch: {response.status_code}, {response.text}")
-#             success = False
-#             # Optionally break or continue based on your error strategy
-#         else:
-#             print("Batch uploaded successfully")
-#     return success
-
-
-
-# def find_study_by_design(design_str: str, study_name: str = None) -> str | None:
-#     sparql = SPARQLWrapper(settings.query_endpoint)
-#     sparql.setReturnFormat(JSON)
-#     study_name = normalize_text(study_name) if study_name else None
-#     study_design_uri = f"obi:{design_str}"
-#     query = f"""
-#     PREFIX dc: <http://purl.org/dc/elements/1.1/>
-#     PREFIX ro: <http://purl.obolibrary.org/obo/ro.owl/>
-#     PREFIX obi: <http://purl.obolibrary.org/obo/obi.owl/>
-
-#     SELECT ?sde
-#     WHERE {{
-#     GRAPH <https://w3id.org/CMEO/graph/studies_metadata> {{
-#         {{
-#         ?sde a {study_design_uri} ;
-#          dc:identifier ?id .
-#         FILTER(LCASE(STR(?id)) = LCASE("{study_name}"))
-#         }}
-#     }}
-#     }}
-#     LIMIT 1
-#     """
-#     print(f"SPARQL Query: {query}")
-#     sparql.setQuery(query)
-#     results = sparql.query().convert()
-#     print(f"Results: {results}")
-#     if results['results']['bindings']:
-#         study_uri = results['results']['bindings'][0]['sde']['value']
-#         print(f"Study found: {study_uri}")
-#         return study_uri
-#     else:
-#         print("No study found with the given design.")
-#         return None
-
 def find_related_studies(study_name:str) -> list[str]:
     query = f"""
 
@@ -1396,7 +1161,10 @@ def load_dictionary( filepath=None) -> pd.DataFrame:
             # Optionally save to Excel if needed
          
         elif filepath.endswith('.csv'):
-            df_input = pd.read_csv(filepath, low_memory=False)
+            try:
+                df_input = pd.read_csv(filepath, dtype=str, keep_default_na=False)
+            except UnicodeDecodeError:
+                df_input = pd.read_csv(filepath, dtype=str, keep_default_na=False, encoding="latin-1")
         elif filepath.endswith('.xlsx'):
             df_input = pd.read_excel(filepath, sheet_name=0)
         else:
@@ -1406,6 +1174,23 @@ def load_dictionary( filepath=None) -> pd.DataFrame:
         else:
             return None
    
+   
+def load_file( filepath=None) -> pd.DataFrame:
+        """Loads the input dataset."""
+        if filepath.endswith('.sav'):
+            df_input = pd.read_spss(filepath)
+            # Optionally save to Excel if needed
+         
+        elif filepath.endswith('.csv'):
+            df_input = pd.read_csv(filepath, low_memory=False)
+        elif filepath.endswith('.xlsx'):
+            df_input = pd.read_excel(filepath, sheet_name=0)
+        else:
+            raise ValueError("Unsupported file format.")
+        if not df_input.empty:
+            return df_input
+        else:
+            return None
    
          
 def export_hierarchy_to_excel(hierarchy: dict, label_map: dict, output_file: str):
@@ -1490,3 +1275,17 @@ def insert_graph_into_named_graph(g_new: Graph, graph_uri: str, chunk_size: int 
         sparql.setQuery(query)
         res = sparql.query()
         print(f"Inserted {min(i+chunk_size, len(lines))}/{len(lines)} triples; HTTP {res.response.status}")
+
+
+def setup_logger(log_file: str):
+    logger = logging.getLogger(__name__)
+    # info should include timestamp and log level
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(formatter)
+    logger.addHandler(stream_handler)
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+    logger.setLevel(logging.INFO)
+    return logger
