@@ -468,6 +468,31 @@ def combine_cross_mappings(
   
   
 
+def _write_mapping_meta(json_path: str, final_json: dict) -> None:
+    """Compute stats from a mapping dict and write a sidecar .meta.json file."""
+    total = 0
+    harm_counts: dict[str, int] = {}
+    rel_counts: dict[str, int] = {}
+    for entry in final_json.values():
+        if not isinstance(entry, dict) or "mappings" not in entry:
+            continue
+        for m in entry["mappings"]:
+            total += 1
+            hs = str(m.get("harmonization_status") or "pending")
+            mr = str(m.get("mapping_relation") or "")
+            harm_counts[hs] = harm_counts.get(hs, 0) + 1
+            rel_counts[mr] = rel_counts.get(mr, 0) + 1
+    meta = {
+        "total_mappings": total,
+        "harmonization_status": harm_counts,
+        "mapping_relation": rel_counts,
+    }
+    meta_path = json_path + ".meta.json"
+    with open(meta_path, "w", encoding="utf-8") as f:
+        json.dump(meta, f, indent=2, ensure_ascii=False)
+    print(f"📊 Mapping stats saved to {meta_path}")
+
+
 def combine_all_mappings_to_json(
     source_study, target_studies, output_dir, json_path
 ):
@@ -532,6 +557,7 @@ def combine_all_mappings_to_json(
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(final_json, f, indent=2, ensure_ascii=False)
     print(f"✅ All mappings combined and saved to {json_path}")
+    _write_mapping_meta(json_path, final_json)
       
 def generate_mapping_csv(
     source_study,

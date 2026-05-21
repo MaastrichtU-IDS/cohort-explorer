@@ -28,6 +28,59 @@ from src.config import settings
 # Add CohortVarLinker to path for lazy imports
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../CohortVarLinker')))
 
+
+def _read_or_generate_meta(json_filepath: str) -> dict | None:
+    """Read the sidecar .meta.json for a mapping file.
+    
+    If the sidecar is missing or older than the mapping file, lazily
+    parse the mapping JSON and write a fresh sidecar.
+    Returns the stats dict or None on failure.
+    """
+    meta_path = json_filepath + ".meta.json"
+    mapping_mtime = os.path.getmtime(json_filepath)
+    
+    # Check if sidecar exists and is up-to-date
+    if os.path.exists(meta_path):
+        meta_mtime = os.path.getmtime(meta_path)
+        if meta_mtime >= mapping_mtime:
+            try:
+                with open(meta_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                pass  # fall through to regeneration
+    
+    # Sidecar missing or stale — regenerate from the mapping JSON
+    try:
+        with open(json_filepath, "r", encoding="utf-8") as f:
+            raw = f.read().replace("NaN", "null")
+            data = json.loads(raw)
+        
+        total = 0
+        harm_counts: dict[str, int] = {}
+        rel_counts: dict[str, int] = {}
+        for entry in data.values():
+            if not isinstance(entry, dict) or "mappings" not in entry:
+                continue
+            for m in entry["mappings"]:
+                total += 1
+                hs = str(m.get("harmonization_status") or "pending")
+                mr = str(m.get("mapping_relation") or "")
+                harm_counts[hs] = harm_counts.get(hs, 0) + 1
+                rel_counts[mr] = rel_counts.get(mr, 0) + 1
+        
+        meta = {
+            "total_mappings": total,
+            "harmonization_status": harm_counts,
+            "mapping_relation": rel_counts,
+        }
+        with open(meta_path, "w", encoding="utf-8") as f:
+            json.dump(meta, f, indent=2, ensure_ascii=False)
+        logger.info(f"Generated sidecar stats: {meta_path}")
+        return meta
+    except Exception as e:
+        logger.warning(f"Failed to generate sidecar for {json_filepath}: {e}")
+        return None
+
 def get_latest_dictionary_timestamp(cohort_id: str) -> float | None:
     """Get the timestamp of the latest data dictionary file for a cohort"""
     try:
@@ -208,18 +261,47 @@ async def get_available_mapping_files(
                 # Create display name showing all cohorts
                 display_name = ' → '.join(file_cohorts)
                 
+                # Read sidecar stats (lazy-generate if missing/stale)
+                stats = _read_or_generate_meta(filepath)
+                
                 available_mappings.append({
                     'cohorts': file_cohorts,
                     'filename': filename,
                     'filepath': filepath,
                     'file_size': file_size,
                     'timestamp': mtime,
-                    'display_name': display_name
+                    'display_name': display_name,
+                    'stats': stats,
                 })
     
     return JSONResponse(content={
         'available_mappings': available_mappings,
         'cohort_count': len(cohort_ids)
+    })
+
+
+@router.get("/get-cached-mapping-file/{filename}")
+async def get_cached_mapping_file(
+    filename: str,
+    user: Any = Depends(get_current_user),
+):
+    """Return the JSON content of a cached mapping file by filename."""
+    from CohortVarLinker.src.config import settings as cohort_linker_settings
+    
+    output_dir = cohort_linker_settings.output_dir
+    # Security: prevent path traversal
+    safe_filename = os.path.basename(filename)
+    filepath = os.path.join(output_dir, safe_filename)
+    
+    if not os.path.exists(filepath):
+        raise HTTPException(status_code=404, detail="Mapping file not found")
+    
+    with open(filepath, 'r', encoding='utf-8') as f:
+        file_content = f.read()
+    
+    return JSONResponse(content={
+        "file_content": file_content,
+        "filename": safe_filename,
     })
 
 

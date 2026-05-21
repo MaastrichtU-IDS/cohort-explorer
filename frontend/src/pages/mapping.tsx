@@ -263,7 +263,9 @@ export default function MappingPage() {
   // Store selected target cohorts as strings
   const [selectedTargets, setSelectedTargets] = useState<string[]>([]);
   const [mappingOutput, setMappingOutput] = useState<RowData[] | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [sourceFilter, setSourceFilter] = useState('');
+  const [targetFilter, setTargetFilter] = useState('');
+  const [sourceDropdownOpen, setSourceDropdownOpen] = useState(false);
   const [selectedMappingTypes, setSelectedMappingTypes] = useState<string[]>([]);
   const [selectedHarmonizationStatuses, setSelectedHarmonizationStatuses] = useState<string[]>([]);
   const [cacheInfo, setCacheInfo] = useState<{
@@ -276,18 +278,104 @@ export default function MappingPage() {
   const [mappingStartTime, setMappingStartTime] = useState<number | null>(null);
   const [computeDuration, setComputeDuration] = useState<{minutes: number, seconds: number} | null>(null);
   const [hadUncachedPairs, setHadUncachedPairs] = useState(false);
+  const [showCachePanel, setShowCachePanel] = useState(false);
+  const [cachedFiles, setCachedFiles] = useState<any[]>([]);
+  const [loadingCacheFiles, setLoadingCacheFiles] = useState(false);
+  const [loadingCacheAction, setLoadingCacheAction] = useState<string | null>(null);
   
   // Reference to the mapping output section
   const mappingOutputRef = useRef<HTMLDivElement>(null);
   // Reference to the map button section
   const mapButtonRef = useRef<HTMLDivElement>(null);
+  // Reference for source dropdown click-outside
+  const sourceDropdownRef = useRef<HTMLDivElement>(null);
 
-  // Filtered cohorts for both source and target menus based on search, sorted alphabetically
+  // Close source dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (sourceDropdownRef.current && !sourceDropdownRef.current.contains(e.target as Node)) {
+        setSourceDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Fetch cached mapping files for the modal
+  const fetchCachedFiles = async () => {
+    setLoadingCacheFiles(true);
+    try {
+      const cohortIds = Object.keys(cohortsData);
+      const response = await fetch(`${apiUrl}/api/get-available-mapping-files`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cohortIds),
+      });
+      if (response.ok) {
+        const result = await response.json();
+        setCachedFiles(result.available_mappings || []);
+      }
+    } catch (error) {
+      console.error('Failed to fetch cached mapping files:', error);
+    } finally {
+      setLoadingCacheFiles(false);
+    }
+  };
+
+  // Handle preview of a cached mapping file
+  const handleCachePreview = async (file: any) => {
+    setLoadingCacheAction(file.filename);
+    try {
+      const response = await fetch(`${apiUrl}/api/get-cached-mapping-file/${encodeURIComponent(file.filename)}`, {
+        credentials: 'include',
+      });
+      if (!response.ok) throw new Error('Failed to fetch file');
+      const data = await response.json();
+      const cleanedContent = data.file_content.replace(/NaN/g, 'null');
+      const jsonData = JSON.parse(cleanedContent);
+      const previewData = transformMappingDataForPreview(jsonData);
+      setMappingOutput(previewData);
+      // Set the source cohort from the file's first cohort for the EDA comparison feature
+      if (file.cohorts && file.cohorts.length > 0) {
+        setSourceCohort(file.cohorts[0]);
+      }
+      setShowCachePanel(false);
+    } catch (error) {
+      console.error('Failed to preview cached file:', error);
+    } finally {
+      setLoadingCacheAction(null);
+    }
+  };
+
+  // Handle download of a cached mapping file
+  const handleCacheDownload = async (file: any) => {
+    setLoadingCacheAction(file.filename);
+    try {
+      const response = await fetch(`${apiUrl}/api/get-cached-mapping-file/${encodeURIComponent(file.filename)}`, {
+        credentials: 'include',
+      });
+      if (!response.ok) throw new Error('Failed to fetch file');
+      const data = await response.json();
+      const blob = new Blob([data.file_content], { type: 'application/json' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = data.filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      setShowCachePanel(false);
+    } catch (error) {
+      console.error('Failed to download cached file:', error);
+    } finally {
+      setLoadingCacheAction(null);
+    }
+  };
+
+  // All cohorts sorted alphabetically (per-box filtering happens inline in JSX)
   const filteredCohorts = Object.entries(cohortsData)
-    .filter(([cohortId, cohort]) =>
-      cohortId.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      JSON.stringify(cohort).toLowerCase().includes(searchQuery.toLowerCase())
-    )
     .sort(([idA], [idB]) => idA.localeCompare(idB));
   
   // Scroll to the map button section when data becomes available
@@ -312,9 +400,6 @@ export default function MappingPage() {
     }
   }, [mappingOutput]);
 
-  const handleSearchChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchQuery(event.target.value);
-  };
 
   // Loading and error state
   const [loading, setLoading] = useState(false);
@@ -494,65 +579,214 @@ export default function MappingPage() {
           <h1 className="text-3xl font-bold text-center mb-8">Cohort Mapping</h1>
         </div>
 
-        {/* Search box and form elements - constrained width */}
+        {/* Cohort selection - constrained width */}
         <div className="max-w-6xl mx-auto">
-        {/* Search box for filtering target cohorts */}
-        <div className="mb-6 flex justify-center">
-          <input
-            type="text"
-            placeholder="[optional] Enter a keyword to filter cohorts"
-            className="input input-bordered w-full max-w-md"
-            value={searchQuery}
-            onChange={handleSearchChange}
-          />
-        </div>
 
         <div className="flex gap-4 justify-center">
+          {/* Source Cohort - searchable single-select */}
           <div className="form-control w-full max-w-xs">
             <label className="label">
               <span className="label-text">Source Cohort</span>
             </label>
-            <select 
-              className="select select-bordered w-full"
-              value={sourceCohort}
-              onChange={(e) => setSourceCohort(e.target.value)}
-            >
-              <option value="">Select source cohort</option>
-              {filteredCohorts.map(([cohortId, cohort]) => (
-                <option key={cohortId} value={cohortId}>
-                  {cohortId}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="form-control w-full max-w-xs">
-            <label className="label">
-              <span className="label-text">Target Cohorts</span>
-            </label>
-            <div className="flex flex-col max-h-64 overflow-y-scroll border rounded p-2 bg-base-100 scrollbar scrollbar-thumb-base-300 scrollbar-track-base-200">
-              {filteredCohorts.map(([cohortId]) => {
-                const checked = selectedTargets.includes(cohortId);
-                return (
-                  <label key={cohortId} className="cursor-pointer flex items-center gap-2 py-1">
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={e => {
-                        if (e.target.checked) {
-                          setSelectedTargets(prev => [...prev, cohortId]);
-                        } else {
-                          setSelectedTargets(prev => prev.filter(t => t !== cohortId));
-                        }
-                      }}
-                    />
-                    <span>{cohortId}</span>
-                  </label>
-                );
-              })}
+            <div className="relative" ref={sourceDropdownRef}>
+              <input
+                type="text"
+                placeholder="Type to search..."
+                className="input input-bordered w-full"
+                value={sourceFilter}
+                onChange={(e) => { setSourceFilter(e.target.value); setSourceDropdownOpen(true); }}
+                onFocus={() => setSourceDropdownOpen(true)}
+              />
+              {sourceCohort && (
+                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                  <span className="badge badge-sm badge-primary">{sourceCohort}</span>
+                  <button className="btn btn-ghost btn-xs px-1" onClick={() => { setSourceCohort(''); setSourceFilter(''); }}>✕</button>
+                </div>
+              )}
+              {sourceDropdownOpen && (
+                <ul className="absolute z-50 mt-1 w-full max-h-48 overflow-y-auto border rounded bg-base-100 shadow-lg">
+                  {filteredCohorts
+                    .filter(([id]) => id.toLowerCase().includes(sourceFilter.toLowerCase()))
+                    .map(([cohortId]) => (
+                    <li
+                      key={cohortId}
+                      className={`px-3 py-1.5 cursor-pointer hover:bg-base-200 text-sm ${cohortId === sourceCohort ? 'bg-primary/10 font-semibold' : ''}`}
+                      onClick={() => { setSourceCohort(cohortId); setSourceFilter(''); setSourceDropdownOpen(false); }}
+                    >
+                      {cohortId}
+                    </li>
+                  ))}
+                  {filteredCohorts.filter(([id]) => id.toLowerCase().includes(sourceFilter.toLowerCase())).length === 0 && (
+                    <li className="px-3 py-2 text-sm text-gray-400">No matches</li>
+                  )}
+                </ul>
+              )}
             </div>
           </div>
+
+          {/* Target Cohorts - searchable multi-select */}
+          <div className="form-control w-full max-w-sm">
+            <label className="label">
+              <span className="label-text">Target Cohorts</span>
+              {selectedTargets.length > 0 && (
+                <span className="label-text-alt">
+                  <button className="link link-error text-xs" onClick={() => setSelectedTargets([])}>clear all</button>
+                </span>
+              )}
+            </label>
+            <input
+              type="text"
+              placeholder="Type to filter targets..."
+              className="input input-bordered input-sm w-full mb-1"
+              value={targetFilter}
+              onChange={(e) => setTargetFilter(e.target.value)}
+            />
+            <div className="flex flex-col max-h-48 overflow-y-auto border rounded p-2 bg-base-100">
+              {filteredCohorts
+                .filter(([id]) => id.toLowerCase().includes(targetFilter.toLowerCase()))
+                .map(([cohortId]) => {
+                  const checked = selectedTargets.includes(cohortId);
+                  return (
+                    <label key={cohortId} className="cursor-pointer flex items-center gap-2 py-0.5 text-sm">
+                      <input
+                        type="checkbox"
+                        className="checkbox checkbox-xs"
+                        checked={checked}
+                        onChange={e => {
+                          if (e.target.checked) {
+                            setSelectedTargets(prev => [...prev, cohortId]);
+                          } else {
+                            setSelectedTargets(prev => prev.filter(t => t !== cohortId));
+                          }
+                        }}
+                      />
+                      <span>{cohortId}</span>
+                    </label>
+                  );
+                })}
+              {filteredCohorts.filter(([id]) => id.toLowerCase().includes(targetFilter.toLowerCase())).length === 0 && (
+                <span className="text-sm text-gray-400 py-1">No matches</span>
+              )}
+            </div>
+            {/* Selected targets chips */}
+            {selectedTargets.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-2">
+                {selectedTargets.map(t => (
+                  <span key={t} className="badge badge-sm badge-primary gap-1">
+                    {t}
+                    <button className="text-xs" onClick={() => setSelectedTargets(prev => prev.filter(x => x !== t))}>✕</button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
+
+        {/* Show cached pairs link */}
+        <div className="text-center mt-4">
+          <button
+            className="link link-primary text-sm"
+            onClick={() => {
+              if (!showCachePanel) fetchCachedFiles();
+              setShowCachePanel(!showCachePanel);
+            }}
+          >
+            {showCachePanel ? 'hide cached pairs' : 'show cached pairs'}
+          </button>
+        </div>
+
+        {/* Inline cached pairs panel */}
+        {showCachePanel && (
+          <div className="mt-4 p-4 border rounded-lg bg-base-100 shadow-sm">
+            {loadingCacheFiles ? (
+              <div className="flex items-center gap-2 py-4 justify-center">
+                <span className="loading loading-spinner loading-sm"></span>
+                <span className="text-sm">Loading cached pairs...</span>
+              </div>
+            ) : cachedFiles.length === 0 ? (
+              <p className="text-sm text-gray-500 text-center py-2">No cached mapping files found.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="table table-zebra table-sm w-full">
+                  <thead>
+                    <tr>
+                      <th className="bg-base-300">Cohorts</th>
+                      <th className="bg-base-300">Generated</th>
+                      <th className="bg-base-300">Mappings</th>
+                      <th className="bg-base-300">Harmonization Status</th>
+                      <th className="bg-base-300">Mapping Relation</th>
+                      <th className="bg-base-300">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cachedFiles
+                      .sort((a, b) => b.timestamp - a.timestamp)
+                      .map((file, idx) => (
+                      <tr key={idx}>
+                        <td className="font-medium text-xs">
+                          {file.cohorts.join(' → ')}
+                        </td>
+                        <td className="text-xs whitespace-nowrap">
+                          {new Date(file.timestamp * 1000).toLocaleDateString('de-DE')}{' '}
+                          <span className="text-gray-400">
+                            {new Date(file.timestamp * 1000).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </td>
+                        <td className="text-xs text-center">
+                          {file.stats?.total_mappings ?? '—'}
+                        </td>
+                        <td className="text-xs">
+                          {file.stats?.harmonization_status ? (
+                            <div className="flex flex-wrap gap-1">
+                              {Object.entries(file.stats.harmonization_status)
+                                .sort(([,a], [,b]) => (b as number) - (a as number))
+                                .map(([status, count]) => (
+                                <span key={status} className="badge badge-sm badge-ghost">
+                                  {status}: {count as number}
+                                </span>
+                              ))}
+                            </div>
+                          ) : '—'}
+                        </td>
+                        <td className="text-xs">
+                          {file.stats?.mapping_relation ? (
+                            <div className="flex flex-wrap gap-1">
+                              {Object.entries(file.stats.mapping_relation)
+                                .sort(([,a], [,b]) => (b as number) - (a as number))
+                                .map(([relation, count]) => (
+                                <span key={relation} className="badge badge-sm badge-ghost">
+                                  {relation || '(empty)'}: {count as number}
+                                </span>
+                              ))}
+                            </div>
+                          ) : '—'}
+                        </td>
+                        <td className="text-xs">
+                          <div className="flex gap-1">
+                            <button
+                              className="btn btn-xs btn-primary"
+                              onClick={() => handleCachePreview(file)}
+                              disabled={loadingCacheAction === file.filename}
+                            >
+                              {loadingCacheAction === file.filename ? <span className="loading loading-spinner loading-xs"></span> : 'Preview'}
+                            </button>
+                            <button
+                              className="btn btn-xs btn-outline"
+                              onClick={() => handleCacheDownload(file)}
+                              disabled={loadingCacheAction === file.filename}
+                            >
+                              Download
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="text-center mt-8" ref={mapButtonRef}>
           <button
@@ -909,6 +1143,7 @@ export default function MappingPage() {
           </div>
         )}
       </div>
+
     </main>
   );
 }
