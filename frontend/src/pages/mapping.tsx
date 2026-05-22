@@ -582,7 +582,7 @@ export default function MappingPage() {
         {/* Cohort selection - constrained width */}
         <div className="max-w-6xl mx-auto">
 
-        {!showCachePanel && (
+        <div className="relative">
         <div className="flex gap-4 justify-center">
           {/* Source Cohort - searchable single-select */}
           <div className="form-control w-full max-w-sm">
@@ -676,39 +676,40 @@ export default function MappingPage() {
                 ))}
               </div>
             )}
+            {/* Show cached pairs link - aligned to right edge of target box */}
+            <div className="flex justify-end mt-1">
+              <button
+                className="link link-primary text-xs italic"
+                onClick={() => {
+                  if (!showCachePanel) fetchCachedFiles();
+                  setShowCachePanel(!showCachePanel);
+                }}
+              >
+                {showCachePanel ? 'hide cached pairs' : 'show cached pairs'}
+              </button>
+            </div>
           </div>
         </div>
-        )}
 
-        {/* Show cached pairs link */}
-        <div className="text-right mt-2">
-          <button
-            className="link link-primary text-xs italic"
-            onClick={() => {
-              if (!showCachePanel) fetchCachedFiles();
-              setShowCachePanel(!showCachePanel);
-            }}
-          >
-            {showCachePanel ? 'hide cached pairs' : 'show cached pairs'}
-          </button>
-        </div>
-
-        {/* Cached pairs panel - replaces source/target boxes */}
+        {/* Cached pairs panel - overlays source/target boxes */}
         {showCachePanel && (
-          <div className="p-4 border rounded-lg bg-base-100 shadow-sm relative">
-            <button
-              className="btn btn-ghost btn-xs absolute top-2 right-2"
-              onClick={() => setShowCachePanel(false)}
-            >✕</button>
+          <div className="absolute inset-0 z-10 p-4 border rounded-lg bg-base-100 shadow-lg flex flex-col">
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-sm font-semibold">Cached Pairs</span>
+              <button
+                className="btn btn-sm btn-circle btn-ghost"
+                onClick={() => setShowCachePanel(false)}
+              >✕</button>
+            </div>
             {loadingCacheFiles ? (
               <div className="flex items-center gap-2 py-4 justify-center">
                 <span className="loading loading-spinner loading-sm"></span>
                 <span className="text-sm">Loading cached pairs...</span>
               </div>
-            ) : cachedFiles.length === 0 ? (
-              <p className="text-sm text-gray-500 text-center py-2">No cached mapping files found.</p>
+            ) : cachedFiles.filter(f => f.cohorts.length === 2).length === 0 ? (
+              <p className="text-sm text-gray-500 text-center py-2">No cached mapping pairs found.</p>
             ) : (
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto flex-1">
                 <table className="table table-zebra table-sm w-full">
                   <thead>
                     <tr>
@@ -720,6 +721,7 @@ export default function MappingPage() {
                   </thead>
                   <tbody>
                     {cachedFiles
+                      .filter(f => f.cohorts.length === 2)
                       .sort((a, b) => b.timestamp - a.timestamp)
                       .map((file, idx) => (
                       <tr key={idx}>
@@ -761,6 +763,7 @@ export default function MappingPage() {
             )}
           </div>
         )}
+        </div>
 
         <div className="text-center mt-8" ref={mapButtonRef}>
           <button
