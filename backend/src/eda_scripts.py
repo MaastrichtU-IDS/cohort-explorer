@@ -1019,6 +1019,20 @@ df = load_data("/input/{cohort_id}")
 original_rows = len(df)
 original_cols = len(df.columns)
 
+# Filter to only variables present in the metadata dictionary
+# (exclude any data columns not described in the dictionary)
+dict_varname_col = [x for x in ['VARIABLE NAME', 'VARIABLENAME', 'VAR NAME'] if x in dictionary_df.columns]
+if dict_varname_col:
+    dict_variables = set(dictionary_df[dict_varname_col[0]].dropna().str.strip().tolist())
+    # Keep only columns that appear in the dictionary (case-insensitive match)
+    dict_variables_lower = {v.lower() for v in dict_variables}
+    cols_to_keep = [col for col in df.columns if col.strip().lower() in dict_variables_lower]
+    cols_excluded = [col for col in df.columns if col.strip().lower() not in dict_variables_lower]
+    if cols_excluded:
+        print(f"Excluding {len(cols_excluded)} columns not in metadata dictionary: {cols_excluded[:20]}")
+    df = df[cols_to_keep]
+    print(f"Retained {len(cols_to_keep)} columns matching metadata dictionary")
+
 # Remove PII columns
 columns_to_drop = [col for col in PII_COLUMNS if col in df.columns]
 df_anonymized = df.drop(columns=columns_to_drop, errors='ignore')
@@ -1067,6 +1081,7 @@ summary_template = '''DATA SHUFFLE COMPLETE
 Timestamp: {}
 
 Original: {:,} rows × {} columns
+Excluded (not in metadata dict): {} columns
 PII Removed: {} columns
 Retained: {} columns
 Output Sample: {:,} rows
@@ -1076,12 +1091,13 @@ Privacy Method: Independent column shuffling
 - All correlations destroyed
 - No patient reconstruction possible
 
-Removed columns: {}
+Removed PII columns: {}
 '''
 summary = summary_template.format(
     datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
     original_rows,
     original_cols,
+    len(cols_excluded) if 'cols_excluded' in dir() else 0,
     len(columns_to_drop),
     len(df_anonymized.columns),
     len(df_sample),
