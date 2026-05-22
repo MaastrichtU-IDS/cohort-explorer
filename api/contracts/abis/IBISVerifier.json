@@ -1,0 +1,314 @@
+{
+  "contractName": "IBISVerifier",
+  "abi": [
+    {
+      "inputs": [],
+      "stateMutability": "nonpayable",
+      "type": "constructor"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "commitment",
+          "type": "bytes32"
+        },
+        {
+          "indexed": false,
+          "internalType": "bytes32",
+          "name": "nullifier",
+          "type": "bytes32"
+        },
+        {
+          "indexed": false,
+          "internalType": "bytes32",
+          "name": "blindedEpoch",
+          "type": "bytes32"
+        }
+      ],
+      "name": "EnvelopeProcessed",
+      "type": "event"
+    },
+    {
+      "inputs": [],
+      "name": "ENVELOPE_SIZE",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "admin",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32[]",
+          "name": "commitments",
+          "type": "bytes32[]"
+        }
+      ],
+      "name": "batchInitializeSlots",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "name": "blindedEpochs",
+      "outputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "name": "encryptedStates",
+      "outputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "name": "epochKeyHashes",
+      "outputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "commitment",
+          "type": "bytes32"
+        }
+      ],
+      "name": "getState",
+      "outputs": [
+        {
+          "internalType": "bytes32[16]",
+          "name": "encryptedState",
+          "type": "bytes32[16]"
+        },
+        {
+          "internalType": "bytes32",
+          "name": "epochKeyHash",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "bytes32",
+          "name": "blindedEpoch",
+          "type": "bytes32"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "commitment",
+          "type": "bytes32"
+        }
+      ],
+      "name": "initializeSlot",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "nullifier",
+          "type": "bytes32"
+        }
+      ],
+      "name": "isNullifierUsed",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "commitment",
+          "type": "bytes32"
+        }
+      ],
+      "name": "isSlotInitialized",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "pause",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "paused",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "commitment",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "bytes32",
+          "name": "nullifier",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "bytes32",
+          "name": "blindedEpoch",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "bytes32",
+          "name": "epochKeyHash",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "bytes",
+          "name": "encryptedPayload",
+          "type": "bytes"
+        },
+        {
+          "internalType": "bytes",
+          "name": "proof",
+          "type": "bytes"
+        }
+      ],
+      "name": "processEnvelope",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "newAdmin",
+          "type": "address"
+        }
+      ],
+      "name": "transferAdmin",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "unpause",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "name": "usedNullifiers",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    }
+  ],
+  "bytecode": "0x60808060405234602757600480546001600160a01b031916331790556109d1908161002d8239f35b600080fdfe6080604052600436101561001257600080fd5b60003560e01c806309648a9d14610745578063206137aa1461071457806322dc7b4c14610714578063290e2480146106e65780633f4ba83a146106b2578063455eb23a146106955780634f59dcbe1461060c5780635c975abb146105e657806375829def1461055957806375c582f6146102be5780638456cb59146102845780638de5ebe514610258578063d33a1d4c1461021d578063e6539bf414610126578063e77b62af146100fa5763f851a440146100cc57600080fd5b346100f55760003660031901126100f5576004546040516001600160a01b039091168152602090f35b600080fd5b346100f55760203660031901126100f55760043560005260016020526020604060002054604051908152f35b346100f55760203660031901126100f5576004356001600160401b0381116100f557366023820112156100f55780600401356001600160401b0381116100f5576024820191602436918360051b0101116100f55761018c60ff60045460a01c161561089a565b6040519061020061019d8184610825565b36833760005b601081106101fa575060005b8181106101b857005b806101c660019284876108fc565b3560005281602052604060002054156101e0575b016101af565b6101f5846101ef8386896108fc565b3561090c565b6101da565b8060008051602061097c833981519152610216600193866108d5565b52016101a3565b346100f55760403660031901126100f557602435600435600052600060205260406000209060108110156100f5576020910154604051908152f35b346100f55760203660031901126100f55760043560005260026020526020604060002054604051908152f35b346100f55760003660031901126100f5576004546102ac336001600160a01b0383161461085c565b60ff60a01b1916600160a01b17600455005b346100f55760c03660031901126100f5576004356024356044356084356001600160401b0381116100f5576102f79036906004016107f8565b60a4356001600160401b0381116100f5576103169036906004016107f8565b905061032a60ff60045460a01c161561089a565b84600052600360205260ff6040600020541661051c57610100908560005260036020526040600020600160ff19825416179055036104e057610200810361049b576040519161020061037c8185610825565b36843760005b6010811061040e5750505083600052600060205260406000209060005b601081106103fa57857ff2f44fc2dd730655a6799a698c0098a52abc65fca944dc14eb97904a62bb21c560408787846000526001602052606435836000205584600052600260205280836000205582519182526020820152a2005b60019060208351930192818501550161039f565b8060051b9080820460201481151715610485576001810191828211610485578260051b9280840460201490151715610485578281116100f5578483116100f5578060019303908401359060208110610473575b5061046c82876108d5565b5201610382565b6000199060200360031b1b1689610461565b634e487b7160e01b600052601160045260246000fd5b60405162461bcd60e51b815260206004820152601f60248201527f494249533a207061796c6f6164206d75737420626520353132206279746573006044820152606490fd5b60405162461bcd60e51b8152602060048201526014602482015273494249533a206261642070726f6f662073697a6560601b6044820152606490fd5b60405162461bcd60e51b8152602060048201526015602482015274494249533a206e756c6c696669657220726575736560581b6044820152606490fd5b346100f55760203660031901126100f5576004356001600160a01b038116908190036100f557600454610596336001600160a01b0383161461085c565b81156105ac576001600160a01b03191617600455005b60405162461bcd60e51b8152602060048201526012602482015271494249533a207a65726f206164647265737360701b6044820152606490fd5b346100f55760003660031901126100f557602060ff60045460a01c166040519015158152f35b346100f55760203660031901126100f55760043561063260ff60045460a01c161561089a565b8060005260016020526040600020541561064857005b6040516102006106588183610825565b36823760005b6010811061067257506106709161090c565b005b8060008051602061097c83398151915261068e600193856108d5565b520161065e565b346100f55760003660031901126100f55760206040516103d08152f35b346100f55760003660031901126100f5576004546106da336001600160a01b0383161461085c565b60ff60a01b1916600455005b346100f55760203660031901126100f557600435600052600160205260206040600020541515604051908152f35b346100f55760203660031901126100f5576004356000526003602052602060ff604060002054166040519015158152f35b346100f55760203660031901126100f5576004356102008060405161076a8282610825565b3690376000918252602082815260408084206001835281852054600290935281852054915194919291855b601082106107e2575050506107aa8385610825565b604051926000845b601082106107cc5750506102409450830152610220820152f35b60208060019289518152019701910190956107b2565b6001602081928554815201930191019091610795565b9181601f840112156100f5578235916001600160401b0383116100f557602083818601950101116100f557565b90601f801991011681019081106001600160401b0382111761084657604052565b634e487b7160e01b600052604160045260246000fd5b1561086357565b60405162461bcd60e51b815260206004820152600f60248201526e24a124a99d103737ba1030b236b4b760891b6044820152606490fd5b156108a157565b60405162461bcd60e51b815260206004820152600c60248201526b12509254ce881c185d5cd95960a21b6044820152606490fd5b9060108110156108e65760051b0190565b634e487b7160e01b600052603260045260246000fd5b91908110156108e65760051b0190565b9081600052600060205260406000209060005b601081106109675750505080600052600160205260008051602061097c833981519152604060002055600052600260205260008051602061097c833981519152604060002055565b60019060208351930192818501550161091f56feb4c9ccfa5d329ac874341d18353561f23820b67b0a4695331324b891b91d4c42a2646970667358221220c0fd2b6912abd8452c22152fe8fceecd1498ab44b333f0e1a3e9a4d52fd7aeb264736f6c634300081e0033"
+}

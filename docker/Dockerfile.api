@@ -1,0 +1,39 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl ca-certificates bash git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install nargo (Noir compiler + constraint verifier) for ZK proof generation
+# nargo execute verifies all circuit constraints are satisfied by the witness.
+ENV NARGO_HOME=/root/.nargo
+ENV PATH="${NARGO_HOME}/bin:${PATH}"
+RUN curl -L https://raw.githubusercontent.com/noir-lang/noirup/main/install | bash \
+    && noirup \
+    && nargo --version
+
+# Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Self-hosted Swagger UI v4.19.1 — pinned to a battle-tested release to avoid the
+# v5 Authorize-modal black-overlay glitch and any CDN dependency.
+RUN mkdir -p /app/static/swagger \
+    && curl -fsSL -o /app/static/swagger/swagger-ui-bundle.js \
+       https://unpkg.com/swagger-ui-dist@4.19.1/swagger-ui-bundle.js \
+    && curl -fsSL -o /app/static/swagger/swagger-ui.css \
+       https://unpkg.com/swagger-ui-dist@4.19.1/swagger-ui.css \
+    && curl -fsSL -o /app/static/swagger/favicon-32x32.png \
+       https://unpkg.com/swagger-ui-dist@4.19.1/favicon-32x32.png
+
+# Application code
+COPY api/ ./api/
+
+EXPOSE 8001
+
+HEALTHCHECK --interval=10s --timeout=5s --retries=5 \
+    CMD curl -sf http://localhost:8001/api/health || exit 1
+
+CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8001"]

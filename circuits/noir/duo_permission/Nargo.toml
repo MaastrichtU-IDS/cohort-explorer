@@ -1,0 +1,8 @@
+[package]
+name = "duo_permission"
+type = "bin"
+authors = ["DUO Consent Team"]
+compiler_version = ">=0.34.0"
+description = "Zero-knowledge proof of DUO permission hierarchy verification"
+
+[dependencies]
