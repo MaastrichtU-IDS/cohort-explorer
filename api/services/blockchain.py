@@ -313,7 +313,7 @@ class BlockchainService:
             inst_hash = self.w3.keccak(b"".join(inst_ids)) if inst_ids else self.w3.keccak(b"")
             proj_hash = self.w3.keccak(b"".join(proj_ids)) if proj_ids else self.w3.keccak(b"")
             addr_hash = self.w3.keccak(
-                b"".join(bytes.fromhex(a[2:]) for a in user_addrs)
+                b"".join(b"\x00" * 12 + bytes.fromhex(a[2:]) for a in user_addrs)
             ) if user_addrs else self.w3.keccak(b"")
 
             typed_data = {
