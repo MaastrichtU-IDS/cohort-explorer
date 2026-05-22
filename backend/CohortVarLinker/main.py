@@ -95,6 +95,7 @@ def create_study_metadata_graph(file_path, recreate=False):
             print(f"delete_existing_triples for graph: {OntologyNamespaces.CMEO.value['graph/studies_metadata']}")
             # delete_existing_triples(f"{settings.sparql_endpoint}/rdf-graphs/studies_metadata")
             delete_existing_triples(graph_uri=OntologyNamespaces.CMEO.value["graph/studies_metadata"])
+            time.sleep(1)
             response=publish_graph_to_endpoint(g)
             print(f"Metadata graph published to endpoint: {response}")
             g.serialize(destination=graph_file_path, format="trig")
@@ -159,6 +160,7 @@ def create_cohort_specific_metadata_graph(dir_path, recreate=False):
                         delete_existing_triples(
                             get_cohort_mapping_uri(cohort_id)
                         )
+                        time.sleep(1)
                         res = publish_graph_to_endpoint(g)
                         print(f"Graph contains {len(g)} triples before serialization.")
                         print(f"Graph published to endpoint: {res} for cohort: {cohort_id}")
@@ -184,6 +186,7 @@ def create_pld_graph(file_path, cohort_name, output_dir=None, recreate=False) ->
             # res=publish_graph_to_endpoint(g,graph_uri=f"{cohort_name}_pld")
             
             delete_existing_triples(f"{get_cohort_mapping_uri(cohort_name)}_pld")
+            time.sleep(1)
             res=publish_graph_to_endpoint(g)
 
             print(f"Graph published to endpoint: {res} for cohort: graph/{cohort_name}_pld")

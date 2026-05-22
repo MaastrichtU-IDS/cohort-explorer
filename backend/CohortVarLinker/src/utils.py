@@ -13,6 +13,7 @@ from enum import Enum
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 import logging
+import time
 
 _VISIT_MONTH_RE = re.compile(r'(\d+)\s*months?', re.IGNORECASE)
 _VISIT_BASELINE_RE = re.compile(r'baseline|month\s*0|randomization', re.IGNORECASE)
@@ -1106,7 +1107,7 @@ def save_graph_to_trig_file(graph_data, file_path):
 #     return response.ok
 
 # for oxigraph
-def publish_graph_to_endpoint(g: Graph, graph_uri: str | None = None) -> bool:
+def publish_graph_to_endpoint(g: Graph, graph_uri: str | None = None, max_retries: int = 3) -> bool:
     """Insert the graph into the triplestore endpoint."""
     # url = f"{settings.sparql_endpoint}/store?{graph_uri}"
     url = f"{settings.sparql_endpoint}/store"
@@ -1115,15 +1116,22 @@ def publish_graph_to_endpoint(g: Graph, graph_uri: str | None = None) -> bool:
         print(f"URL: {url}")
     headers = {"Content-Type": "application/trig"}
     g.serialize("/tmp/upload-data.trig", format="trig")
-    with open("/tmp/upload-data.trig", "rb") as file:
-        response = requests.post(url, headers=headers, data=file, timeout=300)
-        print(f"Response: {response}")
-    # NOTE: Fails when we pass RDF as string directly
-    # response = requests.post(url, headers=headers, data=graph_data)
-    # Check response status and print result
-    if not response.ok:
-        print(f"Failed to upload data: {response.status_code}, {response.text}")
-    return response.ok
+    for attempt in range(1, max_retries + 1):
+        try:
+            with open("/tmp/upload-data.trig", "rb") as file:
+                response = requests.post(url, headers=headers, data=file, timeout=300)
+                print(f"Response: {response}")
+            if not response.ok:
+                print(f"Failed to upload data: {response.status_code}, {response.text}")
+            return response.ok
+        except (requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError) as e:
+            if attempt < max_retries:
+                wait = 2 ** attempt
+                print(f"Connection error on attempt {attempt}/{max_retries}: {e}. Retrying in {wait}s...")
+                time.sleep(wait)
+            else:
+                print(f"Failed after {max_retries} attempts: {e}")
+                raise
 
 def find_related_studies(study_name:str) -> list[str]:
     query = f"""
