@@ -369,7 +369,7 @@ def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
         var_name_for_error = row.get("VARIABLENAME", f"UNKNOWN_VAR_ROW_{i+2}")
         
         # Check if required values are present in rows
-        req_fields = ["VARIABLENAME", "VARIABLELABEL", "VARTYPE", "DOMAIN"]
+        req_fields = ["VARIABLENAME", "VARIABLELABEL", "VARTYPE", "DOMAIN", "VARIABLE CONCEPT OMOP ID"]
         for rf in req_fields:
             if not str(row.get(rf, "")).strip():
                 errors.append(f"Row {i+2} (Variable: '{var_name_for_error}') is missing value for the required field: '{rf}'.")
@@ -422,7 +422,7 @@ def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
                                 f"Row {i+2} (Variable: '{var_name_for_error}'): Error expanding CURIE '{var_concept_code_str}': {curie_exc}."
                             )
         
-        # Variable Concept OMOP ID - must have at most one value (no '|')
+        # Variable Concept OMOP ID - must have exactly one value (no '|')
         if "VARIABLE CONCEPT OMOP ID" in df.columns:
             var_omop_id_str = str(row.get("VARIABLE CONCEPT OMOP ID", "")).strip()
             if var_omop_id_str and var_omop_id_str.lower() != "na":
