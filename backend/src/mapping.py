@@ -36,6 +36,8 @@ def _read_or_generate_meta(json_filepath: str) -> dict | None:
     parse the mapping JSON and write a fresh sidecar.
     Returns the stats dict or None on failure.
     """
+    if json_filepath.endswith('.meta.json'):
+        return None
     meta_path = json_filepath + ".meta.json"
     mapping_mtime = os.path.getmtime(json_filepath)
     
@@ -224,10 +226,10 @@ async def get_available_mapping_files(
     if os.path.exists(output_dir):
         all_files = os.listdir(output_dir)
         logger.info(f"[DEBUG] get_available_mapping_files: all files in output_dir = {all_files}")
-        json_files = [f for f in all_files if f.endswith('.json')]
+        json_files = [f for f in all_files if f.endswith('.json') and not f.endswith('.meta.json')]
         logger.info(f"[DEBUG] get_available_mapping_files: json files = {json_files}")
         for filename in all_files:
-            if not filename.endswith('.json'):
+            if not filename.endswith('.json') or filename.endswith('.meta.json'):
                 continue
             
             # Parse cohort names from filename (parts before 'sapbert')
@@ -311,6 +313,9 @@ async def get_cached_mapping_file(
     
     if not os.path.exists(filepath):
         raise HTTPException(status_code=404, detail="Mapping file not found")
+    
+    if safe_filename.endswith('.meta.json'):
+        raise HTTPException(status_code=400, detail="Cannot download sidecar meta files directly")
     
     with open(filepath, 'r', encoding='utf-8') as f:
         file_content = f.read()
