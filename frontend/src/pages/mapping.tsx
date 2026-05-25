@@ -105,7 +105,7 @@ function MappingPreviewJsonTable({ data, sourceCohort }: MappingPreviewJsonTable
         <thead>
           <tr>
             {columns.map(col => (
-              <th key={col} className="font-bold bg-base-300">{columnDisplayNames[col] || col}</th>
+              <th key={col} className="font-bold bg-base-300" style={col === 'mapping_relation' ? { minWidth: '180px' } : undefined}>{columnDisplayNames[col] || col}</th>
             ))}
           </tr>
         </thead>
@@ -533,6 +533,8 @@ export default function MappingPage() {
       }
       
       setLoading(false);
+      // Refresh cached files list so the new mapping appears
+      fetchCachedFiles();
     } catch (err: any) {
       if (timeoutId) clearTimeout(timeoutId);
       // Handle abort errors specifically
@@ -691,7 +693,7 @@ export default function MappingPage() {
 
         {/* Cached pairs panel - overlays source/target boxes */}
         {showCachePanel && (
-          <div className="absolute inset-0 z-10 p-4 border rounded-lg bg-base-100 shadow-lg flex flex-col overflow-auto">
+          <div className="absolute inset-x-0 top-10 z-10 p-4 border rounded-lg bg-base-100 shadow-lg flex flex-col overflow-auto" style={{minHeight: '400px', maxHeight: 'calc(100% - 2.5rem)' }}>
             <div className="flex justify-between items-center mb-2">
               <span className="text-sm font-semibold">Cached Pairs</span>
               <button
@@ -726,8 +728,11 @@ export default function MappingPage() {
                       .map((file, idx) => {
                         const srcId = file.cohorts[0];
                         const tgtId = file.cohorts[1];
-                        const srcVarCount = cohortsData[srcId] ? Object.keys(cohortsData[srcId].variables || {}).length : null;
-                        const tgtVarCount = cohortsData[tgtId] ? Object.keys(cohortsData[tgtId].variables || {}).length : null;
+                        // Case-insensitive lookup: cached file cohort names are lowercase
+                        const srcKey = Object.keys(cohortsData).find(k => k.toLowerCase() === srcId.toLowerCase());
+                        const tgtKey = Object.keys(cohortsData).find(k => k.toLowerCase() === tgtId.toLowerCase());
+                        const srcVarCount = srcKey && cohortsData[srcKey] ? Object.keys(cohortsData[srcKey].variables || {}).length : null;
+                        const tgtVarCount = tgtKey && cohortsData[tgtKey] ? Object.keys(cohortsData[tgtKey].variables || {}).length : null;
                         return (
                       <tr key={idx}>
                         <td className="font-medium text-xs whitespace-nowrap">
