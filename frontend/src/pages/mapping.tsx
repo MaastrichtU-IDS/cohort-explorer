@@ -14,37 +14,41 @@ function transformMappingDataForPreview(jsonData: any): RowData[] {
     return [];
   }
 
-  Object.values(jsonData).forEach((value: any) => {
+  Object.entries(jsonData).forEach(([sourceVar, value]: [string, any]) => {
     if (value && Array.isArray(value.mappings)) {
       const transformed = value.mappings.map((mapping: any) => {
-        // Construct source categories codes/labels
-        const sourceLabels = mapping.s_source_categories_labels || '';
-        const sourceCodes = mapping.s_source_original_categories || '';
+        // Support both old prefixed format (s_source, s_slabel, {target}_target)
+        // and new raw column format (source, slabel, target, tlabel)
+        const sourceLabels = mapping.s_source_categories_labels || mapping.source_categories_labels || '';
+        const sourceCodes = mapping.s_source_original_categories || mapping.source_original_categories || '';
         const sourceCategoriesCodesLabels = sourceLabels && sourceCodes 
           ? `${sourceCodes} (${sourceLabels})` 
           : sourceLabels || sourceCodes || '';
 
         const newRow: RowData = {
-          s_source: mapping.s_source,
-          s_label: mapping.s_slabel,
+          s_source: mapping.s_source || mapping.source || sourceVar,
+          s_label: mapping.s_slabel || mapping.slabel || mapping.source_label || '',
           target_study: mapping.target_study,
           harmonization_status: mapping.harmonization_status || 'pending',
           source_categories_codes_labels: sourceCategoriesCodesLabels,
           mapping_relation: mapping.mapping_relation || '',
         };
 
-        // Find wildcard keys for target fields
-        let targetLabels = '';
-        let targetCodes = '';
+        // Find target fields — check raw keys first, then wildcard suffixes
+        let targetLabels = mapping.target_categories_labels || '';
+        let targetCodes = mapping.target_original_categories || '';
         
+        newRow['target'] = mapping.target || '';
+        newRow['target_label'] = mapping.tlabel || mapping.target_label || '';
+
         Object.keys(mapping).forEach(key => {
-          if (key.endsWith('_target')) {
+          if (!newRow['target'] && key.endsWith('_target')) {
             newRow['target'] = mapping[key];
-          } else if (key.endsWith('_tlabel')) {
+          } else if (!newRow['target_label'] && key.endsWith('_tlabel')) {
             newRow['target_label'] = mapping[key];
-          } else if (key.endsWith('_target_categories_labels')) {
+          } else if (!targetLabels && key.endsWith('_target_categories_labels')) {
             targetLabels = mapping[key] || '';
-          } else if (key.endsWith('_target_original_categories')) {
+          } else if (!targetCodes && key.endsWith('_target_original_categories')) {
             targetCodes = mapping[key] || '';
           }
         });
