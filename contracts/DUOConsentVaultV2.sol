@@ -586,7 +586,7 @@ contract DUOConsentVaultV2 is AccessControl, ReentrancyGuard, EIP712 {
             require(t != ontology.REQ_COMMERCIAL(), "NCU: commercial use not allowed");
         }
         if ((mods & ontology.MOD_NPUNCU()) != 0) {
-            uint8 t = institutionRegistry.getRequesterType(args.requester);
+            uint8 t = institutionRegistry.getRequesterType(requesterEOA);
             require(
                 (t == ontology.REQ_ACADEMIC() || t == ontology.REQ_NONPROFIT() || t == ontology.REQ_GOVERNMENT()) &&
                 t != ontology.REQ_COMMERCIAL(),
