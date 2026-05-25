@@ -17,12 +17,15 @@ from CohortVarLinker.src.utils import (
         OntologyNamespaces,
         get_member_studies,
     )
+from typing import Any
 from CohortVarLinker.src.data_model import MappingType, EmbeddingType
 from CohortVarLinker.src.run import StudyMapper
 from CohortVarLinker.src.config import settings
 from CohortVarLinker.src.vector_db import _embed_cache
 from CohortVarLinker.src.graph_similarity import _EMBED_CACHE
 from CohortVarLinker.src.constraints import CategoryMapper
+from CohortVarLinker.src.embed_model import get_model
+from CohortVarLinker.src.omop_graph_nx import OmopGraphNX
 from CohortVarLinker.validate_cde import get_omop_graph
 
 
@@ -496,70 +499,28 @@ def _write_mapping_meta(json_path: str, final_json: dict) -> None:
     print(f"📊 Mapping stats saved to {meta_path}")
 
 
-def combine_all_mappings_to_json(
-    source_study, target_studies, output_dir, json_path
-):
-    # Dict: {source_var: [mapping_dicts]}
+def combine_all_mappings_to_json(source_study, target_studies, output_dir, json_path,
+                                model_name, llm_tag, mapping_mode):
     mappings = {}
     for target in target_studies:
-        crossmap_csv = os.path.join(output_dir, f"{source_study}_{target}_cross_mapping.csv")
-        if not os.path.exists(crossmap_csv):
-            print(f"Skipping {crossmap_csv}, does not exist.")
+        csv_file = os.path.join(
+            output_dir,
+            f"{source_study}_{target}_{model_name}+{llm_tag}_{mapping_mode}_full.csv",
+        )
+        if not os.path.exists(csv_file):
+            print(f"⚠️ Missing: {csv_file}")
             continue
-        print(f"Inside combine_all_mappings_to_json - Processing {crossmap_csv}")
-        df = pd.read_csv(crossmap_csv)
-        for idx, row in df.iterrows():
-            # Source variable name
+        df = pd.read_csv(csv_file)
+        for _, row in df.iterrows():
             src_var = str(row["source"]).strip()
             if not src_var:
                 continue
-            # Initialize dict for this variable if not present
-            if src_var not in mappings:
-                mappings[src_var] = []
-            # Build mapping dict for this target study
-            mapping = {"target_study": target}
-            # Source columns
-            for col in df.columns:
-                if col.startswith("source_") or col.startswith("s") or col in [
-                    "source", "somop_id", "scode", "slabel",
-                    "category", "source_visit", "source_type", "source_unit", "source_data_type"
-                ]:
-                    mapping[f"s_{col}"] = row[col]
-            # Target columns
-            for col in df.columns:
-                if col.startswith("target_") or col.startswith("t") or col in [
-                    "target", "tomop_id", "tcode", "tlabel", 
-                    "target_visit", "target_type", "target_unit", "target_data_type"
-                ]:
-                    mapping[f"{target}_{col}"] = row[col]
-            # Extra columns (mapping_type, transformation_rule, etc.)
-            for col in df.columns:
-                if col not in [
-                    "source", "target", "somop_id", "tomop_id",
-                    "scode", "slabel", "tcode", "tlabel",
-                    "category", "mapping type", "source_visit", "target_visit",
-                    "source_type", "target_type", "source_unit", "target_unit",
-                    "source_data_type", "target_data_type", "transformation_rule"
-                ]:
-                    mapping[f"{col}"] = row[col]
-            # Always include mapping type and transformation rule
-            if "mapping type" in df.columns:
-                mapping[f"{target}_mapping_type"] = row["mapping type"]
-            if "transformation_rule" in df.columns:
-                mapping[f"{target}_transformation_rule"] = row["transformation_rule"]
-            # Add to source variable
-            mappings[src_var].append(mapping)
-    # Compose final JSON dict
-    final_json = {}
-    for src_var, mapping_list in mappings.items():
-        final_json[src_var] = {
-            "from": source_study,
-            "mappings": mapping_list
-        }
-    # Save to JSON
+            entry = {"target_study": target, **row.drop(labels=["source"]).to_dict()}
+            mappings.setdefault(src_var, []).append(entry)
+    final_json = {k: {"from": source_study, "mappings": v} for k, v in mappings.items()}
     with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(final_json, f, indent=2, ensure_ascii=False)
-    print(f"✅ All mappings combined and saved to {json_path}")
+        json.dump(final_json, f, indent=2, ensure_ascii=False, default=str)
+    print(f"✅ saved {len(final_json)} source vars → {json_path}")
     _write_mapping_meta(json_path, final_json)
       
 def generate_mapping_csv(
@@ -593,10 +554,9 @@ def generate_mapping_csv(
     # Robust check: ensure all selected cohorts exist
    
     missing_cohorts = []
-    model_name = "sapbert"
-    embedding_mode = EmbeddingType.EC.value  # embedding_concepts
-    mapping_mode = MappingType.OEC.value # ontology + embedding_concepts
-    # select_relevant_studies = True
+    model_name = "biolord"
+    embedding_mode = EmbeddingType.EH.value  # embedding_hybrid
+    mapping_mode = MappingType.OEH.value # ontology + embedding_hybrid
     for cohort_id in [source_study] + [t[0] for t in target_studies]:
         cohort_dir = os.path.join(cohort_file_path, cohort_id)
         if not os.path.exists(cohort_dir):
@@ -637,13 +597,21 @@ def generate_mapping_csv(
     # Check if all requested mappings already exist... 
     # Komal's comment: i dont think we should have this logic (330-342 please comment it out) here because in case of multiple target studies, we should check in next computations if mapping exist add it in the list and check next. when all available then we group by omop_id
 
+    # Compute LLM tag for file naming
+    llm_model = settings.llm_model
+    if llm_model and mapping_mode != MappingType.OO.value:
+        llm_tag = llm_model.split("/")[-1].replace(":nitro", "")
+    else:
+        llm_tag = "no_llm"
+    print(f"llm_tag: {llm_tag}")
+
     # Check cache status for each mapping pair and collect info
     cached_pairs = []
     uncached_pairs = []
     all_exist = True
     
     for tstudy in target_studies:
-        out_filename = f'{source_study}_{tstudy}_cross_mapping.csv'
+        out_filename = f'{source_study}_{tstudy}_{model_name}+{llm_tag}_{mapping_mode}_full.csv'
         out_path = os.path.join(output_dir, out_filename)
         print(f"Checking if {out_path} exists")
         
@@ -674,25 +642,18 @@ def generate_mapping_csv(
                 source_study=source_study,
                 target_studies=target_studies,
                 output_dir=output_dir,
-                json_path=os.path.join(output_dir, f"{source_study}_{tstudy_str}_{model_name}_{mapping_mode}.json"))
+                json_path=os.path.join(output_dir, f"{source_study}_{tstudy_str}_{model_name}+{llm_tag}_{mapping_mode}.json"),
+                model_name=model_name,
+                llm_tag=llm_tag,
+                mapping_mode=mapping_mode)
         
         return cache_info
             
     # Only run expensive computations if any mapping is missing
     create_study_metadata_graph(cohorts_metadata_file, recreate=True)
     create_cohort_specific_metadata_graph(cohort_file_path, recreate=True)
-        
-    # combined_df = None
-    omop_id_tracker = {}  # Track source_omop_id per variable
-    
-    mapping_dict = {}  # {target_study: {source_var: (target_var, target_omop_id)}}
-    # Use 'qdrant' as the host when running in Docker Compose
-    
- 
 
     print(f"Final target studies: {target_studies}")
-    # min_score_list = [0.5,0.6,0.65,0.7, 0.75, 0.8, 0.85, 0.9]
-    # vector_db, embedding_model = generate_studies_embeddings(cohort_file_path, "qdrant", f"studies_metadata_{model_name}", model_name=model_name, recreate_db=True)
     collection_name = f"studies_metadata_{model_name}_{embedding_mode}"
     vector_db, embedding_model = generate_studies_embeddings(
         cohort_file_path, "qdrant", collection_name,
@@ -709,18 +670,17 @@ def generate_mapping_csv(
     # and OMOP graph across every target study. LLM adjudication is gated on
     # settings.llm_model (driven by MAPPING_LLM_MODEL env var); None means
     # purely embedding + graph + constraint-solver, no LLM / API keys required.
-    # The new branch's StudyMapper takes a single LLM string, not a list.
     study_mapper = StudyMapper(
         vector_db=vector_db,
         embedding_model=embedding_model,
         omop_graph=graph,
         vector_collection=collection_name,
         mapping_mode=mapping_mode,
-        llm_model=settings.llm_model,
+        llm_model=llm_model,
     )
 
     for tstudy in target_studies:
-        out_filename = f'{source_study}_{tstudy}_cross_mapping.csv'
+        out_filename = f'{source_study}_{tstudy}_{model_name}+{llm_tag}_{mapping_mode}_full.csv'
         out_path = os.path.join(output_dir, out_filename)
         if os.path.exists(out_path):
             print(f"Mapping already exists for {source_study} to {tstudy}, skipping computation.")
@@ -738,7 +698,6 @@ def generate_mapping_csv(
                 columns = ['No mappings found']*3
             pd.DataFrame(columns=columns).to_csv(out_path, index=False)
         else:
-            
             mapping_transformed.to_csv(out_path, index=False)
             
     tstudy_str = "_".join(target_studies)
@@ -746,6 +705,96 @@ def generate_mapping_csv(
         source_study=source_study,
         target_studies=target_studies,
         output_dir=output_dir,
-        json_path=os.path.join(output_dir, f"{source_study}_{tstudy_str}_{model_name}_{mapping_mode}.json"))
+        json_path=os.path.join(output_dir, f"{source_study}_{tstudy_str}_{model_name}+{llm_tag}_{mapping_mode}.json"),
+        model_name=model_name,
+        llm_tag=llm_tag,
+        mapping_mode=mapping_mode)
     
     return cache_info
+
+
+if __name__ == '__main__':
+    start_time = time.time()
+    data_dir = 'data'
+    cohort_file_path = f"{data_dir}/cross_mapping_article_data"
+    cohorts_metadata_file = f"{data_dir}/studies_metadata-2.xlsx"
+    output_dir = f"{data_dir}/output/cross_mapping"
+
+    model_name = "biolord"
+    select_relevant_studies = True
+    embedding_mode = EmbeddingType.EH.value
+    mapping_mode = MappingType.OEH.value
+    create_study_metadata_graph(cohorts_metadata_file, recreate=True)
+    create_cohort_specific_metadata_graph(cohort_file_path, recreate=True)
+    collection_name = f"studies_metadata_{model_name}_{embedding_mode}"
+    embedding_model, _ = get_model(model_name)
+    vector_db, embedding_model = generate_studies_embeddings(
+        cohort_file_path, "localhost", collection_name,
+        model_name=model_name, embedding_mode=embedding_mode, recreate_db=True,
+    )
+    source_study = "time-chf"
+    target_studies = ["viennahf-register", "gissi-hf", "aachen-hf"]
+
+    clear_all_caches()
+    new_studies = []
+    parent_to_members = defaultdict[Any, list](list)
+    if select_relevant_studies:
+        for tstudy in target_studies:
+            member_studies = get_member_studies(tstudy)
+            parent_to_members.setdefault(tstudy, []).extend(member_studies)
+            new_studies.extend(member_studies)
+    target_studies.extend(new_studies)
+
+    omop_id_tracker = {}
+
+    llm_model = None
+    mapping_dict = {}
+    omop_graph = None if mapping_mode == MappingType.NE.value else OmopGraphNX(csv_file_path=settings.concepts_file_path)
+    mapper = StudyMapper(
+        vector_db=vector_db,
+        vector_collection=collection_name,
+        embedding_model=embedding_model,
+        omop_graph=omop_graph,
+        mapping_mode=mapping_mode,
+        llm_model=llm_model,
+    )
+    llm_tag = llm_model.split("/")[-1] if llm_model and mapping_mode != MappingType.OO.value else "no_llm"
+    llm_tag = llm_tag.replace(":nitro", "")
+    print(f"llm_tag: {llm_tag}")
+    for tstudy in target_studies:
+        print(f"Running experiment for {source_study} -> {tstudy} with model: {model_name} and mapping mode: {mapping_mode}")
+        mapping_transformed = mapper.run_pipeline(
+            src_study=source_study,
+            tgt_study=tstudy,
+            mapping_mode=mapping_mode,
+        )
+        mapping_transformed.to_csv(
+            f'{output_dir}/{model_name}/{mapping_mode}/{source_study}_{tstudy}_{model_name}+{llm_tag}_{mapping_mode}_full.csv',
+            index=False,
+        )
+    tstudy_str = "_".join(target_studies)
+
+    for parent_study, members in parent_to_members.items():
+        if members:
+            concatenate_member_csvs_to_parent(
+                source_study=source_study,
+                parent_study=parent_study,
+                member_studies=members,
+                output_dir=f"{output_dir}/{model_name}/{mapping_mode}",
+                model_name=model_name,
+                mapping_mode=mapping_mode,
+                llm=llm_tag,
+            )
+    combine_all_mappings_to_json(
+        source_study=source_study,
+        target_studies=target_studies,
+        output_dir=f"{output_dir}/{model_name}/{mapping_mode}",
+        json_path=os.path.join(
+            f"{output_dir}/{model_name}/{mapping_mode}",
+            f"{source_study}_{tstudy_str}_{model_name}+{llm_tag}_{mapping_mode}.json",
+        ),
+        model_name=model_name,
+        mapping_mode=mapping_mode,
+        llm_tag=llm_tag,
+    )
+    print(f"Total time taken: {time.time() - start_time:.2f} seconds")

@@ -144,8 +144,20 @@ async def check_mapping_cache(
     uncached_pairs = []
     outdated_pairs = []
     
+    # Replicate the same naming convention as generate_mapping_csv
+    model_name = "biolord"
+    mapping_mode = "OEH"
+    # LLM tag computation mirrors main.py logic
+    from CohortVarLinker.src.config import settings as _cvl_settings
+    from CohortVarLinker.src.data_model import MappingType as _MT
+    _llm_model = _cvl_settings.llm_model
+    if _llm_model and mapping_mode != _MT.OO.value:
+        llm_tag = _llm_model.split("/")[-1].replace(":nitro", "")
+    else:
+        llm_tag = "no_llm"
+
     for tstudy in target_studies_names:
-        out_filename = f'{source_study}_{tstudy}_cross_mapping.csv'
+        out_filename = f'{source_study}_{tstudy}_{model_name}+{llm_tag}_{mapping_mode}_full.csv'
         out_path = os.path.join(output_dir, out_filename)
         
         if os.path.exists(out_path):
@@ -200,13 +212,12 @@ async def get_available_mapping_files(
     Get all available mapping files for the given cohort IDs.
     
     Mapping files are .json files with naming pattern:
-    {cohort1}_{cohort2}_..._{cohortN}_sapbert_OEC.json
-    (after the cross-mapping branch integration, the mapping-mode token is the
-    short MappingType abbreviation 'OEC' rather than the legacy long form
-    'ontology+embedding(concept)'.)
+    {cohort1}_{cohort2}_..._{cohortN}_{model}+{llm_tag}_{mode}.json
+    e.g. time-chf_aachen-hf_biolord+no_llm_OEH.json
 
-    All parts before 'sapbert' are cohort names. A file is only included
-    if ALL cohorts in its filename are among the selected cohorts.
+    All parts before the model token (e.g. 'biolord') are cohort names.
+    A file is only included if ALL cohorts in its filename are among the
+    selected cohorts.
     """
     logger.info(f"[DEBUG] get_available_mapping_files called with cohort_ids = {cohort_ids}")
     
@@ -232,19 +243,32 @@ async def get_available_mapping_files(
             if not filename.endswith('.json') or filename.endswith('.meta.json'):
                 continue
             
-            # Parse cohort names from filename (parts before 'sapbert')
-            # Example: "aachen-hf_bigfoot_believe_sapbert_ontology+embedding(concept).json"
-            parts = filename.replace('.json', '').split('_')
-            
-            # Find the index of 'sapbert' to know where cohort names end
-            try:
-                sapbert_idx = parts.index('sapbert')
-            except ValueError:
-                # 'sapbert' not found, skip this file
-                continue
-            
-            # Extract cohort names (all parts before 'sapbert')
-            file_cohorts = [p.lower() for p in parts[:sapbert_idx]]
+            # Parse cohort names from filename.
+            # New pattern: {cohorts}_{model}+{llm}_{mode}.json
+            # The model token contains '+' (e.g. 'biolord+no_llm').
+            # We split on '+' first to find where the model info starts,
+            # then extract cohort names from everything before it.
+            stem = filename.replace('.json', '')
+            plus_idx = stem.find('+')
+            if plus_idx == -1:
+                # Legacy format without '+', try old sapbert pattern
+                parts = stem.split('_')
+                try:
+                    sep_idx = parts.index('sapbert')
+                except ValueError:
+                    try:
+                        sep_idx = parts.index('biolord')
+                    except ValueError:
+                        continue
+                file_cohorts = [p.lower() for p in parts[:sep_idx]]
+            else:
+                # New format: everything before the last '_' before '+' is cohorts+model
+                before_plus = stem[:plus_idx]
+                parts_before = before_plus.rsplit('_', 1)
+                if len(parts_before) < 2:
+                    continue
+                cohort_part = parts_before[0]  # everything before model name
+                file_cohorts = [p.lower() for p in cohort_part.split('_')]
             logger.info(f"[DEBUG] Parsed file '{filename}': cohorts = {file_cohorts}")
             
             if len(file_cohorts) < 2:
@@ -353,7 +377,7 @@ async def generate_mapping(
     from CohortVarLinker.src.config import settings as cohort_linker_settings
     
     # Call the backend function
-    # The function writes CSVs to CohortVarLinker/data/mapping_output/{source}_{target}_cross_mapping.csv
+    # The function writes CSVs to CohortVarLinker/data/mapping_output/{source}_{target}_{model}+{llm}_{mode}_full.csv
     # We'll return the combined JSON file
     
     target_studies = sorted(target_studies, key=lambda x: x[0])
@@ -364,14 +388,19 @@ async def generate_mapping(
     source_study = source_study.lower()
     target_str = "_".join([t[0].lower() for t in target_studies])
     
-    # Use the same naming convention as generate_mapping_csv: {source}_{targets}_{model}_{mode}.json
-    # The mode token is the MappingType enum *name/abbreviation* (e.g. "OEC"),
-    # which is what generate_mapping_csv now emits via `MappingType.OEC.value`.
-    # (Previously this was the long form "ontology+embedding(concept)", so any
-    # legacy files written under the old scheme will not be matched here.)
-    model_name = "sapbert"
-    mapping_mode = "OEC"
-    filename = f"{source_study}_{target_str}_{model_name}_{mapping_mode}.json"
+    # Use the same naming convention as generate_mapping_csv:
+    # {source}_{targets}_{model}+{llm_tag}_{mode}.json
+    model_name = "biolord"
+    mapping_mode = "OEH"
+    # Compute llm_tag to match generate_mapping_csv naming
+    from CohortVarLinker.src.config import settings as _cvl_settings2
+    from CohortVarLinker.src.data_model import MappingType as _MT2
+    _llm2 = _cvl_settings2.llm_model
+    if _llm2 and mapping_mode != _MT2.OO.value:
+        _llm_tag2 = _llm2.split("/")[-1].replace(":nitro", "")
+    else:
+        _llm_tag2 = "no_llm"
+    filename = f"{source_study}_{target_str}_{model_name}+{_llm_tag2}_{mapping_mode}.json"
     filepath = os.path.join(output_dir, filename)
     if os.path.exists(filepath):
         # Read file content

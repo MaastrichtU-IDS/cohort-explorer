@@ -887,7 +887,7 @@ export default function MappingPage() {
             {/* Summary message */}
             {(cacheInfo.uncached_pairs.length > 0 || (cacheInfo.outdated_pairs && cacheInfo.outdated_pairs.length > 0)) && (
               <div className="mt-3 p-2 bg-blue-100 rounded text-sm text-blue-800">
-                ⏳ Uncached and outdated mappings will be computed. This may take up to 15 minutes. If this page times out, please revisit in 25-30 minutes when computed mappings are likely to be ready
+                ⏳ Uncached and outdated mappings will be computed. This may take up to 30 minutes. If this page times out, please revisit later. The computed mappings will be cached.
               </div>
             )}
             
