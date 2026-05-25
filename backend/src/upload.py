@@ -364,12 +364,15 @@ def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
     if not duplicate_variables.empty:
         errors.append(f"Duplicate VARIABLENAME found: {', '.join(duplicate_variables['VARIABLENAME'].unique())}")
     
+    # The OMOP ID column name after normalization
+    var_omop_id_col = "VARIABLE OMOP ID"
+    
     # Row-level validation
     for i, row in df.iterrows():
         var_name_for_error = row.get("VARIABLENAME", f"UNKNOWN_VAR_ROW_{i+2}")
         
         # Check if required values are present in rows
-        req_fields = ["VARIABLENAME", "VARIABLELABEL", "VARTYPE", "DOMAIN", "VARIABLE CONCEPT OMOP ID"]
+        req_fields = ["VARIABLENAME", "VARIABLELABEL", "VARTYPE", "DOMAIN", var_omop_id_col]
         for rf in req_fields:
             if not str(row.get(rf, "")).strip():
                 errors.append(f"Row {i+2} (Variable: '{var_name_for_error}') is missing value for the required field: '{rf}'.")
@@ -422,13 +425,13 @@ def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
                                 f"Row {i+2} (Variable: '{var_name_for_error}'): Error expanding CURIE '{var_concept_code_str}': {curie_exc}."
                             )
         
-        # Variable Concept OMOP ID - must have exactly one value (no '|')
-        if "VARIABLE CONCEPT OMOP ID" in df.columns:
-            var_omop_id_str = str(row.get("VARIABLE CONCEPT OMOP ID", "")).strip()
+        # Variable OMOP ID - must have exactly one value (no '|')
+        if var_omop_id_col in df.columns:
+            var_omop_id_str = str(row.get(var_omop_id_col, "")).strip()
             if var_omop_id_str and var_omop_id_str.lower() != "na":
                 if "|" in var_omop_id_str:
                     errors.append(
-                        f"Row {i+2} (Variable: '{var_name_for_error}'): Multiple OMOP IDs are not allowed in VARIABLE CONCEPT OMOP ID. Found: '{var_omop_id_str}'. Please provide only one OMOP ID."
+                        f"Row {i+2} (Variable: '{var_name_for_error}'): Multiple OMOP IDs are not allowed in {var_omop_id_col}. Found: '{var_omop_id_str}'. Please provide only one OMOP ID."
                     )
         
         # Additional Context Concept Name requires Variable Concept Name

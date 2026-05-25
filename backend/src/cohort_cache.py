@@ -1215,7 +1215,7 @@ def build_cohort_variables_from_csv(cohort_id: str, csv_path: str) -> bool:
             # but fall back to the alternate names present in different schemas.
             concept_code = _opt("VARIABLE CONCEPT CODE")
             concept_name = _opt("VARIABLE CONCEPT NAME")
-            omop_id = _opt("VARIABLE CONCEPT OMOP ID", "VARIABLE OMOP ID")
+            omop_id = _opt("VARIABLE OMOP ID")
 
             # Parse categories directly from CSV (preserves exact text)
             categories: List[VariableCategory] = []
