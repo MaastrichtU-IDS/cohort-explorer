@@ -331,9 +331,7 @@ export default function MappingPage() {
         credentials: 'include',
       });
       if (!response.ok) throw new Error('Failed to fetch file');
-      const data = await response.json();
-      const cleanedContent = data.file_content.replace(/NaN/g, 'null');
-      const jsonData = JSON.parse(cleanedContent);
+      const jsonData = await response.json();
       const previewData = transformMappingDataForPreview(jsonData);
       setMappingOutput(previewData);
       // Set the source cohort from the file's first cohort for the EDA comparison feature
@@ -356,12 +354,12 @@ export default function MappingPage() {
         credentials: 'include',
       });
       if (!response.ok) throw new Error('Failed to fetch file');
-      const data = await response.json();
-      const blob = new Blob([data.file_content], { type: 'application/json' });
+      const blob = await response.blob();
+      const downloadFilename = response.headers.get('X-Filename') || file.filename;
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = data.filename;
+      a.download = downloadFilename;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -458,9 +456,9 @@ export default function MappingPage() {
       }
       
       // Then proceed with mapping generation
-      // Use AbortController with 20-minute timeout to prevent premature timeout
-      // (new mappings can take up to 15 minutes to compute)
-      timeoutId = setTimeout(() => controller.abort(), 20 * 60 * 1000); // 20 minutes
+      // Use AbortController with 35-minute timeout to prevent premature timeout
+      // (new mappings can take up to 30 minutes to compute)
+      timeoutId = setTimeout(() => controller.abort(), 35 * 60 * 1000); // 35 minutes
       
       const response = await fetch(`${apiUrl}/api/generate-mapping`, {
         method: 'POST',
@@ -539,7 +537,7 @@ export default function MappingPage() {
       if (timeoutId) clearTimeout(timeoutId);
       // Handle abort errors specifically
       if (err.name === 'AbortError') {
-        setError('Request timed out after 20 minutes. The mapping computation may still be running on the server.');
+        setError('Request timed out after 35 minutes. The mapping computation may still be running on the server.');
       } else {
         setError(
           typeof err.message === 'string' && err.message.endsWith("metadata has not been added yet!")
@@ -693,11 +691,11 @@ export default function MappingPage() {
 
         {/* Cached pairs panel - overlays source/target boxes */}
         {showCachePanel && (
-          <div className="absolute inset-0 z-10 p-4 border rounded-lg bg-base-100 shadow-lg flex flex-col">
+          <div className="absolute inset-0 z-10 p-4 border rounded-lg bg-base-100 shadow-lg flex flex-col overflow-auto">
             <div className="flex justify-between items-center mb-2">
               <span className="text-sm font-semibold">Cached Pairs</span>
               <button
-                className="btn btn-sm btn-circle btn-ghost"
+                className="btn btn-md btn-circle btn-ghost text-lg"
                 onClick={() => setShowCachePanel(false)}
               >✕</button>
             </div>
@@ -715,7 +713,9 @@ export default function MappingPage() {
                     <tr>
                       <th className="bg-base-300 whitespace-nowrap">Cohorts</th>
                       <th className="bg-base-300">Generated</th>
-                      <th className="bg-base-300">Mappings</th>
+                      <th className="bg-base-300 text-center whitespace-nowrap">Source Vars</th>
+                      <th className="bg-base-300 text-center whitespace-nowrap">Target Vars</th>
+                      <th className="bg-base-300 text-center">Mappings</th>
                       <th className="bg-base-300">Actions</th>
                     </tr>
                   </thead>
@@ -723,7 +723,12 @@ export default function MappingPage() {
                     {cachedFiles
                       .filter(f => f.cohorts.length === 2)
                       .sort((a, b) => b.timestamp - a.timestamp)
-                      .map((file, idx) => (
+                      .map((file, idx) => {
+                        const srcId = file.cohorts[0];
+                        const tgtId = file.cohorts[1];
+                        const srcVarCount = cohortsData[srcId] ? Object.keys(cohortsData[srcId].variables || {}).length : null;
+                        const tgtVarCount = cohortsData[tgtId] ? Object.keys(cohortsData[tgtId].variables || {}).length : null;
+                        return (
                       <tr key={idx}>
                         <td className="font-medium text-xs whitespace-nowrap">
                           {file.cohorts.join(' → ')}
@@ -733,6 +738,12 @@ export default function MappingPage() {
                           <span className="text-gray-400">
                             {new Date(file.timestamp * 1000).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
                           </span>
+                        </td>
+                        <td className="text-xs text-center">
+                          {srcVarCount ?? '—'}
+                        </td>
+                        <td className="text-xs text-center">
+                          {tgtVarCount ?? '—'}
                         </td>
                         <td className="text-xs text-center">
                           {file.stats?.total_mappings ?? '—'}
@@ -756,7 +767,8 @@ export default function MappingPage() {
                           </div>
                         </td>
                       </tr>
-                    ))}
+                        );
+                      })}
                   </tbody>
                 </table>
               </div>
@@ -773,7 +785,7 @@ export default function MappingPage() {
           >
 {loading 
               ? (cacheInfo && cacheInfo.uncached_pairs.length > 0 
-                  ? 'Mapping... (will take several minutes)' 
+                  ? 'Finding concept mappings... (may take up to 30 minutes)' 
                   : 'Mapping...')
               : 'Map Concepts & Download File'
             }
@@ -870,7 +882,7 @@ export default function MappingPage() {
             {/* Summary message */}
             {(cacheInfo.uncached_pairs.length > 0 || (cacheInfo.outdated_pairs && cacheInfo.outdated_pairs.length > 0)) && (
               <div className="mt-3 p-2 bg-blue-100 rounded text-sm text-blue-800">
-                ⏳ Uncached and outdated mappings will be computed. This may take up to 15 minutes. If this page times out, please revisit in 15-20 minutes when computed mappings are likely to be ready
+                ⏳ Uncached and outdated mappings will be computed. This may take up to 15 minutes. If this page times out, please revisit in 25-30 minutes when computed mappings are likely to be ready
               </div>
             )}
             

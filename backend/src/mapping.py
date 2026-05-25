@@ -303,7 +303,12 @@ async def get_cached_mapping_file(
     filename: str,
     user: Any = Depends(get_current_user),
 ):
-    """Return the JSON content of a cached mapping file by filename."""
+    """Return the JSON content of a cached mapping file by filename.
+    
+    Returns the raw JSON directly (not wrapped in another JSON envelope)
+    to avoid double-serialization overhead on large files.
+    The filename is returned via the X-Filename response header.
+    """
     from CohortVarLinker.src.config import settings as cohort_linker_settings
     
     output_dir = cohort_linker_settings.output_dir
@@ -320,10 +325,17 @@ async def get_cached_mapping_file(
     with open(filepath, 'r', encoding='utf-8') as f:
         file_content = f.read()
     
-    return JSONResponse(content={
-        "file_content": file_content,
-        "filename": safe_filename,
-    })
+    # Sanitize NaN values server-side so clients don't have to
+    file_content = file_content.replace("NaN", "null")
+    
+    return Response(
+        content=file_content,
+        media_type="application/json",
+        headers={
+            "X-Filename": safe_filename,
+            "Access-Control-Expose-Headers": "X-Filename",
+        },
+    )
 
 
 @router.post("/generate-mapping")
