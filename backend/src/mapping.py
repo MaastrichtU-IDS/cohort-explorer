@@ -384,34 +384,37 @@ async def generate_mapping(
     cache_info = generate_mapping_csv(source_study, target_studies)
     output_dir = cohort_linker_settings.output_dir
     
-     # Find the generated file(s)
-    source_study = source_study.lower()
-    target_str = "_".join([t[0].lower() for t in target_studies])
+    # generate_mapping_csv may expand target_studies with member/sub-studies,
+    # so the JSON filename can differ from what we'd construct here.
+    # Scan the output directory for the most recent JSON that starts with
+    # the source study and contains all requested target cohorts.
+    source_lower = source_study.lower()
+    target_lowers = set(t[0].lower() for t in target_studies)
     
-    # Use the same naming convention as generate_mapping_csv:
-    # {source}_{targets}_{model}+{llm_tag}_{mode}.json
-    model_name = "biolord"
-    mapping_mode = "OEH"
-    # Compute llm_tag to match generate_mapping_csv naming
-    from CohortVarLinker.src.config import settings as _cvl_settings2
-    from CohortVarLinker.src.data_model import MappingType as _MT2
-    _llm2 = _cvl_settings2.llm_model
-    if _llm2 and mapping_mode != _MT2.OO.value:
-        _llm_tag2 = _llm2.split("/")[-1].replace(":nitro", "")
-    else:
-        _llm_tag2 = "no_llm"
-    filename = f"{source_study}_{target_str}_{model_name}+{_llm_tag2}_{mapping_mode}.json"
-    filepath = os.path.join(output_dir, filename)
-    if os.path.exists(filepath):
-        # Read file content
-        with open(filepath, 'r') as f:
+    best_file = None
+    best_mtime = 0
+    if os.path.exists(output_dir):
+        for fname in os.listdir(output_dir):
+            if not fname.endswith('.json') or fname.endswith('.meta.json'):
+                continue
+            if not fname.startswith(source_lower + '_'):
+                continue
+            fpath = os.path.join(output_dir, fname)
+            mtime = os.path.getmtime(fpath)
+            # Check that all requested targets appear in the filename
+            stem = fname.replace('.json', '').lower()
+            if all(t in stem for t in target_lowers) and mtime >= best_mtime:
+                best_file = fpath
+                best_mtime = mtime
+    
+    if best_file and os.path.exists(best_file):
+        with open(best_file, 'r') as f:
             file_content = f.read()
         
-        # Return JSON response with both cache info and file content
         return JSONResponse(content={
             "cache_info": cache_info,
             "file_content": file_content,
-            "filename": filename
+            "filename": os.path.basename(best_file)
         })
     return JSONResponse(status_code=404, content={"error": "Cache error. Mapping file not found."})
 
