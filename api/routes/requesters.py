@@ -63,7 +63,7 @@ class CohortListing(BaseModel):
     cohortHash: str
     permission: str
     modifiers: list[str]
-    diseaseName: Optional[str] = None
+    diseaseCode: Optional[str] = None
     additionalRestrictions: Optional[str] = None
     active: bool
 
@@ -163,7 +163,7 @@ async def list_cohorts(user: AuthenticatedUser = Depends(get_current_user)):
             cohortHash=c.get("cohort_hash", ""),
             permission=c.get("permission", ""),
             modifiers=c.get("modifiers", []),
-            diseaseName=c.get("disease_code"),
+            diseaseCode=c.get("disease_code"),
             additionalRestrictions=c.get("additional_restrictions"),
             active=c.get("active", False),
         )

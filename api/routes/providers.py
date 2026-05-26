@@ -1,4 +1,5 @@
 import logging
+import re
 from datetime import date, datetime, timedelta
 from typing import Optional
 
@@ -6,6 +7,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr, Field, model_validator
 
 from api.models.duo import MODIFIER_VALUES, PERMISSION_VALUES
+from api.services.iso3166 import all_codes as _iso_country_codes
+
+_DISEASE_CURIE_RE = re.compile(r"^(MONDO|DOID|HP|ORPHA|EFO|NCIT|OMIM):[A-Za-z0-9_]+$")
+_ROR_RE = re.compile(r"^https?://ror\.org/[0-9a-z]{6,12}$")
+_ETH_ADDR_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
+_HEX64_RE = re.compile(r"^(0x)?[0-9a-fA-F]{64}$")
+_PROJECT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._\-]{1,63}$")
+_ISO_CODES = set(_iso_country_codes())
+_URI_RE = re.compile(r"^(https?|ipfs|ar|s3|file)://\S+$", re.IGNORECASE)
 from api.models.requests import (
     AddOwnerRequest,
     ConsentRevokeRequest,
@@ -83,6 +93,76 @@ class ConsentDeclaration(BaseModel):
             raise ValueError("RS modifier requires researchScope (free text describing allowed scope)")
         if "RTN" in mods and not self.returnTargetUri:
             raise ValueError("RTN modifier requires returnTargetUri")
+
+        if self.diseaseCode is not None:
+            code = self.diseaseCode.strip()
+            if not _DISEASE_CURIE_RE.match(code):
+                raise ValueError(
+                    f"diseaseCode must be an ontology CURIE like MONDO:0005148, DOID:9352, HP:0001250 (got {self.diseaseCode!r})"
+                )
+            self.diseaseCode = code
+
+        if self.allowedCountries:
+            normalized = []
+            for c in self.allowedCountries:
+                if not isinstance(c, str):
+                    raise ValueError(f"allowedCountries: expected string, got {type(c).__name__}")
+                cc = c.strip().upper()
+                if cc not in _ISO_CODES:
+                    raise ValueError(f"allowedCountries: unknown ISO-3166-1 alpha-2 code {c!r}")
+                normalized.append(cc)
+            self.allowedCountries = sorted(set(normalized))
+
+        if self.allowedInstitutions:
+            normalized = []
+            for inst in self.allowedInstitutions:
+                if not isinstance(inst, str):
+                    raise ValueError(f"allowedInstitutions: expected string, got {type(inst).__name__}")
+                s = inst.strip()
+                if not _ROR_RE.match(s):
+                    raise ValueError(
+                        f"allowedInstitutions: must be a ROR URL like https://ror.org/01ej9dk98 (got {inst!r})"
+                    )
+                normalized.append(s)
+            self.allowedInstitutions = sorted(set(normalized))
+
+        if self.allowedProjects:
+            normalized = []
+            for p in self.allowedProjects:
+                if not isinstance(p, str):
+                    raise ValueError(f"allowedProjects: expected string, got {type(p).__name__}")
+                s = p.strip()
+                if not _PROJECT_ID_RE.match(s):
+                    raise ValueError(
+                        f"allowedProjects: must be 2-64 chars, alphanumerics with . _ - allowed (got {p!r})"
+                    )
+                normalized.append(s)
+            self.allowedProjects = sorted(set(normalized))
+
+        if self.allowedUsers:
+            normalized = []
+            for u in self.allowedUsers:
+                if not isinstance(u, str):
+                    raise ValueError(f"allowedUsers: expected string, got {type(u).__name__}")
+                s = u.strip()
+                if _ETH_ADDR_RE.match(s):
+                    normalized.append(s)
+                elif _HEX64_RE.match(s):
+                    normalized.append(s.lower().removeprefix("0x"))
+                else:
+                    raise ValueError(
+                        f"allowedUsers: each entry must be a 0x-prefixed 40-hex eth address or a 64-hex email hash (got {u!r})"
+                    )
+            self.allowedUsers = sorted(set(normalized))
+
+        for field_name, value in (
+            ("returnTargetUri", self.returnTargetUri),
+            ("consentFormUri", self.consentFormUri),
+            ("metadataUri", self.metadataUri),
+        ):
+            if value and not _URI_RE.match(value.strip()):
+                raise ValueError(f"{field_name}: must be a URI (https://, ipfs://, ...); got {value!r}")
+
         return self
 
 class CreateCohortRequest(BaseModel):
