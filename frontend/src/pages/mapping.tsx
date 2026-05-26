@@ -710,7 +710,7 @@ export default function MappingPage() {
                 <span className="loading loading-spinner loading-sm"></span>
                 <span className="text-sm">Loading cached pairs...</span>
               </div>
-            ) : cachedFiles.filter(f => f.cohorts.length === 2).length === 0 ? (
+            ) : cachedFiles.filter(f => f.cohorts.length >= 2).length === 0 ? (
               <p className="text-sm text-gray-500 text-center py-2">No cached mapping pairs found.</p>
             ) : (
               <div className="overflow-x-auto flex-1">
@@ -727,7 +727,7 @@ export default function MappingPage() {
                   </thead>
                   <tbody>
                     {cachedFiles
-                      .filter(f => f.cohorts.length === 2)
+                      .filter(f => f.cohorts.length >= 2)
                       .sort((a, b) => b.timestamp - a.timestamp)
                       .map((file, idx) => {
                         const srcId = file.cohorts[0];
