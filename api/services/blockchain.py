@@ -407,6 +407,18 @@ class BlockchainService:
             logger.error(f"Failed to record consent: {e}")
             return {"success": False, "error": str(e)}
 
+    async def consent_exists_on_chain(self, cohort_id: str) -> bool:
+        if not self.consent_vault:
+            return False
+        try:
+            cohort_hash = get_cohort_hash(cohort_id)
+            result = self.consent_vault.functions.getConsent(cohort_hash).call()
+            valid_from = result[4]
+            return valid_from > 0
+        except Exception as e:
+            logger.error(f"consent_exists_on_chain failed: {e}")
+            return False
+
     async def revoke_consent(
         self,
         owner_email: str,

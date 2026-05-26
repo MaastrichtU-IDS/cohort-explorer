@@ -179,6 +179,9 @@ async def create_consent(req: CreateCohortRequest, user: AuthenticatedUser = Dep
     service = get_blockchain_service()
     cache = get_cache()
 
+    if await service.consent_exists_on_chain(req.cohortId):
+        raise HTTPException(409, f"Consent for cohortId '{req.cohortId}' already exists. Use PATCH to update.")
+
     metadata_blob = {
         "dataUseDescription": consent.dataUseDescription,
         "additionalRestrictions": consent.additionalRestrictions,
@@ -302,34 +305,102 @@ async def update_consent(cohort_id: str, req: CreateCohortRequest, user: Authent
     if req.cohortId != cohort_id:
         raise HTTPException(400, "cohortId in path and body must match")
 
+    service = get_blockchain_service()
     cache = get_cache()
-    c = await _load_cohort(cache, cohort_id)
-    if not c:
+
+    if not await service.consent_exists_on_chain(cohort_id):
         raise HTTPException(404, f"No consent record exists for cohort '{cohort_id}'")
-    _own_or_403(user, c, cohort_id)
+
+    c = await _load_cohort(cache, cohort_id)
+    if c:
+        _own_or_403(user, c, cohort_id)
 
     await fire_ibis_lifecycle(req.email, OperationType.RENEW)
     consent = req.consent
 
-    c["permission"] = consent.permission
-    c["modifiers"] = consent.modifiers
-    if consent.diseaseCode is not None:
-        c["disease_code"] = consent.diseaseCode
-    if consent.additionalRestrictions is not None:
-        c["additional_restrictions"] = consent.additionalRestrictions
-    if consent.dataUseDescription is not None:
-        c["data_use_description"] = consent.dataUseDescription
-    if consent.allowedCountries:
-        c["allowed_countries"] = consent.allowedCountries
-    if consent.allowedInstitutions:
-        c["allowed_institutions"] = consent.allowedInstitutions
-    if consent.allowedProjects:
-        c["allowed_projects"] = consent.allowedProjects
-    if consent.moratoriumMonths is not None:
-        c["moratorium_months"] = consent.moratoriumMonths
-    c["updated_at"] = datetime.utcnow().isoformat() + "Z"
-    await cache.set_consent(c.get("cohort_hash") or get_cohort_hash(cohort_id).hex(), c)
-    return {"success": True, "cohortId": cohort_id, "permission": consent.permission, "modifiers": consent.modifiers}
+    metadata_blob = {
+        "dataUseDescription": consent.dataUseDescription,
+        "additionalRestrictions": consent.additionalRestrictions,
+        "researchScope": consent.researchScope,
+        "returnTargetUri": consent.returnTargetUri,
+        "consentDate": consent.consentDate.isoformat() if consent.consentDate else None,
+        "consentFormUri": consent.consentFormUri,
+        "metadataUri": consent.metadataUri,
+    }
+    result = await service.record_consent(
+        owner_email=req.email,
+        cohort_id=req.cohortId,
+        permission=consent.permission,
+        modifiers=consent.modifiers,
+        disease_code=consent.diseaseCode or "",
+        allowed_countries=consent.allowedCountries,
+        allowed_institutions=consent.allowedInstitutions,
+        allowed_projects=consent.allowedProjects,
+        allowed_users=consent.allowedUsers,
+        moratorium_months=consent.moratoriumMonths or 0,
+        publication_deadline_days=consent.publicationDeadlineDays or 0,
+        expiration_days=consent.expirationDays,
+        metadata=metadata_blob,
+        signature=None,
+    )
+    if not result.get("success"):
+        raise HTTPException(500, result.get("error", "record_consent failed"))
+
+    cohort_hash = result["cohort_hash"]
+    expires_at = (datetime.utcnow() + timedelta(days=consent.expirationDays)) if consent.expirationDays > 0 else None
+    now = datetime.utcnow().isoformat() + "Z"
+
+    existing_owners = c.get("owners", [result["owner_address"]]) if c else [result["owner_address"]]
+    recorded_at = (c or {}).get("recorded_at") or now
+
+    await cache.set_consent(cohort_hash, {
+        "cohort_id": req.cohortId,
+        "cohort_hash": cohort_hash,
+        "owners": existing_owners,
+        "permission": consent.permission,
+        "modifiers": consent.modifiers,
+        "disease_code": consent.diseaseCode,
+        "allowed_countries": consent.allowedCountries,
+        "allowed_institutions": consent.allowedInstitutions,
+        "allowed_projects": consent.allowedProjects,
+        "allowed_users": consent.allowedUsers,
+        "moratorium_months": consent.moratoriumMonths,
+        "research_scope": consent.researchScope,
+        "return_target_uri": consent.returnTargetUri,
+        "publication_deadline_days": consent.publicationDeadlineDays,
+        "data_use_description": consent.dataUseDescription,
+        "additional_restrictions": consent.additionalRestrictions,
+        "consent_date": consent.consentDate.isoformat() if consent.consentDate else None,
+        "consent_form_uri": consent.consentFormUri,
+        "metadata_uri": consent.metadataUri,
+        "active": True,
+        "valid_until": expires_at.isoformat() + "Z" if expires_at else None,
+        "recorded_at": recorded_at,
+        "updated_at": now,
+    })
+
+    await cache.store_transaction(result["tx_hash"], {
+        "type": "consent_update",
+        "cohort_id": req.cohortId,
+        "cohort_hash": cohort_hash,
+        "owner_hash": user.email_hash,
+        "owner_address": result["owner_address"],
+        "permission": consent.permission,
+        "modifiers": consent.modifiers,
+        "tx_success": True,
+        "status": "success",
+        "timestamp": now,
+    })
+
+    return {
+        "success": True,
+        "cohortId": cohort_id,
+        "cohortHash": cohort_hash,
+        "txHash": result["tx_hash"],
+        "ownerAddress": result["owner_address"],
+        "permission": consent.permission,
+        "modifiers": consent.modifiers,
+    }
 
 @router.post("/consents/{cohort_id}/revoke", summary="Revoke consent for a cohort")
 async def revoke_consent(cohort_id: str, req: ConsentRevokeRequest, user: AuthenticatedUser = Depends(get_current_user)):
