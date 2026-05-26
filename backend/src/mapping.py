@@ -227,9 +227,7 @@ async def get_available_mapping_files(
     logger.info(f"[DEBUG] get_available_mapping_files: output_dir = {output_dir}")
     logger.info(f"[DEBUG] get_available_mapping_files: os.path.exists(output_dir) = {os.path.exists(output_dir)}")
     
-    # Normalize cohort IDs to lowercase for matching
-    cohort_ids_lower = set(c.lower() for c in cohort_ids)
-    logger.info(f"[DEBUG] get_available_mapping_files: cohort_ids_lower = {cohort_ids_lower}")
+    logger.info(f"[DEBUG] get_available_mapping_files: received {len(cohort_ids)} cohort_ids")
     
     available_mappings = []
     
@@ -276,34 +274,30 @@ async def get_available_mapping_files(
                 logger.info(f"[DEBUG] Skipping '{filename}': less than 2 cohorts")
                 continue
             
-            # Check if ALL cohorts in the filename are among selected cohorts
-            matches = [cohort in cohort_ids_lower for cohort in file_cohorts]
-            logger.info(f"[DEBUG] Matching '{filename}': file_cohorts={file_cohorts}, matches={matches}, all_match={all(matches)}")
-            if all(matches):
-                filepath = os.path.join(output_dir, filename)
-                file_size = os.path.getsize(filepath)
-                mtime = os.path.getmtime(filepath)
-                
-                # Create display name showing all cohorts
-                display_name = ' → '.join(file_cohorts)
-                
-                # Read sidecar stats (lazy-generate if missing/stale)
-                stats = _read_or_generate_meta(filepath)
-                
-                # Skip files with 0 mappings (failed or empty runs)
-                if stats and stats.get("total_mappings", 0) == 0:
-                    logger.info(f"[DEBUG] Skipping '{filename}': 0 total mappings")
-                    continue
-                
-                available_mappings.append({
-                    'cohorts': file_cohorts,
-                    'filename': filename,
-                    'filepath': filepath,
-                    'file_size': file_size,
-                    'timestamp': mtime,
-                    'display_name': display_name,
-                    'stats': stats,
-                })
+            filepath = os.path.join(output_dir, filename)
+            file_size = os.path.getsize(filepath)
+            mtime = os.path.getmtime(filepath)
+            
+            # Create display name showing all cohorts
+            display_name = ' → '.join(file_cohorts)
+            
+            # Read sidecar stats (lazy-generate if missing/stale)
+            stats = _read_or_generate_meta(filepath)
+            
+            # Skip files with 0 mappings (failed or empty runs)
+            if stats and stats.get("total_mappings", 0) == 0:
+                logger.info(f"[DEBUG] Skipping '{filename}': 0 total mappings")
+                continue
+            
+            available_mappings.append({
+                'cohorts': file_cohorts,
+                'filename': filename,
+                'filepath': filepath,
+                'file_size': file_size,
+                'timestamp': mtime,
+                'display_name': display_name,
+                'stats': stats,
+            })
     
     # De-duplicate: for each unique cohort set, keep only the most recent file
     seen: dict[str, int] = {}  # cohort_key -> index in available_mappings
