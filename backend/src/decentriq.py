@@ -1738,16 +1738,7 @@ def build_dcr_description(
     """
     rq_text = research_question.strip() if research_question and research_question.strip() else "no research question specified"
     cohorts_text = ", ".join(cohort_ids) if cohort_ids else "none"
-    return (
-        "This Data Clean Room was created via iCARE4CVD Cohort Explorer to "
-        f"investigate the following research question: {rq_text}."
-        "\n"  # variant 1: real newline
-        f"Cohorts involved: {cohorts_text}"
-        "\\n"  # variant 2: literal backslash-n
-        f"Created by: {creator_email}"
-        "<br>"  # variant 3: HTML line break
-        "(testing line-break rendering)"
-    )
+    return f"RESEARCH QUESTION: {rq_text}."
 
 
 def build_dcr_participants(

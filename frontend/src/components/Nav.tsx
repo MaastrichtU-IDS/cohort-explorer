@@ -3,7 +3,7 @@
 import React, {useState, useEffect, useMemo, useCallback, useRef} from 'react';
 import Link from 'next/link';
 import {useRouter} from 'next/router';
-import {LogIn, LogOut, Compass, Upload, HardDrive, Map, Box, FileText} from 'react-feather';
+import {LogIn, LogOut, Compass, Upload, HardDrive, Map, Box, FileText, Settings} from 'react-feather';
 import {useCohorts} from '@/components/CohortsContext';
 import {DarkThemeIcon, LightThemeIcon} from '@/components/Icons';
 import {apiUrl} from '@/utils';
@@ -53,7 +53,17 @@ export function Nav() {
   const [researchQuestion, setResearchQuestion] = useState('');
   const [showAddCohortModal, setShowAddCohortModal] = useState(false);
   const [cohortSearchQuery, setCohortSearchQuery] = useState('');
+  const [isAdmin, setIsAdmin] = useState(false);
   const notificationRef = React.useRef<HTMLDivElement>(null);
+
+  // Check admin status
+  useEffect(() => {
+    if (!userEmail) return;
+    fetch(`${apiUrl}/admin/check`, {credentials: 'include'})
+      .then(res => res.ok ? res.json() : null)
+      .then(data => { if (data) setIsAdmin(data.is_admin); })
+      .catch(() => {});
+  }, [userEmail]);
 
   // Wizard step definitions (declared before the logging hooks below so their
   // closures can read step ids safely).
@@ -714,6 +724,14 @@ export function Nav() {
               <span className="text-base">Documents</span>
             </Link>
           </li>
+          {isAdmin && (
+            <li>
+              <Link href="/admin-settings" className={pathname === '/admin-settings' ? 'active' : ''}>
+                <Settings size={24} />
+                <span className="text-base">Admin</span>
+              </Link>
+            </li>
+          )}
         </ul>
         <div className="dropdown lg:hidden">
           <div tabIndex={0} role="button" className="btn btn-ghost lg:hidden">
@@ -725,6 +743,7 @@ export function Nav() {
             <li><Link href="/mapping">Mapping</Link></li>
             <li><Link href="/dcrs">My DCRs</Link></li>
             <li><Link href="/docs_store">Documents</Link></li>
+            {isAdmin && <li><Link href="/admin-settings">Admin</Link></li>}
           </ul>
         </div>
       </div>
@@ -874,9 +893,9 @@ export function Nav() {
                         <label className="label">
                           <span className="label-text font-semibold">Selected Cohorts</span>
                         </label>
-                        <div className="bg-base-200 p-3 rounded-lg">
+                        <div className="bg-base-200 p-3 rounded-lg cursor-pointer hover:bg-base-300 transition-colors" onClick={() => setShowAddCohortModal(true)}>
                           {Object.keys(dataCleanRoom?.cohorts || {}).length === 0 ? (
-                            <span className="text-base-content/60">No cohorts selected</span>
+                            <span className="text-base-content/60">No cohorts selected — click to add</span>
                           ) : (
                             Object.entries(dataCleanRoom?.cohorts || {}).map(([cohortId, variables]: any) => (
                               <div key={cohortId} className="badge badge-outline mr-2 mb-1">
