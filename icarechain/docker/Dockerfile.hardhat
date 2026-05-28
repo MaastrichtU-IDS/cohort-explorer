@@ -1,0 +1,21 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+RUN apk add --no-cache curl
+
+COPY package.json package-lock.json* ./
+RUN npm install
+
+COPY tsconfig.json hardhat.config.ts ./
+COPY contracts/ ./contracts/
+COPY scripts/ ./scripts/
+
+RUN npx hardhat compile
+
+EXPOSE 8545
+
+HEALTHCHECK --interval=10s --timeout=5s --retries=5 \
+    CMD curl -sf http://localhost:8545 -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' || exit 1
+
+CMD ["npx", "hardhat", "node", "--hostname", "0.0.0.0"]

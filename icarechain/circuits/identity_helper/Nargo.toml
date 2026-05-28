@@ -1,0 +1,9 @@
+[package]
+name = "identity_helper"
+type = "bin"
+authors = ["IBIS"]
+compiler_version = ">=1.0.0"
+description = "Off-chain helper: computes the canonical Poseidon2 user commitment + initial chain key for a given identity_secret."
+
+[dependencies]
+poseidon = { git = "https://github.com/noir-lang/poseidon", tag = "v0.3.0" }

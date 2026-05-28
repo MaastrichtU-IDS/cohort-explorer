@@ -1,0 +1,9 @@
+[package]
+name = "consent_compliance"
+type = "bin"
+authors = ["DUO Consent Team"]
+compiler_version = ">=0.34.0"
+description = "Zero-knowledge proof of consent compliance for DUO permissions"
+
+[dependencies]
+# Standard library is included by default

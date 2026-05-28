@@ -39,3 +39,89 @@ services:
       service: db
     ports:
       - 7878:7878
+
+  # ─── iCARE4CHAIN blockchain services ───────────────────────────────────────────
+  # Source: branch "iCARE4CHAIN" — blockchain-backed GA4GH DUO consent management.
+  # Services: redis (cache), hardhat (local EVM chain), deployer (one-shot contract
+  # deployment), api (FastAPI consent microservice at localhost:8020/docs).
+  icarechain-redis:
+    image: redis:7.2-alpine
+    container_name: icarechain-redis
+    command: redis-server /usr/local/etc/redis/redis.conf
+    ports:
+      - "6391:6379"
+    volumes:
+      - icarechain-redis-data:/data
+      - ./icarechain/docker/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  icarechain-hardhat:
+    build:
+      context: ./icarechain
+      dockerfile: docker/Dockerfile.hardhat
+    container_name: icarechain-hardhat
+    ports:
+      - "8559:8545"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8545"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  icarechain-deployer:
+    build:
+      context: ./icarechain
+      dockerfile: docker/Dockerfile.deployer
+    container_name: icarechain-deployer
+    depends_on:
+      icarechain-hardhat:
+        condition: service_healthy
+    environment:
+      - HARDHAT_NETWORK=localhost
+    volumes:
+      - icarechain-deployments:/app/deployments
+      - icarechain-abis:/app/api/contracts/abis
+
+  icarechain-api:
+    build:
+      context: ./icarechain
+      dockerfile: docker/Dockerfile.api
+    container_name: icarechain-api
+    ports:
+      - "8020:8001"
+    environment:
+      - RPC_URL=http://icarechain-hardhat:8545
+      - CHAIN_ID=31337
+      - RELAYER_PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+      - REDIS_URL=redis://icarechain-redis:6379
+      - CACHE_BACKEND=redis
+      - IBIS_PROOF_BACKEND=dev
+      - IBIS_PAILLIER_BITS=256
+      - ZKP_PRODUCTION_MODE=false
+      - AUTH_DEV_MODE=true
+    volumes:
+      - ./icarechain/api:/app/api
+      - ./icarechain/circuits:/app/circuits:ro
+      - icarechain-deployments:/app/deployments:ro
+      - icarechain-abis:/app/api/contracts/abis:ro
+    depends_on:
+      icarechain-deployer:
+        condition: service_completed_successfully
+      icarechain-redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  icarechain-deployments:
+  icarechain-abis:
+  icarechain-redis-data:

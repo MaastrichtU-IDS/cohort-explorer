@@ -1,0 +1,1130 @@
+{
+  "contractName": "GasSponsor",
+  "abi": [
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "admin",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "constructor"
+    },
+    {
+      "inputs": [],
+      "name": "AccessControlBadConfirmation",
+      "type": "error"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "account",
+          "type": "address"
+        },
+        {
+          "internalType": "bytes32",
+          "name": "neededRole",
+          "type": "bytes32"
+        }
+      ],
+      "name": "AccessControlUnauthorizedAccount",
+      "type": "error"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "member",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "spent",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "budget",
+          "type": "uint256"
+        }
+      ],
+      "name": "DailyBudgetExceeded",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "EnforcedPause",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "ExpectedPause",
+      "type": "error"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "gasUsed",
+          "type": "uint256"
+        }
+      ],
+      "name": "GasLimitExceeded",
+      "type": "error"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "institutionId",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "uint256",
+          "name": "required",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "available",
+          "type": "uint256"
+        }
+      ],
+      "name": "InsufficientBalance",
+      "type": "error"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "institutionId",
+          "type": "bytes32"
+        }
+      ],
+      "name": "MaxMembersReached",
+      "type": "error"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "member",
+          "type": "address"
+        }
+      ],
+      "name": "MemberNotSponsored",
+      "type": "error"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "institutionId",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "address",
+          "name": "caller",
+          "type": "address"
+        }
+      ],
+      "name": "NotPoolAdmin",
+      "type": "error"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "institutionId",
+          "type": "bytes32"
+        }
+      ],
+      "name": "PoolAlreadyExists",
+      "type": "error"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "institutionId",
+          "type": "bytes32"
+        }
+      ],
+      "name": "PoolNotActive",
+      "type": "error"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "institutionId",
+          "type": "bytes32"
+        }
+      ],
+      "name": "PoolNotFound",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "ReentrancyGuardReentrantCall",
+      "type": "error"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "institutionId",
+          "type": "bytes32"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "oldBudget",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "newBudget",
+          "type": "uint256"
+        }
+      ],
+      "name": "DailyBudgetUpdated",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "institutionId",
+          "type": "bytes32"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "member",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "gasUsed",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "gasCost",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "bytes32",
+          "name": "txType",
+          "type": "bytes32"
+        }
+      ],
+      "name": "GasReimbursed",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "institutionId",
+          "type": "bytes32"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "member",
+          "type": "address"
+        }
+      ],
+      "name": "MemberRemoved",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "institutionId",
+          "type": "bytes32"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "member",
+          "type": "address"
+        }
+      ],
+      "name": "MemberSponsored",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "account",
+          "type": "address"
+        }
+      ],
+      "name": "Paused",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "institutionId",
+          "type": "bytes32"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "admin",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "initialDeposit",
+          "type": "uint256"
+        }
+      ],
+      "name": "PoolCreated",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "institutionId",
+          "type": "bytes32"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "funder",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "newBalance",
+          "type": "uint256"
+        }
+      ],
+      "name": "PoolFunded",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "institutionId",
+          "type": "bytes32"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "admin",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "newBalance",
+          "type": "uint256"
+        }
+      ],
+      "name": "PoolWithdrawn",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        },
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "previousAdminRole",
+          "type": "bytes32"
+        },
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "newAdminRole",
+          "type": "bytes32"
+        }
+      ],
+      "name": "RoleAdminChanged",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "account",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "sender",
+          "type": "address"
+        }
+      ],
+      "name": "RoleGranted",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "account",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "sender",
+          "type": "address"
+        }
+      ],
+      "name": "RoleRevoked",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "account",
+          "type": "address"
+        }
+      ],
+      "name": "Unpaused",
+      "type": "event"
+    },
+    {
+      "inputs": [],
+      "name": "DEFAULT_ADMIN_ROLE",
+      "outputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "DEFAULT_DAILY_BUDGET",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "MAX_GAS_PER_TX",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "RELAY_ROLE",
+      "outputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "SPONSOR_ADMIN",
+      "outputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "relay",
+          "type": "address"
+        }
+      ],
+      "name": "addRelay",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "institutionId",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "address",
+          "name": "member",
+          "type": "address"
+        }
+      ],
+      "name": "addSponsoredMember",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "member",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "estimatedGasCost",
+          "type": "uint256"
+        }
+      ],
+      "name": "canSponsor",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "canSponsor_",
+          "type": "bool"
+        },
+        {
+          "internalType": "string",
+          "name": "reason",
+          "type": "string"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "institutionId",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "uint256",
+          "name": "maxMembers",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "dailyBudget",
+          "type": "uint256"
+        }
+      ],
+      "name": "createPool",
+      "outputs": [],
+      "stateMutability": "payable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "institutionId",
+          "type": "bytes32"
+        }
+      ],
+      "name": "deactivatePool",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "institutionId",
+          "type": "bytes32"
+        }
+      ],
+      "name": "fundPool",
+      "outputs": [],
+      "stateMutability": "payable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "institutionId",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "address",
+          "name": "member",
+          "type": "address"
+        }
+      ],
+      "name": "getMemberUsage",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "dailySpent",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "dailyTxCount",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "totalSpent",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "totalTxCount",
+          "type": "uint256"
+        },
+        {
+          "internalType": "bool",
+          "name": "active",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "institutionId",
+          "type": "bytes32"
+        }
+      ],
+      "name": "getPool",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "balance",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "totalSpent",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "dailyBudgetPerMember",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "maxMembers",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "memberCount",
+          "type": "uint256"
+        },
+        {
+          "internalType": "bool",
+          "name": "active",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        }
+      ],
+      "name": "getRoleAdmin",
+      "outputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "address",
+          "name": "account",
+          "type": "address"
+        }
+      ],
+      "name": "grantRole",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "address",
+          "name": "account",
+          "type": "address"
+        }
+      ],
+      "name": "hasRole",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "name": "memberInstitution",
+      "outputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "name": "memberUsage",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "dailySpent",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "lastDay",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "totalSpent",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "dailyTxCount",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "totalTxCount",
+          "type": "uint256"
+        },
+        {
+          "internalType": "bool",
+          "name": "active",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "pause",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "paused",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "name": "pools",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "balance",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "totalSpent",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "dailyBudgetPerMember",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "maxMembers",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "memberCount",
+          "type": "uint256"
+        },
+        {
+          "internalType": "bool",
+          "name": "active",
+          "type": "bool"
+        },
+        {
+          "internalType": "address",
+          "name": "poolAdmin",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "createdAt",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "institutionId",
+          "type": "bytes32"
+        }
+      ],
+      "name": "reactivatePool",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "member",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "gasUsed",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "gasPrice",
+          "type": "uint256"
+        },
+        {
+          "internalType": "bytes32",
+          "name": "txType",
+          "type": "bytes32"
+        }
+      ],
+      "name": "reimburse",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "relay",
+          "type": "address"
+        }
+      ],
+      "name": "removeRelay",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "institutionId",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "address",
+          "name": "member",
+          "type": "address"
+        }
+      ],
+      "name": "removeSponsoredMember",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "address",
+          "name": "callerConfirmation",
+          "type": "address"
+        }
+      ],
+      "name": "renounceRole",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "address",
+          "name": "account",
+          "type": "address"
+        }
+      ],
+      "name": "revokeRole",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "institutionId",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "uint256",
+          "name": "newBudget",
+          "type": "uint256"
+        }
+      ],
+      "name": "setDailyBudget",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes4",
+          "name": "interfaceId",
+          "type": "bytes4"
+        }
+      ],
+      "name": "supportsInterface",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "totalGasSponsored",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "totalPools",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "unpause",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "institutionId",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "withdrawFromPool",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "stateMutability": "payable",
+      "type": "receive"
+    }
+  ],
+  "bytecode": "0x60803461007757601f611b3638819003918201601f19168301916001600160401b0383118484101761007c5780849260209460405283398101031261007757516001600160a01b03811681036100775761006790600160025561006181610092565b5061010e565b5060405161192f90816101a78239f35b600080fd5b634e487b7160e01b600052604160045260246000fd5b6001600160a01b0381166000908152600080516020611af6833981519152602052604090205460ff16610108576001600160a01b03166000818152600080516020611af683398151915260205260408120805460ff19166001179055339190600080516020611ad68339815191528180a4600190565b50600090565b6001600160a01b0381166000908152600080516020611b16833981519152602052604090205460ff16610108576001600160a01b03166000818152600080516020611b1683398151915260205260408120805460ff191660011790553391907fc151db3b78c9bda70cebad7687c4619e0d5acd0e84a319795c6daeb9b4928e0690600080516020611ad68339815191529080a460019056fe608080604052600436101561001d575b50361561001b57600080fd5b005b60003560e01c90816301ffc9a7146112cf5750806304421823146112a657806306398808146111fd578063248a9ca3146111c85780632f2ff15d1461118857806333488a4e1461110257806336568abe146110bc5780633f4ba83a146110535780634802836d146110185780634f35000214610f765780635af8d03b14610e0e5780635c975abb14610deb57806374f9348814610db157806379a8fb0414610c4d5780637b03ed4014610bd25780638456cb5914610b7957806391d1485414610b2c57806393bf45c61461098957806394caec461461091e5780639c3b334e14610679578063a217fddf1461065d578063ab3c7e521461063f578063adadf22f14610616578063b3a2199d14610486578063b5217bb414610401578063b92275e0146103df578063cd151e9a146103b6578063d547741f14610371578063d876674914610353578063d9d97859146102d5578063e0f6dfca146102b7578063f4f7f7c5146102095763f6c0092714610195573861000f565b34610204576020366003190112610204576004356000526003602052604060002080546101f160018301549260028101548015156000146101f557905b600381015460ff60056004840154930154169260405196879687611364565b0390f35b50662386f26fc10000906101d2565b600080fd5b346102045760203660031901126102045760043580600052600360205260406000206006810154156102a2576005018054909133600883901c6001600160a01b031614158061027b575b610263575060ff19166001179055005b635e5bb14560e11b6000526004523360245260446000fd5b503360009081526000805160206118da833981519152602052604090205460ff1615610253565b5063299f9ab360e11b60005260045260246000fd5b34610204576000366003190112610204576020600754604051908152f35b346102045760203660031901126102045760043580600052600360205260406000206006810154156102a2576005018054909133600883901c6001600160a01b031614158061032c575b610263575060ff19169055005b503360009081526000805160206118da833981519152602052604090205460ff161561031f565b34610204576000366003190112610204576020604051620f42408152f35b346102045760403660031901126102045761001b600435610390611338565b906103b16103ac82600052600060205260016040600020015490565b611600565b611817565b346102045760203660031901126102045761001b6103d261134e565b6103da6115a0565b611781565b34610204576000366003190112610204576020604051662386f26fc100008152f35b346102045760203660031901126102045760043560005260036020526101006040600020805490600181015490600281015460038201546004830154916006600585015494015494604051968752602087015260408601526060850152608084015260ff8116151560a084015260018060a01b039060081c1660c083015260e0820152f35b60603660031901126102045760043561049d611764565b80600052600360205260066040600020015461060257604051610100810181811067ffffffffffffffff8211176105ec576040523481526006602082016000815260408301604435815260608401906024358252608085016000815260a08601926001845260c087019233845260e0880195428752896000526003602052604060002098518955516001890155516002880155516003870155516004860155600585019151151560ff8019845416911617825551815490610100600160a81b039060081b1690610100600160a81b0319161790555191015561058060065461139d565b600655604051348152817f0a1e308dce49b435affcd801527f5942d10ef7edd48fead5313618a8eb21e77860203393a3346105b757005b604051903482523460208301527f94c4ce349c3d8b0b0202ee72fe3a8d537c5cb6767c0c4a573a1ccbd44642c83660403393a3005b634e487b7160e01b600052604160045260246000fd5b6375ce148f60e11b60005260045260246000fd5b346102045760203660031901126102045761001b61063261134e565b61063a6115a0565b61163b565b34610204576000366003190112610204576020600654604051908152f35b3461020457600036600319011261020457602060405160008152f35b346102045760803660031901126102045761069261134e565b3360009081526000805160206118ba8339815191526020526040902054602435916044359160ff16156108f7576106c7611764565b620f424083116108e2576001600160a01b03166000818152600560205260409020549092909182156108cd57826000526003602052604060002060ff600582015416156108b8578183029183830414831517156108a25780548281106108865750836000526004602052604080600020600090878252602052209060ff6005830154161561087157620151804204600183018181540361085e575b505060028101548015610850575b82548161077d8683611390565b1161082a5750509160047f568eeb5133d26e1e285dc420f4a654234bb2f1a503035729992f8d765de134b094926001856107ba8560609854611593565b8155016107c8848254611390565b90556107d5838254611390565b8155600281016107e6848254611390565b9055600381016107f6815461139d565b905501610803815461139d565b905561081181600754611390565b60075560405191825260208201526064356040820152a3005b610835858992611390565b90633e8c5f2f60e11b60005260045260245260445260646000fd5b50662386f26fc10000610770565b6000845560006003850155558680610762565b8563bea9f37560e01b60005260045260246000fd5b8285637569c8fb60e11b60005260045260245260445260646000fd5b634e487b7160e01b600052601160045260246000fd5b8363ba01b06f60e01b60005260045260246000fd5b8363bea9f37560e01b60005260045260246000fd5b8263ef9a044160e01b60005260045260246000fd5b63e2517d3f60e01b6000523360045260008051602061189a83398151915260245260446000fd5b34610204576040366003190112610204576040610939611338565b60043560005260046020528160002060009160018060a01b031682526020522080546101f1600183015492600281015490600381015460ff60056004840154930154169260405196879687611364565b346102045761099736611322565b906002805414610b1b57600280556109ad611764565b80600052600360205260406000206006810154156102a25760058101543360089190911c6001600160a01b0316141580610af4575b610adb578054838110610abf57836109f991611593565b8155600080808086335af13d15610aba573d67ffffffffffffffff81116105ec57610a2d601f8201601f19166020016113ac565b908152600060203d92013e5b15610a77575460405192835260208301527f6f8410d72982476c641be78fcf5c6d0bb25f76f3f294f5e8dddcd223884d036f60403393a36001600255005b60405162461bcd60e51b815260206004820152601b60248201527a11d85cd4dc1bdb9cdbdc8e881d1c985b9cd9995c8819985a5b1959602a1b6044820152606490fd5b610a39565b8383637569c8fb60e11b60005260045260245260445260646000fd5b50635e5bb14560e11b6000526004523360245260446000fd5b503360009081526000805160206118da833981519152602052604090205460ff16156109e2565b633ee5aeb560e01b60005260046000fd5b3461020457604036600319011261020457610b45611338565b600435600052600060205260406000209060018060a01b0316600052602052602060ff604060002054166040519015158152f35b3461020457600036600319011261020457610b926115a0565b610b9a611764565b600160ff19815416176001557f62e78cea01bee320cd4e420270b5ea74000d11b0c9f74754ebdbfc544b05a2586020604051338152a1005b3461020457604036600319011261020457610bf7610bee61134e565b602435906113d2565b6040519115158252604060208301528181519182604083015260005b838110610c355750508160006060809484010152601f80199101168101030190f35b60208282018101516060878401015285935001610c13565b3461020457604036600319011261020457600435610c69611338565b8160005260036020526040600020600681015415610d9c5760058101543360089190911c6001600160a01b0316141580610d75575b610d5c57826000526004602052604060002060018060a01b03831660005260205260056040600020019081549160ff8316610d08575b5050506001600160a01b0316907f0b83470ddeea5a3c2a6523cb7d745b1aa0a33648a7ad9d2c02681b4de1577d2d600080a3005b60049260ff1916905501805480156108a2576000190190556001600160a01b0381166000818152600560205260409020548314610d47575b8080610cd4565b60005260056020526000604081205582610d40565b82635e5bb14560e11b6000526004523360245260446000fd5b503360009081526000805160206118da833981519152602052604090205460ff1615610c9e565b8263299f9ab360e11b60005260045260246000fd5b34610204576020366003190112610204576001600160a01b03610dd261134e565b1660005260056020526020604060002054604051908152f35b3461020457600036600319011261020457602060ff600154166040519015158152f35b3461020457604036600319011261020457600435610e2a611338565b610e32611764565b8160005260036020526040600020600681015415610d9c57600581015460ff8116156108b8573360089190911c6001600160a01b0316141580610f4f575b610d5c5760038101548015159081610f40575b50610f2b57826000526004602052604060002060018060a01b03831660005260205260056040600020019081549160ff831615610eef575b5050506001600160a01b0316907f9ef8ab78e403f4541cce68365a346729059c0de46fb393af15bb835d3727b16c600080a3005b600160049360ff191617905501610f06815461139d565b90556001600160a01b0381166000908152600560205260409020829055828080610ebb565b82630961ca4d60e31b60005260045260246000fd5b90506004820154101584610e83565b503360009081526000805160206118da833981519152602052604090205460ff1615610e70565b346102045760403660031901126102045760a06040610f93611338565b600435600052600460205281600020600091600180861b03168252602052206201518042046001820154149081600014611010578054915b15611008576003810154905b600281015460ff60056004840154930154169260405194855260208501526040840152606083015215156080820152f35b600090610fd7565b600091610fcb565b346102045760003660031901126102045760206040517fc151db3b78c9bda70cebad7687c4619e0d5acd0e84a319795c6daeb9b4928e068152f35b346102045760003660031901126102045761106c6115a0565b60015460ff8116156110ab5760ff19166001557f5db9ee0a495bf2e6ff9c91a7834c1ba4fdd244a5e8aa4e537bd38aeae4b073aa6020604051338152a1005b638dfc202b60e01b60005260046000fd5b34610204576040366003190112610204576110d5611338565b336001600160a01b038216036110f15761001b90600435611817565b63334bd91960e11b60005260046000fd5b602036600319011261020457600435611119611764565b8060005260036020526040600020906006820154156111745761113d348354611390565b8092556040519134835260208301527f94c4ce349c3d8b0b0202ee72fe3a8d537c5cb6767c0c4a573a1ccbd44642c83660403393a3005b63299f9ab360e11b60005260045260246000fd5b346102045760403660031901126102045761001b6004356111a7611338565b906111c36103ac82600052600060205260016040600020015490565b6116d9565b346102045760203660031901126102045760206111f5600435600052600060205260016040600020015490565b604051908152f35b346102045761120b36611322565b8160005260036020526040600020600681015415610d9c5760058101543360089190911c6001600160a01b031614158061127f575b610d5c577fefb2a133acd09fd6a8e41629bac692609631affc8449f4da42640d8951d8732f9160026040920190808254925582519182526020820152a2005b503360009081526000805160206118da833981519152602052604090205460ff1615611240565b3461020457600036600319011261020457602060405160008051602061189a8339815191528152f35b34610204576020366003190112610204576004359063ffffffff60e01b821680920361020457602091637965db0b60e01b8114908115611311575b5015158152f35b6301ffc9a760e01b1490508361130a565b6040906003190112610204576004359060243590565b602435906001600160a01b038216820361020457565b600435906001600160a01b038216820361020457565b94919260a0949197969360c0870198875260208701526040860152606085015260808401521515910152565b919082018092116108a257565b60001981146108a25760010190565b6040519190601f01601f1916820167ffffffffffffffff8111838210176105ec57604052565b6001600160a01b03811660009081526005602052604090205480156115665780600052600360205260406000209160ff6005840154161561153857838354106114fe5760409160005260046020528160002060009160018060a01b03168252602052209160ff600584015416156114cf57600261146d9201548015156000146114c057925b6001810154620151804204036114b85754611390565b116114865760019061147f60206113ac565b6000815290565b60009061149360406113ac565b601581527411185a5b1e48189d5919d95d08195e18d959591959605a1b602082015290565b506000611390565b50662386f26fc1000092611457565b5050506000906114df60406113ac565b600f81526e4d656d62657220696e61637469766560881b602082015290565b5050505060009061150f60406113ac565b6019815278496e73756666696369656e7420706f6f6c2062616c616e636560381b602082015290565b5050505060009061154960406113ac565b600d81526c506f6f6c20696e61637469766560981b602082015290565b50505060009061157660406113ac565b600d81526c139bdd081cdc1bdb9cdbdc9959609a1b602082015290565b919082039182116108a257565b3360009081526000805160206118da833981519152602052604090205460ff16156115c757565b63e2517d3f60e01b600052336004527fc151db3b78c9bda70cebad7687c4619e0d5acd0e84a319795c6daeb9b4928e0660245260446000fd5b60008181526020818152604080832033845290915290205460ff16156116235750565b63e2517d3f60e01b6000523360045260245260446000fd5b6001600160a01b03811660009081526000805160206118ba833981519152602052604090205460ff166116d3576001600160a01b031660008181526000805160206118ba83398151915260205260408120805460ff1916600117905533919060008051602061189a833981519152907f2f8788117e7eff1d82e926ec794901d17c78024a50270940304540a733656f0d9080a4600190565b50600090565b6000818152602081815260408083206001600160a01b038616845290915290205460ff1661175d576000818152602081815260408083206001600160a01b0395909516808452949091528120805460ff19166001179055339291907f2f8788117e7eff1d82e926ec794901d17c78024a50270940304540a733656f0d9080a4600190565b5050600090565b60ff6001541661177057565b63d93c066560e01b60005260046000fd5b6001600160a01b03811660009081526000805160206118ba833981519152602052604090205460ff16156116d3576001600160a01b031660008181526000805160206118ba83398151915260205260408120805460ff1916905533919060008051602061189a833981519152907ff6391f5c32d9c69d2a47ea670b442974b53935d1edc7fd64eb21e047a839171b9080a4600190565b6000818152602081815260408083206001600160a01b038616845290915290205460ff161561175d576000818152602081815260408083206001600160a01b0395909516808452949091528120805460ff19169055339291907ff6391f5c32d9c69d2a47ea670b442974b53935d1edc7fd64eb21e047a839171b9080a460019056fe077a1d526a4ce8a773632ab13b4fbbf1fcc954c3dab26cd27ea0e2a6750da5d78a82f9e0504fbbd4e27d52a5bf0121b2797f48988a09544f7c17949deb596bc434d3e2f583b1afe16eb538fc8d8d85b040eb76ad9f0f2cc68833e8a3f0c04a0da26469706673582212200196fdb5424f50beaefac09c1ddb0398b8564ebcea23872f3a527bf01728ce5664736f6c634300081e00332f8788117e7eff1d82e926ec794901d17c78024a50270940304540a733656f0dad3228b676f7d3cd4284a5443f17f1962b36e491b30a40b2405849e597ba5fb534d3e2f583b1afe16eb538fc8d8d85b040eb76ad9f0f2cc68833e8a3f0c04a0d"
+}

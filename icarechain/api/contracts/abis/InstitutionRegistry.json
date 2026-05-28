@@ -1,0 +1,1308 @@
+{
+  "contractName": "InstitutionRegistry",
+  "abi": [
+    {
+      "inputs": [],
+      "stateMutability": "nonpayable",
+      "type": "constructor"
+    },
+    {
+      "inputs": [],
+      "name": "AccessControlBadConfirmation",
+      "type": "error"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "account",
+          "type": "address"
+        },
+        {
+          "internalType": "bytes32",
+          "name": "neededRole",
+          "type": "bytes32"
+        }
+      ],
+      "name": "AccessControlUnauthorizedAccount",
+      "type": "error"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "institutionId",
+          "type": "bytes32"
+        },
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "oldAdmin",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "newAdmin",
+          "type": "address"
+        }
+      ],
+      "name": "InstitutionAdminChanged",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "institutionId",
+          "type": "bytes32"
+        }
+      ],
+      "name": "InstitutionDeactivated",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "institutionId",
+          "type": "bytes32"
+        },
+        {
+          "indexed": false,
+          "internalType": "string",
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "indexed": false,
+          "internalType": "bytes2",
+          "name": "countryCode",
+          "type": "bytes2"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint8",
+          "name": "institutionType",
+          "type": "uint8"
+        },
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "admin",
+          "type": "address"
+        }
+      ],
+      "name": "InstitutionRegistered",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "institutionId",
+          "type": "bytes32"
+        },
+        {
+          "indexed": false,
+          "internalType": "bool",
+          "name": "verified",
+          "type": "bool"
+        }
+      ],
+      "name": "InstitutionVerified",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "institutionId",
+          "type": "bytes32"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "member",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "string",
+          "name": "role",
+          "type": "string"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "validUntil",
+          "type": "uint256"
+        }
+      ],
+      "name": "MemberAdded",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "institutionId",
+          "type": "bytes32"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "member",
+          "type": "address"
+        }
+      ],
+      "name": "MemberRemoved",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "institutionId",
+          "type": "bytes32"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "member",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "string",
+          "name": "newRole",
+          "type": "string"
+        }
+      ],
+      "name": "MemberRoleUpdated",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "member",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "institutionId",
+          "type": "bytes32"
+        }
+      ],
+      "name": "PrimaryAffiliationSet",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "user",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint8",
+          "name": "requesterType",
+          "type": "uint8"
+        },
+        {
+          "indexed": false,
+          "internalType": "bytes2",
+          "name": "countryCode",
+          "type": "bytes2"
+        }
+      ],
+      "name": "RequesterTypeSet",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        },
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "previousAdminRole",
+          "type": "bytes32"
+        },
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "newAdminRole",
+          "type": "bytes32"
+        }
+      ],
+      "name": "RoleAdminChanged",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "account",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "sender",
+          "type": "address"
+        }
+      ],
+      "name": "RoleGranted",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "account",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "sender",
+          "type": "address"
+        }
+      ],
+      "name": "RoleRevoked",
+      "type": "event"
+    },
+    {
+      "inputs": [],
+      "name": "DEFAULT_ADMIN_ROLE",
+      "outputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "REGISTRY_ADMIN",
+      "outputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "TYPE_ACADEMIC",
+      "outputs": [
+        {
+          "internalType": "uint8",
+          "name": "",
+          "type": "uint8"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "TYPE_CLINICAL",
+      "outputs": [
+        {
+          "internalType": "uint8",
+          "name": "",
+          "type": "uint8"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "TYPE_COMMERCIAL",
+      "outputs": [
+        {
+          "internalType": "uint8",
+          "name": "",
+          "type": "uint8"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "TYPE_GOVERNMENT",
+      "outputs": [
+        {
+          "internalType": "uint8",
+          "name": "",
+          "type": "uint8"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "TYPE_NONPROFIT",
+      "outputs": [
+        {
+          "internalType": "uint8",
+          "name": "",
+          "type": "uint8"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "institutionId",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "address",
+          "name": "member",
+          "type": "address"
+        },
+        {
+          "internalType": "string",
+          "name": "role",
+          "type": "string"
+        },
+        {
+          "internalType": "uint256",
+          "name": "validDays",
+          "type": "uint256"
+        }
+      ],
+      "name": "addMember",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "name": "allInstitutionIds",
+      "outputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "institutionId",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "address",
+          "name": "newAdmin",
+          "type": "address"
+        }
+      ],
+      "name": "changeInstitutionAdmin",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "institutionId",
+          "type": "bytes32"
+        }
+      ],
+      "name": "deactivateInstitution",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "getAllInstitutions",
+      "outputs": [
+        {
+          "internalType": "bytes32[]",
+          "name": "",
+          "type": "bytes32[]"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "institutionId",
+          "type": "bytes32"
+        }
+      ],
+      "name": "getInstitution",
+      "outputs": [
+        {
+          "components": [
+            {
+              "internalType": "bytes32",
+              "name": "institutionId",
+              "type": "bytes32"
+            },
+            {
+              "internalType": "string",
+              "name": "name",
+              "type": "string"
+            },
+            {
+              "internalType": "bytes2",
+              "name": "countryCode",
+              "type": "bytes2"
+            },
+            {
+              "internalType": "uint8",
+              "name": "institutionType",
+              "type": "uint8"
+            },
+            {
+              "internalType": "address",
+              "name": "admin",
+              "type": "address"
+            },
+            {
+              "internalType": "bool",
+              "name": "verified",
+              "type": "bool"
+            },
+            {
+              "internalType": "bool",
+              "name": "active",
+              "type": "bool"
+            },
+            {
+              "internalType": "uint256",
+              "name": "registeredAt",
+              "type": "uint256"
+            },
+            {
+              "internalType": "string",
+              "name": "metadataURI",
+              "type": "string"
+            }
+          ],
+          "internalType": "struct InstitutionRegistry.Institution",
+          "name": "",
+          "type": "tuple"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes2",
+          "name": "countryCode",
+          "type": "bytes2"
+        }
+      ],
+      "name": "getInstitutionsByCountry",
+      "outputs": [
+        {
+          "internalType": "bytes32[]",
+          "name": "",
+          "type": "bytes32[]"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "member",
+          "type": "address"
+        }
+      ],
+      "name": "getMemberInstitutionCount",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "member",
+          "type": "address"
+        }
+      ],
+      "name": "getMemberInstitutionType",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "hasMembership",
+          "type": "bool"
+        },
+        {
+          "internalType": "uint8",
+          "name": "institutionType",
+          "type": "uint8"
+        },
+        {
+          "internalType": "bool",
+          "name": "isVerified",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "member",
+          "type": "address"
+        }
+      ],
+      "name": "getMemberProfile",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "hasAffiliation",
+          "type": "bool"
+        },
+        {
+          "internalType": "bytes32",
+          "name": "institutionId",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "string",
+          "name": "institutionName",
+          "type": "string"
+        },
+        {
+          "internalType": "bytes2",
+          "name": "countryCode",
+          "type": "bytes2"
+        },
+        {
+          "internalType": "uint8",
+          "name": "institutionType",
+          "type": "uint8"
+        },
+        {
+          "internalType": "bool",
+          "name": "institutionVerified",
+          "type": "bool"
+        },
+        {
+          "internalType": "string",
+          "name": "memberRole",
+          "type": "string"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "member",
+          "type": "address"
+        },
+        {
+          "internalType": "bytes32",
+          "name": "institutionId",
+          "type": "bytes32"
+        }
+      ],
+      "name": "getMembership",
+      "outputs": [
+        {
+          "components": [
+            {
+              "internalType": "bytes32",
+              "name": "institutionId",
+              "type": "bytes32"
+            },
+            {
+              "internalType": "address",
+              "name": "member",
+              "type": "address"
+            },
+            {
+              "internalType": "string",
+              "name": "role",
+              "type": "string"
+            },
+            {
+              "internalType": "uint256",
+              "name": "validFrom",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "validUntil",
+              "type": "uint256"
+            },
+            {
+              "internalType": "bool",
+              "name": "active",
+              "type": "bool"
+            }
+          ],
+          "internalType": "struct InstitutionRegistry.Membership",
+          "name": "",
+          "type": "tuple"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "user",
+          "type": "address"
+        }
+      ],
+      "name": "getRequesterCountry",
+      "outputs": [
+        {
+          "internalType": "bytes2",
+          "name": "",
+          "type": "bytes2"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "user",
+          "type": "address"
+        }
+      ],
+      "name": "getRequesterType",
+      "outputs": [
+        {
+          "internalType": "uint8",
+          "name": "",
+          "type": "uint8"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        }
+      ],
+      "name": "getRoleAdmin",
+      "outputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "address",
+          "name": "account",
+          "type": "address"
+        }
+      ],
+      "name": "grantRole",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "address",
+          "name": "account",
+          "type": "address"
+        }
+      ],
+      "name": "hasRole",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "name": "institutions",
+      "outputs": [
+        {
+          "internalType": "bytes32",
+          "name": "institutionId",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "string",
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "internalType": "bytes2",
+          "name": "countryCode",
+          "type": "bytes2"
+        },
+        {
+          "internalType": "uint8",
+          "name": "institutionType",
+          "type": "uint8"
+        },
+        {
+          "internalType": "address",
+          "name": "admin",
+          "type": "address"
+        },
+        {
+          "internalType": "bool",
+          "name": "verified",
+          "type": "bool"
+        },
+        {
+          "internalType": "bool",
+          "name": "active",
+          "type": "bool"
+        },
+        {
+          "internalType": "uint256",
+          "name": "registeredAt",
+          "type": "uint256"
+        },
+        {
+          "internalType": "string",
+          "name": "metadataURI",
+          "type": "string"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes2",
+          "name": "",
+          "type": "bytes2"
+        },
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "name": "institutionsByCountry",
+      "outputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "member",
+          "type": "address"
+        },
+        {
+          "internalType": "bytes2[]",
+          "name": "allowedCountries",
+          "type": "bytes2[]"
+        }
+      ],
+      "name": "isInAllowedCountry",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "allowed",
+          "type": "bool"
+        },
+        {
+          "internalType": "bytes2",
+          "name": "memberCountry",
+          "type": "bytes2"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "member",
+          "type": "address"
+        },
+        {
+          "internalType": "bytes32[]",
+          "name": "allowedInstitutions",
+          "type": "bytes32[]"
+        }
+      ],
+      "name": "isInAllowedInstitution",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "allowed",
+          "type": "bool"
+        },
+        {
+          "internalType": "bytes32",
+          "name": "memberInstitution",
+          "type": "bytes32"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "member",
+          "type": "address"
+        },
+        {
+          "internalType": "bytes32",
+          "name": "institutionId",
+          "type": "bytes32"
+        }
+      ],
+      "name": "isMemberOf",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "name": "memberInstitutions",
+      "outputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        },
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "name": "memberships",
+      "outputs": [
+        {
+          "internalType": "bytes32",
+          "name": "institutionId",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "address",
+          "name": "member",
+          "type": "address"
+        },
+        {
+          "internalType": "string",
+          "name": "role",
+          "type": "string"
+        },
+        {
+          "internalType": "uint256",
+          "name": "validFrom",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "validUntil",
+          "type": "uint256"
+        },
+        {
+          "internalType": "bool",
+          "name": "active",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "name": "primaryAffiliation",
+      "outputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "string",
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "internalType": "bytes2",
+          "name": "countryCode",
+          "type": "bytes2"
+        },
+        {
+          "internalType": "uint8",
+          "name": "institutionType",
+          "type": "uint8"
+        },
+        {
+          "internalType": "string",
+          "name": "metadataURI",
+          "type": "string"
+        }
+      ],
+      "name": "registerInstitution",
+      "outputs": [
+        {
+          "internalType": "bytes32",
+          "name": "institutionId",
+          "type": "bytes32"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "institutionId",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "address",
+          "name": "member",
+          "type": "address"
+        }
+      ],
+      "name": "removeMember",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "address",
+          "name": "callerConfirmation",
+          "type": "address"
+        }
+      ],
+      "name": "renounceRole",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "name": "requesterCountries",
+      "outputs": [
+        {
+          "internalType": "bytes2",
+          "name": "",
+          "type": "bytes2"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "name": "requesterTypes",
+      "outputs": [
+        {
+          "internalType": "uint8",
+          "name": "",
+          "type": "uint8"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "address",
+          "name": "account",
+          "type": "address"
+        }
+      ],
+      "name": "revokeRole",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "institutionId",
+          "type": "bytes32"
+        }
+      ],
+      "name": "setPrimaryAffiliation",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "user",
+          "type": "address"
+        },
+        {
+          "internalType": "uint8",
+          "name": "requesterType",
+          "type": "uint8"
+        },
+        {
+          "internalType": "bytes2",
+          "name": "countryCode",
+          "type": "bytes2"
+        }
+      ],
+      "name": "setRequesterType",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes4",
+          "name": "interfaceId",
+          "type": "bytes4"
+        }
+      ],
+      "name": "supportsInterface",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "totalInstitutions",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "institutionId",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "bool",
+          "name": "verified",
+          "type": "bool"
+        }
+      ],
+      "name": "verifyInstitution",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    }
+  ],
+  "bytecode": "0x60806040523461002c5761001233610031565b5061001c336100ad565b50604051612601908161016a8239f35b600080fd5b6001600160a01b038116600090815260008051602061278b833981519152602052604090205460ff166100a7576001600160a01b0316600081815260008051602061278b83398151915260205260408120805460ff1916600117905533919060008051602061276b8339815191528180a4600190565b50600090565b6001600160a01b03811660009081527f575193abbd8d37ba8192b6d364e3b135daa1e485bd76ae034c548500e5acbe15602052604090205460ff166100a7576001600160a01b031660008181527f575193abbd8d37ba8192b6d364e3b135daa1e485bd76ae034c548500e5acbe1560205260408120805460ff191660011790553391907fbece676c514da111c8b3698f9a0424811c5c874fd0667943c7e3c04054274a3e9060008051602061276b8339815191529080a460019056fe608080604052600436101561001357600080fd5b60003560e01c90816301ffc9a714611c0c5750806303c9d20a14611bf057806304d7904e14611bd45780630a595bea14611abd5780632207d7a314611aa1578063248a9ca314611a6c5780632969ef19146117ee5780632eb21031146119f45780632f2ff15d146119b45780632f8836f31461197957806336568abe146119335780633fcd4864146118f957806340e47e55146118ad5780634104180e1461182b5780634b8c4289146117ee57806356b1faab1461179c5780635ea344ec1461161d5780635f6bf235146114ea5780637b167b97146114b95780637f5dd7ac1461101b57806391d1485414610fce57806391f9dd2a14610eb35780639228003f14610e695780639582973814610da65780639a73748614610be15780639aa920b614610b8c5780639cfb1ab914610b5b578063a217fddf14610b3f578063a900eedc146101ed578063ad9998bb14610a9c578063b2ec989b14610a80578063b7424c44146109dc578063b9be1510146109c0578063c54f7d21146109a2578063c727e0ae1461044d578063cad3333d1461039c578063cca28f391461031d578063d547741f146102d6578063de91065614610297578063e26ffc8514610270578063e4549b9b146102365763f880bdc5146101ed57600080fd5b34610231576020366003190112610231576001600160a01b0361020e611c75565b166000526009602052602060406000205460f01b6040519061ffff60f01b168152f35b600080fd5b34610231576020366003190112610231576001600160a01b03610257611c75565b1660005260046020526020604060002054604051908152f35b3461023157604061028961028336611eae565b9161235e565b825191151582526020820152f35b3461023157602036600319011261023157606060ff6102bc6102b7611c75565b6122f2565b919290604051931515845216602083015215156040820152f35b346102315760403660031901126102315761031b6004356102f5611c5f565b9061031661031182600052600060205260016040600020015490565b61242a565b6124e9565b005b346102315760203660031901126102315760ff61036d610398610346610341611c75565b612215565b94989295979093604051998a9915158a5260208a015260e060408a015260e0890190611d0a565b6001600160f01b03199095166060880152166080860152151560a085015283820360c0850152611d0a565b0390f35b3461023157602036600319011261023157600435806000526001602052600260406000206103cf60038201541515611f1e565b33600090815260008051602061258c833981519152602052604090205460ff168015610432575b6103ff90611f5b565b01805460ff60c01b191690557f5443c9d791efa9b016dbe4c3e53de3e348584dc9d8a418fe4e7a7306daa12b77600080a2005b50808201543360189190911c6001600160a01b0316146103f6565b34610231576080366003190112610231576004356001600160401b0381116102315761047d903690600401611d4b565b906024359161ffff60f01b8316809303610231576044359060ff8216809203610231576064356001600160401b038111610231576104bf903690600401611d4b565b9390821561096d5785156109355760018410158061092a575b156108f65760405160208101908484833761050d60226020838881018c83820152468482015203016002810184520182611de9565b519020948560005260016020526003604060002001546108bc576040519061053482611db2565b86825261054236868661207a565b92602083019384526040830190898252606084018881526080850133815260a08601916000835261058460c08801946001865260e0890197428952369161207a565b9761010088019889528c60005260016020526040600020975188556001880190518051906001600160401b0382116107b2576105ca826105c48554611d78565b856120c0565b602090601f8311600114610845579261060c83610664979460049d9c9b9a9997946106499760009261083a575b50508160011b916000199060031b1c19161790565b90555b9551600289018054975162ff000060109190911b1660f09290921c62ffffff1990981697909717178655516001600160a01b031685611f98565b51835460ff60b81b191690151560b81b60ff60b81b16178355565b51815460ff60c01b191690151560c01b60ff60c01b161790555160038201559151805191909201916001600160401b0382116107b2576106a8826105c48554611d78565b602090601f83116001146107d3576106d89291600091836107c85750508160011b916000199060031b1c19161790565b90555b600754600160401b8110156107b2576107176107008260018894016007556007611cdc565b819391549060031b91821b91600019901b19161790565b9055846000526005602052610730846040600020612112565b60065491600019831461079c57602095859460017fbc16aa32edb90bbb64d3af0fb9c07caa674241b2f7626b6af05143b392bf53159501600655610781604051948594608086526080860191612138565b918884015260408301523360608301520390a2604051908152f35b634e487b7160e01b600052601160045260246000fd5b634e487b7160e01b600052604160045260246000fd5b0151905089806105f7565b90601f1983169184600052816000209260005b8181106108225750908460019594939210610809575b505050811b0190556106db565b015160001960f88460031b161c191690558880806107fc565b929360206001819287860151815501950193016107e6565b0151905038806105f7565b90601f1983169184600052816000209260005b8181106108a457509360049c9b9a999896936106499693600193836106649b981061088b575b505050811b01905561060f565b015160001960f88460031b161c1916905538808061087e565b92936020600181928786015181550195019301610858565b60405162461bcd60e51b8152602060048201526012602482015271105b1c9958591e481c9959da5cdd195c995960721b6044820152606490fd5b60405162461bcd60e51b815260206004820152600c60248201526b496e76616c6964207479706560a01b6044820152606490fd5b5060058411156104d8565b60405162461bcd60e51b815260206004820152601060248201526f10dbdd5b9d1c9e481c995c5d5a5c995960821b6044820152606490fd5b60405162461bcd60e51b815260206004820152600d60248201526c13985b59481c995c5d5a5c9959609a1b6044820152606490fd5b34610231576000366003190112610231576020600654604051908152f35b3461023157600036600319011261023157602060405160038152f35b34610231576040366003190112610231576001600160a01b036109fd611c75565b16600052600360205260406000206024356000526020526040600020805460018060a01b0360018301541691610a3560028201611e0a565b600382015491610a6a60ff6005600484015493015416926040519687968752602087015260c0604087015260c0860190611d0a565b9260608501526080840152151560a08301520390f35b3461023157600036600319011261023157602060405160058152f35b346102315760403660031901126102315760043560243580151590818103610231577f0e583faffa3b06c02954c389596e945ffe7492491804c0fefece20521eca190691610b36602092610aee6123ca565b8560005260018452610b096003604060002001541515611f1e565b60008681526001855260409020600201805460ff60b81b191691151560b81b60ff60b81b16919091179055565b604051908152a2005b3461023157600036600319011261023157602060405160008152f35b34610231576040610b74610b6e36611eae565b91612169565b825191151582526001600160f01b0319166020820152f35b3461023157604036600319011261023157610ba5611c8b565b6024359061ffff60f01b1660005260056020526040600020805482101561023157602091610bd291611cdc565b90549060031b1c604051908152f35b3461023157604036600319011261023157600435610bfd611c5f565b81600052600160205260018060a01b0360026040600020015460181c1633148015610d80575b610c2c90611f5b565b60018060a01b03169081600052600360205260406000208160005260205260056040600020610c6060038201541515611fc1565b0160ff1981541690558160005260026020528060406000205414610ca6575b7f0b83470ddeea5a3c2a6523cb7d745b1aa0a33648a7ad9d2c02681b4de1577d2d600080a3005b8160005260026020526000604081205581600052600460205260406000209060005b8254811015610d785781610cdc8285611cdc565b90549060031b1c141580610d41575b610cf757600101610cc8565b82610d0682610d219495611cdc565b90549060031b1c856000526002602052604060002055611cdc565b90549060031b1c826000805160206125ac833981519152600080a3610c7f565b508360005260036020526040600020610d5a8285611cdc565b90549060031b1c60005260205260ff60056040600020015416610ceb565b509050610c7f565b5033600090815260008051602061258c833981519152602052604090205460ff16610c23565b3461023157602036600319011261023157600435600052600160205260406000208054610398610dd860018401611e0a565b92600281015490610df0600460038301549201611e0a565b9060ff610e1160405197889788526101206020890152610120880190611d0a565b9361ffff60f01b8160f01b166040880152818160101c16606088015260018060a01b038160181c166080880152818160b81c16151560a088015260c01c16151560c086015260e0850152838203610100850152611d0a565b3461023157604036600319011261023157610e82611c75565b6001600160a01b031660009081526004602052604090208054602435919082101561023157602091610bd291611cdc565b3461023157604036600319011261023157610ecc611c75565b600060a0604051610edc81611dce565b82815282602082015260606040820152826060820152826080820152015260018060a01b0316600052600360205260406000206024356000526020526040600020604051610f2981611dce565b8154815260018201546001600160a01b03166020820190815291610f4f60028201611e0a565b6040830190815260038201549160608401928352610fb560ff6005600484015493608088019485520154169260a0860193151584526040519687966020885251602088015260018060a01b0390511660408701525160c0606087015260e0860190611d0a565b925160808501525160a084015251151560c08301520390f35b3461023157604036600319011261023157610fe7611c5f565b600435600052600060205260406000209060018060a01b0316600052602052602060ff604060002054166040519015158152f35b3461023157608036600319011261023157600435611037611c5f565b6044356001600160401b03811161023157611056903690600401611d4b565b92906064359282600052600160205260026040600020015460ff8160c01c161561147b573360189190911c6001600160a01b0316148015611455575b61109b90611f5b565b6001600160a01b031692831561141f57801560008161141657506201518082029182046201518014171561079c57420180421161079c57935b836000526003602052604060002083600052602052604060002094600386015415156000146112625760028601956001600160401b0383116107b2576111248361111e8954611d78565b896120c0565b600096601f84116001146111eb5790600591611169858060008051602061256c833981519152999a9b6000916111e0575b508160011b916000199060031b1c19161790565b90555b82600482015501600160ff198254161790555b856000526002602052604060002054156111b6575b6111ab604051938493604085526040850191612138565b9060208301520390a3005b8560005260026020528460406000205584866000805160206125ac833981519152600080a3611194565b90508801358c611155565b8088526020882097601f198516815b81811061124a57509860059392918660008051602061256c833981519152999a9b10611230575b5050600185811b01905561116c565b870135600019600388901b60f8161c191690558980611221565b878301358b556001909a0199602092830192016111fa565b604051955061127086611dce565b8386526020860185815261128536848661207a565b966040810197885260608101428152608082019084825260a083019360018552896000526003602052604060002089600052602052604060002093518455600184019060018060a01b0390511660018060a01b0319825416179055600283019951998a516001600160401b0381116107b25761130b816113058454611d78565b846120c0565b6020601f82116001146113995781600596959493926113529260008051602061256c8339815191529d9e9f60009261138e5750508160011b916000199060031b1c19161790565b90555b516003830155516004820155019051151560ff80198354169116179055856000526004602052611389856040600020612112565b61117f565b015190508f806105f7565b601f1982169083600052806000209160005b8181106113fe575091839160008051602061256c8339815191529d9e9f60059998979695600195106113e5575b505050811b019055611355565b015160001960f88460031b161c191690558e80806113d8565b8f8301518455600190930192602092830192016113ab565b915050936110d4565b60405162461bcd60e51b815260206004820152600e60248201526d24b73b30b634b21036b2b6b132b960911b6044820152606490fd5b5033600090815260008051602061258c833981519152602052604090205460ff16611092565b60405162461bcd60e51b8152602060048201526016602482015275496e737469747574696f6e206e6f742061637469766560501b6044820152606490fd5b346102315760403660031901126102315760206114e06114d7611c75565b60243590611ffc565b6040519015158152f35b3461023157606036600319011261023157611503611c75565b6024359060ff8216809203610231576044356001600160f01b0319811691828203610231576115306123ca565b6001600160a01b03169283156115ef576001811015806115e4575b156115b4577fe92c761c6b52a3767870534ef64071201f9c8ecf058f96b6e23d54eda30ff45d92604092856000526008602052836000208360ff19825416179055856000526009602052836000209060f01c61ffff1982541617905582519182526020820152a2005b60405162461bcd60e51b8152602060048201526008602482015267626164207479706560c01b6044820152606490fd5b50600581111561154b565b60405162461bcd60e51b81526020600482015260066024820152650757365723d360d41b6044820152606490fd5b3461023157602036600319011261023157606061010060405161163f81611db2565b600081528260208201526000604082015260008382015260006080820152600060a0820152600060c0820152600060e082015201526004356000526001602052604060002060405161169081611db2565b815481526103986116a360018401611e0a565b92602083019384526002810154604084019161ffff60f01b8260f01b168352606085019160ff8160101c1683526080860160018060a01b038260181c16815260a087019060ff8360b81c161515825260ff60c089019360c01c161515835260ff61171b600460038701549660e08c0197885201611e0a565b956101008a0196875261174b6040519b8c9b60208d525160208d01525161012060408d01526101408c0190611d0a565b97516001600160f01b03191660608b015251166080890152516001600160a01b031660a088015251151560c087015251151560e08601525161010085015251838203601f1901610120850152611d0a565b3461023157602036600319011261023157600435600754811015610231576000906007548110156117da576020826007829452200154604051908152f35b634e487b7160e01b82526032600452602482fd5b34610231576020366003190112610231576001600160a01b0361180f611c75565b166000526008602052602060ff60406000205416604051908152f35b346102315760003660031901126102315760405160078054808352600091825260208301917fa66cc928b5edb82af9bd49922954155ab7b0942694bea4ce44661d9a8736c68891905b818110611897576103988561188b81870382611de9565b60405191829182611ca2565b8254845260209093019260019283019201611874565b34610231576020366003190112610231576004356118d36118ce8233611ffc565b611fc1565b33600052600260205280604060002055336000805160206125ac833981519152600080a3005b34610231576020366003190112610231576001600160a01b0361191a611c75565b1660005260026020526020604060002054604051908152f35b346102315760403660031901126102315761194c611c5f565b336001600160a01b038216036119685761031b906004356124e9565b63334bd91960e11b60005260046000fd5b346102315760003660031901126102315760206040517fbece676c514da111c8b3698f9a0424811c5c874fd0667943c7e3c04054274a3e8152f35b346102315760403660031901126102315761031b6004356119d3611c5f565b906119ef61031182600052600060205260016040600020015490565b612465565b34610231576020366003190112610231576001600160f01b0319611a16611c8b565b166000526005602052604060002060405190816020825491828152019160005260206000209060005b818110611a56576103988561188b81870382611de9565b8254845260209093019260019283019201611a3f565b34610231576020366003190112610231576020611a99600435600052600060205260016040600020015490565b604051908152f35b3461023157600036600319011261023157602060405160028152f35b3461023157604036600319011261023157600435611ad9611c5f565b8160005260016020526040600020611af660038201541515611f1e565b33600090815260008051602061258c833981519152602052604090205460ff168015611bb8575b611b2690611f5b565b6001600160a01b038216918215611b83577f84d365fb2fd86401dc6beac1c1cb3aa015d28c0fbfd43afe0a2181a11d29a90092611b766002604094019260018060a01b03845460181c1693611f98565b82519182526020820152a2005b60405162461bcd60e51b815260206004820152600d60248201526c24b73b30b634b21030b236b4b760991b6044820152606490fd5b5060028101543360189190911c6001600160a01b031614611b1d565b3461023157600036600319011261023157602060405160018152f35b3461023157600036600319011261023157602060405160048152f35b34610231576020366003190112610231576004359063ffffffff60e01b821680920361023157602091637965db0b60e01b8114908115611c4e575b5015158152f35b6301ffc9a760e01b14905083611c47565b602435906001600160a01b038216820361023157565b600435906001600160a01b038216820361023157565b600435906001600160f01b03198216820361023157565b602060408183019282815284518094520192019060005b818110611cc65750505090565b8251845260209384019390920191600101611cb9565b8054821015611cf45760005260206000200190600090565b634e487b7160e01b600052603260045260246000fd5b919082519283825260005b848110611d36575050826000602080949584010152601f8019910116010190565b80602080928401015182828601015201611d15565b9181601f84011215610231578235916001600160401b038311610231576020838186019501011161023157565b90600182811c92168015611da8575b6020831014611d9257565b634e487b7160e01b600052602260045260246000fd5b91607f1691611d87565b61012081019081106001600160401b038211176107b257604052565b60c081019081106001600160401b038211176107b257604052565b90601f801991011681019081106001600160401b038211176107b257604052565b9060405191826000825492611e1e84611d78565b8084529360018116908115611e8c5750600114611e45575b50611e4392500383611de9565b565b90506000929192526020600020906000915b818310611e70575050906020611e439282010138611e36565b6020919350806001915483858901015201910190918492611e57565b905060209250611e4394915060ff191682840152151560051b82010138611e36565b6040600319820112610231576004356001600160a01b038116810361023157916024356001600160401b0381116102315760040160009280601f83011215611f1a578135936001600160401b038511611f1757506020808301928560051b010111610231579190565b80fd5b8380fd5b15611f2557565b60405162461bcd60e51b815260206004820152600e60248201526d139bdd081c9959da5cdd195c995960921b6044820152606490fd5b15611f6257565b60405162461bcd60e51b815260206004820152600e60248201526d139bdd08185d5d1a1bdc9a5e995960921b6044820152606490fd5b80546301000000600160b81b03191660189290921b6301000000600160b81b0316919091179055565b15611fc857565b60405162461bcd60e51b815260206004820152600c60248201526b2737ba10309036b2b6b132b960a11b6044820152606490fd5b60018060a01b03166000526003602052604060002081600052602052604060002060ff6005820154161561207357600401548015159081612069575b5061206357600052600160205260ff60026040600020015460c01c161561205e57600190565b600090565b50600090565b9050421138612038565b5050600090565b9291926001600160401b0382116107b257604051916120a3601f8201601f191660200184611de9565b829481845281830111610231578281602093846000960137010152565b601f82116120cd57505050565b6000526020600020906020601f840160051c83019310612108575b601f0160051c01905b8181106120fc575050565b600081556001016120f1565b90915081906120e8565b805490600160401b8210156107b2578161070091600161213494018155611cdc565b9055565b908060209392818452848401376000828201840152601f01601f1916010190565b9190811015611cf45760051b0190565b6001600160a01b0381166000908152600260205260409020549293919290811561220a578161219791611ffc565b1561220057600052600160205260026040600020015460f01b9260005b8181106121c45750600093925050565b6121cf818386612159565b3561ffff60f01b8116809103610231576001600160f01b03198616146121f7576001016121b4565b50600193925050565b5060009250829150565b506000935083925050565b6001600160a01b03811660008181526002602052604090205492909183156122dc578361224191611ffc565b156122a45782600052600160205260406000209160005260036020526040600020836000526020526040600020906002830154612282600180969501611e0a565b928160f01b926122a1600260ff808660101c169560b81c169301611e0a565b90565b604051600093508392506122b9602082611de9565b60008152906000906000906000906040516122d5602082611de9565b6000815290565b50604051600093508392506122b9602082611de9565b6001600160a01b038116600090815260026020526040902054908115612351578161231c91611ffc565b1561234557600052600160205260026040600020015460019160ff808360101c169260b81c1690565b50600090600090600090565b5050600090600090600090565b6001600160a01b03811660009081526002602052604090205493919290841561220a578461238b91611ffc565b1561220057839060005b8181106123a6575060009493505050565b826123b2828488612159565b35146123c057600101612395565b5060019493505050565b33600090815260008051602061258c833981519152602052604090205460ff16156123f157565b63e2517d3f60e01b600052336004527fbece676c514da111c8b3698f9a0424811c5c874fd0667943c7e3c04054274a3e60245260446000fd5b60008181526020818152604080832033845290915290205460ff161561244d5750565b63e2517d3f60e01b6000523360045260245260446000fd5b6000818152602081815260408083206001600160a01b038616845290915290205460ff16612073576000818152602081815260408083206001600160a01b0395909516808452949091528120805460ff19166001179055339291907f2f8788117e7eff1d82e926ec794901d17c78024a50270940304540a733656f0d9080a4600190565b6000818152602081815260408083206001600160a01b038616845290915290205460ff1615612073576000818152602081815260408083206001600160a01b0395909516808452949091528120805460ff19169055339291907ff6391f5c32d9c69d2a47ea670b442974b53935d1edc7fd64eb21e047a839171b9080a460019056fe2c7ab0b7e115f95f63211ce503e8eb8f38004b1d1539f0c8986b805e50c08d71575193abbd8d37ba8192b6d364e3b135daa1e485bd76ae034c548500e5acbe157bc324a14e10b9785c3bfb2378e5d7dee45274fbff7beea5e31813d93d31e8daa2646970667358221220b2535196159f83f2c47a8f15bab87be0d3969804be60b375eaf39a67cc6a341764736f6c634300081e00332f8788117e7eff1d82e926ec794901d17c78024a50270940304540a733656f0dad3228b676f7d3cd4284a5443f17f1962b36e491b30a40b2405849e597ba5fb5"
+}

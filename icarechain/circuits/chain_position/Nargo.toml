@@ -1,0 +1,9 @@
+[package]
+name = "chain_position"
+type = "bin"
+authors = ["IBIS"]
+compiler_version = ">=1.0.0"
+description = "ZK circuit proving hash chain position without revealing it"
+
+[dependencies]
+poseidon = { git = "https://github.com/noir-lang/poseidon", tag = "v0.3.0" }

@@ -1,0 +1,981 @@
+{
+  "contractName": "ZKConsentVerifier",
+  "abi": [
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "admin",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_nullifierRegistry",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_identityRegistry",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_semaphoreVerifier",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_noirVerifier",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "constructor"
+    },
+    {
+      "inputs": [],
+      "name": "AccessControlBadConfirmation",
+      "type": "error"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "account",
+          "type": "address"
+        },
+        {
+          "internalType": "bytes32",
+          "name": "neededRole",
+          "type": "bytes32"
+        }
+      ],
+      "name": "AccessControlUnauthorizedAccount",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "EnforcedPause",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "ExpectedPause",
+      "type": "error"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "cohortHash",
+          "type": "bytes32"
+        }
+      ],
+      "name": "InvalidCohort",
+      "type": "error"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "cohortHash",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "uint256",
+          "name": "root",
+          "type": "uint256"
+        }
+      ],
+      "name": "InvalidMerkleRoot",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "InvalidNoirProof",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "InvalidSemaphoreProof",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "InvalidVerifierAddress",
+      "type": "error"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "nullifierHash",
+          "type": "bytes32"
+        }
+      ],
+      "name": "NullifierAlreadyUsed",
+      "type": "error"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "string",
+          "name": "proofType",
+          "type": "string"
+        }
+      ],
+      "name": "ProofVerificationFailed",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "ReentrancyGuardReentrantCall",
+      "type": "error"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint32",
+          "name": "score",
+          "type": "uint32"
+        },
+        {
+          "internalType": "uint32",
+          "name": "threshold",
+          "type": "uint32"
+        }
+      ],
+      "name": "ScoreBelowThreshold",
+      "type": "error"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "cohortHash",
+          "type": "bytes32"
+        },
+        {
+          "indexed": false,
+          "internalType": "string",
+          "name": "reason",
+          "type": "string"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "timestamp",
+          "type": "uint256"
+        }
+      ],
+      "name": "AccessDenied",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "nullifierHash",
+          "type": "bytes32"
+        },
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "consentCommitment",
+          "type": "bytes32"
+        },
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "cohortHash",
+          "type": "bytes32"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "epoch",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "timestamp",
+          "type": "uint256"
+        }
+      ],
+      "name": "AccessGranted",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "oldEpoch",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "newEpoch",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "timestamp",
+          "type": "uint256"
+        }
+      ],
+      "name": "EpochUpdated",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "account",
+          "type": "address"
+        }
+      ],
+      "name": "Paused",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        },
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "previousAdminRole",
+          "type": "bytes32"
+        },
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "newAdminRole",
+          "type": "bytes32"
+        }
+      ],
+      "name": "RoleAdminChanged",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "account",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "sender",
+          "type": "address"
+        }
+      ],
+      "name": "RoleGranted",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "account",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "sender",
+          "type": "address"
+        }
+      ],
+      "name": "RoleRevoked",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "account",
+          "type": "address"
+        }
+      ],
+      "name": "Unpaused",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "string",
+          "name": "verifierType",
+          "type": "string"
+        },
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "oldAddress",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "newAddress",
+          "type": "address"
+        }
+      ],
+      "name": "VerifierUpdated",
+      "type": "event"
+    },
+    {
+      "inputs": [],
+      "name": "ACTION_ACCESS",
+      "outputs": [
+        {
+          "internalType": "uint8",
+          "name": "",
+          "type": "uint8"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "ACTION_CONSENT",
+      "outputs": [
+        {
+          "internalType": "uint8",
+          "name": "",
+          "type": "uint8"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "ACTION_REVOKE",
+      "outputs": [
+        {
+          "internalType": "uint8",
+          "name": "",
+          "type": "uint8"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "ADMIN_ROLE",
+      "outputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "DEFAULT_ADMIN_ROLE",
+      "outputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "MIN_SCORE_AUTO_APPROVE",
+      "outputs": [
+        {
+          "internalType": "uint32",
+          "name": "",
+          "type": "uint32"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "OPERATOR_ROLE",
+      "outputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "name": "accessGrants",
+      "outputs": [
+        {
+          "internalType": "bytes32",
+          "name": "nullifierHash",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "bytes32",
+          "name": "consentCommitment",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "uint256",
+          "name": "grantedAt",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "epoch",
+          "type": "uint256"
+        },
+        {
+          "internalType": "bool",
+          "name": "valid",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "currentEpoch",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "nullifierHash",
+          "type": "bytes32"
+        }
+      ],
+      "name": "getAccessGrant",
+      "outputs": [
+        {
+          "internalType": "bytes32",
+          "name": "consentCommitment",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "uint256",
+          "name": "grantedAt",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "epoch",
+          "type": "uint256"
+        },
+        {
+          "internalType": "bool",
+          "name": "valid",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        }
+      ],
+      "name": "getRoleAdmin",
+      "outputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "address",
+          "name": "account",
+          "type": "address"
+        }
+      ],
+      "name": "grantRole",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "nullifierHash",
+          "type": "bytes32"
+        }
+      ],
+      "name": "hasAccess",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "address",
+          "name": "account",
+          "type": "address"
+        }
+      ],
+      "name": "hasRole",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "identityRegistry",
+      "outputs": [
+        {
+          "internalType": "contract IdentityRegistry",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "noirVerifier",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "nullifierRegistry",
+      "outputs": [
+        {
+          "internalType": "contract NullifierRegistry",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "pause",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "paused",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "address",
+          "name": "callerConfirmation",
+          "type": "address"
+        }
+      ],
+      "name": "renounceRole",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "cohortHash",
+          "type": "bytes32"
+        },
+        {
+          "components": [
+            {
+              "internalType": "uint256",
+              "name": "merkleTreeRoot",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "nullifierHash",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "signal",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256[8]",
+              "name": "proof",
+              "type": "uint256[8]"
+            }
+          ],
+          "internalType": "struct ZKConsentVerifier.SemaphoreProof",
+          "name": "semaphoreProof",
+          "type": "tuple"
+        },
+        {
+          "components": [
+            {
+              "internalType": "bytes32",
+              "name": "consentCommitment",
+              "type": "bytes32"
+            },
+            {
+              "internalType": "uint32",
+              "name": "permissionRequested",
+              "type": "uint32"
+            },
+            {
+              "internalType": "uint32",
+              "name": "scoreThreshold",
+              "type": "uint32"
+            },
+            {
+              "internalType": "bytes",
+              "name": "proof",
+              "type": "bytes"
+            }
+          ],
+          "internalType": "struct ZKConsentVerifier.NoirProof",
+          "name": "noirProof",
+          "type": "tuple"
+        }
+      ],
+      "name": "requestAccess",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "success",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "role",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "address",
+          "name": "account",
+          "type": "address"
+        }
+      ],
+      "name": "revokeRole",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "semaphoreVerifier",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "_verifier",
+          "type": "address"
+        }
+      ],
+      "name": "setNoirVerifier",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "_nullifierRegistry",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_identityRegistry",
+          "type": "address"
+        }
+      ],
+      "name": "setRegistries",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "_verifier",
+          "type": "address"
+        }
+      ],
+      "name": "setSemaphoreVerifier",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "components": [
+            {
+              "internalType": "bytes32",
+              "name": "consentCommitment",
+              "type": "bytes32"
+            },
+            {
+              "internalType": "uint32",
+              "name": "permissionRequested",
+              "type": "uint32"
+            },
+            {
+              "internalType": "uint32",
+              "name": "scoreThreshold",
+              "type": "uint32"
+            },
+            {
+              "internalType": "bytes",
+              "name": "proof",
+              "type": "bytes"
+            }
+          ],
+          "internalType": "struct ZKConsentVerifier.NoirProof",
+          "name": "noirProof",
+          "type": "tuple"
+        }
+      ],
+      "name": "simulateCompliance",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "valid",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes4",
+          "name": "interfaceId",
+          "type": "bytes4"
+        }
+      ],
+      "name": "supportsInterface",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "totalAccessGrants",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "unpause",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "updateEpoch",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "cohortHash",
+          "type": "bytes32"
+        },
+        {
+          "components": [
+            {
+              "internalType": "uint256",
+              "name": "merkleTreeRoot",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "nullifierHash",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "signal",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256[8]",
+              "name": "proof",
+              "type": "uint256[8]"
+            }
+          ],
+          "internalType": "struct ZKConsentVerifier.SemaphoreProof",
+          "name": "semaphoreProof",
+          "type": "tuple"
+        }
+      ],
+      "name": "verifyMembership",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "success",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    }
+  ],
+  "bytecode": "0x60803461013057601f6117ed38819003918201601f19168301916001600160401b038311848410176101355780849260a094604052833981010312610130576100478161014b565b906100546020820161014b565b6100606040830161014b565b9061007960806100726060860161014b565b940161014b565b60016002556001600160a01b0390931692831561011f576001600160a01b031693841561011f57806100ad6100bd9261015f565b506100b7816101db565b50610273565b50600380546001600160a01b03199081166001600160a01b0393841617909155600480548216939092169290921790556005805482169290921790915560068054909116919091179055620151804204600955604051611461908161030c8239f35b63043103a360e21b60005260046000fd5b600080fd5b634e487b7160e01b600052604160045260246000fd5b51906001600160a01b038216820361013057565b6001600160a01b03811660009081526000805160206117cd833981519152602052604090205460ff166101d5576001600160a01b031660008181526000805160206117cd83398151915260205260408120805460ff1916600117905533919060008051602061176d8339815191528180a4600190565b50600090565b6001600160a01b038116600090815260008051602061178d833981519152602052604090205460ff166101d5576001600160a01b0316600081815260008051602061178d83398151915260205260408120805460ff191660011790553391907fa49807205ce4d355092ef5a8a18f56e8913cf4a201fbe287825b095693c217759060008051602061176d8339815191529080a4600190565b6001600160a01b03811660009081526000805160206117ad833981519152602052604090205460ff166101d5576001600160a01b031660008181526000805160206117ad83398151915260205260408120805460ff191660011790553391907f97667070c54ef182b0f5858b034beac1b6f3089aa2d3188bb1e8929f4fa9b9299060008051602061176d8339815191529080a460019056fe608080604052600436101561001357600080fd5b600090813560e01c90816301ffc9a714610cd4575080630d366d1b14610cb85780630e3a12f314610c3c5780630ef53a1514610c13578063134e18f414610bea578063248a9ca314610bb457806324dbb19e14610b745780632777138514610b585780632f2ff15d14610b1757806336568abe14610ad257806336f4fb0214610a2b57806337308de414610a02578063399bdf2a146109a55780633f4ba83a1461093d57806342c8f476146105565780635711272e146104b05780635c975abb1461048d5780635d1f644614610438578063735c96491461041b57806375b238fc146103e057806376671808146103c25780638456cb5914610368578063916820aa1461034a57806391d14854146102ff578063969c2345146102e3578063a217fddf146102e3578063a65b0f32146102ac578063b870676c14610283578063d547741f14610239578063db83423d14610208578063f5b541a6146101df5763fce74aea1461018157600080fd5b346101dc5760203660031901126101dc57604060a0916004358152600760205220805490600181015490600281015460ff60046003840154930154169260405194855260208501526040840152606083015215156080820152f35b80fd5b50346101dc57806003193601126101dc57602060405160008051602061140c8339815191528152f35b50346101dc5760203660031901126101dc5760ff600460406020938235815260078552200154166040519015158152f35b50346101dc5760403660031901126101dc5761027f600435610259610d48565b9061027a61027582600052600060205260016040600020015490565b610f97565b611240565b5080f35b50346101dc57806003193601126101dc576003546040516001600160a01b039091168152602090f35b50346101dc576101803660031901126101dc576101603660231901126101dc5760206102d9600435610e28565b6040519015158152f35b50346101dc57806003193601126101dc57602090604051908152f35b50346101dc5760403660031901126101dc57604061031b610d48565b91600435815280602052209060018060a01b0316600052602052602060ff604060002054166040519015158152f35b50346101dc57806003193601126101dc576020600854604051908152f35b50346101dc57806003193601126101dc57610381610f25565b6103896112c2565b600160ff19815416176001557f62e78cea01bee320cd4e420270b5ea74000d11b0c9f74754ebdbfc544b05a2586020604051338152a180f35b50346101dc57806003193601126101dc576020600954604051908152f35b50346101dc57806003193601126101dc5760206040517fa49807205ce4d355092ef5a8a18f56e8913cf4a201fbe287825b095693c217758152f35b50346101dc57806003193601126101dc5760206040516103208152f35b50346101dc5760203660031901126101dc576040608091600435815260076020522060018101549060028101549060ff6004600383015492015416916040519384526020840152604083015215156060820152f35b50346101dc57806003193601126101dc57602060ff600154166040519015158152f35b50346101dc5760203660031901126101dc576104ca610d2d565b6104d2610f25565b6001600160a01b03168015610547577f65543636650391f9cb75374897d6c92c18f870c791bcbe689de597e4e269eb0390600654908060018060a01b03198316176006556040519182916060835261052c60608401610e11565b6001600160a01b03909216602084015260408301520390a180f35b63043103a360e21b8252600482fd5b50346101dc576101a03660031901126101dc57600435906101603660231901126101dc57610184356001600160401b0381116109395760808160040191600319903603011261093957600280541461092a57600280556105b46112c2565b60048054604051635ab3ea5d60e11b81529182018590526001600160a01b03169060a081602481855afa9081156107df5784916108f6575b50156108e2576044602060243592604051928380926313298bb760e31b82528960048301528660248301525afa9081156107df5784916108a4575b501561088d57506003546040516308b71ed360e21b81526044356004820181905292916001600160a01b031690602081602481855afa908115610882578591610848575b50610834576106786112df565b156108135761068682611022565b156107ee57600954813b156107ea57849160848392604051948593849263fc7e437160e01b84528960048501528b60248501526001604485015260648401525af180156107df576107cb575b50359160095460405160a081018181106001600160401b038211176107b757906004916040528481526020810192868452604082014281526060830191825260808301946001865287875260076020526040872093518455516001840155516002830155516003820155019051151560ff801983541691161790556008549060001982146107a357506001016008557f9776e96f343c0186fdfc35b1d8355c10af697de90bc88b23ac06b709749482bc60406009548151908152426020820152a46001600255602060405160018152f35b634e487b7160e01b81526011600452602490fd5b634e487b7160e01b84526041600452602484fd5b836107d891949294610dab565b91386106d2565b6040513d86823e3d90fd5b8480fd5b604051637c9eb58d60e11b8152602060048201528061080f60248201610e11565b0390fd5b604051637c9eb58d60e11b8152602060048201528061080f60248201610d5e565b632920f74160e21b84526004839052602484fd5b90506020813d60201161087a575b8161086360209383610dab565b810103126107ea5761087490610dcc565b3861066b565b3d9150610856565b6040513d87823e3d90fd5b9050604492634393f0d560e01b8352600452602452fd5b90506020813d6020116108da575b816108bf60209383610dab565b810103126108d6576108d090610dcc565b38610627565b8380fd5b3d91506108b2565b63b418c95160e01b83526004849052602483fd5b610918915060a03d60a011610923575b6109108183610dab565b810190610dd9565b5092505050386105ec565b503d610906565b633ee5aeb560e01b8252600482fd5b5080fd5b50346101dc57806003193601126101dc57610956610f25565b60015460ff8116156109965760ff19166001557f5db9ee0a495bf2e6ff9c91a7834c1ba4fdd244a5e8aa4e537bd38aeae4b073aa6020604051338152a180f35b638dfc202b60e01b8252600482fd5b50346101dc5760403660031901126101dc576109bf610d2d565b6109c7610d48565b906109d0610f25565b600380546001600160a01b039283166001600160a01b0319918216179091556004805493909216921691909117905580f35b50346101dc57806003193601126101dc576006546040516001600160a01b039091168152602090f35b50346101dc57806003193601126101dc5760008051602061140c83398151915281526020818152604080832033845290915281205460ff1615610aad577f2df6562a84e8230615692a4ab0f0a5ed8c530ddef1234943bc37aa74646bb8766060600954620151804204806009556040519182526020820152426040820152a180f35b63e2517d3f60e01b81523360045260008051602061140c833981519152602452604490fd5b50346101dc5760403660031901126101dc57610aec610d48565b336001600160a01b03821603610b085761027f90600435611240565b63334bd91960e11b8252600482fd5b50346101dc5760403660031901126101dc5761027f600435610b37610d48565b90610b5361027582600052600060205260016040600020015490565b6111bc565b50346101dc57806003193601126101dc57602060405160018152f35b50346101dc5760203660031901126101dc57600435906001600160401b0382116101dc57608060031983360301126101dc5760206102d983600401611022565b50346101dc5760203660031901126101dc576020610be2600435600052600060205260016040600020015490565b604051908152f35b50346101dc57806003193601126101dc576004546040516001600160a01b039091168152602090f35b50346101dc57806003193601126101dc576005546040516001600160a01b039091168152602090f35b50346101dc5760203660031901126101dc57610c56610d2d565b610c5e610f25565b6001600160a01b03168015610547577f65543636650391f9cb75374897d6c92c18f870c791bcbe689de597e4e269eb0390600554908060018060a01b03198316176005556040519182916060835261052c60608401610d5e565b50346101dc57806003193601126101dc57602060405160028152f35b9050346109395760203660031901126109395760043563ffffffff60e01b8116809103610d295760209250637965db0b60e01b8114908115610d18575b5015158152f35b6301ffc9a760e01b14905038610d11565b8280fd5b600435906001600160a01b0382168203610d4357565b600080fd5b602435906001600160a01b0382168203610d4357565b600981526853656d6170686f726560b81b602082015260400190565b606081019081106001600160401b03821117610d9557604052565b634e487b7160e01b600052604160045260246000fd5b90601f801991011681019081106001600160401b03821117610d9557604052565b51908115158203610d4357565b908160a0910312610d4357805160ff81168103610d4357916020820151916040810151916080610e0b60608401610dcc565b92015190565b60048152632737b4b960e11b602082015260400190565b60048054604051635ab3ea5d60e11b81529182018390526001600160a01b0316919060a081602481865afa908115610eee57600091610f01575b5015610efa576020906044604051809481936313298bb760e31b8352600483015260243560248301525afa908115610eee57600091610eb4575b5015610eaf57610eac6024611372565b90565b600090565b90506020813d602011610ee6575b81610ecf60209383610dab565b81010312610d4357610ee090610dcc565b38610e9c565b3d9150610ec2565b6040513d6000823e3d90fd5b5050600090565b610f1a915060a03d60a011610923576109108183610dab565b509250505038610e62565b3360009081527f7d7ffb7a348e1c6a02869081a26547b49160dd3df72d1d75a570eb9b698292ec602052604090205460ff1615610f5e57565b63e2517d3f60e01b600052336004527fa49807205ce4d355092ef5a8a18f56e8913cf4a201fbe287825b095693c2177560245260446000fd5b60008181526020818152604080832033845290915290205460ff1615610fba5750565b63e2517d3f60e01b6000523360045260245260446000fd5b3563ffffffff81168103610d435790565b3d1561101d573d906001600160401b038211610d955760405191611011601f8201601f191660200184610dab565b82523d6000602084013e565b606090565b6006546001600160a01b03169081156111ab5760405190611044608083610dab565b6003825260208201906060368337825115611195578035825263ffffffff61106e60208301610fd2565b1683516001101561119557604084015263ffffffff61108f60408301610fd2565b16835160021015611195576060840152606081013590601e1981360301821215610d435701908135916001600160401b038311610d4357602001928236038413610d435760a460405193806020860196633a94343960e21b8852604060248801528160648801526084870137600060848287010152601f8019910116840160848101926023196084878403010160448701525180935201919060005b81811061117f57505050918161114e60009593869503601f198101835282610dab565b51915afa61115a610fe3565b901561117957602081805181010312610d43576020610eac9101610dcc565b50600090565b825184526020938401939092019160010161112b565b634e487b7160e01b600052603260045260246000fd5b63043103a360e21b60005260046000fd5b6000818152602081815260408083206001600160a01b038616845290915290205460ff16610efa576000818152602081815260408083206001600160a01b0395909516808452949091528120805460ff19166001179055339291907f2f8788117e7eff1d82e926ec794901d17c78024a50270940304540a733656f0d9080a4600190565b6000818152602081815260408083206001600160a01b038616845290915290205460ff1615610efa576000818152602081815260408083206001600160a01b0395909516808452949091528120805460ff19169055339291907ff6391f5c32d9c69d2a47ea670b442974b53935d1edc7fd64eb21e047a839171b9080a4600190565b60ff600154166112ce57565b63d93c066560e01b60005260046000fd5b6005546001600160a01b03169081156111ab57604051916112ff83610d7a565b60243583526044356020840152606435604084015260405160208101906365c0325960e01b825261010060846024830137600061012482015b6003821061135c575050600093945090816101648594935261114e61018482610dab565b6020806001928951815201970191019095611338565b6005549091906001600160a01b031680156111ab576040519261139484610d7a565b803584526020810135602085015260408101356040850152604051610100606060208301936365c0325960e01b8552016024830137600061012482015b600382106113f5575050600093945090816101648594935261114e61018482610dab565b60208060019289518152019701910190956113d156fe97667070c54ef182b0f5858b034beac1b6f3089aa2d3188bb1e8929f4fa9b929a2646970667358221220a4d36ede3bf3cddf32db35c715f7d55b75100062ec4ebd9c57c650891dbb8eb964736f6c634300081e00332f8788117e7eff1d82e926ec794901d17c78024a50270940304540a733656f0d7d7ffb7a348e1c6a02869081a26547b49160dd3df72d1d75a570eb9b698292ecee57cd81e84075558e8fcc182a1f4393f91fc97f963a136e66b7f949a62f319fad3228b676f7d3cd4284a5443f17f1962b36e491b30a40b2405849e597ba5fb5"
+}

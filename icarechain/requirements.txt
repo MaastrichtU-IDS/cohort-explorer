@@ -1,0 +1,27 @@
+fastapi>=0.109.0
+uvicorn>=0.27.0
+web3>=6.15.0
+eth-account>=0.10.0
+python-dotenv>=1.0.0
+pydantic[email]>=2.5.0
+pydantic-settings>=2.1.0
+httpx>=0.26.0
+email-validator>=2.1.0
+redis>=5.0.0
+hiredis>=2.3.0
+
+# Cryptography for identity vault
+cryptography>=42.0.0
+
+# EC point arithmetic for OPRF (RFC 9497) on P-256
+ecpy>=1.2.5
+
+# Evaluation and plotting (needed by scripts/*.py)
+numpy>=1.26.0
+scipy>=1.12.0
+matplotlib>=3.8.0
+
+# Testing
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+pytest-cov>=4.1.0
