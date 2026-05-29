@@ -119,9 +119,7 @@ export default function AdminSettingsPage() {
         <div className="card-body">
           <h2 className="card-title text-lg">TIME-CHF Testing</h2>
           <p className="text-sm text-base-content/70 mb-4">
-            When enabled, <code className="bg-base-300 px-1 rounded text-sm">wei.wei@maastrichtuniversity.nl</code> is
-            added as a data owner of the TIME-CHF cohort. This grants that account edit/owner
-            permissions for testing purposes.
+            Allow using the TIME-CHF cohort for testing purposes.
           </p>
 
           <div className="form-control">
@@ -139,8 +137,8 @@ export default function AdminSettingsPage() {
                 </span>
                 <p className="text-xs text-base-content/50 mt-1">
                   {timechfTesting
-                    ? 'Enabled — wei.wei@maastrichtuniversity.nl is a data owner of TIME-CHF'
-                    : 'Disabled — wei.wei@maastrichtuniversity.nl has no special access to TIME-CHF'}
+                    ? 'Enabled — TIME-CHF is available for testing'
+                    : 'Disabled — TIME-CHF testing is off'}
                 </p>
               </div>
               {toggling && <span className="loading loading-spinner loading-sm ml-2"></span>}

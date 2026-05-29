@@ -724,14 +724,6 @@ export function Nav() {
               <span className="text-base">Documents</span>
             </Link>
           </li>
-          {isAdmin && (
-            <li>
-              <Link href="/admin-settings" className={pathname === '/admin-settings' ? 'active' : ''}>
-                <Settings size={24} />
-                <span className="text-base">Admin</span>
-              </Link>
-            </li>
-          )}
         </ul>
         <div className="dropdown lg:hidden">
           <div tabIndex={0} role="button" className="btn btn-ghost lg:hidden">
@@ -743,7 +735,6 @@ export function Nav() {
             <li><Link href="/mapping">Mapping</Link></li>
             <li><Link href="/dcrs">My DCRs</Link></li>
             <li><Link href="/docs_store">Documents</Link></li>
-            {isAdmin && <li><Link href="/admin-settings">Admin</Link></li>}
           </ul>
         </div>
       </div>
