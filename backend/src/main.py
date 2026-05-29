@@ -20,6 +20,7 @@ from src.upload import router as upload_router
 from src.monitoring import run_periodic_monitoring
 from src.admin import router as admin_router
 from src.docs import router as docs_router
+from src.blockchain import router as blockchain_router
 
 init_triplestore()
 #asyncio.create_task(run_periodic_monitoring())
@@ -79,6 +80,7 @@ app.include_router(decentriq_router, tags=["upload"])
 app.include_router(auth_router, tags=["authentication"])
 app.include_router(admin_router, tags=["admin"])
 app.include_router(docs_router, prefix="/docs-api", tags=["documents"])
+app.include_router(blockchain_router, tags=["blockchain"])
 
 
 app.add_middleware(

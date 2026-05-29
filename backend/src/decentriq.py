@@ -1737,7 +1737,6 @@ def build_dcr_description(
     the other two variants can be removed.
     """
     rq_text = research_question.strip() if research_question and research_question.strip() else "no research question specified"
-    cohorts_text = ", ".join(cohort_ids) if cohort_ids else "none"
     return f"RESEARCH QUESTION: {rq_text}."
 
 

@@ -1,10 +1,39 @@
 'use client';
 
 import React, {useEffect, useState} from 'react';
-import {ArrowLeft, Check, SkipForward, Upload, AlertTriangle, Info as InfoIcon, XCircle} from 'react-feather';
+import {ArrowLeft, Check, SkipForward, Upload, AlertTriangle, Info as InfoIcon, XCircle, Shield, Link as LinkIcon} from 'react-feather';
 import {useCohorts} from '@/components/CohortsContext';
 import {TrashIcon} from '@/components/Icons';
 import {apiUrl} from '@/utils';
+
+// DUO Permission and Modifier definitions (from GA4GH DUO ontology)
+const DUO_PERMISSIONS: {[key: string]: string} = {
+  NRES: 'No Restriction',
+  GRU: 'General Research Use',
+  HMB: 'Health/Medical/Biomedical Research',
+  DS: 'Disease Specific Research',
+  POA: 'Population Origins/Ancestry Research',
+};
+
+const DUO_MODIFIERS: {[key: string]: string} = {
+  NPU: 'Not-for-profit organisations only (DUO:0000045)',
+  NCU: 'Non-commercial use only (DUO:0000046)',
+  PUB: 'Publication required (DUO:0000019)',
+  COL: 'Collaboration required (DUO:0000020)',
+  IRB: 'Ethics approval required (DUO:0000021)',
+  GS: 'Geographic restriction (DUO:0000022)',
+  MOR: 'Publication moratorium (DUO:0000024)',
+  TS: 'Time limit on use (DUO:0000025)',
+  US: 'User-specific restriction (DUO:0000026)',
+  PS: 'Project-specific restriction (DUO:0000027)',
+  IS: 'Institution-specific restriction (DUO:0000028)',
+  RTN: 'Return to database or resource (DUO:0000029)',
+  CC: 'Clinical care use (DUO:0000043)',
+  NPOA: 'Population origins/ancestry research prohibited (DUO:0000044)',
+  GSO: 'Genetic studies only (DUO:0000016)',
+  RS: 'Research-specific restrictions (DUO:0000012)',
+  NMDS: 'No general methods research (DUO:0000015)',
+};
 
 // Helper component for wizard steps
 const WizardSteps = ({currentStep}: {currentStep: number}) => {
@@ -14,6 +43,9 @@ const WizardSteps = ({currentStep}: {currentStep: number}) => {
         <span className="text-sm sm:text-base">Upload Metadata</span>
       </li>
       <li className={`step ${currentStep >= 2 ? 'step-info' : ''}`}>
+        <span className="text-sm sm:text-base">Record Data Use Consent</span>
+      </li>
+      <li className={`step ${currentStep >= 3 ? 'step-info' : ''}`}>
         <span className="text-sm sm:text-base">Create Data Clean Room</span>
       </li>
     </ul>
@@ -40,6 +72,29 @@ export default function UploadPage() {
 
   const [step, setStep] = useState(1);
   const [metadataExists, setMetadataExists] = useState(false);
+
+  // Blockchain consent state
+  const [showAllParams, setShowAllParams] = useState(false);
+  const [blockchainLoading, setBlockchainLoading] = useState(false);
+  const [blockchainAuthResult, setBlockchainAuthResult] = useState<any>(null);
+  const [blockchainConsentResult, setBlockchainConsentResult] = useState<any>(null);
+  const [consentPermission, setConsentPermission] = useState('GRU');
+  const [consentModifiers, setConsentModifiers] = useState<string[]>([]);
+  const [consentDiseaseCode, setConsentDiseaseCode] = useState('');
+  const [consentAllowedCountries, setConsentAllowedCountries] = useState('');
+  const [consentAllowedInstitutions, setConsentAllowedInstitutions] = useState('');
+  const [consentAllowedProjects, setConsentAllowedProjects] = useState('');
+  const [consentAllowedUsers, setConsentAllowedUsers] = useState('');
+  const [consentMoratoriumMonths, setConsentMoratoriumMonths] = useState('');
+  const [consentResearchScope, setConsentResearchScope] = useState('');
+  const [consentReturnTargetUri, setConsentReturnTargetUri] = useState('');
+  const [consentPublicationDeadlineDays, setConsentPublicationDeadlineDays] = useState('');
+  const [consentExpirationDays, setConsentExpirationDays] = useState('0');
+  const [consentDataUseDescription, setConsentDataUseDescription] = useState('');
+  const [consentAdditionalRestrictions, setConsentAdditionalRestrictions] = useState('');
+  const [consentDate, setConsentDate] = useState('');
+  const [consentFormUri, setConsentFormUri] = useState('');
+  const [consentMetadataUri, setConsentMetadataUri] = useState('');
 
   const cohortsUserCanEdit = cohortsData ? Object.keys(cohortsData).filter(cohortId => cohortsData[cohortId]['can_edit']) : [];
 
@@ -178,6 +233,8 @@ export default function UploadPage() {
       setOperationMessage({text: result.message || 'Metadata uploaded successfully!', type: 'success'});
       clearMetadataFile();
       setStep(2);
+      setBlockchainAuthResult(null);
+      setBlockchainConsentResult(null);
     } catch (error: any) {
       console.error('Error uploading file:', error);
       setOperationMessage({text: error.message || 'Failed to upload file', type: 'error'});
@@ -402,7 +459,7 @@ export default function UploadPage() {
 
                 <div className="card-actions justify-end items-center gap-2">
                    {metadataExists && (
-                     <button type="button" className="btn btn-ghost" onClick={() => setStep(2)} disabled={isLoading || isValdating}>
+                     <button type="button" className="btn btn-ghost" onClick={() => { setStep(2); setBlockchainAuthResult(null); setBlockchainConsentResult(null); }} disabled={isLoading || isValdating}>
                        <SkipForward className="w-4 h-4" />
                        Skip to Step 2
                      </button>
@@ -434,10 +491,368 @@ export default function UploadPage() {
         {step === 2 && (
            <div className="card bg-base-100 shadow-xl">
              <div className="card-body">
-               <h2 className="card-title text-xl mb-4">Step 2: Initiate Data Clean Room (DCR) Creation</h2>
+               <h2 className="card-title text-xl mb-4">Step 2: Record Consent on Blockchain</h2>
                 <div className="prose prose-sm max-w-none mb-6 text-base-content/80">
                   <p>
-                     Your metadata dictionary structure for cohort <strong>{cohortsData?.[cohortId]?.label || cohortId}</strong> has been processed (or simulated).
+                     Record the <strong>DUO (Data Use Ontology) consent constraints</strong> for cohort <strong>{cohortsData?.[cohortId]?.label || cohortId}</strong> on the blockchain.
+                     This registers what researchers are allowed to do with the data.
+                  </p>
+                  <p>
+                     You will first authenticate with the blockchain API, then specify the consent parameters below.
+                  </p>
+               </div>
+
+               {/* Data ownership warning — check against cohort_email (actual data owners), not can_edit (which includes admins) */}
+               {cohortId && cohortsData?.[cohortId] && userEmail && !(cohortsData[cohortId].cohort_email || []).map((e: string) => e.toLowerCase()).includes(userEmail.toLowerCase()) && (
+                 <div className="alert alert-warning mb-4">
+                   <AlertTriangle className="w-5 h-5 shrink-0" />
+                   <div className="text-sm">
+                     <p className="font-semibold">You are not listed as a data owner for this cohort</p>
+                     <p>
+                       The logged-in user ({userEmail}) is not among the registered data owners of <strong>{cohortsData[cohortId].label || cohortId}</strong>.
+                       {cohortsData[cohortId].cohort_email?.length > 0 && (
+                         <> Known data owner(s): <strong>{cohortsData[cohortId].cohort_email.join(', ')}</strong>.</>
+                       )}
+                     </p>
+                     <p className="mt-1 opacity-80">You may proceed for now, but in the future only data owners will be allowed to record consent.</p>
+                   </div>
+                 </div>
+               )}
+
+               {/* Blockchain Auth Section */}
+               {!blockchainAuthResult && (
+                 <div className="mb-6">
+                   <button
+                     type="button"
+                     className="btn btn-accent w-full"
+                     disabled={blockchainLoading}
+                     onClick={async () => {
+                       setBlockchainLoading(true);
+                       setOperationMessage(null);
+                       try {
+                         const resp = await fetch(`${apiUrl}/blockchain/verify`, {
+                           method: 'POST',
+                           credentials: 'include',
+                         });
+                         const data = await resp.json();
+                         if (!resp.ok) {
+                           throw new Error(data.detail || JSON.stringify(data));
+                         }
+                         setBlockchainAuthResult(data);
+                         setOperationMessage({text: data.message || 'Blockchain authentication successful', type: 'success'});
+                       } catch (err: any) {
+                         setOperationMessage({text: `Blockchain auth failed: ${err.message}`, type: 'error'});
+                       } finally {
+                         setBlockchainLoading(false);
+                       }
+                     }}
+                   >
+                     {blockchainLoading ? <span className="loading loading-spinner loading-xs"></span> : <Shield className="w-4 h-4" />}
+                     Authenticate with Blockchain API
+                   </button>
+                 </div>
+               )}
+
+               {blockchainAuthResult && (
+                 <div className="alert alert-success mb-4">
+                   <Check className="w-5 h-5" />
+                   <div className="text-sm">
+                     <p className="font-semibold">Blockchain authentication successful</p>
+                     <p>Address: <code className="text-xs">{blockchainAuthResult.verify?.address}</code></p>
+                     <p>Email hash: <code className="text-xs">{blockchainAuthResult.verify?.emailHash}</code></p>
+                   </div>
+                 </div>
+               )}
+
+               {/* Consent Form - shown after auth */}
+               {blockchainAuthResult && !blockchainConsentResult && (
+                 <form
+                   onSubmit={async (e) => {
+                     e.preventDefault();
+                     setBlockchainLoading(true);
+                     setOperationMessage(null);
+                     try {
+                       const consentBody: any = {
+                         cohortId: cohortId,
+                         consent: {
+                           permission: consentPermission,
+                           modifiers: consentModifiers,
+                           expirationDays: parseInt(consentExpirationDays) || 0,
+                           metadataUri: consentMetadataUri || '',
+                         },
+                       };
+                       // Include all non-empty fields — the API will validate
+                       if (consentDiseaseCode) consentBody.consent.diseaseCode = consentDiseaseCode;
+                       if (consentAllowedCountries) consentBody.consent.allowedCountries = consentAllowedCountries.split(',').map((s: string) => s.trim()).filter(Boolean);
+                       if (consentAllowedInstitutions) consentBody.consent.allowedInstitutions = consentAllowedInstitutions.split(',').map((s: string) => s.trim()).filter(Boolean);
+                       if (consentAllowedProjects) consentBody.consent.allowedProjects = consentAllowedProjects.split(',').map((s: string) => s.trim()).filter(Boolean);
+                       if (consentAllowedUsers) consentBody.consent.allowedUsers = consentAllowedUsers.split(',').map((s: string) => s.trim()).filter(Boolean);
+                       if (consentMoratoriumMonths) consentBody.consent.moratoriumMonths = parseInt(consentMoratoriumMonths);
+                       if (consentResearchScope) consentBody.consent.researchScope = consentResearchScope;
+                       if (consentReturnTargetUri) consentBody.consent.returnTargetUri = consentReturnTargetUri;
+                       if (consentPublicationDeadlineDays) consentBody.consent.publicationDeadlineDays = parseInt(consentPublicationDeadlineDays);
+                       if (consentDataUseDescription) consentBody.consent.dataUseDescription = consentDataUseDescription;
+                       if (consentAdditionalRestrictions) consentBody.consent.additionalRestrictions = consentAdditionalRestrictions;
+                       if (consentDate) consentBody.consent.consentDate = consentDate;
+                       if (consentFormUri) consentBody.consent.consentFormUri = consentFormUri;
+
+                       const resp = await fetch(`${apiUrl}/blockchain/record-consent`, {
+                         method: 'POST',
+                         headers: {'Content-Type': 'application/json'},
+                         body: JSON.stringify(consentBody),
+                         credentials: 'include',
+                       });
+                       const data = await resp.json();
+                       if (!resp.ok) {
+                         throw new Error(data.detail || JSON.stringify(data));
+                       }
+                       setBlockchainConsentResult(data);
+                       setOperationMessage({text: data.message || 'Consent recorded on blockchain', type: 'success'});
+                     } catch (err: any) {
+                       setOperationMessage({text: `Consent recording failed: ${err.message}`, type: 'error'});
+                     } finally {
+                       setBlockchainLoading(false);
+                     }
+                   }}
+                   className="space-y-4"
+                 >
+                   <div className="divider">DUO Consent Declaration</div>
+
+                   {/* Permission */}
+                   <div className="form-control">
+                     <label className="label"><span className="label-text font-semibold">Primary DUO Permission *</span></label>
+                     <select className="select select-bordered w-full" value={consentPermission} onChange={e => setConsentPermission(e.target.value)} required>
+                       {Object.entries(DUO_PERMISSIONS).map(([code, label]) => (
+                         <option key={code} value={code}>{code} — {label}</option>
+                       ))}
+                     </select>
+                   </div>
+
+                   {/* Modifiers */}
+                   <div className="form-control">
+                     <label className="label"><span className="label-text font-semibold">DUO Modifiers</span></label>
+                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-2 border rounded-lg">
+                       {Object.entries(DUO_MODIFIERS).map(([code, label]) => (
+                         <label key={code} className="flex items-start gap-2 cursor-pointer p-1 hover:bg-base-200 rounded">
+                           <input
+                             type="checkbox"
+                             className="checkbox checkbox-sm checkbox-accent mt-0.5"
+                             checked={consentModifiers.includes(code)}
+                             onChange={e => {
+                               if (e.target.checked) setConsentModifiers([...consentModifiers, code]);
+                               else setConsentModifiers(consentModifiers.filter(m => m !== code));
+                             }}
+                           />
+                           <span className="text-xs"><strong>{code}</strong> — {label}</span>
+                         </label>
+                       ))}
+                     </div>
+                   </div>
+
+                   <div className="divider">Consent Parameters</div>
+                   <div className="flex justify-center mb-2">
+                     <div className="join">
+                       <button type="button" className={`btn btn-sm join-item ${!showAllParams ? 'btn-accent' : 'btn-outline'}`} onClick={() => setShowAllParams(false)}>
+                         Show Relevant Only
+                       </button>
+                       <button type="button" className={`btn btn-sm join-item ${showAllParams ? 'btn-accent' : 'btn-outline'}`} onClick={() => setShowAllParams(true)}>
+                         Show All Parameters
+                       </button>
+                     </div>
+                   </div>
+
+                   {/* Disease Code */}
+                   {(showAllParams || consentPermission === 'DS') && (
+                     <div className="form-control">
+                       <label className="label"><span className="label-text font-semibold">Disease Code {consentPermission === 'DS' && <span className="text-error">*</span>}</span></label>
+                       <input type="text" className="input input-bordered" placeholder="e.g. MONDO:0005148" value={consentDiseaseCode} onChange={e => setConsentDiseaseCode(e.target.value)} required={consentPermission === 'DS'} />
+                       <label className="label"><span className="label-text-alt">Ontology CURIE (MONDO/DOID/HP). Required when permission is DS.</span></label>
+                     </div>
+                   )}
+
+                   {/* Allowed Countries */}
+                   {(showAllParams || consentModifiers.includes('GS')) && (
+                     <div className="form-control">
+                       <label className="label"><span className="label-text font-semibold">Allowed Countries {consentModifiers.includes('GS') && <span className="text-error">*</span>}</span></label>
+                       <input type="text" className="input input-bordered" placeholder="e.g. NL, DE, FR" value={consentAllowedCountries} onChange={e => setConsentAllowedCountries(e.target.value)} required={consentModifiers.includes('GS')} />
+                       <label className="label"><span className="label-text-alt">Comma-separated ISO-3166 country codes. Required when GS modifier is set.</span></label>
+                     </div>
+                   )}
+
+                   {/* Allowed Institutions */}
+                   {(showAllParams || consentModifiers.includes('IS')) && (
+                     <div className="form-control">
+                       <label className="label"><span className="label-text font-semibold">Allowed Institutions {consentModifiers.includes('IS') && <span className="text-error">*</span>}</span></label>
+                       <input type="text" className="input input-bordered" placeholder="e.g. https://ror.org/02jz4aj89" value={consentAllowedInstitutions} onChange={e => setConsentAllowedInstitutions(e.target.value)} required={consentModifiers.includes('IS')} />
+                       <label className="label"><span className="label-text-alt">Comma-separated ROR IDs. Required when IS modifier is set.</span></label>
+                     </div>
+                   )}
+
+                   {/* Allowed Projects */}
+                   {(showAllParams || consentModifiers.includes('PS')) && (
+                     <div className="form-control">
+                       <label className="label"><span className="label-text font-semibold">Allowed Projects {consentModifiers.includes('PS') && <span className="text-error">*</span>}</span></label>
+                       <input type="text" className="input input-bordered" placeholder="e.g. project-001, project-002" value={consentAllowedProjects} onChange={e => setConsentAllowedProjects(e.target.value)} required={consentModifiers.includes('PS')} />
+                       <label className="label"><span className="label-text-alt">Comma-separated project IDs. Required when PS modifier is set.</span></label>
+                     </div>
+                   )}
+
+                   {/* Allowed Users */}
+                   {(showAllParams || consentModifiers.includes('US')) && (
+                     <div className="form-control">
+                       <label className="label"><span className="label-text font-semibold">Allowed Users {consentModifiers.includes('US') && <span className="text-error">*</span>}</span></label>
+                       <input type="text" className="input input-bordered" placeholder="User addresses or email hashes" value={consentAllowedUsers} onChange={e => setConsentAllowedUsers(e.target.value)} required={consentModifiers.includes('US')} />
+                       <label className="label"><span className="label-text-alt">Comma-separated user addresses or email hashes. Required when US modifier is set.</span></label>
+                     </div>
+                   )}
+
+                   {/* Moratorium Months */}
+                   {(showAllParams || consentModifiers.includes('MOR')) && (
+                     <div className="form-control">
+                       <label className="label"><span className="label-text font-semibold">Moratorium Months {consentModifiers.includes('MOR') && <span className="text-error">*</span>}</span></label>
+                       <input type="number" className="input input-bordered" min="1" placeholder="e.g. 12" value={consentMoratoriumMonths} onChange={e => setConsentMoratoriumMonths(e.target.value)} required={consentModifiers.includes('MOR')} />
+                       <label className="label"><span className="label-text-alt">Number of months for publication moratorium. Required when MOR modifier is set.</span></label>
+                     </div>
+                   )}
+
+                   {/* Research Scope */}
+                   {(showAllParams || consentModifiers.includes('RS')) && (
+                     <div className="form-control">
+                       <label className="label"><span className="label-text font-semibold">Research Scope {consentModifiers.includes('RS') && <span className="text-error">*</span>}</span></label>
+                       <textarea className="textarea textarea-bordered" placeholder="Describe the allowed research scope" value={consentResearchScope} onChange={e => setConsentResearchScope(e.target.value)} required={consentModifiers.includes('RS')} />
+                       <label className="label"><span className="label-text-alt">Free-text research scope. Required when RS modifier is set.</span></label>
+                     </div>
+                   )}
+
+                   {/* Return Target URI */}
+                   {(showAllParams || consentModifiers.includes('RTN')) && (
+                     <div className="form-control">
+                       <label className="label"><span className="label-text font-semibold">Return Target URI {consentModifiers.includes('RTN') && <span className="text-error">*</span>}</span></label>
+                       <input type="url" className="input input-bordered" placeholder="https://..." value={consentReturnTargetUri} onChange={e => setConsentReturnTargetUri(e.target.value)} required={consentModifiers.includes('RTN')} />
+                       <label className="label"><span className="label-text-alt">URI where derived data should be returned. Required when RTN modifier is set.</span></label>
+                     </div>
+                   )}
+
+                   {/* Publication Deadline Days */}
+                   {(showAllParams || consentModifiers.includes('PUB')) && (
+                     <div className="form-control">
+                       <label className="label"><span className="label-text font-semibold">Publication Deadline (days)</span></label>
+                       <input type="number" className="input input-bordered" min="1" placeholder="e.g. 365" value={consentPublicationDeadlineDays} onChange={e => setConsentPublicationDeadlineDays(e.target.value)} />
+                       <label className="label"><span className="label-text-alt">Days allowed for publication obligation. Relevant when PUB modifier is set.</span></label>
+                     </div>
+                   )}
+
+                   {/* Expiration Days */}
+                   <div className="form-control">
+                     <label className="label"><span className="label-text font-semibold">Expiration Days {consentModifiers.includes('TS') && <span className="text-error">*</span>}</span></label>
+                     <input type="number" className="input input-bordered" min="0" placeholder="0 = no expiry" value={consentExpirationDays} onChange={e => setConsentExpirationDays(e.target.value)} required={consentModifiers.includes('TS')} />
+                     <label className="label"><span className="label-text-alt">Days until consent expires. 0 = no expiry. Must be &gt; 0 when TS modifier is set.</span></label>
+                   </div>
+
+                   {/* Data Use Description */}
+                   <div className="form-control">
+                     <label className="label"><span className="label-text font-semibold">Data Use Description</span></label>
+                     <textarea className="textarea textarea-bordered" placeholder="Describe what the data may be used for" value={consentDataUseDescription} onChange={e => setConsentDataUseDescription(e.target.value)} />
+                   </div>
+
+                   {/* Additional Restrictions */}
+                   <div className="form-control">
+                     <label className="label"><span className="label-text font-semibold">Additional Restrictions</span></label>
+                     <textarea className="textarea textarea-bordered" placeholder="Free-text restrictions beyond the modifier list" value={consentAdditionalRestrictions} onChange={e => setConsentAdditionalRestrictions(e.target.value)} />
+                   </div>
+
+                   {/* Consent Date */}
+                   <div className="form-control">
+                     <label className="label"><span className="label-text font-semibold">Consent Date</span></label>
+                     <input type="date" className="input input-bordered" value={consentDate} onChange={e => setConsentDate(e.target.value)} />
+                     <label className="label"><span className="label-text-alt">Date the original consent was obtained from data subjects</span></label>
+                   </div>
+
+                   {/* Consent Form URI */}
+                   <div className="form-control">
+                     <label className="label"><span className="label-text font-semibold">Consent Form URI</span></label>
+                     <input type="url" className="input input-bordered" placeholder="https://... or ipfs://..." value={consentFormUri} onChange={e => setConsentFormUri(e.target.value)} />
+                     <label className="label"><span className="label-text-alt">URI of the signed consent form</span></label>
+                   </div>
+
+                   {/* Metadata URI */}
+                   <div className="form-control">
+                     <label className="label"><span className="label-text font-semibold">Metadata URI</span></label>
+                     <input type="text" className="input input-bordered" placeholder="Generic metadata URI" value={consentMetadataUri} onChange={e => setConsentMetadataUri(e.target.value)} />
+                   </div>
+
+                   <div className="card-actions justify-between items-center pt-4">
+                     <button type="button" className="btn btn-ghost" onClick={() => setStep(1)} disabled={blockchainLoading}>
+                       <ArrowLeft className="w-4 h-4" />
+                       Back to Metadata
+                     </button>
+                     <button type="submit" className="btn btn-accent" disabled={blockchainLoading}>
+                       {blockchainLoading ? <span className="loading loading-spinner loading-xs"></span> : <Shield className="w-4 h-4" />}
+                       Record Consent on Blockchain
+                     </button>
+                   </div>
+                 </form>
+               )}
+
+               {/* Consent Result */}
+               {blockchainConsentResult && (
+                 <div className="space-y-4">
+                   <div className="alert alert-success">
+                     <Check className="w-5 h-5" />
+                     <div>
+                       <p className="font-semibold">{blockchainConsentResult.message}</p>
+                     </div>
+                   </div>
+                   <div className="bg-base-200 rounded-lg p-4 text-sm space-y-2">
+                     <p><strong>Cohort:</strong> {blockchainConsentResult.blockchain_response?.cohortId}</p>
+                     <p><strong>Cohort Hash:</strong> <code className="text-xs break-all">{blockchainConsentResult.blockchain_response?.cohortHash}</code></p>
+                     <p><strong>Transaction Hash:</strong> <code className="text-xs break-all">{blockchainConsentResult.blockchain_response?.txHash}</code></p>
+                     <p><strong>Owner Address:</strong> <code className="text-xs break-all">{blockchainConsentResult.blockchain_response?.ownerAddress}</code></p>
+                     {blockchainConsentResult.blockchain_response?.consent && (
+                       <>
+                         <p><strong>Permission:</strong> {blockchainConsentResult.blockchain_response.consent.permission} — {blockchainConsentResult.blockchain_response.consent.permission_label}</p>
+                         {blockchainConsentResult.blockchain_response.consent.modifiers?.length > 0 && (
+                           <p><strong>Modifiers:</strong> {blockchainConsentResult.blockchain_response.consent.modifiers.join(', ')}</p>
+                         )}
+                         {blockchainConsentResult.blockchain_response.consent.modifier_details?.length > 0 && (
+                           <div><strong>Modifier Details:</strong>
+                             <ul className="list-disc list-inside ml-2">
+                               {blockchainConsentResult.blockchain_response.consent.modifier_details.map((d: any, i: number) => (
+                                 <li key={i}>{d.code} — {d.label}</li>
+                               ))}
+                             </ul>
+                           </div>
+                         )}
+                         {blockchainConsentResult.blockchain_response.consent.expires_at && (
+                           <p><strong>Expires:</strong> {blockchainConsentResult.blockchain_response.consent.expires_at}</p>
+                         )}
+                       </>
+                     )}
+                   </div>
+                   <div className="card-actions justify-between items-center pt-2">
+                     <button type="button" className="btn btn-ghost" onClick={() => setStep(1)}>
+                       <ArrowLeft className="w-4 h-4" />
+                       Back to Metadata
+                     </button>
+                     <button type="button" className="btn btn-warning" onClick={() => setStep(3)}>
+                       Proceed to DCR Creation
+                       <SkipForward className="w-4 h-4" />
+                     </button>
+                   </div>
+                 </div>
+               )}
+             </div>
+           </div>
+        )}
+
+        {step === 3 && (
+           <div className="card bg-base-100 shadow-xl">
+             <div className="card-body">
+               <h2 className="card-title text-xl mb-4">Step 3: Initiate Data Clean Room (DCR) Creation</h2>
+                <div className="prose prose-sm max-w-none mb-6 text-base-content/80">
+                  <p>
+                     Your metadata dictionary structure for cohort <strong>{cohortsData?.[cohortId]?.label || cohortId}</strong> has been processed
+                     and consent constraints have been recorded on the blockchain.
                      The next step is to initiate the creation of its secure <strong>Data Clean Room (DCR)</strong> on the external Decentriq platform.
                   </p>
                   <p>
@@ -462,9 +877,9 @@ export default function UploadPage() {
                  </div>
 
                  <div className="card-actions justify-between items-center">
-                    <button type="button" className="btn btn-ghost" onClick={() => setStep(1)} disabled={dcrIsLoading}>
+                    <button type="button" className="btn btn-ghost" onClick={() => setStep(2)} disabled={dcrIsLoading}>
                       <ArrowLeft className="w-4 h-4" />
-                      Back to Metadata
+                      Back to Consent
                     </button>
                    <button type="submit" className="btn btn-warning" disabled={dcrIsLoading || !cohortId}>
                      {dcrIsLoading ? <span className="loading loading-spinner loading-xs"></span> : <Upload className="w-4 h-4" /> }

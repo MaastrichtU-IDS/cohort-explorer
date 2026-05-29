@@ -97,6 +97,7 @@ services:
         condition: service_healthy
     environment:
       - HARDHAT_NETWORK=localhost
+      - RPC_URL=http://icarechain-hardhat:8545
     volumes:
       - icarechain-deployments:/app/deployments
       - icarechain-abis:/app/api/contracts/abis

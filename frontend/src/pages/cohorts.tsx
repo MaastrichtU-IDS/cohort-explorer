@@ -10,7 +10,7 @@ import CohortSummaryGraphs from '@/components/CohortSummaryGraphs';
 import GenderPieChart from '@/components/GenderPieChart';
 import AgeDistributionBar from '@/components/AgeDistributionBar';
 import AgeRangeWhisker from '@/components/AgeRangeWhisker';
-import {Users} from 'react-feather';
+import {Users, Shield, AlertTriangle, Check, ChevronDown, ChevronUp} from 'react-feather';
 import {parseSearchQuery, searchInObject, highlightSearchTerms} from '@/utils/search';
 import {apiUrl} from '@/utils';
 import EdaDashboard from '@/components/eda/EdaDashboard';
@@ -455,6 +455,8 @@ export default function CohortsList() {
   const [edaAvailability, setEdaAvailability] = useState<{[key: string]: boolean}>({});
   // State to track shimmer effect for each cohort
   const [shimmerActive, setShimmerActive] = useState<{[key: string]: boolean}>({});
+  // DUO consent declaration state per cohort
+  const [duoDeclarations, setDuoDeclarations] = useState<{[key: string]: {loading: boolean, data: any, error: string | null, visible: boolean}}>({});
   // Search configuration states
   const [searchScope, setSearchScope] = useState<'cohorts' | 'variables' | 'all'>('all');
   const [searchMode, setSearchMode] = useState<'or' | 'and' | 'exact'>('and');
@@ -1607,6 +1609,113 @@ export default function CohortsList() {
                     }
                     return null;
                   })()}
+                </div>
+
+                {/* DUO Consent Declaration Button */}
+                <div className="mt-6 pt-4 border-t flex flex-col items-center">
+                  <button
+                    type="button"
+                    className={`btn btn-outline btn-success btn-md gap-2 ${
+                      duoDeclarations[cohortData.cohort_id]?.visible ? 'btn-active' : ''
+                    }`}
+                    disabled={duoDeclarations[cohortData.cohort_id]?.loading}
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      const cid = cohortData.cohort_id;
+                      const current = duoDeclarations[cid];
+
+                      // If already loaded, just toggle visibility
+                      if (current?.data !== undefined) {
+                        setDuoDeclarations(prev => ({
+                          ...prev,
+                          [cid]: {...prev[cid], visible: !prev[cid].visible}
+                        }));
+                        return;
+                      }
+
+                      // Fetch from backend
+                      setDuoDeclarations(prev => ({
+                        ...prev,
+                        [cid]: {loading: true, data: undefined, error: null, visible: true}
+                      }));
+                      try {
+                        const resp = await fetch(`${apiUrl}/blockchain/consent/${encodeURIComponent(cid)}`, {
+                          credentials: 'include',
+                        });
+                        const data = await resp.json();
+                        if (!resp.ok) {
+                          throw new Error(data.detail || JSON.stringify(data));
+                        }
+                        setDuoDeclarations(prev => ({
+                          ...prev,
+                          [cid]: {loading: false, data, error: null, visible: true}
+                        }));
+                      } catch (err: any) {
+                        setDuoDeclarations(prev => ({
+                          ...prev,
+                          [cid]: {loading: false, data: null, error: err.message, visible: true}
+                        }));
+                      }
+                    }}
+                  >
+                    {duoDeclarations[cohortData.cohort_id]?.loading
+                      ? <span className="loading loading-spinner loading-xs"></span>
+                      : <Shield className="w-4 h-4" />
+                    }
+                    {duoDeclarations[cohortData.cohort_id]?.visible ? 'Hide' : 'Show'} Cohort DUO Declaration
+                    {duoDeclarations[cohortData.cohort_id]?.visible
+                      ? <ChevronUp className="w-3 h-3" />
+                      : <ChevronDown className="w-3 h-3" />
+                    }
+                  </button>
+
+                  {/* DUO Declaration Content */}
+                  {duoDeclarations[cohortData.cohort_id]?.visible && duoDeclarations[cohortData.cohort_id]?.error && (
+                    <div className="alert alert-warning mt-3 text-sm">
+                      <AlertTriangle className="w-4 h-4 shrink-0" />
+                      <span>{duoDeclarations[cohortData.cohort_id].error}</span>
+                    </div>
+                  )}
+
+                  {duoDeclarations[cohortData.cohort_id]?.visible && duoDeclarations[cohortData.cohort_id]?.data && (
+                    <div className="mt-3">
+                      {!duoDeclarations[cohortData.cohort_id].data.found ? (
+                        <div className="alert alert-info text-sm">
+                          <span>{duoDeclarations[cohortData.cohort_id].data.message || 'No consent declaration found for this cohort.'}</span>
+                        </div>
+                      ) : (
+                        <div className="bg-base-200 rounded-lg p-4 text-sm space-y-2">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Check className="w-4 h-4 text-success" />
+                            <span className="font-semibold">DUO Consent Declaration</span>
+                          </div>
+                          {(() => {
+                            const c = duoDeclarations[cohortData.cohort_id].data.consent;
+                            return (
+                              <>
+                                <p><strong>Cohort ID:</strong> {c.cohortId}</p>
+                                <p><strong>Cohort Hash:</strong> <code className="text-xs break-all">{c.cohortHash}</code></p>
+                                <p><strong>Permission:</strong> <span className="badge badge-primary badge-sm">{c.permission}</span></p>
+                                {c.modifiers?.length > 0 && (
+                                  <p><strong>Modifiers:</strong> {c.modifiers.map((m: string) => (
+                                    <span key={m} className="badge badge-outline badge-sm mr-1">{m}</span>
+                                  ))}</p>
+                                )}
+                                {c.diseaseCode && <p><strong>Disease Code:</strong> {c.diseaseCode}</p>}
+                                {c.allowedCountries?.length > 0 && <p><strong>Allowed Countries:</strong> {c.allowedCountries.join(', ')}</p>}
+                                {c.allowedInstitutions?.length > 0 && <p><strong>Allowed Institutions:</strong> {c.allowedInstitutions.join(', ')}</p>}
+                                {c.allowedProjects?.length > 0 && <p><strong>Allowed Projects:</strong> {c.allowedProjects.join(', ')}</p>}
+                                {c.moratoriumMonths && <p><strong>Moratorium:</strong> {c.moratoriumMonths} months</p>}
+                                <p><strong>Active:</strong> <span className={`badge badge-sm ${c.active ? 'badge-success' : 'badge-error'}`}>{c.active ? 'Yes' : 'No'}</span></p>
+                                {c.validUntil && <p><strong>Valid Until:</strong> {new Date(c.validUntil).toLocaleDateString()}</p>}
+                                {c.recordedAt && <p><strong>Recorded At:</strong> {new Date(c.recordedAt).toLocaleDateString()}</p>}
+                              </>
+                            );
+                          })()}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
                   </>
                 )}
