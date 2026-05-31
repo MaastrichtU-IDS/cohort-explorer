@@ -8,6 +8,7 @@ from PIL import Image
 
 from src.auth import get_current_user
 from src.utils import curie_converter, run_query
+from src.mapping_logger import log_main, log_detail, MappingRun, PROCESS_CVL
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -375,7 +376,12 @@ async def generate_mapping(
     # We'll return the combined JSON file
     
     target_studies = sorted(target_studies, key=lambda x: x[0])
-    cache_info = generate_mapping_csv(source_study, target_studies)
+    target_names = [t[0] for t in target_studies]
+
+    with MappingRun(PROCESS_CVL, source=source_study, targets=target_names,
+                    user=user.get("email", "unknown")):
+        cache_info = generate_mapping_csv(source_study, target_studies)
+
     output_dir = cohort_linker_settings.output_dir
     
     # generate_mapping_csv may expand target_studies with member/sub-studies,
@@ -405,12 +411,60 @@ async def generate_mapping(
         with open(best_file, 'r') as f:
             file_content = f.read()
         
+        log_detail(PROCESS_CVL, "result_file_served",
+                   f"Serving mapping result: {os.path.basename(best_file)}",
+                   ctx={"filename": os.path.basename(best_file),
+                        "file_size_bytes": os.path.getsize(best_file)})
         return JSONResponse(content={
             "cache_info": cache_info,
             "file_content": file_content,
             "filename": os.path.basename(best_file)
         })
+    log_main(PROCESS_CVL, "result_not_found",
+             f"No mapping output file found for {source_study}",
+             ctx={"source": source_study, "targets": list(target_lowers)})
     return JSONResponse(status_code=404, content={"error": "Cache error. Mapping file not found."})
+
+
+@router.get("/mapping-activity-log")
+async def get_mapping_activity_log(
+    limit: int = Query(default=200, ge=1, le=5000),
+    level: str | None = Query(default=None, description="Filter by level: MAIN or DETAIL"),
+    process: str | None = Query(default=None, description="Filter by process: cohort_var_linker or standard_code_mapping"),
+    user: Any = Depends(get_current_user),
+):
+    """Return the mapping activity log (JSONL) as a JSON array for web display.
+    
+    Supports filtering by level and process, and returns the most recent `limit` entries.
+    """
+    from src.mapping_logger import _get_log_path
+    import json as _json
+
+    log_path = _get_log_path()
+    if not os.path.exists(log_path):
+        return JSONResponse(content={"entries": [], "total": 0})
+
+    entries = []
+    with open(log_path, "r", encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = _json.loads(line)
+            except _json.JSONDecodeError:
+                continue
+            if level and entry.get("level") != level:
+                continue
+            if process and entry.get("process") != process:
+                continue
+            entries.append(entry)
+
+    # Return only the most recent `limit` entries
+    total = len(entries)
+    entries = entries[-limit:]
+    return JSONResponse(content={"entries": entries, "total": total})
+
 
 @router.get("/search-concepts")
 async def search_concepts(

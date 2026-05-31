@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 from typing import Any
 
@@ -31,6 +32,14 @@ from .vector_index import (
     set_merger_retriever,
     update_compressed_merger_retriever,
 )
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+try:
+    from src.mapping_logger import log_main, log_detail, PROCESS_SCM
+except Exception:
+    PROCESS_SCM = "standard_code_mapping"
+    def log_main(*a, **kw): pass  # noqa: E704
+    def log_detail(*a, **kw): pass  # noqa: E704
 
 # Cache for retrievers based on domain
 RETRIEVER_CACHE = {}
@@ -65,7 +74,10 @@ def map_data(
     start_time = time.time()
     max_queries = len(data)  # 282
     results = []
-    for _, item in enumerate(data):
+    log_main(PROCESS_SCM, "map_data_started",
+             f"Processing {max_queries} variables",
+             ctx={"total_variables": max_queries, "llm": llm_name, "topk": topk})
+    for idx, item in enumerate(data):
         query_obj = item[1]
         # query_result = full_query_processing(
         #     query_text=query_obj,
@@ -75,6 +87,10 @@ def map_data(
         #     topk=topk,
         # )
         if query_obj:
+            var_name = getattr(query_obj, 'name', None) or getattr(query_obj, 'full_query', str(query_obj))
+            log_detail(PROCESS_SCM, "variable_processing_started",
+                      f"[{idx+1}/{max_queries}] Processing: {var_name}",
+                      ctx={"index": idx+1, "total": max_queries, "variable": var_name}, depth=1)
             query_result = full_query_processing_db(
                 query_text=query_obj,
                 retriever=retriever,
@@ -87,10 +103,17 @@ def map_data(
                 query_result = perform_mapping_eval_for_variable(
                     var_=query_result, llm_id=llm_name
                 )
-                if query_result["prediction"].strip().lower() == "correct":
+                prediction = query_result.get("prediction", "").strip().lower()
+                log_detail(PROCESS_SCM, "variable_eval_result",
+                          f"[{idx+1}/{max_queries}] {var_name} -> prediction={prediction}",
+                          ctx={"variable": var_name, "prediction": prediction}, depth=2)
+                if prediction == "correct":
                     print(db.insert_row(query_result))
             else:
                 logger.info(f"NO RESULT FOR {item}")
+                log_detail(PROCESS_SCM, "variable_no_result",
+                          f"[{idx+1}/{max_queries}] No result for {var_name}",
+                          ctx={"variable": var_name}, depth=2)
                 query_result = create_processed_result()
             results.append(query_result)
         else:
@@ -101,6 +124,10 @@ def map_data(
     end_time = time.time()
     total_time = end_time - start_time
     save_results(results, output_file)
+    log_main(PROCESS_SCM, "map_data_completed",
+             f"Completed {max_queries} variables in {total_time:.1f}s",
+             ctx={"total_variables": max_queries, "elapsed_s": round(total_time, 2),
+                  "results_count": len(results)})
     logger.info(
         f"Total execution time for {max_queries} queries is {total_time} seconds."
     )
@@ -125,10 +152,23 @@ def full_query_processing_db(
             results, mode = datamanager.query_variable(query_text.original_label, var_name=query_text.name)
             if mode == "full" and len(results) >= 4:
                 logger.info(f"Found results for {query_text} in RESERVOIR")
+                log_detail(PROCESS_SCM, "cache_hit",
+                          f"Cache hit for '{query_text.name}' (mode={mode})",
+                          ctx={"variable": query_text.name, "mode": mode}, depth=2)
                 return create_result_dict(results)
 
+            log_detail(PROCESS_SCM, "llm_decomposition",
+                      f"Decomposing query with LLM: '{query_text.full_query}'",
+                      ctx={"variable": query_text.name, "query": query_text.full_query}, depth=2)
             query_decomposed = extract_information(query_text.full_query, llm_name)
             logger.info(f"Query decomposed:{query_decomposed}")
+            if query_decomposed:
+                log_detail(PROCESS_SCM, "llm_decomposition_result",
+                          f"Decomposed: domain={getattr(query_decomposed, 'domain', '?')}, "
+                          f"base_entity={getattr(query_decomposed, 'base_entity', '?')}",
+                          ctx={"variable": query_text.name,
+                               "domain": getattr(query_decomposed, 'domain', None),
+                               "base_entity": getattr(query_decomposed, 'base_entity', None)}, depth=2)
             processes_results = temp_process_query_details_db(
                 llm_query_obj=query_decomposed,
                 retriever_cache=retriever,
@@ -729,14 +769,24 @@ def filter_results(query, results):
 
 def map_csv_to_standard_codes(meta_path: str):
     """Map the data dictionary to standard codes using the LLM and save the results to a CSV file"""
+    log_main(PROCESS_SCM, "standard_code_mapping_started",
+             f"Starting standard code mapping for {os.path.basename(meta_path)}",
+             ctx={"meta_path": meta_path})
     data, is_mapped = load_data(meta_path, load_custom=True)
     if is_mapped:
+        log_detail(PROCESS_SCM, "already_mapped",
+                  f"File already mapped, skipping: {os.path.basename(meta_path)}",
+                  ctx={"meta_path": meta_path})
         return data
 
     cohort_folder = os.path.dirname(meta_path)
     mapping_logger = init_logger(os.path.join(cohort_folder, "mapping_generation.log"))
     mapping_logger.info(f"Logging mapping generation for {meta_path}")
     # TODO: improve logging so that all logs are saved to a file named `mapping_generation.log` in the cohort_folder
+
+    log_detail(PROCESS_SCM, "vector_index_setup",
+              "Initializing embeddings and vector index",
+              ctx={"collection": SYN_COLLECTION_NAME})
     embeddings = SAPEmbeddings()
     sparse_embeddings = FastEmbedSparse(model_name="Qdrant/bm42-all-minilm-l6-v2-attentions")
     hybrid_search = generate_vector_index(
@@ -746,6 +796,12 @@ def map_csv_to_standard_codes(meta_path: str):
     athena_api_retriever = initiate_api_retriever()
     merger_retriever = set_merger_retriever(retrievers=[hybrid_search, athena_api_retriever])
     merger_retriever = set_compression_retriever(merger_retriever)
+    log_detail(PROCESS_SCM, "vector_index_ready",
+              "Vector index and retrievers ready")
+
+    log_detail(PROCESS_SCM, "mapping_variables_count",
+              f"Loaded {len(data)} variables to map",
+              ctx={"variable_count": len(data), "llm": LLM_ID, "topk": TOPK})
     data = map_data(
         data,
         merger_retriever,
@@ -758,6 +814,9 @@ def map_csv_to_standard_codes(meta_path: str):
     )
     mapped_csv = append_results_to_csv(meta_path, data)
     mapped_csv.to_csv(meta_path, index=False)
+    log_main(PROCESS_SCM, "standard_code_mapping_completed",
+             f"Standard code mapping completed for {os.path.basename(meta_path)}",
+             ctx={"meta_path": meta_path, "mapped_rows": len(mapped_csv)})
     # TODO: store mappings in the triplestore
     return mapped_csv
 

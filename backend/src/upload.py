@@ -58,6 +58,7 @@ from src.utils import (
 from src.cohort_cache import add_cohort_to_cache, clear_cache, create_cohort_from_dict_file, create_cohort_from_metadata_graph
 from src.decentriq import create_provision_dcr, metadatadict_cols_schema1
 from src.mapping_generation.retriever import map_csv_to_standard_codes
+from src.mapping_logger import log_main, log_detail, MappingRun, PROCESS_SCM
 
 router = APIRouter()
 
@@ -1769,7 +1770,8 @@ async def upload_cohort(
 def generate_mappings(cohort_id: str, metadata_path: str, g: Graph) -> None:
     """Function to generate mappings for a cohort and publish them to the triplestore running as background task"""
     print(f"Generating mappings for cohort {cohort_id}")
-    map_csv_to_standard_codes(metadata_path)
+    with MappingRun(PROCESS_SCM, cohort_id=cohort_id, metadata_path=metadata_path):
+        map_csv_to_standard_codes(metadata_path)
     # delete_existing_triples(
     #     get_cohort_mapping_uri(cohort_id), f"<{get_cohort_uri(cohort_id)!s}>", "icare:previewEnabled"
     # )

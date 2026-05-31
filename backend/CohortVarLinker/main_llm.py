@@ -7,6 +7,16 @@ import os
 import glob
 import time
 import json
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+try:
+    from src.mapping_logger import log_main, log_detail, PROCESS_CVL
+except Exception:
+    # Graceful fallback when running standalone without full backend config
+    PROCESS_CVL = "cohort_var_linker"
+    def log_main(*a, **kw): pass  # noqa: E704
+    def log_detail(*a, **kw): pass  # noqa: E704
 from CohortVarLinker.src.variables_kg import process_variables_metadata_file
 from CohortVarLinker.src.study_kg import generate_studies_kg
 from CohortVarLinker.src.vector_db import generate_studies_embeddings
@@ -581,6 +591,10 @@ def generate_mapping_csv(
         output_dir = settings.output_dir
     os.makedirs(output_dir, exist_ok=True)
 
+    log_main(PROCESS_CVL, "generate_csv_started",
+             f"Starting generate_mapping_csv: {source_study} -> {[t[0] for t in target_studies]}",
+             ctx={"source": source_study, "targets": [t[0] for t in target_studies],
+                  "output_dir": os.path.abspath(output_dir)})
     print(f"Checking for cached or ready mapping files in directory: {os.path.abspath(output_dir)}")
 
     source_study = source_study.lower()
@@ -636,6 +650,9 @@ def generate_mapping_csv(
     }
     
     if all_exist:
+        log_main(PROCESS_CVL, "all_cached",
+                 f"All {len(target_studies)} mapping pairs already cached, skipping computation",
+                 ctx={"cached_count": len(cached_pairs)})
         print("All requested mappings already exist. Skipping all computation.")
         tstudy_str = "_".join(target_studies)
         combine_all_mappings_to_json(
@@ -650,15 +667,28 @@ def generate_mapping_csv(
         return cache_info
             
     # Only run expensive computations if any mapping is missing
+    log_main(PROCESS_CVL, "computation_needed",
+             f"{len(uncached_pairs)} uncached pairs need computation",
+             ctx={"uncached_pairs": uncached_pairs, "cached_pairs": cached_pairs})
+
+    log_detail(PROCESS_CVL, "graph_generation_started",
+              "Creating study metadata graph and cohort-specific metadata graphs")
     create_study_metadata_graph(cohorts_metadata_file, recreate=True)
     create_cohort_specific_metadata_graph(cohort_file_path, recreate=True)
+    log_detail(PROCESS_CVL, "graph_generation_completed",
+              "Metadata graphs created successfully")
 
     print(f"Final target studies: {target_studies}")
     collection_name = f"studies_metadata_{model_name}_{embedding_mode}"
+    log_detail(PROCESS_CVL, "embeddings_generation_started",
+              f"Generating study embeddings: collection={collection_name}",
+              ctx={"collection": collection_name, "model": model_name, "embedding_mode": embedding_mode})
     vector_db, embedding_model = generate_studies_embeddings(
         cohort_file_path, "qdrant", collection_name,
         model_name=model_name, embedding_mode=embedding_mode, recreate_db=True,
     )
+    log_detail(PROCESS_CVL, "embeddings_generation_completed",
+              "Study embeddings generated successfully")
 
     # Reuse the cached OMOP graph singleton from validate_cde rather than
     # constructing a fresh OmopGraphNX every call. The class self-caches to
@@ -683,22 +713,38 @@ def generate_mapping_csv(
         out_filename = f'{source_study}_{tstudy}_{model_name}+{llm_tag}_{mapping_mode}_full.csv'
         out_path = os.path.join(output_dir, out_filename)
         if os.path.exists(out_path):
+            log_detail(PROCESS_CVL, "pair_cached",
+                      f"Mapping {source_study} -> {tstudy} already exists, skipping",
+                      ctx={"source": source_study, "target": tstudy}, depth=1)
             print(f"Mapping already exists for {source_study} to {tstudy}, skipping computation.")
             continue
+        t0 = time.time()
+        log_main(PROCESS_CVL, "pair_mapping_started",
+                 f"Running pipeline: {source_study} -> {tstudy}",
+                 ctx={"source": source_study, "target": tstudy, "mode": mapping_mode})
         mapping_transformed = study_mapper.run_pipeline(
             src_study=source_study,
             tgt_study=tstudy,
             mapping_mode=mapping_mode,
         )  # returns empty DataFrame (with header) if no matches found
 
+        elapsed = round(time.time() - t0, 2)
         if mapping_transformed is None or mapping_transformed.empty:
             # If possible, preserve the expected columns
             columns = getattr(mapping_transformed, 'columns', None)
             if columns is None or len(columns) == 0:
                 columns = ['No mappings found']*3
             pd.DataFrame(columns=columns).to_csv(out_path, index=False)
+            log_main(PROCESS_CVL, "pair_mapping_completed",
+                     f"Pipeline {source_study} -> {tstudy} finished in {elapsed}s (no mappings)",
+                     ctx={"source": source_study, "target": tstudy,
+                          "elapsed_s": elapsed, "mappings_count": 0})
         else:
             mapping_transformed.to_csv(out_path, index=False)
+            log_main(PROCESS_CVL, "pair_mapping_completed",
+                     f"Pipeline {source_study} -> {tstudy} finished in {elapsed}s ({len(mapping_transformed)} mappings)",
+                     ctx={"source": source_study, "target": tstudy,
+                          "elapsed_s": elapsed, "mappings_count": len(mapping_transformed)})
             
     tstudy_str = "_".join(target_studies)
     combine_all_mappings_to_json(
