@@ -1,14 +1,14 @@
 'use client';
 
-import React, {useEffect, useState} from 'react';
-import {ArrowLeft, Check, SkipForward, Upload, AlertTriangle, Info as InfoIcon, XCircle, Shield, Link as LinkIcon} from 'react-feather';
+import React, {useEffect, useRef, useState} from 'react';
+import {ArrowLeft, Check, SkipForward, Upload, AlertTriangle, Info as InfoIcon, XCircle, Shield, Link as LinkIcon, Lock, Unlock} from 'react-feather';
 import {useCohorts} from '@/components/CohortsContext';
 import {TrashIcon} from '@/components/Icons';
 import {apiUrl} from '@/utils';
 
 // DUO Permission and Modifier definitions (from GA4GH DUO ontology)
 const DUO_PERMISSIONS: {[key: string]: string} = {
-  NRES: 'No Restriction',
+  NRES: 'No Restrictions',
   GRU: 'General Research Use',
   HMB: 'Health/Medical/Biomedical Research',
   DS: 'Disease Specific Research',
@@ -43,7 +43,7 @@ const WizardSteps = ({currentStep}: {currentStep: number}) => {
         <span className="text-sm sm:text-base">Upload Metadata</span>
       </li>
       <li className={`step ${currentStep >= 2 ? 'step-info' : ''}`}>
-        <span className="text-sm sm:text-base">Record Data Use Consent</span>
+        <span className="text-sm sm:text-base">Record Data Use Permission</span>
       </li>
       <li className={`step ${currentStep >= 3 ? 'step-info' : ''}`}>
         <span className="text-sm sm:text-base">Create Data Clean Room</span>
@@ -78,9 +78,10 @@ export default function UploadPage() {
   const [blockchainLoading, setBlockchainLoading] = useState(false);
   const [blockchainAuthResult, setBlockchainAuthResult] = useState<any>(null);
   const [blockchainConsentResult, setBlockchainConsentResult] = useState<any>(null);
-  const [consentPermission, setConsentPermission] = useState('GRU');
+  const [blockchainAuthEnabled, setBlockchainAuthEnabled] = useState(false);
+  const [consentPermission, setConsentPermission] = useState('NRES');
   const [consentModifiers, setConsentModifiers] = useState<string[]>([]);
-  const [consentDiseaseCode, setConsentDiseaseCode] = useState('');
+  const [consentDiseaseCodes, setConsentDiseaseCodes] = useState<{code: string; label: string; kind: string}[]>([]);
   const [consentAllowedCountries, setConsentAllowedCountries] = useState('');
   const [consentAllowedInstitutions, setConsentAllowedInstitutions] = useState('');
   const [consentAllowedProjects, setConsentAllowedProjects] = useState('');
@@ -89,12 +90,23 @@ export default function UploadPage() {
   const [consentResearchScope, setConsentResearchScope] = useState('');
   const [consentReturnTargetUri, setConsentReturnTargetUri] = useState('');
   const [consentPublicationDeadlineDays, setConsentPublicationDeadlineDays] = useState('');
-  const [consentExpirationDays, setConsentExpirationDays] = useState('0');
+  const [consentExpirationDays, setConsentExpirationDays] = useState('365');
   const [consentDataUseDescription, setConsentDataUseDescription] = useState('');
   const [consentAdditionalRestrictions, setConsentAdditionalRestrictions] = useState('');
-  const [consentDate, setConsentDate] = useState('');
   const [consentFormUri, setConsentFormUri] = useState('');
   const [consentMetadataUri, setConsentMetadataUri] = useState('');
+
+  // ICD-10 autocomplete state
+  const [icd10Entries, setIcd10Entries] = useState<{code: string; label: string; kind: string; parent?: string | null}[]>([]);
+  const [icd10Loading, setIcd10Loading] = useState(false);
+  const [icd10LoadFailed, setIcd10LoadFailed] = useState(false);
+  const [icd10SuggestionsOpen, setIcd10SuggestionsOpen] = useState(false);
+  const [icd10SearchQuery, setIcd10SearchQuery] = useState('');
+  const [icd10BrowseOpen, setIcd10BrowseOpen] = useState(false);
+  const [browseExpanded, setBrowseExpanded] = useState<Set<string>>(new Set());
+  const [browseSearch, setBrowseSearch] = useState('');
+  const [browseSelected, setBrowseSelected] = useState<{code: string; label: string; kind: string} | null>(null);
+  const icd10WrapperRef = useRef<HTMLDivElement>(null);
 
   const cohortsUserCanEdit = cohortsData ? Object.keys(cohortsData).filter(cohortId => cohortsData[cohortId]['can_edit']) : [];
 
@@ -120,6 +132,32 @@ export default function UploadPage() {
     setValidationErrors(null);
     setValidationStatusMessage(null);
   }, [metadataFile]);
+
+  useEffect(() => {
+    if ((consentPermission === 'DS' || consentPermission === 'HMB') && icd10Entries.length === 0 && !icd10Loading && !icd10LoadFailed) {
+      setIcd10Loading(true);
+      fetch('/icd10.json')
+        .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+        .then((data: {code: string; label: string; kind: string; parent?: string | null}[]) => {
+          setIcd10Entries(data);
+          setIcd10Loading(false);
+        })
+        .catch(() => {
+          setIcd10Loading(false);
+          setIcd10LoadFailed(true);
+        });
+    }
+  }, [consentPermission, icd10Entries.length, icd10Loading, icd10LoadFailed]);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (icd10WrapperRef.current && !icd10WrapperRef.current.contains(e.target as Node)) {
+        setIcd10SuggestionsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
 
   const clearMetadataFile = () => {
     setMetadataFile(null);
@@ -491,30 +529,36 @@ export default function UploadPage() {
         {step === 2 && (
            <div className="card bg-base-100 shadow-xl">
              <div className="card-body">
-               <h2 className="card-title text-xl mb-4">Step 2: Record Consent on Blockchain</h2>
+               <h2 className="card-title text-xl mb-4">Step 2: Record Permission on Blockchain</h2>
                 <div className="prose prose-sm max-w-none mb-6 text-base-content/80">
                   <p>
-                     Record the <strong>DUO (Data Use Ontology) consent constraints</strong> for cohort <strong>{cohortsData?.[cohortId]?.label || cohortId}</strong> on the blockchain.
+                     Record the <strong>DUO (Data Use Ontology) permission constraints</strong> for cohort <strong>{cohortsData?.[cohortId]?.label || cohortId}</strong> on the blockchain.
                      This registers what researchers are allowed to do with the data.
                   </p>
                   <p>
-                     You will first authenticate with the blockchain API, then specify the consent parameters below.
+                     You will first authenticate with the blockchain API, then specify the permission parameters below.
                   </p>
                </div>
 
-               {/* Data ownership warning — check against cohort_email (actual data owners), not can_edit (which includes admins) */}
+               {/* Data ownership warning */}
                {cohortId && cohortsData?.[cohortId] && userEmail && !(cohortsData[cohortId].cohort_email || []).map((e: string) => e.toLowerCase()).includes(userEmail.toLowerCase()) && (
-                 <div className="alert alert-warning mb-4">
-                   <AlertTriangle className="w-5 h-5 shrink-0" />
-                   <div className="text-sm">
+                 <div className="alert alert-warning mb-4 items-start">
+                   <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
+                   <div className="text-sm flex-1">
                      <p className="font-semibold">You are not listed as a data owner for this cohort</p>
-                     <p>
-                       The logged-in user ({userEmail}) is not among the registered data owners of <strong>{cohortsData[cohortId].label || cohortId}</strong>.
-                       {cohortsData[cohortId].cohort_email?.length > 0 && (
-                         <> Known data owner(s): <strong>{cohortsData[cohortId].cohort_email.join(', ')}</strong>.</>
+                     <p className="mt-1 opacity-80">Only registered data owners are authorised to record permissions for this cohort. If you are not the data owner, you can skip to DCR creation instead.</p>
+                     <div className="flex flex-wrap gap-2 mt-3">
+                       <button type="button" className="btn btn-sm btn-neutral" onClick={() => setStep(3)}>
+                         Skip to Creating DCR
+                       </button>
+                       {!blockchainAuthEnabled ? (
+                         <button type="button" className="btn btn-sm btn-warning" onClick={() => setBlockchainAuthEnabled(true)}>
+                           Continue with Authentication and Permission Recording (TESTING)
+                         </button>
+                       ) : (
+                         <span className="text-xs self-center opacity-70 italic">Authentication allowed for testing purposes</span>
                        )}
-                     </p>
-                     <p className="mt-1 opacity-80">You may proceed for now, but in the future only data owners will be allowed to record consent.</p>
+                     </div>
                    </div>
                  </div>
                )}
@@ -525,7 +569,7 @@ export default function UploadPage() {
                    <button
                      type="button"
                      className="btn btn-accent w-full"
-                     disabled={blockchainLoading}
+                     disabled={blockchainLoading || (!blockchainAuthEnabled && !!(cohortId && cohortsData?.[cohortId] && userEmail && !(cohortsData[cohortId].cohort_email || []).map((e: string) => e.toLowerCase()).includes(userEmail.toLowerCase())))}
                      onClick={async () => {
                        setBlockchainLoading(true);
                        setOperationMessage(null);
@@ -547,7 +591,10 @@ export default function UploadPage() {
                        }
                      }}
                    >
-                     {blockchainLoading ? <span className="loading loading-spinner loading-xs"></span> : <Shield className="w-4 h-4" />}
+                     {blockchainLoading
+                       ? <Unlock className="w-4 h-4 animate-pulse" />
+                       : <Lock className="w-4 h-4" />
+                     }
                      Authenticate with Blockchain API
                    </button>
                  </div>
@@ -582,7 +629,7 @@ export default function UploadPage() {
                          },
                        };
                        // Include all non-empty fields — the API will validate
-                       if (consentDiseaseCode) consentBody.consent.diseaseCode = consentDiseaseCode;
+                       if (consentDiseaseCodes.length > 0) consentBody.consent.diseaseCode = consentDiseaseCodes.map(e => e.code).join(',');
                        if (consentAllowedCountries) consentBody.consent.allowedCountries = consentAllowedCountries.split(',').map((s: string) => s.trim()).filter(Boolean);
                        if (consentAllowedInstitutions) consentBody.consent.allowedInstitutions = consentAllowedInstitutions.split(',').map((s: string) => s.trim()).filter(Boolean);
                        if (consentAllowedProjects) consentBody.consent.allowedProjects = consentAllowedProjects.split(',').map((s: string) => s.trim()).filter(Boolean);
@@ -593,7 +640,7 @@ export default function UploadPage() {
                        if (consentPublicationDeadlineDays) consentBody.consent.publicationDeadlineDays = parseInt(consentPublicationDeadlineDays);
                        if (consentDataUseDescription) consentBody.consent.dataUseDescription = consentDataUseDescription;
                        if (consentAdditionalRestrictions) consentBody.consent.additionalRestrictions = consentAdditionalRestrictions;
-                       if (consentDate) consentBody.consent.consentDate = consentDate;
+                       consentBody.consent.consentDate = new Date().toISOString().split('T')[0];
                        if (consentFormUri) consentBody.consent.consentFormUri = consentFormUri;
 
                        const resp = await fetch(`${apiUrl}/blockchain/record-consent`, {
@@ -607,28 +654,46 @@ export default function UploadPage() {
                          throw new Error(data.detail || JSON.stringify(data));
                        }
                        setBlockchainConsentResult(data);
-                       setOperationMessage({text: data.message || 'Consent recorded on blockchain', type: 'success'});
+                       setOperationMessage({text: data.message || 'Permission recorded on blockchain', type: 'success'});
                      } catch (err: any) {
-                       setOperationMessage({text: `Consent recording failed: ${err.message}`, type: 'error'});
+                       setOperationMessage({text: `Permission recording failed: ${err.message}`, type: 'error'});
                      } finally {
                        setBlockchainLoading(false);
                      }
                    }}
                    className="space-y-4"
                  >
-                   <div className="divider">DUO Consent Declaration</div>
+                   <div className="divider">DUO Permission Declaration</div>
 
                    {/* Permission */}
                    <div className="form-control">
-                     <label className="label"><span className="label-text font-semibold">Primary DUO Permission *</span></label>
-                     <select className="select select-bordered w-full" value={consentPermission} onChange={e => setConsentPermission(e.target.value)} required>
-                       {Object.entries(DUO_PERMISSIONS).map(([code, label]) => (
-                         <option key={code} value={code}>{code} — {label}</option>
-                       ))}
-                     </select>
+                     <label className="label"><span className="label-text font-bold text-base">Permission Type *</span></label>
+                     <div className="flex flex-col gap-2 pt-1">
+                       <label className="flex items-center gap-3 cursor-pointer">
+                         <input type="radio" name="consentPermission" className="radio radio-primary" value="NRES" checked={consentPermission === 'NRES'} onChange={e => setConsentPermission(e.target.value)} />
+                         <span className="font-medium">No Restrictions <span className="text-base-content/50 text-sm font-normal">(NRES)</span></span>
+                       </label>
+                       <label className="flex items-center gap-3 cursor-pointer">
+                         <input type="radio" name="consentPermission" className="radio radio-primary" value="GRU" checked={consentPermission === 'GRU'} onChange={e => setConsentPermission(e.target.value)} />
+                         <span className="font-medium">General Research Use <span className="text-base-content/50 text-sm font-normal">(GRU)</span></span>
+                       </label>
+                       <label className="flex items-center gap-3 cursor-pointer pl-7">
+                         <input type="radio" name="consentPermission" className="radio radio-primary radio-sm" value="HMB" checked={consentPermission === 'HMB'} onChange={e => setConsentPermission(e.target.value)} />
+                         <span>Health/Medical/Biomedical Research <span className="text-base-content/50 text-sm">(HMB)</span></span>
+                       </label>
+                       <label className="flex items-center gap-3 cursor-pointer pl-7">
+                         <input type="radio" name="consentPermission" className="radio radio-primary radio-sm" value="DS" checked={consentPermission === 'DS'} onChange={e => setConsentPermission(e.target.value)} />
+                         <span>Disease Specific Research <span className="text-base-content/50 text-sm">(DS)</span></span>
+                       </label>
+                       <label className="flex items-center gap-3 cursor-pointer pl-7">
+                         <input type="radio" name="consentPermission" className="radio radio-primary radio-sm" value="POA" checked={consentPermission === 'POA'} onChange={e => setConsentPermission(e.target.value)} />
+                         <span>Population Origins/Ancestry Research <span className="text-base-content/50 text-sm">(POA)</span></span>
+                       </label>
+                     </div>
                    </div>
 
-                   {/* Modifiers */}
+                   {/* Modifiers — only shown when a restriction is selected */}
+                   {consentPermission !== 'NRES' && (
                    <div className="form-control">
                      <label className="label"><span className="label-text font-semibold">DUO Modifiers</span></label>
                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-2 border rounded-lg">
@@ -648,30 +713,12 @@ export default function UploadPage() {
                        ))}
                      </div>
                    </div>
-
-                   <div className="divider">Consent Parameters</div>
-                   <div className="flex justify-center mb-2">
-                     <div className="join">
-                       <button type="button" className={`btn btn-sm join-item ${!showAllParams ? 'btn-accent' : 'btn-outline'}`} onClick={() => setShowAllParams(false)}>
-                         Show Relevant Only
-                       </button>
-                       <button type="button" className={`btn btn-sm join-item ${showAllParams ? 'btn-accent' : 'btn-outline'}`} onClick={() => setShowAllParams(true)}>
-                         Show All Parameters
-                       </button>
-                     </div>
-                   </div>
-
-                   {/* Disease Code */}
-                   {(showAllParams || consentPermission === 'DS') && (
-                     <div className="form-control">
-                       <label className="label"><span className="label-text font-semibold">Disease Code {consentPermission === 'DS' && <span className="text-error">*</span>}</span></label>
-                       <input type="text" className="input input-bordered" placeholder="e.g. MONDO:0005148" value={consentDiseaseCode} onChange={e => setConsentDiseaseCode(e.target.value)} required={consentPermission === 'DS'} />
-                       <label className="label"><span className="label-text-alt">Ontology CURIE (MONDO/DOID/HP). Required when permission is DS.</span></label>
-                     </div>
                    )}
 
-                   {/* Allowed Countries */}
-                   {(showAllParams || consentModifiers.includes('GS')) && (
+                   <div className="divider">Permission Parameters</div>
+
+                   {/* Allowed Countries — shown when GS modifier active */}
+                   {consentModifiers.includes('GS') && (
                      <div className="form-control">
                        <label className="label"><span className="label-text font-semibold">Allowed Countries {consentModifiers.includes('GS') && <span className="text-error">*</span>}</span></label>
                        <input type="text" className="input input-bordered" placeholder="e.g. NL, DE, FR" value={consentAllowedCountries} onChange={e => setConsentAllowedCountries(e.target.value)} required={consentModifiers.includes('GS')} />
@@ -679,8 +726,8 @@ export default function UploadPage() {
                      </div>
                    )}
 
-                   {/* Allowed Institutions */}
-                   {(showAllParams || consentModifiers.includes('IS')) && (
+                   {/* Allowed Institutions — shown when IS modifier active */}
+                   {consentModifiers.includes('IS') && (
                      <div className="form-control">
                        <label className="label"><span className="label-text font-semibold">Allowed Institutions {consentModifiers.includes('IS') && <span className="text-error">*</span>}</span></label>
                        <input type="text" className="input input-bordered" placeholder="e.g. https://ror.org/02jz4aj89" value={consentAllowedInstitutions} onChange={e => setConsentAllowedInstitutions(e.target.value)} required={consentModifiers.includes('IS')} />
@@ -688,8 +735,8 @@ export default function UploadPage() {
                      </div>
                    )}
 
-                   {/* Allowed Projects */}
-                   {(showAllParams || consentModifiers.includes('PS')) && (
+                   {/* Allowed Projects — shown when PS modifier active */}
+                   {consentModifiers.includes('PS') && (
                      <div className="form-control">
                        <label className="label"><span className="label-text font-semibold">Allowed Projects {consentModifiers.includes('PS') && <span className="text-error">*</span>}</span></label>
                        <input type="text" className="input input-bordered" placeholder="e.g. project-001, project-002" value={consentAllowedProjects} onChange={e => setConsentAllowedProjects(e.target.value)} required={consentModifiers.includes('PS')} />
@@ -697,8 +744,8 @@ export default function UploadPage() {
                      </div>
                    )}
 
-                   {/* Allowed Users */}
-                   {(showAllParams || consentModifiers.includes('US')) && (
+                   {/* Allowed Users — shown when US modifier active */}
+                   {consentModifiers.includes('US') && (
                      <div className="form-control">
                        <label className="label"><span className="label-text font-semibold">Allowed Users {consentModifiers.includes('US') && <span className="text-error">*</span>}</span></label>
                        <input type="text" className="input input-bordered" placeholder="User addresses or email hashes" value={consentAllowedUsers} onChange={e => setConsentAllowedUsers(e.target.value)} required={consentModifiers.includes('US')} />
@@ -706,8 +753,8 @@ export default function UploadPage() {
                      </div>
                    )}
 
-                   {/* Moratorium Months */}
-                   {(showAllParams || consentModifiers.includes('MOR')) && (
+                   {/* Moratorium Months — shown when MOR modifier active */}
+                   {consentModifiers.includes('MOR') && (
                      <div className="form-control">
                        <label className="label"><span className="label-text font-semibold">Moratorium Months {consentModifiers.includes('MOR') && <span className="text-error">*</span>}</span></label>
                        <input type="number" className="input input-bordered" min="1" placeholder="e.g. 12" value={consentMoratoriumMonths} onChange={e => setConsentMoratoriumMonths(e.target.value)} required={consentModifiers.includes('MOR')} />
@@ -715,8 +762,8 @@ export default function UploadPage() {
                      </div>
                    )}
 
-                   {/* Research Scope */}
-                   {(showAllParams || consentModifiers.includes('RS')) && (
+                   {/* Research Scope — shown when RS modifier active */}
+                   {consentModifiers.includes('RS') && (
                      <div className="form-control">
                        <label className="label"><span className="label-text font-semibold">Research Scope {consentModifiers.includes('RS') && <span className="text-error">*</span>}</span></label>
                        <textarea className="textarea textarea-bordered" placeholder="Describe the allowed research scope" value={consentResearchScope} onChange={e => setConsentResearchScope(e.target.value)} required={consentModifiers.includes('RS')} />
@@ -724,8 +771,8 @@ export default function UploadPage() {
                      </div>
                    )}
 
-                   {/* Return Target URI */}
-                   {(showAllParams || consentModifiers.includes('RTN')) && (
+                   {/* Return Target URI — shown when RTN modifier active */}
+                   {consentModifiers.includes('RTN') && (
                      <div className="form-control">
                        <label className="label"><span className="label-text font-semibold">Return Target URI {consentModifiers.includes('RTN') && <span className="text-error">*</span>}</span></label>
                        <input type="url" className="input input-bordered" placeholder="https://..." value={consentReturnTargetUri} onChange={e => setConsentReturnTargetUri(e.target.value)} required={consentModifiers.includes('RTN')} />
@@ -733,8 +780,8 @@ export default function UploadPage() {
                      </div>
                    )}
 
-                   {/* Publication Deadline Days */}
-                   {(showAllParams || consentModifiers.includes('PUB')) && (
+                   {/* Publication Deadline Days — shown when PUB modifier active */}
+                   {consentModifiers.includes('PUB') && (
                      <div className="form-control">
                        <label className="label"><span className="label-text font-semibold">Publication Deadline (days)</span></label>
                        <input type="number" className="input input-bordered" min="1" placeholder="e.g. 365" value={consentPublicationDeadlineDays} onChange={e => setConsentPublicationDeadlineDays(e.target.value)} />
@@ -742,44 +789,220 @@ export default function UploadPage() {
                      </div>
                    )}
 
-                   {/* Expiration Days */}
+                   {/* Expiration Days — only shown when TS (Time Limit on Use) modifier is active */}
+                   {consentModifiers.includes('TS') && (
                    <div className="form-control">
-                     <label className="label"><span className="label-text font-semibold">Expiration Days {consentModifiers.includes('TS') && <span className="text-error">*</span>}</span></label>
-                     <input type="number" className="input input-bordered" min="0" placeholder="0 = no expiry" value={consentExpirationDays} onChange={e => setConsentExpirationDays(e.target.value)} required={consentModifiers.includes('TS')} />
-                     <label className="label"><span className="label-text-alt">Days until consent expires. 0 = no expiry. Must be &gt; 0 when TS modifier is set.</span></label>
+                     <label className="label"><span className="label-text font-semibold">Time Limit (days) <span className="text-error">*</span></span></label>
+                     <input type="number" className="input input-bordered" min="1" placeholder="e.g. 365" value={consentExpirationDays} onChange={e => setConsentExpirationDays(e.target.value)} required />
+                     <label className="label"><span className="label-text-alt">Number of days the permission is valid for. Required when TS modifier is set.</span></label>
+                   </div>
+                   )}
+
+                   {/* Target Disease(s) — ICD-10: required for DS, optional for HMB */}
+                   {(consentPermission === 'DS' || consentPermission === 'HMB') && (
+                     <div className="form-control" ref={icd10WrapperRef}>
+                       <label className="label">
+                         <span className="label-text font-semibold flex items-center gap-2">
+                           <span className="text-base">Target Disease(s) — ICD-10</span>
+                           {consentPermission === 'DS' && <span className="text-error ml-0.5">*</span>}
+                           {icd10Loading && <span className="loading loading-spinner loading-xs opacity-60"></span>}
+                           {!icd10Loading && icd10Entries.length > 0 && (
+                             <button type="button" className="btn btn-ghost btn-xs text-primary/70 hover:text-primary normal-case font-normal" onClick={() => { setIcd10BrowseOpen(true); setBrowseSearch(''); setBrowseSelected(null); }}>
+                               Browse hierarchy
+                             </button>
+                           )}
+                         </span>
+                       </label>
+
+                       {consentDiseaseCodes.length > 0 && (
+                         <div className="flex flex-wrap gap-2 mb-2">
+                           {consentDiseaseCodes.map(entry => (
+                             <span key={entry.code} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-base border border-primary/40 bg-primary/10 text-primary font-medium">
+                               <span className="font-mono font-bold">{entry.code}</span>
+                               <span className="text-primary/70">—</span>
+                               <span className="font-normal">{entry.label}</span>
+                               {entry.kind !== 'category' && (
+                                 <span className="text-xs opacity-60 italic">({entry.kind})</span>
+                               )}
+                               <button type="button" className="ml-1 text-primary/60 hover:text-error transition-colors leading-none" onClick={() => setConsentDiseaseCodes(prev => prev.filter(e => e.code !== entry.code))} aria-label={`Remove ${entry.code}`}>×</button>
+                             </span>
+                           ))}
+                         </div>
+                       )}
+
+                       {(consentDiseaseCodes.length === 0 || icd10SuggestionsOpen || icd10SearchQuery) && (
+                         <div className="relative">
+                           <input type="text" className="input input-bordered w-full"
+                             placeholder={consentDiseaseCodes.length === 0 ? 'e.g. I50 or "heart failure" — type to search' : 'Search to add another…'}
+                             value={icd10SearchQuery} autoComplete="off"
+                             onChange={e => { setIcd10SearchQuery(e.target.value); setIcd10SuggestionsOpen(e.target.value.trim().length > 0); }}
+                             onFocus={() => { if (icd10SearchQuery.length > 0) setIcd10SuggestionsOpen(true); }}
+                           />
+                           {icd10SuggestionsOpen && icd10Entries.length > 0 && (() => {
+                             const q = icd10SearchQuery.trim().toLowerCase();
+                             const kindOrder: Record<string, number> = {chapter: 0, block: 1, category: 2};
+                             const selectedCodes = new Set(consentDiseaseCodes.map(e => e.code));
+                             const entryMap = new Map(icd10Entries.map(e => [e.code, e]));
+                             const directMatches = icd10Entries
+                               .filter(e => !selectedCodes.has(e.code) && (e.code.toLowerCase().startsWith(q) || e.label.toLowerCase().includes(q)))
+                               .sort((a, b) => { const kd = (kindOrder[a.kind]??2)-(kindOrder[b.kind]??2); return kd !== 0 ? kd : a.code.length - b.code.length || a.code.localeCompare(b.code); })
+                               .slice(0, 20);
+                             const directCodes = new Set(directMatches.map(e => e.code));
+                             const ancestorCodes = new Set<string>();
+                             directMatches.forEach(entry => { let p = entry.parent; while (p) { if (!directCodes.has(p) && !selectedCodes.has(p)) ancestorCodes.add(p); p = entryMap.get(p)?.parent ?? undefined; } });
+                             type IcdItem = typeof icd10Entries[0] & {isContext: boolean};
+                             const allItems: IcdItem[] = [
+                               ...directMatches.map(e => ({...e, isContext: false})),
+                               ...Array.from(ancestorCodes).map(code => entryMap.get(code)).filter((e): e is typeof icd10Entries[0] => !!e).map(e => ({...e, isContext: true})),
+                             ].sort((a, b) => { const kd = (kindOrder[a.kind]??2)-(kindOrder[b.kind]??2); return kd !== 0 ? kd : a.code.length - b.code.length || a.code.localeCompare(b.code); });
+                             const getIndent = (e: IcdItem) => e.kind === 'chapter' ? 'pl-3' : e.kind === 'block' ? 'pl-6' : e.code.includes('.') ? 'pl-12' : 'pl-9';
+                             return allItems.length > 0 ? (
+                               <ul className="absolute z-50 w-full bg-base-100 border border-base-300 rounded-lg shadow-lg mt-1 max-h-60 overflow-y-auto">
+                                 {allItems.map(e => (
+                                   <li key={e.code}>
+                                     <button type="button" className={`w-full text-left pr-3 py-1.5 hover:bg-base-200 text-sm flex items-center gap-2 ${getIndent(e)} ${e.isContext ? 'opacity-50' : ''}`}
+                                       onMouseDown={ev => { ev.preventDefault(); setConsentDiseaseCodes(prev => [...prev, {code: e.code, label: e.label, kind: e.kind}]); setIcd10SearchQuery(''); setIcd10SuggestionsOpen(false); }}>
+                                       <span className="font-mono font-semibold text-primary w-16 shrink-0">{e.code}</span>
+                                       <span className="text-base-content/80 flex-1">{e.label}</span>
+                                       {e.kind !== 'category' && <span className={`badge badge-xs ml-1 shrink-0 ${e.kind === 'chapter' ? 'badge-accent' : 'badge-ghost'}`}>{e.kind}</span>}
+                                     </button>
+                                   </li>
+                                 ))}
+                               </ul>
+                             ) : null;
+                           })()}
+                         </div>
+                       )}
+
+                       {consentDiseaseCodes.length > 0 && !icd10SuggestionsOpen && !icd10SearchQuery && (
+                         <button type="button" className="btn btn-ghost btn-xs text-primary mt-1 self-start"
+                           onClick={() => { setIcd10SearchQuery(' '); setIcd10SuggestionsOpen(true); setTimeout(() => setIcd10SearchQuery(''), 0); }}>
+                           + Specify another disease
+                         </button>
+                       )}
+
+                       {icd10LoadFailed && (
+                         <label className="label"><span className="label-text-alt text-warning">Could not load ICD-10 data. Restart the dev server or rebuild the Docker container.</span></label>
+                       )}
+                       {consentDiseaseCodes.length === 0 && !icd10SearchQuery && (
+                         <label className="label">
+                           <span className="label-text-alt text-base-content/60">
+                             ICD-10 (2019). Chapters, blocks and categories included.
+                             {consentPermission === 'DS' ? ' Required for Disease Specific Research.' : ' Optional for HMB — specify to narrow scope.'}
+                           </span>
+                         </label>
+                       )}
+
+                       {icd10BrowseOpen && icd10Entries.length > 0 && (() => {
+                         const selCodes = new Set(consentDiseaseCodes.map(e => e.code));
+                         const childrenMap = new Map<string, typeof icd10Entries>();
+                         icd10Entries.forEach(e => { if (e.parent) { if (!childrenMap.has(e.parent)) childrenMap.set(e.parent, []); childrenMap.get(e.parent)!.push(e); } });
+                         const chapters = icd10Entries.filter(e => e.kind === 'chapter');
+                         const bq = browseSearch.trim().toLowerCase();
+                         const kindOrder: Record<string, number> = {chapter: 0, block: 1, category: 2};
+                         const selectEntry = (entry: typeof icd10Entries[0]) => setBrowseSelected({code: entry.code, label: entry.label, kind: entry.kind});
+                         const renderEntry = (entry: typeof icd10Entries[0], depth: number): React.ReactNode => {
+                           const children = childrenMap.get(entry.code) || [];
+                           const isExpanded = browseExpanded.has(entry.code);
+                           const isPicked = browseSelected?.code === entry.code;
+                           const alreadyAdded = selCodes.has(entry.code);
+                           return (
+                             <React.Fragment key={entry.code}>
+                               <div className={`flex items-center gap-2 py-1.5 cursor-pointer hover:bg-base-200 select-none ${isPicked ? 'bg-primary/20 ring-1 ring-inset ring-primary/40' : alreadyAdded ? 'opacity-50' : ''}`}
+                                 style={{paddingLeft: `${12 + depth * 18}px`, paddingRight: '12px'}}
+                                 onClick={() => { selectEntry(entry); if (children.length) setBrowseExpanded(prev => { const n = new Set(prev); n.has(entry.code) ? n.delete(entry.code) : n.add(entry.code); return n; }); }}>
+                                 <span className="w-4 shrink-0 text-center text-xs text-base-content/40 hover:text-base-content"
+                                   onClick={children.length ? (ev) => { ev.stopPropagation(); setBrowseExpanded(prev => { const n = new Set(prev); n.has(entry.code) ? n.delete(entry.code) : n.add(entry.code); return n; }); } : undefined}>
+                                   {children.length ? (isExpanded ? '▾' : '▸') : ''}
+                                 </span>
+                                 <span className="font-mono font-semibold text-primary text-sm w-16 shrink-0">{entry.code}</span>
+                                 <span className="text-sm flex-1 text-base-content/80">{entry.label}</span>
+                                 {entry.kind !== 'category' && <span className={`badge badge-xs shrink-0 ${entry.kind === 'chapter' ? 'badge-accent' : 'badge-ghost'}`}>{entry.kind}</span>}
+                                 {alreadyAdded && <Check className="w-4 h-4 text-primary/50 shrink-0" />}
+                               </div>
+                               {isExpanded && children.map(child => renderEntry(child, depth + 1))}
+                             </React.Fragment>
+                           );
+                         };
+                         const filteredItems = bq ? (() => {
+                           const entryMap = new Map(icd10Entries.map(e => [e.code, e]));
+                           const direct = icd10Entries.filter(e => e.code.toLowerCase().startsWith(bq) || e.label.toLowerCase().includes(bq))
+                             .sort((a, b) => { const kd = (kindOrder[a.kind]??2)-(kindOrder[b.kind]??2); return kd !== 0 ? kd : a.code.length - b.code.length || a.code.localeCompare(b.code); }).slice(0, 60);
+                           const directCodes = new Set(direct.map(e => e.code));
+                           const anc = new Set<string>();
+                           direct.forEach(e => { let p = e.parent; while (p) { if (!directCodes.has(p)) anc.add(p); p = entryMap.get(p)?.parent ?? undefined; } });
+                           type FItem = typeof icd10Entries[0] & {isCtx: boolean};
+                           return [...direct.map(e => ({...e, isCtx: false})), ...Array.from(anc).map(c => entryMap.get(c)).filter((e): e is typeof icd10Entries[0] => !!e).map(e => ({...e, isCtx: true}))]
+                             .sort((a, b) => { const kd = (kindOrder[a.kind]??2)-(kindOrder[b.kind]??2); return kd !== 0 ? kd : a.code.length - b.code.length || a.code.localeCompare(b.code); }) as FItem[];
+                         })() : null;
+                         const filteredIndent = (e: {kind: string; code: string}) => e.kind === 'chapter' ? 12 : e.kind === 'block' ? 30 : e.code.includes('.') ? 66 : 48;
+                         return (
+                           <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm" onMouseDown={() => setIcd10BrowseOpen(false)}>
+                             <div className="bg-base-100 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[82vh] flex flex-col mx-4" onMouseDown={e => e.stopPropagation()}>
+                               <div className="flex items-center justify-between px-5 py-4 border-b border-base-300 shrink-0">
+                                 <h3 className="font-bold text-base">Browse ICD-10 Hierarchy</h3>
+                                 <button type="button" className="btn btn-sm btn-ghost btn-circle" onClick={() => setIcd10BrowseOpen(false)}>✕</button>
+                               </div>
+                               <div className="px-4 py-3 border-b border-base-300 shrink-0">
+                                 <input type="text" className="input input-bordered input-sm w-full" placeholder="Filter by code or name…" value={browseSearch} onChange={e => setBrowseSearch(e.target.value)} autoFocus />
+                               </div>
+                               <div className="overflow-y-auto flex-1">
+                                 {filteredItems ? filteredItems.map(e => (
+                                   <div key={e.code}
+                                     className={`flex items-center gap-2 py-1.5 cursor-pointer hover:bg-base-200 select-none ${e.isCtx ? 'opacity-50' : ''} ${browseSelected?.code === e.code ? 'bg-primary/20 ring-1 ring-inset ring-primary/40' : selCodes.has(e.code) ? 'opacity-50' : ''}`}
+                                     style={{paddingLeft: `${filteredIndent(e)}px`, paddingRight: '12px'}}
+                                     onClick={() => !e.isCtx && selectEntry(e)}>
+                                     <span className="font-mono font-semibold text-primary text-sm w-16 shrink-0">{e.code}</span>
+                                     <span className="text-sm flex-1 text-base-content/80">{e.label}</span>
+                                     {e.kind !== 'category' && <span className={`badge badge-xs shrink-0 ${e.kind === 'chapter' ? 'badge-accent' : 'badge-ghost'}`}>{e.kind}</span>}
+                                     {selCodes.has(e.code) && <Check className="w-4 h-4 text-primary/50 shrink-0" />}
+                                   </div>
+                                 )) : chapters.map(chapter => renderEntry(chapter, 0))}
+                               </div>
+                               <div className="px-5 py-3 border-t border-base-300 flex justify-between items-center shrink-0">
+                                 <span className="text-sm text-base-content/60">{consentDiseaseCodes.length === 0 ? 'No diseases selected yet' : `${consentDiseaseCodes.length} selected`}</span>
+                                 <div className="flex gap-2">
+                                   <button type="button" className="btn btn-sm btn-ghost" onClick={() => setIcd10BrowseOpen(false)}>Cancel</button>
+                                   <button type="button" className="btn btn-sm btn-primary" disabled={!browseSelected}
+                                     onClick={() => { if (browseSelected && !selCodes.has(browseSelected.code)) setConsentDiseaseCodes(prev => [...prev, browseSelected]); setIcd10BrowseOpen(false); }}>
+                                     {browseSelected ? `Select ${browseSelected.code}` : 'Select'}
+                                   </button>
+                                 </div>
+                               </div>
+                             </div>
+                           </div>
+                         );
+                       })()}
+                     </div>
+                   )}
+
+                   {/* Additional / optional parameters — always available but collapsed */}
+                   <div className="collapse collapse-arrow border border-base-300 rounded-lg">
+                     <input type="checkbox" />
+                     <div className="collapse-title text-sm font-medium text-base-content/60">Additional Parameters</div>
+                     <div className="collapse-content space-y-4 pt-2">
+                       {consentPermission !== 'NRES' && (
+                       <div className="form-control">
+                         <label className="label"><span className="label-text font-semibold">Data Use Description</span></label>
+                         <textarea className="textarea textarea-bordered" placeholder="Describe what the data may be used for" value={consentDataUseDescription} onChange={e => setConsentDataUseDescription(e.target.value)} />
+                       </div>
+                       )}
+                       <div className="form-control">
+                         <label className="label"><span className="label-text font-semibold">Additional Restrictions</span></label>
+                         <textarea className="textarea textarea-bordered" placeholder="Free-text restrictions beyond the modifier list" value={consentAdditionalRestrictions} onChange={e => setConsentAdditionalRestrictions(e.target.value)} />
+                       </div>
+                       <div className="form-control">
+                         <label className="label"><span className="label-text font-semibold">Permission Form URI</span></label>
+                         <input type="url" className="input input-bordered" placeholder="https://... or ipfs://..." value={consentFormUri} onChange={e => setConsentFormUri(e.target.value)} />
+                         <label className="label"><span className="label-text-alt">URI of the signed permission form</span></label>
+                       </div>
+                       <div className="form-control">
+                         <label className="label"><span className="label-text font-semibold">Metadata URI</span></label>
+                         <input type="text" className="input input-bordered" placeholder="Generic metadata URI" value={consentMetadataUri} onChange={e => setConsentMetadataUri(e.target.value)} />
+                       </div>
+                     </div>
                    </div>
 
-                   {/* Data Use Description */}
-                   <div className="form-control">
-                     <label className="label"><span className="label-text font-semibold">Data Use Description</span></label>
-                     <textarea className="textarea textarea-bordered" placeholder="Describe what the data may be used for" value={consentDataUseDescription} onChange={e => setConsentDataUseDescription(e.target.value)} />
-                   </div>
-
-                   {/* Additional Restrictions */}
-                   <div className="form-control">
-                     <label className="label"><span className="label-text font-semibold">Additional Restrictions</span></label>
-                     <textarea className="textarea textarea-bordered" placeholder="Free-text restrictions beyond the modifier list" value={consentAdditionalRestrictions} onChange={e => setConsentAdditionalRestrictions(e.target.value)} />
-                   </div>
-
-                   {/* Consent Date */}
-                   <div className="form-control">
-                     <label className="label"><span className="label-text font-semibold">Consent Date</span></label>
-                     <input type="date" className="input input-bordered" value={consentDate} onChange={e => setConsentDate(e.target.value)} />
-                     <label className="label"><span className="label-text-alt">Date the original consent was obtained from data subjects</span></label>
-                   </div>
-
-                   {/* Consent Form URI */}
-                   <div className="form-control">
-                     <label className="label"><span className="label-text font-semibold">Consent Form URI</span></label>
-                     <input type="url" className="input input-bordered" placeholder="https://... or ipfs://..." value={consentFormUri} onChange={e => setConsentFormUri(e.target.value)} />
-                     <label className="label"><span className="label-text-alt">URI of the signed consent form</span></label>
-                   </div>
-
-                   {/* Metadata URI */}
-                   <div className="form-control">
-                     <label className="label"><span className="label-text font-semibold">Metadata URI</span></label>
-                     <input type="text" className="input input-bordered" placeholder="Generic metadata URI" value={consentMetadataUri} onChange={e => setConsentMetadataUri(e.target.value)} />
-                   </div>
 
                    <div className="card-actions justify-between items-center pt-4">
                      <button type="button" className="btn btn-ghost" onClick={() => setStep(1)} disabled={blockchainLoading}>
@@ -788,7 +1011,7 @@ export default function UploadPage() {
                      </button>
                      <button type="submit" className="btn btn-accent" disabled={blockchainLoading}>
                        {blockchainLoading ? <span className="loading loading-spinner loading-xs"></span> : <Shield className="w-4 h-4" />}
-                       Record Consent on Blockchain
+                       Record Permission on Blockchain
                      </button>
                    </div>
                  </form>
