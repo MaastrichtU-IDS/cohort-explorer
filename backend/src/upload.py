@@ -458,9 +458,8 @@ def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
         
         # Check if any of the fields are provided
         if names_count > 0 or codes_count > 0 or omop_ids_count > 0:
-            # All provided fields must have the same count
-            counts = [c for c in [names_count, codes_count, omop_ids_count] if c > 0]
-            if len(set(counts)) > 1:
+            # All three counts must be equal (absent fields count as 0, causing a mismatch)
+            if not (names_count == codes_count == omop_ids_count):
                 errors.append(
                     f"Row {i+2} (Variable: '{var_name_for_error}'): The number of ADDITIONAL CONTEXT CONCEPT NAMEs ({names_count}), CODEs ({codes_count}), and OMOP IDs ({omop_ids_count}) must all match."
                 )
