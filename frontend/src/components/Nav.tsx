@@ -3,7 +3,7 @@
 import React, {useState, useEffect, useMemo, useCallback, useRef} from 'react';
 import Link from 'next/link';
 import {useRouter} from 'next/router';
-import {LogIn, LogOut, Compass, Upload, HardDrive, Map, Box, FileText, Settings} from 'react-feather';
+import {LogIn, LogOut, Compass, Upload, HardDrive, Map, Box, FileText, Settings, Check} from 'react-feather';
 import {useCohorts} from '@/components/CohortsContext';
 import {DarkThemeIcon, LightThemeIcon} from '@/components/Icons';
 import {apiUrl} from '@/utils';
@@ -51,10 +51,22 @@ export function Nav() {
   const [includeMappingUploadSlot, setIncludeMappingUploadSlot] = useState(false);
   const [wizardStep, setWizardStep] = useState(0);
   const [researchQuestion, setResearchQuestion] = useState('');
+  // ICD-10 state for DCR wizard (research goals step)
+  const [dcrDiseaseCodes, setDcrDiseaseCodes] = useState<{code: string; label: string; kind: string}[]>([]);
+  const [dcrIcd10Entries, setDcrIcd10Entries] = useState<{code: string; label: string; kind: string; parent?: string | null}[]>([]);
+  const [dcrIcd10Loading, setDcrIcd10Loading] = useState(false);
+  const [dcrIcd10LoadFailed, setDcrIcd10LoadFailed] = useState(false);
+  const [dcrIcd10SuggestionsOpen, setDcrIcd10SuggestionsOpen] = useState(false);
+  const [dcrIcd10SearchQuery, setDcrIcd10SearchQuery] = useState('');
+  const [dcrIcd10BrowseOpen, setDcrIcd10BrowseOpen] = useState(false);
+  const [dcrBrowseExpanded, setDcrBrowseExpanded] = useState<Set<string>>(new Set());
+  const [dcrBrowseSearch, setDcrBrowseSearch] = useState('');
+  const [dcrBrowseSelected, setDcrBrowseSelected] = useState<{code: string; label: string; kind: string} | null>(null);
   const [showAddCohortModal, setShowAddCohortModal] = useState(false);
   const [cohortSearchQuery, setCohortSearchQuery] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
   const notificationRef = React.useRef<HTMLDivElement>(null);
+  const dcrIcd10WrapperRef = useRef<HTMLDivElement>(null);
 
   // Check admin status
   useEffect(() => {
@@ -233,6 +245,32 @@ export function Nav() {
     }
   }, [defaultDcrName, dcrNameCustomized]);
 
+  useEffect(() => {
+    if (wizardStep === 2 && dcrIcd10Entries.length === 0 && !dcrIcd10Loading && !dcrIcd10LoadFailed) {
+      setDcrIcd10Loading(true);
+      fetch('/icd10.json')
+        .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+        .then((data: {code: string; label: string; kind: string; parent?: string | null}[]) => {
+          setDcrIcd10Entries(data);
+          setDcrIcd10Loading(false);
+        })
+        .catch(() => {
+          setDcrIcd10Loading(false);
+          setDcrIcd10LoadFailed(true);
+        });
+    }
+  }, [wizardStep, dcrIcd10Entries.length, dcrIcd10Loading, dcrIcd10LoadFailed]);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (dcrIcd10WrapperRef.current && !dcrIcd10WrapperRef.current.contains(e.target as Node)) {
+        setDcrIcd10SuggestionsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
   
   // Helper function to scroll to notification box
   const scrollToNotification = () => {
@@ -387,6 +425,7 @@ export function Nav() {
           ),
           dcr_name: dcrName,
           research_question: researchQuestion,
+          disease_codes: dcrDiseaseCodes,
           session_id: sessionIdRef.current,
           selected_mapping_files: availableMappingFiles
             .filter(m => selectedMappingFiles[m.filename] !== false)
@@ -953,6 +992,179 @@ export function Nav() {
                   {wizardStep === 2 && (
                     <>
                       <h3 className="font-bold text-lg mb-4">Step 3: Information about Research Goals</h3>
+
+                      {/* ICD-10 disease code selector */}
+                      <div className="form-control mb-6" ref={dcrIcd10WrapperRef}>
+                        <label className="label">
+                          <span className="label-text font-semibold flex items-center gap-2">
+                            <span className="text-base">Target Disease(s) — ICD-10 (optional)</span>
+                            {dcrIcd10Loading && <span className="loading loading-spinner loading-xs opacity-60"></span>}
+                            {!dcrIcd10Loading && dcrIcd10Entries.length > 0 && (
+                              <button type="button" className="btn btn-ghost btn-xs text-primary/70 hover:text-primary normal-case font-normal" onClick={() => { setDcrIcd10BrowseOpen(true); setDcrBrowseSearch(''); setDcrBrowseSelected(null); }}>
+                                Browse hierarchy
+                              </button>
+                            )}
+                          </span>
+                        </label>
+
+                        {dcrDiseaseCodes.length > 0 && (
+                          <div className="flex flex-wrap gap-2 mb-2">
+                            {dcrDiseaseCodes.map(entry => (
+                              <span key={entry.code} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-base border border-primary/40 bg-primary/10 text-primary font-medium">
+                                <span className="font-mono font-bold">{entry.code}</span>
+                                <span className="text-primary/70">—</span>
+                                <span className="font-normal">{entry.label}</span>
+                                {entry.kind !== 'category' && (
+                                  <span className="text-xs opacity-60 italic">({entry.kind})</span>
+                                )}
+                                <button type="button" className="ml-1 text-primary/60 hover:text-error transition-colors leading-none" onClick={() => setDcrDiseaseCodes(prev => prev.filter(e => e.code !== entry.code))} aria-label={`Remove ${entry.code}`}>×</button>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+
+                        {(dcrDiseaseCodes.length === 0 || dcrIcd10SuggestionsOpen || dcrIcd10SearchQuery) && (
+                          <div className="relative">
+                            <input type="text" className="input input-bordered w-full"
+                              placeholder={dcrDiseaseCodes.length === 0 ? 'e.g. I50 or "heart failure" — type to search' : 'Search to add another…'}
+                              value={dcrIcd10SearchQuery} autoComplete="off"
+                              onChange={e => { setDcrIcd10SearchQuery(e.target.value); setDcrIcd10SuggestionsOpen(e.target.value.trim().length > 0); }}
+                              onFocus={() => { if (dcrIcd10SearchQuery.length > 0) setDcrIcd10SuggestionsOpen(true); }}
+                            />
+                            {dcrIcd10SuggestionsOpen && dcrIcd10Entries.length > 0 && (() => {
+                              const q = dcrIcd10SearchQuery.trim().toLowerCase();
+                              const kindOrder: Record<string, number> = {chapter: 0, block: 1, category: 2};
+                              const selectedCodes = new Set(dcrDiseaseCodes.map(e => e.code));
+                              const entryMap = new Map(dcrIcd10Entries.map(e => [e.code, e]));
+                              const directMatches = dcrIcd10Entries
+                                .filter(e => !selectedCodes.has(e.code) && (e.code.toLowerCase().startsWith(q) || e.label.toLowerCase().includes(q)))
+                                .sort((a, b) => { const kd = (kindOrder[a.kind]??2)-(kindOrder[b.kind]??2); return kd !== 0 ? kd : a.code.length - b.code.length || a.code.localeCompare(b.code); })
+                                .slice(0, 20);
+                              const directCodes = new Set(directMatches.map(e => e.code));
+                              const ancestorCodes = new Set<string>();
+                              directMatches.forEach(entry => { let p = entry.parent; while (p) { if (!directCodes.has(p) && !selectedCodes.has(p)) ancestorCodes.add(p); p = entryMap.get(p)?.parent ?? undefined; } });
+                              type IcdItem = typeof dcrIcd10Entries[0] & {isContext: boolean};
+                              const allItems: IcdItem[] = [
+                                ...directMatches.map(e => ({...e, isContext: false})),
+                                ...Array.from(ancestorCodes).map(code => entryMap.get(code)).filter((e): e is typeof dcrIcd10Entries[0] => !!e).map(e => ({...e, isContext: true})),
+                              ].sort((a, b) => { const kd = (kindOrder[a.kind]??2)-(kindOrder[b.kind]??2); return kd !== 0 ? kd : a.code.length - b.code.length || a.code.localeCompare(b.code); });
+                              const getIndent = (e: IcdItem) => e.kind === 'chapter' ? 'pl-3' : e.kind === 'block' ? 'pl-6' : e.code.includes('.') ? 'pl-12' : 'pl-9';
+                              return allItems.length > 0 ? (
+                                <ul className="absolute z-50 w-full bg-base-100 border border-base-300 rounded-lg shadow-lg mt-1 max-h-60 overflow-y-auto">
+                                  {allItems.map(e => (
+                                    <li key={e.code}>
+                                      <button type="button" className={`w-full text-left pr-3 py-1.5 hover:bg-base-200 text-sm flex items-center gap-2 ${getIndent(e)} ${e.isContext ? 'opacity-50' : ''}`}
+                                        onMouseDown={ev => { ev.preventDefault(); setDcrDiseaseCodes(prev => [...prev, {code: e.code, label: e.label, kind: e.kind}]); setDcrIcd10SearchQuery(''); setDcrIcd10SuggestionsOpen(false); }}>
+                                        <span className="font-mono font-semibold text-primary w-16 shrink-0">{e.code}</span>
+                                        <span className="text-base-content/80 flex-1">{e.label}</span>
+                                        {e.kind !== 'category' && <span className={`badge badge-xs ml-1 shrink-0 ${e.kind === 'chapter' ? 'badge-accent' : 'badge-ghost'}`}>{e.kind}</span>}
+                                      </button>
+                                    </li>
+                                  ))}
+                                </ul>
+                              ) : null;
+                            })()}
+                          </div>
+                        )}
+
+                        {dcrDiseaseCodes.length > 0 && !dcrIcd10SuggestionsOpen && !dcrIcd10SearchQuery && (
+                          <button type="button" className="btn btn-ghost btn-xs text-primary mt-1 self-start"
+                            onClick={() => { setDcrIcd10SearchQuery(' '); setDcrIcd10SuggestionsOpen(true); setTimeout(() => setDcrIcd10SearchQuery(''), 0); }}>
+                            + Specify another disease
+                          </button>
+                        )}
+
+                        {dcrIcd10LoadFailed && (
+                          <label className="label"><span className="label-text-alt text-warning">Could not load ICD-10 data. Restart the dev server or rebuild the Docker container.</span></label>
+                        )}
+                        {dcrDiseaseCodes.length === 0 && !dcrIcd10SearchQuery && (
+                          <label className="label">
+                            <span className="label-text-alt text-base-content/60">ICD-10 (2019). Optionally specify target disease(s) for this DCR.</span>
+                          </label>
+                        )}
+
+                        {dcrIcd10BrowseOpen && dcrIcd10Entries.length > 0 && (() => {
+                          const selCodes = new Set(dcrDiseaseCodes.map(e => e.code));
+                          const childrenMap = new Map<string, typeof dcrIcd10Entries>();
+                          dcrIcd10Entries.forEach(e => { if (e.parent) { if (!childrenMap.has(e.parent)) childrenMap.set(e.parent, []); childrenMap.get(e.parent)!.push(e); } });
+                          const chapters = dcrIcd10Entries.filter(e => e.kind === 'chapter');
+                          const bq = dcrBrowseSearch.trim().toLowerCase();
+                          const kindOrder: Record<string, number> = {chapter: 0, block: 1, category: 2};
+                          const selectEntry = (entry: typeof dcrIcd10Entries[0]) => setDcrBrowseSelected({code: entry.code, label: entry.label, kind: entry.kind});
+                          const renderEntry = (entry: typeof dcrIcd10Entries[0], depth: number): React.ReactNode => {
+                            const children = childrenMap.get(entry.code) || [];
+                            const isExpanded = dcrBrowseExpanded.has(entry.code);
+                            const isPicked = dcrBrowseSelected?.code === entry.code;
+                            const alreadyAdded = selCodes.has(entry.code);
+                            return (
+                              <React.Fragment key={entry.code}>
+                                <div className={`flex items-center gap-2 py-1.5 cursor-pointer hover:bg-base-200 select-none ${isPicked ? 'bg-primary/20 ring-1 ring-inset ring-primary/40' : alreadyAdded ? 'opacity-50' : ''}`}
+                                  style={{paddingLeft: `${12 + depth * 18}px`, paddingRight: '12px'}}
+                                  onClick={() => { selectEntry(entry); if (children.length) setDcrBrowseExpanded(prev => { const n = new Set(prev); n.has(entry.code) ? n.delete(entry.code) : n.add(entry.code); return n; }); }}>
+                                  <span className="w-4 shrink-0 text-center text-xs text-base-content/40 hover:text-base-content"
+                                    onClick={children.length ? (ev) => { ev.stopPropagation(); setDcrBrowseExpanded(prev => { const n = new Set(prev); n.has(entry.code) ? n.delete(entry.code) : n.add(entry.code); return n; }); } : undefined}>
+                                    {children.length ? (isExpanded ? '▾' : '▸') : ''}
+                                  </span>
+                                  <span className="font-mono font-semibold text-primary text-sm w-16 shrink-0">{entry.code}</span>
+                                  <span className="text-sm flex-1 text-base-content/80">{entry.label}</span>
+                                  {entry.kind !== 'category' && <span className={`badge badge-xs shrink-0 ${entry.kind === 'chapter' ? 'badge-accent' : 'badge-ghost'}`}>{entry.kind}</span>}
+                                  {alreadyAdded && <Check className="w-4 h-4 text-primary/50 shrink-0" />}
+                                </div>
+                                {isExpanded && children.map(child => renderEntry(child, depth + 1))}
+                              </React.Fragment>
+                            );
+                          };
+                          const filteredItems = bq ? (() => {
+                            const entryMap = new Map(dcrIcd10Entries.map(e => [e.code, e]));
+                            const direct = dcrIcd10Entries.filter(e => e.code.toLowerCase().startsWith(bq) || e.label.toLowerCase().includes(bq))
+                              .sort((a, b) => { const kd = (kindOrder[a.kind]??2)-(kindOrder[b.kind]??2); return kd !== 0 ? kd : a.code.length - b.code.length || a.code.localeCompare(b.code); }).slice(0, 60);
+                            const directCodes = new Set(direct.map(e => e.code));
+                            const anc = new Set<string>();
+                            direct.forEach(e => { let p = e.parent; while (p) { if (!directCodes.has(p)) anc.add(p); p = entryMap.get(p)?.parent ?? undefined; } });
+                            type FItem = typeof dcrIcd10Entries[0] & {isCtx: boolean};
+                            return [...direct.map(e => ({...e, isCtx: false})), ...Array.from(anc).map(c => entryMap.get(c)).filter((e): e is typeof dcrIcd10Entries[0] => !!e).map(e => ({...e, isCtx: true}))]
+                              .sort((a, b) => { const kd = (kindOrder[a.kind]??2)-(kindOrder[b.kind]??2); return kd !== 0 ? kd : a.code.length - b.code.length || a.code.localeCompare(b.code); }) as FItem[];
+                          })() : null;
+                          const filteredIndent = (e: {kind: string; code: string}) => e.kind === 'chapter' ? 12 : e.kind === 'block' ? 30 : e.code.includes('.') ? 66 : 48;
+                          return (
+                            <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm" onMouseDown={() => setDcrIcd10BrowseOpen(false)}>
+                              <div className="bg-base-100 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[82vh] flex flex-col mx-4" onMouseDown={e => e.stopPropagation()}>
+                                <div className="flex items-center justify-between px-5 py-4 border-b border-base-300 shrink-0">
+                                  <h3 className="font-bold text-base">Browse ICD-10 Hierarchy</h3>
+                                  <button type="button" className="btn btn-sm btn-ghost btn-circle" onClick={() => setDcrIcd10BrowseOpen(false)}>✕</button>
+                                </div>
+                                <div className="px-4 py-3 border-b border-base-300 shrink-0">
+                                  <input type="text" className="input input-bordered input-sm w-full" placeholder="Filter by code or name…" value={dcrBrowseSearch} onChange={e => setDcrBrowseSearch(e.target.value)} autoFocus />
+                                </div>
+                                <div className="overflow-y-auto flex-1">
+                                  {filteredItems ? filteredItems.map(e => (
+                                    <div key={e.code}
+                                      className={`flex items-center gap-2 py-1.5 cursor-pointer hover:bg-base-200 select-none ${e.isCtx ? 'opacity-50' : ''} ${dcrBrowseSelected?.code === e.code ? 'bg-primary/20 ring-1 ring-inset ring-primary/40' : selCodes.has(e.code) ? 'opacity-50' : ''}`}
+                                      style={{paddingLeft: `${filteredIndent(e)}px`, paddingRight: '12px'}}
+                                      onClick={() => !e.isCtx && selectEntry(e)}>
+                                      <span className="font-mono font-semibold text-primary text-sm w-16 shrink-0">{e.code}</span>
+                                      <span className="text-sm flex-1 text-base-content/80">{e.label}</span>
+                                      {e.kind !== 'category' && <span className={`badge badge-xs shrink-0 ${e.kind === 'chapter' ? 'badge-accent' : 'badge-ghost'}`}>{e.kind}</span>}
+                                      {selCodes.has(e.code) && <Check className="w-4 h-4 text-primary/50 shrink-0" />}
+                                    </div>
+                                  )) : chapters.map(chapter => renderEntry(chapter, 0))}
+                                </div>
+                                <div className="px-5 py-3 border-t border-base-300 flex justify-between items-center shrink-0">
+                                  <span className="text-sm text-base-content/60">{dcrDiseaseCodes.length === 0 ? 'No diseases selected yet' : `${dcrDiseaseCodes.length} selected`}</span>
+                                  <div className="flex gap-2">
+                                    <button type="button" className="btn btn-sm btn-ghost" onClick={() => setDcrIcd10BrowseOpen(false)}>Cancel</button>
+                                    <button type="button" className="btn btn-sm btn-primary" disabled={!dcrBrowseSelected}
+                                      onClick={() => { if (dcrBrowseSelected && !selCodes.has(dcrBrowseSelected.code)) setDcrDiseaseCodes(prev => [...prev, dcrBrowseSelected]); setDcrIcd10BrowseOpen(false); }}>
+                                      {dcrBrowseSelected ? `Select ${dcrBrowseSelected.code}` : 'Select'}
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </div>
+
                       <div className="form-control">
                         <label className="label">
                           <span className="label-text font-semibold">Please describe your research question</span>
@@ -1123,6 +1335,11 @@ export function Nav() {
                         {researchQuestion && (
                           <div className="p-3 bg-base-200 rounded-lg">
                             <strong>Research Question:</strong> {researchQuestion}
+                          </div>
+                        )}
+                        {dcrDiseaseCodes.length > 0 && (
+                          <div className="p-3 bg-base-200 rounded-lg">
+                            <strong>Target Disease(s):</strong> {dcrDiseaseCodes.map(e => `${e.code} — ${e.label}`).join('; ')}
                           </div>
                         )}
                         <div className="p-3 bg-base-200 rounded-lg">
