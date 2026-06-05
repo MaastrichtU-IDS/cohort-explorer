@@ -1662,7 +1662,7 @@ export default function CohortsList() {
                       ? <span className="loading loading-spinner loading-xs"></span>
                       : <Shield className="w-4 h-4" />
                     }
-                    {duoDeclarations[cohortData.cohort_id]?.visible ? 'Hide' : 'Show'} Cohort DUO Declaration
+                    {duoDeclarations[cohortData.cohort_id]?.visible ? 'Hide' : 'Show'} Data Use Permissions
                     {duoDeclarations[cohortData.cohort_id]?.visible
                       ? <ChevronUp className="w-3 h-3" />
                       : <ChevronDown className="w-3 h-3" />

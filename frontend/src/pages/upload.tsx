@@ -35,6 +35,24 @@ const DUO_MODIFIERS: {[key: string]: string} = {
   NMDS: 'No general methods research (DUO:0000015)',
 };
 
+const COUNTRY_PRESETS: { label: string; title: string; codes: string[] }[] = [
+  {
+    label: 'European Union',
+    title: 'European Union (27 members)',
+    codes: ['AT','BE','BG','CY','CZ','DE','DK','EE','ES','FI','FR','GR','HR','HU','IE','IT','LT','LU','LV','MT','NL','PL','PT','RO','SE','SI','SK'],
+  },
+  {
+    label: 'EFTA',
+    title: 'European Free Trade Association + all EU countries',
+    codes: ['AT','BE','BG','CH','CY','CZ','DE','DK','EE','ES','FI','FR','GR','HR','HU','IE','IS','IT','LI','LT','LU','LV','MT','NL','NO','PL','PT','RO','SE','SI','SK'],
+  },
+  {
+    label: 'Commonwealth of Nations',
+    title: 'Commonwealth of Nations (54 members)',
+    codes: ['AG','AU','BS','BD','BB','BZ','BW','BN','CM','CA','CY','DM','SZ','FJ','GM','GH','GD','GY','IN','JM','KE','KI','LS','MW','MY','MV','MT','MU','MZ','NA','NR','NZ','NG','PK','PG','RW','KN','LC','VC','WS','SC','SL','SG','SB','ZA','LK','TZ','TO','TT','TV','UG','GB','VU','ZM'],
+  },
+];
+
 // Helper component for wizard steps
 const WizardSteps = ({currentStep}: {currentStep: number}) => {
   return (
@@ -82,10 +100,15 @@ export default function UploadPage() {
   const [consentPermission, setConsentPermission] = useState('NRES');
   const [consentModifiers, setConsentModifiers] = useState<string[]>([]);
   const [consentDiseaseCodes, setConsentDiseaseCodes] = useState<{code: string; label: string; kind: string}[]>([]);
-  const [consentAllowedCountries, setConsentAllowedCountries] = useState('');
-  const [consentAllowedInstitutions, setConsentAllowedInstitutions] = useState('');
+  const [consentAllowedCountries, setConsentAllowedCountries] = useState<string[]>([]);
+  const [consentAllowedCountriesInput, setConsentAllowedCountriesInput] = useState('');
+  const [consentAllowedCountriesInputOpen, setConsentAllowedCountriesInputOpen] = useState(false);
+  const [consentAllowedInstitutions, setConsentAllowedInstitutions] = useState<string[]>([]);
+  const [consentAllowedInstitutionsInput, setConsentAllowedInstitutionsInput] = useState('');
+  const [consentAllowedInstitutionsInputOpen, setConsentAllowedInstitutionsInputOpen] = useState(false);
   const [consentAllowedProjects, setConsentAllowedProjects] = useState('');
-  const [consentAllowedUsers, setConsentAllowedUsers] = useState('');
+  const [consentAllowedUsers, setConsentAllowedUsers] = useState<string[]>([]);
+  const [consentAllowedUsersInput, setConsentAllowedUsersInput] = useState('');
   const [consentMoratoriumMonths, setConsentMoratoriumMonths] = useState('');
   const [consentResearchScope, setConsentResearchScope] = useState('');
   const [consentReturnTargetUri, setConsentReturnTargetUri] = useState('');
@@ -630,10 +653,10 @@ export default function UploadPage() {
                        };
                        // Include all non-empty fields — the API will validate
                        if (consentDiseaseCodes.length > 0) consentBody.consent.diseaseCode = consentDiseaseCodes.map(e => e.code).join(',');
-                       if (consentAllowedCountries) consentBody.consent.allowedCountries = consentAllowedCountries.split(',').map((s: string) => s.trim()).filter(Boolean);
-                       if (consentAllowedInstitutions) consentBody.consent.allowedInstitutions = consentAllowedInstitutions.split(',').map((s: string) => s.trim()).filter(Boolean);
+                       if (consentAllowedCountries.length > 0) consentBody.consent.allowedCountries = consentAllowedCountries;
+                       if (consentAllowedInstitutions.length > 0) consentBody.consent.allowedInstitutions = consentAllowedInstitutions;
                        if (consentAllowedProjects) consentBody.consent.allowedProjects = consentAllowedProjects.split(',').map((s: string) => s.trim()).filter(Boolean);
-                       if (consentAllowedUsers) consentBody.consent.allowedUsers = consentAllowedUsers.split(',').map((s: string) => s.trim()).filter(Boolean);
+                       if (consentAllowedUsers.length > 0) consentBody.consent.allowedUsers = consentAllowedUsers;
                        if (consentMoratoriumMonths) consentBody.consent.moratoriumMonths = parseInt(consentMoratoriumMonths);
                        if (consentResearchScope) consentBody.consent.researchScope = consentResearchScope;
                        if (consentReturnTargetUri) consentBody.consent.returnTargetUri = consentReturnTargetUri;
@@ -705,7 +728,12 @@ export default function UploadPage() {
                              checked={consentModifiers.includes(code)}
                              onChange={e => {
                                if (e.target.checked) setConsentModifiers([...consentModifiers, code]);
-                               else setConsentModifiers(consentModifiers.filter(m => m !== code));
+                               else {
+                                 setConsentModifiers(consentModifiers.filter(m => m !== code));
+                                 if (code === 'GS') { setConsentAllowedCountries([]); setConsentAllowedCountriesInput(''); setConsentAllowedCountriesInputOpen(false); }
+                                 if (code === 'IS') { setConsentAllowedInstitutions([]); setConsentAllowedInstitutionsInput(''); setConsentAllowedInstitutionsInputOpen(false); }
+                                 if (code === 'US') { setConsentAllowedUsers([]); setConsentAllowedUsersInput(''); }
+                               }
                              }}
                            />
                            <span className="text-xs"><strong>{code}</strong> — {label}</span>
@@ -721,8 +749,69 @@ export default function UploadPage() {
                    {consentModifiers.includes('GS') && (
                      <div className="form-control">
                        <label className="label"><span className="label-text font-semibold">Allowed Countries {consentModifiers.includes('GS') && <span className="text-error">*</span>}</span></label>
-                       <input type="text" className="input input-bordered" placeholder="e.g. NL, DE, FR" value={consentAllowedCountries} onChange={e => setConsentAllowedCountries(e.target.value)} required={consentModifiers.includes('GS')} />
-                       <label className="label"><span className="label-text-alt">Comma-separated ISO-3166 country codes. Required when GS modifier is set.</span></label>
+                       {(consentAllowedCountries.length === 0 || consentAllowedCountriesInputOpen || consentAllowedCountriesInput) && (
+                       <input
+                         type="text"
+                         className="input input-bordered"
+                         placeholder="e.g. NL, DE, KP — press Enter to add"
+                         value={consentAllowedCountriesInput}
+                         onChange={e => setConsentAllowedCountriesInput(e.target.value)}
+                         onKeyDown={e => {
+                           if (e.key === 'Enter') {
+                             e.preventDefault();
+                             const tokens = consentAllowedCountriesInput.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+                             if (tokens.length) { setConsentAllowedCountries(prev => [...prev, ...tokens.filter(t => !prev.includes(t))]); setConsentAllowedCountriesInput(''); setConsentAllowedCountriesInputOpen(false); }
+                           }
+                         }}
+                         onBlur={() => {
+                           const tokens = consentAllowedCountriesInput.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+                           if (tokens.length) { setConsentAllowedCountries(prev => [...prev, ...tokens.filter(t => !prev.includes(t))]); setConsentAllowedCountriesInput(''); setConsentAllowedCountriesInputOpen(false); }
+                         }}
+                       />
+                       )}
+                       {consentAllowedCountries.length > 0 && (
+                         <div className="flex flex-wrap gap-2 mt-2">
+                           {consentAllowedCountries.map(c => (
+                             <span key={c} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-base border border-primary/40 bg-primary/10 text-primary font-medium">
+                               {c}
+                               <button type="button" className="ml-1 text-primary/60 hover:text-error transition-colors leading-none" onClick={() => setConsentAllowedCountries(prev => prev.filter(x => x !== c))}>×</button>
+                             </span>
+                           ))}
+                         </div>
+                       )}
+                       <div className="flex flex-wrap items-center gap-1 mt-2">
+                         <span className="text-xs text-base-content/50 mr-1">Quick add:</span>
+                         {COUNTRY_PRESETS.map(preset => (
+                           <button
+                             key={preset.label}
+                             type="button"
+                             title={preset.title}
+                             className="btn btn-xs btn-outline"
+                             onClick={() => setConsentAllowedCountries(prev => [...prev, ...preset.codes.filter(c => !prev.includes(c))])}
+                           >
+                             {preset.label}
+                           </button>
+                         ))}
+                         {consentAllowedCountries.length > 0 && !consentAllowedCountriesInputOpen && (
+                           <button
+                             type="button"
+                             className="btn btn-xs btn-ghost text-primary"
+                             onClick={() => setConsentAllowedCountriesInputOpen(true)}
+                           >
+                             + Add another country
+                           </button>
+                         )}
+                         {consentAllowedCountries.length > 0 && (
+                           <button
+                             type="button"
+                             className="btn btn-xs btn-error btn-outline ml-2"
+                             onClick={() => { setConsentAllowedCountries([]); setConsentAllowedCountriesInput(''); setConsentAllowedCountriesInputOpen(false); }}
+                           >
+                             Clear all
+                           </button>
+                         )}
+                       </div>
+                       <label className="label"><span className="label-text-alt">ISO-3166 country codes. Required when GS modifier is set.</span></label>
                      </div>
                    )}
 
@@ -730,8 +819,40 @@ export default function UploadPage() {
                    {consentModifiers.includes('IS') && (
                      <div className="form-control">
                        <label className="label"><span className="label-text font-semibold">Allowed Institutions {consentModifiers.includes('IS') && <span className="text-error">*</span>}</span></label>
-                       <input type="text" className="input input-bordered" placeholder="e.g. https://ror.org/02jz4aj89" value={consentAllowedInstitutions} onChange={e => setConsentAllowedInstitutions(e.target.value)} required={consentModifiers.includes('IS')} />
-                       <label className="label"><span className="label-text-alt">Comma-separated ROR IDs. Required when IS modifier is set.</span></label>
+                       {(consentAllowedInstitutions.length === 0 || consentAllowedInstitutionsInputOpen || consentAllowedInstitutionsInput) && (
+                       <input
+                         type="text"
+                         className="input input-bordered"
+                         placeholder="e.g. https://ror.org/02jz4aj89 — press Enter to add"
+                         value={consentAllowedInstitutionsInput}
+                         onChange={e => setConsentAllowedInstitutionsInput(e.target.value)}
+                         onKeyDown={e => {
+                           if (e.key === 'Enter') {
+                             e.preventDefault();
+                             const tokens = consentAllowedInstitutionsInput.split(',').map(s => s.trim()).filter(Boolean);
+                             if (tokens.length) { setConsentAllowedInstitutions(prev => [...prev, ...tokens.filter(t => !prev.includes(t))]); setConsentAllowedInstitutionsInput(''); setConsentAllowedInstitutionsInputOpen(false); }
+                           }
+                         }}
+                         onBlur={() => {
+                           const tokens = consentAllowedInstitutionsInput.split(',').map(s => s.trim()).filter(Boolean);
+                           if (tokens.length) { setConsentAllowedInstitutions(prev => [...prev, ...tokens.filter(t => !prev.includes(t))]); setConsentAllowedInstitutionsInput(''); setConsentAllowedInstitutionsInputOpen(false); }
+                         }}
+                       />
+                       )}
+                       {consentAllowedInstitutions.length > 0 && (
+                         <div className="flex flex-wrap gap-2 mt-2">
+                           {consentAllowedInstitutions.map(inst => (
+                             <span key={inst} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-base border border-primary/40 bg-primary/10 text-primary font-medium">
+                               {inst}
+                               <button type="button" className="ml-1 text-primary/60 hover:text-error transition-colors leading-none" onClick={() => setConsentAllowedInstitutions(prev => prev.filter(x => x !== inst))}>×</button>
+                             </span>
+                           ))}
+                           {!consentAllowedInstitutionsInputOpen && (
+                             <button type="button" className="btn btn-xs btn-ghost text-primary self-center" onClick={() => setConsentAllowedInstitutionsInputOpen(true)}>+ Add another institution</button>
+                           )}
+                         </div>
+                       )}
+                       <label className="label"><span className="label-text-alt">ROR IDs or institution identifiers. Required when IS modifier is set.</span></label>
                      </div>
                    )}
 
@@ -748,8 +869,35 @@ export default function UploadPage() {
                    {consentModifiers.includes('US') && (
                      <div className="form-control">
                        <label className="label"><span className="label-text font-semibold">Allowed Users {consentModifiers.includes('US') && <span className="text-error">*</span>}</span></label>
-                       <input type="text" className="input input-bordered" placeholder="User addresses or email hashes" value={consentAllowedUsers} onChange={e => setConsentAllowedUsers(e.target.value)} required={consentModifiers.includes('US')} />
-                       <label className="label"><span className="label-text-alt">Comma-separated user addresses or email hashes. Required when US modifier is set.</span></label>
+                       <input
+                         type="text"
+                         className="input input-bordered"
+                         placeholder="User address or email hash — press Enter to add"
+                         value={consentAllowedUsersInput}
+                         onChange={e => setConsentAllowedUsersInput(e.target.value)}
+                         onKeyDown={e => {
+                           if (e.key === 'Enter') {
+                             e.preventDefault();
+                             const tokens = consentAllowedUsersInput.split(',').map(s => s.trim()).filter(Boolean);
+                             if (tokens.length) { setConsentAllowedUsers(prev => [...prev, ...tokens.filter(t => !prev.includes(t))]); setConsentAllowedUsersInput(''); }
+                           }
+                         }}
+                         onBlur={() => {
+                           const tokens = consentAllowedUsersInput.split(',').map(s => s.trim()).filter(Boolean);
+                           if (tokens.length) { setConsentAllowedUsers(prev => [...prev, ...tokens.filter(t => !prev.includes(t))]); setConsentAllowedUsersInput(''); }
+                         }}
+                       />
+                       {consentAllowedUsers.length > 0 && (
+                         <div className="flex flex-wrap gap-2 mt-2">
+                           {consentAllowedUsers.map(u => (
+                             <span key={u} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-base border border-primary/40 bg-primary/10 text-primary font-medium">
+                               {u}
+                               <button type="button" className="ml-1 text-primary/60 hover:text-error transition-colors leading-none" onClick={() => setConsentAllowedUsers(prev => prev.filter(x => x !== u))}>×</button>
+                             </span>
+                           ))}
+                         </div>
+                       )}
+                       <label className="label"><span className="label-text-alt">User addresses or email hashes. Required when US modifier is set.</span></label>
                      </div>
                    )}
 
