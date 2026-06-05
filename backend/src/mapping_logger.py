@@ -19,9 +19,9 @@ Every entry also carries:
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
-import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -37,7 +37,6 @@ PROCESS_CVL = "cohort_var_linker"
 PROCESS_SCM = "standard_code_mapping"
 
 _LOG_PATH: str | None = None
-_lock = threading.Lock()
 
 
 def _get_log_path() -> str:
@@ -53,12 +52,15 @@ def _get_log_path() -> str:
 
 
 def _write_entry(entry: dict) -> None:
-    """Append a single JSON line to the log file (thread-safe)."""
+    """Append a single JSON line to the log file (cross-process safe via fcntl.flock)."""
     path = _get_log_path()
     line = json.dumps(entry, default=str, ensure_ascii=False) + "\n"
-    with _lock:
-        with open(path, "a", encoding="utf-8") as fh:
+    with open(path, "a", encoding="utf-8") as fh:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        try:
             fh.write(line)
+        finally:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
 
 
 # ── Public helpers ───────────────────────────────────────────────────
