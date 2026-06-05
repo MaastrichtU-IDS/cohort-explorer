@@ -435,6 +435,21 @@ def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
                         f"Row {i+2} (Variable: '{var_name_for_error}'): Multiple OMOP IDs are not allowed in {var_omop_id_col}. Found: '{var_omop_id_str}'. Please provide only one OMOP ID."
                     )
         
+        # All OMOP ID columns must contain integer values
+        omop_id_cols = [c for c in df.columns if "OMOP ID" in c.upper()]
+        for omop_col in omop_id_cols:
+            omop_val_str = str(row.get(omop_col, "")).strip()
+            if omop_val_str and omop_val_str.lower() != "na":
+                for part in omop_val_str.split("|"):
+                    part = part.strip()
+                    if part and part.lower() != "na":
+                        try:
+                            int(part)
+                        except ValueError:
+                            errors.append(
+                                f"Row {i+2} (Variable: '{var_name_for_error}'): Value '{part}' in column '{omop_col}' must be an integer."
+                            )
+        
         # Additional Context Concept Name requires Variable Concept Name
         if "ADDITIONAL CONTEXT CONCEPT NAME" in df.columns and "VARIABLE CONCEPT NAME" in df.columns:
             additional_context_str = str(row.get("ADDITIONAL CONTEXT CONCEPT NAME", "")).strip()
