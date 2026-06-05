@@ -7,6 +7,50 @@ interface RowData {
   [key: string]: string | number | boolean | null | undefined;
 }
 
+// Simple CSV line parser that handles quoted fields
+function parseCsvLine(line: string): string[] {
+  const result: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (char === '"') {
+      inQuotes = !inQuotes;
+    } else if (char === ',' && !inQuotes) {
+      result.push(current);
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  result.push(current);
+  return result;
+}
+
+// Transform CSV text from _full.csv pairs files into preview rows
+function transformCsvDataForPreview(csvText: string, cohorts: string[]): RowData[] {
+  const lines = csvText.trim().split('\n').filter(l => l.trim() !== '');
+  if (lines.length < 2) return [];
+  const headers = parseCsvLine(lines[0]).map(h => h.trim());
+  const targetStudy = cohorts && cohorts.length > 1 ? cohorts[1] : '';
+  return lines.slice(1).map(line => {
+    const values = parseCsvLine(line);
+    const csvRow: Record<string, string> = {};
+    headers.forEach((h, i) => { csvRow[h] = (values[i] || '').trim(); });
+    return {
+      s_source: csvRow['source'] || '',
+      s_label: csvRow['slabel'] || '',
+      target_study: targetStudy,
+      target: csvRow['target'] || '',
+      target_label: csvRow['tlabel'] || '',
+      mapping_relation: csvRow['mapping type'] || '',
+      source_categories_codes_labels: '',
+      target_categories_codes_labels: '',
+      harmonization_status: '',
+    } as RowData;
+  }).filter(row => row.s_source || row.target);
+}
+
 // Helper function to extract relevant fields from the mapping JSON
 function transformMappingDataForPreview(jsonData: any): RowData[] {
   let allMappings: RowData[] = [];
@@ -335,8 +379,14 @@ export default function MappingPage() {
         credentials: 'include',
       });
       if (!response.ok) throw new Error('Failed to fetch file');
-      const jsonData = await response.json();
-      const previewData = transformMappingDataForPreview(jsonData);
+      let previewData: RowData[];
+      if (file.filename.endsWith('.csv')) {
+        const csvText = await response.text();
+        previewData = transformCsvDataForPreview(csvText, file.cohorts);
+      } else {
+        const jsonData = await response.json();
+        previewData = transformMappingDataForPreview(jsonData);
+      }
       setMappingOutput(previewData);
       // Set the source cohort from the file's first cohort for the EDA comparison feature
       if (file.cohorts && file.cohorts.length > 0) {

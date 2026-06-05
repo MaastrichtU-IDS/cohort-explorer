@@ -232,34 +232,25 @@ async def get_available_mapping_files(
     
     available_mappings = []
     
-    # Scan directory for .json mapping files
+    # Scan directory for _full.csv pairs files
     if os.path.exists(output_dir):
         all_files = os.listdir(output_dir)
         logger.info(f"[DEBUG] get_available_mapping_files: all files in output_dir = {all_files}")
-        json_files = [f for f in all_files if f.endswith('.json') and not f.endswith('.meta.json')]
-        logger.info(f"[DEBUG] get_available_mapping_files: json files = {json_files}")
+        csv_files = [f for f in all_files if f.endswith('_full.csv')]
+        logger.info(f"[DEBUG] get_available_mapping_files: full csv files = {csv_files}")
         for filename in all_files:
-            if not filename.endswith('.json') or filename.endswith('.meta.json'):
+            if not filename.endswith('_full.csv'):
                 continue
             
             # Parse cohort names from filename.
-            # New pattern: {cohorts}_{model}+{llm}_{mode}.json
-            # The model token contains '+' (e.g. 'biolord+no_llm').
-            # We split on '+' first to find where the model info starts,
-            # then extract cohort names from everything before it.
-            stem = filename.replace('.json', '')
+            # New pattern: {cohorts}_{model}+{llm}_{mode}_full.csv
+            # Old pattern: {cohort1}_{cohort2}_full.csv
+            # Strip the _full.csv suffix, then use '+' to distinguish formats.
+            stem = filename[:-len('_full.csv')]
             plus_idx = stem.find('+')
             if plus_idx == -1:
-                # Legacy format without '+', try old sapbert pattern
-                parts = stem.split('_')
-                try:
-                    sep_idx = parts.index('sapbert')
-                except ValueError:
-                    try:
-                        sep_idx = parts.index('biolord')
-                    except ValueError:
-                        continue
-                file_cohorts = [p.lower() for p in parts[:sep_idx]]
+                # Old format: all underscore-separated parts are cohort names
+                file_cohorts = [p.lower() for p in stem.split('_')]
             else:
                 # New format: everything before the last '_' before '+' is cohorts+model
                 before_plus = stem[:plus_idx]
@@ -282,11 +273,17 @@ async def get_available_mapping_files(
             # Create display name showing all cohorts
             display_name = ' → '.join(file_cohorts)
             
-            # Read sidecar stats (lazy-generate if missing/stale)
-            stats = _read_or_generate_meta(filepath)
+            # Count data rows (minus header) for stats
+            try:
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    row_count = max(0, sum(1 for _ in f) - 1)
+            except Exception:
+                row_count = 0
+            
+            stats = {"total_mappings": row_count}
             
             # Skip files with 0 mappings (failed or empty runs)
-            if stats and stats.get("total_mappings", 0) == 0:
+            if row_count == 0:
                 logger.info(f"[DEBUG] Skipping '{filename}': 0 total mappings")
                 continue
             
@@ -343,6 +340,16 @@ async def get_cached_mapping_file(
     
     with open(filepath, 'r', encoding='utf-8') as f:
         file_content = f.read()
+    
+    if safe_filename.endswith('.csv'):
+        return Response(
+            content=file_content,
+            media_type="text/csv",
+            headers={
+                "X-Filename": safe_filename,
+                "Access-Control-Expose-Headers": "X-Filename",
+            },
+        )
     
     # Sanitize NaN values server-side so clients don't have to
     file_content = file_content.replace("NaN", "null")
