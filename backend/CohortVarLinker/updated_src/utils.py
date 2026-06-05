@@ -17,7 +17,6 @@ import logging
 _VISIT_MONTH_RE = re.compile(r'(\d+)\s*months?', re.IGNORECASE)
 _VISIT_BASELINE_RE = re.compile(r'baseline|month\s*0|randomization', re.IGNORECASE)
 
-
 _TEMPORAL_CONTEXT_RE = re.compile(
     r'(?:'
       # Pattern A: 'at <temporal-expression>' (with optional double-stamp)
@@ -28,14 +27,25 @@ _TEMPORAL_CONTEXT_RE = re.compile(
         r'|\d+\s*(?:months?|years?|weeks?|days?)'
         r'|(?:visit\s+)?(?:month\s*)?\d+'
         r'|(?:visit\s*|v)\d+'
+
+        # NEW: follow-up expressions after "at"
+        r'|follow[-\s]*up'
+        r'|follow[-\s]*up\s+\d+\s*(?:months?|years?|weeks?|days?)'
+        r'|\d+\s*(?:months?|years?|weeks?|days?)\s+follow[-\s]*up'
       r')'
+
       # Pattern B: trailing bare 'Month12' (no 'at' prefix)
       r'|\s+Month\s*\d+\s*$'
+
       # Pattern C: '[N months] prior to randomization' (no 'at' prefix)
       r'|\s+(?:\d+\s*months?\s+)?prior\s+to\s+randomization'
+
+      # NEW Pattern D: bare '{X} month follow-up' without "at"
+      r'|\s+\d+\s*(?:months?|years?|weeks?|days?)\s+follow[-\s]*up\b'
     r')',
     re.IGNORECASE
 )
+
 def clean_label_remove_temporal_context(label: str) -> str:
     if not label:
         return label
@@ -390,9 +400,28 @@ def extract_age_range(text):
 
     return None
 
+# def determine_var_uri(cohort_id: str | URIRef, var_name: str,multi_class_categorical: list[str], binary_categorical: list[str], data_type: str = None, unit:str=None) -> tuple[URIRef, str]:
+#     print(f"data_type: {data_type}")
+#     # cohort_uri = get_cohort_uri(cohort_id)
+#     var_uri = get_var_uri(cohort_id, var_name)
+#     if var_name in binary_categorical:
+#         statistical_type_uri =  URIRef(var_uri + "/binary_class_variable")
+#         statistical_type = "binary_class_variable"
+        
+#     elif var_name in multi_class_categorical:
+#         statistical_type_uri =  URIRef(var_uri + "/multi_class_variable")
+#         statistical_type = "multi_class_variable"
+#     elif data_type  and data_type in  ["str"] and unit is None:
+#         statistical_type_uri =  URIRef(var_uri + "/qualitative_variable")
+#         statistical_type = "qualitative_variable"
+#     else:
+#         # date/time --- dosage/measurement variables variables
+#         statistical_type_uri =  URIRef(var_uri + "/continuous_variable")
+#         statistical_type = "continuous_variable"
+#     return statistical_type_uri,statistical_type
 
-
-
+# def  _uri(var_uri,str_label):
+#     return URIRef(var_uri + str_label)
 def determine_var_uri(cohort_id, var_name, multi_class_categorical, binary_categorical,
                      data_type=None, unit=None, var_label=None):
     var_uri = get_var_uri(cohort_id, var_name)
@@ -419,7 +448,6 @@ def determine_var_uri(cohort_id, var_name, multi_class_categorical, binary_categ
 
     return URIRef(var_uri + "/continuous_variable"), "continuous_variable"
     
-
 
 def parse_post_cordinating_concepts_ids(pipe_str) -> List[int]:
     if pd.isna(pipe_str) or not pipe_str: return []

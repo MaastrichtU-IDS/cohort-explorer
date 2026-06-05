@@ -5,8 +5,13 @@ from typing import List, Tuple
 from collections import deque, OrderedDict
 from llm.data_model import MappingRelation
 
-LOINC_REQUIRED_AXES = ['component', 'system', 'time_aspect']
-LOINC_IGNORABLE_AXES = ['property', 'method', 'scale_type', 'specimen']
+# LOINC_REQUIRED_AXES = ['component', 'system', 'time_aspect']
+# LOINC_IGNORABLE_AXES = ['property', 'method', 'scale_type', 'specimen']
+LOINC_REQUIRED_AXES = ["component", "time_aspect"]
+LOINC_DECISIVE_AXES = ["property"]
+LOINC_CONTEXT_AXES = ["system", "specimen"]
+LOINC_IGNORABLE_AXES = ["method", "scale_type"]
+
 VOCAB_ALIASES = {
     "snomed": "snomed", "snomedct": "snomed",
     "snomed_veterinary": "snomed veterinary", "snomedct_veterinary": "snomed veterinary",
@@ -43,18 +48,6 @@ EQUIV_REL_NAMES = frozenset({
     "cpt4 - loinc eq", "loinc - cpt4 eq",
 })
 
-# ── Multi-target mapper detection ──
-# OMOP's ``maps_to`` is a MAPPING relationship, not a semantic equivalence.
-# For single-ingredient concepts it behaves like 1:1 equivalence, but
-# combination/multi-ingredient products (e.g. "furosemide + spironolactone")
-# ``maps_to`` EACH ingredient separately.  Naively chaining through them
-# merges unrelated drug classes.
-#
-# We detect these at index-build time: any concept with ≥2 outgoing
-# ``maps_to`` edges is a "multi-target mapper" (combination product).
-# During equivalence closure BFS the node is included but equivalence is
-# NOT propagated through it, breaking the false bridge.
-
 
 # class BlockingFilter:
 #     __slots__ = ('_check_fn', 'blocked', 'passed', 'equiv_class', 'source')
@@ -80,6 +73,26 @@ EQUIV_REL_NAMES = frozenset({
 #             name = graph.get_node_attr(tid, 'name') if graph else str(tid)
 #             lines.append(f"  ✗ {tid} ({name}) — {reason}")
 #         return "\n".join(lines)
+
+def _compatible_loinc_property(src_prop: str, tgt_prop: str) -> bool:
+    s, t = src_prop.lower().strip(), tgt_prop.lower().strip()
+
+    if s == t:
+        return True
+
+    if "entitic" in s or "entitic" in t:
+        return False
+
+    concentration_terms = (
+        "mass/volume",
+        "moles/volume",
+        "mol/volume",
+        "substance concentration",
+        "mass concentration",
+        "molar concentration",
+    )
+
+    return any(x in s for x in concentration_terms) and any(x in t for x in concentration_terms)
 
 
 class OmopGraphNX:
@@ -435,43 +448,94 @@ class OmopGraphNX:
     #     return {'is_match': not mismatched,
     #             'matched': matched, 'mismatched': mismatched or ignored}
 
+    
     def compare_loinc_axes(self, sid: int, tid: int) -> dict:
         try:
             sid, tid = int(sid), int(tid)
         except (ValueError, TypeError):
-            return {'is_match': False, 'reason': 'invalid IDs'}
+            return {"is_match": False, "reason": "invalid IDs"}
 
         sa, ta = self.get_loinc_axes(sid), self.get_loinc_axes(tid)
 
-        matched, mismatched = [], []
+        matched = []
+        mismatched = []
+        context_mismatched = []
+        ignored = []
 
         for ax in LOINC_REQUIRED_AXES:
             s, t = sa.get(ax), ta.get(ax)
+            s_label = str(s[1]).lower().strip() if s else ""
+            t_label = str(t[1]).lower().strip() if t else ""
+
+            if not s or not t or s[0] != t[0]:
+                mismatched.append((ax, s_label, t_label))
+            else:
+                matched.append((ax, s_label))
+
+        if mismatched:
+            return {
+                "is_match": False,
+                "axis_status": "required_axis_mismatch",
+                "matched": matched,
+                "mismatched": mismatched,
+                "context_mismatched": context_mismatched,
+                "ignored": ignored,
+                "source_axes": sa,
+                "target_axes": ta,
+            }
+
+        for ax in LOINC_DECISIVE_AXES:
+            s, t = sa.get(ax), ta.get(ax)
+            s_label = str(s[1]).lower().strip() if s else ""
+            t_label = str(t[1]).lower().strip() if t else ""
 
             if not s or not t:
-                mismatched.append((ax, s, t))
-                continue
-
-            if s[0] == t[0]:
-                matched.append((ax, s[1]))
+                mismatched.append((ax, s_label, t_label))
+            elif s[0] == t[0] or _compatible_loinc_property(s_label, t_label):
+                matched.append((ax, s_label if s[0] == t[0] else f"compatible: {s_label} ↔ {t_label}"))
             else:
-                mismatched.append((ax, s[1], t[1]))
+                mismatched.append((ax, s_label, t_label))
 
-        ignored = [
-            (a, sa[a][1], ta[a][1])
-            for a in LOINC_IGNORABLE_AXES
-            if a in sa and a in ta and sa[a][0] != ta[a][0]
-        ]
+        if mismatched:
+            return {
+                "is_match": False,
+                "axis_status": "decisive_axis_mismatch",
+                "matched": matched,
+                "mismatched": mismatched,
+                "context_mismatched": context_mismatched,
+                "ignored": ignored,
+                "source_axes": sa,
+                "target_axes": ta,
+            }
+
+        for ax in LOINC_CONTEXT_AXES:
+            s, t = sa.get(ax), ta.get(ax)
+            s_label = str(s[1]).lower().strip() if s else ""
+            t_label = str(t[1]).lower().strip() if t else ""
+
+            if s and t and s[0] == t[0]:
+                matched.append((ax, s_label))
+            elif s and t:
+                context_mismatched.append((ax, s_label, t_label))
+
+        for ax in LOINC_IGNORABLE_AXES:
+            s, t = sa.get(ax), ta.get(ax)
+            s_label = str(s[1]).lower().strip() if s else ""
+            t_label = str(t[1]).lower().strip() if t else ""
+
+            if s and t and s[0] != t[0]:
+                ignored.append((ax, s_label, t_label))
 
         return {
-            'is_match': not mismatched,
-            'matched': matched,
-            'mismatched': mismatched,
-            'ignored': ignored,
-            'source_axes': sa,
-            'target_axes': ta,
+            "is_match": True,
+            "axis_status": "core_property_match_context_diff" if context_mismatched else "core_property_match",
+            "matched": matched,
+            "mismatched": [],
+            "context_mismatched": context_mismatched,
+            "ignored": ignored,
+            "source_axes": sa,
+            "target_axes": ta,
         }
-
     # ══════════════════════════════════════════════════════════════════
     # Matching methods
     # ══════════════════════════════════════════════════════════════════
@@ -483,6 +547,156 @@ class OmopGraphNX:
             if self.get_node_attr(tid, "concept_name").lower() == start_name:
                 exact.add(tid)
         return exact
+    def _is_blocked_sibling_match(self, src: int, tid: int, allowed: int) -> bool:
+        # First use your existing ancestor-overlap sibling detector
+        # if self.is_sibling_path(src, tid, max_hops=allowed):
+        #     return True
+
+        # Then use explain_path because it already detects mixed is_a + subsumes paths
+        p = self.explain_path(src, tid, max_depth=allowed + 2)
+        # print(f"explain_path= {p}")
+        return p.get("path_type") == "sibling"
+
+    # ══════════════════════════════════════════════════════════════════
+    # Monotone hierarchical path validation
+    # ──────────────────────────────────────────────────────────────────
+    # A genuine SKOS broader/narrower mapping requires a *monotone* chain
+    # of subsumption edges (all in the same direction), possibly inter-
+    # leaved with equivalence rewrites (which are direction-neutral —
+    # see SKOS section 10.4 and OWL is_a transitivity). A path that goes
+    # UP then DOWN (or vice versa) is a *sibling-via-pivot* path and must
+    # not be reported as broader/narrower.
+    #
+    # We also gate every match by *semantic-type compatibility*: a Drug
+    # ingredient cannot legitimately be a "broader/narrower" of a
+    # Procedure/Regimen, even when a single OMOP edge bridges them —
+    # such edges are vocabulary-bridge artifacts of the OMOP CDM, not
+    # genuine subsumption (OMOP CDM v5.4 Vocabulary chapter).
+    # ══════════════════════════════════════════════════════════════════
+
+    # Coarse OMOP "domain kinds" inferred from vocabulary alone. This is
+    # deliberately generic — no hard-coded concept IDs. Vocabularies that
+    # span multiple domains (notably SNOMED CT) fall back to 'unknown',
+    # which the compatibility check treats permissively.
+    _VOCAB_KIND = {
+        # Drug / substance vocabularies
+        "rxnorm": "drug", "rxnorm extension": "drug",
+        "atc": "drug", "ndfrt": "drug", "ndc": "drug",
+        "cvx": "drug", "hcpcs": "drug",
+        # Measurement / lab vocabularies
+        "loinc": "measurement", "ucum": "measurement",
+        # Procedure-only vocabularies
+        "cpt4": "procedure", "icd9proc": "procedure", "icd10pcs": "procedure",
+        # Condition-only vocabularies
+        "icd10": "condition", "icd10cm": "condition", "icd9cm": "condition",
+        # Genomic / other
+        "omop genomic": "measurement",
+    }
+
+    # SNOMED concept_class → kind. SNOMED is multi-domain so we resolve
+    # by concept_class (which OMOP carries as a first-class field).
+    # Keep this list small and generic; unknown classes fall through.
+    _SNOMED_CLASS_KIND = {
+        "clinical finding": "condition",
+        "disorder": "condition",
+        "finding": "condition",
+        "morph abnormality": "condition",
+        "event": "condition",
+        "procedure": "procedure",
+        "regime/therapy": "procedure",
+        "context-dependent": "procedure",
+        "social context": "observation",
+        "observable entity": "measurement",
+        "measurement": "measurement",
+        "lab test": "measurement",
+        "staging / scales": "measurement",
+        "substance": "drug",
+        "pharma/biol product": "drug",
+        "physical object": "device",
+        "qualifier value": "qualifier",
+        "body structure": "anatomy",
+    }
+
+    def _concept_kind(self, cid: int) -> str:
+        """Return a coarse OMOP-domain category for *cid*.
+
+        Categories: drug, condition, measurement, procedure, observation,
+        device, anatomy, qualifier, unknown.
+
+        Resolution order:
+          1. Vocabulary-only rule (e.g. RxNorm → drug, LOINC → measurement).
+          2. SNOMED/multi-domain vocab → look up concept_class.
+          3. Fallback to 'unknown' (permissive at the compatibility gate).
+        """
+        v = self.get_node_attr(cid, "vocabulary").lower().strip()
+        v = VOCAB_ALIASES.get(v, v)
+        kind = self._VOCAB_KIND.get(v)
+        if kind:
+            return kind
+        cc = self.get_node_attr(cid, "concept_class").lower().strip()
+        return self._SNOMED_CLASS_KIND.get(cc, "unknown")
+
+    def _is_compatible_kind(self, src: int, tgt: int) -> bool:
+        """True iff src and tgt are in compatible OMOP domain categories.
+
+        Permissive on 'unknown' (missing/unmapped metadata should not block
+        legitimate matches). A genuine cross-vocab hierarchical mapping
+        (e.g. RxNorm drug → ATC drug class) is always within-kind once
+        both sides are resolved.
+        """
+        ks = self._concept_kind(src)
+        kt = self._concept_kind(tgt)
+        if ks == "unknown" or kt == "unknown":
+            return True
+        return ks == kt
+
+    def _monotone_hierarchical_depth(
+        self, src: int, tgt: int, direction: str, max_depth: int
+    ) -> int:
+        """Shortest *monotone* hierarchical hop-count from src to tgt.
+
+        A monotone path uses **only** is_a edges (direction='up') OR
+        **only** subsumes edges (direction='down'), with equivalence
+        edges allowed *anywhere* as direction-neutral rewrites
+        (equivalence does not count toward depth).
+
+        Returns the number of hierarchical hops, or ``-1`` if no monotone
+        path of length ≤ max_depth exists.
+
+        This is a layered BFS on the quotient graph G / ≡ where each
+        equivalence class is contracted to a single node, eliminating
+        sibling-via-pivot false positives by construction.
+        """
+        if src == tgt or max_depth <= 0:
+            return 0 if src == tgt else -1
+        adj = self._isa_succ if direction == "up" else self._subs_succ
+
+        # Frontier of *equivalence-closed* layers. layer_k = all nodes
+        # reachable from src using exactly k hierarchical hops (with
+        # arbitrary equiv hops between them).
+        eq = self._equiv_closure(src)
+        if tgt in eq:
+            return 0  # equivalent, distance 0 — caller handles separately
+        visited = set(eq)
+        frontier = set(eq)
+        for depth in range(1, max_depth + 1):
+            next_frontier = set()
+            for u in frontier:
+                for v in adj.get(u, ()):
+                    if v in visited:
+                        continue
+                    # Expand v through equivalence (free hops, no direction change).
+                    v_eq = self._equiv_closure(v)
+                    if tgt in v_eq:
+                        return depth
+                    new = v_eq - visited
+                    if new:
+                        visited |= new
+                        next_frontier |= new
+            if not next_frontier:
+                return -1
+            frontier = next_frontier
+        return -1
 
     def source_to_targets_paths(self, start, target_ids, max_depth=3, checking_method='omop'):
         try:
@@ -524,42 +738,74 @@ class OmopGraphNX:
                         results.append((tid, MappingRelation.SymbolicCloseMatch.value))
 
         remaining = resolved - handled
-        if remaining:
-       
+        if not remaining:
+            return results
 
-            ancestors   = self._bfs_dir(eq, max_depth + 2, 'up')
-            descendants = self._bfs_dir(eq, max_depth + 2, 'down')
+        for tid in remaining:
+            vg = self.get_node_attr(tid, "vocabulary").lower()
+            allowed = self._allowed_depth(vs, vg, max_depth)
 
-            for tid in remaining:
-                vg = self.get_node_attr(tid, "vocabulary").lower()
-                allowed = self._allowed_depth(vs, vg, max_depth)
+            # ── Gate 1: semantic-type / domain compatibility ──
+            # A genuine SKOS broader/narrower mapping requires both
+            # concepts to share an OMOP domain kind. Cross-domain
+            # edges in the OMOP graph (e.g. Drug→Procedure) are
+            # vocabulary-bridge artifacts, not real subsumption.
+            if not self._is_compatible_kind(start, tid):
+                continue
 
-                # Forward: from src, walk hierarchy
-                if tid in ancestors and ancestors[tid] <= allowed:
-                    results.append((tid, MappingRelation.SymbolicBroadMatch.value))
-                    continue
-                if tid in descendants and descendants[tid] <= allowed:
-                    results.append((tid, MappingRelation.SymbolicNarrowMatch.value))
-                    continue
+            # ── Gate 2: monotone hierarchical path ──
+            # Try src→tgt going UP (tgt is ancestor → broader match).
+            up_hops = self._monotone_hierarchical_depth(
+                start, tid, direction="up", max_depth=allowed
+            )
+            if up_hops > 0:
+                # Final sibling sanity-check on the actual annotated path.
+                if not self._is_blocked_sibling_match(start, tid, allowed):
+                    results.append(
+                        (tid, MappingRelation.SymbolicBroadMatch.value)
+                    )
+                continue
 
-                # Reverse: from tgt, walk hierarchy back into src's equiv closure
-                tgt_eq = self._equiv_closure(tid)
-                tgt_anc = self._bfs_dir(tgt_eq, allowed, 'up')      # tgt is descendant of src?
-                hit = next(((n, tgt_anc[n]) for n in tgt_anc if n in eq), None)
-                if hit is not None:
-                    results.append((tid, MappingRelation.SymbolicNarrowMatch.value))
-                    continue
+            # Try src→tgt going DOWN (tgt is descendant → narrower match).
+            down_hops = self._monotone_hierarchical_depth(
+                start, tid, direction="down", max_depth=allowed
+            )
+            if down_hops > 0:
+                if not self._is_blocked_sibling_match(start, tid, allowed):
+                    results.append(
+                        (tid, MappingRelation.SymbolicNarrowMatch.value)
+                    )
+                continue
 
-                tgt_desc = self._bfs_dir(tgt_eq, allowed, 'down')   # tgt is ancestor of src?
-                hit = next(((n, tgt_desc[n]) for n in tgt_desc if n in eq), None)
-                if hit is not None:
-                    results.append((tid, MappingRelation.SymbolicBroadMatch.value))
-                    continue
+            # ── Gate 3: reverse-direction monotone proof ──
+            # If tgt→src goes UP monotonically, then src is an ancestor
+            # of tgt, i.e. tgt is a NARROWER match for src. Equivalently
+            # for tgt→src DOWN ⇒ tgt is BROADER. This catches cross-
+            # vocab cases the forward search misses when equivalence
+            # bridging happens deep in tgt's hierarchy.
+            up_rev = self._monotone_hierarchical_depth(
+                tid, start, direction="up", max_depth=allowed
+            )
+            if up_rev > 0:
+                if not self._is_blocked_sibling_match(start, tid, allowed):
+                    results.append(
+                        (tid, MappingRelation.SymbolicNarrowMatch.value)
+                    )
+                continue
 
-                # Fallback (mixed paths, sibling-via-pivot, etc.)
-                dists = self._sssp_lengths(start, cutoff=max_depth + 2)
-                if tid in dists and dists[tid] <= allowed and not self.is_sibling_path(start, tid):
-                    results.append((tid, MappingRelation.SymbolicCloseMatch.value))
+            down_rev = self._monotone_hierarchical_depth(
+                tid, start, direction="down", max_depth=allowed
+            )
+            if down_rev > 0:
+                if not self._is_blocked_sibling_match(start, tid, allowed):
+                    results.append(
+                        (tid, MappingRelation.SymbolicBroadMatch.value)
+                    )
+                continue
+            # No monotone path within budget → not a hierarchical match.
+            # We intentionally drop the previous SSSP-based fallback:
+            # any path that requires a non-monotone (V-shaped) traversal
+            # is a sibling/cousin relationship, not broader/narrower.
         return results
 
     # ══════════════════════════════════════════════════════════════════
@@ -1061,7 +1307,7 @@ def run_pair_tests(omop_nx):
         (4248525, 4060832, True,
          "lying systolic BP vs systolic BP (parent-child)"),
         (4248525, 4326744, False,
-         "lying systolic BP vs blood pressure (grandparent-child)"),
+         "lying systolic BP vs blood pressure (too broad"),
 
         # ── Drug cross-vocab: unrelated vs related ──
         (4306892, 21601810, False,
@@ -1111,7 +1357,13 @@ def run_pair_tests(omop_nx):
           (1314002, 21601665, True,
          "Atenolol vs BETA BLOCKING AGENTS"),
          (3000963,3009744, False,
-         "hemoglobin [mass/volume] in blood vs mchc [mass/volume] by automated count")
+         "hemoglobin [mass/volume] in blood vs mchc [mass/volume] by automated count"),
+         (3005456,3023103, True,
+         "Potassium [Moles/volume] in Serum or Plasma vs Potassium [Moles/volume] in Blood"),
+         (21601665,1332418, False,
+         "beta blocking agents vs amlodipine"),
+           (1326303,1243623, False,
+         "digoxin vs inotropic therapy"),
     ]
 
     passed = failed = 0
@@ -1146,4 +1398,6 @@ def run_pair_tests(omop_nx):
 
     print(f"\n  Pair tests: {passed} passed, {failed} failed, {passed + failed} total")
     return failed == 0
+    
+   
 

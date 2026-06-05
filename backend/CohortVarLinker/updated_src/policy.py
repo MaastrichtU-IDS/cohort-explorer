@@ -1,13 +1,5 @@
 """
-policy.py — Per-mode decision functions.
-
-Each policy is a pure function: (mode, structural, llm, timepoint) -> Verdict.
-The level is computed exactly once.
-
-The cap collapsed two distinct LLM verdicts (COMPATIBLE, PARTIAL) into a
-single output level (PARTIAL), making MatchLevel.COMPATIBLE structurally
-unreachable in NE+LLM mode. This module replaces those three steps with
-one explicit decision per mode.
+Each policy is a pure function which takes mapping mode, structural evidence, llm evidence and timepoint information to draw  Verdict.
 """
 
 from __future__ import annotations
@@ -37,15 +29,18 @@ def _extra_info_from_llm(extra: dict, llm: Optional[LLMEvidence]) -> dict:
 
     if llm is not None:
         if llm.transform_direction:
-            out["transformation_direction"] = llm.transform_direction
+            out["transform_direction"] = llm.transform_direction
         if llm.transform:
             out["llm_transform"] = llm.transform
         out["llm_verdict"] = llm.verdict
         out["llm_confidence"] = llm.confidence
-        print(out)
+        hv = (getattr(llm, "harmonized_variable", None) or "").strip()
+        if hv:
+            out["harmonized_variable"] = hv
+        # print(out)
     return out
 def _demote_hierarchical(s: StructuralEvidence) -> tuple[MatchLevel, TransformationType, str]:
-    print(s)
+    # print(s)
     relation = s.extra.get("mapping_relation", "")
     if MappingRelation.is_hierarchical(relation) and s.level in (
         MatchLevel.IDENTICAL, MatchLevel.COMPATIBLE
@@ -249,3 +244,76 @@ def should_consult_llm(s: StructuralEvidence) -> bool:
         return False
     # PARTIAL is genuinely ambiguous — let the LLM weigh in.
     return True
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Source-claim early-exit support
+#
+# When a source variable is matched to a target with verdict COMPLETE or
+# COMPATIBLE, we can skip the LLM on the same source's remaining ambiguous
+# candidates ("source claim"). This requires a defensible per-source
+# ordering so the *best* candidate gets the LLM first; otherwise a mediocre
+# COMPATIBLE could claim the source before the LLM ever sees an IDENTICAL
+# one further down the list.
+# Ordering is built entirely from structural-layer signals that already
+# exist on the candidate row.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+# Lower rank = considered first. Hierarchical relations are pushed last
+# because _demote_hierarchical will demote them in policy anyway.
+_RELATION_RANK = {
+    MappingRelation.SymbolicExactMatch.value:   0,
+    MappingRelation.SymbolicCloseMatch.value:   1,
+    MappingRelation.NeuralMatch.value:          2,
+    MappingRelation.SymbolicNarrowMatch.value:  3,
+    MappingRelation.SymbolicBroadMatch.value:   4,
+}
+
+# Lower rank = considered first.
+_CTX_RANK = {
+    ContextMatchType.EXACT.value:           0,
+    ContextMatchType.SUBSUMED.value:        1,
+    ContextMatchType.COMPATIBLE.value:      2,
+    ContextMatchType.PARTIAL.value:         3,
+    ContextMatchType.PENDING.value:         4,
+    ContextMatchType.NOT_APPLICABLE.value:  5,
+}
+
+
+def llm_priority_key(structural: StructuralEvidence) -> tuple:
+    """Per-candidate ordering for source-claim early-exit.
+
+    Returns a tuple suitable for ``sorted(key=...)``. Smaller values come
+    first, i.e. the candidate most likely to be the source's best match
+    gets the LLM call first.
+
+    Ordering rationale (all already-computed structural signals):
+      1. ``needs_review=False`` before ``needs_review=True``. A handler
+         that produced a confident PARTIAL is more likely to flip to
+         COMPATIBLE/COMPLETE under the LLM than one that punted.
+      2. SymbolicExactMatch → SymbolicCloseMatch → NeuralMatch →
+         hierarchical. This is the candidate generator's own ranking.
+      3. EXACT → SUBSUMED → COMPATIBLE → PARTIAL → PENDING context.
+      4. sim_score as a final tiebreaker only (descending).
+    """
+    extra = structural.extra or {}
+    relation = (extra.get("mapping_relation") or "").strip().lower()
+    # context_match_type is an IntEnum value (int), not a string — leave as-is.
+    ctx_type = extra.get("context_match_type")
+    try:
+        sim_score = float(extra.get("sim_score") or 0.0)
+    except (TypeError, ValueError):
+        sim_score = 0.0
+
+    return (
+        1 if structural.needs_review else 0,
+        _RELATION_RANK.get(relation, 99),
+        _CTX_RANK.get(ctx_type, 99),
+        -sim_score,
+    )
+
+
+# Verdicts that claim the source and shut down further LLM calls for it.
+# PARTIAL is deliberately excluded — a PARTIAL doesn't harmonize the
+# source, so a later candidate might still produce a real match.
+CLAIMING_VERDICTS = frozenset({"COMPLETE", "COMPATIBLE"})

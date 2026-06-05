@@ -20,7 +20,7 @@ from .utils import setup_logger, clean_label_remove_temporal_context
 
 from sklearn.metrics.pairwise import cosine_similarity as cos_sim
 
-# logger = setup_logger('llm_matcher.log')
+logger = setup_logger('llm_matcher.log')
 
 def _node_to_profile_cols(node: VariableNode, side: str) -> Dict[str, Any]:
     """Flatten VariableNode profile fields into prefixed DataFrame columns.
@@ -91,21 +91,16 @@ class NeuroSymbolicMatcher:
         self.mapping_mode = mapping_mode
         self.llm_matcher = None
         self.similarity_threshold = similarity_threshold
-        # self.floor_threshold = floor_threshold
-        #self.similarity_threshold = 0.5 if mapping_mode == MappingType.NE.value else self.similarity_threshold
+        
         if llm_model is not None:
             self.llm_matcher = LLMConceptMatcher(
                             models=[llm_model],
                             temperature=0, mode=mapping_mode)
-        # self.unit_converter = (UnitConverter.from_csv(unit_csv)
-        #                        if unit_csv else UnitConverter())
-        # (f"similarity threshold: {self.similarity_threshold} for model: {embed_model.model_name}")
+   
 
 
-    # =================================================================
+
     # Vector query text for Qdrant search
-    # =================================================================
-
     def _vector_query(self, node: VariableNode) -> str:
         """Build query text for vector DB search from a VariableNode."""
         query = clean_label_remove_temporal_context(node.description or node.name)
@@ -200,9 +195,9 @@ class NeuroSymbolicMatcher:
 
 
 
-    # =================================================================
+
     # Derived Variables (dict-based, converted at call site)
-    # =================================================================
+
 
     def _extend_with_derived_variables(
         self,
@@ -334,9 +329,9 @@ class NeuroSymbolicMatcher:
         return final_results
 
 
-    # =================================================================
+
     # Main Matching — Pipeline modularized
-    # =================================================================
+
     def generate_candidates(self, src_collection, tgt_collection, target_study):
         """Phase 1: Discover candidates via Graph and Vector DB."""
         final_matches = []
@@ -359,8 +354,7 @@ class NeuroSymbolicMatcher:
             src_grouped = src_collection._by_omop_id or {}
             tgt_map = tgt_collection._by_omop_id or {}
             unique_tgt_ids = tgt_collection.omop_ids
-        # print(f"tgt_name_to_desc.values()[0] = {tgt_name_to_desc.values()[0]}")
-        # print(f"tgt_by_desc.values()[0] = {tgt_by_desc.values()[0]}")
+   
         use_graph = bool(self.graph) and not is_ne
         use_vector = (self.vector_db is not None and self.embed_model is not None
                       and self.mapping_mode != MappingType.OO.value)
@@ -533,7 +527,7 @@ class NeuroSymbolicMatcher:
 
         # ── Step 3: call the LLM once across all groups.
         case_ids = [f"P{i}" for i in range(len(flat_keys))]
-        # logger.info(f"  🤖 LLM Validating : {len(flat_keys)} concept pairs")
+        logger.info(f"  🤖 LLM Validating : {len(flat_keys)} concept pairs")
         grouped_results, _stats = self.llm_matcher.assess(groups, case_ids=case_ids)
 
         # ── Step 4: convert verdicts to LLMEvidence
@@ -558,7 +552,7 @@ class NeuroSymbolicMatcher:
             ev = ckey_to_evidence.get(ckey)
             if ev is not None:
                 results[idx] = ev
-
+        
         return results
 
     
@@ -656,10 +650,10 @@ class NeuroSymbolicMatcher:
             groups.append(group)
 
         case_ids = [f"P{i}" for i in range(len(flat_keys))]
-        # logger.info(f"  🤖 LLM: {len(flat_keys)} concept pairs")
+        logger.info(f"  🤖 LLM: {len(flat_keys)} concept pairs")
 
         grouped_results, stats = self.llm_matcher.assess(groups, case_ids=case_ids)
-
+        
         results = {}
         flat_pos = 0
         for grp_verdicts in grouped_results:
@@ -763,7 +757,7 @@ class NeuroSymbolicMatcher:
             src_ids_per_row.append(s_row)
             tgt_ids_per_row.append(t_row)
 
-        # print(f"🔤 Ontology cache: {len(label_cache)} label→OMOP mappings")
+        print(f"🔤 Ontology cache: {len(label_cache)} label→OMOP mappings")
 
         if self.graph is not None:
             pairs_to_check = {
@@ -772,14 +766,14 @@ class NeuroSymbolicMatcher:
                 for sid in s_ids for tid in t_ids if sid != tid
             } - align_cache.keys()
             if pairs_to_check:
-                # print(f"🧭 Resolving {len(pairs_to_check)} unique OMOP-pair alignments via graph...")
+                print(f"🧭 Resolving {len(pairs_to_check)} unique OMOP-pair alignments via graph...")
                 resolve = self.graph.source_to_targets_paths
                 aligned = 0
                 for sid, tid in pairs_to_check:
                     hit = bool(resolve(sid, {tid}, max_depth=1))
                     align_cache[(sid, tid)] = hit
                     aligned += hit
-                # print(f"✅ Alignment cache: {aligned} aligned / {len(pairs_to_check)} checked")
+                print(f"✅ Alignment cache: {aligned} aligned / {len(pairs_to_check)} checked")
 
         if self.mapping_mode == MappingType.OO.value or not all_labels:
             return df
@@ -792,11 +786,11 @@ class NeuroSymbolicMatcher:
         if new_lbls or new_ctx:
             texts = new_lbls + [f"{c} {l}" for c, l in new_ctx]
             keys  = new_lbls + [f"{c}::{l}" for c, l in new_ctx]
-            # print(f"🔤 Pre-encoding {len(texts)} NEW embeddings "
-                # f"({len(new_lbls)} labels + {len(new_ctx)} contextualized; {cached_n} reused from cache)...")
+            print(f"🔤 Pre-encoding {len(texts)} NEW embeddings "
+                f"({len(new_lbls)} labels + {len(new_ctx)} contextualized; {cached_n} reused from cache)...")
             emb_cache.update(zip(keys, model_object.embed_batch(texts, show_progress=False)))
-        # else:
-        #     print(f"🔤 All {cached_n} embeddings reused from cache — no encoding needed.")
+        else:
+            print(f"🔤 All {cached_n} embeddings reused from cache — no encoding needed.")
 
-        # print(f"✅ Cache size: {len(emb_cache)} embeddings")
+        print(f"✅ Cache size: {len(emb_cache)} embeddings")
         return df

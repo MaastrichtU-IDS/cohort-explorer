@@ -3,8 +3,6 @@ import math
 from enum import Enum, IntEnum
 from typing import Any, ClassVar, Dict, List, Optional, Set
 from pydantic import BaseModel, Field, field_validator, model_validator, computed_field
-# import re
-# from pydantic import BaseModel
 from dataclasses import dataclass
 
 @dataclass
@@ -37,10 +35,7 @@ class MappingType(str, Enum):
     OEH = "OEH" #ontology+embedding(hybrid)
     NE = "NE" #neural matching only (no ontology)
 
-# class MappingType(str, Enum):
-#     OO = "OO" #ontology_only
-#     NS = "NS" #neural symbolic matching
-#     NO = "NO" #neural only matching
+
 
 
 class ContextMatchType(IntEnum):
@@ -147,9 +142,7 @@ class StatisticalType(str, Enum):
         return aliases.get(value_lower)
 
 
-# # =============================================================================
 # # STATISTICS MODEL
-# # =============================================================================
 
 class Statistics(BaseModel):
     """Statistical profile of a variable.
@@ -206,9 +199,7 @@ class Statistics(BaseModel):
         return not (self.max_val < other.min_val or other.max_val < self.min_val)
 
 
-# # =============================================================================
 # # VARIABLE NODE MODEL
-# # =============================================================================
 
 class VariableNode(BaseModel):
     """

@@ -9,8 +9,8 @@ load_dotenv()  # reads .env into os.environ
 class Settings:
     # Thresholds
     ADAPTIVE_THRESHOLD: float = 0.55 # minimum score for adaptive retrival from vector db
-    ADAPTIVE_ALPHA = 0.9 # upper bound
-    LIMIT: int = 5 # limit for adaptive retrival from vector db
+    ADAPTIVE_ALPHA = 0.8 # upper bound
+    LIMIT: int = 10 # limit for adaptive retrival from vector db
 
     DATE_HINTS: List[str] = field(default_factory=lambda: ["visit date", "date of visit", "date of event", "event date"])
     # TOGETHER_API_KEY: str = field(default_factory=lambda: os.getenv("TOGETHER_API_KEY"))   

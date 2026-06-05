@@ -1,5 +1,4 @@
 
-# import os
 import torch
 import numpy as np
 from typing import Optional, List, Tuple
@@ -10,13 +9,12 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# =============================================================================
 # MODEL REGISTRY
-# =============================================================================
 
 MODEL_MAP = {
     # --- Biomedical domain models ---
     "cardioembed":"michiyasunaga/BioLinkBERT-large",
+    "zembed":"zeroentropy/zembed-1",
     "sapbert":  "cambridgeltl/SapBERT-from-PubMedBERT-fulltext",
     "biolord":  "FremyCompany/BioLORD-2023",
     # "coder":"GanjinZero/UMLSBert_ENG",
@@ -38,10 +36,6 @@ MODEL_MAP = {
     "qwen2":"Alibaba-NLP/gte-Qwen2-7B-instruct",
     "biobart":"GanjinZero/biobart-large",
     "sentence_sapbert": "amrothemich/sapbert-sentence-transformers"
-              # MTEB #2  (0.6B)
-    # "linq":     "Linq-AI-Research/Linq-Embed-Mistral",   # MTEB #5  (7B)
-    # NOTE: gemini-embedding-001 and text-embedding-3-large are API-only.
-    #       Use APIEmbeddingModel("gemini"|"openai", api_key=...) for those.
 
   
   
@@ -203,9 +197,7 @@ class UnifiedEmbeddingModel:
 
     def embed_text(self, text: str, is_query: bool = True) -> List[float]:
         return self.embed_batch([text], is_query=is_query)[0].tolist()
-# =============================================================================
 # API-BASED EMBEDDING MODELS  (Gemini, OpenAI — used in ADHTEB)
-# =============================================================================
 
 class APIEmbeddingModel:
     """
@@ -276,9 +268,7 @@ class APIEmbeddingModel:
         return self.embed_batch([text], is_query=is_query)[0].tolist()
 
 
-# =============================================================================
 # TOGETHER AI EMBEDDING MODELS
-# =============================================================================
 
 class FireworksEmbeddingModel:
     """
@@ -359,9 +349,7 @@ class FireworksEmbeddingModel:
         return self.embed_batch([text], is_query=is_query)[0].tolist()
 
 
-# =============================================================================
 # OLLAMA EMBEDDING MODELS
-# =============================================================================
 
 class OllamaEmbeddingModel:
     """
@@ -433,9 +421,7 @@ class OllamaEmbeddingModel:
     def embed_text(self, text: str, is_query: bool = True) -> List[float]:
         return self.embed_batch([text], is_query=is_query)[0].tolist()
 
-# =============================================================================
 # SINGLETON MANAGEMENT & FACTORY
-# =============================================================================
 
 _model_instance: Optional[UnifiedEmbeddingModel] = None
 _current_backend: Optional[str] = None

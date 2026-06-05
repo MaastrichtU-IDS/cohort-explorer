@@ -7,11 +7,11 @@ from .data_model import VariableProfileRow
 
 class VariableProfile:
     @staticmethod
-    def _fetch_chunk(chunk: list, study_name: str, graph_repo: str) -> list:
+    def _fetch_chunk(chunk: list, study_name: str) -> list:
         results = []
         try:
             values_str = " ".join(f'"{v}"' for v in chunk)
-            query = SPARQLQueryBuilder.build_statistic_query(study_name, values_str, graph_repo)
+            query = SPARQLQueryBuilder.build_statistic_query(study_name, values_str)
             response = execute_query(query)
             bindings = response.get("results", {}).get("bindings", [])
             for res in bindings:
@@ -36,12 +36,10 @@ class VariableProfile:
             print(f"Error chunk fetch: {e}")
         return results
 
-    # =================================================================
-    # New: fetch-only — O(n) per study, called once upfront
-    # =================================================================
+  
 
     @classmethod
-    def fetch_profiles(cls, var_names: list, study: str, graph_repo: str) -> pd.DataFrame:
+    def fetch_profiles(cls, var_names: list, study: str) -> pd.DataFrame:
         # Dedup while preserving order; drop derived
         vars_ = list(dict.fromkeys(v for v in var_names if not v.startswith('derived_')))
         if not vars_:
@@ -49,7 +47,7 @@ class VariableProfile:
         data = []
         chunks = [vars_[i:i + 50] for i in range(0, len(vars_), 50)]
         with ThreadPoolExecutor(max_workers=5) as executor:
-            futures = {executor.submit(cls._fetch_chunk, c, study, graph_repo): c for c in chunks}
+            futures = {executor.submit(cls._fetch_chunk, c, study): c for c in chunks}
             for f in as_completed(futures):
                 data.extend(f.result())
         df = pd.DataFrame(data)
@@ -80,14 +78,14 @@ class VariableProfile:
         return pd.concat([df_normal, df_derived], ignore_index=True)
 
     @classmethod
-    def attach_attributes(cls, df: pd.DataFrame, src_study: str, tgt_study: str, graph_repo: str) -> pd.DataFrame:
+    def attach_attributes(cls, df: pd.DataFrame, src_study: str, tgt_study: str) -> pd.DataFrame:
         """Legacy: fetch + merge in one call."""
         src_is_derived = df["source"].str.contains("derived", case=False, na=False)
         tgt_is_derived = df["target"].str.contains("derived", case=False, na=False)
         src_vars = df.loc[~src_is_derived, "source"].dropna().unique().tolist()
         tgt_vars = df.loc[~tgt_is_derived, "target"].dropna().unique().tolist()
-        src_df = cls.fetch_profiles(src_vars, src_study, graph_repo)
-        tgt_df = cls.fetch_profiles(tgt_vars, tgt_study, graph_repo)
+        src_df = cls.fetch_profiles(src_vars, src_study)
+        tgt_df = cls.fetch_profiles(tgt_vars, tgt_study)
         df = cls._merge_side(df, src_df, "source", src_is_derived)
         tgt_is_derived = df["target"].str.contains("derived", case=False, na=False)
         df = cls._merge_side(df, tgt_df, "target", tgt_is_derived)

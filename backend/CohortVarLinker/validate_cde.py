@@ -320,7 +320,7 @@ def to_int_or_none(x: Optional[str]) -> Optional[int]:
         return None
 
 def athena_headers() -> Dict[str, str]:
-   
+
      return { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"
             },
 
@@ -827,7 +827,3 @@ if __name__ == "__main__":
         # print("Usage: python validate cde_against athena system, params: input.csv output.csv")
         sys.exit(1)
     validate_dictionary(sys.argv[1], sys.argv[2])
-    # # run the athena api for simple example
-
-    # vocab, code = split_code_prefixed("loinc:LP6800-9")
-    # print(fetch_athena(code, vocab))

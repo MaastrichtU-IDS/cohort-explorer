@@ -1,5 +1,17 @@
 """
 verdict.py — Immutable contracts for the matching pipeline.
+
+These dataclasses define the data flow between pipeline stages:
+
+  StructuralEvidence  ← produced by handlers in constraints.py
+  LLMEvidence         ← produced by llm_call.py (when LLM is consulted)
+  Verdict             ← produced once, by policy.decide(), never mutated
+
+The frozen=True is load-bearing: it prevents the class of bug where one
+stage rewrites another stage's output. The Compatible→Partial collapse
+in NE mode existed because `current_level` was mutable and the cap
+(constraints.py:989) overwrote the handler's verdict. With frozen
+verdicts that overwrite is a TypeError, not a silent regression.
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
@@ -43,6 +55,7 @@ class LLMEvidence:
     reason: str = ""
     transform: str = ""
     transform_direction: str = ""
+    harmonized_variable :str = ""
 
     VALID_VERDICTS = ("COMPLETE", "COMPATIBLE", "PARTIAL", "IMPOSSIBLE")
 
