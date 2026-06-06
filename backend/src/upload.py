@@ -490,7 +490,7 @@ def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
         # All three fields must have matching counts when provided
         additional_names = str(row.get("ADDITIONAL CONTEXT CONCEPT NAME", "")).strip() if "ADDITIONAL CONTEXT CONCEPT NAME" in df.columns else ""
         additional_codes = str(row.get("ADDITIONAL CONTEXT CONCEPT CODE", "")).strip() if "ADDITIONAL CONTEXT CONCEPT CODE" in df.columns else ""
-        additional_omop_ids = str(row.get("ADDITIONAL CONTEXT CONCEPT OMOP ID", "")).strip() if "ADDITIONAL CONTEXT CONCEPT OMOP ID" in df.columns else ""
+        additional_omop_ids = str(row.get("ADDITIONAL CONTEXT OMOP ID", "")).strip() if "ADDITIONAL CONTEXT OMOP ID" in df.columns else ""
         
         # Count non-empty values in each field
         names_count = len([n for n in additional_names.split("|") if n.strip()]) if additional_names and additional_names.lower() != "na" else 0
