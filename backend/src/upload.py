@@ -439,10 +439,10 @@ def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
         omop_id_cols = [c for c in df.columns if "OMOP ID" in c.upper()]
         for omop_col in omop_id_cols:
             omop_val_str = str(row.get(omop_col, "")).strip()
-            if omop_val_str and omop_val_str.lower() != "na":
+            if omop_val_str:
                 for part in omop_val_str.split("|"):
                     part = part.strip()
-                    if part and part.lower() != "na":
+                    if part:
                         try:
                             int(part)
                         except ValueError:
