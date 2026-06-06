@@ -346,6 +346,29 @@ def normalize_csv_header(file_content: str) -> str:
     
     return '\n'.join(lines)
 
+def normalize_omop_id_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize OMOP ID column values from float strings to int strings.
+    
+    Pandas reads integer columns with empty cells as float64, so e.g. 9529 becomes
+    '9529.0'. This function converts those back to clean integer strings.
+    """
+    for col in df.columns:
+        if "OMOP ID" in col.upper():
+            def _to_int_str(x):
+                s = str(x).strip()
+                if not s:
+                    return s
+                try:
+                    f = float(s)
+                    if f == int(f):
+                        return str(int(f))
+                except ValueError:
+                    pass
+                return s
+            df[col] = df[col].apply(_to_int_str)
+    return df
+
+
 def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
     """Validate a metadata dictionary DataFrame and return a list of error messages.
     
@@ -358,6 +381,9 @@ def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
     Returns:
         List of error message strings
     """
+    # Normalize OMOP ID columns from float strings to int strings before any checks
+    df = normalize_omop_id_columns(df)
+    
     errors = []
     
     # Check for duplicate variables
@@ -779,23 +805,6 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
         
         # Normalize column names using the normalize_column_name function
         df.columns = [normalize_column_name(c) for c in df.columns]
-        
-        # Normalize OMOP ID columns: pandas reads integer columns with empty cells as float
-        # (e.g. 9529 → '9529.0'), so convert back to clean integer strings
-        for col in df.columns:
-            if "OMOP ID" in col.upper():
-                def _to_int_str(x):
-                    s = str(x).strip()
-                    if not s:
-                        return s
-                    try:
-                        f = float(s)
-                        if f == int(f):
-                            return str(int(f))
-                    except ValueError:
-                        pass
-                    return s
-                df[col] = df[col].apply(_to_int_str)
         
         # print(f"POST NORMALIZATION -- COHORT {cohort_id} -- Columns: {df.columns}")
         # --- Structural Validation: Check for required columns ---
