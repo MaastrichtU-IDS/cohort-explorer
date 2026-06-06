@@ -1737,19 +1737,14 @@ async def upload_cohort(
     if not filename.endswith("_datadictionary"):
         filename += "_datadictionary"
 
-    # Store metadata file on disk in the cohorts folder with normalized headers
+    # Store metadata file on disk, preserving original headers
     metadata_path = os.path.join(cohort_info.folder_path, filename + ext)
     
-    # Read the uploaded file content and normalize just the header line
     cohort_dictionary.file.seek(0)
     file_content = cohort_dictionary.file.read().decode('utf-8')
     
-    # Normalize the header using the isolated function
-    normalized_content = normalize_csv_header(file_content)
-    
-    # Write the file with normalized header
     with open(metadata_path, "w", encoding='utf-8') as f:
-        f.write(normalized_content)
+        f.write(file_content)
 
     try:
         g = load_cohort_dict_file(metadata_path, cohort_id, source="upload_dict", user_email=user_email, filename=metadata_filename)
