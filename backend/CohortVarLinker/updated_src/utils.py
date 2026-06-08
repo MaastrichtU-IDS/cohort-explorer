@@ -430,7 +430,9 @@ def determine_var_uri(cohort_id, var_name, multi_class_categorical, binary_categ
         return URIRef(var_uri + "/binary_class_variable"), "binary_class_variable"
     if var_name in multi_class_categorical:
         return URIRef(var_uri + "/multi_class_variable"), "multi_class_variable"
-
+    # Only now does str + no unit mean free-text
+    if data_type in ["str", "string"]:
+        return URIRef(var_uri + "/qualitative_variable"), "qualitative_variable"
     # NEW: date/time variables → continuous (or a new temporal type)
     label = (var_label or "").lower()
     name  = (var_name or "").lower()
@@ -441,12 +443,10 @@ def determine_var_uri(cohort_id, var_name, multi_class_categorical, binary_categ
     )
     if is_temporal:
         return URIRef(var_uri + "/continuous_variable"), "continuous_variable"
-
-    # Only now does str + no unit mean free-text
-    if data_type in ["str"] and unit is None:
-        return URIRef(var_uri + "/qualitative_variable"), "qualitative_variable"
-
-    return URIRef(var_uri + "/continuous_variable"), "continuous_variable"
+    numeric_types = {"int", "integer", "float", "double", "numeric", "real", "decimal"}
+    if data_type in numeric_types or unit is not None:
+        return URIRef(var_uri + "/continuous_variable"), "continuous_variable"
+    return URIRef(var_uri + "/qualitative_variable"), "qualitative_variable"
     
 
 def parse_post_cordinating_concepts_ids(pipe_str) -> List[int]:

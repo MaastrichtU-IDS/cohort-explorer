@@ -49,30 +49,7 @@ EQUIV_REL_NAMES = frozenset({
 })
 
 
-# class BlockingFilter:
-#     __slots__ = ('_check_fn', 'blocked', 'passed', 'equiv_class', 'source')
 
-#     def __init__(self, check_fn, source=None, equiv_class=None):
-#         self._check_fn, self.source = check_fn, source
-#         self.blocked, self.passed, self.equiv_class = {}, set(), equiv_class or set()
-
-#     def __call__(self, tid: int) -> bool:
-#         result = self._check_fn(tid)
-#         if result:
-#             self.blocked[tid] = "hierarchically related"
-#         else:
-#             self.passed.add(tid)
-#         return result
-
-#     def summary(self, graph=None):
-#         lines = [
-#             f"Source:{self.source}" + (f" ({graph.get_node_attr(self.source, 'name')})" if graph else ""),
-#             f"Blocked:{len(self.blocked)}, Passed:{len(self.passed)}",
-#         ]
-#         for tid, reason in self.blocked.items():
-#             name = graph.get_node_attr(tid, 'name') if graph else str(tid)
-#             lines.append(f"  ✗ {tid} ({name}) — {reason}")
-#         return "\n".join(lines)
 
 def _compatible_loinc_property(src_prop: str, tgt_prop: str) -> bool:
     s, t = src_prop.lower().strip(), tgt_prop.lower().strip()
@@ -138,34 +115,7 @@ class OmopGraphNX:
         IS_A, SUBS, EQUIV = self._rel_ints()
         g = self.graph
 
-        # Resolve the "maps to" int for multi-target detection
-        rm_fwd = {r: i for i, r in g.graph.get('rel_map_rev', {}).items()}
-        print(f"forward rel = {rm_fwd}")
-        MAPTO_INT = rm_fwd.get("maps to", -1)
-        print(f"mapto edges: {MAPTO_INT}")
-        # isa_succ, subs_succ, equiv_bidir = {}, {}, {}
-        # maps_to_count = {}  # node → count of outgoing maps_to edges
-
-        # t0 = time.time()
-        # for u, v, data in g.edges(data=True):
- 
-        #     rels = data.get('all_r') or frozenset({data.get('r', 0)})
-        #     if IS_A in rels:
-        #         isa_succ.setdefault(u, set()).add(v)
-        #     if SUBS in rels:
-        #         subs_succ.setdefault(u, set()).add(v)
-        #     if rels & EQUIV:
-        #         equiv_bidir.setdefault(u, set()).add(v)
-        #         equiv_bidir.setdefault(v, set()).add(u)
-        #     if MAPTO_INT in rels:
-        #         maps_to_count[u] = maps_to_count.get(u, 0) + 1
-
-        # self._isa_succ = {k: frozenset(v) for k, v in isa_succ.items()}
-        # self._subs_succ = {k: frozenset(v) for k, v in subs_succ.items()}
-        # self._equiv_bidir = {k: frozenset(v) for k, v in equiv_bidir.items()}
-        # self._multi_target_mappers = frozenset(
-        #     u for u, c in maps_to_count.items() if c > 1)
-
+      
         isa_succ, subs_succ, equiv_bidir = {}, {}, {}
         equiv_targets = {}  # Track fan-out for ALL equivalence types
 
@@ -182,9 +132,7 @@ class OmopGraphNX:
             if rels & EQUIV:
                 equiv_bidir.setdefault(u, set()).add(v)
                 equiv_bidir.setdefault(v, set()).add(u)
-                # Track the outgoing equivalence to detect hubs
                 equiv_targets.setdefault(u, set()).add(v)
-
         self._isa_succ = {k: frozenset(v) for k, v in isa_succ.items()}
         self._subs_succ = {k: frozenset(v) for k, v in subs_succ.items()}
         self._equiv_bidir = {k: frozenset(v) for k, v in equiv_bidir.items()}
@@ -195,11 +143,11 @@ class OmopGraphNX:
         )
 
         elapsed = time.time() - t0
-        print(f"[INFO] Built typed adjacency index in {elapsed:.2f}s "
-              f"(is_a:{sum(len(v) for v in self._isa_succ.values()):,}, "
-              f"subsumes:{sum(len(v) for v in self._subs_succ.values()):,}, "
-              f"equiv:{sum(len(v) for v in self._equiv_bidir.values()):,}, "
-              f"multi_target_mappers:{len(self._multi_target_mappers):,})")
+        # print(f"[INFO] Built typed adjacency index in {elapsed:.2f}s "
+        #       f"(is_a:{sum(len(v) for v in self._isa_succ.values()):,}, "
+        #       f"subsumes:{sum(len(v) for v in self._subs_succ.values()):,}, "
+        #       f"equiv:{sum(len(v) for v in self._equiv_bidir.values()):,}, "
+        #       f"multi_target_mappers:{len(self._multi_target_mappers):,})")
 
     # ══════════════════════════════════════════════════════════════════
     # Shared helpers
@@ -903,7 +851,7 @@ class OmopGraphNX:
         meta = self.graph.graph.get('meta')
         if meta is not None and 'concept_vocabulary' in meta.columns:
             c = meta['concept_vocabulary'].value_counts()
-            print(f"Total unique vocabularies:{len(c)}\n\nVocabulary distribution:\n{c}")
+            # print(f"Total unique vocabularies:{len(c)}\n\nVocabulary distribution:\n{c}")
             return c
         return None
 
@@ -916,7 +864,7 @@ class OmopGraphNX:
         if not csv_file_path:
             raise ValueError("No CSV file path provided.")
 
-        print("Reading CSV...")
+        # print("Reading CSV...")
         use_cols = [
             "concept_id_1", "concept_id_2", "relationship_id",
             "concept_vocabulary_1", "concept_vocabulary_2",
@@ -931,21 +879,21 @@ class OmopGraphNX:
         df['relationship_id'] = df['relationship_id'].str.lower()
 
         for col in ['concept_vocabulary_1', 'concept_vocabulary_2']:
-            if col in df.columns:
-                print(f"Unique vocabs:{sorted(df[col].dropna().unique())}")
+            # if col in df.columns:
+            #     print(f"Unique vocabs:{sorted(df[col].dropna().unique())}")
 
         # ── Separate LOINC axis rows from edge rows ──
         loinc_df = df[df['relationship_id'].isin(LOINC_AXIS_RELS)].copy()
         df_e = df[~df['relationship_id'].isin(LOINC_AXIS_RELS)].copy()
         df_e = df_e[df_e['relationship_id'].isin(set(EQ_RELS) | set[str](DIR_RELS))].copy()
-        print(f"df_e head\n{df_e.head()}")
-        print(f"LOINC axis:{len(loinc_df):,}, Edge rows:{len(df_e):,}")
+        # print(f"df_e head\n{df_e.head()}")
+        # print(f"LOINC axis:{len(loinc_df):,}, Edge rows:{len(df_e):,}")
 
         # ── Build node metadata ──
         c1 = {c: c[:-2] for c in actual if c.endswith('_1')}
-        print(f"c1= {c1}")
+        # print(f"c1= {c1}")
         c2 = {c: c[:-2] for c in actual if c.endswith('_2')}
-        print(f"c2= {c2}")
+        # print(f"c2= {c2}")
         all_df = pd.concat([df_e, loinc_df], ignore_index=True)
         fm = pd.concat([
             all_df[list[str](c1)].rename(columns=c1),
@@ -1026,7 +974,7 @@ class OmopGraphNX:
         self._build_typed_adjacency()
 
         self.save_graph(self.output_file)
-        print(f"[INFO] Done. Nodes:{self.graph.number_of_nodes():,}, Edges:{self.graph.number_of_edges():,}")
+        # print(f"[INFO] Done. Nodes:{self.graph.number_of_nodes():,}, Edges:{self.graph.number_of_edges():,}")
 
     def save_graph(self, path):
         out = path if path.endswith(".gz") else path + ".gz"
@@ -1039,7 +987,7 @@ class OmopGraphNX:
         }
         with gzip.open(out, "wb", compresslevel=6) as f:
             pickle.dump(bundle, f, protocol=pickle.HIGHEST_PROTOCOL)
-        print(f"[INFO] Saved to {out}")
+        # print(f"[INFO] Saved to {out}")
 
     def load_graph(self, path):
         if not path.endswith(".gz") and os.path.exists(path + ".gz"):
@@ -1056,7 +1004,7 @@ class OmopGraphNX:
             self.graph = data  # backward compat with old pickles
             self._build_typed_adjacency()
         self._IS_A = self._SUBSUMES = self._EQUIV_INTS = None
-        print(f"[INFO] Loaded {path}. Nodes:{self.graph.number_of_nodes()} Edges:{self.graph.number_of_edges()}")
+        # print(f"[INFO] Loaded {path}. Nodes:{self.graph.number_of_nodes()} Edges:{self.graph.number_of_edges()}")
 
     def clear_caches(self):
         """Clear all caches."""
@@ -1193,7 +1141,12 @@ class OmopGraphNX:
                 path, edges = _annotate_path(raw)
                 has_up = any(r == "is a" for _, _, r in edges)
                 has_down = any(r == "subsumes" for _, _, r in edges)
-                ptype = "sibling" if (has_up and has_down) else "graph_traversal"
+                has_mapto = any(r == "maps to" for _, _, r in edges)
+                has_mapfrom = any(r == "mapped from" for _, _, r in edges)
+
+                ptype = "sibling" if (
+                    (has_up and has_down) or (has_mapto and has_mapfrom)
+                ) else "graph_traversal"
                 pivot = ""
                 if ptype == "sibling":
                     for i, (_, v, r) in enumerate(edges):
@@ -1364,6 +1317,9 @@ def run_pair_tests(omop_nx):
          "beta blocking agents vs amlodipine"),
            (1326303,1243623, False,
          "digoxin vs inotropic therapy"),
+         (3001308,3007070, False, "ldl vs hdl"),
+         (21601665,1318853,False,
+         "beta blocking agents,nifedipine")
     ]
 
     passed = failed = 0
@@ -1399,5 +1355,21 @@ def run_pair_tests(omop_nx):
     print(f"\n  Pair tests: {passed} passed, {failed} failed, {passed + failed} total")
     return failed == 0
     
+# if __name__ == "__main__":
+#     start_time = time.time()
+#     csv_path = "/Users/komalgilani/phd_projects/CohortVarLinker/data/concept_relationship_enriched.csv"
+#     omop_nx = OmopGraphNX(csv_path, output_file='graph_nx.pkl.gz')
+#     run_pair_tests(omop_nx)
+#     p = omop_nx.explain_path(21601665, 1318853, max_depth=6)
+#     print(p['explanation'])
+#     for u, v, rel in p['edges']:
+#         print(f"  {u} ({omop_nx.get_node_attr(u,'name')}, {omop_nx.get_node_attr(u,'vocabulary')}) "
+#             f"--{rel}--> "
+#             f"{v} ({omop_nx.get_node_attr(v,'name')}, {omop_nx.get_node_attr(v,'vocabulary')})")
+# #     print(p['path'])        # [(21600961, name, vocab), (X, name, vocab), (3655005, name, vocab)]
+# #     print(omop_nx.get_edge_rels(p['path'][1][0], 3655005))   # every relation stored on X→365500
+
+# #     eq = omop_nx._equiv_closure(778939)
+# #     print(eq)
    
 

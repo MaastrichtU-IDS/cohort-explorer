@@ -335,18 +335,7 @@ class StudyMapper:
         matcher = self.matcher
         structurals: Dict[int, Tuple[VariableNode, VariableNode, Any]] = {}
 
-        # def _one(item: Tuple[int, Dict[str, Any]]) -> Tuple[int, Tuple[VariableNode, VariableNode, Any]]:
-        #     idx, row = item
-        #     s = VariableNode.for_match_pair(
-        #         src_col, row, side="source", study=src_study,
-        #     )
-        #     t = VariableNode.for_match_pair(
-        #         tgt_col, row, side="target", study=tgt_study,
-        #     )
-        #     ev = compute_structural(
-        #         s, t, mapping_mode=mapping_mode, matcher=matcher,
-        #     )
-        #     return idx, (s, t, ev)
+     
         def _one(item):
             idx, row = item
             try:
@@ -361,11 +350,11 @@ class StudyMapper:
             for idx, row in enumerate(recs):
                 _, triple = _one((idx, row))
                 structurals[idx] = triple
-                if (idx + 1) % 500 == 0 or (idx + 1) == n:
-                    logger.info(f"Phase A: {idx + 1}/{n}")
+                # if (idx + 1) % 500 == 0 or (idx + 1) == n:
+                #     logger.info(f"Phase A: {idx + 1}/{n}")
             return structurals
 
-        logger.info(f"Phase A: using {workers} worker threads")
+        # logger.info(f"Phase A: using {workers} worker threads")
         done = 0
         with ThreadPoolExecutor(max_workers=workers) as pool:
             futures = [pool.submit(_one, (i, r)) for i, r in enumerate(recs)]
@@ -373,8 +362,8 @@ class StudyMapper:
                 idx, triple = fut.result()
                 structurals[idx] = triple
                 done += 1
-                if done % 500 == 0 or done == n:
-                    logger.info(f"Phase A: {done}/{n}")
+                # if done % 500 == 0 or done == n:
+                #     logger.info(f"Phase A: {done}/{n}")
         return structurals
 
     # Run Pipeline
@@ -415,11 +404,11 @@ class StudyMapper:
                     col._by_omop_id = None
                     col._by_name = None
                     col._build_indexes()
-                    logger.info(f"  📎 Added {len(unmapped)} unmapped variables from {study}")
+                    # logger.info(f"  📎 Added {len(unmapped)} unmapped variables from {study}")
 
         self._enrich_with_profiles(src_col,  mapping_mode)
         self._enrich_with_profiles(tgt_col,  mapping_mode)
-        logger.info(f"📊 Parsed {len(src_col)} source, {len(tgt_col)} target variables")
+        # logger.info(f"📊 Parsed {len(src_col)} source, {len(tgt_col)} target variables")
 
         # ── Step 2: Discover Candidates ────────────
         ns_matches = self.matcher.generate_candidates(src_collection=src_col, tgt_collection=tgt_col, target_study=tgt_study)
@@ -453,10 +442,10 @@ class StudyMapper:
             recs = df.to_dict("records")
 
             # Phase A: structural evidence (collection lookup + parallel workers)
-            logger.info(
-                f"🧱 Phase A: structural evidence for {len(recs)} candidates "
-                f"(workers={min(self.phase_a_workers, len(recs))})..."
-            )
+            # logger.info(
+            #     f"🧱 Phase A: structural evidence for {len(recs)} candidates "
+            #     f"(workers={min(self.phase_a_workers, len(recs))})..."
+            # )
             structurals = self._run_phase_a_structural(
                 recs, src_col, tgt_col, src_study, tgt_study, mapping_mode,
             )
@@ -466,23 +455,23 @@ class StudyMapper:
             if self.llm_model:
                 ambiguous = [idx for idx, (_, _, ev) in structurals.items()
                               if should_consult_llm(ev)]
-                n_skipped_structural = len(recs) - len(ambiguous)
+                # n_skipped_structural = len(recs) - len(ambiguous)
 
                 if self.enable_source_claim_early_exit and ambiguous:
                     llm_evidence, n_skipped_claim = self._resolve_llm_with_source_claim(
                         ambiguous, structurals, src_study, tgt_study,
                     )
-                    logger.info(
-                        f"🤖 Phase B: LLM consulted on {len(llm_evidence)}/{len(recs)} "
-                        f"candidates "
-                        f"({n_skipped_structural} skipped by structural confidence, "
-                        f"{n_skipped_claim} skipped by source-claim early-exit)"
-                    )
+                    # logger.info(
+                    #     f"🤖 Phase B: LLM consulted on {len(llm_evidence)}/{len(recs)} "
+                    #     f"candidates "
+                    #     f"({n_skipped_structural} skipped by structural confidence, "
+                    #     f"{n_skipped_claim} skipped by source-claim early-exit)"
+                    # )
                 else:
-                    logger.info(
-                        f"🤖 Phase B: LLM consulted on {len(ambiguous)}/{len(recs)} "
-                        f"candidates ({n_skipped_structural} skipped by structural confidence)"
-                    )
+                    # logger.info(
+                    #     f"🤖 Phase B: LLM consulted on {len(ambiguous)}/{len(recs)} "
+                    #     f"candidates ({n_skipped_structural} skipped by structural confidence)"
+                    # )
                     if ambiguous:
                         llm_evidence = self.matcher.resolve_pending_with_llm(
                             ambiguous, structurals, src_study, tgt_study,
@@ -490,12 +479,14 @@ class StudyMapper:
                         )
 
             # Phase C: one policy.decide() per row, immutable verdict, single write
-            logger.info(f"⚖️  Phase C: policy decision for {len(structurals)} candidates...")
+            # logger.info(f"⚖️  Phase C: policy decision for {len(structurals)} candidates...")
             descriptions, transformations, statuses = [], [], []
+            # llm_use = True if self.llm_model else False
             for idx in range(len(recs)):
                 s, t, struct_ev = structurals[idx]
                 tp = make_timepoint_info(s, t)
-                verdict = decide(mapping_mode, struct_ev, llm_evidence.get(idx), tp)
+
+                verdict = decide(mapping_mode, struct_ev, llm_evidence.get(idx), llm_use, tp)
                 
                 details, status = verdict.to_legacy_tuple()
                 if not (details.get("harmonized_variable") or "").strip():

@@ -250,7 +250,7 @@ class SPARQLQueryBuilder:
         
     @classmethod
     def build_study_context_query(cls,study_id: str) -> str:
-
+        study_id =  study_id.replace("_", "")
         query =  f"""
         {cls.PREFIXES}
                 SELECT
