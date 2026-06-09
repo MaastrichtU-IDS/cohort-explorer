@@ -375,7 +375,7 @@ async def generate_mapping(
     target_studies should be a list of [study_name, visit_constraint_bool]
     """
     # Lazy import to avoid module-level import errors
-    from CohortVarLinker.main_llm import generate_mapping_csv
+    from CohortVarLinker.main import generate_mapping_csv
     from CohortVarLinker.src.config import settings as cohort_linker_settings
     
     # Call the backend function
