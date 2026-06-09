@@ -1,4 +1,4 @@
-from llm.config import settings
+from .config import settings
 
 
 class SPARQLQueryBuilder:

@@ -3,7 +3,7 @@ import pandas as pd
 import pickle, os, gzip, zlib, time
 from typing import List, Tuple
 from collections import deque, OrderedDict
-from llm.data_model import MappingRelation
+from .data_model import MappingRelation
 
 # LOINC_REQUIRED_AXES = ['component', 'system', 'time_aspect']
 # LOINC_IGNORABLE_AXES = ['property', 'method', 'scale_type', 'specimen']
