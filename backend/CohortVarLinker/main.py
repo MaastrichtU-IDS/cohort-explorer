@@ -206,7 +206,7 @@ def generate_mapping_csv(
     # Robust check: ensure all selected cohorts exist
    
     missing_cohorts = []
-    model_name = "sapbert"
+    model_name = "biolord"
     embedding_mode = EmbeddingType.EC.value  # embedding_concepts
     mapping_mode = MappingType.OEC.value # ontology + embedding_concepts
     # select_relevant_studies = True
