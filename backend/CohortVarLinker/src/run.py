@@ -1,12 +1,14 @@
 
 import json
+import os
+from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import pandas as pd
-# from collections import Counter
-from typing import Any, List, Tuple
+from typing import Any, Dict, List, Tuple
 from .config import settings
 from .query_builder import SPARQLQueryBuilder
 from .constraints import compute_structural, make_timepoint_info
-from .policy import decide, should_consult_llm
+from .policy import decide, should_consult_llm, llm_priority_key, CLAIMING_VERDICTS
 from .verdict import LLMEvidence
 from .data_model import (
     MappingType, VariableNode, VariableCollection,
@@ -15,13 +17,11 @@ from .data_model import (
 from .utils import setup_logger
 from .neuro_matcher import NeuroSymbolicMatcher
 from .variable_profile import VariableProfile
-
 from .graph_similarity import compute_context_scores
 from .utils import execute_query
 
-# from concurrent.futures import ThreadPoolExecutor
-# logger = setup_logger('storelog.log')
-
+from .harmonized_variable import suggest_harmonized_variable_without_llm
+logger = setup_logger('storelog.log')
 _CTX_TYPE_TO_VERDICT = {
     ContextMatchType.EXACT.value:           "COMPLETE",
     ContextMatchType.COMPATIBLE.value:      "COMPATIBLE",
@@ -40,11 +40,13 @@ def _llm_tuple_to_evidence(parsed_tuple) -> LLMEvidence:
         verdict = _CTX_TYPE_TO_VERDICT.get(ctx_type, "IMPOSSIBLE")
 
     reason = transform = transform_dir = ""
+    harmonized = ""
     try:
         d = json.loads(reason_json) if isinstance(reason_json, str) else {}
         reason = d.get("reason", "") or ""
         transform = d.get("transform", "") or ""
         transform_dir = d.get("alignment_direction", "") or ""
+        harmonized = (d.get("harmonized_variable") or "").strip()
     except (json.JSONDecodeError, TypeError):
         pass
 
@@ -54,20 +56,30 @@ def _llm_tuple_to_evidence(parsed_tuple) -> LLMEvidence:
         reason=reason,
         transform=transform,
         transform_direction=transform_dir,
+        harmonized_variable=harmonized,
     )
 
 class StudyMapper:
 
     def __init__(self, vector_db: Any, embedding_model: Any, omop_graph: Any = None,
                  vector_collection: str = "studies",
-                 mapping_mode: str = MappingType.OEH.value, llm_model:str = None):
+                 mapping_mode: str = MappingType.OEH.value, llm_model:str = None,
+                 enable_source_claim_early_exit: bool = True,
+                 phase_a_workers: int | None = None):
         self.collection_name = vector_collection
         self.llm_model = llm_model
         self.embed_model = embedding_model
         self.similarity_threshold =  self._select_mode_specific_threshold(mapping_mode)
-        # self.similarity_threshold =
 
-        # 0.6 if self.embed_model.model_name  in  else 0.8 # not using coder here
+        # When True, once a source variable is matched COMPLETE or COMPATIBLE
+        # against any target, the remaining ambiguous candidates for that
+        # source are skipped (no LLM call). This is an ablation knob —
+        # default False so paper numbers stay reproducible against the
+        # no-claim baseline.
+        self.enable_source_claim_early_exit = enable_source_claim_early_exit
+        default_workers = int(os.getenv("PHASE_A_WORKERS", "6"))
+        self.phase_a_workers = max(1, min(8, phase_a_workers or default_workers))
+
         self.matcher = NeuroSymbolicMatcher(
             vector_db,
             embed_model=embedding_model,
@@ -85,12 +97,21 @@ class StudyMapper:
     def _select_mode_specific_threshold(self, mapping_mode):
         if mapping_mode == MappingType.NE.value:
             return 0.45  # lower a bit due to low label quality
-        return settings.ADAPTIVE_THRESHOLD
+        return settings.ADAPTIVE_THRESHOLD 
     
+    # def fetch_studies_context(src_study_id:str, tgt_study_id:str):
+        
+     
+    #     src_query = SPARQLQueryBuilder.build_study_context_query(src_study_id )
+    #     tgt_query = SPARQLQueryBuilder.build_study_context_query(tgt_study_id)
+
+    #     bindings = execute_query(src_query).get("results", {}).get("bindings", [])
+    #     bindings = execute_query(tgt_query).get("results", {}).get("bindings", [])
+
     # Step 1a: SPARQL → typed VariableCollections
-    def _fetch_unmapped_variables(self, study: str, graph_repo: str, role: str = None,use_filter:bool=False) -> List[VariableNode]:
+    def _fetch_unmapped_variables(self, study: str, role: str = None,use_filter:bool=False) -> List[VariableNode]:
         """Raw unmapped variables — self-sufficient (no enrichment needed)."""
-        query = SPARQLQueryBuilder.build_unmapped_variables_query(study, graph_repo, use_filter)
+        query = SPARQLQueryBuilder.build_unmapped_variables_query(study, use_filter)
 
         bindings = execute_query(query).get("results", {}).get("bindings", [])
         nodes = []
@@ -170,28 +191,21 @@ class StudyMapper:
     # Step 1b: Enrich VariableNodes with profile data — O(n) per study
     
     @staticmethod
-    def _enrich_with_profiles(collection: VariableCollection, graph_repo: str, mapping_mode:str=MappingType.OEH.value):
+    def _enrich_with_profiles(collection: VariableCollection, mapping_mode:str=MappingType.OEH.value):
         """Fetch profiles from KG and merge INTO VariableNode attributes in-place.
-
-        After this call, every node has: statistical_type, unit, context_labels,
-        context_ids, category_labels, category_ids, original_categories, statistics.
-
-        Note: Pydantic v2 validators don't fire on attribute assignment,
-        so we parse pipe-separated strings into typed lists before setting.
         """
         var_names = [v.name for v in collection.variables]
-        # dup_counts = {name: count for name, count in Counter(var_names).items() if count > 1}
-        # if dup_counts:
-        #     logger.debug( 
-        #         "Variables with multiple OMOP alignments in %s (expected for composite-coded vars): %s",
-        #         collection.study,
-        #                     dup_counts,
-        #     )
+        dup_counts = {name: count for name, count in Counter(var_names).items() if count > 1}
+        if dup_counts:
+            logger.debug( 
+                "Variables with multiple OMOP alignments in %s (expected for composite-coded vars): %s",
+                collection.study,
+                            dup_counts,
+            )
         if not var_names:
             return
 
-
-        profiles_df = VariableProfile.fetch_profiles(var_names, collection.study, graph_repo)
+        profiles_df = VariableProfile.fetch_profiles(var_names, collection.study)
         if profiles_df.empty:
             return
 
@@ -211,9 +225,12 @@ class StudyMapper:
                     continue
             return result
 
-        # Build lookup: identifier → profile row
-        # prof_map = {row["identifier"]: row for _, row in profiles_df.iterrows()}
-        prof_map = profiles_df.set_index("identifier").to_dict("index")
+       
+        prof_map = (
+                profiles_df.drop_duplicates(subset="identifier", keep="last")
+                        .set_index("identifier")
+                        .to_dict("index")
+            )
         for node in collection.variables:
             p = prof_map.get(node.name)
             if p is None:
@@ -231,6 +248,124 @@ class StudyMapper:
                 max_val=_safe_float(p.get("max_val")),
             )
 
+    # ──────────────────────────────────────────────────────────────────
+    # Source-claim early-exit (ablation): once a source has been matched
+    # COMPLETE or COMPATIBLE, skip the LLM on its remaining ambiguous
+    # candidates. Gated by self.enable_source_claim_early_exit.
+    # ──────────────────────────────────────────────────────────────────
+    def _resolve_llm_with_source_claim(
+        self, ambiguous_indices, structurals, src_study, tgt_study,
+    ):
+        """Per-source LLM resolution with COMPLETE/COMPATIBLE early-exit.
+
+        For each source variable:
+          1. Order its ambiguous candidates by ``llm_priority_key`` so the
+             structural layer's best guess is judged first.
+          2. Call the LLM on candidates one at a time (the inner
+             ``LLMMatcher.assess()`` still uses its own ThreadPool for the
+             actual network calls — we don't add a second pool here).
+          3. Stop as soon as a verdict in ``CLAIMING_VERDICTS`` comes back.
+             Remaining candidates for that source are skipped — policy
+             then falls back to structural-only for them.
+
+        Returns
+        -------
+        (llm_evidence, n_skipped) :
+            llm_evidence : Dict[int, LLMEvidence]
+            n_skipped    : count of candidates not sent to the LLM due
+                           to source claim.
+
+        Notes
+        -----
+        * Sources are processed serially. Claim semantics require serial
+          calls within a source; parallelizing across sources would nest a
+          thread pool inside ``assess()``'s own pool, multiplying the
+          effective worker count and risking rate limits.
+        * Source identity is (name, visit); two visits of the same
+          variable are independent sources.
+        * Target-side claiming is NOT applied — a target can legitimately
+          receive multiple source mappings.
+        """
+        from collections import defaultdict
+
+        # Group ambiguous candidates by source identity, ordered.
+        by_source = defaultdict(list)
+        for idx in ambiguous_indices:
+            s, _t, ev = structurals[idx]
+            src_key = (s.name, s.visit)
+            by_source[src_key].append((idx, llm_priority_key(ev)))
+
+        for src_key in by_source:
+            by_source[src_key].sort(key=lambda pair: pair[1])
+
+        llm_evidence = {}
+        total_skipped = 0
+
+        for src_key, ordered in by_source.items():
+            claimed = False
+            for idx, _prio in ordered:
+                if claimed:
+                    total_skipped += 1
+                    continue
+                # Reuse the existing concept-key-aware path. Single-element
+                # lists preserve caching and concept dedup semantics.
+                ev_dict = self.matcher.resolve_pending_with_llm(
+                    [idx], structurals, src_study, tgt_study,
+                    tuple_to_evidence=_llm_tuple_to_evidence,
+                )
+                if idx in ev_dict:
+                    llm_evidence[idx] = ev_dict[idx]
+                    if ev_dict[idx].verdict in CLAIMING_VERDICTS:
+                        claimed = True
+
+        return llm_evidence, total_skipped
+
+    def _run_phase_a_structural(
+        self,
+        recs: List[Dict[str, Any]],
+        src_col: VariableCollection,
+        tgt_col: VariableCollection,
+        src_study: str,
+        tgt_study: str,
+        mapping_mode: str,
+    ) -> Dict[int, Tuple[VariableNode, VariableNode, Any]]:
+        """Phase A: structural evidence for all candidates (optional parallel)."""
+        n = len(recs)
+        workers = min(self.phase_a_workers, n)
+        matcher = self.matcher
+        structurals: Dict[int, Tuple[VariableNode, VariableNode, Any]] = {}
+
+     
+        def _one(item):
+            idx, row = item
+            try:
+                s = VariableNode.for_match_pair(src_col, row, side="source", study=src_study)
+                t = VariableNode.for_match_pair(tgt_col, row, side="target", study=tgt_study)
+                ev = compute_structural(s, t, mapping_mode=mapping_mode, matcher=matcher)
+                return idx, (s, t, ev)
+            except Exception as e:
+                logger.error(f"Phase A worker failed on row {idx}: {e}")
+                raise  # or return a fallback
+        if workers <= 1:
+            for idx, row in enumerate(recs):
+                _, triple = _one((idx, row))
+                structurals[idx] = triple
+                # if (idx + 1) % 500 == 0 or (idx + 1) == n:
+                #     logger.info(f"Phase A: {idx + 1}/{n}")
+            return structurals
+
+        # logger.info(f"Phase A: using {workers} worker threads")
+        done = 0
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [pool.submit(_one, (i, r)) for i, r in enumerate(recs)]
+            for fut in as_completed(futures):
+                idx, triple = fut.result()
+                structurals[idx] = triple
+                done += 1
+                # if done % 500 == 0 or done == n:
+                #     logger.info(f"Phase A: {done}/{n}")
+        return structurals
+
     # Run Pipeline
     def run_pipeline(
         self, src_study: str, tgt_study: str,
@@ -241,21 +376,29 @@ class StudyMapper:
         src_col = VariableCollection(study=src_study, variables=[])
         tgt_col = VariableCollection(study=tgt_study, variables=[])
 
+        # get studies design protocols
+        if self.llm_model:
+            from .study_context import format_study_context_block
+            study_context = format_study_context_block(src_study, tgt_study)
+            if study_context:
+                logger.info(f"📋 Study context fetched ({len(study_context)} chars):\n{study_context}")
+                # Store on the LLM matcher so assess() can prepend it to prompts.
+                self.matcher.llm_matcher.set_study_context(study_context)
         # ── Step 1a: Parse SPARQL → typed VariableCollections ─────
         if mapping_mode == MappingType.NE.value:
             src_col = VariableCollection(study=src_study,
-                variables=self._fetch_unmapped_variables(src_study, settings.GRAPH_REPO, role="source"))
+                variables=self._fetch_unmapped_variables(src_study, role="source"))
             tgt_col = VariableCollection(study=tgt_study,
-                variables=self._fetch_unmapped_variables(tgt_study, settings.GRAPH_REPO, role="target"))
+                variables=self._fetch_unmapped_variables(tgt_study, role="target"))
 
         else:
-            query = SPARQLQueryBuilder.build_alignment_query(src_study, tgt_study, settings.GRAPH_REPO)
+            query = SPARQLQueryBuilder.build_alignment_query(src_study, tgt_study)
             src_col, tgt_col = self._parse_sparql_results(query, src_study, tgt_study)
         
         # ── Step 1b: Fetch unmapped variables (OEH/NE) ─────
         if mapping_mode == MappingType.OEH.value:
             for col, study in [(src_col, src_study), (tgt_col, tgt_study)]:
-                unmapped = self._fetch_unmapped_variables(study, settings.GRAPH_REPO, use_filter=True)
+                unmapped = self._fetch_unmapped_variables(study,  use_filter=True)
                 if unmapped:
                     col.variables.extend(unmapped)
                     col._by_omop_id = None
@@ -263,8 +406,8 @@ class StudyMapper:
                     col._build_indexes()
                     # logger.info(f"  📎 Added {len(unmapped)} unmapped variables from {study}")
 
-        self._enrich_with_profiles(src_col, settings.GRAPH_REPO, mapping_mode)
-        self._enrich_with_profiles(tgt_col, settings.GRAPH_REPO, mapping_mode)
+        self._enrich_with_profiles(src_col,  mapping_mode)
+        self._enrich_with_profiles(tgt_col,  mapping_mode)
         # logger.info(f"📊 Parsed {len(src_col)} source, {len(tgt_col)} target variables")
 
         # ── Step 2: Discover Candidates ────────────
@@ -298,39 +441,64 @@ class StudyMapper:
             )
             recs = df.to_dict("records")
 
-            # Phase A: structural evidence
-            # logger.info(f"🧱 Phase A: structural evidence for {len(recs)} candidates...")
-            structurals = {}
-            for idx, row in enumerate(recs):
-     
-                s = VariableNode.from_source_row(row, study=src_study)
-                t = VariableNode.from_target_row(row, study=tgt_study)
-                ev = compute_structural(s, t, mapping_mode=mapping_mode, matcher=self.matcher)
-                structurals[idx] = (s, t, ev)
+            # Phase A: structural evidence (collection lookup + parallel workers)
+            # logger.info(
+            #     f"🧱 Phase A: structural evidence for {len(recs)} candidates "
+            #     f"(workers={min(self.phase_a_workers, len(recs))})..."
+            # )
+            structurals = self._run_phase_a_structural(
+                recs, src_col, tgt_col, src_study, tgt_study, mapping_mode,
+            )
 
             # Phase B: LLM only for ambiguous cases (symmetric pre-filter)
             llm_evidence = {}
             if self.llm_model:
                 ambiguous = [idx for idx, (_, _, ev) in structurals.items()
                               if should_consult_llm(ev)]
-                n_skipped = len(recs) - len(ambiguous)
-                logger.info(f"🤖 Phase B: LLM consulted on {len(ambiguous)}/{len(recs)} "
-                      f"candidates ({n_skipped} skipped by structural confidence)")
-                if ambiguous:
-                    llm_evidence = self.matcher.resolve_pending_with_llm(
+                # n_skipped_structural = len(recs) - len(ambiguous)
+
+                if self.enable_source_claim_early_exit and ambiguous:
+                    llm_evidence, n_skipped_claim = self._resolve_llm_with_source_claim(
                         ambiguous, structurals, src_study, tgt_study,
-                        tuple_to_evidence=_llm_tuple_to_evidence,
                     )
+                    # logger.info(
+                    #     f"🤖 Phase B: LLM consulted on {len(llm_evidence)}/{len(recs)} "
+                    #     f"candidates "
+                    #     f"({n_skipped_structural} skipped by structural confidence, "
+                    #     f"{n_skipped_claim} skipped by source-claim early-exit)"
+                    # )
+                else:
+                    # logger.info(
+                    #     f"🤖 Phase B: LLM consulted on {len(ambiguous)}/{len(recs)} "
+                    #     f"candidates ({n_skipped_structural} skipped by structural confidence)"
+                    # )
+                    if ambiguous:
+                        llm_evidence = self.matcher.resolve_pending_with_llm(
+                            ambiguous, structurals, src_study, tgt_study,
+                            tuple_to_evidence=_llm_tuple_to_evidence,
+                        )
 
             # Phase C: one policy.decide() per row, immutable verdict, single write
             # logger.info(f"⚖️  Phase C: policy decision for {len(structurals)} candidates...")
             descriptions, transformations, statuses = [], [], []
+            # llm_use = True if self.llm_model else False
             for idx in range(len(recs)):
                 s, t, struct_ev = structurals[idx]
                 tp = make_timepoint_info(s, t)
-                verdict = decide(mapping_mode, struct_ev, llm_evidence.get(idx), tp)
+
+                verdict = decide(mapping_mode, struct_ev, llm_evidence.get(idx), llm_use, tp)
                 
                 details, status = verdict.to_legacy_tuple()
+                if not (details.get("harmonized_variable") or "").strip():
+                    hv = suggest_harmonized_variable_without_llm(
+                        s,
+                        t,
+                        struct_ev,
+                        graph=self.graph,
+                        verdict_level=verdict.level,
+                    )
+                    if hv:
+                        details["harmonized_variable"] = hv
                 transformations.append(details.pop("transformation", "") or "")
                 descriptions.append(json.dumps(details, default=str, ensure_ascii=False))
                 statuses.append(status)

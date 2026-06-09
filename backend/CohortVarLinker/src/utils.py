@@ -8,16 +8,15 @@ import requests
 from thefuzz import fuzz
 import os
 import re
+import time
 import urllib.parse
 from enum import Enum
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 import logging
-import time
 
 _VISIT_MONTH_RE = re.compile(r'(\d+)\s*months?', re.IGNORECASE)
 _VISIT_BASELINE_RE = re.compile(r'baseline|month\s*0|randomization', re.IGNORECASE)
-
 
 _TEMPORAL_CONTEXT_RE = re.compile(
     r'(?:'
@@ -29,14 +28,25 @@ _TEMPORAL_CONTEXT_RE = re.compile(
         r'|\d+\s*(?:months?|years?|weeks?|days?)'
         r'|(?:visit\s+)?(?:month\s*)?\d+'
         r'|(?:visit\s*|v)\d+'
+
+        # NEW: follow-up expressions after "at"
+        r'|follow[-\s]*up'
+        r'|follow[-\s]*up\s+\d+\s*(?:months?|years?|weeks?|days?)'
+        r'|\d+\s*(?:months?|years?|weeks?|days?)\s+follow[-\s]*up'
       r')'
+
       # Pattern B: trailing bare 'Month12' (no 'at' prefix)
       r'|\s+Month\s*\d+\s*$'
+
       # Pattern C: '[N months] prior to randomization' (no 'at' prefix)
       r'|\s+(?:\d+\s*months?\s+)?prior\s+to\s+randomization'
+
+      # NEW Pattern D: bare '{X} month follow-up' without "at"
+      r'|\s+\d+\s*(?:months?|years?|weeks?|days?)\s+follow[-\s]*up\b'
     r')',
     re.IGNORECASE
 )
+
 def clean_label_remove_temporal_context(label: str) -> str:
     if not label:
         return label
@@ -192,17 +202,10 @@ def split_categories(categories: str | None) -> tuple[List[str], List[str]]:
     parts = [c.strip().lower() for c in categories.split("|") if c.strip()]
     if not parts:
         return [], []
-    # Per-part split so a mixed string like "1=Yes|2=No|3" doesn't crash:
-    # any token without '=' is treated as both the code and the label,
-    # matching the existing fallback when no token contains '='.
-    original_categories: List[str] = []
-    category_labels: List[str] = []
-    for c in parts:
-        code, sep, label = c.partition("=")
-        code = code.strip()
-        label = label.strip() if sep else code
-        original_categories.append(code)
-        category_labels.append(label)
+    if "=" not in categories:
+        return parts, parts
+    original_categories = [c.split("=")[0].strip() for c in parts]
+    category_labels = [c.split("=")[1].strip() for c in parts]
     return original_categories, category_labels
 
 
@@ -398,9 +401,28 @@ def extract_age_range(text):
 
     return None
 
+# def determine_var_uri(cohort_id: str | URIRef, var_name: str,multi_class_categorical: list[str], binary_categorical: list[str], data_type: str = None, unit:str=None) -> tuple[URIRef, str]:
+#     print(f"data_type: {data_type}")
+#     # cohort_uri = get_cohort_uri(cohort_id)
+#     var_uri = get_var_uri(cohort_id, var_name)
+#     if var_name in binary_categorical:
+#         statistical_type_uri =  URIRef(var_uri + "/binary_class_variable")
+#         statistical_type = "binary_class_variable"
+        
+#     elif var_name in multi_class_categorical:
+#         statistical_type_uri =  URIRef(var_uri + "/multi_class_variable")
+#         statistical_type = "multi_class_variable"
+#     elif data_type  and data_type in  ["str"] and unit is None:
+#         statistical_type_uri =  URIRef(var_uri + "/qualitative_variable")
+#         statistical_type = "qualitative_variable"
+#     else:
+#         # date/time --- dosage/measurement variables variables
+#         statistical_type_uri =  URIRef(var_uri + "/continuous_variable")
+#         statistical_type = "continuous_variable"
+#     return statistical_type_uri,statistical_type
 
-
-
+# def  _uri(var_uri,str_label):
+#     return URIRef(var_uri + str_label)
 def determine_var_uri(cohort_id, var_name, multi_class_categorical, binary_categorical,
                      data_type=None, unit=None, var_label=None):
     var_uri = get_var_uri(cohort_id, var_name)
@@ -409,7 +431,9 @@ def determine_var_uri(cohort_id, var_name, multi_class_categorical, binary_categ
         return URIRef(var_uri + "/binary_class_variable"), "binary_class_variable"
     if var_name in multi_class_categorical:
         return URIRef(var_uri + "/multi_class_variable"), "multi_class_variable"
-
+    # Only now does str + no unit mean free-text
+    if data_type in ["str", "string"]:
+        return URIRef(var_uri + "/qualitative_variable"), "qualitative_variable"
     # NEW: date/time variables → continuous (or a new temporal type)
     label = (var_label or "").lower()
     name  = (var_name or "").lower()
@@ -420,14 +444,11 @@ def determine_var_uri(cohort_id, var_name, multi_class_categorical, binary_categ
     )
     if is_temporal:
         return URIRef(var_uri + "/continuous_variable"), "continuous_variable"
-
-    # Only now does str + no unit mean free-text
-    if data_type in ["str"] and unit is None:
-        return URIRef(var_uri + "/qualitative_variable"), "qualitative_variable"
-
-    return URIRef(var_uri + "/continuous_variable"), "continuous_variable"
+    numeric_types = {"int", "integer", "float", "double", "numeric", "real", "decimal"}
+    if data_type in numeric_types or unit is not None:
+        return URIRef(var_uri + "/continuous_variable"), "continuous_variable"
+    return URIRef(var_uri + "/qualitative_variable"), "qualitative_variable"
     
-
 
 def parse_post_cordinating_concepts_ids(pipe_str) -> List[int]:
     if pd.isna(pipe_str) or not pipe_str: return []
