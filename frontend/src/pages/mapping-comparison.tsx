@@ -343,6 +343,94 @@ function CoverageDiffPanel({
   );
 }
 
+function ProminentCoverage({label, value, total}: {label: string; value: number; total: number | null}) {
+  const pct = total ? Math.round((value / total) * 100) : null;
+  return (
+    <div className="mb-2">
+      <div className="flex justify-between items-baseline">
+        <span className="text-xs opacity-60">{label}</span>
+        <span className="text-base font-bold leading-none">
+          {value}
+          {total != null && <span className="text-xs font-normal opacity-50">/{total}</span>}
+          {pct != null && <span className="text-xs font-semibold opacity-70 ml-1">{pct}%</span>}
+        </span>
+      </div>
+      {pct != null && (
+        <div className="h-1.5 bg-black/10 dark:bg-white/10 rounded-full mt-1">
+          <div className="h-full rounded-full bg-current opacity-50" style={{width: `${pct}%`}} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AtomRow({atom}: {atom: AtomicPair & {presence: 'f1' | 'f2' | 'both'}}) {
+  return (
+    <div className={`flex items-center gap-2 px-3 py-1.5 text-xs border rounded ${
+      atom.presence === 'both' ? 'border-base-300 bg-base-200/40'
+      : atom.presence === 'f1' ? 'border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20'
+      : 'border-purple-200 dark:border-purple-800 bg-purple-50 dark:bg-purple-900/20'
+    }`}>
+      <div className="flex-1 min-w-0 flex items-center gap-1 flex-wrap">
+        <span className="font-mono">{atom.srcKey}</span>
+        {atom.srcLabel && <span className="opacity-50">({atom.srcLabel})</span>}
+        <span className="opacity-40 mx-0.5">→</span>
+        <span className="font-mono font-semibold">{atom.tgtKey}</span>
+        {atom.tgtLabel && <span className="opacity-50">({atom.tgtLabel})</span>}
+      </div>
+      <div className="flex items-center gap-1.5 shrink-0">
+        {atom.presence === 'f1' && <span className="badge badge-xs badge-outline" style={{borderColor:'#93c5fd',color:'#2563eb'}}>F1</span>}
+        {atom.presence === 'f2' && <span className="badge badge-xs badge-outline" style={{borderColor:'#c4b5fd',color:'#7c3aed'}}>F2</span>}
+        {atom.presence === 'both' && <span className="badge badge-xs badge-info">both</span>}
+        {atom.mapping_relation && <span className="badge badge-outline badge-xs">{atom.mapping_relation}</span>}
+        {atom.harmonization_status && <span className={`shrink-0 ${getHarmonizationColor(atom.harmonization_status)}`}>{atom.harmonization_status}</span>}
+      </div>
+    </div>
+  );
+}
+
+function GroupedSection({groupKey, groupLabel, atoms, kind}: {
+  groupKey: string; groupLabel: string;
+  atoms: (AtomicPair & {presence: 'f1' | 'f2' | 'both'})[];
+  kind: 'src' | 'tgt';
+}) {
+  const [open, setOpen] = useState(true);
+  const f1Count = atoms.filter(a => a.presence !== 'f2').length;
+  const f2Count = atoms.filter(a => a.presence !== 'f1').length;
+  return (
+    <div className="border border-base-300 rounded-lg overflow-hidden mb-1">
+      <div className="flex items-center gap-2 px-3 py-2 bg-base-200/50 cursor-pointer select-none"
+        onClick={() => setOpen(v => !v)}>
+        {open ? <ChevronUp size={13}/> : <ChevronDown size={13}/>}
+        <span className="font-mono text-xs font-semibold">{groupKey}</span>
+        {groupLabel && <span className="text-xs opacity-60 truncate flex-1">{groupLabel}</span>}
+        <span className="badge badge-sm">{atoms.length}</span>
+        <span className="badge badge-xs badge-outline" style={{borderColor:'#93c5fd',color:'#2563eb'}}>{f1Count} F1</span>
+        <span className="badge badge-xs badge-outline" style={{borderColor:'#c4b5fd',color:'#7c3aed'}}>{f2Count} F2</span>
+      </div>
+      {open && (
+        <div className="divide-y divide-base-200">
+          {atoms.map((atom, i) => (
+            <div key={i} className={`flex items-center gap-2 px-3 py-1.5 text-xs ${
+              atom.presence === 'f1' ? 'bg-blue-50 dark:bg-blue-900/20'
+              : atom.presence === 'f2' ? 'bg-purple-50 dark:bg-purple-900/20' : ''
+            }`}>
+              <span className="font-mono">{kind === 'src' ? atom.tgtKey : atom.srcKey}</span>
+              <span className="opacity-50 truncate flex-1">{kind === 'src' ? atom.tgtLabel : atom.srcLabel}</span>
+              <div className="flex items-center gap-1 shrink-0">
+                {atom.presence === 'f1' && <span className="badge badge-xs badge-outline" style={{borderColor:'#93c5fd',color:'#2563eb'}}>F1</span>}
+                {atom.presence === 'f2' && <span className="badge badge-xs badge-outline" style={{borderColor:'#c4b5fd',color:'#7c3aed'}}>F2</span>}
+                {atom.presence === 'both' && <span className="badge badge-xs badge-info">both</span>}
+                {atom.mapping_relation && <span className="badge badge-outline badge-xs">{atom.mapping_relation}</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function FullSidePanel({
   fileLabel,
   fileTag,
@@ -482,27 +570,15 @@ function FullSidePanel({
 
 function ComparisonView({file1, file2, pair, cohortsData}: {file1: ParsedFile; file2: ParsedFile; pair: string; cohortsData: Record<string, any>}) {
   const [showSame, setShowSame] = useState(false);
-  const [mode, setMode] = useState<'packed' | 'unpacked'>('packed');
+  const [mode, setMode] = useState<'individual' | 'by-src' | 'by-tgt'>('individual');
+  const [activeFilter, setActiveFilter] = useState<null | 'src-f1' | 'src-f2' | 'tgt-f1' | 'tgt-f2'>(null);
 
   const [fromStudy, targetStudy] = pair.split(' → ');
-  const left = useMemo(() => getSourceVarsForPair(file1, pair), [file1, pair]);
-  const right = useMemo(() => getSourceVarsForPair(file2, pair), [file2, pair]);
 
-  const allSourceVars = useMemo(() => {
-    const s = new Set([...left.keys(), ...right.keys()]);
-    return Array.from(s).sort();
-  }, [left, right]);
-
-  const onlyLeft = allSourceVars.filter(v => left.has(v) && !right.has(v));
-  const onlyRight = allSourceVars.filter(v => !left.has(v) && right.has(v));
-  const inBoth = allSourceVars.filter(v => left.has(v) && right.has(v));
-
-  const sameCount = inBoth.filter(v => {
-    const lSigs = new Set((left.get(v) || []).map(mappingSignature));
-    const rSigs = new Set((right.get(v) || []).map(mappingSignature));
-    return JSON.stringify([...lSigs].sort()) === JSON.stringify([...rSigs].sort());
-  }).length;
-  const diffCount = inBoth.length - sameCount;
+  const sourceCohort = useMemo(() => Object.values(cohortsData).find((c: any) => c.cohort_id?.toLowerCase() === fromStudy.toLowerCase()) as any, [cohortsData, fromStudy]);
+  const targetCohort = useMemo(() => Object.values(cohortsData).find((c: any) => c.cohort_id?.toLowerCase() === targetStudy.toLowerCase()) as any, [cohortsData, targetStudy]);
+  const totalSourceVars = sourceCohort ? Object.keys(sourceCohort.variables || {}).length : null;
+  const totalTargetVars = targetCohort ? Object.keys(targetCohort.variables || {}).length : null;
 
   const f1Atoms = useMemo(() => getAtomicPairs(file1, pair), [file1, pair]);
   const f2Atoms = useMemo(() => getAtomicPairs(file2, pair), [file2, pair]);
@@ -557,156 +633,120 @@ function ComparisonView({file1, file2, pair, cohortsData}: {file1: ParsedFile; f
     return result.sort((a, b) => a.srcKey.localeCompare(b.srcKey) || a.tgtKey.localeCompare(b.tgtKey));
   }, [f1Atoms, f2Atoms]);
 
+  const filteredAtoms = useMemo(() => {
+    let atoms = showSame ? unifiedAtoms : unifiedAtoms.filter(a => a.presence !== 'both');
+    if (activeFilter === 'src-f1') { const ks = new Set(srcOnlyF1.map(v => v.key.toLowerCase())); atoms = atoms.filter(a => ks.has(a.srcKey.toLowerCase())); }
+    else if (activeFilter === 'src-f2') { const ks = new Set(srcOnlyF2.map(v => v.key.toLowerCase())); atoms = atoms.filter(a => ks.has(a.srcKey.toLowerCase())); }
+    else if (activeFilter === 'tgt-f1') { const ks = new Set(tgtOnlyF1.map(v => v.key.toLowerCase())); atoms = atoms.filter(a => ks.has(a.tgtKey.toLowerCase())); }
+    else if (activeFilter === 'tgt-f2') { const ks = new Set(tgtOnlyF2.map(v => v.key.toLowerCase())); atoms = atoms.filter(a => ks.has(a.tgtKey.toLowerCase())); }
+    return atoms;
+  }, [unifiedAtoms, showSame, activeFilter, srcOnlyF1, srcOnlyF2, tgtOnlyF1, tgtOnlyF2]);
+
+  const groupedBySrc = useMemo(() => {
+    const m = new Map<string, (AtomicPair & {presence: 'f1'|'f2'|'both'})[]>();
+    for (const a of filteredAtoms) { if (!m.has(a.srcKey)) m.set(a.srcKey, []); m.get(a.srcKey)!.push(a); }
+    return [...m.entries()].sort((a, b) => b[1].length - a[1].length);
+  }, [filteredAtoms]);
+
+  const groupedByTgt = useMemo(() => {
+    const m = new Map<string, (AtomicPair & {presence: 'f1'|'f2'|'both'})[]>();
+    for (const a of filteredAtoms) { if (!m.has(a.tgtKey)) m.set(a.tgtKey, []); m.get(a.tgtKey)!.push(a); }
+    return [...m.entries()].sort((a, b) => b[1].length - a[1].length);
+  }, [filteredAtoms]);
+
+  type FilterKey = 'src-f1' | 'src-f2' | 'tgt-f1' | 'tgt-f2';
+  const filterBtn = (key: FilterKey, label: string, count: number, style: string) => (
+    <button
+      key={key}
+      className={`btn btn-xs ${activeFilter === key ? 'btn-neutral' : `btn-outline ${style}`}`}
+      onClick={() => setActiveFilter(v => v === key ? null : key)}
+    >
+      {label} <span className="badge badge-xs ml-1">{count}</span>
+    </button>
+  );
+
   return (
     <div className="mt-4">
-      {/* Toolbar */}
-      <div className="flex items-center gap-3 flex-wrap mb-3">
-        <div className="join">
-          <button
-            className={`join-item btn btn-xs ${mode === 'packed' ? 'btn-primary' : 'btn-outline'}`}
-            onClick={() => setMode('packed')}
-          >
-            Packed
-          </button>
-          <button
-            className={`join-item btn btn-xs ${mode === 'unpacked' ? 'btn-primary' : 'btn-outline'}`}
-            onClick={() => setMode('unpacked')}
-          >
-            Unpacked
-          </button>
+      {/* Prominent coverage stats */}
+      <div className="grid grid-cols-2 gap-3 mb-4">
+        <div className="rounded-lg p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="badge badge-sm font-bold">F1</span>
+            <span className="text-xs font-semibold truncate">{file1.name}</span>
+          </div>
+          <ProminentCoverage label="Source vars mapped" value={f1SrcMap.size} total={totalSourceVars} />
+          <ProminentCoverage label="Target vars covered" value={f1TgtMap.size} total={totalTargetVars} />
         </div>
-        <div className="flex gap-2 flex-wrap text-sm">
-          <span className="badge badge-info">{inBoth.length} src in both</span>
-          <span className="badge badge-outline border-blue-400 text-blue-600">{onlyLeft.length} src only F1</span>
-          <span className="badge badge-outline border-purple-400 text-purple-600">{onlyRight.length} src only F2</span>
-          {diffCount > 0 && <span className="badge badge-warning">{diffCount} with diffs</span>}
-          {sameCount > 0 && <span className="badge badge-ghost">{sameCount} identical</span>}
+        <div className="rounded-lg p-3 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="badge badge-sm font-bold">F2</span>
+            <span className="text-xs font-semibold truncate">{file2.name}</span>
+          </div>
+          <ProminentCoverage label="Source vars mapped" value={f2SrcMap.size} total={totalSourceVars} />
+          <ProminentCoverage label="Target vars covered" value={f2TgtMap.size} total={totalTargetVars} />
         </div>
-        {mode === 'packed' && (
-          <button
-            className={`btn btn-xs gap-1 ml-auto ${showSame ? 'btn-neutral' : 'btn-outline'}`}
-            onClick={() => setShowSame(v => !v)}
-          >
-            {showSame ? <EyeOff size={12} /> : <Eye size={12} />}
-            {showSame ? 'Hide identical' : 'Show identical'}
+      </div>
+
+      {/* Filter buttons */}
+      <div className="flex items-center gap-2 flex-wrap mb-3">
+        <span className="text-xs opacity-50 font-semibold uppercase tracking-wide mr-1">Filter:</span>
+        {filterBtn('src-f1', 'Source vars in F1 not in F2', srcOnlyF1.length, 'border-blue-400 text-blue-600')}
+        {filterBtn('src-f2', 'Source vars in F2 not in F1', srcOnlyF2.length, 'border-purple-400 text-purple-600')}
+        {filterBtn('tgt-f1', 'Target vars in F1 not in F2', tgtOnlyF1.length, 'border-blue-400 text-blue-600')}
+        {filterBtn('tgt-f2', 'Target vars in F2 not in F1', tgtOnlyF2.length, 'border-purple-400 text-purple-600')}
+        {activeFilter && (
+          <button className="btn btn-xs btn-ghost gap-1" onClick={() => setActiveFilter(null)}>
+            <X size={10} /> Clear filter
           </button>
         )}
       </div>
 
-      {/* Coverage diffs */}
-      <div className="card bg-base-200/50 border border-base-300 p-3 mb-4">
-        <div className="text-xs font-semibold mb-2 opacity-60 uppercase tracking-wide">Variable coverage differences</div>
-        <div className="grid grid-cols-2 gap-2">
-          <CoverageDiffPanel
-            title="Source: only in F1"
-            items={srcOnlyF1}
-            accent="border-blue-400 text-blue-600"
-          />
-          <CoverageDiffPanel
-            title="Source: only in F2"
-            items={srcOnlyF2}
-            accent="border-purple-400 text-purple-600"
-          />
-          <CoverageDiffPanel
-            title="Target: only in F1"
-            items={tgtOnlyF1}
-            accent="border-blue-400 text-blue-600"
-          />
-          <CoverageDiffPanel
-            title="Target: only in F2"
-            items={tgtOnlyF2}
-            accent="border-purple-400 text-purple-600"
-          />
+      {/* Mode + show-same toolbar */}
+      <div className="flex items-center gap-3 flex-wrap mb-3">
+        <div className="join">
+          <button className={`join-item btn btn-xs ${mode === 'individual' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setMode('individual')}>Individual</button>
+          <button className={`join-item btn btn-xs ${mode === 'by-src' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setMode('by-src')}>By source var</button>
+          <button className={`join-item btn btn-xs ${mode === 'by-tgt' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setMode('by-tgt')}>By target var</button>
         </div>
+        <button
+          className={`btn btn-xs gap-1 ml-auto ${showSame ? 'btn-neutral' : 'btn-outline'}`}
+          onClick={() => setShowSame(v => !v)}
+        >
+          {showSame ? <EyeOff size={12} /> : <Eye size={12} />}
+          Show mappings identical in F1 and F2
+        </button>
+        <span className="text-xs opacity-40">{filteredAtoms.length} pairs</span>
       </div>
 
-      {/* Packed mode */}
-      {mode === 'packed' && (
-        <>
-          <div className="text-xs opacity-50 mb-3 flex flex-wrap gap-3">
-            <span><span className="inline-block w-3 h-3 rounded bg-blue-200 dark:bg-blue-800 mr-1" />only in F1</span>
-            <span><span className="inline-block w-3 h-3 rounded bg-purple-200 dark:bg-purple-800 mr-1" />only in F2</span>
-            <span><span className="inline-block w-3 h-3 rounded bg-yellow-200 dark:bg-yellow-800 mr-1" />different</span>
-            {showSame && <span><span className="inline-block w-3 h-3 rounded bg-base-200 mr-1" />identical</span>}
-          </div>
-          <div className="flex gap-4">
-            <FullSidePanel
-              fileLabel={file1.name}
-              fileTag="F1"
-              sourceVars={left}
-              allSourceVars={allSourceVars}
-              side="left"
-              otherVars={right}
-              showSame={showSame}
-              fromStudy={fromStudy}
-              targetStudy={targetStudy}
-              cohortsData={cohortsData}
-            />
-            <div className="w-px bg-base-300 shrink-0" />
-            <FullSidePanel
-              fileLabel={file2.name}
-              fileTag="F2"
-              sourceVars={right}
-              allSourceVars={allSourceVars}
-              side="right"
-              otherVars={left}
-              showSame={showSame}
-              fromStudy={fromStudy}
-              targetStudy={targetStudy}
-              cohortsData={cohortsData}
-            />
-          </div>
-        </>
+      {/* Legend */}
+      <div className="text-xs opacity-50 mb-2 flex gap-3 flex-wrap">
+        <span><span className="badge badge-xs mr-0.5" style={{borderColor:'#93c5fd',color:'#2563eb'}}>F1</span> only in F1</span>
+        <span><span className="badge badge-xs mr-0.5" style={{borderColor:'#c4b5fd',color:'#7c3aed'}}>F2</span> only in F2</span>
+        <span><span className="badge badge-xs badge-info mr-0.5">both</span> in both files</span>
+      </div>
+
+      {/* Individual mode */}
+      {mode === 'individual' && (
+        <div className="space-y-0.5">
+          {filteredAtoms.map((atom, i) => <AtomRow key={i} atom={atom} />)}
+        </div>
       )}
 
-      {/* Unpacked mode — flat list of atomic (src, tgt) pairs */}
-      {mode === 'unpacked' && (
+      {/* By source var mode */}
+      {mode === 'by-src' && (
         <div>
-          <div className="text-xs opacity-50 mb-2 flex gap-3 flex-wrap">
-            <span><span className="badge badge-xs mr-0.5" style={{borderColor:'#93c5fd',color:'#2563eb'}}>F1</span> only in F1</span>
-            <span><span className="badge badge-xs mr-0.5" style={{borderColor:'#c4b5fd',color:'#7c3aed'}}>F2</span> only in F2</span>
-            <span><span className="badge badge-xs badge-info mr-0.5">both</span> in both files</span>
-            <span className="ml-auto opacity-70">{unifiedAtoms.length} atomic pairs total</span>
-          </div>
-          <div className="space-y-0.5">
-            {unifiedAtoms.map((atom, i) => (
-              <div
-                key={i}
-                className={`flex items-center gap-2 px-3 py-2 text-xs border rounded ${
-                  atom.presence === 'both'
-                    ? 'border-base-300 bg-base-200/40'
-                    : atom.presence === 'f1'
-                      ? 'border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20'
-                      : 'border-purple-200 dark:border-purple-800 bg-purple-50 dark:bg-purple-900/20'
-                }`}
-              >
-                <div className="flex-1 min-w-0 flex items-center gap-1 flex-wrap">
-                  <span className="font-mono shrink-0">{atom.srcKey}</span>
-                  {atom.srcLabel && (
-                    <span className="opacity-50 shrink-0">({atom.srcLabel})</span>
-                  )}
-                  <span className="opacity-40 mx-0.5">→</span>
-                  <span className="font-mono font-semibold shrink-0">{atom.tgtKey}</span>
-                  {atom.tgtLabel && (
-                    <span className="opacity-50 shrink-0">({atom.tgtLabel})</span>
-                  )}
-                </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  {atom.presence === 'f1' && <span className="badge badge-xs badge-outline" style={{borderColor:'#93c5fd',color:'#2563eb'}}>F1</span>}
-                  {atom.presence === 'f2' && <span className="badge badge-xs badge-outline" style={{borderColor:'#c4b5fd',color:'#7c3aed'}}>F2</span>}
-                  {atom.presence === 'both' && <span className="badge badge-xs badge-info">both</span>}
-                  {atom.mapping_relation && (
-                    <span className="badge badge-outline badge-xs">{atom.mapping_relation}</span>
-                  )}
-                  {atom.harmonization_status && (
-                    <span className={`shrink-0 ${getHarmonizationColor(atom.harmonization_status)}`}>
-                      {atom.harmonization_status}
-                    </span>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
+          {groupedBySrc.map(([key, atoms]) => (
+            <GroupedSection key={key} groupKey={key} groupLabel={atoms[0]?.srcLabel || ''} atoms={atoms} kind="src" />
+          ))}
+        </div>
+      )}
+
+      {/* By target var mode */}
+      {mode === 'by-tgt' && (
+        <div>
+          {groupedByTgt.map(([key, atoms]) => (
+            <GroupedSection key={key} groupKey={key} groupLabel={atoms[0]?.tgtLabel || ''} atoms={atoms} kind="tgt" />
+          ))}
         </div>
       )}
     </div>
