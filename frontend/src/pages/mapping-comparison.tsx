@@ -209,22 +209,13 @@ function MappingRow({varKey, mappings, status}: {varKey: string; mappings: Mappi
 }
 
 
-function pct(num: number, denom: number) {
-  if (!denom) return null;
-  return Math.round((num / denom) * 100);
-}
-
-function CoverageBar({value, total, label}: {value: number; total: number | null; label: string}) {
-  const p = total ? pct(value, total) : null;
+function CoverageBar({value, total, label}: {value: number; total: number; label: string}) {
+  const p = Math.round((value / total) * 100);
   return (
     <div className="text-xs">
       <span className="opacity-70">{label}: </span>
-      <span className="font-semibold">{value}</span>
-      {total !== null && (
-        <span className="opacity-60">
-          /{total} ({p ?? '?'}%)
-        </span>
-      )}
+      <span className="font-semibold">{value}/{total}</span>
+      <span className="opacity-60"> ({p}%)</span>
     </div>
   );
 }
@@ -240,16 +231,16 @@ function UnmappedPanel({
 }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="mt-2">
+    <div className="flex-1 min-w-0">
       <button
-        className={`btn btn-xs btn-outline gap-1 ${accent}`}
+        className={`btn btn-xs btn-outline gap-1 w-full justify-start ${accent}`}
         onClick={() => setOpen(v => !v)}
       >
         {open ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
         {title} ({vars.length})
       </button>
       {open && (
-        <div className="mt-1.5 border border-base-300 rounded-lg p-2 max-h-48 overflow-y-auto space-y-0.5">
+        <div className="mt-1 border border-base-300 rounded-lg p-2 max-h-48 overflow-y-auto space-y-0.5">
           {vars.length === 0 ? (
             <span className="text-xs opacity-40 italic">none</span>
           ) : (
@@ -331,11 +322,13 @@ function FullSidePanel({
           <span className="badge badge-sm font-bold">{fileTag}</span>
           <span className="font-semibold truncate text-sm">{fileLabel}</span>
         </div>
-        <div className="mt-1.5 space-y-0.5">
-          <CoverageBar value={sourceVars.size} total={totalSourceVars} label="source vars mapped" />
-          <CoverageBar value={targetVarSet.size} total={totalTargetVars} label="target vars covered" />
+        <div className="mt-1.5 flex gap-4">
+          <div className="flex-1 min-w-0 space-y-0.5">
+            <CoverageBar value={sourceVars.size} total={totalSourceVars!} label="source vars mapped" />
+            <CoverageBar value={targetVarSet.size} total={totalTargetVars!} label="target vars covered" />
+          </div>
         </div>
-        <div className="flex gap-2 flex-wrap mt-2">
+        <div className="flex gap-2 mt-2">
           <UnmappedPanel
             title="Unmapped source vars"
             vars={unmappedSourceVars}
