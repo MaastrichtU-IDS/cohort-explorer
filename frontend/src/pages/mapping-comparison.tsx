@@ -1,7 +1,8 @@
 'use client';
 
 import React, {useState, useCallback, useMemo} from 'react';
-import {GitMerge, Upload, X, ChevronDown, ChevronUp} from 'react-feather';
+import {GitMerge, Upload, X, ChevronDown, ChevronUp, Eye, EyeOff} from 'react-feather';
+import {useCohorts} from '@/components/CohortsContext';
 
 interface MappingEntry {
   target_study: string;
@@ -208,70 +209,143 @@ function MappingRow({varKey, mappings, status}: {varKey: string; mappings: Mappi
 }
 
 
-function ComparisonView({file1, file2, pair}: {file1: ParsedFile; file2: ParsedFile; pair: string}) {
-  const left = useMemo(() => getSourceVarsForPair(file1, pair), [file1, pair]);
-  const right = useMemo(() => getSourceVarsForPair(file2, pair), [file2, pair]);
+function pct(num: number, denom: number) {
+  if (!denom) return null;
+  return Math.round((num / denom) * 100);
+}
 
-  const allSourceVars = useMemo(() => {
-    const s = new Set([...left.keys(), ...right.keys()]);
-    return Array.from(s).sort();
-  }, [left, right]);
-
-  const onlyLeft = allSourceVars.filter(v => left.has(v) && !right.has(v));
-  const onlyRight = allSourceVars.filter(v => !left.has(v) && right.has(v));
-  const inBoth = allSourceVars.filter(v => left.has(v) && right.has(v));
-
-  const diffCount = inBoth.filter(v => {
-    const lSigs = new Set((left.get(v) || []).map(mappingSignature));
-    const rSigs = new Set((right.get(v) || []).map(mappingSignature));
-    return JSON.stringify([...lSigs].sort()) !== JSON.stringify([...rSigs].sort());
-  }).length;
-
+function CoverageBar({value, total, label}: {value: number; total: number | null; label: string}) {
+  const p = total ? pct(value, total) : null;
   return (
-    <div className="mt-6">
-      <div className="flex gap-4 flex-wrap mb-4 text-sm">
-        <span className="badge badge-info gap-1">{inBoth.length} in both</span>
-        <span className="badge badge-outline gap-1 border-blue-400 text-blue-600">{onlyLeft.length} only in left</span>
-        <span className="badge badge-outline gap-1 border-purple-400 text-purple-600">{onlyRight.length} only in right</span>
-        {diffCount > 0 && <span className="badge badge-warning gap-1">{diffCount} with mapping differences</span>}
-      </div>
+    <div className="text-xs">
+      <span className="opacity-70">{label}: </span>
+      <span className="font-semibold">{value}</span>
+      {total !== null && (
+        <span className="opacity-60">
+          /{total} ({p ?? '?'}%)
+        </span>
+      )}
+    </div>
+  );
+}
 
-      <div className="flex gap-4">
-        <FullSidePanel fileLabel={file1.name} sourceVars={left} allSourceVars={allSourceVars} side="left" otherVars={right} />
-        <div className="w-px bg-base-300 shrink-0" />
-        <FullSidePanel fileLabel={file2.name} sourceVars={right} allSourceVars={allSourceVars} side="right" otherVars={left} />
-      </div>
+function UnmappedPanel({
+  title,
+  vars,
+  accent
+}: {
+  title: string;
+  vars: {key: string; label?: string}[];
+  accent: string;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-2">
+      <button
+        className={`btn btn-xs btn-outline gap-1 ${accent}`}
+        onClick={() => setOpen(v => !v)}
+      >
+        {open ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+        {title} ({vars.length})
+      </button>
+      {open && (
+        <div className="mt-1.5 border border-base-300 rounded-lg p-2 max-h-48 overflow-y-auto space-y-0.5">
+          {vars.length === 0 ? (
+            <span className="text-xs opacity-40 italic">none</span>
+          ) : (
+            vars.map(v => (
+              <div key={v.key} className="text-xs flex gap-1.5">
+                <span className="font-mono opacity-60 shrink-0">{v.key}</span>
+                {v.label && <span className="opacity-70 truncate">{v.label}</span>}
+              </div>
+            ))
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
 function FullSidePanel({
   fileLabel,
+  fileTag,
   sourceVars,
   allSourceVars,
   side,
-  otherVars
+  otherVars,
+  showSame,
+  fromStudy,
+  targetStudy,
+  cohortsData
 }: {
   fileLabel: string;
+  fileTag: string;
   sourceVars: Map<string, MappingEntry[]>;
   allSourceVars: string[];
   side: 'left' | 'right';
   otherVars: Map<string, MappingEntry[]>;
+  showSame: boolean;
+  fromStudy: string;
+  targetStudy: string;
+  cohortsData: Record<string, any>;
 }) {
-  const targetVars = useMemo(() => {
+  const targetVarSet = useMemo(() => {
     const s = new Set<string>();
     for (const ms of sourceVars.values()) for (const m of ms) s.add(m.target);
     return s;
   }, [sourceVars]);
 
+  const sourceCohort = useMemo(
+    () => Object.values(cohortsData).find((c: any) => c.cohort_id?.toLowerCase() === fromStudy.toLowerCase()) as any,
+    [cohortsData, fromStudy]
+  );
+  const targetCohort = useMemo(
+    () => Object.values(cohortsData).find((c: any) => c.cohort_id?.toLowerCase() === targetStudy.toLowerCase()) as any,
+    [cohortsData, targetStudy]
+  );
+
+  const totalSourceVars = sourceCohort ? Object.keys(sourceCohort.variables || {}).length : null;
+  const totalTargetVars = targetCohort ? Object.keys(targetCohort.variables || {}).length : null;
+
+  const unmappedSourceVars = useMemo(() => {
+    if (!sourceCohort) return [];
+    return Object.keys(sourceCohort.variables || {})
+      .filter(k => !sourceVars.has(k))
+      .map(k => ({key: k, label: sourceCohort.variables[k]?.var_label}));
+  }, [sourceCohort, sourceVars]);
+
+  const unmappedTargetVars = useMemo(() => {
+    if (!targetCohort) return [];
+    return Object.keys(targetCohort.variables || {})
+      .filter(k => !targetVarSet.has(k))
+      .map(k => ({key: k, label: targetCohort.variables[k]?.var_label}));
+  }, [targetCohort, targetVarSet]);
+
   const headerBg = side === 'left' ? 'bg-blue-100 dark:bg-blue-900/30' : 'bg-purple-100 dark:bg-purple-900/30';
+  const accentBtn = side === 'left' ? 'border-blue-400 text-blue-600' : 'border-purple-400 text-purple-600';
 
   return (
     <div className="flex-1 min-w-0 flex flex-col">
       <div className={`rounded-lg p-3 mb-3 ${headerBg}`}>
-        <div className="font-semibold truncate text-sm">{fileLabel}</div>
-        <div className="text-xs opacity-70 mt-0.5">
-          {sourceVars.size} source vars · {targetVars.size} target vars
+        <div className="flex items-center gap-2">
+          <span className="badge badge-sm font-bold">{fileTag}</span>
+          <span className="font-semibold truncate text-sm">{fileLabel}</span>
+        </div>
+        <div className="mt-1.5 space-y-0.5">
+          <CoverageBar value={sourceVars.size} total={totalSourceVars} label="source vars mapped" />
+          <CoverageBar value={targetVarSet.size} total={totalTargetVars} label="target vars covered" />
+        </div>
+        <div className="flex gap-2 flex-wrap mt-2">
+          <UnmappedPanel
+            title="Unmapped source vars"
+            vars={unmappedSourceVars}
+            accent={accentBtn}
+          />
+          <UnmappedPanel
+            title="Uncovered target vars"
+            vars={unmappedTargetVars}
+            accent={accentBtn}
+          />
         </div>
       </div>
       <div className="space-y-1">
@@ -302,6 +376,8 @@ function FullSidePanel({
                 : 'both-diff';
           }
 
+          if (status === 'both-same' && !showSame) return null;
+
           return <MappingRow key={varKey} varKey={varKey} mappings={mappings} status={status} />;
         })}
       </div>
@@ -309,7 +385,89 @@ function FullSidePanel({
   );
 }
 
+function ComparisonView({file1, file2, pair, cohortsData}: {file1: ParsedFile; file2: ParsedFile; pair: string; cohortsData: Record<string, any>}) {
+  const [showSame, setShowSame] = useState(false);
+
+  const [fromStudy, targetStudy] = pair.split(' → ');
+  const left = useMemo(() => getSourceVarsForPair(file1, pair), [file1, pair]);
+  const right = useMemo(() => getSourceVarsForPair(file2, pair), [file2, pair]);
+
+  const allSourceVars = useMemo(() => {
+    const s = new Set([...left.keys(), ...right.keys()]);
+    return Array.from(s).sort();
+  }, [left, right]);
+
+  const onlyLeft = allSourceVars.filter(v => left.has(v) && !right.has(v));
+  const onlyRight = allSourceVars.filter(v => !left.has(v) && right.has(v));
+  const inBoth = allSourceVars.filter(v => left.has(v) && right.has(v));
+
+  const sameCount = inBoth.filter(v => {
+    const lSigs = new Set((left.get(v) || []).map(mappingSignature));
+    const rSigs = new Set((right.get(v) || []).map(mappingSignature));
+    return JSON.stringify([...lSigs].sort()) === JSON.stringify([...rSigs].sort());
+  }).length;
+  const diffCount = inBoth.length - sameCount;
+
+  return (
+    <div className="mt-4">
+      <div className="flex items-center gap-3 flex-wrap mb-4">
+        <div className="flex gap-2 flex-wrap text-sm">
+          <span className="badge badge-info">{inBoth.length} in both</span>
+          <span className="badge badge-outline border-blue-400 text-blue-600">{onlyLeft.length} only in F1</span>
+          <span className="badge badge-outline border-purple-400 text-purple-600">{onlyRight.length} only in F2</span>
+          {diffCount > 0 && <span className="badge badge-warning">{diffCount} with differences</span>}
+          {sameCount > 0 && <span className="badge badge-ghost">{sameCount} identical</span>}
+        </div>
+        <button
+          className={`btn btn-xs gap-1 ml-auto ${showSame ? 'btn-neutral' : 'btn-outline'}`}
+          onClick={() => setShowSame(v => !v)}
+          title={showSame ? 'Hide identical mappings' : 'Show identical mappings'}
+        >
+          {showSame ? <EyeOff size={12} /> : <Eye size={12} />}
+          {showSame ? 'Hide identical' : 'Show identical'}
+        </button>
+      </div>
+
+      <div className="text-xs opacity-50 mb-3 flex flex-wrap gap-3">
+        <span><span className="inline-block w-3 h-3 rounded bg-blue-200 dark:bg-blue-800 mr-1" />only in F1</span>
+        <span><span className="inline-block w-3 h-3 rounded bg-purple-200 dark:bg-purple-800 mr-1" />only in F2</span>
+        <span><span className="inline-block w-3 h-3 rounded bg-yellow-200 dark:bg-yellow-800 mr-1" />different mappings</span>
+        {showSame && <span><span className="inline-block w-3 h-3 rounded bg-base-200 mr-1" />identical</span>}
+      </div>
+
+      <div className="flex gap-4">
+        <FullSidePanel
+          fileLabel={file1.name}
+          fileTag="F1"
+          sourceVars={left}
+          allSourceVars={allSourceVars}
+          side="left"
+          otherVars={right}
+          showSame={showSame}
+          fromStudy={fromStudy}
+          targetStudy={targetStudy}
+          cohortsData={cohortsData}
+        />
+        <div className="w-px bg-base-300 shrink-0" />
+        <FullSidePanel
+          fileLabel={file2.name}
+          fileTag="F2"
+          sourceVars={right}
+          allSourceVars={allSourceVars}
+          side="right"
+          otherVars={left}
+          showSame={showSame}
+          fromStudy={fromStudy}
+          targetStudy={targetStudy}
+          cohortsData={cohortsData}
+        />
+      </div>
+    </div>
+  );
+}
+
 export default function MappingComparison() {
+  const {cohortsData} = useCohorts();
   const [file1, setFile1] = useState<ParsedFile | null>(null);
   const [file2, setFile2] = useState<ParsedFile | null>(null);
   const [selectedPair, setSelectedPair] = useState<string | null>(null);
@@ -329,20 +487,8 @@ export default function MappingComparison() {
     return [...file2.pairs].filter(p => !file1.pairs.has(p)).sort();
   }, [file1, file2]);
 
-  const handleFile1Load = useCallback(
-    (f: ParsedFile) => {
-      setFile1(f);
-      setSelectedPair(null);
-    },
-    []
-  );
-  const handleFile2Load = useCallback(
-    (f: ParsedFile) => {
-      setFile2(f);
-      setSelectedPair(null);
-    },
-    []
-  );
+  const handleFile1Load = useCallback((f: ParsedFile) => { setFile1(f); setSelectedPair(null); }, []);
+  const handleFile2Load = useCallback((f: ParsedFile) => { setFile2(f); setSelectedPair(null); }, []);
 
   return (
     <div className="container mx-auto px-4 py-6 max-w-7xl">
@@ -356,8 +502,8 @@ export default function MappingComparison() {
 
       {/* File Upload Row */}
       <div className="flex gap-4 mb-6">
-        <FileDropZone label="File 1 (Left)" file={file1} onLoad={handleFile1Load} onClear={() => { setFile1(null); setSelectedPair(null); }} />
-        <FileDropZone label="File 2 (Right)" file={file2} onLoad={handleFile2Load} onClear={() => { setFile2(null); setSelectedPair(null); }} />
+        <FileDropZone label="F1 — File 1" file={file1} onLoad={handleFile1Load} onClear={() => { setFile1(null); setSelectedPair(null); }} />
+        <FileDropZone label="F2 — File 2" file={file2} onLoad={handleFile2Load} onClear={() => { setFile2(null); setSelectedPair(null); }} />
       </div>
 
       {/* Pair Selector */}
@@ -367,7 +513,9 @@ export default function MappingComparison() {
 
           {commonPairs.length > 0 && (
             <div className="mb-3">
-              <div className="text-xs opacity-60 mb-1.5 uppercase tracking-wide">Common pairs ({commonPairs.length}) — click to compare</div>
+              <div className="text-xs opacity-60 mb-1.5 uppercase tracking-wide">
+                Common pairs ({commonPairs.length}) — click to compare
+              </div>
               <div className="flex flex-wrap gap-2">
                 {commonPairs.map(pair => (
                   <button
@@ -383,27 +531,23 @@ export default function MappingComparison() {
           )}
 
           {(onlyInFile1.length > 0 || onlyInFile2.length > 0) && (
-            <div className="flex gap-6 flex-wrap">
+            <div className="flex gap-6 flex-wrap mt-1">
               {onlyInFile1.length > 0 && (
                 <div>
-                  <div className="text-xs opacity-50 mb-1 uppercase tracking-wide">Only in File 1 ({onlyInFile1.length})</div>
+                  <div className="text-xs opacity-50 mb-1 uppercase tracking-wide">Only in F1 ({onlyInFile1.length})</div>
                   <div className="flex flex-wrap gap-1.5">
                     {onlyInFile1.map(p => (
-                      <span key={p} className="badge badge-sm border-blue-300 text-blue-600 bg-blue-50 dark:bg-blue-900/20">
-                        {p}
-                      </span>
+                      <span key={p} className="badge badge-sm border-blue-300 text-blue-600 bg-blue-50 dark:bg-blue-900/20">{p}</span>
                     ))}
                   </div>
                 </div>
               )}
               {onlyInFile2.length > 0 && (
                 <div>
-                  <div className="text-xs opacity-50 mb-1 uppercase tracking-wide">Only in File 2 ({onlyInFile2.length})</div>
+                  <div className="text-xs opacity-50 mb-1 uppercase tracking-wide">Only in F2 ({onlyInFile2.length})</div>
                   <div className="flex flex-wrap gap-1.5">
                     {onlyInFile2.map(p => (
-                      <span key={p} className="badge badge-sm border-purple-300 text-purple-600 bg-purple-50 dark:bg-purple-900/20">
-                        {p}
-                      </span>
+                      <span key={p} className="badge badge-sm border-purple-300 text-purple-600 bg-purple-50 dark:bg-purple-900/20">{p}</span>
                     ))}
                   </div>
                 </div>
@@ -420,17 +564,11 @@ export default function MappingComparison() {
       {/* Comparison View */}
       {file1 && file2 && selectedPair && (
         <div className="card bg-base-100 border border-base-300 p-4">
-          <div className="flex items-center gap-2 mb-2">
+          <div className="flex items-center gap-2">
             <span className="font-semibold text-sm">Comparing:</span>
             <span className="badge badge-primary">{selectedPair}</span>
           </div>
-          <div className="text-xs opacity-50 mb-3">
-            <span className="inline-block w-3 h-3 rounded bg-blue-200 mr-1" />only in left &nbsp;
-            <span className="inline-block w-3 h-3 rounded bg-purple-200 mr-1" />only in right &nbsp;
-            <span className="inline-block w-3 h-3 rounded bg-yellow-200 mr-1" />different mappings &nbsp;
-            <span className="inline-block w-3 h-3 rounded bg-base-200 mr-1" />same in both
-          </div>
-          <ComparisonView file1={file1} file2={file2} pair={selectedPair} />
+          <ComparisonView file1={file1} file2={file2} pair={selectedPair} cohortsData={cohortsData || {}} />
         </div>
       )}
 
