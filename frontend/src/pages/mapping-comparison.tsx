@@ -57,6 +57,37 @@ function getSourceVarsForPair(file: ParsedFile, pair: string): Map<string, Mappi
   return result;
 }
 
+interface AtomicPair {
+  srcKey: string;
+  srcLabel: string;
+  tgtKey: string;
+  tgtLabel: string;
+  mapping_relation?: string;
+  harmonization_status?: string;
+  sim_score?: number;
+}
+
+function getAtomicPairs(file: ParsedFile, pair: string): AtomicPair[] {
+  const [from, targetStudy] = pair.split(' → ');
+  const result: AtomicPair[] = [];
+  for (const [varKey, entry] of Object.entries(file.data)) {
+    if (entry.from !== from) continue;
+    for (const m of entry.mappings) {
+      if (m.target_study !== targetStudy || !m.target) continue;
+      result.push({
+        srcKey: varKey,
+        srcLabel: m.source_label || '',
+        tgtKey: m.target,
+        tgtLabel: m.target_label || '',
+        mapping_relation: m.mapping_relation,
+        harmonization_status: m.harmonization_status,
+        sim_score: m.sim_score,
+      });
+    }
+  }
+  return result.sort((a, b) => a.srcKey.localeCompare(b.srcKey) || a.tgtKey.localeCompare(b.tgtKey));
+}
+
 type DiffStatus = 'both-same' | 'both-diff' | 'only-left' | 'only-right';
 
 function getHarmonizationColor(status?: string) {
@@ -275,6 +306,43 @@ function UnmappedPanel({
   );
 }
 
+function CoverageDiffPanel({
+  title,
+  items,
+  accent
+}: {
+  title: string;
+  items: {key: string; label: string}[];
+  accent: string;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div>
+      <button
+        className={`btn btn-xs btn-outline gap-1 w-full justify-start ${accent}`}
+        onClick={() => setOpen(v => !v)}
+      >
+        {open ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+        {title} ({items.length})
+      </button>
+      {open && (
+        <div className="mt-1 border border-base-300 rounded-lg p-2 max-h-48 overflow-y-auto space-y-0.5">
+          {items.length === 0 ? (
+            <span className="text-xs opacity-40 italic">none</span>
+          ) : (
+            items.map(item => (
+              <div key={item.key} className="text-xs flex gap-2">
+                <span className="font-mono opacity-70 shrink-0">{item.key}</span>
+                {item.label && <span className="opacity-60 truncate">{item.label}</span>}
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function FullSidePanel({
   fileLabel,
   fileTag,
@@ -414,6 +482,7 @@ function FullSidePanel({
 
 function ComparisonView({file1, file2, pair, cohortsData}: {file1: ParsedFile; file2: ParsedFile; pair: string; cohortsData: Record<string, any>}) {
   const [showSame, setShowSame] = useState(false);
+  const [mode, setMode] = useState<'packed' | 'unpacked'>('packed');
 
   const [fromStudy, targetStudy] = pair.split(' → ');
   const left = useMemo(() => getSourceVarsForPair(file1, pair), [file1, pair]);
@@ -435,60 +504,211 @@ function ComparisonView({file1, file2, pair, cohortsData}: {file1: ParsedFile; f
   }).length;
   const diffCount = inBoth.length - sameCount;
 
+  const f1Atoms = useMemo(() => getAtomicPairs(file1, pair), [file1, pair]);
+  const f2Atoms = useMemo(() => getAtomicPairs(file2, pair), [file2, pair]);
+
+  const f1SrcMap = useMemo(() => {
+    const m = new Map<string, {key: string; label: string}>();
+    for (const p of f1Atoms) { const k = p.srcKey.toLowerCase(); if (!m.has(k)) m.set(k, {key: p.srcKey, label: p.srcLabel}); }
+    return m;
+  }, [f1Atoms]);
+  const f2SrcMap = useMemo(() => {
+    const m = new Map<string, {key: string; label: string}>();
+    for (const p of f2Atoms) { const k = p.srcKey.toLowerCase(); if (!m.has(k)) m.set(k, {key: p.srcKey, label: p.srcLabel}); }
+    return m;
+  }, [f2Atoms]);
+  const f1TgtMap = useMemo(() => {
+    const m = new Map<string, {key: string; label: string}>();
+    for (const p of f1Atoms) { const k = p.tgtKey.toLowerCase(); if (!m.has(k)) m.set(k, {key: p.tgtKey, label: p.tgtLabel}); }
+    return m;
+  }, [f1Atoms]);
+  const f2TgtMap = useMemo(() => {
+    const m = new Map<string, {key: string; label: string}>();
+    for (const p of f2Atoms) { const k = p.tgtKey.toLowerCase(); if (!m.has(k)) m.set(k, {key: p.tgtKey, label: p.tgtLabel}); }
+    return m;
+  }, [f2Atoms]);
+
+  const srcOnlyF1 = useMemo(() =>
+    [...f1SrcMap.values()].filter(v => !f2SrcMap.has(v.key.toLowerCase())).sort((a, b) => a.key.localeCompare(b.key)),
+    [f1SrcMap, f2SrcMap]);
+  const srcOnlyF2 = useMemo(() =>
+    [...f2SrcMap.values()].filter(v => !f1SrcMap.has(v.key.toLowerCase())).sort((a, b) => a.key.localeCompare(b.key)),
+    [f1SrcMap, f2SrcMap]);
+  const tgtOnlyF1 = useMemo(() =>
+    [...f1TgtMap.values()].filter(v => !f2TgtMap.has(v.key.toLowerCase())).sort((a, b) => a.key.localeCompare(b.key)),
+    [f1TgtMap, f2TgtMap]);
+  const tgtOnlyF2 = useMemo(() =>
+    [...f2TgtMap.values()].filter(v => !f1TgtMap.has(v.key.toLowerCase())).sort((a, b) => a.key.localeCompare(b.key)),
+    [f1TgtMap, f2TgtMap]);
+
+  const unifiedAtoms = useMemo(() => {
+    const f1Sig = new Map<string, AtomicPair>();
+    for (const p of f1Atoms) f1Sig.set(`${p.srcKey.toLowerCase()}|${p.tgtKey.toLowerCase()}`, p);
+    const f2Sig = new Map<string, AtomicPair>();
+    for (const p of f2Atoms) f2Sig.set(`${p.srcKey.toLowerCase()}|${p.tgtKey.toLowerCase()}`, p);
+    const allSigs = new Set([...f1Sig.keys(), ...f2Sig.keys()]);
+    const result: (AtomicPair & {presence: 'f1' | 'f2' | 'both'})[] = [];
+    for (const sig of allSigs) {
+      const inF1 = f1Sig.has(sig);
+      const inF2 = f2Sig.has(sig);
+      const base = (inF1 ? f1Sig.get(sig) : f2Sig.get(sig))!;
+      result.push({...base, presence: inF1 && inF2 ? 'both' : inF1 ? 'f1' : 'f2'});
+    }
+    return result.sort((a, b) => a.srcKey.localeCompare(b.srcKey) || a.tgtKey.localeCompare(b.tgtKey));
+  }, [f1Atoms, f2Atoms]);
+
   return (
     <div className="mt-4">
-      <div className="flex items-center gap-3 flex-wrap mb-4">
+      {/* Toolbar */}
+      <div className="flex items-center gap-3 flex-wrap mb-3">
+        <div className="join">
+          <button
+            className={`join-item btn btn-xs ${mode === 'packed' ? 'btn-primary' : 'btn-outline'}`}
+            onClick={() => setMode('packed')}
+          >
+            Packed
+          </button>
+          <button
+            className={`join-item btn btn-xs ${mode === 'unpacked' ? 'btn-primary' : 'btn-outline'}`}
+            onClick={() => setMode('unpacked')}
+          >
+            Unpacked
+          </button>
+        </div>
         <div className="flex gap-2 flex-wrap text-sm">
-          <span className="badge badge-info">{inBoth.length} in both</span>
-          <span className="badge badge-outline border-blue-400 text-blue-600">{onlyLeft.length} only in F1</span>
-          <span className="badge badge-outline border-purple-400 text-purple-600">{onlyRight.length} only in F2</span>
-          {diffCount > 0 && <span className="badge badge-warning">{diffCount} with differences</span>}
+          <span className="badge badge-info">{inBoth.length} src in both</span>
+          <span className="badge badge-outline border-blue-400 text-blue-600">{onlyLeft.length} src only F1</span>
+          <span className="badge badge-outline border-purple-400 text-purple-600">{onlyRight.length} src only F2</span>
+          {diffCount > 0 && <span className="badge badge-warning">{diffCount} with diffs</span>}
           {sameCount > 0 && <span className="badge badge-ghost">{sameCount} identical</span>}
         </div>
-        <button
-          className={`btn btn-xs gap-1 ml-auto ${showSame ? 'btn-neutral' : 'btn-outline'}`}
-          onClick={() => setShowSame(v => !v)}
-          title={showSame ? 'Hide identical mappings' : 'Show identical mappings'}
-        >
-          {showSame ? <EyeOff size={12} /> : <Eye size={12} />}
-          {showSame ? 'Hide identical' : 'Show identical'}
-        </button>
+        {mode === 'packed' && (
+          <button
+            className={`btn btn-xs gap-1 ml-auto ${showSame ? 'btn-neutral' : 'btn-outline'}`}
+            onClick={() => setShowSame(v => !v)}
+          >
+            {showSame ? <EyeOff size={12} /> : <Eye size={12} />}
+            {showSame ? 'Hide identical' : 'Show identical'}
+          </button>
+        )}
       </div>
 
-      <div className="text-xs opacity-50 mb-3 flex flex-wrap gap-3">
-        <span><span className="inline-block w-3 h-3 rounded bg-blue-200 dark:bg-blue-800 mr-1" />only in F1</span>
-        <span><span className="inline-block w-3 h-3 rounded bg-purple-200 dark:bg-purple-800 mr-1" />only in F2</span>
-        <span><span className="inline-block w-3 h-3 rounded bg-yellow-200 dark:bg-yellow-800 mr-1" />different mappings</span>
-        {showSame && <span><span className="inline-block w-3 h-3 rounded bg-base-200 mr-1" />identical</span>}
+      {/* Coverage diffs */}
+      <div className="card bg-base-200/50 border border-base-300 p-3 mb-4">
+        <div className="text-xs font-semibold mb-2 opacity-60 uppercase tracking-wide">Variable coverage differences</div>
+        <div className="grid grid-cols-2 gap-2">
+          <CoverageDiffPanel
+            title="Source: only in F1"
+            items={srcOnlyF1}
+            accent="border-blue-400 text-blue-600"
+          />
+          <CoverageDiffPanel
+            title="Source: only in F2"
+            items={srcOnlyF2}
+            accent="border-purple-400 text-purple-600"
+          />
+          <CoverageDiffPanel
+            title="Target: only in F1"
+            items={tgtOnlyF1}
+            accent="border-blue-400 text-blue-600"
+          />
+          <CoverageDiffPanel
+            title="Target: only in F2"
+            items={tgtOnlyF2}
+            accent="border-purple-400 text-purple-600"
+          />
+        </div>
       </div>
 
-      <div className="flex gap-4">
-        <FullSidePanel
-          fileLabel={file1.name}
-          fileTag="F1"
-          sourceVars={left}
-          allSourceVars={allSourceVars}
-          side="left"
-          otherVars={right}
-          showSame={showSame}
-          fromStudy={fromStudy}
-          targetStudy={targetStudy}
-          cohortsData={cohortsData}
-        />
-        <div className="w-px bg-base-300 shrink-0" />
-        <FullSidePanel
-          fileLabel={file2.name}
-          fileTag="F2"
-          sourceVars={right}
-          allSourceVars={allSourceVars}
-          side="right"
-          otherVars={left}
-          showSame={showSame}
-          fromStudy={fromStudy}
-          targetStudy={targetStudy}
-          cohortsData={cohortsData}
-        />
-      </div>
+      {/* Packed mode */}
+      {mode === 'packed' && (
+        <>
+          <div className="text-xs opacity-50 mb-3 flex flex-wrap gap-3">
+            <span><span className="inline-block w-3 h-3 rounded bg-blue-200 dark:bg-blue-800 mr-1" />only in F1</span>
+            <span><span className="inline-block w-3 h-3 rounded bg-purple-200 dark:bg-purple-800 mr-1" />only in F2</span>
+            <span><span className="inline-block w-3 h-3 rounded bg-yellow-200 dark:bg-yellow-800 mr-1" />different</span>
+            {showSame && <span><span className="inline-block w-3 h-3 rounded bg-base-200 mr-1" />identical</span>}
+          </div>
+          <div className="flex gap-4">
+            <FullSidePanel
+              fileLabel={file1.name}
+              fileTag="F1"
+              sourceVars={left}
+              allSourceVars={allSourceVars}
+              side="left"
+              otherVars={right}
+              showSame={showSame}
+              fromStudy={fromStudy}
+              targetStudy={targetStudy}
+              cohortsData={cohortsData}
+            />
+            <div className="w-px bg-base-300 shrink-0" />
+            <FullSidePanel
+              fileLabel={file2.name}
+              fileTag="F2"
+              sourceVars={right}
+              allSourceVars={allSourceVars}
+              side="right"
+              otherVars={left}
+              showSame={showSame}
+              fromStudy={fromStudy}
+              targetStudy={targetStudy}
+              cohortsData={cohortsData}
+            />
+          </div>
+        </>
+      )}
+
+      {/* Unpacked mode — flat list of atomic (src, tgt) pairs */}
+      {mode === 'unpacked' && (
+        <div>
+          <div className="text-xs opacity-50 mb-2 flex gap-3 flex-wrap">
+            <span><span className="badge badge-xs mr-0.5" style={{borderColor:'#93c5fd',color:'#2563eb'}}>F1</span> only in F1</span>
+            <span><span className="badge badge-xs mr-0.5" style={{borderColor:'#c4b5fd',color:'#7c3aed'}}>F2</span> only in F2</span>
+            <span><span className="badge badge-xs badge-info mr-0.5">both</span> in both files</span>
+            <span className="ml-auto opacity-70">{unifiedAtoms.length} atomic pairs total</span>
+          </div>
+          <div className="space-y-0.5">
+            {unifiedAtoms.map((atom, i) => (
+              <div
+                key={i}
+                className={`flex items-center gap-2 px-3 py-2 text-xs border rounded ${
+                  atom.presence === 'both'
+                    ? 'border-base-300 bg-base-200/40'
+                    : atom.presence === 'f1'
+                      ? 'border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20'
+                      : 'border-purple-200 dark:border-purple-800 bg-purple-50 dark:bg-purple-900/20'
+                }`}
+              >
+                <div className="flex-1 min-w-0 flex items-center gap-1 flex-wrap">
+                  <span className="font-mono shrink-0">{atom.srcKey}</span>
+                  {atom.srcLabel && (
+                    <span className="opacity-50 shrink-0">({atom.srcLabel})</span>
+                  )}
+                  <span className="opacity-40 mx-0.5">→</span>
+                  <span className="font-mono font-semibold shrink-0">{atom.tgtKey}</span>
+                  {atom.tgtLabel && (
+                    <span className="opacity-50 shrink-0">({atom.tgtLabel})</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {atom.presence === 'f1' && <span className="badge badge-xs badge-outline" style={{borderColor:'#93c5fd',color:'#2563eb'}}>F1</span>}
+                  {atom.presence === 'f2' && <span className="badge badge-xs badge-outline" style={{borderColor:'#c4b5fd',color:'#7c3aed'}}>F2</span>}
+                  {atom.presence === 'both' && <span className="badge badge-xs badge-info">both</span>}
+                  {atom.mapping_relation && (
+                    <span className="badge badge-outline badge-xs">{atom.mapping_relation}</span>
+                  )}
+                  {atom.harmonization_status && (
+                    <span className={`shrink-0 ${getHarmonizationColor(atom.harmonization_status)}`}>
+                      {atom.harmonization_status}
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
