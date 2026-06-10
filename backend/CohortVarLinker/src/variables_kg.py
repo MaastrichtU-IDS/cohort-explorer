@@ -49,6 +49,12 @@ def process_variables_metadata_file(file_path:str, study_metadata_graph_file_pat
         if data is None or data.empty:
             return None, None   
         data.columns = data.columns.str.lower()
+        data.columns = [
+            'variablename' if col.strip() == 'variable name' else
+            'variablelabel' if col.strip() == 'variable label' else
+            'vartype' if col.strip() in ['variable type', 'var type'] else
+            col for col in data.columns
+        ]
         print(f"colums: {data.columns}")
         cohort_id = normalize_text(cohort_name)
    
