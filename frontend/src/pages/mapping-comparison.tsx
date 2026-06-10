@@ -159,10 +159,23 @@ function FileDropZone({
   );
 }
 
-function MappingRow({varKey, mappings, status}: {varKey: string; mappings: MappingEntry[]; status: DiffStatus}) {
+function MappingRow({
+  varKey,
+  mappings,
+  status,
+  isStale,
+  staleTargets
+}: {
+  varKey: string;
+  mappings: MappingEntry[];
+  status: DiffStatus;
+  isStale?: boolean;
+  staleTargets?: Set<string>;
+}) {
   const [expanded, setExpanded] = useState(false);
-  const bgClass =
-    status === 'only-left'
+  const bgClass = isStale
+    ? 'bg-orange-50 dark:bg-orange-900/20 border-orange-300 dark:border-orange-700'
+    : status === 'only-left'
       ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'
       : status === 'only-right'
         ? 'bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-800'
@@ -180,28 +193,33 @@ function MappingRow({varKey, mappings, status}: {varKey: string; mappings: Mappi
       >
         <span className="font-mono text-xs opacity-60 shrink-0">{varKey}</span>
         <span className="truncate flex-1">{label}</span>
+        {isStale && <span className="badge badge-xs badge-warning shrink-0">stale</span>}
         <span className="badge badge-sm shrink-0">{mappings.length}</span>
         {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
       </div>
       {expanded && (
         <div className="border-t border-current/10 divide-y divide-current/10">
-          {mappings.map((m, i) => (
-            <div key={i} className="px-3 py-2 flex flex-col gap-0.5">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-mono text-xs font-semibold">{m.target}</span>
-                <span className="text-xs opacity-70 truncate">{m.target_label}</span>
+          {mappings.map((m, i) => {
+            const targetStale = !!(staleTargets && m.target && staleTargets.has(m.target.toLowerCase()));
+            return (
+              <div key={i} className={`px-3 py-2 flex flex-col gap-0.5 ${targetStale ? 'bg-orange-50/60 dark:bg-orange-900/10' : ''}`}>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-mono text-xs font-semibold">{m.target}</span>
+                  {targetStale && <span className="badge badge-xs badge-warning">stale</span>}
+                  <span className="text-xs opacity-70 truncate">{m.target_label}</span>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                  <span className="badge badge-outline badge-xs">{m.mapping_relation}</span>
+                  <span className={`text-xs ${getHarmonizationColor(m.harmonization_status)}`}>
+                    {m.harmonization_status}
+                  </span>
+                  {m.sim_score !== undefined && m.sim_score !== null && (
+                    <span className="text-xs opacity-50">score: {m.sim_score}</span>
+                  )}
+                </div>
               </div>
-              <div className="flex items-center gap-2 flex-wrap mt-0.5">
-                <span className="badge badge-outline badge-xs">{m.mapping_relation}</span>
-                <span className={`text-xs ${getHarmonizationColor(m.harmonization_status)}`}>
-                  {m.harmonization_status}
-                </span>
-                {m.sim_score !== undefined && m.sim_score !== null && (
-                  <span className="text-xs opacity-50">score: {m.sim_score}</span>
-                )}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
@@ -282,7 +300,7 @@ function FullSidePanel({
 }) {
   const targetVarSet = useMemo(() => {
     const s = new Set<string>();
-    for (const ms of sourceVars.values()) for (const m of ms) s.add(m.target);
+    for (const ms of sourceVars.values()) for (const m of ms) if (m.target) s.add(m.target);
     return s;
   }, [sourceVars]);
 
@@ -300,7 +318,7 @@ function FullSidePanel({
 
   const unmappedSourceVars = useMemo(() => {
     if (!sourceCohort) return [];
-    const mappedLower = new Set([...sourceVars.keys()].map(k => k.toLowerCase()));
+    const mappedLower = new Set([...sourceVars.keys()].filter(Boolean).map(k => k.toLowerCase()));
     return Object.keys(sourceCohort.variables || {})
       .filter(k => !mappedLower.has(k.toLowerCase()))
       .map(k => ({key: k, label: sourceCohort.variables[k]?.var_label}));
@@ -308,11 +326,20 @@ function FullSidePanel({
 
   const unmappedTargetVars = useMemo(() => {
     if (!targetCohort) return [];
-    const coveredLower = new Set([...targetVarSet].map(k => k.toLowerCase()));
+    const coveredLower = new Set([...targetVarSet].filter(Boolean).map(k => k.toLowerCase()));
     return Object.keys(targetCohort.variables || {})
       .filter(k => !coveredLower.has(k.toLowerCase()))
       .map(k => ({key: k, label: targetCohort.variables[k]?.var_label}));
   }, [targetCohort, targetVarSet]);
+
+  const sourceCohortVarsLower = useMemo(
+    () => new Set(Object.keys(sourceCohort?.variables || {}).map((k: string) => k.toLowerCase())),
+    [sourceCohort]
+  );
+  const targetCohortVarsLower = useMemo(
+    () => new Set(Object.keys(targetCohort?.variables || {}).map((k: string) => k.toLowerCase())),
+    [targetCohort]
+  );
 
   const headerBg = side === 'left' ? 'bg-blue-100 dark:bg-blue-900/30' : 'bg-purple-100 dark:bg-purple-900/30';
   const accentBtn = side === 'left' ? 'border-blue-400 text-blue-600' : 'border-purple-400 text-purple-600';
@@ -373,7 +400,12 @@ function FullSidePanel({
 
           if (status === 'both-same' && !showSame) return null;
 
-          return <MappingRow key={varKey} varKey={varKey} mappings={mappings} status={status} />;
+          const isStale = sourceCohortVarsLower.size > 0 && !sourceCohortVarsLower.has(varKey.toLowerCase());
+          const staleTargets = new Set(
+            mappings.filter(m => m.target && targetCohortVarsLower.size > 0 && !targetCohortVarsLower.has(m.target.toLowerCase())).map(m => m.target.toLowerCase())
+          );
+
+          return <MappingRow key={varKey} varKey={varKey} mappings={mappings} status={status} isStale={isStale} staleTargets={staleTargets} />;
         })}
       </div>
     </div>
@@ -508,9 +540,8 @@ export default function MappingComparison() {
 
           {commonPairs.length > 0 && (
             <div className="mb-3">
-              <div className="text-xs opacity-60 mb-1.5 uppercase tracking-wide">
-                Common pairs ({commonPairs.length}) — click to compare
-              </div>
+              <div className="text-xs opacity-60 mb-1 uppercase tracking-wide">Common pairs ({commonPairs.length})</div>
+              <div className="text-xs opacity-50 italic mb-2">Only these pairs exist in both F1 and F2 and can be directly compared. Click a pair to open the comparison.</div>
               <div className="flex flex-wrap gap-2">
                 {commonPairs.map(pair => (
                   <button
@@ -532,7 +563,7 @@ export default function MappingComparison() {
                   <div className="text-xs opacity-50 mb-1 uppercase tracking-wide">Only in F1 ({onlyInFile1.length})</div>
                   <div className="flex flex-wrap gap-1.5">
                     {onlyInFile1.map(p => (
-                      <span key={p} className="badge badge-sm border-blue-300 text-blue-600 bg-blue-50 dark:bg-blue-900/20">{p}</span>
+                      <span key={p} className="badge badge-sm badge-ghost">{p}</span>
                     ))}
                   </div>
                 </div>
@@ -542,7 +573,7 @@ export default function MappingComparison() {
                   <div className="text-xs opacity-50 mb-1 uppercase tracking-wide">Only in F2 ({onlyInFile2.length})</div>
                   <div className="flex flex-wrap gap-1.5">
                     {onlyInFile2.map(p => (
-                      <span key={p} className="badge badge-sm border-purple-300 text-purple-600 bg-purple-50 dark:bg-purple-900/20">{p}</span>
+                      <span key={p} className="badge badge-sm badge-ghost">{p}</span>
                     ))}
                   </div>
                 </div>
