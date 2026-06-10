@@ -655,6 +655,17 @@ def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
             errors.append(
                 f"Row {i+2} (Variable: '{var_name_for_error}') has an invalid category: '{row['CATEGORICAL']}'."
             )
+
+        # Check for categorical entries missing '=' when other entries in the same field have it
+        categorical_raw = str(row.get("CATEGORICAL", "")).strip() if "CATEGORICAL" in df.columns else ""
+        if categorical_raw and categorical_raw.lower() != "na":
+            parts = [p.strip() for p in categorical_raw.split("|") if p.strip()]
+            if any("=" in p for p in parts):
+                for p in parts:
+                    if "=" not in p:
+                        errors.append(
+                            f"Row {i+2} (Variable: '{var_name_for_error}'): Categorical entry '{p}' is missing '=' — all entries must follow the 'value=label' format (e.g. '0=no|1=yes')."
+                        )
     
     return errors
 
