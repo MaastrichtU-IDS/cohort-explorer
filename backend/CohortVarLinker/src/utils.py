@@ -205,7 +205,7 @@ def split_categories(categories: str | None) -> tuple[List[str], List[str]]:
     if "=" not in categories:
         return parts, parts
     original_categories = [c.split("=")[0].strip() for c in parts]
-    category_labels = [c.split("=")[1].strip() for c in parts]
+    category_labels = [c.split("=")[1].strip() if "=" in c else c.strip() for c in parts]
     return original_categories, category_labels
 
 

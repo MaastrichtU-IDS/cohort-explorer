@@ -127,9 +127,9 @@ def process_variables_metadata_file(file_path:str, study_metadata_graph_file_pat
                 omop_id=safe_int(row['variable omop id']) if pd.notna(row['variable omop id']) else None,
             )]
          
-            if (pd.notna(row['additional context concept name']) and 
-            pd.notna(row['additional context concept code']) and 
-            pd.notna(row['additional context omop id'])):
+            if (pd.notna(row['additional context concept name']) and str(row['additional context concept name']).strip() and
+            pd.notna(row['additional context concept code']) and str(row['additional context concept code']).strip() and
+            pd.notna(row['additional context omop id']) and str(row['additional context omop id']).strip()):
                 try:
                     count1 = len(parse_joined_string(row['additional context concept name']))
                     count2 = len(str(row['additional context concept code']).split("|"))
