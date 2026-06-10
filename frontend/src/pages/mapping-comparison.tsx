@@ -300,15 +300,17 @@ function FullSidePanel({
 
   const unmappedSourceVars = useMemo(() => {
     if (!sourceCohort) return [];
+    const mappedLower = new Set([...sourceVars.keys()].map(k => k.toLowerCase()));
     return Object.keys(sourceCohort.variables || {})
-      .filter(k => !sourceVars.has(k))
+      .filter(k => !mappedLower.has(k.toLowerCase()))
       .map(k => ({key: k, label: sourceCohort.variables[k]?.var_label}));
   }, [sourceCohort, sourceVars]);
 
   const unmappedTargetVars = useMemo(() => {
     if (!targetCohort) return [];
+    const coveredLower = new Set([...targetVarSet].map(k => k.toLowerCase()));
     return Object.keys(targetCohort.variables || {})
-      .filter(k => !targetVarSet.has(k))
+      .filter(k => !coveredLower.has(k.toLowerCase()))
       .map(k => ({key: k, label: targetCohort.variables[k]?.var_label}));
   }, [targetCohort, targetVarSet]);
 
