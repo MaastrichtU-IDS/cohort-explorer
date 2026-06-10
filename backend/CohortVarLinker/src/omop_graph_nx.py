@@ -878,10 +878,9 @@ class OmopGraphNX:
         df = pd.read_csv(csv_file_path, usecols=actual, dtype=str)
         df['relationship_id'] = df['relationship_id'].str.lower()
 
-        for col in ['concept_vocabulary_1', 'concept_vocabulary_2']:
+        # for col in ['concept_vocabulary_1', 'concept_vocabulary_2']:
             # if col in df.columns:
             #     print(f"Unique vocabs:{sorted(df[col].dropna().unique())}")
-            pass
 
         # ── Separate LOINC axis rows from edge rows ──
         loinc_df = df[df['relationship_id'].isin(LOINC_AXIS_RELS)].copy()
