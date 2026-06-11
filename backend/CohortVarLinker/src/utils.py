@@ -45,9 +45,14 @@ _TEMPORAL_CONTEXT_RE = re.compile(
     r')',
     re.IGNORECASE
 )
+def has_real_value(x):
+    if x is None or pd.isna(x):
+        return False
+    s = str(x).strip()
+    return bool(s) and s.lower() not in {"na", "n/a", "nan", "none", "null"}
 
 def clean_label_remove_temporal_context(label: str) -> str:
-    if not label:
+    if not has_real_value(label):
         return label
     
     # Apply repeatedly for double-stamped labels like
@@ -56,7 +61,7 @@ def clean_label_remove_temporal_context(label: str) -> str:
     prev = None
     while prev != cleaned:
         prev = cleaned
-        cleaned = _TEMPORAL_CONTEXT_RE.sub('', cleaned)
+        cleaned = _TEMPORAL_CONTEXT_RE.sub(' ', cleaned)
     
     # Normalize whitespace and strip punctuation artifacts
     cleaned = re.sub(r'\s+', ' ', cleaned).strip().strip(' ,;-')
@@ -272,46 +277,6 @@ def normalize_text(text: str) -> str:
     text =str(text).lower().strip().replace(" ", "_").replace("/", "_").replace(":", "_").replace('[','').replace(']','')
     return urllib.parse.quote(text, safe='_-')
 
-
-# def publish_graph_in_chunks(g: Graph, graph_uri: str | None = None, chunk_size: int = 50000) -> bool:
-#     """
-#     Insert the graph into the triplestore endpoint in chunks.
-    
-#     :param g: RDF Graph (rdflib.Graph)
-#     :param graph_uri: The named graph URI (optional)
-#     :param chunk_size: Number of triples per chunk
-#     :return: True if all chunks are uploaded successfully, False otherwise
-#     """
-#     url = f"{settings.sparql_endpoint}/store"
-#     if graph_uri:
-#         url += f"?graph={graph_uri}"
-#         print(f"URL: {url}")
-
-#     headers = {"Content-Type": "application/trig"}
-#     total_triples = len(g)
-#     print(f"Total triples: {total_triples}")
-
-#     success = True
-#     chunk_graph = Graph()
-    
-#     for i, triple in enumerate(g):
-#         chunk_graph.add(triple)
-
-#         # Upload when chunk reaches chunk_size or at the last iteration
-#         if len(chunk_graph) >= chunk_size or i == total_triples - 1:
-#             with tempfile.NamedTemporaryFile(delete=False, suffix=".trig") as tmp_file:
-#                 chunk_graph.serialize(tmp_file.name, format="trig")
-#                 with open(tmp_file.name, "rb") as file:
-#                     response = requests.post(url, headers=headers, data=file, timeout=300)
-#                     print(f"Chunk {i//chunk_size + 1}: Response {response.status_code}")
-#                     if not response.ok:
-#                         print(f"Failed to upload chunk: {response.status_code}, {response.text}")
-#                         success = False
-            
-#             # Clear the chunk_graph for the next batch
-#             chunk_graph = Graph()
-
-#     return success
 
 def init_graph(default_graph_identifier: str | None = "https://w3id.org/CMEO/graph/studies_metadata") -> Dataset:
     """Initialize a new RDF graph for nquads with the voc namespace bindings."""
@@ -996,7 +961,7 @@ def parse_joined_string(input_str: str) -> List[str]:
     
     Returns a list of extracted values, handling quoted values and internal pipes correctly.
     """
-    if not input_str or not isinstance(input_str, str):
+    if not has_real_value(input_str) or not isinstance(input_str, str):
         return []
 
     # Case 1: If the string has key=value pattern
