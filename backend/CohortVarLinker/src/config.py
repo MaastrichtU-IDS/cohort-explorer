@@ -8,7 +8,7 @@ load_dotenv()  # reads .env into os.environ
 @dataclass(frozen=True)
 class Settings:
     # Thresholds
-    ADAPTIVE_THRESHOLD: float = 0.55 # minimum score for adaptive retrival from vector db
+    ADAPTIVE_THRESHOLD: float = 0.5 # minimum score for adaptive retrival from vector db
     ADAPTIVE_ALPHA = 0.8 # upper bound
     LIMIT: int = 10 # limit for adaptive retrival from vector db
 

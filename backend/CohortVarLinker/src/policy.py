@@ -40,6 +40,8 @@ def _extra_info_from_llm(extra: dict, llm: Optional[LLMEvidence]) -> dict:
             out["harmonized_variable"] = hv
         # print(out)
     return out
+
+    
 def _demote_hierarchical(s: StructuralEvidence) -> tuple[MatchLevel, TransformationType, str]:
     # print(s)
     relation = s.extra.get("mapping_relation", "")

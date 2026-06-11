@@ -49,7 +49,30 @@ EQUIV_REL_NAMES = frozenset({
 })
 
 
+# class BlockingFilter:
+#     __slots__ = ('_check_fn', 'blocked', 'passed', 'equiv_class', 'source')
 
+#     def __init__(self, check_fn, source=None, equiv_class=None):
+#         self._check_fn, self.source = check_fn, source
+#         self.blocked, self.passed, self.equiv_class = {}, set(), equiv_class or set()
+
+#     def __call__(self, tid: int) -> bool:
+#         result = self._check_fn(tid)
+#         if result:
+#             self.blocked[tid] = "hierarchically related"
+#         else:
+#             self.passed.add(tid)
+#         return result
+
+#     def summary(self, graph=None):
+#         lines = [
+#             f"Source:{self.source}" + (f" ({graph.get_node_attr(self.source, 'name')})" if graph else ""),
+#             f"Blocked:{len(self.blocked)}, Passed:{len(self.passed)}",
+#         ]
+#         for tid, reason in self.blocked.items():
+#             name = graph.get_node_attr(tid, 'name') if graph else str(tid)
+#             lines.append(f"  ✗ {tid} ({name}) — {reason}")
+#         return "\n".join(lines)
 
 def _compatible_loinc_property(src_prop: str, tgt_prop: str) -> bool:
     s, t = src_prop.lower().strip(), tgt_prop.lower().strip()
@@ -115,7 +138,37 @@ class OmopGraphNX:
         IS_A, SUBS, EQUIV = self._rel_ints()
         g = self.graph
 
-      
+        # Resolve the "maps to" int for multi-target detection
+        rm_fwd = {r: i for i, r in g.graph.get('rel_map_rev', {}).items()}
+        print(f"forward rel = {rm_fwd}")
+        MAPTO_INT = rm_fwd.get("maps to", -1)
+        print(f"mapto edges: {MAPTO_INT}")
+        # MAPTO_INTS = frozenset(x for x in (
+        #         rm_fwd.get("maps to"), rm_fwd.get("mapped from")
+        #     ) if x)
+        # isa_succ, subs_succ, equiv_bidir = {}, {}, {}
+        # maps_to_count = {}  # node → count of outgoing maps_to edges
+
+        # t0 = time.time()
+        # for u, v, data in g.edges(data=True):
+ 
+        #     rels = data.get('all_r') or frozenset({data.get('r', 0)})
+        #     if IS_A in rels:
+        #         isa_succ.setdefault(u, set()).add(v)
+        #     if SUBS in rels:
+        #         subs_succ.setdefault(u, set()).add(v)
+        #     if rels & EQUIV:
+        #         equiv_bidir.setdefault(u, set()).add(v)
+        #         equiv_bidir.setdefault(v, set()).add(u)
+        #     if MAPTO_INT in rels:
+        #         maps_to_count[u] = maps_to_count.get(u, 0) + 1
+
+        # self._isa_succ = {k: frozenset(v) for k, v in isa_succ.items()}
+        # self._subs_succ = {k: frozenset(v) for k, v in subs_succ.items()}
+        # self._equiv_bidir = {k: frozenset(v) for k, v in equiv_bidir.items()}
+        # self._multi_target_mappers = frozenset(
+        #     u for u, c in maps_to_count.items() if c > 1)
+
         isa_succ, subs_succ, equiv_bidir = {}, {}, {}
         equiv_targets = {}  # Track fan-out for ALL equivalence types
 
@@ -143,11 +196,11 @@ class OmopGraphNX:
         )
 
         elapsed = time.time() - t0
-        # print(f"[INFO] Built typed adjacency index in {elapsed:.2f}s "
-        #       f"(is_a:{sum(len(v) for v in self._isa_succ.values()):,}, "
-        #       f"subsumes:{sum(len(v) for v in self._subs_succ.values()):,}, "
-        #       f"equiv:{sum(len(v) for v in self._equiv_bidir.values()):,}, "
-        #       f"multi_target_mappers:{len(self._multi_target_mappers):,})")
+        print(f"[INFO] Built typed adjacency index in {elapsed:.2f}s "
+              f"(is_a:{sum(len(v) for v in self._isa_succ.values()):,}, "
+              f"subsumes:{sum(len(v) for v in self._subs_succ.values()):,}, "
+              f"equiv:{sum(len(v) for v in self._equiv_bidir.values()):,}, "
+              f"multi_target_mappers:{len(self._multi_target_mappers):,})")
 
     # ══════════════════════════════════════════════════════════════════
     # Shared helpers
@@ -851,7 +904,7 @@ class OmopGraphNX:
         meta = self.graph.graph.get('meta')
         if meta is not None and 'concept_vocabulary' in meta.columns:
             c = meta['concept_vocabulary'].value_counts()
-            # print(f"Total unique vocabularies:{len(c)}\n\nVocabulary distribution:\n{c}")
+        #     print(f"Total unique vocabularies:{len(c)}\n\nVocabulary distribution:\n{c}")
             return c
         return None
 
@@ -878,9 +931,9 @@ class OmopGraphNX:
         df = pd.read_csv(csv_file_path, usecols=actual, dtype=str)
         df['relationship_id'] = df['relationship_id'].str.lower()
 
-        # for col in ['concept_vocabulary_1', 'concept_vocabulary_2']:
-            # if col in df.columns:
-            #     print(f"Unique vocabs:{sorted(df[col].dropna().unique())}")
+        for col in ['concept_vocabulary_1', 'concept_vocabulary_2']:
+            if col in df.columns:
+                print(f"Unique vocabs:{sorted(df[col].dropna().unique())}")
 
         # ── Separate LOINC axis rows from edge rows ──
         loinc_df = df[df['relationship_id'].isin(LOINC_AXIS_RELS)].copy()
@@ -1319,7 +1372,9 @@ def run_pair_tests(omop_nx):
          "digoxin vs inotropic therapy"),
          (3001308,3007070, False, "ldl vs hdl"),
          (21601665,1318853,False,
-         "beta blocking agents,nifedipine")
+         "beta blocking agents,nifedipine"),
+         (970250,21601517, 
+         False, "spironolactone vs diuretics")
     ]
 
     passed = failed = 0
@@ -1339,20 +1394,20 @@ def run_pair_tests(omop_nx):
         expect_str = "match" if expected else "no match"
         got_str = f"matched ({match_label})" if matched else "no match"
 
-        print(f"  {status}  [{src_vocab}] {src_name} ({src}) "
-              f"→ [{tgt_vocab}] {tgt_name} ({tgt})")
-        print(f"         expected: {expect_str}, got: {got_str}")
+        # print(f"  {status}  [{src_vocab}] {src_name} ({src}) "
+        #       f"→ [{tgt_vocab}] {tgt_name} ({tgt})")
+        # print(f"         expected: {expect_str}, got: {got_str}")
 
         if not ok:
             failed += 1
             path = omop_nx.explain_path(src, tgt)
-            print(f"         explain:  {path['path_type']} — {path['explanation']}")
+            # print(f"         explain:  {path['path_type']} — {path['explanation']}")
             eq_src = omop_nx._equiv_closure(src)
-            print(f"equv({src}): {sorted(eq_src)[:8]}{'...' if len(eq_src) > 8 else ''}")
+            # print(f"equv({src}): {sorted(eq_src)[:8]}{'...' if len(eq_src) > 8 else ''}")
         else:
             passed += 1
 
-    print(f"\n  Pair tests: {passed} passed, {failed} failed, {passed + failed} total")
+    # print(f"\n  Pair tests: {passed} passed, {failed} failed, {passed + failed} total")
     return failed == 0
     
 # if __name__ == "__main__":
@@ -1360,12 +1415,13 @@ def run_pair_tests(omop_nx):
 #     csv_path = "/Users/komalgilani/phd_projects/CohortVarLinker/data/concept_relationship_enriched.csv"
 #     omop_nx = OmopGraphNX(csv_path, output_file='graph_nx.pkl.gz')
 #     run_pair_tests(omop_nx)
-#     p = omop_nx.explain_path(21601665, 1318853, max_depth=6)
+#     p = omop_nx.explain_path(970250, 21601517, max_depth=4)
 #     print(p['explanation'])
 #     for u, v, rel in p['edges']:
 #         print(f"  {u} ({omop_nx.get_node_attr(u,'name')}, {omop_nx.get_node_attr(u,'vocabulary')}) "
 #             f"--{rel}--> "
 #             f"{v} ({omop_nx.get_node_attr(v,'name')}, {omop_nx.get_node_attr(v,'vocabulary')})")
+#     # 970250,21601517, 
 # #     print(p['path'])        # [(21600961, name, vocab), (X, name, vocab), (3655005, name, vocab)]
 # #     print(omop_nx.get_edge_rels(p['path'][1][0], 3655005))   # every relation stored on X→365500
 

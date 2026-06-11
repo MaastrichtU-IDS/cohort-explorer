@@ -91,16 +91,21 @@ class NeuroSymbolicMatcher:
         self.mapping_mode = mapping_mode
         self.llm_matcher = None
         self.similarity_threshold = similarity_threshold
-        
+        # self.floor_threshold = floor_threshold
+        #self.similarity_threshold = 0.5 if mapping_mode == MappingType.NE.value else self.similarity_threshold
         if llm_model is not None:
             self.llm_matcher = LLMConceptMatcher(
                             models=[llm_model],
                             temperature=0, mode=mapping_mode)
-   
+        # self.unit_converter = (UnitConverter.from_csv(unit_csv)
+        #                        if unit_csv else UnitConverter())
+        # (f"similarity threshold: {self.similarity_threshold} for model: {embed_model.model_name}")
 
 
-
+    # =================================================================
     # Vector query text for Qdrant search
+    # =================================================================
+
     def _vector_query(self, node: VariableNode) -> str:
         """Build query text for vector DB search from a VariableNode."""
         query = clean_label_remove_temporal_context(node.description or node.name)
@@ -119,7 +124,24 @@ class NeuroSymbolicMatcher:
       
         return query
 
+    def _label_vector_query(self, node: VariableNode) -> str:
+        """Cleaned study label only: used by NE and OEH label channel."""
+        return clean_label_remove_temporal_context(
+            node.description or node.name or ""
+        ).lower().strip()
 
+    def _concept_vector_query(self, node: VariableNode) -> str:
+        """Main concept + context concepts: used by OEC and OEH concept channel."""
+        parts = []
+        if node.main_label:
+            parts.append(str(node.main_label).lower().strip())
+        for label in node.context_labels:
+            if label:
+                parts.append(str(label).lower().strip())
+        parts = FuzzyMatcher._deduplicate_parts(parts=parts, threshold=0.8)
+        return " ".join(parts).strip() or self._label_vector_query(node)
+
+        
 
     def _compute_pair_context_graph_only(self, src_node, tgt_node):
         if not self.graph or self.mapping_mode == MappingType.NE.value:
@@ -195,9 +217,9 @@ class NeuroSymbolicMatcher:
 
 
 
-
+    # =================================================================
     # Derived Variables (dict-based, converted at call site)
-
+    # =================================================================
 
     def _extend_with_derived_variables(
         self,
@@ -329,9 +351,9 @@ class NeuroSymbolicMatcher:
         return final_results
 
 
-
+    # =================================================================
     # Main Matching — Pipeline modularized
-
+    # =================================================================
     def generate_candidates(self, src_collection, tgt_collection, target_study):
         """Phase 1: Discover candidates via Graph and Vector DB."""
         final_matches = []
@@ -354,7 +376,8 @@ class NeuroSymbolicMatcher:
             src_grouped = src_collection._by_omop_id or {}
             tgt_map = tgt_collection._by_omop_id or {}
             unique_tgt_ids = tgt_collection.omop_ids
-   
+        # print(f"tgt_name_to_desc.values()[0] = {tgt_name_to_desc.values()[0]}")
+        # print(f"tgt_by_desc.values()[0] = {tgt_by_desc.values()[0]}")
         use_graph = bool(self.graph) and not is_ne
         use_vector = (self.vector_db is not None and self.embed_model is not None
                       and self.mapping_mode != MappingType.OO.value)
@@ -527,7 +550,10 @@ class NeuroSymbolicMatcher:
 
         # ── Step 3: call the LLM once across all groups.
         case_ids = [f"P{i}" for i in range(len(flat_keys))]
-        logger.info(f"  🤖 LLM Validating : {len(flat_keys)} concept pairs")
+        if len(flat_keys) > 1:
+            logger.info(f"  🤖 LLM Validating : {len(flat_keys)} concept pairs")
+        else:
+            logger.debug(f"  🤖 LLM Validating : {len(flat_keys)} concept pair")
         grouped_results, _stats = self.llm_matcher.assess(groups, case_ids=case_ids)
 
         # ── Step 4: convert verdicts to LLMEvidence

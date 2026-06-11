@@ -58,6 +58,12 @@ class LLMEvidence:
     harmonized_variable :str = ""
 
     VALID_VERDICTS = ("COMPLETE", "COMPATIBLE", "PARTIAL", "IMPOSSIBLE")
+    logprob_dist: dict = field(default_factory=dict)   # {label: prob}
+    logprob_confidence: float = 0.0                    # prob of chosen verdict
+    logprob_runner_up: str = ""                        # second-highest label
+    logprob_margin: float = 0.0                        # top - second prob
+    logprob_top_label: str = ""
+    logprob_top_prob: float = 0.0
 
     def __post_init__(self):
         if self.verdict not in self.VALID_VERDICTS:

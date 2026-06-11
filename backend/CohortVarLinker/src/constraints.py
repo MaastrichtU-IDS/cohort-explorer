@@ -1,15 +1,28 @@
 """
-constraints.py — Semantics Constraint Pipeline:
+constraints.py — Pure Structural Constraint Pipeline
+
+Architecture:
   Context scoring (concept equivalence, embedding similarity) is computed
   upstream in resolve_matches(). By the time pairs reach this pipeline,
   context_match_type and sim_score are already populated.
+
+  This pipeline performs STRUCTURAL validation only:
+    1. ContextGate     — pre-gate using pre-computed context scores
+    2. StatisticalLogic — type-specific structural analysis (units, categories, ranges)
+    3. SubsumedCap      — downgrade to PARTIAL if context was subsumed/close_match
+
+  Decision flow:
+    context mismatch  → NOT_APPLICABLE (stop, no structural analysis)
+    context exact     → continue to structural analysis, no cap
+    context subsumed  → continue, cap to PARTIAL after structural analysis
+    no context data   → continue (neither side has context)
 """
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
 from typing import Dict, Any, Tuple, List, Optional, Set, Protocol, runtime_checkable
-
+# from unicodedata import category
 
 import numpy as np
 from .config import settings
@@ -26,6 +39,7 @@ from .data_model import (
     MappingRelation
 )
 from .utils import is_absolute_vs_percent_dose
+# from .verdict import StructuralEvidence
 _GENERIC_BOOL = frozenset({"0", "1"})
 _BOOL_POS = frozenset({"1", "yes", "true", "y", "positive", "present", "on"})
 _BOOL_NEG = frozenset({"0", "no", "false", "n", "negative", "absent", "off"})
@@ -51,7 +65,14 @@ class MatcherProtocol(Protocol):
         target_study: str,
     ) -> Tuple[bool, Optional[str]]: ...
 
-
+# @dataclass
+# class TimepointResult:
+#     """Configuration for timepoint-gated results."""
+#     current_level: MatchLevel
+#     reason_exact: str
+#     reason_undetermined: str
+#     reason_na: str
+#     extra_details: Optional[Dict] = None
 
 @dataclass
 class CandidateContext:
@@ -923,6 +944,9 @@ class StatisticalLogicConstraint(Constraint):
 
 # 7. compute_structural — entry point into the new pipeline
 
+_STAT_LOGIC = StatisticalLogicConstraint()
+
+
 def compute_structural(src: VariableNode,
                         tgt: VariableNode,
                         mapping_mode: MappingType = MappingType.NE.value,
@@ -935,7 +959,7 @@ def compute_structural(src: VariableNode,
     ctx = CandidateContext(src=src, tgt=tgt, matcher=matcher,
                             mapping_mode=mapping_mode)
 
-    StatisticalLogicConstraint().apply(ctx)
+    _STAT_LOGIC.apply(ctx)
     reason = ctx.details.get("description", "").strip()
     # Convert mutable ctx to frozen StructuralEvidence.
     level = ctx.current_level

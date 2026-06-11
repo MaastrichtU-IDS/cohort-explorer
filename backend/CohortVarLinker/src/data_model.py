@@ -3,6 +3,8 @@ import math
 from enum import Enum, IntEnum
 from typing import Any, ClassVar, Dict, List, Optional, Set
 from pydantic import BaseModel, Field, field_validator, model_validator, computed_field
+# import re
+# from pydantic import BaseModel
 from dataclasses import dataclass
 
 @dataclass
@@ -35,7 +37,10 @@ class MappingType(str, Enum):
     OEH = "OEH" #ontology+embedding(hybrid)
     NE = "NE" #neural matching only (no ontology)
 
-
+# class MappingType(str, Enum):
+#     OO = "OO" #ontology_only
+#     NS = "NS" #neural symbolic matching
+#     NO = "NO" #neural only matching
 
 
 class ContextMatchType(IntEnum):
@@ -142,7 +147,9 @@ class StatisticalType(str, Enum):
         return aliases.get(value_lower)
 
 
+# # =============================================================================
 # # STATISTICS MODEL
+# # =============================================================================
 
 class Statistics(BaseModel):
     """Statistical profile of a variable.
@@ -199,7 +206,9 @@ class Statistics(BaseModel):
         return not (self.max_val < other.min_val or other.max_val < self.min_val)
 
 
+# # =============================================================================
 # # VARIABLE NODE MODEL
+# # =============================================================================
 
 class VariableNode(BaseModel):
     """
@@ -576,7 +585,84 @@ class VariableNode(BaseModel):
             data_type=row.get("target_data_type"),
             mapping_relation=row.get("mapping_relation", "") or "",
         )
-    
+
+    @classmethod
+    def for_match_pair(
+        cls,
+        collection: "VariableCollection",
+        row: Dict[str, Any],
+        *,
+        side: str,
+        study: Optional[str] = None,
+    ) -> "VariableNode":
+        """Resolve a candidate-pair node from the study collection, with row overlays.
+
+        Uses the indexed collection node (profile-enriched) when available, then
+        applies per-pair fields from the match DataFrame row (visit, context
+        score, mapping relation, etc.). Falls back to ``from_*_row`` for derived
+        or other names not present in the collection.
+        """
+        side = side.lower().strip()
+        if side == "source":
+            name = row.get("source", "") or ""
+            if not name:
+                return cls.from_source_row(row, study=study)
+            prefix = "source"
+            omop_col, code_col, label_col = "somop_id", "scode", "slabel"
+            description = row.get("source_label") or row.get("slabel") or name
+        elif side == "target":
+            name = row.get("target", "") or ""
+            if not name:
+                return cls.from_target_row(row, study=study)
+            prefix = "target"
+            omop_col, code_col, label_col = "tomop_id", "tcode", "tlabel"
+            description = row.get("target_label") or row.get("tlabel") or name
+        else:
+            raise ValueError(f"side must be 'source' or 'target', got {side!r}")
+
+        base = collection.get_by_name(name)
+        if base is None:
+            return (
+                cls.from_source_row(row, study=study)
+                if side == "source"
+                else cls.from_target_row(row, study=study)
+            )
+
+        st = study or collection.study
+        stats = Statistics(
+            min_val=row.get(f"{prefix}_min_val", base.statistics.min_val),
+            max_val=row.get(f"{prefix}_max_val", base.statistics.max_val),
+        )
+        updates: Dict[str, Any] = {
+            "study": st,
+            "role": side,
+            "name": name,
+            "description": description or base.description,
+            "visit": row.get(f"{prefix}_visit") or base.visit,
+            "sim_score": row.get("sim_score", base.sim_score),
+            "category": row.get("category", base.category),
+            "context_match_type": row.get(
+                "context_match_type",
+                getattr(base, "context_match_type", None),
+            ),
+            "mapping_relation": row.get("mapping_relation", "") or base.mapping_relation,
+            "statistics": stats,
+        }
+        if row.get(f"{prefix}_type"):
+            updates["statistical_type"] = row[f"{prefix}_type"]
+        if f"{prefix}_unit" in row:
+            updates["unit"] = row.get(f"{prefix}_unit") or ""
+        if f"{prefix}_data_type" in row:
+            updates["data_type"] = row.get(f"{prefix}_data_type")
+        omop = row.get(omop_col)
+        if omop is not None and not (isinstance(omop, float) and math.isnan(omop)):
+            updates["main_id"] = omop
+        if row.get(label_col):
+            updates["main_label"] = row.get(label_col)
+        if row.get(code_col):
+            updates["main_code"] = row.get(code_col)
+        return base.model_copy(update=updates)
+
     @classmethod
     def from_element_dict(cls, elem: Dict[str, Any], role: str = "source") -> "VariableNode":
         """
