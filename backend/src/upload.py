@@ -839,13 +839,9 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
             if col_name.lower() not in critical_cols_lower and col_name.lower() not in optional_cols_lower:
                 extra_columns.append(col_name)
         
-        # If critical columns are missing or extra columns exist, reject the upload
+        # If critical columns are missing, reject the upload
         if len(missing_columns) > 0:
             errors.append(f"Missing required columns: {', '.join(missing_columns)}")
-        if len(extra_columns) > 0:
-            errors.append(f"Unexpected columns found (not in approved list): {', '.join(extra_columns)}")
-        
-        if len(missing_columns) > 0 or len(extra_columns) > 0:
             if source == "upload_dict":
                 raise HTTPException(status_code=422, detail="\n\n".join(errors))
 
