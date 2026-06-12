@@ -97,5 +97,5 @@ async def custom_swagger():
         },
     )
 
-for r in (auth, providers, requesters, cohorts, attestations, commitments, ontology, health):
+for r in (admin, auth, providers, requesters, cohorts, attestations, commitments, ontology, health):
     app.include_router(r.router, prefix="/api")

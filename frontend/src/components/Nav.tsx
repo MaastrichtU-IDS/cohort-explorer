@@ -1495,11 +1495,14 @@ export function Nav() {
                                               credentials: 'include',
                                             });
                                             const data = await resp.json();
-                                            if (!resp.ok) throw new Error(data.detail || JSON.stringify(data));
+                                            if (!resp.ok) {
+                                              const detail = data.detail;
+                                              throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail ?? data));
+                                            }
                                             setDcrAccessRequestResult(prev => ({ ...prev, [cohortId]: data }));
                                           } catch (err: any) {
                                             console.error('Access request failed:', err);
-                                            setDcrAccessRequestResult(prev => ({ ...prev, [cohortId]: { auto_approved: false, error: err.message } }));
+                                            setDcrAccessRequestResult(prev => ({ ...prev, [cohortId]: { auto_approved: false, error: err.message ?? String(err) } }));
                                           } finally {
                                             setDcrCohortLoading(prev => ({ ...prev, [cohortId]: false }));
                                           }
