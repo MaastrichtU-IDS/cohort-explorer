@@ -47,8 +47,14 @@ _TEMPORAL_CONTEXT_RE = re.compile(
     re.IGNORECASE
 )
 
+def has_real_value(x):
+    if x is None or pd.isna(x):
+        return False
+    s = str(x).strip()
+    return bool(s) and s.lower() not in {"na", "n/a", "nan", "none", "null"}
+
 def clean_label_remove_temporal_context(label: str) -> str:
-    if not label:
+    if not has_real_value(label):
         return label
     
     # Apply repeatedly for double-stamped labels like
@@ -997,7 +1003,7 @@ def parse_joined_string(input_str: str) -> List[str]:
     
     Returns a list of extracted values, handling quoted values and internal pipes correctly.
     """
-    if not input_str or not isinstance(input_str, str):
+    if not has_real_value(input_str) or not isinstance(input_str, str):
         return []
 
     # Case 1: If the string has key=value pattern

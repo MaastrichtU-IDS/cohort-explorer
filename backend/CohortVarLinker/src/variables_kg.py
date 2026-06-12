@@ -13,6 +13,7 @@ from .utils import (
     is_categorical_variable, 
     normalize_text, 
     safe_int,
+    has_real_value,
     determine_var_uri,
     is_identifier_like_variable,
     get_study_uri,
@@ -133,9 +134,9 @@ def process_variables_metadata_file(file_path:str, study_metadata_graph_file_pat
                 omop_id=safe_int(row['variable omop id']) if pd.notna(row['variable omop id']) else None,
             )]
          
-            if (pd.notna(row['additional context concept name']) and str(row['additional context concept name']).strip() and
-            pd.notna(row['additional context concept code']) and str(row['additional context concept code']).strip() and
-            pd.notna(row['additional context omop id']) and str(row['additional context omop id']).strip()):
+            if (has_real_value(row['additional context concept name']) and
+            has_real_value(row['additional context concept code']) and
+            has_real_value(row['additional context omop id'])):
                 try:
                     count1 = len(parse_joined_string(row['additional context concept name']))
                     count2 = len(str(row['additional context concept code']).split("|"))
