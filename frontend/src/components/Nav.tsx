@@ -3,7 +3,7 @@
 import React, {useState, useEffect, useMemo, useCallback, useRef} from 'react';
 import Link from 'next/link';
 import {useRouter} from 'next/router';
-import {LogIn, LogOut, Compass, Upload, HardDrive, Map, Box, FileText, Settings, Check} from 'react-feather';
+import {LogIn, LogOut, Compass, Upload, HardDrive, Map as MapIcon, Box, FileText, Settings, Check, Activity} from 'react-feather';
 import {useCohorts} from '@/components/CohortsContext';
 import {DarkThemeIcon, LightThemeIcon} from '@/components/Icons';
 import {apiUrl} from '@/utils';
@@ -62,6 +62,23 @@ export function Nav() {
   const [dcrBrowseExpanded, setDcrBrowseExpanded] = useState<Set<string>>(new Set());
   const [dcrBrowseSearch, setDcrBrowseSearch] = useState('');
   const [dcrBrowseSelected, setDcrBrowseSelected] = useState<{code: string; label: string; kind: string} | null>(null);
+  const [dcrOrgType, setDcrOrgType] = useState<'' | 'for-profit' | 'non-profit'>('');
+  const [dcrOrgCountry, setDcrOrgCountry] = useState('');
+  const [dcrOrgName, setDcrOrgName] = useState('');
+  const [dcrOrgDropdownOpen, setDcrOrgDropdownOpen] = useState(false);
+  const [dcrIntendedUses, setDcrIntendedUses] = useState<string[]>([]);
+  const [dcrPurpose, setDcrPurpose] = useState<number>(0);
+  // Requester auth state for blockchain integration
+  const [dcrRequesterAuthResult, setDcrRequesterAuthResult] = useState<any>(null);
+  const [dcrBlockchainToken, setDcrBlockchainToken] = useState<string | null>(null);
+  const [dcrProfileResult, setDcrProfileResult] = useState<any>(null);
+  const [dcrAccessRequestResult, setDcrAccessRequestResult] = useState<Record<string, any>>({});
+  const [dcrCohortLoading, setDcrCohortLoading] = useState<Record<string, boolean>>({});
+  const [dcrRequesterLoading, setDcrRequesterLoading] = useState(false);
+  const [dcrIrbApprovalId, setDcrIrbApprovalId] = useState('');
+  const [dcrRequesterType, setDcrRequesterType] = useState<'' | 'ACADEMIC' | 'NONPROFIT' | 'PROFIT' | 'GOVERNMENT' | 'INDIVIDUAL'>('');
+  const [dcrPublicProfile, setDcrPublicProfile] = useState(false);
+  const [dcrGaslessOptIn, setDcrGaslessOptIn] = useState(false);
   const [showAddCohortModal, setShowAddCohortModal] = useState(false);
   const [cohortSearchQuery, setCohortSearchQuery] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
@@ -221,6 +238,14 @@ export function Nav() {
     }
     sessionIdRef.current = null;
     setShowModal(false);
+    setDcrRequesterAuthResult(null);
+    setDcrBlockchainToken(null);
+    setDcrProfileResult(null);
+    setDcrAccessRequestResult({});
+    setDcrCohortLoading({});
+    setDcrRequesterLoading(false);
+    setDcrPurpose(0);
+    setDcrIntendedUses([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userEmail, logWizardEvent]);
 
@@ -426,6 +451,10 @@ export function Nav() {
           dcr_name: dcrName,
           research_question: researchQuestion,
           disease_codes: dcrDiseaseCodes,
+          org_name: dcrOrgName || null,
+          org_type: dcrOrgType || null,
+          org_country: dcrOrgCountry || null,
+          intended_uses: dcrIntendedUses,
           session_id: sessionIdRef.current,
           selected_mapping_files: availableMappingFiles
             .filter(m => selectedMappingFiles[m.filename] !== false)
@@ -553,6 +582,17 @@ export function Nav() {
     setSelectedMappingFiles({});
     setIncludeMappingUploadSlot(false);
     setWizardStep(0);
+    // Reset requester auth state
+    setDcrRequesterAuthResult(null);
+    setDcrBlockchainToken(null);
+    setDcrProfileResult(null);
+    setDcrAccessRequestResult({});
+    setDcrCohortLoading({});
+    setDcrRequesterLoading(false);
+    setDcrIrbApprovalId('');
+    setDcrRequesterType('');
+    setDcrPublicProfile(false);
+    setDcrGaslessOptIn(false);
   };
 
   const addAnalyst = useCallback(() => {
@@ -747,7 +787,7 @@ export function Nav() {
           </li>
           <li>
             <Link href="/mapping" className={pathname === '/mapping' ? 'active' : ''}>
-              <Map size={24} />
+              <MapIcon size={24} />
               <span className="text-base">Mapping</span>
             </Link>
           </li>
@@ -855,10 +895,10 @@ export function Nav() {
                 {/* Step indicator */}
                 <ul className="steps steps-horizontal w-full mb-6 text-xs">
                   {wizardSteps.map((step, idx) => (
-                    <li 
-                      key={step.id} 
-                      className={`step ${idx <= wizardStep ? 'step-primary' : ''} cursor-pointer`}
-                      onClick={() => setWizardStep(idx)}
+                    <li
+                      key={step.id}
+                      className={`step ${idx <= wizardStep ? 'step-primary' : ''} ${idx < wizardStep ? 'cursor-pointer' : 'cursor-default'}`}
+                      onClick={() => { if (idx < wizardStep) setWizardStep(idx); }}
                     >
                       {step.title}
                     </li>
@@ -991,13 +1031,13 @@ export function Nav() {
                   {/* Step 2: Research Goals */}
                   {wizardStep === 2 && (
                     <>
-                      <h3 className="font-bold text-lg mb-4">Step 3: Information about Research Goals</h3>
+                      <h3 className="font-bold text-lg mb-4">Step 3: Information about Data Use &amp; Research Goals</h3>
 
                       {/* ICD-10 disease code selector */}
-                      <div className="form-control mb-6" ref={dcrIcd10WrapperRef}>
+                      <div className="form-control mb-8" ref={dcrIcd10WrapperRef}>
                         <label className="label">
                           <span className="label-text font-semibold flex items-center gap-2">
-                            <span className="text-base">Target Disease(s) — ICD-10 (optional)</span>
+                            <span>Target Disease(s) — ICD-10</span>
                             {dcrIcd10Loading && <span className="loading loading-spinner loading-xs opacity-60"></span>}
                             {!dcrIcd10Loading && dcrIcd10Entries.length > 0 && (
                               <button type="button" className="btn btn-ghost btn-xs text-primary/70 hover:text-primary normal-case font-normal" onClick={() => { setDcrIcd10BrowseOpen(true); setDcrBrowseSearch(''); setDcrBrowseSelected(null); }}>
@@ -1079,7 +1119,7 @@ export function Nav() {
                         )}
                         {dcrDiseaseCodes.length === 0 && !dcrIcd10SearchQuery && (
                           <label className="label">
-                            <span className="label-text-alt text-base-content/60">ICD-10 (2019). Optionally specify target disease(s) for this DCR.</span>
+                            <span className="label-text-alt text-base-content/60">ICD-10 (2019). Specify target disease(s) for this DCR.</span>
                           </label>
                         )}
 
@@ -1165,13 +1205,112 @@ export function Nav() {
                         })()}
                       </div>
 
-                      <div className="form-control">
+                      <div className="form-control mb-6">
+                        <label className="label">
+                          <span className="label-text font-semibold">Your organization</span>
+                        </label>
+                        <div className="relative">
+                          <button type="button" className="btn btn-outline w-full justify-between font-normal text-left"
+                            onClick={() => setDcrOrgDropdownOpen(o => !o)}>
+                            <span className={dcrOrgName ? 'text-base-content' : 'text-base-content/60'}>{dcrOrgName || 'Select your institution…'}</span>
+                            <span className="text-xs opacity-60">▾</span>
+                          </button>
+                          {dcrOrgDropdownOpen && (() => {
+                            const institutionNames = [...new Set(Object.values(cohortsData as Record<string, {institution?: string}>).map(c => c.institution).filter((x): x is string => Boolean(x)))].sort();
+                            return (
+                              <div className="absolute z-50 left-0 w-full bg-base-100 border border-base-300 rounded-lg shadow-xl mt-1">
+                                <div className="max-h-[40vh] overflow-y-auto p-2" style={{columnCount: 2, columnGap: '0.5rem'}}>
+                                  {institutionNames.map(name => (
+                                    <label key={name} className="flex items-center gap-1.5 py-1 cursor-pointer hover:bg-base-200 rounded px-1" style={{breakInside: 'avoid' as const}}>
+                                      <input type="radio" name="dcrOrgName" className="radio radio-xs radio-primary shrink-0"
+                                        checked={dcrOrgName === name}
+                                        onChange={() => { setDcrOrgName(name); setDcrOrgDropdownOpen(false); }} />
+                                      <span className="text-xs text-base-content/80">{name}</span>
+                                    </label>
+                                  ))}
+                                </div>
+                                {dcrOrgName && (
+                                  <div className="px-3 py-2 border-t border-base-300 flex justify-between items-center">
+                                    <span className="text-xs text-primary font-medium truncate">{dcrOrgName}</span>
+                                    <button type="button" className="btn btn-xs btn-ghost text-error ml-2 shrink-0" onClick={() => { setDcrOrgName(''); setDcrOrgDropdownOpen(false); }}>Clear</button>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      </div>
+
+                      <div className="form-control mb-6">
+                        <label className="label">
+                          <span className="label-text font-semibold">Organization type</span>
+                        </label>
+                        <div className="flex gap-6">
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input type="radio" className="radio radio-primary radio-sm" name="dcrOrgType" value="non-profit" checked={dcrOrgType === 'non-profit'} onChange={() => { setDcrOrgType('non-profit'); setDcrRequesterType('NONPROFIT'); }} />
+                            <span className="text-sm">Non-profit</span>
+                          </label>
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input type="radio" className="radio radio-primary radio-sm" name="dcrOrgType" value="for-profit" checked={dcrOrgType === 'for-profit'} onChange={() => { setDcrOrgType('for-profit'); setDcrRequesterType('PROFIT'); }} />
+                            <span className="text-sm">For-profit</span>
+                          </label>
+                        </div>
+                      </div>
+
+                      <div className="form-control mb-6">
+                        <label className="label">
+                          <span className="label-text font-semibold">Organization country</span>
+                        </label>
+                        <input
+                          type="text"
+                          className="input input-bordered w-28"
+                          maxLength={2}
+                          placeholder="e.g. NL"
+                          value={dcrOrgCountry}
+                          onChange={e => setDcrOrgCountry(e.target.value.toUpperCase().replace(/[^A-Z]/g, ''))}
+                        />
+                        <label className="label"><span className="label-text-alt">Two-letter ISO 3166-1 alpha-2 country code — <a href="https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2#Officially_assigned_code_elements" target="_blank" rel="noopener noreferrer" className="link link-primary">see full list on Wikipedia</a></span></label>
+                      </div>
+
+                      <div className="form-control mb-6">
+                        <label className="label">
+                          <span className="label-text font-semibold">Intended data use - check all that apply</span>
+                        </label>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-3 border border-base-300 rounded-lg">
+                          {([
+                            { id: 'genetic',    purpose: 6, duo: 'GRU', label: 'My research involves genetic or genomic studies' },
+                            { id: 'ancestry',   purpose: 4, duo: 'POA', label: 'My research involves population origins or ancestry analysis' },
+                            { id: 'commercial', purpose: 1, duo: 'GRU', label: 'This work is not part of any commercial product or service' },
+                            { id: 'irb',        purpose: 1, duo: 'GRU', label: 'Ethics approval has been obtained for this project' },
+                            { id: 'publish',    purpose: 1, duo: 'GRU', label: 'I intend to publish findings related to this analysis' },
+                          ] as const).map(opt => (
+                            <label key={opt.id} className="flex items-start gap-2 cursor-pointer p-1 hover:bg-base-200 rounded">
+                              <input
+                                type="checkbox"
+                                className="checkbox checkbox-sm checkbox-primary mt-0.5"
+                                checked={dcrIntendedUses.includes(opt.id)}
+                                onChange={e => {
+                                  if (e.target.checked) {
+                                    setDcrIntendedUses(prev => [...prev, opt.id]);
+                                    if (dcrPurpose === 0) { setDcrPurpose(opt.purpose); }
+                                  } else {
+                                    setDcrIntendedUses(prev => prev.filter(u => u !== opt.id));
+                                  }
+                                }}
+                              />
+                              <span className="text-xs leading-relaxed">{opt.label}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="form-control mb-6">
                         <label className="label">
                           <span className="label-text font-semibold">Please describe your research question</span>
                         </label>
                         <textarea
                           placeholder="Describe the research question you aim to answer with this DCR..."
-                          className="textarea textarea-bordered w-full h-32"
+                          className="textarea textarea-bordered w-full h-20"
                           value={researchQuestion}
                           onChange={(e) => setResearchQuestion(e.target.value.slice(0, 1000))}
                           maxLength={1000}
@@ -1179,6 +1318,215 @@ export function Nav() {
                         <span className="text-xs text-base-content/60 mt-1 self-end">
                           {researchQuestion.length}/1000
                         </span>
+                      </div>
+
+                      {/* Requester Blockchain Auth Section */}
+                      <div className="divider mt-8 mb-4">Blockchain Authentication</div>
+                      <div className="bg-base-200/50 rounded-lg p-4 space-y-4">
+                        {!dcrRequesterAuthResult && (
+                          <div>
+                            <button
+                              type="button"
+                              className="btn btn-accent w-full"
+                              disabled={dcrRequesterLoading}
+                              onClick={async () => {
+                                setDcrRequesterLoading(true);
+                                try {
+                                  const resp = await fetch(`${apiUrl}/blockchain/verify`, {
+                                    method: 'POST',
+                                    credentials: 'include',
+                                  });
+                                  const data = await resp.json();
+                                  if (!resp.ok) {
+                                    throw new Error(data.detail || JSON.stringify(data));
+                                  }
+                                  setDcrRequesterAuthResult(data);
+                                  setDcrBlockchainToken(data.verify?.token || null);
+                                } catch (err: any) {
+                                  console.error('Requester auth failed:', err);
+                                  alert(`Authentication failed: ${err.message}`);
+                                } finally {
+                                  setDcrRequesterLoading(false);
+                                }
+                              }}
+                            >
+                              {dcrRequesterLoading ? <span className="loading loading-spinner loading-xs"></span> : 'Authenticate with Blockchain API'}
+                            </button>
+                            <p className="text-xs text-base-content/60 mt-2">Authenticate as a requester to register your profile and submit access requests on the blockchain.</p>
+                          </div>
+                        )}
+
+                        {dcrRequesterAuthResult && (
+                          <div className="alert alert-success">
+                            <Check className="w-5 h-5" />
+                            <div className="text-sm">
+                              <p className="font-semibold">Requester authentication successful</p>
+                              <p>Address: <code className="text-xs">{dcrRequesterAuthResult.verify?.address}</code></p>
+                              <p>Email hash: <code className="text-xs">{dcrRequesterAuthResult.verify?.emailHash}</code></p>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Requester Profile Form */}
+                        {dcrRequesterAuthResult && !dcrProfileResult && (
+                          <div className="space-y-3">
+                            <div className="form-control">
+                              <label className="label"><span className="label-text font-semibold">IRB Approval ID (optional)</span></label>
+                              <input
+                                type="text"
+                                className="input input-bordered input-sm w-full"
+                                placeholder="e.g. IRB-2024-12345"
+                                value={dcrIrbApprovalId}
+                                onChange={e => setDcrIrbApprovalId(e.target.value)}
+                              />
+                            </div>
+
+                            <div className="flex gap-4">
+                              <label className="flex items-center gap-2 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  className="checkbox checkbox-sm checkbox-primary"
+                                  checked={dcrPublicProfile}
+                                  onChange={e => setDcrPublicProfile(e.target.checked)}
+                                />
+                                <span className="text-sm">Public profile</span>
+                              </label>
+                              <label className="flex items-center gap-2 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  className="checkbox checkbox-sm checkbox-primary"
+                                  checked={dcrGaslessOptIn}
+                                  onChange={e => setDcrGaslessOptIn(e.target.checked)}
+                                />
+                                <span className="text-sm">Gasless transactions</span>
+                              </label>
+                            </div>
+
+                            <button
+                              type="button"
+                              className="btn btn-primary btn-sm w-full"
+                              disabled={dcrRequesterLoading || !dcrRequesterType}
+                              onClick={async () => {
+                                setDcrRequesterLoading(true);
+                                try {
+                                  const profileBody = {
+                                    email: userEmail,
+                                    institutionId: dcrOrgName,
+                                    requesterType: dcrRequesterType,
+                                    irbApprovalId: dcrIrbApprovalId || undefined,
+                                    countryCode: dcrOrgCountry || undefined,
+                                    publicProfile: dcrPublicProfile,
+                                    gaslessOptIn: dcrGaslessOptIn,
+                                  };
+                                  const resp = await fetch('http://localhost:8020/api/requesters/profile', {
+                                    method: 'PUT',
+                                    headers: {
+                                      'Content-Type': 'application/json',
+                                      'Authorization': `Bearer ${dcrBlockchainToken}`,
+                                    },
+                                    body: JSON.stringify(profileBody),
+                                    credentials: 'include',
+                                  });
+                                  const data = await resp.json();
+                                  if (!resp.ok) {
+                                    throw new Error(data.detail || JSON.stringify(data));
+                                  }
+                                  setDcrProfileResult(data);
+                                } catch (err: any) {
+                                  console.error('Profile creation failed:', err);
+                                  alert(`Profile creation failed: ${err.message}`);
+                                } finally {
+                                  setDcrRequesterLoading(false);
+                                }
+                              }}
+                            >
+                              {dcrRequesterLoading ? <span className="loading loading-spinner loading-xs"></span> : 'Create Requester Profile'}
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Profile Result */}
+                        {dcrProfileResult && (
+                          <div className="space-y-3">
+                            <div className="alert alert-success">
+                              <Check className="w-5 h-5" />
+                              <div className="text-sm">
+                                <p className="font-semibold">Requester profile created</p>
+                                <p>Address: <code className="text-xs">{dcrProfileResult.address}</code></p>
+                                <p>Email hash: <code className="text-xs">{dcrProfileResult.emailHash}</code></p>
+                                <p>Institution: <code className="text-xs">{dcrProfileResult.profile.institutionId}</code></p>
+                                <p>Type: <code className="text-xs">{dcrProfileResult.profile.requesterType}</code></p>
+                              </div>
+                            </div>
+
+                            {/* Access Request Buttons — one per cohort */}
+                            <div className="space-y-3">
+                              <p className="text-sm font-semibold">Submit access request for each cohort:</p>
+                              {Object.keys(dataCleanRoom?.cohorts || {}).map(cohortId => {
+                                const result = dcrAccessRequestResult[cohortId];
+                                const loading = dcrCohortLoading[cohortId];
+                                return (
+                                  <div key={cohortId} className="border border-base-300 rounded-lg p-3 space-y-2">
+                                    <p className="text-sm font-semibold">{cohortId}</p>
+                                    {!result && (
+                                      <button
+                                        type="button"
+                                        className="btn btn-accent btn-sm w-full"
+                                        disabled={!!loading}
+                                        onClick={async () => {
+                                          setDcrCohortLoading(prev => ({ ...prev, [cohortId]: true }));
+                                          try {
+                                            const accessRequestBody = {
+                                              email: userEmail,
+                                              cohortId,
+                                              intendedUse: dcrIntendedUses.includes('ancestry') ? 'POA' : 'GRU',
+                                              purpose: dcrPurpose || 1,
+                                              diseaseCode: dcrDiseaseCodes.length > 0 ? dcrDiseaseCodes[0].code : undefined,
+                                              projectId: `DCR-${Date.now()}`,
+                                              abstract: researchQuestion || undefined,
+                                            };
+                                            const resp = await fetch('http://localhost:8020/api/requesters/access-requests', {
+                                              method: 'POST',
+                                              headers: {
+                                                'Content-Type': 'application/json',
+                                                'Authorization': `Bearer ${dcrBlockchainToken}`,
+                                              },
+                                              body: JSON.stringify(accessRequestBody),
+                                              credentials: 'include',
+                                            });
+                                            const data = await resp.json();
+                                            if (!resp.ok) throw new Error(data.detail || JSON.stringify(data));
+                                            setDcrAccessRequestResult(prev => ({ ...prev, [cohortId]: data }));
+                                          } catch (err: any) {
+                                            console.error('Access request failed:', err);
+                                            setDcrAccessRequestResult(prev => ({ ...prev, [cohortId]: { auto_approved: false, error: err.message } }));
+                                          } finally {
+                                            setDcrCohortLoading(prev => ({ ...prev, [cohortId]: false }));
+                                          }
+                                        }}
+                                      >
+                                        {loading ? <span className="loading loading-spinner loading-xs"></span> : 'Submit Access Request'}
+                                      </button>
+                                    )}
+                                    {result && (
+                                      <div className="text-sm space-y-1">
+                                        {result.error ? (
+                                          <p className="text-error text-xs">{result.error}</p>
+                                        ) : (
+                                          <>
+                                            <p>Status: <span className={`badge badge-xs ${result.auto_approved ? 'badge-success' : 'badge-warning'}`}>{result.auto_approved ? 'Approved' : (result.status || 'Pending')}</span></p>
+                                            {result.request_id && <p>Request ID: <code className="text-xs">{result.request_id}</code></p>}
+                                            {result.tx_hash && <p>Tx: <code className="text-xs break-all">{result.tx_hash}</code></p>}
+                                          </>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </>
                   )}
@@ -1342,6 +1690,16 @@ export function Nav() {
                             <strong>Target Disease(s):</strong> {dcrDiseaseCodes.map(e => `${e.code} — ${e.label}`).join('; ')}
                           </div>
                         )}
+                        {(dcrOrgName || dcrOrgType || dcrOrgCountry) && (
+                          <div className="p-3 bg-base-200 rounded-lg">
+                            <strong>Organization:</strong> {[dcrOrgName, dcrOrgType, dcrOrgCountry].filter(Boolean).join(' · ')}
+                          </div>
+                        )}
+                        {dcrIntendedUses.length > 0 && (
+                          <div className="p-3 bg-base-200 rounded-lg">
+                            <strong>Intended uses:</strong> {dcrIntendedUses.join(', ')}
+                          </div>
+                        )}
                         <div className="p-3 bg-base-200 rounded-lg">
                           <strong>Airlock Cohorts:</strong> {Object.entries(airlockSettings).filter(([_, v]) => v !== false).map(([k]) => k).join(', ') || 'None'}
                         </div>
@@ -1394,13 +1752,20 @@ export function Nav() {
                       </button>
                     )}
                   </div>
+                  {wizardStep === 2 && Object.values(dcrAccessRequestResult).some((r: any) => r && !r.auto_approved) && (
+                    <div className="alert alert-error text-sm mb-3">
+                      <span>The DCR creation process cannot proceed due to incompatibility in data use between provider and requester.</span>
+                    </div>
+                  )}
                   <div className="flex gap-2">
                     <button className="btn" onClick={closeWizard}>
                       Close
                     </button>
                     {wizardStep < wizardSteps.length - 1 && (
-                      <button 
+                      <button
                         className="btn btn-primary"
+                        disabled={wizardStep === 2 && !(Object.keys(dataCleanRoom?.cohorts || {}).length > 0 && Object.keys(dataCleanRoom?.cohorts || {}).every(id => dcrAccessRequestResult[id]?.auto_approved === true))}
+                        title={wizardStep === 2 ? 'All cohorts must have an approved blockchain access grant before proceeding' : undefined}
                         onClick={() => setWizardStep(wizardStep + 1)}
                       >
                         Next →

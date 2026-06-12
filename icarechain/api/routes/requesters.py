@@ -71,6 +71,7 @@ class AccessRequestCreate(BaseModel):
     email: EmailStr
     cohortId: str
     intendedUse: str
+    purpose: int = 0
     diseaseCode: Optional[str] = None
     projectId: Optional[str] = None
     abstract: Optional[str] = None
@@ -235,6 +236,7 @@ async def create_access_request(req: AccessRequestCreate, user: AuthenticatedUse
         requester_email=req.email,
         cohort_id=req.cohortId,
         intended_use=req.intendedUse,
+        purpose=req.purpose,
         disease_code=req.diseaseCode or "",
         project_id=req.projectId or "",
         country_code=profile.get("country_code"),

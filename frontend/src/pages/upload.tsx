@@ -22,17 +22,13 @@ const DUO_MODIFIERS: {[key: string]: string} = {
   COL: 'Collaboration required (DUO:0000020)',
   IRB: 'Ethics approval required (DUO:0000021)',
   GS: 'Geographic restriction (DUO:0000022)',
-  MOR: 'Publication moratorium (DUO:0000024)',
   TS: 'Time limit on use (DUO:0000025)',
   US: 'User-specific restriction (DUO:0000026)',
   PS: 'Project-specific restriction (DUO:0000027)',
   IS: 'Institution-specific restriction (DUO:0000028)',
-  RTN: 'Return to database or resource (DUO:0000029)',
-  CC: 'Clinical care use (DUO:0000043)',
   NPOA: 'Population origins/ancestry research prohibited (DUO:0000044)',
   GSO: 'Genetic studies only (DUO:0000016)',
   RS: 'Research-specific restrictions (DUO:0000012)',
-  NMDS: 'No general methods research (DUO:0000015)',
 };
 
 const COUNTRY_PRESETS: { label: string; title: string; codes: string[] }[] = [
@@ -106,6 +102,7 @@ export default function UploadPage() {
   const [consentAllowedInstitutions, setConsentAllowedInstitutions] = useState<string[]>([]);
   const [consentAllowedInstitutionsInput, setConsentAllowedInstitutionsInput] = useState('');
   const [consentAllowedInstitutionsInputOpen, setConsentAllowedInstitutionsInputOpen] = useState(false);
+  const [consentAllowedInstitutionsDropdownOpen, setConsentAllowedInstitutionsDropdownOpen] = useState(false);
   const [consentAllowedProjects, setConsentAllowedProjects] = useState('');
   const [consentAllowedUsers, setConsentAllowedUsers] = useState<string[]>([]);
   const [consentAllowedUsersInput, setConsentAllowedUsersInput] = useState('');
@@ -119,17 +116,21 @@ export default function UploadPage() {
   const [consentFormUri, setConsentFormUri] = useState('');
   const [consentMetadataUri, setConsentMetadataUri] = useState('');
 
-  // ICD-10 autocomplete state
-  const [icd10Entries, setIcd10Entries] = useState<{code: string; label: string; kind: string; parent?: string | null}[]>([]);
+  // ICD-10 targeted dropdown state
+  const [icd10TargetedEntries, setIcd10TargetedEntries] = useState<{code: string; label: string; kind: string; parent?: string | null; is_target: boolean}[]>([]);
   const [icd10Loading, setIcd10Loading] = useState(false);
   const [icd10LoadFailed, setIcd10LoadFailed] = useState(false);
-  const [icd10SuggestionsOpen, setIcd10SuggestionsOpen] = useState(false);
-  const [icd10SearchQuery, setIcd10SearchQuery] = useState('');
-  const [icd10BrowseOpen, setIcd10BrowseOpen] = useState(false);
-  const [browseExpanded, setBrowseExpanded] = useState<Set<string>>(new Set());
-  const [browseSearch, setBrowseSearch] = useState('');
-  const [browseSelected, setBrowseSelected] = useState<{code: string; label: string; kind: string} | null>(null);
+  const [icd10DropdownOpen, setIcd10DropdownOpen] = useState(false);
+  const [specificDiseaseDropdownOpen, setSpecificDiseaseDropdownOpen] = useState(false);
+  const [diseaseAreaDropdownOpen, setDiseaseAreaDropdownOpen] = useState(false);
+  const [showAdditionalConstraints, setShowAdditionalConstraints] = useState(false);
   const icd10WrapperRef = useRef<HTMLDivElement>(null);
+  const specificDiseaseWrapperRef = useRef<HTMLDivElement>(null);
+  const diseaseAreaWrapperRef = useRef<HTMLDivElement>(null);
+  const additionalConstraintsRef = useRef<HTMLDivElement>(null);
+  const gsSectionRef = useRef<HTMLDivElement>(null);
+  const isSectionRef = useRef<HTMLDivElement>(null);
+  const prevModifiersRef = useRef<string[]>([]);
 
   const cohortsUserCanEdit = cohortsData ? Object.keys(cohortsData).filter(cohortId => cohortsData[cohortId]['can_edit']) : [];
 
@@ -157,12 +158,12 @@ export default function UploadPage() {
   }, [metadataFile]);
 
   useEffect(() => {
-    if ((consentPermission === 'DS' || consentPermission === 'HMB') && icd10Entries.length === 0 && !icd10Loading && !icd10LoadFailed) {
+    if ((consentPermission === 'DS' || consentPermission === 'HMB') && icd10TargetedEntries.length === 0 && !icd10Loading && !icd10LoadFailed) {
       setIcd10Loading(true);
-      fetch('/icd10.json')
+      fetch('/icd10-targeted.json')
         .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-        .then((data: {code: string; label: string; kind: string; parent?: string | null}[]) => {
-          setIcd10Entries(data);
+        .then((data: {code: string; label: string; kind: string; parent?: string | null; is_target: boolean}[]) => {
+          setIcd10TargetedEntries(data);
           setIcd10Loading(false);
         })
         .catch(() => {
@@ -170,17 +171,46 @@ export default function UploadPage() {
           setIcd10LoadFailed(true);
         });
     }
-  }, [consentPermission, icd10Entries.length, icd10Loading, icd10LoadFailed]);
+  }, [consentPermission, icd10TargetedEntries.length, icd10Loading, icd10LoadFailed]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (icd10WrapperRef.current && !icd10WrapperRef.current.contains(e.target as Node)) {
-        setIcd10SuggestionsOpen(false);
+        setIcd10DropdownOpen(false);
+      }
+      if (specificDiseaseWrapperRef.current && !specificDiseaseWrapperRef.current.contains(e.target as Node)) {
+        setSpecificDiseaseDropdownOpen(false);
+      }
+      if (diseaseAreaWrapperRef.current && !diseaseAreaWrapperRef.current.contains(e.target as Node)) {
+        setDiseaseAreaDropdownOpen(false);
       }
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
+
+  useEffect(() => {
+    if ((consentPermission === 'DS' || consentPermission === 'HMB') && icd10WrapperRef.current) {
+      setTimeout(() => icd10WrapperRef.current?.scrollIntoView({behavior: 'smooth', block: 'nearest'}), 80);
+    }
+  }, [consentPermission]);
+
+  useEffect(() => {
+    if (showAdditionalConstraints && additionalConstraintsRef.current) {
+      setTimeout(() => additionalConstraintsRef.current?.scrollIntoView({behavior: 'smooth', block: 'start'}), 80);
+    }
+  }, [showAdditionalConstraints]);
+
+  useEffect(() => {
+    const prev = prevModifiersRef.current;
+    if (consentModifiers.includes('GS') && !prev.includes('GS') && gsSectionRef.current) {
+      setTimeout(() => gsSectionRef.current?.scrollIntoView({behavior: 'smooth', block: 'nearest'}), 80);
+    }
+    if (consentModifiers.includes('IS') && !prev.includes('IS') && isSectionRef.current) {
+      setTimeout(() => isSectionRef.current?.scrollIntoView({behavior: 'smooth', block: 'nearest'}), 80);
+    }
+    prevModifiersRef.current = consentModifiers;
+  }, [consentModifiers]);
 
   const clearMetadataFile = () => {
     setMetadataFile(null);
@@ -715,237 +745,6 @@ export default function UploadPage() {
                      </div>
                    </div>
 
-                   {/* Modifiers — only shown when a restriction is selected */}
-                   {consentPermission !== 'NRES' && (
-                   <div className="form-control">
-                     <label className="label"><span className="label-text font-semibold">DUO Modifiers</span></label>
-                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-2 border rounded-lg">
-                       {Object.entries(DUO_MODIFIERS).map(([code, label]) => (
-                         <label key={code} className="flex items-start gap-2 cursor-pointer p-1 hover:bg-base-200 rounded">
-                           <input
-                             type="checkbox"
-                             className="checkbox checkbox-sm checkbox-accent mt-0.5"
-                             checked={consentModifiers.includes(code)}
-                             onChange={e => {
-                               if (e.target.checked) setConsentModifiers([...consentModifiers, code]);
-                               else {
-                                 setConsentModifiers(consentModifiers.filter(m => m !== code));
-                                 if (code === 'GS') { setConsentAllowedCountries([]); setConsentAllowedCountriesInput(''); setConsentAllowedCountriesInputOpen(false); }
-                                 if (code === 'IS') { setConsentAllowedInstitutions([]); setConsentAllowedInstitutionsInput(''); setConsentAllowedInstitutionsInputOpen(false); }
-                                 if (code === 'US') { setConsentAllowedUsers([]); setConsentAllowedUsersInput(''); }
-                               }
-                             }}
-                           />
-                           <span className="text-xs"><strong>{code}</strong> — {label}</span>
-                         </label>
-                       ))}
-                     </div>
-                   </div>
-                   )}
-
-                   <div className="divider">Permission Parameters</div>
-
-                   {/* Allowed Countries — shown when GS modifier active */}
-                   {consentModifiers.includes('GS') && (
-                     <div className="form-control">
-                       <label className="label"><span className="label-text font-semibold">Allowed Countries {consentModifiers.includes('GS') && <span className="text-error">*</span>}</span></label>
-                       {(consentAllowedCountries.length === 0 || consentAllowedCountriesInputOpen || consentAllowedCountriesInput) && (
-                       <input
-                         type="text"
-                         className="input input-bordered"
-                         placeholder="e.g. NL, DE, KP — press Enter to add"
-                         value={consentAllowedCountriesInput}
-                         onChange={e => setConsentAllowedCountriesInput(e.target.value)}
-                         onKeyDown={e => {
-                           if (e.key === 'Enter') {
-                             e.preventDefault();
-                             const tokens = consentAllowedCountriesInput.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
-                             if (tokens.length) { setConsentAllowedCountries(prev => [...prev, ...tokens.filter(t => !prev.includes(t))]); setConsentAllowedCountriesInput(''); setConsentAllowedCountriesInputOpen(false); }
-                           }
-                         }}
-                         onBlur={() => {
-                           const tokens = consentAllowedCountriesInput.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
-                           if (tokens.length) { setConsentAllowedCountries(prev => [...prev, ...tokens.filter(t => !prev.includes(t))]); setConsentAllowedCountriesInput(''); setConsentAllowedCountriesInputOpen(false); }
-                         }}
-                       />
-                       )}
-                       {consentAllowedCountries.length > 0 && (
-                         <div className="flex flex-wrap gap-2 mt-2">
-                           {consentAllowedCountries.map(c => (
-                             <span key={c} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-base border border-primary/40 bg-primary/10 text-primary font-medium">
-                               {c}
-                               <button type="button" className="ml-1 text-primary/60 hover:text-error transition-colors leading-none" onClick={() => setConsentAllowedCountries(prev => prev.filter(x => x !== c))}>×</button>
-                             </span>
-                           ))}
-                         </div>
-                       )}
-                       <div className="flex flex-wrap items-center gap-1 mt-2">
-                         <span className="text-xs text-base-content/50 mr-1">Quick add:</span>
-                         {COUNTRY_PRESETS.map(preset => (
-                           <button
-                             key={preset.label}
-                             type="button"
-                             title={preset.title}
-                             className="btn btn-xs btn-outline"
-                             onClick={() => setConsentAllowedCountries(prev => [...prev, ...preset.codes.filter(c => !prev.includes(c))])}
-                           >
-                             {preset.label}
-                           </button>
-                         ))}
-                         {consentAllowedCountries.length > 0 && !consentAllowedCountriesInputOpen && (
-                           <button
-                             type="button"
-                             className="btn btn-xs btn-ghost text-primary"
-                             onClick={() => setConsentAllowedCountriesInputOpen(true)}
-                           >
-                             + Add another country
-                           </button>
-                         )}
-                         {consentAllowedCountries.length > 0 && (
-                           <button
-                             type="button"
-                             className="btn btn-xs btn-error btn-outline ml-2"
-                             onClick={() => { setConsentAllowedCountries([]); setConsentAllowedCountriesInput(''); setConsentAllowedCountriesInputOpen(false); }}
-                           >
-                             Clear all
-                           </button>
-                         )}
-                       </div>
-                       <label className="label"><span className="label-text-alt">ISO-3166 country codes. Required when GS modifier is set.</span></label>
-                     </div>
-                   )}
-
-                   {/* Allowed Institutions — shown when IS modifier active */}
-                   {consentModifiers.includes('IS') && (
-                     <div className="form-control">
-                       <label className="label"><span className="label-text font-semibold">Allowed Institutions {consentModifiers.includes('IS') && <span className="text-error">*</span>}</span></label>
-                       {(consentAllowedInstitutions.length === 0 || consentAllowedInstitutionsInputOpen || consentAllowedInstitutionsInput) && (
-                       <input
-                         type="text"
-                         className="input input-bordered"
-                         placeholder="e.g. https://ror.org/02jz4aj89 — press Enter to add"
-                         value={consentAllowedInstitutionsInput}
-                         onChange={e => setConsentAllowedInstitutionsInput(e.target.value)}
-                         onKeyDown={e => {
-                           if (e.key === 'Enter') {
-                             e.preventDefault();
-                             const tokens = consentAllowedInstitutionsInput.split(',').map(s => s.trim()).filter(Boolean);
-                             if (tokens.length) { setConsentAllowedInstitutions(prev => [...prev, ...tokens.filter(t => !prev.includes(t))]); setConsentAllowedInstitutionsInput(''); setConsentAllowedInstitutionsInputOpen(false); }
-                           }
-                         }}
-                         onBlur={() => {
-                           const tokens = consentAllowedInstitutionsInput.split(',').map(s => s.trim()).filter(Boolean);
-                           if (tokens.length) { setConsentAllowedInstitutions(prev => [...prev, ...tokens.filter(t => !prev.includes(t))]); setConsentAllowedInstitutionsInput(''); setConsentAllowedInstitutionsInputOpen(false); }
-                         }}
-                       />
-                       )}
-                       {consentAllowedInstitutions.length > 0 && (
-                         <div className="flex flex-wrap gap-2 mt-2">
-                           {consentAllowedInstitutions.map(inst => (
-                             <span key={inst} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-base border border-primary/40 bg-primary/10 text-primary font-medium">
-                               {inst}
-                               <button type="button" className="ml-1 text-primary/60 hover:text-error transition-colors leading-none" onClick={() => setConsentAllowedInstitutions(prev => prev.filter(x => x !== inst))}>×</button>
-                             </span>
-                           ))}
-                           {!consentAllowedInstitutionsInputOpen && (
-                             <button type="button" className="btn btn-xs btn-ghost text-primary self-center" onClick={() => setConsentAllowedInstitutionsInputOpen(true)}>+ Add another institution</button>
-                           )}
-                         </div>
-                       )}
-                       <label className="label"><span className="label-text-alt">ROR IDs or institution identifiers. Required when IS modifier is set.</span></label>
-                     </div>
-                   )}
-
-                   {/* Allowed Projects — shown when PS modifier active */}
-                   {consentModifiers.includes('PS') && (
-                     <div className="form-control">
-                       <label className="label"><span className="label-text font-semibold">Allowed Projects {consentModifiers.includes('PS') && <span className="text-error">*</span>}</span></label>
-                       <input type="text" className="input input-bordered" placeholder="e.g. project-001, project-002" value={consentAllowedProjects} onChange={e => setConsentAllowedProjects(e.target.value)} required={consentModifiers.includes('PS')} />
-                       <label className="label"><span className="label-text-alt">Comma-separated project IDs. Required when PS modifier is set.</span></label>
-                     </div>
-                   )}
-
-                   {/* Allowed Users — shown when US modifier active */}
-                   {consentModifiers.includes('US') && (
-                     <div className="form-control">
-                       <label className="label"><span className="label-text font-semibold">Allowed Users {consentModifiers.includes('US') && <span className="text-error">*</span>}</span></label>
-                       <input
-                         type="text"
-                         className="input input-bordered"
-                         placeholder="User address or email hash — press Enter to add"
-                         value={consentAllowedUsersInput}
-                         onChange={e => setConsentAllowedUsersInput(e.target.value)}
-                         onKeyDown={e => {
-                           if (e.key === 'Enter') {
-                             e.preventDefault();
-                             const tokens = consentAllowedUsersInput.split(',').map(s => s.trim()).filter(Boolean);
-                             if (tokens.length) { setConsentAllowedUsers(prev => [...prev, ...tokens.filter(t => !prev.includes(t))]); setConsentAllowedUsersInput(''); }
-                           }
-                         }}
-                         onBlur={() => {
-                           const tokens = consentAllowedUsersInput.split(',').map(s => s.trim()).filter(Boolean);
-                           if (tokens.length) { setConsentAllowedUsers(prev => [...prev, ...tokens.filter(t => !prev.includes(t))]); setConsentAllowedUsersInput(''); }
-                         }}
-                       />
-                       {consentAllowedUsers.length > 0 && (
-                         <div className="flex flex-wrap gap-2 mt-2">
-                           {consentAllowedUsers.map(u => (
-                             <span key={u} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-base border border-primary/40 bg-primary/10 text-primary font-medium">
-                               {u}
-                               <button type="button" className="ml-1 text-primary/60 hover:text-error transition-colors leading-none" onClick={() => setConsentAllowedUsers(prev => prev.filter(x => x !== u))}>×</button>
-                             </span>
-                           ))}
-                         </div>
-                       )}
-                       <label className="label"><span className="label-text-alt">User addresses or email hashes. Required when US modifier is set.</span></label>
-                     </div>
-                   )}
-
-                   {/* Moratorium Months — shown when MOR modifier active */}
-                   {consentModifiers.includes('MOR') && (
-                     <div className="form-control">
-                       <label className="label"><span className="label-text font-semibold">Moratorium Months {consentModifiers.includes('MOR') && <span className="text-error">*</span>}</span></label>
-                       <input type="number" className="input input-bordered" min="1" placeholder="e.g. 12" value={consentMoratoriumMonths} onChange={e => setConsentMoratoriumMonths(e.target.value)} required={consentModifiers.includes('MOR')} />
-                       <label className="label"><span className="label-text-alt">Number of months for publication moratorium. Required when MOR modifier is set.</span></label>
-                     </div>
-                   )}
-
-                   {/* Research Scope — shown when RS modifier active */}
-                   {consentModifiers.includes('RS') && (
-                     <div className="form-control">
-                       <label className="label"><span className="label-text font-semibold">Research Scope {consentModifiers.includes('RS') && <span className="text-error">*</span>}</span></label>
-                       <textarea className="textarea textarea-bordered" placeholder="Describe the allowed research scope" value={consentResearchScope} onChange={e => setConsentResearchScope(e.target.value)} required={consentModifiers.includes('RS')} />
-                       <label className="label"><span className="label-text-alt">Free-text research scope. Required when RS modifier is set.</span></label>
-                     </div>
-                   )}
-
-                   {/* Return Target URI — shown when RTN modifier active */}
-                   {consentModifiers.includes('RTN') && (
-                     <div className="form-control">
-                       <label className="label"><span className="label-text font-semibold">Return Target URI {consentModifiers.includes('RTN') && <span className="text-error">*</span>}</span></label>
-                       <input type="url" className="input input-bordered" placeholder="https://..." value={consentReturnTargetUri} onChange={e => setConsentReturnTargetUri(e.target.value)} required={consentModifiers.includes('RTN')} />
-                       <label className="label"><span className="label-text-alt">URI where derived data should be returned. Required when RTN modifier is set.</span></label>
-                     </div>
-                   )}
-
-                   {/* Publication Deadline Days — shown when PUB modifier active */}
-                   {consentModifiers.includes('PUB') && (
-                     <div className="form-control">
-                       <label className="label"><span className="label-text font-semibold">Publication Deadline (days)</span></label>
-                       <input type="number" className="input input-bordered" min="1" placeholder="e.g. 365" value={consentPublicationDeadlineDays} onChange={e => setConsentPublicationDeadlineDays(e.target.value)} />
-                       <label className="label"><span className="label-text-alt">Days allowed for publication obligation. Relevant when PUB modifier is set.</span></label>
-                     </div>
-                   )}
-
-                   {/* Expiration Days — only shown when TS (Time Limit on Use) modifier is active */}
-                   {consentModifiers.includes('TS') && (
-                   <div className="form-control">
-                     <label className="label"><span className="label-text font-semibold">Time Limit (days) <span className="text-error">*</span></span></label>
-                     <input type="number" className="input input-bordered" min="1" placeholder="e.g. 365" value={consentExpirationDays} onChange={e => setConsentExpirationDays(e.target.value)} required />
-                     <label className="label"><span className="label-text-alt">Number of days the permission is valid for. Required when TS modifier is set.</span></label>
-                   </div>
-                   )}
-
                    {/* Target Disease(s) — ICD-10: required for DS, optional for HMB */}
                    {(consentPermission === 'DS' || consentPermission === 'HMB') && (
                      <div className="form-control" ref={icd10WrapperRef}>
@@ -954,202 +753,509 @@ export default function UploadPage() {
                            <span className="text-base">Target Disease(s) — ICD-10</span>
                            {consentPermission === 'DS' && <span className="text-error ml-0.5">*</span>}
                            {icd10Loading && <span className="loading loading-spinner loading-xs opacity-60"></span>}
-                           {!icd10Loading && icd10Entries.length > 0 && (
-                             <button type="button" className="btn btn-ghost btn-xs text-primary/70 hover:text-primary normal-case font-normal" onClick={() => { setIcd10BrowseOpen(true); setBrowseSearch(''); setBrowseSelected(null); }}>
-                               Browse hierarchy
-                             </button>
-                           )}
                          </span>
                        </label>
 
-                       {consentDiseaseCodes.length > 0 && (
-                         <div className="flex flex-wrap gap-2 mb-2">
-                           {consentDiseaseCodes.map(entry => (
-                             <span key={entry.code} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-base border border-primary/40 bg-primary/10 text-primary font-medium">
-                               <span className="font-mono font-bold">{entry.code}</span>
-                               <span className="text-primary/70">—</span>
-                               <span className="font-normal">{entry.label}</span>
-                               {entry.kind !== 'category' && (
-                                 <span className="text-xs opacity-60 italic">({entry.kind})</span>
-                               )}
-                               <button type="button" className="ml-1 text-primary/60 hover:text-error transition-colors leading-none" onClick={() => setConsentDiseaseCodes(prev => prev.filter(e => e.code !== entry.code))} aria-label={`Remove ${entry.code}`}>×</button>
-                             </span>
-                           ))}
-                         </div>
-                       )}
-
-                       {(consentDiseaseCodes.length === 0 || icd10SuggestionsOpen || icd10SearchQuery) && (
-                         <div className="relative">
-                           <input type="text" className="input input-bordered w-full"
-                             placeholder={consentDiseaseCodes.length === 0 ? 'e.g. I50 or "heart failure" — type to search' : 'Search to add another…'}
-                             value={icd10SearchQuery} autoComplete="off"
-                             onChange={e => { setIcd10SearchQuery(e.target.value); setIcd10SuggestionsOpen(e.target.value.trim().length > 0); }}
-                             onFocus={() => { if (icd10SearchQuery.length > 0) setIcd10SuggestionsOpen(true); }}
-                           />
-                           {icd10SuggestionsOpen && icd10Entries.length > 0 && (() => {
-                             const q = icd10SearchQuery.trim().toLowerCase();
-                             const kindOrder: Record<string, number> = {chapter: 0, block: 1, category: 2};
-                             const selectedCodes = new Set(consentDiseaseCodes.map(e => e.code));
-                             const entryMap = new Map(icd10Entries.map(e => [e.code, e]));
-                             const directMatches = icd10Entries
-                               .filter(e => !selectedCodes.has(e.code) && (e.code.toLowerCase().startsWith(q) || e.label.toLowerCase().includes(q)))
-                               .sort((a, b) => { const kd = (kindOrder[a.kind]??2)-(kindOrder[b.kind]??2); return kd !== 0 ? kd : a.code.length - b.code.length || a.code.localeCompare(b.code); })
-                               .slice(0, 20);
-                             const directCodes = new Set(directMatches.map(e => e.code));
-                             const ancestorCodes = new Set<string>();
-                             directMatches.forEach(entry => { let p = entry.parent; while (p) { if (!directCodes.has(p) && !selectedCodes.has(p)) ancestorCodes.add(p); p = entryMap.get(p)?.parent ?? undefined; } });
-                             type IcdItem = typeof icd10Entries[0] & {isContext: boolean};
-                             const allItems: IcdItem[] = [
-                               ...directMatches.map(e => ({...e, isContext: false})),
-                               ...Array.from(ancestorCodes).map(code => entryMap.get(code)).filter((e): e is typeof icd10Entries[0] => !!e).map(e => ({...e, isContext: true})),
-                             ].sort((a, b) => { const kd = (kindOrder[a.kind]??2)-(kindOrder[b.kind]??2); return kd !== 0 ? kd : a.code.length - b.code.length || a.code.localeCompare(b.code); });
-                             const getIndent = (e: IcdItem) => e.kind === 'chapter' ? 'pl-3' : e.kind === 'block' ? 'pl-6' : e.code.includes('.') ? 'pl-12' : 'pl-9';
-                             return allItems.length > 0 ? (
-                               <ul className="absolute z-50 w-full bg-base-100 border border-base-300 rounded-lg shadow-lg mt-1 max-h-60 overflow-y-auto">
-                                 {allItems.map(e => (
-                                   <li key={e.code}>
-                                     <button type="button" className={`w-full text-left pr-3 py-1.5 hover:bg-base-200 text-sm flex items-center gap-2 ${getIndent(e)} ${e.isContext ? 'opacity-50' : ''}`}
-                                       onMouseDown={ev => { ev.preventDefault(); setConsentDiseaseCodes(prev => [...prev, {code: e.code, label: e.label, kind: e.kind}]); setIcd10SearchQuery(''); setIcd10SuggestionsOpen(false); }}>
-                                       <span className="font-mono font-semibold text-primary w-16 shrink-0">{e.code}</span>
-                                       <span className="text-base-content/80 flex-1">{e.label}</span>
-                                       {e.kind !== 'category' && <span className={`badge badge-xs ml-1 shrink-0 ${e.kind === 'chapter' ? 'badge-accent' : 'badge-ghost'}`}>{e.kind}</span>}
-                                     </button>
-                                   </li>
+                       {(() => {
+                         const pMap = new Map(icd10TargetedEntries.map(e => [e.code, e.parent ?? null]));
+                         const selSet = new Set(consentDiseaseCodes.map(e => e.code));
+                         const topLevel = consentDiseaseCodes.filter(entry => {
+                           let p = pMap.get(entry.code) ?? null;
+                           while (p) { if (selSet.has(p)) return false; p = pMap.get(p) ?? null; }
+                           return true;
+                         });
+                         const removeCascade = (code: string) => setConsentDiseaseCodes(prev =>
+                           prev.filter(e => {
+                             if (e.code === code) return false;
+                             let p = pMap.get(e.code) ?? null;
+                             while (p) { if (p === code) return false; p = pMap.get(p) ?? null; }
+                             return true;
+                           })
+                         );
+                         return (
+                           <>
+                             {consentDiseaseCodes.length > 0 && (
+                               <div className="flex flex-wrap gap-1.5 mb-2">
+                                 {topLevel.map(entry => (
+                                   <span key={entry.code} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border border-primary/40 bg-primary/10 text-primary font-medium">
+                                     <span className="font-mono font-bold">{entry.code}</span>
+                                     <span className="opacity-40 mx-0.5">—</span>
+                                     <span className="font-normal max-w-[140px] truncate">{entry.label}</span>
+                                     <button type="button" className="ml-0.5 opacity-50 hover:text-error hover:opacity-100 leading-none" onClick={() => removeCascade(entry.code)} aria-label={`Remove ${entry.code}`}>×</button>
+                                   </span>
                                  ))}
-                               </ul>
-                             ) : null;
-                           })()}
-                         </div>
-                       )}
+                                 {consentDiseaseCodes.length > topLevel.length && (
+                                   <span className="text-xs text-base-content/40 self-center italic">+{consentDiseaseCodes.length - topLevel.length} sub-codes</span>
+                                 )}
+                               </div>
+                             )}
+                             <div className="relative">
+                               <button type="button"
+                                 className="btn btn-outline w-full justify-between font-normal text-left"
+                                 onClick={() => setIcd10DropdownOpen(o => !o)}
+                                 disabled={icd10TargetedEntries.length === 0 && !icd10LoadFailed}>
+                                 <span className="text-base-content/60">{consentDiseaseCodes.length === 0 ? 'Select target disease(s)…' : `${topLevel.length} disease group${topLevel.length !== 1 ? 's' : ''} selected — click to edit`}</span>
+                                 <span className="text-xs opacity-60">▾</span>
+                               </button>
 
-                       {consentDiseaseCodes.length > 0 && !icd10SuggestionsOpen && !icd10SearchQuery && (
-                         <button type="button" className="btn btn-ghost btn-xs text-primary mt-1 self-start"
-                           onClick={() => { setIcd10SearchQuery(' '); setIcd10SuggestionsOpen(true); setTimeout(() => setIcd10SearchQuery(''), 0); }}>
-                           + Specify another disease
-                         </button>
-                       )}
+                               {icd10DropdownOpen && icd10TargetedEntries.length > 0 && (() => {
+                                 const selCodes = new Set(consentDiseaseCodes.map(e => e.code));
+                                 const childrenMap = new Map<string, typeof icd10TargetedEntries>();
+                                 icd10TargetedEntries.forEach(e => { if (e.parent) { if (!childrenMap.has(e.parent)) childrenMap.set(e.parent, []); childrenMap.get(e.parent)!.push(e); } });
+                                 const parentMap = new Map(icd10TargetedEntries.map(e => [e.code, e.parent ?? null]));
+                                 const ancestorSelected = (code: string): boolean => {
+                                   let p = parentMap.get(code) ?? null;
+                                   while (p) { if (selCodes.has(p)) return true; p = parentMap.get(p) ?? null; }
+                                   return false;
+                                 };
+                                 const getAllDescendants = (code: string): typeof icd10TargetedEntries => {
+                                   const result: typeof icd10TargetedEntries = [];
+                                   const queue = [...(childrenMap.get(code) ?? [])];
+                                   while (queue.length > 0) {
+                                     const child = queue.shift()!;
+                                     result.push(child);
+                                     queue.push(...(childrenMap.get(child.code) ?? []));
+                                   }
+                                   return result;
+                                 };
+                                 const handleCheck = (entry: typeof icd10TargetedEntries[0], checked: boolean) => {
+                                   if (checked) {
+                                     setConsentDiseaseCodes(prev => {
+                                       if (prev.some(e => e.code === entry.code)) return prev;
+                                       return [...prev, {code: entry.code, label: entry.label, kind: entry.kind}];
+                                     });
+                                   } else {
+                                     const allDesc = getAllDescendants(entry.code);
+                                     const toRemove = new Set([entry.code, ...allDesc.map(e => e.code)]);
+                                     setConsentDiseaseCodes(prev => prev.filter(e => !toRemove.has(e.code)));
+                                   }
+                                 };
+                                 const chapters = icd10TargetedEntries.filter(e => e.kind === 'chapter');
+                                 const blocksByParent = new Map<string, typeof icd10TargetedEntries>();
+                                 const categoriesByParent = new Map<string, typeof icd10TargetedEntries>();
+                                 icd10TargetedEntries.forEach(e => {
+                                   if (e.kind === 'block' && e.parent) {
+                                     if (!blocksByParent.has(e.parent)) blocksByParent.set(e.parent, []);
+                                     blocksByParent.get(e.parent)!.push(e);
+                                   }
+                                   if (e.kind === 'category' && e.parent) {
+                                     if (!categoriesByParent.has(e.parent)) categoriesByParent.set(e.parent, []);
+                                     categoriesByParent.get(e.parent)!.push(e);
+                                   }
+                                 });
+                                 return (
+                                   <>
+                                     <div className="fixed inset-0 z-[9998] bg-black/50 backdrop-blur-sm" onClick={() => setIcd10DropdownOpen(false)} />
+                                     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 pointer-events-none">
+                                       <div className="w-full max-w-5xl bg-base-100 rounded-2xl shadow-2xl flex flex-col pointer-events-auto" style={{maxHeight: '85vh'}}>
+                                         <div className="flex items-center justify-between px-5 py-3 border-b border-base-300 shrink-0">
+                                           <h3 className="font-bold text-base">Select Target Disease(s) — ICD-10</h3>
+                                           <button type="button" className="btn btn-ghost btn-sm btn-circle" onClick={() => setIcd10DropdownOpen(false)}>✕</button>
+                                         </div>
+                                         <div className="flex-1 p-4 flex flex-col gap-5" style={{overflowY: 'scroll', scrollbarWidth: 'auto', scrollbarColor: '#64748b #e2e8f0'}}>
+                                           {chapters.map((chapter, idx) => {
+                                             const cExplicit = selCodes.has(chapter.code);
+                                             const cInherited = !cExplicit && ancestorSelected(chapter.code);
+                                             const cChecked = cExplicit || cInherited;
+                                             const blocks = blocksByParent.get(chapter.code) ?? [];
+                                             return (
+                                               <div key={chapter.code}>
+                                                 <label className="flex items-center gap-2 cursor-pointer pb-1.5 mb-2 border-b-2 border-base-300">
+                                                   <input type="checkbox" className="checkbox checkbox-sm checkbox-primary shrink-0" checked={cChecked}
+                                                     onChange={ev => { if (!cInherited) handleCheck(chapter, ev.target.checked); }} />
+                                                   <span className="font-mono font-bold text-sm text-primary shrink-0">{chapter.code}</span>
+                                                   <span className="text-sm font-semibold text-base-content/80 min-w-0 overflow-hidden">{chapter.label}</span>
+                                                 </label>
+                                                 <div className="grid grid-cols-3 gap-x-3 gap-y-0">
+                                                   {blocks.map(block => {
+                                                     const bExplicit = selCodes.has(block.code);
+                                                     const bInherited = !bExplicit && ancestorSelected(block.code);
+                                                     const bChecked = bExplicit || bInherited;
+                                                     const categories = categoriesByParent.get(block.code) ?? [];
+                                                     return (
+                                                       <div key={block.code} className="flex flex-col">
+                                                         <label className="flex items-center gap-1.5 py-1 px-1 cursor-pointer hover:bg-base-200 rounded min-w-0">
+                                                           <input type="checkbox" className="checkbox checkbox-xs checkbox-primary shrink-0" checked={bChecked}
+                                                             onChange={ev => { if (!bInherited) handleCheck(block, ev.target.checked); }} />
+                                                           <span className="font-mono font-semibold text-sm text-primary shrink-0 w-[4.5rem]">{block.code}</span>
+                                                           <span className="text-xs text-base-content/80 min-w-0 overflow-hidden leading-tight">{block.label}</span>
+                                                         </label>
+                                                         {categories.map(cat => {
+                                                           const dExplicit = selCodes.has(cat.code);
+                                                           const dInherited = !dExplicit && ancestorSelected(cat.code);
+                                                           const dChecked = dExplicit || dInherited;
+                                                           return (
+                                                             <label key={cat.code} className="flex items-center gap-1 py-0.5 pl-4 pr-1 cursor-pointer hover:bg-base-200 rounded min-w-0">
+                                                               <input type="checkbox" className="checkbox checkbox-primary shrink-0" checked={dChecked}
+                                                                 style={{width: '0.6rem', height: '0.6rem', minWidth: '0.6rem'}}
+                                                                 onChange={ev => { if (!dInherited) handleCheck(cat, ev.target.checked); }} />
+                                                               <span className="font-mono text-primary font-semibold shrink-0 w-[3.5rem]" style={{fontSize: '0.65rem'}}>{cat.code}</span>
+                                                               <span className="text-base-content/65 min-w-0 overflow-hidden leading-tight" style={{fontSize: '0.65rem'}}>{cat.label}</span>
+                                                             </label>
+                                                           );
+                                                         })}
+                                                       </div>
+                                                     );
+                                                   })}
+                                                 </div>
+                                               </div>
+                                             );
+                                           })}
+                                         </div>
+                                         <div className="px-5 py-3 border-t border-base-300 flex justify-between items-center shrink-0">
+                                           <span className="text-sm text-base-content/60">{topLevel.length} disease group{topLevel.length !== 1 ? 's' : ''} selected</span>
+                                           <button type="button" className="btn btn-sm btn-primary" onClick={() => setIcd10DropdownOpen(false)}>Done</button>
+                                         </div>
+                                       </div>
+                                     </div>
+                                   </>
+                                 );
+                               })()}
+                             </div>
+                           </>
+                         );
+                       })()}
 
                        {icd10LoadFailed && (
                          <label className="label"><span className="label-text-alt text-warning">Could not load ICD-10 data. Restart the dev server or rebuild the Docker container.</span></label>
                        )}
-                       {consentDiseaseCodes.length === 0 && !icd10SearchQuery && (
+                       {consentDiseaseCodes.length === 0 && (
                          <label className="label">
                            <span className="label-text-alt text-base-content/60">
-                             ICD-10 (2019). Chapters, blocks and categories included.
+                             ICD-10 (2019). Select from curated disease list.
                              {consentPermission === 'DS' ? ' Required for Disease Specific Research.' : ' Optional for HMB — specify to narrow scope.'}
                            </span>
                          </label>
                        )}
-
-                       {icd10BrowseOpen && icd10Entries.length > 0 && (() => {
-                         const selCodes = new Set(consentDiseaseCodes.map(e => e.code));
-                         const childrenMap = new Map<string, typeof icd10Entries>();
-                         icd10Entries.forEach(e => { if (e.parent) { if (!childrenMap.has(e.parent)) childrenMap.set(e.parent, []); childrenMap.get(e.parent)!.push(e); } });
-                         const chapters = icd10Entries.filter(e => e.kind === 'chapter');
-                         const bq = browseSearch.trim().toLowerCase();
-                         const kindOrder: Record<string, number> = {chapter: 0, block: 1, category: 2};
-                         const selectEntry = (entry: typeof icd10Entries[0]) => setBrowseSelected({code: entry.code, label: entry.label, kind: entry.kind});
-                         const renderEntry = (entry: typeof icd10Entries[0], depth: number): React.ReactNode => {
-                           const children = childrenMap.get(entry.code) || [];
-                           const isExpanded = browseExpanded.has(entry.code);
-                           const isPicked = browseSelected?.code === entry.code;
-                           const alreadyAdded = selCodes.has(entry.code);
-                           return (
-                             <React.Fragment key={entry.code}>
-                               <div className={`flex items-center gap-2 py-1.5 cursor-pointer hover:bg-base-200 select-none ${isPicked ? 'bg-primary/20 ring-1 ring-inset ring-primary/40' : alreadyAdded ? 'opacity-50' : ''}`}
-                                 style={{paddingLeft: `${12 + depth * 18}px`, paddingRight: '12px'}}
-                                 onClick={() => { selectEntry(entry); if (children.length) setBrowseExpanded(prev => { const n = new Set(prev); n.has(entry.code) ? n.delete(entry.code) : n.add(entry.code); return n; }); }}>
-                                 <span className="w-4 shrink-0 text-center text-xs text-base-content/40 hover:text-base-content"
-                                   onClick={children.length ? (ev) => { ev.stopPropagation(); setBrowseExpanded(prev => { const n = new Set(prev); n.has(entry.code) ? n.delete(entry.code) : n.add(entry.code); return n; }); } : undefined}>
-                                   {children.length ? (isExpanded ? '▾' : '▸') : ''}
-                                 </span>
-                                 <span className="font-mono font-semibold text-primary text-sm w-16 shrink-0">{entry.code}</span>
-                                 <span className="text-sm flex-1 text-base-content/80">{entry.label}</span>
-                                 {entry.kind !== 'category' && <span className={`badge badge-xs shrink-0 ${entry.kind === 'chapter' ? 'badge-accent' : 'badge-ghost'}`}>{entry.kind}</span>}
-                                 {alreadyAdded && <Check className="w-4 h-4 text-primary/50 shrink-0" />}
-                               </div>
-                               {isExpanded && children.map(child => renderEntry(child, depth + 1))}
-                             </React.Fragment>
-                           );
-                         };
-                         const filteredItems = bq ? (() => {
-                           const entryMap = new Map(icd10Entries.map(e => [e.code, e]));
-                           const direct = icd10Entries.filter(e => e.code.toLowerCase().startsWith(bq) || e.label.toLowerCase().includes(bq))
-                             .sort((a, b) => { const kd = (kindOrder[a.kind]??2)-(kindOrder[b.kind]??2); return kd !== 0 ? kd : a.code.length - b.code.length || a.code.localeCompare(b.code); }).slice(0, 60);
-                           const directCodes = new Set(direct.map(e => e.code));
-                           const anc = new Set<string>();
-                           direct.forEach(e => { let p = e.parent; while (p) { if (!directCodes.has(p)) anc.add(p); p = entryMap.get(p)?.parent ?? undefined; } });
-                           type FItem = typeof icd10Entries[0] & {isCtx: boolean};
-                           return [...direct.map(e => ({...e, isCtx: false})), ...Array.from(anc).map(c => entryMap.get(c)).filter((e): e is typeof icd10Entries[0] => !!e).map(e => ({...e, isCtx: true}))]
-                             .sort((a, b) => { const kd = (kindOrder[a.kind]??2)-(kindOrder[b.kind]??2); return kd !== 0 ? kd : a.code.length - b.code.length || a.code.localeCompare(b.code); }) as FItem[];
-                         })() : null;
-                         const filteredIndent = (e: {kind: string; code: string}) => e.kind === 'chapter' ? 12 : e.kind === 'block' ? 30 : e.code.includes('.') ? 66 : 48;
-                         return (
-                           <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm" onMouseDown={() => setIcd10BrowseOpen(false)}>
-                             <div className="bg-base-100 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[82vh] flex flex-col mx-4" onMouseDown={e => e.stopPropagation()}>
-                               <div className="flex items-center justify-between px-5 py-4 border-b border-base-300 shrink-0">
-                                 <h3 className="font-bold text-base">Browse ICD-10 Hierarchy</h3>
-                                 <button type="button" className="btn btn-sm btn-ghost btn-circle" onClick={() => setIcd10BrowseOpen(false)}>✕</button>
-                               </div>
-                               <div className="px-4 py-3 border-b border-base-300 shrink-0">
-                                 <input type="text" className="input input-bordered input-sm w-full" placeholder="Filter by code or name…" value={browseSearch} onChange={e => setBrowseSearch(e.target.value)} autoFocus />
-                               </div>
-                               <div className="overflow-y-auto flex-1">
-                                 {filteredItems ? filteredItems.map(e => (
-                                   <div key={e.code}
-                                     className={`flex items-center gap-2 py-1.5 cursor-pointer hover:bg-base-200 select-none ${e.isCtx ? 'opacity-50' : ''} ${browseSelected?.code === e.code ? 'bg-primary/20 ring-1 ring-inset ring-primary/40' : selCodes.has(e.code) ? 'opacity-50' : ''}`}
-                                     style={{paddingLeft: `${filteredIndent(e)}px`, paddingRight: '12px'}}
-                                     onClick={() => !e.isCtx && selectEntry(e)}>
-                                     <span className="font-mono font-semibold text-primary text-sm w-16 shrink-0">{e.code}</span>
-                                     <span className="text-sm flex-1 text-base-content/80">{e.label}</span>
-                                     {e.kind !== 'category' && <span className={`badge badge-xs shrink-0 ${e.kind === 'chapter' ? 'badge-accent' : 'badge-ghost'}`}>{e.kind}</span>}
-                                     {selCodes.has(e.code) && <Check className="w-4 h-4 text-primary/50 shrink-0" />}
-                                   </div>
-                                 )) : chapters.map(chapter => renderEntry(chapter, 0))}
-                               </div>
-                               <div className="px-5 py-3 border-t border-base-300 flex justify-between items-center shrink-0">
-                                 <span className="text-sm text-base-content/60">{consentDiseaseCodes.length === 0 ? 'No diseases selected yet' : `${consentDiseaseCodes.length} selected`}</span>
-                                 <div className="flex gap-2">
-                                   <button type="button" className="btn btn-sm btn-ghost" onClick={() => setIcd10BrowseOpen(false)}>Cancel</button>
-                                   <button type="button" className="btn btn-sm btn-primary" disabled={!browseSelected}
-                                     onClick={() => { if (browseSelected && !selCodes.has(browseSelected.code)) setConsentDiseaseCodes(prev => [...prev, browseSelected]); setIcd10BrowseOpen(false); }}>
-                                     {browseSelected ? `Select ${browseSelected.code}` : 'Select'}
-                                   </button>
-                                 </div>
-                               </div>
-                             </div>
-                           </div>
-                         );
-                       })()}
                      </div>
                    )}
 
-                   {/* Additional / optional parameters — always available but collapsed */}
-                   <div className="collapse collapse-arrow border border-base-300 rounded-lg">
-                     <input type="checkbox" />
-                     <div className="collapse-title text-sm font-medium text-base-content/60">Additional Parameters</div>
-                     <div className="collapse-content space-y-4 pt-2">
-                       {consentPermission !== 'NRES' && (
-                       <div className="form-control">
-                         <label className="label"><span className="label-text font-semibold">Data Use Description</span></label>
-                         <textarea className="textarea textarea-bordered" placeholder="Describe what the data may be used for" value={consentDataUseDescription} onChange={e => setConsentDataUseDescription(e.target.value)} />
+                  {/* Specific Disease Codes + Disease Areas side by side */}
+                  {(consentPermission === 'DS' || consentPermission === 'HMB') && icd10TargetedEntries.length > 0 && (() => {
+                    const selSet = new Set(consentDiseaseCodes.map(e => e.code));
+                    const lookup = new Map(icd10TargetedEntries.map(e => [e.code, e]));
+                    const parentMap = new Map(icd10TargetedEntries.map(e => [e.code, e.parent ?? null]));
+
+                    const specificCodes = icd10TargetedEntries.filter(e => e.is_target && e.kind === 'category');
+
+                    const diseaseAreaCodes = (() => {
+                      const seen = new Set<string>();
+                      const result: typeof icd10TargetedEntries = [];
+                      for (const cat of specificCodes) {
+                        let p = parentMap.get(cat.code) ?? null;
+                        while (p) {
+                          if (!seen.has(p)) {
+                            seen.add(p);
+                            const entry = lookup.get(p);
+                            if (entry && (entry.kind === 'block' || entry.kind === 'chapter')) result.push(entry);
+                          }
+                          p = parentMap.get(p) ?? null;
+                        }
+                      }
+                      return result.sort((a, b) => {
+                        if (a.kind !== b.kind) return a.kind === 'chapter' ? -1 : 1;
+                        return a.code.localeCompare(b.code);
+                      });
+                    })();
+
+                    const toggle = (entry: typeof icd10TargetedEntries[0], checked: boolean) => {
+                      if (checked) {
+                        setConsentDiseaseCodes(prev => prev.some(e => e.code === entry.code) ? prev : [...prev, {code: entry.code, label: entry.label, kind: entry.kind}]);
+                      } else {
+                        setConsentDiseaseCodes(prev => prev.filter(e => e.code !== entry.code));
+                      }
+                    };
+
+                    const toggleDiseaseArea = (entry: typeof icd10TargetedEntries[0], checked: boolean) => {
+                      if (checked) {
+                        const toAdd: {code: string; label: string; kind: string}[] = [{code: entry.code, label: entry.label, kind: entry.kind}];
+                        if (entry.kind === 'chapter') {
+                          for (const e of diseaseAreaCodes) {
+                            if (e.kind === 'block' && parentMap.get(e.code) === entry.code) {
+                              toAdd.push({code: e.code, label: e.label, kind: e.kind});
+                            }
+                          }
+                        }
+                        setConsentDiseaseCodes(prev => {
+                          const existing = new Set(prev.map(e => e.code));
+                          return [...prev, ...toAdd.filter(e => !existing.has(e.code))];
+                        });
+                      } else {
+                        const toRemove = new Set([entry.code]);
+                        if (entry.kind === 'chapter') {
+                          for (const e of diseaseAreaCodes) {
+                            if (e.kind === 'block' && parentMap.get(e.code) === entry.code) toRemove.add(e.code);
+                          }
+                        }
+                        setConsentDiseaseCodes(prev => prev.filter(e => !toRemove.has(e.code)));
+                      }
+                    };
+
+                    const renderSimpleDropdown = (
+                      title: string,
+                      items: typeof icd10TargetedEntries,
+                      open: boolean,
+                      setOpen: (v: boolean) => void,
+                      wrapperRef: React.RefObject<HTMLDivElement>,
+                      onToggle?: (entry: typeof icd10TargetedEntries[0], checked: boolean) => void
+                    ) => {
+                      const handleToggle = onToggle ?? toggle;
+                      const selectedItems = items.filter(e => selSet.has(e.code));
+                      return (
+                        <div className="form-control flex-1" ref={wrapperRef}>
+                          <label className="label"><span className="label-text font-semibold">{title}</span></label>
+                          {selectedItems.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5 mb-2">
+                              {selectedItems.map(e => (
+                                <span key={e.code} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border border-primary/40 bg-primary/10 text-primary font-medium">
+                                  <span className="font-mono font-bold">{e.code}</span>
+                                  <button type="button" className="ml-0.5 opacity-50 hover:text-error hover:opacity-100 leading-none" onClick={() => handleToggle(e, false)}>×</button>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          <div className="relative">
+                            <button type="button"
+                              className="btn btn-outline w-full justify-between font-normal text-left"
+                              onClick={() => setOpen(!open)}
+                              disabled={items.length === 0}>
+                              <span className="text-base-content/60">{selectedItems.length === 0 ? 'Select…' : `${selectedItems.length} selected — click to edit`}</span>
+                              <span className="text-xs opacity-60">▾</span>
+                            </button>
+                            {open && (
+                              <>
+                                <div className="fixed inset-0 z-[9998] bg-black/50 backdrop-blur-sm" onClick={() => setOpen(false)} />
+                                <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 pointer-events-none">
+                                  <div className="w-full max-w-sm bg-base-100 rounded-2xl shadow-2xl flex flex-col pointer-events-auto" style={{maxHeight: '80vh'}}>
+                                    <div className="flex items-center justify-between px-5 py-3 border-b border-base-300 shrink-0">
+                                      <h3 className="font-bold text-base">{title}</h3>
+                                      <button type="button" className="btn btn-ghost btn-sm btn-circle" onClick={() => setOpen(false)}>✕</button>
+                                    </div>
+                                    <div className="flex-1 p-3 flex flex-col gap-0.5" style={{overflowY: 'scroll', scrollbarWidth: 'auto', scrollbarColor: '#64748b #e2e8f0'}}>
+                                      {items.map(entry => {
+                                        const checked = selSet.has(entry.code);
+                                        const isChapter = entry.kind === 'chapter';
+                                        return (
+                                          <label key={entry.code} className={`flex items-center gap-2 py-1 px-2 cursor-pointer hover:bg-base-200 rounded ${isChapter ? 'mt-2 border-b border-base-300 pb-1.5' : ''}`}>
+                                            <input type="checkbox" className="checkbox checkbox-sm checkbox-primary shrink-0" checked={checked}
+                                              onChange={ev => handleToggle(entry, ev.target.checked)} />
+                                            <span className={`font-mono text-primary shrink-0 w-[4.5rem] ${isChapter ? 'font-bold text-sm' : 'font-semibold text-sm'}`}>{entry.code}</span>
+                                            <span className={`min-w-0 overflow-hidden leading-tight ${isChapter ? 'font-bold text-sm text-base-content' : 'text-sm text-base-content/80'}`}>{entry.label}</span>
+                                          </label>
+                                        );
+                                      })}
+                                    </div>
+                                    <div className="px-5 py-3 border-t border-base-300 flex justify-between items-center shrink-0">
+                                      <span className="text-sm text-base-content/60">{selectedItems.length} selected</span>
+                                      <button type="button" className="btn btn-sm btn-primary" onClick={() => setOpen(false)}>Done</button>
+                                    </div>
+                                  </div>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    };
+
+                    return (
+                      <div className="flex gap-4 mt-2">
+                        {renderSimpleDropdown('Select specific disease code', specificCodes, specificDiseaseDropdownOpen, setSpecificDiseaseDropdownOpen, specificDiseaseWrapperRef)}
+                        {renderSimpleDropdown('Select disease areas', diseaseAreaCodes, diseaseAreaDropdownOpen, setDiseaseAreaDropdownOpen, diseaseAreaWrapperRef, toggleDiseaseArea)}
+                      </div>
+                    );
+                  })()}
+
+                   {consentPermission !== 'NRES' && (
+                     <div className="mt-6">
+                       <div className="divider my-4"></div>
+                       <div className="flex justify-center">
+                         <button type="button" className="btn btn-primary normal-case gap-2 px-8 shadow-md" onClick={() => setShowAdditionalConstraints(v => !v)}>
+                           {showAdditionalConstraints ? '▾ Hide additional constraints' : '▸ Show additional constraints'}
+                         </button>
                        </div>
+                       {showAdditionalConstraints && (
+                         <div className="space-y-4 mt-3 pt-3 border-t border-base-200" ref={additionalConstraintsRef}>
+                           <div className="form-control">
+                             <label className="label"><span className="label-text font-semibold">DUO Modifiers</span></label>
+                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-2 border rounded-lg">
+                               {Object.entries(DUO_MODIFIERS).map(([code, label]) => (
+                                 <label key={code} className="flex items-start gap-2 cursor-pointer p-1 hover:bg-base-200 rounded">
+                                   <input
+                                     type="checkbox"
+                                     className="checkbox checkbox-sm checkbox-accent mt-0.5"
+                                     checked={consentModifiers.includes(code)}
+                                     onChange={e => {
+                                       if (e.target.checked) setConsentModifiers([...consentModifiers, code]);
+                                       else {
+                                         setConsentModifiers(consentModifiers.filter(m => m !== code));
+                                         if (code === 'GS') { setConsentAllowedCountries([]); setConsentAllowedCountriesInput(''); setConsentAllowedCountriesInputOpen(false); }
+                                         if (code === 'IS') { setConsentAllowedInstitutions([]); setConsentAllowedInstitutionsInput(''); setConsentAllowedInstitutionsInputOpen(false); }
+                                         if (code === 'US') { setConsentAllowedUsers([]); setConsentAllowedUsersInput(''); }
+                                       }
+                                     }}
+                                   />
+                                   <span className="text-xs"><strong>{code}</strong> — {label}</span>
+                                 </label>
+                               ))}
+                             </div>
+                           </div>
+
+                           {consentModifiers.includes('GS') && (
+                             <div className="form-control" ref={gsSectionRef}>
+                               <label className="label"><span className="label-text font-semibold">Allowed Countries {consentModifiers.includes('GS') && <span className="text-error">*</span>}</span></label>
+                               {(consentAllowedCountries.length === 0 || consentAllowedCountriesInputOpen || consentAllowedCountriesInput) && (
+                               <input type="text" className="input input-bordered" placeholder="e.g. NL, DE, KP — press Enter to add" value={consentAllowedCountriesInput}
+                                 onChange={e => setConsentAllowedCountriesInput(e.target.value)}
+                                 onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); const tokens = consentAllowedCountriesInput.split(',').map(s => s.trim().toUpperCase()).filter(Boolean); if (tokens.length) { setConsentAllowedCountries(prev => [...prev, ...tokens.filter(t => !prev.includes(t))]); setConsentAllowedCountriesInput(''); setConsentAllowedCountriesInputOpen(false); } } }}
+                                 onBlur={() => { const tokens = consentAllowedCountriesInput.split(',').map(s => s.trim().toUpperCase()).filter(Boolean); if (tokens.length) { setConsentAllowedCountries(prev => [...prev, ...tokens.filter(t => !prev.includes(t))]); setConsentAllowedCountriesInput(''); setConsentAllowedCountriesInputOpen(false); } }}
+                               />
+                               )}
+                               {consentAllowedCountries.length > 0 && (
+                                 <div className="flex flex-wrap gap-1.5 mt-2">
+                                   {consentAllowedCountries.map(c => (
+                                     <span key={c} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border border-primary/40 bg-primary/10 text-primary font-medium">
+                                       <span>{c}</span><button type="button" className="ml-0.5 opacity-50 hover:text-error hover:opacity-100 leading-none" onClick={() => setConsentAllowedCountries(prev => prev.filter(x => x !== c))}>×</button>
+                                     </span>
+                                   ))}
+                                 </div>
+                               )}
+                               <div className="flex flex-wrap items-center gap-1 mt-2">
+                                 <span className="text-xs text-base-content/50 mr-1">Quick add:</span>
+                                 {COUNTRY_PRESETS.map(preset => (
+                                   <button key={preset.label} type="button" title={preset.title} className="btn btn-xs btn-outline" onClick={() => setConsentAllowedCountries(prev => [...prev, ...preset.codes.filter(c => !prev.includes(c))])}>{preset.label}</button>
+                                 ))}
+                                 {consentAllowedCountries.length > 0 && !consentAllowedCountriesInputOpen && (
+                                   <button type="button" className="btn btn-xs btn-ghost text-primary" onClick={() => setConsentAllowedCountriesInputOpen(true)}>+ Add another country</button>
+                                 )}
+                                 {consentAllowedCountries.length > 0 && (
+                                   <button type="button" className="btn btn-xs btn-error btn-outline ml-2" onClick={() => { setConsentAllowedCountries([]); setConsentAllowedCountriesInput(''); setConsentAllowedCountriesInputOpen(false); }}>Clear all</button>
+                                 )}
+                               </div>
+                               <label className="label"><span className="label-text-alt">ISO-3166 country codes. Required when GS modifier is set.</span></label>
+                             </div>
+                           )}
+
+                           {consentModifiers.includes('IS') && (
+                             <div className="form-control" ref={isSectionRef}>
+                               <label className="label"><span className="label-text font-semibold">Allowed Institutions {consentModifiers.includes('IS') && <span className="text-error">*</span>}</span></label>
+                               {consentAllowedInstitutions.length > 0 && (
+                                 <div className="flex flex-wrap gap-1.5 mb-2">
+                                   {consentAllowedInstitutions.map(inst => (
+                                     <span key={inst} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border border-primary/40 bg-primary/10 text-primary font-medium">
+                                       <span>{inst}</span>
+                                       <button type="button" className="ml-0.5 opacity-50 hover:text-error hover:opacity-100 leading-none" onClick={() => setConsentAllowedInstitutions(prev => prev.filter(x => x !== inst))}>×</button>
+                                     </span>
+                                   ))}
+                                 </div>
+                               )}
+                               <div className="relative">
+                                 <button type="button" className="btn btn-outline w-full justify-between font-normal text-left"
+                                   onClick={() => setConsentAllowedInstitutionsDropdownOpen(o => !o)}>
+                                   <span className="text-base-content/60">{consentAllowedInstitutions.length === 0 ? 'Select allowed institutions…' : `${consentAllowedInstitutions.length} institution${consentAllowedInstitutions.length !== 1 ? 's' : ''} selected — click to edit`}</span>
+                                   <span className="text-xs opacity-60">▾</span>
+                                 </button>
+                                 {consentAllowedInstitutionsDropdownOpen && (() => {
+                                   const institutionNames = [...new Set(Object.values(cohortsData as Record<string, {institution?: string}>).map(c => c.institution).filter((x): x is string => Boolean(x)))].sort();
+                                   return (
+                                     <div className="absolute z-50 left-0 w-full bg-base-100 border border-base-300 rounded-lg shadow-xl mt-1">
+                                       <div className="max-h-[40vh] overflow-y-auto p-2" style={{columnCount: 2, columnGap: '0.5rem'}}>
+                                         {institutionNames.map(name => (
+                                           <label key={name} className="flex items-center gap-1.5 py-1 cursor-pointer hover:bg-base-200 rounded px-1" style={{breakInside: 'avoid' as const}}>
+                                             <input type="checkbox" className="checkbox checkbox-xs checkbox-primary shrink-0"
+                                               checked={consentAllowedInstitutions.includes(name)}
+                                               onChange={ev => {
+                                                 if (ev.target.checked) setConsentAllowedInstitutions(prev => [...prev, name]);
+                                                 else setConsentAllowedInstitutions(prev => prev.filter(x => x !== name));
+                                               }} />
+                                             <span className="text-xs text-base-content/80">{name}</span>
+                                           </label>
+                                         ))}
+                                       </div>
+                                       <div className="px-3 py-2 border-t border-base-300 flex justify-between items-center">
+                                         <span className="text-xs text-base-content/60">{consentAllowedInstitutions.length} selected</span>
+                                         <button type="button" className="btn btn-xs btn-primary" onClick={() => setConsentAllowedInstitutionsDropdownOpen(false)}>Done</button>
+                                       </div>
+                                     </div>
+                                   );
+                                 })()}
+                               </div>
+                               <label className="label"><span className="label-text-alt">Select from cohort member institutions. Required when IS modifier is set.</span></label>
+                             </div>
+                           )}
+
+                           {consentModifiers.includes('PS') && (
+                             <div className="form-control">
+                               <label className="label"><span className="label-text font-semibold">Allowed Projects {consentModifiers.includes('PS') && <span className="text-error">*</span>}</span></label>
+                               <input type="text" className="input input-bordered" placeholder="e.g. project-001, project-002" value={consentAllowedProjects} onChange={e => setConsentAllowedProjects(e.target.value)} required={consentModifiers.includes('PS')} />
+                               <label className="label"><span className="label-text-alt">Comma-separated project IDs. Required when PS modifier is set.</span></label>
+                             </div>
+                           )}
+
+                           {consentModifiers.includes('US') && (
+                             <div className="form-control">
+                               <label className="label"><span className="label-text font-semibold">Allowed Users {consentModifiers.includes('US') && <span className="text-error">*</span>}</span></label>
+                               <input type="text" className="input input-bordered" placeholder="User address or email hash — press Enter to add" value={consentAllowedUsersInput}
+                                 onChange={e => setConsentAllowedUsersInput(e.target.value)}
+                                 onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); const tokens = consentAllowedUsersInput.split(',').map(s => s.trim()).filter(Boolean); if (tokens.length) { setConsentAllowedUsers(prev => [...prev, ...tokens.filter(t => !prev.includes(t))]); setConsentAllowedUsersInput(''); } } }}
+                                 onBlur={() => { const tokens = consentAllowedUsersInput.split(',').map(s => s.trim()).filter(Boolean); if (tokens.length) { setConsentAllowedUsers(prev => [...prev, ...tokens.filter(t => !prev.includes(t))]); setConsentAllowedUsersInput(''); } }}
+                               />
+                               {consentAllowedUsers.length > 0 && (
+                                 <div className="flex flex-wrap gap-2 mt-2">
+                                   {consentAllowedUsers.map(u => (
+                                     <span key={u} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-base border border-primary/40 bg-primary/10 text-primary font-medium">
+                                       {u}<button type="button" className="ml-1 text-primary/60 hover:text-error transition-colors leading-none" onClick={() => setConsentAllowedUsers(prev => prev.filter(x => x !== u))}>×</button>
+                                     </span>
+                                   ))}
+                                 </div>
+                               )}
+                               <label className="label"><span className="label-text-alt">User addresses or email hashes. Required when US modifier is set.</span></label>
+                             </div>
+                           )}
+
+                           {consentModifiers.includes('MOR') && (
+                             <div className="form-control">
+                               <label className="label"><span className="label-text font-semibold">Moratorium Months {consentModifiers.includes('MOR') && <span className="text-error">*</span>}</span></label>
+                               <input type="number" className="input input-bordered" min="1" placeholder="e.g. 12" value={consentMoratoriumMonths} onChange={e => setConsentMoratoriumMonths(e.target.value)} required={consentModifiers.includes('MOR')} />
+                               <label className="label"><span className="label-text-alt">Number of months for publication moratorium. Required when MOR modifier is set.</span></label>
+                             </div>
+                           )}
+
+                           {consentModifiers.includes('RS') && (
+                             <div className="form-control">
+                               <label className="label"><span className="label-text font-semibold">Research Scope {consentModifiers.includes('RS') && <span className="text-error">*</span>}</span></label>
+                               <textarea className="textarea textarea-bordered" placeholder="Describe the allowed research scope" value={consentResearchScope} onChange={e => setConsentResearchScope(e.target.value)} required={consentModifiers.includes('RS')} />
+                               <label className="label"><span className="label-text-alt">Free-text research scope. Required when RS modifier is set.</span></label>
+                             </div>
+                           )}
+
+                           {consentModifiers.includes('RTN') && (
+                             <div className="form-control">
+                               <label className="label"><span className="label-text font-semibold">Return Target URI {consentModifiers.includes('RTN') && <span className="text-error">*</span>}</span></label>
+                               <input type="url" className="input input-bordered" placeholder="https://..." value={consentReturnTargetUri} onChange={e => setConsentReturnTargetUri(e.target.value)} required={consentModifiers.includes('RTN')} />
+                               <label className="label"><span className="label-text-alt">URI where derived data should be returned. Required when RTN modifier is set.</span></label>
+                             </div>
+                           )}
+
+                           {consentModifiers.includes('PUB') && (
+                             <div className="form-control">
+                               <label className="label"><span className="label-text font-semibold">Publication Deadline (days)</span></label>
+                               <input type="number" className="input input-bordered" min="1" placeholder="e.g. 365" value={consentPublicationDeadlineDays} onChange={e => setConsentPublicationDeadlineDays(e.target.value)} />
+                               <label className="label"><span className="label-text-alt">Days allowed for publication obligation. Relevant when PUB modifier is set.</span></label>
+                             </div>
+                           )}
+
+                           {consentModifiers.includes('TS') && (
+                           <div className="form-control">
+                             <label className="label"><span className="label-text font-semibold">Time Limit (days) <span className="text-error">*</span></span></label>
+                             <input type="number" className="input input-bordered" min="1" placeholder="e.g. 365" value={consentExpirationDays} onChange={e => setConsentExpirationDays(e.target.value)} required />
+                             <label className="label"><span className="label-text-alt">Number of days the permission is valid for. Required when TS modifier is set.</span></label>
+                           </div>
+                           )}
+                         </div>
                        )}
-                       <div className="form-control">
-                         <label className="label"><span className="label-text font-semibold">Additional Restrictions</span></label>
-                         <textarea className="textarea textarea-bordered" placeholder="Free-text restrictions beyond the modifier list" value={consentAdditionalRestrictions} onChange={e => setConsentAdditionalRestrictions(e.target.value)} />
-                       </div>
-                       <div className="form-control">
-                         <label className="label"><span className="label-text font-semibold">Permission Form URI</span></label>
-                         <input type="url" className="input input-bordered" placeholder="https://... or ipfs://..." value={consentFormUri} onChange={e => setConsentFormUri(e.target.value)} />
-                         <label className="label"><span className="label-text-alt">URI of the signed permission form</span></label>
-                       </div>
-                       <div className="form-control">
-                         <label className="label"><span className="label-text font-semibold">Metadata URI</span></label>
-                         <input type="text" className="input input-bordered" placeholder="Generic metadata URI" value={consentMetadataUri} onChange={e => setConsentMetadataUri(e.target.value)} />
-                       </div>
                      </div>
-                   </div>
+                   )}
 
 
                    <div className="card-actions justify-between items-center pt-4">

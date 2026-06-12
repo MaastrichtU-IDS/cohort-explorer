@@ -290,3 +290,53 @@ async def blockchain_get_consent(
 
         logger.info(f"Blockchain consent fetched for cohort={cohort_id}")
         return {"found": True, "consent": consent_data}
+
+
+@router.get("/blockchain/admin/overview", summary="Admin overview of all consent declarations, access requests, and requester profiles")
+async def blockchain_admin_overview(user: dict = Depends(get_current_user)) -> dict[str, Any]:
+    """
+    Returns an aggregated view of all consent declarations (with access grants)
+    and all known requester profiles from the blockchain API cache.
+    Authenticates with the blockchain API using the logged-in user's credentials.
+    """
+    email = user["email"]
+    logger.info(f"Blockchain admin overview requested by {email}")
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            reg_resp = await client.post(
+                f"{ICARECHAIN_API_URL}/auth/register",
+                json={"email": email, "roles": ["PROVIDER"]},
+            )
+            reg_data = reg_resp.json()
+            if reg_resp.status_code != 200:
+                raise HTTPException(status_code=reg_resp.status_code, detail=reg_data.get("detail", str(reg_data)))
+            otp_code = reg_data.get("otpCode")
+            if not otp_code:
+                raise HTTPException(status_code=500, detail="No OTP returned from blockchain API")
+        except httpx.RequestError as e:
+            raise HTTPException(status_code=502, detail=f"Cannot reach blockchain API: {str(e)}")
+
+        try:
+            verify_resp = await client.post(
+                f"{ICARECHAIN_API_URL}/auth/verify",
+                json={"email": email, "code": otp_code},
+            )
+            verify_data = verify_resp.json()
+            if verify_resp.status_code != 200:
+                raise HTTPException(status_code=verify_resp.status_code, detail=verify_data.get("detail", str(verify_data)))
+            token = verify_data.get("token")
+        except httpx.RequestError as e:
+            raise HTTPException(status_code=502, detail=f"Cannot reach blockchain API: {str(e)}")
+
+        try:
+            overview_resp = await client.get(
+                f"{ICARECHAIN_API_URL}/admin/overview",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            if overview_resp.status_code != 200:
+                data = overview_resp.json()
+                raise HTTPException(status_code=overview_resp.status_code, detail=data.get("detail", str(data)))
+            return overview_resp.json()
+        except httpx.RequestError as e:
+            raise HTTPException(status_code=502, detail=f"Cannot reach blockchain API: {str(e)}")
