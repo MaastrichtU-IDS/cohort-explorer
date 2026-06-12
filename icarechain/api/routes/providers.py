@@ -1,4 +1,5 @@
 import logging
+import re
 from datetime import date, datetime, timedelta
 from typing import Optional
 
@@ -6,6 +7,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr, Field, model_validator
 
 from api.models.duo import MODIFIER_VALUES, PERMISSION_VALUES
+from api.services.iso3166 import all_codes as _iso_country_codes
+
+_DISEASE_CURIE_RE = re.compile(r"^(MONDO|DOID|HP|ORPHA|EFO|NCIT|OMIM):[A-Za-z0-9_]+$")
+_ROR_RE = re.compile(r"^https?://ror\.org/[0-9a-z]{6,12}$")
+_ETH_ADDR_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
+_HEX64_RE = re.compile(r"^(0x)?[0-9a-fA-F]{64}$")
+_PROJECT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._\-]{1,63}$")
+_ISO_CODES = set(_iso_country_codes())
+_URI_RE = re.compile(r"^(https?|ipfs|ar|s3|file)://\S+$", re.IGNORECASE)
 from api.models.requests import (
     AddOwnerRequest,
     ConsentRevokeRequest,
@@ -83,6 +93,76 @@ class ConsentDeclaration(BaseModel):
             raise ValueError("RS modifier requires researchScope (free text describing allowed scope)")
         if "RTN" in mods and not self.returnTargetUri:
             raise ValueError("RTN modifier requires returnTargetUri")
+
+        if self.diseaseCode is not None:
+            code = self.diseaseCode.strip()
+            if not _DISEASE_CURIE_RE.match(code):
+                raise ValueError(
+                    f"diseaseCode must be an ontology CURIE like MONDO:0005148, DOID:9352, HP:0001250 (got {self.diseaseCode!r})"
+                )
+            self.diseaseCode = code
+
+        if self.allowedCountries:
+            normalized = []
+            for c in self.allowedCountries:
+                if not isinstance(c, str):
+                    raise ValueError(f"allowedCountries: expected string, got {type(c).__name__}")
+                cc = c.strip().upper()
+                if cc not in _ISO_CODES:
+                    raise ValueError(f"allowedCountries: unknown ISO-3166-1 alpha-2 code {c!r}")
+                normalized.append(cc)
+            self.allowedCountries = sorted(set(normalized))
+
+        if self.allowedInstitutions:
+            normalized = []
+            for inst in self.allowedInstitutions:
+                if not isinstance(inst, str):
+                    raise ValueError(f"allowedInstitutions: expected string, got {type(inst).__name__}")
+                s = inst.strip()
+                if not _ROR_RE.match(s):
+                    raise ValueError(
+                        f"allowedInstitutions: must be a ROR URL like https://ror.org/01ej9dk98 (got {inst!r})"
+                    )
+                normalized.append(s)
+            self.allowedInstitutions = sorted(set(normalized))
+
+        if self.allowedProjects:
+            normalized = []
+            for p in self.allowedProjects:
+                if not isinstance(p, str):
+                    raise ValueError(f"allowedProjects: expected string, got {type(p).__name__}")
+                s = p.strip()
+                if not _PROJECT_ID_RE.match(s):
+                    raise ValueError(
+                        f"allowedProjects: must be 2-64 chars, alphanumerics with . _ - allowed (got {p!r})"
+                    )
+                normalized.append(s)
+            self.allowedProjects = sorted(set(normalized))
+
+        if self.allowedUsers:
+            normalized = []
+            for u in self.allowedUsers:
+                if not isinstance(u, str):
+                    raise ValueError(f"allowedUsers: expected string, got {type(u).__name__}")
+                s = u.strip()
+                if _ETH_ADDR_RE.match(s):
+                    normalized.append(s)
+                elif _HEX64_RE.match(s):
+                    normalized.append(s.lower().removeprefix("0x"))
+                else:
+                    raise ValueError(
+                        f"allowedUsers: each entry must be a 0x-prefixed 40-hex eth address or a 64-hex email hash (got {u!r})"
+                    )
+            self.allowedUsers = sorted(set(normalized))
+
+        for field_name, value in (
+            ("returnTargetUri", self.returnTargetUri),
+            ("consentFormUri", self.consentFormUri),
+            ("metadataUri", self.metadataUri),
+        ):
+            if value and not _URI_RE.match(value.strip()):
+                raise ValueError(f"{field_name}: must be a URI (https://, ipfs://, ...); got {value!r}")
+
         return self
 
 class CreateCohortRequest(BaseModel):
@@ -178,6 +258,9 @@ async def create_consent(req: CreateCohortRequest, user: AuthenticatedUser = Dep
     consent = req.consent
     service = get_blockchain_service()
     cache = get_cache()
+
+    if await service.consent_exists_on_chain(req.cohortId):
+        raise HTTPException(409, f"Consent for cohortId '{req.cohortId}' already exists. Use PATCH to update.")
 
     metadata_blob = {
         "dataUseDescription": consent.dataUseDescription,
@@ -302,34 +385,102 @@ async def update_consent(cohort_id: str, req: CreateCohortRequest, user: Authent
     if req.cohortId != cohort_id:
         raise HTTPException(400, "cohortId in path and body must match")
 
+    service = get_blockchain_service()
     cache = get_cache()
-    c = await _load_cohort(cache, cohort_id)
-    if not c:
+
+    if not await service.consent_exists_on_chain(cohort_id):
         raise HTTPException(404, f"No consent record exists for cohort '{cohort_id}'")
-    _own_or_403(user, c, cohort_id)
+
+    c = await _load_cohort(cache, cohort_id)
+    if c:
+        _own_or_403(user, c, cohort_id)
 
     await fire_ibis_lifecycle(req.email, OperationType.RENEW)
     consent = req.consent
 
-    c["permission"] = consent.permission
-    c["modifiers"] = consent.modifiers
-    if consent.diseaseCode is not None:
-        c["disease_code"] = consent.diseaseCode
-    if consent.additionalRestrictions is not None:
-        c["additional_restrictions"] = consent.additionalRestrictions
-    if consent.dataUseDescription is not None:
-        c["data_use_description"] = consent.dataUseDescription
-    if consent.allowedCountries:
-        c["allowed_countries"] = consent.allowedCountries
-    if consent.allowedInstitutions:
-        c["allowed_institutions"] = consent.allowedInstitutions
-    if consent.allowedProjects:
-        c["allowed_projects"] = consent.allowedProjects
-    if consent.moratoriumMonths is not None:
-        c["moratorium_months"] = consent.moratoriumMonths
-    c["updated_at"] = datetime.utcnow().isoformat() + "Z"
-    await cache.set_consent(c.get("cohort_hash") or get_cohort_hash(cohort_id).hex(), c)
-    return {"success": True, "cohortId": cohort_id, "permission": consent.permission, "modifiers": consent.modifiers}
+    metadata_blob = {
+        "dataUseDescription": consent.dataUseDescription,
+        "additionalRestrictions": consent.additionalRestrictions,
+        "researchScope": consent.researchScope,
+        "returnTargetUri": consent.returnTargetUri,
+        "consentDate": consent.consentDate.isoformat() if consent.consentDate else None,
+        "consentFormUri": consent.consentFormUri,
+        "metadataUri": consent.metadataUri,
+    }
+    result = await service.record_consent(
+        owner_email=req.email,
+        cohort_id=req.cohortId,
+        permission=consent.permission,
+        modifiers=consent.modifiers,
+        disease_code=consent.diseaseCode or "",
+        allowed_countries=consent.allowedCountries,
+        allowed_institutions=consent.allowedInstitutions,
+        allowed_projects=consent.allowedProjects,
+        allowed_users=consent.allowedUsers,
+        moratorium_months=consent.moratoriumMonths or 0,
+        publication_deadline_days=consent.publicationDeadlineDays or 0,
+        expiration_days=consent.expirationDays,
+        metadata=metadata_blob,
+        signature=None,
+    )
+    if not result.get("success"):
+        raise HTTPException(500, result.get("error", "record_consent failed"))
+
+    cohort_hash = result["cohort_hash"]
+    expires_at = (datetime.utcnow() + timedelta(days=consent.expirationDays)) if consent.expirationDays > 0 else None
+    now = datetime.utcnow().isoformat() + "Z"
+
+    existing_owners = c.get("owners", [result["owner_address"]]) if c else [result["owner_address"]]
+    recorded_at = (c or {}).get("recorded_at") or now
+
+    await cache.set_consent(cohort_hash, {
+        "cohort_id": req.cohortId,
+        "cohort_hash": cohort_hash,
+        "owners": existing_owners,
+        "permission": consent.permission,
+        "modifiers": consent.modifiers,
+        "disease_code": consent.diseaseCode,
+        "allowed_countries": consent.allowedCountries,
+        "allowed_institutions": consent.allowedInstitutions,
+        "allowed_projects": consent.allowedProjects,
+        "allowed_users": consent.allowedUsers,
+        "moratorium_months": consent.moratoriumMonths,
+        "research_scope": consent.researchScope,
+        "return_target_uri": consent.returnTargetUri,
+        "publication_deadline_days": consent.publicationDeadlineDays,
+        "data_use_description": consent.dataUseDescription,
+        "additional_restrictions": consent.additionalRestrictions,
+        "consent_date": consent.consentDate.isoformat() if consent.consentDate else None,
+        "consent_form_uri": consent.consentFormUri,
+        "metadata_uri": consent.metadataUri,
+        "active": True,
+        "valid_until": expires_at.isoformat() + "Z" if expires_at else None,
+        "recorded_at": recorded_at,
+        "updated_at": now,
+    })
+
+    await cache.store_transaction(result["tx_hash"], {
+        "type": "consent_update",
+        "cohort_id": req.cohortId,
+        "cohort_hash": cohort_hash,
+        "owner_hash": user.email_hash,
+        "owner_address": result["owner_address"],
+        "permission": consent.permission,
+        "modifiers": consent.modifiers,
+        "tx_success": True,
+        "status": "success",
+        "timestamp": now,
+    })
+
+    return {
+        "success": True,
+        "cohortId": cohort_id,
+        "cohortHash": cohort_hash,
+        "txHash": result["tx_hash"],
+        "ownerAddress": result["owner_address"],
+        "permission": consent.permission,
+        "modifiers": consent.modifiers,
+    }
 
 @router.post("/consents/{cohort_id}/revoke", summary="Revoke consent for a cohort")
 async def revoke_consent(cohort_id: str, req: ConsentRevokeRequest, user: AuthenticatedUser = Depends(get_current_user)):

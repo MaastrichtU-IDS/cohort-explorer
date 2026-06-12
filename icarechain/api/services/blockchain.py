@@ -8,9 +8,56 @@
 
 import json
 import logging
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+_REVERT_REASON_RES = (
+    re.compile(r"reverted with reason string ['\"]([^'\"]+)['\"]"),
+    re.compile(r"execution reverted: ([^,}\"']+)"),
+    re.compile(r"revert\s+([A-Za-z0-9_:\- ]+)"),
+)
+
+_REVERT_TO_CODE = {
+    "Consent not active": "CONSENT_INACTIVE",
+    "Consent expired": "CONSENT_EXPIRED",
+    "Permission not compatible": "PERMISSION_INCOMPATIBLE",
+    "Disease not compatible": "DISEASE_NOT_COMPATIBLE",
+    "NPOA: POA not allowed": "NPOA_BLOCKED",
+    "GSO: genetic studies only": "GSO_REQUIRES_GENETIC",
+    "NMDS: methods research not allowed": "NMDS_BLOCKED",
+    "GS: country not allowed": "GS_COUNTRY_NOT_ALLOWED",
+    "IS: institution not allowed": "IS_INSTITUTION_NOT_ALLOWED",
+    "PS: project not allowed": "PS_PROJECT_NOT_ALLOWED",
+    "US: user not allowed": "US_USER_NOT_ALLOWED",
+    "NPU: requester not non-profit": "NPU_NOT_NONPROFIT",
+    "NCU: commercial use not allowed": "NCU_BLOCKED",
+    "NPUNCU": "NPUNCU_NOT_NONPROFIT",
+    "missing IRB attestation": "MISSING_IRB_ATTESTATION",
+    "missing COL attestation": "MISSING_COL_ATTESTATION",
+    "Already minted": "ALREADY_MINTED",
+    "Already granted": "ALREADY_GRANTED",
+    "not owner": "NOT_OWNER",
+    "Not an owner": "NOT_OWNER",
+    "Bad nonce": "BAD_NONCE",
+    "Invalid signature": "INVALID_SIGNATURE",
+    "args.requester != role account": "REQUESTER_PRINCIPAL_MISMATCH",
+}
+
+
+def _extract_revert_reason(exc: Any) -> str:
+    s = str(exc)
+    for pattern in _REVERT_REASON_RES:
+        m = pattern.search(s)
+        if m:
+            return m.group(1).strip().strip("'\"")
+    return s
+
+
+def _classify_revert(exc: Any) -> tuple[str, str]:
+    reason = _extract_revert_reason(exc)
+    return _REVERT_TO_CODE.get(reason, "CHAIN_REVERTED"), reason
 
 from web3 import Web3
 from eth_account import Account
@@ -407,6 +454,18 @@ class BlockchainService:
             logger.error(f"Failed to record consent: {e}")
             return {"success": False, "error": str(e)}
 
+    async def consent_exists_on_chain(self, cohort_id: str) -> bool:
+        if not self.consent_vault:
+            return False
+        try:
+            cohort_hash = get_cohort_hash(cohort_id)
+            result = self.consent_vault.functions.getConsent(cohort_hash).call()
+            valid_from = result[4]
+            return valid_from > 0
+        except Exception as e:
+            logger.error(f"consent_exists_on_chain failed: {e}")
+            return False
+
     async def revoke_consent(
         self,
         owner_email: str,
@@ -699,7 +758,13 @@ class BlockchainService:
 
         except Exception as e:
             logger.error(f"Failed to request access: {e}")
-            return {"success": False, "error": str(e)}
+            code, reason = _classify_revert(e)
+            return {
+                "success": False,
+                "error": str(e),
+                "reason": code,
+                "reason_detail": reason,
+            }
 
     async def check_access(
         self,

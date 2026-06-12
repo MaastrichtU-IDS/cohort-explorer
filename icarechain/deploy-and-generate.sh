@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-export RPC_URL=${RPC_URL:-http://hardhat:8545}
+export RPC_URL=http://hardhat:8545
 
 echo "Waiting for Hardhat node at $RPC_URL..."
 until curl -sf $RPC_URL -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' > /dev/null 2>&1; do

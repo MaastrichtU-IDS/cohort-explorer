@@ -1,0 +1,49 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Hardhat / build artifacts
+artifacts/
+cache/
+typechain-types/
+deployments.json
+deployments.local.json
+
+# Noir
+target/
+*.acir
+*.tr
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Logs
+logs/
+*.log
+
+# Local results
+results/
+results_*/
