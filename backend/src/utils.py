@@ -50,7 +50,7 @@ prefix_map = [
     {
         "prefix": "snomedct",
         "uri_prefix": "http://snomed.info/id/",
-        "prefix_synonyms": ["snomed", "SNOMED"],
+        "prefix_synonyms": ["snomed", "SNOMED", "snomed-ct", "SNOMED-CT"],
     },
     {
         "prefix": "loinc",

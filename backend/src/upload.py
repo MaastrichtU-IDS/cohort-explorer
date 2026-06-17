@@ -323,6 +323,55 @@ def normalize_column_name(col: str) -> str:
 
 ACCEPTED_DATATYPES = ["STR", "FLOAT", "INT", "DATETIME"]
 
+_CAT_INT   = re.compile(r"^\s*-?\d+\s*$")
+_CAT_FLOAT = re.compile(r"^\s*-?(?:\d+(?:\.\d+)?|\.\d+)\s*$")
+_CAT_PAIR  = re.compile(r"\s*=\s*")
+_CAT_QUOTES = "'\u2018\u2019\"\u201C\u201D"
+
+def _cat_strip(s: str) -> str:
+    return s.strip(_CAT_QUOTES + " ").strip()
+
+def _cat_is_numeric(s: str) -> bool:
+    ss = _cat_strip(s)
+    return bool(_CAT_INT.match(ss) or _CAT_FLOAT.match(ss))
+
+def _cat_is_datetime(s: str) -> bool:
+    try:
+        return pd.to_datetime(_cat_strip(s), errors="raise") is not None
+    except Exception:
+        return False
+
+def _check_misordered_categories(categorical_raw: str, vartype: str) -> list[str]:
+    """Return categorical entries where value and label appear swapped for the declared vartype.
+
+    Convention: left of '=' is the data value (must match vartype); right is the human label.
+      INT/FLOAT  → expects  number=text   e.g. '1=Yes'   flags 'Yes=1'
+      STR        → expects  text=...      e.g. 'Yes=1'   flags '1=Yes'
+      DATETIME   → expects  datetime=text              flags 'text=datetime'
+    """
+    if not isinstance(categorical_raw, str) or not categorical_raw.strip():
+        return []
+    dt = (vartype or "STR").upper()
+    issues = []
+    for raw in categorical_raw.split("|"):
+        item = raw.strip()
+        if not item:
+            continue
+        parts = _CAT_PAIR.split(item, maxsplit=1)
+        if len(parts) != 2:
+            continue
+        left, right = parts[0], parts[1]
+        if dt == "STR":
+            if _cat_is_numeric(left) and not _cat_is_numeric(right):
+                issues.append(item)
+        elif dt in ("INT", "FLOAT"):
+            if not _cat_is_numeric(left) and _cat_is_numeric(right):
+                issues.append(item)
+        elif dt == "DATETIME":
+            if not _cat_is_datetime(left) and _cat_is_datetime(right):
+                issues.append(item)
+    return issues
+
 def normalize_csv_header(file_content: str) -> str:
     """Normalize CSV header column names using the cols_normalized mapping.
     
@@ -510,7 +559,7 @@ def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
         
         # Check if any unit concept fields are provided
         unit_code_str = str(row.get("UNIT CONCEPT CODE", "")).strip() if "UNIT CONCEPT CODE" in df.columns else ""
-        unit_omop_id_str = str(row.get("UNIT CONCEPT OMOP ID", "")).strip() if "UNIT CONCEPT OMOP ID" in df.columns else ""
+        unit_omop_id_str = str(row.get("UNIT OMOP ID", "")).strip() if "UNIT OMOP ID" in df.columns else ""
         unit_name_str = str(row.get("UNIT CONCEPT NAME", "")).strip() if "UNIT CONCEPT NAME" in df.columns else ""
         
         has_unit_code = unit_code_str and unit_code_str.lower() != "na"
@@ -523,10 +572,10 @@ def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
                 f"Row {i+2} (Variable: '{var_name_for_error}'): Multiple concept codes are not allowed in UNIT CONCEPT CODE. Found: '{unit_code_str}'. Please provide only one concept code."
             )
         
-        # Unit Concept OMOP ID - single value only (no '|')
+        # Unit OMOP ID - single value only (no '|')
         if has_unit_omop_id and "|" in unit_omop_id_str:
             errors.append(
-                f"Row {i+2} (Variable: '{var_name_for_error}'): Multiple OMOP IDs are not allowed in UNIT CONCEPT OMOP ID. Found: '{unit_omop_id_str}'. Please provide only one OMOP ID."
+                f"Row {i+2} (Variable: '{var_name_for_error}'): Multiple OMOP IDs are not allowed in UNIT OMOP ID. Found: '{unit_omop_id_str}'. Please provide only one OMOP ID."
             )
         
         # Check if any unit concept is provided but UNITS field is empty (only if UNITS column exists)
@@ -541,7 +590,7 @@ def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
         
         # Check if any visit concept fields are provided
         visit_code_str = str(row.get("VISIT CONCEPT CODE", "")).strip() if "VISIT CONCEPT CODE" in df.columns else ""
-        visit_omop_id_str = str(row.get("VISIT CONCEPT OMOP ID", "")).strip() if "VISIT CONCEPT OMOP ID" in df.columns else ""
+        visit_omop_id_str = str(row.get("VISIT OMOP ID", "")).strip() if "VISIT OMOP ID" in df.columns else ""
         visit_name_str = str(row.get("VISIT CONCEPT NAME", "")).strip() if "VISIT CONCEPT NAME" in df.columns else ""
         
         has_visit_code = visit_code_str and visit_code_str.lower() != "na"
@@ -554,10 +603,10 @@ def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
                 f"Row {i+2} (Variable: '{var_name_for_error}'): Multiple concept codes are not allowed in VISIT CONCEPT CODE. Found: '{visit_code_str}'. Please provide only one concept code."
             )
         
-        # Visit Concept OMOP ID - single value only (no '|')
+        # Visit OMOP ID - single value only (no '|')
         if has_visit_omop_id and "|" in visit_omop_id_str:
             errors.append(
-                f"Row {i+2} (Variable: '{var_name_for_error}'): Multiple OMOP IDs are not allowed in VISIT CONCEPT OMOP ID. Found: '{visit_omop_id_str}'. Please provide only one OMOP ID."
+                f"Row {i+2} (Variable: '{var_name_for_error}'): Multiple OMOP IDs are not allowed in VISIT OMOP ID. Found: '{visit_omop_id_str}'. Please provide only one OMOP ID."
             )
         
         # Check if any visit concept is provided but VISITS field is empty (only if VISITS column exists)
@@ -666,6 +715,18 @@ def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
                         errors.append(
                             f"Row {i+2} (Variable: '{var_name_for_error}'): Categorical entry '{p}' is missing '=' — all entries must follow the 'value=label' format (e.g. '0=no|1=yes')."
                         )
+
+        # Type-aware categorical ordering check
+        vartype_val = str(row.get("VARTYPE", "")).strip().upper()
+        if vartype_val and categorical_raw and categorical_raw.lower() != "na":
+            misordered = _check_misordered_categories(categorical_raw, vartype_val)
+            if misordered:
+                errors.append(
+                    f"Row {i+2} (Variable: '{var_name_for_error}'): Categorical entries appear to have value and label "
+                    f"swapped for vartype '{vartype_val}'. Left of '=' must be the data value matching the declared type "
+                    f"(e.g. INT: '1=Yes|0=No', STR: 'Yes=Positive|No=Negative'). "
+                    f"Suspicious entries: {', '.join(repr(m) for m in misordered)}."
+                )
     
     return errors
 
