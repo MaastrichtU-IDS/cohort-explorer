@@ -722,10 +722,11 @@ def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
             misordered = _check_misordered_categories(categorical_raw, vartype_val)
             if misordered:
                 errors.append(
-                    f"Row {i+2} (Variable: '{var_name_for_error}'): Categorical entries appear to have value and label "
-                    f"swapped for vartype '{vartype_val}'. Left of '=' must be the data value matching the declared type "
-                    f"(e.g. INT: '1=Yes|0=No', STR: 'Yes=Positive|No=Negative'). "
-                    f"Suspicious entries: {', '.join(repr(m) for m in misordered)}."
+                    f"Row {i+2} (Variable: '{var_name_for_error}'): The following categorical entries have value and label "
+                    f"in the wrong order for the declared vartype '{vartype_val}'. "
+                    f"The left side of '=' must be the actual data value (which should be of type {vartype_val}), "
+                    f"and the right side must be the human-readable label. "
+                    f"Reversed entries: {', '.join(repr(m) for m in misordered)}."
                 )
     
     return errors
