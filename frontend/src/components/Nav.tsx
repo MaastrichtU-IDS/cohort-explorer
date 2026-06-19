@@ -1077,7 +1077,7 @@ export function Nav() {
                               const selectedCodes = new Set(dcrDiseaseCodes.map(e => e.code));
                               const entryMap = new Map(dcrIcd10Entries.map(e => [e.code, e]));
                               const directMatches = dcrIcd10Entries
-                                .filter(e => !selectedCodes.has(e.code) && (e.code.toLowerCase().startsWith(q) || e.label.toLowerCase().includes(q)))
+                                .filter(e => !selectedCodes.has(e.code) && e.kind === 'category' && (e.code.toLowerCase().startsWith(q) || e.label.toLowerCase().includes(q)))
                                 .sort((a, b) => { const kd = (kindOrder[a.kind]??2)-(kindOrder[b.kind]??2); return kd !== 0 ? kd : a.code.length - b.code.length || a.code.localeCompare(b.code); })
                                 .slice(0, 20);
                               const directCodes = new Set(directMatches.map(e => e.code));
@@ -1181,7 +1181,7 @@ export function Nav() {
                                     <div key={e.code}
                                       className={`flex items-center gap-2 py-1.5 cursor-pointer hover:bg-base-200 select-none ${e.isCtx ? 'opacity-50' : ''} ${dcrBrowseSelected?.code === e.code ? 'bg-primary/20 ring-1 ring-inset ring-primary/40' : selCodes.has(e.code) ? 'opacity-50' : ''}`}
                                       style={{paddingLeft: `${filteredIndent(e)}px`, paddingRight: '12px'}}
-                                      onClick={() => !e.isCtx && selectEntry(e)}>
+                                      onClick={() => !e.isCtx && e.kind === 'category' && selectEntry(e)}>
                                       <span className="font-mono font-semibold text-primary text-sm w-16 shrink-0">{e.code}</span>
                                       <span className="text-sm flex-1 text-base-content/80">{e.label}</span>
                                       {e.kind !== 'category' && <span className={`badge badge-xs shrink-0 ${e.kind === 'chapter' ? 'badge-accent' : 'badge-ghost'}`}>{e.kind}</span>}
@@ -1193,7 +1193,7 @@ export function Nav() {
                                   <span className="text-sm text-base-content/60">{dcrDiseaseCodes.length === 0 ? 'No diseases selected yet' : `${dcrDiseaseCodes.length} selected`}</span>
                                   <div className="flex gap-2">
                                     <button type="button" className="btn btn-sm btn-ghost" onClick={() => setDcrIcd10BrowseOpen(false)}>Cancel</button>
-                                    <button type="button" className="btn btn-sm btn-primary" disabled={!dcrBrowseSelected}
+                                    <button type="button" className="btn btn-sm btn-primary" disabled={!dcrBrowseSelected || dcrBrowseSelected.kind !== 'category'}
                                       onClick={() => { if (dcrBrowseSelected && !selCodes.has(dcrBrowseSelected.code)) setDcrDiseaseCodes(prev => [...prev, dcrBrowseSelected]); setDcrIcd10BrowseOpen(false); }}>
                                       {dcrBrowseSelected ? `Select ${dcrBrowseSelected.code}` : 'Select'}
                                     </button>
@@ -1469,10 +1469,14 @@ export function Nav() {
                                   <div key={cohortId} className="border border-base-300 rounded-lg p-3 space-y-2">
                                     <p className="text-sm font-semibold">{cohortId}</p>
                                     {!result && (
+                                      <>
+                                      {dcrDiseaseCodes.some(e => e.kind !== 'category') && (
+                                        <p className="text-xs text-warning mb-1">Please select a specific ICD-10 code (not a chapter or block) to submit an access request.</p>
+                                      )}
                                       <button
                                         type="button"
                                         className="btn btn-accent btn-sm w-full"
-                                        disabled={!!loading}
+                                        disabled={!!loading || dcrDiseaseCodes.some(e => e.kind !== 'category')}
                                         onClick={async () => {
                                           setDcrCohortLoading(prev => ({ ...prev, [cohortId]: true }));
                                           try {
@@ -1510,6 +1514,7 @@ export function Nav() {
                                       >
                                         {loading ? <span className="loading loading-spinner loading-xs"></span> : 'Submit Access Request'}
                                       </button>
+                                      </>
                                     )}
                                     {result && (
                                       <div className="text-sm space-y-1">
