@@ -14,8 +14,18 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime
 import logging
 
+
 _VISIT_MONTH_RE = re.compile(r'(\d+)\s*months?', re.IGNORECASE)
 _VISIT_BASELINE_RE = re.compile(r'baseline|month\s*0|randomization', re.IGNORECASE)
+_PRE_BASELINE_MONTH_RE = re.compile(
+    r'(\d+)\s*months?\s*(?:prior to|before)\s*baseline',
+    re.IGNORECASE,
+)
+
+_BASELINE_PRIOR_MONTH_RE = re.compile(
+    r'baseline.*?(\d+)\s*months?\s*(?:prior|before)',
+    re.IGNORECASE,
+)
 
 _TEMPORAL_CONTEXT_RE = re.compile(
     r'(?:'
@@ -448,16 +458,27 @@ def extract_visit_period(visit: str) -> str:
     """Normalize visit string to comparable period label."""
     if not visit:
         return ""
-    if _VISIT_BASELINE_RE.search(visit):
+
+    v = str(visit).lower().strip()
+
+    # Must come before generic baseline detection.
+    m = _PRE_BASELINE_MONTH_RE.search(v) or _BASELINE_PRIOR_MONTH_RE.search(v)
+    if m:
+        return f"pre-baseline {m.group(1)} months"
+
+    if _VISIT_BASELINE_RE.search(v):
         return "baseline time"
-    m = _VISIT_MONTH_RE.search(visit)
+
+    m = _VISIT_MONTH_RE.search(v)
     if m:
         return f"follow-up {m.group(1)} months"
-    m2 = re.search(r'month\s*(\d+)', visit, re.IGNORECASE)
+
+    m2 = re.search(r'month\s*(\d+)', v, re.IGNORECASE)
     if m2:
         return f"follow-up {m2.group(1)} months"
-    return visit
 
+    return v
+    
 def extract_tick_values(texts: str) -> List[float]:
     """Extract numeric tick labels from a matplotlib Text() list‑string.
 
