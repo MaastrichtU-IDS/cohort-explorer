@@ -264,10 +264,36 @@ class NeuroSymbolicMatcher:
         target_omop_id = int(standard_derived_variable[2])
         source_derived_rows = _find_omop_id_rows(data_context["source"], target_omop_id, code_key="omop_id")
         target_derived_rows = _find_omop_id_rows(data_context["target"], target_omop_id, code_key="omop_id")
+        if source_derived_rows or target_derived_rows:
+            return []
 
-        source_can_calc, source_param_visits = _get_parameter_visits(data_context, parameters_omop_ids, side="source")
-        target_can_calc, target_param_visits = _get_parameter_visits(data_context, parameters_omop_ids, side="target")
+        already_mapped = False
 
+        for row in data_context.get("mapped", []):
+            try:
+                s_id = int(float(row.get("somop_id", 0)))
+                t_id = int(float(row.get("tomop_id", 0)))
+            except (TypeError, ValueError):
+                continue
+
+            if s_id == target_omop_id and t_id == target_omop_id:
+                already_mapped = True
+                break
+        if already_mapped:
+            return []
+
+        source_can_calc, source_param_visits = _get_parameter_visits(
+            data_context,
+            parameters_omop_ids,
+            side="source",
+        )
+
+        target_can_calc, target_param_visits = _get_parameter_visits(
+            data_context,
+            parameters_omop_ids,
+            side="target",
+        )
+      
         for row in source_derived_rows:
             v = str(row.get('visit', '')).strip().lower()
             if v:
@@ -298,14 +324,29 @@ class NeuroSymbolicMatcher:
             tgt_unit = target_derived_rows[0].get('unit_label')
 
         final_results = []
+       
+
         for (src_visit, tgt_visit) in aligned_visit_pairs.keys():
             if not src_visit or not tgt_visit:
                 continue
+
+            src_visit_norm = str(src_visit).strip().lower()
+            tgt_visit_norm = str(tgt_visit).strip().lower()
+
+          
+
             source_varname = _get_varname_for_visit(
-                source_derived_rows, src_visit, f"derived_{variable_name}", "source"
+                source_derived_rows,
+                src_visit,
+                f"derived_{variable_name}",
+                "source",
             )
+
             target_varname = _get_varname_for_visit(
-                target_derived_rows, tgt_visit, f"derived_{variable_name}", "target"
+                target_derived_rows,
+                tgt_visit,
+                f"derived_{variable_name}",
+                "target",
             )
             final_results.append({
                 "source": source_varname, "target": target_varname,
