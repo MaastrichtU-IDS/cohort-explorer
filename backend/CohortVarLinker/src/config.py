@@ -92,7 +92,7 @@ class Settings:
         "code": "loinc:39156-5",
         "label": "Body mass index (BMI) [Ratio]",
         "unit": "ucum:kg/m2",
-        "required_omops": [3036277, 3025315],  # Weight, Height
+        "required_omops": [3036277, 3025315],  #  Height,Weight
         "category": "measurement",
         "data_type": "continuous_variable"
     },
@@ -204,7 +204,18 @@ class Settings:
         "category": "measurement",
         "data_type": "continuous_variable",
         "formula": "QTc = QT_ms / sqrt(RR_s) ; RR_s = 60/HR"
-    }
+    },
+    {
+    "name": "Eosinophils",
+    "omop_id": 3013115,                                    # Eosinophils [#/volume] in blood
+    "code": "loinc:26449-9",
+    "label": "Eosinophils [#/volume] in blood",
+    "unit": "ucum:/nL",                                    # CSV stored 'ucum:/nl' — confirm casing
+    "required_omops": [43055367,4298431],    # Eosinophils/Leukocytes number fraction, Leukocytes [#/volume]  — verify
+    "category": "measurement",
+    "data_type": "continuous_variable",
+    "formula": "Eos[#/vol] = Eos_fraction × Leukocytes[#/vol] ; Eos_fraction = pct/100 when reported in %"}
+
     ])
 
     # ------------------------------------------------------------------ #

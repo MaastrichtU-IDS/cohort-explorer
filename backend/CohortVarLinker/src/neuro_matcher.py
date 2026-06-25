@@ -226,25 +226,33 @@ class NeuroSymbolicMatcher:
         def _get_parameter_visits(data: dict, parameters_codes: list, side: str = "source") -> Tuple[bool, Set[str]]:
             code_key_mapped = "somop_id" if side == "source" else "tomop_id"
             visit_key_mapped = "source_visit" if side == "source" else "target_visit"
-            visits = set()
-            all_found = True
+            per_param_visits: List[Set[str]] = []
             for code in parameters_codes:
                 unmapped_rows = _find_omop_id_rows(data[side], code, code_key="omop_id")
                 mapped_rows = _find_omop_id_rows(data['mapped'], code, code_key=code_key_mapped)
+                visits_for_code: Set[str] = set()
                 if unmapped_rows:
                     for row in unmapped_rows:
                         v = str(row.get('visit', '')).strip().lower()
                         if v:
-                            visits.add(v)
+                            visits_for_code.add(v)
                 elif mapped_rows:
                     for row in mapped_rows:
                         v = str(row.get(visit_key_mapped, '')).strip().lower()
                         if v:
-                            visits.add(v)
-                else:
-                    all_found = False
-                    break
-            return all_found, visits
+                            visits_for_code.add(v)
+                # A parameter with no visit-resolved occurrence cannot anchor a
+                # shared-visit derivation, so the side is not derivable.
+                if not visits_for_code:
+                    return False, set()
+                per_param_visits.append(visits_for_code)
+
+            if not per_param_visits:
+                return False, set()
+
+            # Derivation is only valid at visits where every parameter co-occurs.
+            shared_visits = set.intersection(*per_param_visits)
+            return (len(shared_visits) > 0), shared_visits
 
         def _find_aligned_visit_pairs(source_visits: Set[str], target_visits: Set[str]) -> Dict[Tuple[str, str], bool]:
             aligned_pairs = {}
@@ -264,7 +272,7 @@ class NeuroSymbolicMatcher:
         target_omop_id = int(standard_derived_variable[2])
         source_derived_rows = _find_omop_id_rows(data_context["source"], target_omop_id, code_key="omop_id")
         target_derived_rows = _find_omop_id_rows(data_context["target"], target_omop_id, code_key="omop_id")
-        if source_derived_rows or target_derived_rows:
+        if source_derived_rows and target_derived_rows:
             return []
 
         already_mapped = False
@@ -293,7 +301,7 @@ class NeuroSymbolicMatcher:
             parameters_omop_ids,
             side="target",
         )
-      
+
         for row in source_derived_rows:
             v = str(row.get('visit', '')).strip().lower()
             if v:
@@ -324,16 +332,13 @@ class NeuroSymbolicMatcher:
             tgt_unit = target_derived_rows[0].get('unit_label')
 
         final_results = []
-       
 
         for (src_visit, tgt_visit) in aligned_visit_pairs.keys():
             if not src_visit or not tgt_visit:
                 continue
 
-            src_visit_norm = str(src_visit).strip().lower()
-            tgt_visit_norm = str(tgt_visit).strip().lower()
-
-          
+            # src_visit_norm = str(src_visit).strip().lower()
+            # tgt_visit_norm = str(tgt_visit).strip().lower()
 
             source_varname = _get_varname_for_visit(
                 source_derived_rows,
@@ -348,6 +353,7 @@ class NeuroSymbolicMatcher:
                 f"derived_{variable_name}",
                 "target",
             )
+        
             final_results.append({
                 "source": source_varname, "target": target_varname,
                 "somop_id": target_omop_id, "tomop_id": target_omop_id,
@@ -363,9 +369,14 @@ class NeuroSymbolicMatcher:
                 "target_composite_code_labels": standard_derived_variable[1],
                 "target_composite_code_omop_ids": f"{target_omop_id}",
                 "mapping_relation": MappingRelation.SymbolicCloseMatch.value,
-                "context_match_type": ContextMatchType.EXACT.value,
-                "sim_score": 1.0,
-                "transformation_rule": f"Derived variable {variable_name} using parameter columns {parameters_omop_ids}.",
+                "context_match_type": ContextMatchType.PARTIAL.value,
+                "sim_score": 0.8,
+                "derived_variable_name": variable_name,
+                "transformation_rule": (
+                    f"Derived variable {variable_name} using parameter columns "
+                    f"{parameters_omop_ids}."
+                ),
+              
             })
         return final_results
 
