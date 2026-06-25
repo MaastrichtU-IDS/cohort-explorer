@@ -405,8 +405,8 @@ class ContinuousHandler:
         # Case 3b: Derived variable → recomputation required (not the same as unit scaling).
         if ctx.is_derived_variable:
             ctx.set_result(
-                level=MatchLevel.COMPATIBLE,
-                reason="Derived variable; recomputation required.",
+                level=MatchLevel.PARTIAL,
+                reason="Variable one one side or both side is computable using other variables",
                 extra_details={**unit_info, "transformation": TransformationType.DERIVATION}
             )
           
@@ -839,18 +839,18 @@ class StatisticalLogicConstraint(Constraint):
         valid_types = {st.value for st in StatisticalType}
         qual = StatisticalType.QUALITATIVE.value
         
+        
         if s_type not in valid_types or t_type not in valid_types:
-            if ctx.is_derived_variable:
-                ctx.set_result(MatchLevel.COMPATIBLE, 
-                reason="Variables are compatible",
-                extra_details={"transformation": TransformationType.DERIVATION})
-            else:
-                ctx.set_result(MatchLevel.NOT_APPLICABLE,
+            ctx.set_result(MatchLevel.NOT_APPLICABLE,
                     reason= f"Invalid or missing statistical types: {s_type} vs {t_type}.",
                     extra_details={"transformation": TransformationType.NONE}
                 )
             return
-
+        if ctx.is_derived_variable:
+                ctx.set_result(MatchLevel.PARTIAL, 
+                reason="Variable one one side or both side is computable using other variables",
+                extra_details={"transformation": TransformationType.DERIVATION})
+                return 
         # Same type
         if s_type == t_type:
             if s_type == StatisticalType.CONTINUOUS.value:
