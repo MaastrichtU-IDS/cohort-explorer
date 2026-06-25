@@ -346,7 +346,7 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
   const [activeSrcDomains, setActiveSrcDomains] = React.useState<string[]>([]);
   const [activeTgtDomains, setActiveTgtDomains] = React.useState<string[]>([]);
   const [activeRelations, setActiveRelations] = React.useState<string[]>([]);
-  const [varFilter, setVarFilter] = React.useState<'all' | 'unmapped' | 'mapped'>('all');
+  const [varFilter, setVarFilter] = React.useState<'unmapped' | 'mapped'>('mapped');
   const [hoveredId, setHoveredId] = React.useState<string | null>(null);
   const [selectedTarget, setSelectedTarget] = React.useState<string>('');
   const [srcMin, setSrcMin] = React.useState(0);
@@ -411,14 +411,14 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
     const srcKey = Object.keys(cohortsData).find(k => k.toLowerCase() === sourceCohort.toLowerCase());
     const srcCohort = srcKey ? cohortsData[srcKey] : null;
     const mappedSrc = new Set(allEdges.map(e => e.srcId.toLowerCase()));
-    const uncovSrc: GNode[] = srcCohort ? Object.keys(srcCohort.variables || {}).filter(k => !mappedSrc.has(k.toLowerCase())).map(k => ({ id: `__us_${k}`, varName: k, label: srcCohort.variables[k]?.var_label || k, domain: 'uncovered', uncovered: true })) : [];
+    const uncovSrc: GNode[] = srcCohort ? Object.keys(srcCohort.variables || {}).filter(k => !mappedSrc.has(k.toLowerCase())).map(k => ({ id: `__us_${k}`, varName: k, label: srcCohort.variables[k]?.var_label || k, domain: (((srcCohort.variables[k]?.omop_domain as string) || '').split('||')[0].trim().toLowerCase().replace(/ /g, '_')) || 'uncovered', uncovered: true })) : [];
     const uncovTgt: GNode[] = [];
     if (selectedTarget) {
       const tgtKey = Object.keys(cohortsData).find(k => k.toLowerCase() === selectedTarget.toLowerCase());
       const tgtCohort = tgtKey ? cohortsData[tgtKey] : null;
       if (tgtCohort) {
         const mappedTgt = new Set(allEdges.map(e => e.tgtId.split('::')[1].toLowerCase()));
-        Object.keys(tgtCohort.variables || {}).filter(k => !mappedTgt.has(k.toLowerCase())).forEach(k => uncovTgt.push({ id: `__ut_${k}`, varName: k, label: tgtCohort.variables[k]?.var_label || k, domain: 'uncovered', uncovered: true }));
+        Object.keys(tgtCohort.variables || {}).filter(k => !mappedTgt.has(k.toLowerCase())).forEach(k => uncovTgt.push({ id: `__ut_${k}`, varName: k, label: tgtCohort.variables[k]?.var_label || k, domain: (((tgtCohort.variables[k]?.omop_domain as string) || '').split('||')[0].trim().toLowerCase().replace(/ /g, '_')) || 'uncovered', uncovered: true }));
       }
     }
     return { uncovSrc, uncovTgt };
@@ -478,22 +478,41 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
 
   function cycleVarFilter() {
     setActiveSrcDomains([]); setActiveTgtDomains([]);
-    setVarFilter(f => f === 'all' ? 'unmapped' : f === 'unmapped' ? 'mapped' : 'all');
+    setVarFilter(f => f === 'mapped' ? 'unmapped' : 'mapped');
   }
   function resetAll() {
     setFocusedId(null); setActiveSrcDomains([]); setActiveTgtDomains([]);
-    setActiveRelations([]); setVarFilter('all');
+    setActiveRelations([]); setVarFilter('mapped');
     setSrcMin(0); setSrcMax(srcMaxM); setTgtMin(0); setTgtMax(tgtMaxM);
   }
-  const varFilterLabel = varFilter === 'all' ? 'All variables' : varFilter === 'unmapped' ? 'Only unmapped' : 'Only mapped';
-  const varFilterCls = varFilter === 'all' ? 'btn-outline' : varFilter === 'unmapped' ? 'btn-warning' : 'btn-success';
+  const varFilterLabel = varFilter === 'unmapped' ? 'Only unmapped' : 'Only mapped';
+  const varFilterCls = varFilter === 'unmapped' ? 'btn-warning' : 'btn-success';
 
   function DomainBtn({ d, active, onClick }: { d: string; active: boolean; onClick: () => void }) {
     const c = domainClr(d);
     return (
-      <button onClick={onClick} className="btn btn-xs border" style={{ backgroundColor: active ? c.fill : '#f8fafc', borderColor: active ? c.stroke : '#cbd5e1', color: active ? c.text : '#94a3b8', fontWeight: active ? 600 : 400 }}>
+      <button onClick={onClick} className="btn btn-xs border" style={{ backgroundColor: active ? c.fill : '#f8fafc', borderColor: active ? c.stroke : '#cbd5e1', color: active ? c.text : '#94a3b8', fontWeight: active ? 600 : 400, fontSize: 10, padding: '1px 6px', height: 20, minHeight: 20 }}>
         {d.replace(/_/g, ' ')}
       </button>
+    );
+  }
+
+  function DualRangeSlider({ label, lo, hi, max, onLo, onHi }: { label: string; lo: number; hi: number; max: number; onLo: (v: number) => void; onHi: (v: number) => void }) {
+    const M = max || 1;
+    const plo = lo / M * 100;
+    const phi = hi / M * 100;
+    return (
+      <div className="flex-1 min-w-52">
+        <div className="text-xs font-semibold opacity-50 uppercase tracking-wide mb-1">{label}: {lo}–{hi >= max ? `${max}+` : hi}</div>
+        <div className="relative h-5">
+          <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-1 rounded bg-base-300 pointer-events-none" />
+          <div className="absolute top-1/2 -translate-y-1/2 h-1 rounded bg-primary pointer-events-none" style={{ left: `${plo}%`, width: `${phi - plo}%` }} />
+          <input type="range" min={0} max={M} value={lo} onChange={e => onLo(Math.min(+e.target.value, hi))} className="absolute inset-0 w-full h-full cursor-pointer opacity-0" style={{ zIndex: lo >= hi ? 5 : 3 }} />
+          <input type="range" min={0} max={M} value={hi} onChange={e => onHi(Math.max(+e.target.value, lo))} className="absolute inset-0 w-full h-full cursor-pointer opacity-0" style={{ zIndex: 4 }} />
+          <div className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-primary border-2 border-white shadow-sm pointer-events-none" style={{ left: `calc(${plo}% - 6px)` }} />
+          <div className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-primary border-2 border-white shadow-sm pointer-events-none" style={{ left: `calc(${phi}% - 6px)` }} />
+        </div>
+      </div>
     );
   }
 
@@ -529,7 +548,10 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
       </div>
       <div className="flex flex-wrap gap-4 mb-3 items-center">
         <div className="flex-1 min-w-52">
-          <div className="text-xs font-semibold mb-1 opacity-50 uppercase tracking-wide">Edge type (relation)</div>
+          <div className="flex items-center justify-between mb-1">
+            <div className="text-xs font-semibold opacity-50 uppercase tracking-wide">Edge type (relation)</div>
+            <button className="btn btn-xs btn-ghost text-error" onClick={resetAll}>↺ Reset all filters</button>
+          </div>
           <div className="flex flex-wrap gap-1">
             {relations.map(r => (
               <button key={r} className={`btn btn-xs ${activeRelations.length === 0 || activeRelations.includes(r) ? 'btn-primary' : 'btn-outline opacity-40'}`} onClick={() => toggle(activeRelations, r, setActiveRelations)}>{r} ({relCounts[r] || 0})</button>
@@ -548,28 +570,8 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
       {/* Mapping-count range sliders */}
       {varFilter !== 'unmapped' && (
         <div className="flex flex-wrap gap-6 mb-3 items-start">
-          <div className="flex-1 min-w-60">
-            <div className="text-xs font-semibold mb-1 opacity-50 uppercase tracking-wide">
-              Source: mappings per variable &mdash; {srcMin}–{srcMax}{srcMax >= srcMaxM ? '+' : ''}
-            </div>
-            <div className="flex items-center gap-2 text-xs">
-              <span className="w-6">min</span>
-              <input type="range" min={0} max={srcMaxM || 1} value={srcMin} onChange={e => setSrcMin(Math.min(+e.target.value, srcMax))} className="range range-xs flex-1 range-primary" />
-              <span className="w-6">max</span>
-              <input type="range" min={0} max={srcMaxM || 1} value={srcMax} onChange={e => setSrcMax(Math.max(+e.target.value, srcMin))} className="range range-xs flex-1 range-primary" />
-            </div>
-          </div>
-          <div className="flex-1 min-w-60">
-            <div className="text-xs font-semibold mb-1 opacity-50 uppercase tracking-wide">
-              Target: mappings per variable &mdash; {tgtMin}–{tgtMax}{tgtMax >= tgtMaxM ? '+' : ''}
-            </div>
-            <div className="flex items-center gap-2 text-xs">
-              <span className="w-6">min</span>
-              <input type="range" min={0} max={tgtMaxM || 1} value={tgtMin} onChange={e => setTgtMin(Math.min(+e.target.value, tgtMax))} className="range range-xs flex-1 range-primary" />
-              <span className="w-6">max</span>
-              <input type="range" min={0} max={tgtMaxM || 1} value={tgtMax} onChange={e => setTgtMax(Math.max(+e.target.value, tgtMin))} className="range range-xs flex-1 range-primary" />
-            </div>
-          </div>
+          <DualRangeSlider label="Source: mappings per variable" lo={srcMin} hi={srcMax} max={srcMaxM} onLo={setSrcMin} onHi={setSrcMax} />
+          <DualRangeSlider label="Target: mappings per variable" lo={tgtMin} hi={tgtMax} max={tgtMaxM} onLo={setTgtMin} onHi={setTgtMax} />
         </div>
       )}
       {/* Var filter — centred, right above graph */}
@@ -619,9 +621,9 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
             const faded = hoveredId != null && !hl;
             return (
               <g key={n.id} style={{ cursor: 'pointer' }} onMouseEnter={() => setHoveredId(n.id)} onMouseLeave={() => setHoveredId(null)} onClick={() => { setHoveredId(null); setFocusedId(prev => prev === n.id ? null : n.id); }} opacity={faded ? 0.3 : 1}>
-                <rect x={LEFT_X} y={y} width={NODE_W} height={NODE_H} rx={4} fill={n.uncovered ? '#f8fafc' : c.fill} stroke={hoveredId === n.id ? c.text : (n.uncovered ? '#cbd5e1' : c.stroke)} strokeWidth={hoveredId === n.id ? 2 : 1} strokeDasharray={n.uncovered ? '4 3' : undefined} />
-                <text x={LEFT_X + 6} y={y + 11} fontSize={10} fontWeight={600} fill={n.uncovered ? '#94a3b8' : c.text}>{n.varName.length > 21 ? n.varName.slice(0, 21) + '…' : n.varName}</text>
-                <text x={LEFT_X + 6} y={y + 23} fontSize={8.5} fill={n.uncovered ? '#cbd5e1' : c.text} opacity={0.75}>{(n.label || '').length > 27 ? (n.label || '').slice(0, 27) + '…' : n.label}</text>
+                <rect x={LEFT_X} y={y} width={NODE_W} height={NODE_H} rx={4} fill={c.fill} stroke={hoveredId === n.id ? c.text : c.stroke} strokeWidth={hoveredId === n.id ? 2 : 1} strokeDasharray={n.uncovered ? '4 3' : undefined} />
+                <text x={LEFT_X + 6} y={y + 11} fontSize={10} fontWeight={600} fill={c.text}>{n.varName.length > 21 ? n.varName.slice(0, 21) + '…' : n.varName}</text>
+                <text x={LEFT_X + 6} y={y + 23} fontSize={8.5} fill={c.text} opacity={0.75}>{(n.label || '').length > 27 ? (n.label || '').slice(0, 27) + '…' : n.label}</text>
                 <title>{n.varName}: {n.label}{n.domain ? ` [${n.domain}]` : ''}{n.uncovered ? ' — uncovered' : ` | ${srcEdgeCounts.get(n.id) || 0} mapping(s)`}</title>
               </g>
             );
@@ -633,9 +635,9 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
             const faded = hoveredId != null && !hl;
             return (
               <g key={n.id} style={{ cursor: 'pointer' }} onMouseEnter={() => setHoveredId(n.id)} onMouseLeave={() => setHoveredId(null)} onClick={() => { setHoveredId(null); setFocusedId(prev => prev === n.id ? null : n.id); }} opacity={faded ? 0.3 : 1}>
-                <rect x={RIGHT_X} y={y} width={NODE_W} height={NODE_H} rx={4} fill={n.uncovered ? '#f8fafc' : c.fill} stroke={hoveredId === n.id ? c.text : (n.uncovered ? '#cbd5e1' : c.stroke)} strokeWidth={hoveredId === n.id ? 2 : 1} strokeDasharray={n.uncovered ? '4 3' : undefined} />
-                <text x={RIGHT_X + 6} y={y + 11} fontSize={10} fontWeight={600} fill={n.uncovered ? '#94a3b8' : c.text}>{n.varName.length > 21 ? n.varName.slice(0, 21) + '…' : n.varName}</text>
-                <text x={RIGHT_X + 6} y={y + 23} fontSize={8.5} fill={n.uncovered ? '#cbd5e1' : c.text} opacity={0.75}>{(n.label || '').length > 27 ? (n.label || '').slice(0, 27) + '…' : n.label}</text>
+                <rect x={RIGHT_X} y={y} width={NODE_W} height={NODE_H} rx={4} fill={c.fill} stroke={hoveredId === n.id ? c.text : c.stroke} strokeWidth={hoveredId === n.id ? 2 : 1} strokeDasharray={n.uncovered ? '4 3' : undefined} />
+                <text x={RIGHT_X + 6} y={y + 11} fontSize={10} fontWeight={600} fill={c.text}>{n.varName.length > 21 ? n.varName.slice(0, 21) + '…' : n.varName}</text>
+                <text x={RIGHT_X + 6} y={y + 23} fontSize={8.5} fill={c.text} opacity={0.75}>{(n.label || '').length > 27 ? (n.label || '').slice(0, 27) + '…' : n.label}</text>
                 <title>{n.varName}: {n.label}{n.domain ? ` [${n.domain}]` : ''}{n.uncovered ? ' — uncovered' : ` | ${tgtEdgeCounts.get(n.id) || 0} mapping(s)`}</title>
               </g>
             );
