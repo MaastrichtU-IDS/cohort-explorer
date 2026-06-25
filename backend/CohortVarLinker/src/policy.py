@@ -236,11 +236,26 @@ def _build_verdict(level: MatchLevel,
 
 # LLM-call gating — decides whether to spend an LLM call on a candidate.
 
+def _is_derivation(s: StructuralEvidence) -> bool:
+    transformation = (
+        s.transformation.value
+        if isinstance(s.transformation, TransformationType)
+        else str(s.transformation)
+    )
+
+    return (
+        transformation == TransformationType.DERIVATION.value
+        or bool(s.extra.get("is_derived_pair"))
+        or "derived variable" in str(s.extra.get("transformation_rule", "")).lower()
+    )
 
 def should_consult_llm(s: StructuralEvidence) -> bool:
     """Symmetric pre-filter: skip LLM whenever the structural answer is
     decisive in either direction.
     """
+
+    if _is_derivation(s):
+        return False
     if s.needs_review:
         return True
     # Decisive answers — no LLM needed.
