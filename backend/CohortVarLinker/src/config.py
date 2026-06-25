@@ -39,7 +39,7 @@ class Settings:
         "code": "loinc:39156-5",
         "label": "Body mass index (BMI) [Ratio]",
         "unit": "ucum:kg/m2",
-        "required_omops": [3016723, 3025315],  # Weight, Height
+        "required_omops": [3036277, 3025315],  # Weight, Height
         "category": "measurement",
         "data_type": "continuous_variable"
     },
@@ -49,7 +49,7 @@ class Settings:
         "code": "snomed:1556501000000100",
         "label": "Estimated creatinine clearance calculated using actual body weight Cockcroft-Gault formula",
         "unit": "ucum:ml/min",
-        "required_omops": [3025315, 3016723, 3022304, 46235213],  # Height, Weight, Creatinine, Age/Gender proxy
+        "required_omops": [3036277, 3025315, 3022304, 46235213,4324383],  # Height, Weight,  Age/Gender proxy, Creatinine
         "category": "measurement",
         "data_type": "continuous_variable"
     },
@@ -59,7 +59,7 @@ class Settings:
         "code": "loinc:33914-3",
         "label": "Glomerular filtration rate/1.73 sq M.predicted by Creatinine-based formula (CKD-EPI)",
         "unit": "ucum:mL/min/{1.73_m2}",
-        "required_omops": [4324383, 4265453, 46235213],       # Creatinine, Age, Sex assigned at birth
+        "required_omops": [3025315, 3016723, 3022304, 46235213],  # Weight, Serum creatinine, Age, Sex/Gender proxy
         "category": "measurement",
         "data_type": "continuous_variable",
         "formula": "CKD-EPI 2021 race-free: 142*min(Scr/k,1)^a*max(Scr/k,1)^-1.200*0.9938^Age*1.012[F] ; k=0.7[F]/0.9[M], a=-0.241[F]/-0.302[M]"
@@ -70,7 +70,7 @@ class Settings:
         "code": "loinc:48643-1",
         "label": "Glomerular filtration rate/1.73 sq M predicted by Creatinine-based formula (MDRD)",
         "unit": "ucum:mL/min/{1.73_m2}",
-        "required_omops": [4324383, 4265453, 46235213],        # Creatinine, Age, Sex
+        "required_omops": [4324383, 3022304, 46235213],        # Creatinine, Age, Sex assigned at birth
         "category": "measurement",
         "data_type": "continuous_variable",
         "formula": "175 * Scr^-1.154 * Age^-0.203 * 0.742[F] * 1.212[Black]"
