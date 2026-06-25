@@ -353,6 +353,7 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
   const [srcMax, setSrcMax] = React.useState(99);
   const [tgtMin, setTgtMin] = React.useState(0);
   const [tgtMax, setTgtMax] = React.useState(99);
+  const [focusedId, setFocusedId] = React.useState<string | null>(null);
 
   const targetCohorts = React.useMemo(
     () => [...new Set(data.map(r => r.target_study as string).filter(Boolean))],
@@ -364,7 +365,7 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
       setSelectedTarget(targetCohorts[0]);
   }, [targetCohorts, selectedTarget]);
 
-  const { srcNodes, tgtNodes, allEdges, srcDomains, tgtDomains, relations, srcEdgeCounts, tgtEdgeCounts, srcMaxM, tgtMaxM } = React.useMemo(() => {
+  const { srcNodes, tgtNodes, allEdges, srcDomains, tgtDomains, relations, srcEdgeCounts, tgtEdgeCounts, srcMaxM, tgtMaxM, relCounts } = React.useMemo(() => {
     const tgtData = selectedTarget ? data.filter(r => r.target_study === selectedTarget) : data;
     const srcLbl = new Map<string, string>(); const tgtLbl = new Map<string, string>();
     const srcDomMap = new Map<string, string[]>(); const tgtDomMap = new Map<string, string[]>();
@@ -397,7 +398,9 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
     const sv = [...srcEdgeCounts.values()]; const tv = [...tgtEdgeCounts.values()];
     const srcMaxM = sv.length ? Math.max(...sv) : 0;
     const tgtMaxM = tv.length ? Math.max(...tv) : 0;
-    return { srcNodes: sn, tgtNodes: tn, allEdges: edges, srcDomains: [...new Set(sn.map(n => n.domain))].filter(Boolean).sort(), tgtDomains: [...new Set(tn.map(n => n.domain))].filter(Boolean).sort(), relations: [...new Set(edges.map(e => e.relation))].filter(Boolean).sort(), srcEdgeCounts, tgtEdgeCounts, srcMaxM, tgtMaxM };
+    const relCounts: Record<string, number> = {};
+    for (const e of edges) relCounts[e.relation] = (relCounts[e.relation] || 0) + 1;
+    return { srcNodes: sn, tgtNodes: tn, allEdges: edges, srcDomains: [...new Set(sn.map(n => n.domain))].filter(Boolean).sort(), tgtDomains: [...new Set(tn.map(n => n.domain))].filter(Boolean).sort(), relations: [...new Set(edges.map(e => e.relation))].filter(Boolean).sort(), srcEdgeCounts, tgtEdgeCounts, srcMaxM, tgtMaxM, relCounts };
   }, [data, selectedTarget]);
 
   React.useEffect(() => { setSrcMin(0); setSrcMax(srcMaxM); }, [srcMaxM]);
@@ -422,6 +425,18 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
   }, [varFilter, cohortsData, sourceCohort, selectedTarget, allEdges]);
 
   const { visSrc, visTgt, visEdges } = React.useMemo(() => {
+    if (focusedId) {
+      const relFiltered = activeRelations.length === 0 ? allEdges : allEdges.filter(e => activeRelations.includes(e.relation));
+      const fe = relFiltered.filter(e => e.srcId === focusedId || e.tgtId === focusedId);
+      if (fe.length === 0) {
+        const uSrc = uncovSrc.find(n => n.id === focusedId);
+        const uTgt = uncovTgt.find(n => n.id === focusedId);
+        return { visSrc: uSrc ? [uSrc] : [] as GNode[], visTgt: uTgt ? [uTgt] : [] as GNode[], visEdges: [] as GEdge[] };
+      }
+      const fSrcIds = new Set(fe.map(e => e.srcId));
+      const fTgtIds = new Set(fe.map(e => e.tgtId));
+      return { visSrc: srcNodes.filter(n => fSrcIds.has(n.id)), visTgt: tgtNodes.filter(n => fTgtIds.has(n.id)), visEdges: fe };
+    }
     if (varFilter === 'unmapped') {
       const sUncov = activeSrcDomains.length === 0 ? uncovSrc : uncovSrc.filter(n => activeSrcDomains.includes(n.domain));
       const tUncov = activeTgtDomains.length === 0 ? uncovTgt : uncovTgt.filter(n => activeTgtDomains.includes(n.domain));
@@ -441,7 +456,7 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
     const ve = sliderEdges.filter(e => snSet.has(e.srcId) && tnSet.has(e.tgtId));
     if (varFilter === 'mapped') return { visSrc: sn, visTgt: tn, visEdges: ve };
     return { visSrc: [...sn, ...uncovSrc.filter(srcDomOk)], visTgt: [...tn, ...uncovTgt.filter(tgtDomOk)], visEdges: ve };
-  }, [varFilter, allEdges, srcNodes, tgtNodes, uncovSrc, uncovTgt, activeSrcDomains, activeTgtDomains, activeRelations, srcMin, srcMax, tgtMin, tgtMax, srcEdgeCounts, tgtEdgeCounts]);
+  }, [focusedId, varFilter, allEdges, srcNodes, tgtNodes, uncovSrc, uncovTgt, activeSrcDomains, activeTgtDomains, activeRelations, srcMin, srcMax, tgtMin, tgtMax, srcEdgeCounts, tgtEdgeCounts]);
 
   const srcY = React.useMemo(() => { const m = new Map<string, number>(); visSrc.forEach((n, i) => m.set(n.id, PAD_TOP + i * STEP)); return m; }, [visSrc]);
   const tgtY = React.useMemo(() => { const m = new Map<string, number>(); visTgt.forEach((n, i) => m.set(n.id, PAD_TOP + i * STEP)); return m; }, [visTgt]);
@@ -464,6 +479,11 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
   function cycleVarFilter() {
     setActiveSrcDomains([]); setActiveTgtDomains([]);
     setVarFilter(f => f === 'all' ? 'unmapped' : f === 'unmapped' ? 'mapped' : 'all');
+  }
+  function resetAll() {
+    setFocusedId(null); setActiveSrcDomains([]); setActiveTgtDomains([]);
+    setActiveRelations([]); setVarFilter('all');
+    setSrcMin(0); setSrcMax(srcMaxM); setTgtMin(0); setTgtMax(tgtMaxM);
   }
   const varFilterLabel = varFilter === 'all' ? 'All variables' : varFilter === 'unmapped' ? 'Only unmapped' : 'Only mapped';
   const varFilterCls = varFilter === 'all' ? 'btn-outline' : varFilter === 'unmapped' ? 'btn-warning' : 'btn-success';
@@ -493,14 +513,14 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
       {/* Domain + relation filters */}
       <div className="flex flex-wrap gap-6 mb-3 items-start">
         <div className="flex-1 min-w-52">
-          <div className="text-xs font-semibold mb-1 opacity-50 uppercase tracking-wide">Source domains</div>
+          <div className="text-xs font-semibold mb-1 opacity-60 tracking-wide">Click to filter source variables by their OMOP domains</div>
           <div className="flex flex-wrap gap-1">
             {srcDomains.map(d => <DomainBtn key={d} d={d} active={activeSrcDomains.length === 0 || activeSrcDomains.includes(d)} onClick={() => toggle(activeSrcDomains, d, setActiveSrcDomains)} />)}
             {activeSrcDomains.length > 0 && <button className="btn btn-xs btn-ghost text-xs" onClick={() => setActiveSrcDomains([])}>clear</button>}
           </div>
         </div>
         <div className="flex-1 min-w-52">
-          <div className="text-xs font-semibold mb-1 opacity-50 uppercase tracking-wide">Target domains</div>
+          <div className="text-xs font-semibold mb-1 opacity-60 tracking-wide">Click to filter target variables by their OMOP domains</div>
           <div className="flex flex-wrap gap-1">
             {tgtDomains.map(d => <DomainBtn key={d} d={d} active={activeTgtDomains.length === 0 || activeTgtDomains.includes(d)} onClick={() => toggle(activeTgtDomains, d, setActiveTgtDomains)} />)}
             {activeTgtDomains.length > 0 && <button className="btn btn-xs btn-ghost text-xs" onClick={() => setActiveTgtDomains([])}>clear</button>}
@@ -512,13 +532,19 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
           <div className="text-xs font-semibold mb-1 opacity-50 uppercase tracking-wide">Edge type (relation)</div>
           <div className="flex flex-wrap gap-1">
             {relations.map(r => (
-              <button key={r} className={`btn btn-xs ${activeRelations.length === 0 || activeRelations.includes(r) ? 'btn-primary' : 'btn-outline opacity-40'}`} onClick={() => toggle(activeRelations, r, setActiveRelations)}>{r}</button>
+              <button key={r} className={`btn btn-xs ${activeRelations.length === 0 || activeRelations.includes(r) ? 'btn-primary' : 'btn-outline opacity-40'}`} onClick={() => toggle(activeRelations, r, setActiveRelations)}>{r} ({relCounts[r] || 0})</button>
             ))}
             {activeRelations.length > 0 && <button className="btn btn-xs btn-ghost" onClick={() => setActiveRelations([])}>clear</button>}
           </div>
         </div>
-        <button className={`btn btn-sm ${varFilterCls}`} onClick={cycleVarFilter}>{varFilterLabel}</button>
       </div>
+      {/* Focus mode banner */}
+      {focusedId && (
+        <div className="flex items-center justify-between bg-primary/10 border border-primary/40 rounded-lg px-4 py-2 mb-3">
+          <span className="text-sm">Focused on: <strong>{focusedId.replace(/^__u[st]_/, '')}</strong></span>
+          <button className="btn btn-primary btn-sm" onClick={resetAll}>← Back to full graph</button>
+        </div>
+      )}
       {/* Mapping-count range sliders */}
       {varFilter !== 'unmapped' && (
         <div className="flex flex-wrap gap-6 mb-3 items-start">
@@ -546,6 +572,10 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
           </div>
         </div>
       )}
+      {/* Var filter — centred, right above graph */}
+      <div className="flex justify-center mb-3">
+        <button className={`btn btn-sm ${varFilterCls}`} onClick={cycleVarFilter}>{varFilterLabel}</button>
+      </div>
       {/* Legend */}
       <div className="flex flex-wrap gap-x-4 gap-y-1 mb-2 text-xs items-center opacity-70">
         <span className="font-semibold">Edge colour:</span>
@@ -588,7 +618,7 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
             const hl = hoveredId === n.id || connectedIds.has(n.id);
             const faded = hoveredId != null && !hl;
             return (
-              <g key={n.id} style={{ cursor: 'default' }} onMouseEnter={() => setHoveredId(n.id)} onMouseLeave={() => setHoveredId(null)} opacity={faded ? 0.3 : 1}>
+              <g key={n.id} style={{ cursor: 'pointer' }} onMouseEnter={() => setHoveredId(n.id)} onMouseLeave={() => setHoveredId(null)} onClick={() => { setHoveredId(null); setFocusedId(prev => prev === n.id ? null : n.id); }} opacity={faded ? 0.3 : 1}>
                 <rect x={LEFT_X} y={y} width={NODE_W} height={NODE_H} rx={4} fill={n.uncovered ? '#f8fafc' : c.fill} stroke={hoveredId === n.id ? c.text : (n.uncovered ? '#cbd5e1' : c.stroke)} strokeWidth={hoveredId === n.id ? 2 : 1} strokeDasharray={n.uncovered ? '4 3' : undefined} />
                 <text x={LEFT_X + 6} y={y + 11} fontSize={10} fontWeight={600} fill={n.uncovered ? '#94a3b8' : c.text}>{n.varName.length > 21 ? n.varName.slice(0, 21) + '…' : n.varName}</text>
                 <text x={LEFT_X + 6} y={y + 23} fontSize={8.5} fill={n.uncovered ? '#cbd5e1' : c.text} opacity={0.75}>{(n.label || '').length > 27 ? (n.label || '').slice(0, 27) + '…' : n.label}</text>
@@ -602,7 +632,7 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
             const hl = hoveredId === n.id || connectedIds.has(n.id);
             const faded = hoveredId != null && !hl;
             return (
-              <g key={n.id} style={{ cursor: 'default' }} onMouseEnter={() => setHoveredId(n.id)} onMouseLeave={() => setHoveredId(null)} opacity={faded ? 0.3 : 1}>
+              <g key={n.id} style={{ cursor: 'pointer' }} onMouseEnter={() => setHoveredId(n.id)} onMouseLeave={() => setHoveredId(null)} onClick={() => { setHoveredId(null); setFocusedId(prev => prev === n.id ? null : n.id); }} opacity={faded ? 0.3 : 1}>
                 <rect x={RIGHT_X} y={y} width={NODE_W} height={NODE_H} rx={4} fill={n.uncovered ? '#f8fafc' : c.fill} stroke={hoveredId === n.id ? c.text : (n.uncovered ? '#cbd5e1' : c.stroke)} strokeWidth={hoveredId === n.id ? 2 : 1} strokeDasharray={n.uncovered ? '4 3' : undefined} />
                 <text x={RIGHT_X + 6} y={y + 11} fontSize={10} fontWeight={600} fill={n.uncovered ? '#94a3b8' : c.text}>{n.varName.length > 21 ? n.varName.slice(0, 21) + '…' : n.varName}</text>
                 <text x={RIGHT_X + 6} y={y + 23} fontSize={8.5} fill={n.uncovered ? '#cbd5e1' : c.text} opacity={0.75}>{(n.label || '').length > 27 ? (n.label || '').slice(0, 27) + '…' : n.label}</text>
