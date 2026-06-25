@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { useRouter } from 'next/router';
 
 // Define the shape of our row data
 interface RowData {
@@ -347,71 +346,105 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
   const [activeSrcDomains, setActiveSrcDomains] = React.useState<string[]>([]);
   const [activeTgtDomains, setActiveTgtDomains] = React.useState<string[]>([]);
   const [activeRelations, setActiveRelations] = React.useState<string[]>([]);
-  const [showUncovered, setShowUncovered] = React.useState(false);
+  const [varFilter, setVarFilter] = React.useState<'all' | 'unmapped' | 'mapped'>('all');
   const [hoveredId, setHoveredId] = React.useState<string | null>(null);
+  const [selectedTarget, setSelectedTarget] = React.useState<string>('');
+  const [srcMin, setSrcMin] = React.useState(0);
+  const [srcMax, setSrcMax] = React.useState(99);
+  const [tgtMin, setTgtMin] = React.useState(0);
+  const [tgtMax, setTgtMax] = React.useState(99);
 
-  const targetCohorts = React.useMemo(() => [...new Set(data.map(r => r.target_study as string).filter(Boolean))], [data]);
+  const targetCohorts = React.useMemo(
+    () => [...new Set(data.map(r => r.target_study as string).filter(Boolean))],
+    [data]
+  );
 
-  const { srcNodes, tgtNodes, allEdges, srcDomains, tgtDomains, relations } = React.useMemo(() => {
+  React.useEffect(() => {
+    if (targetCohorts.length > 0 && !targetCohorts.includes(selectedTarget))
+      setSelectedTarget(targetCohorts[0]);
+  }, [targetCohorts, selectedTarget]);
+
+  const { srcNodes, tgtNodes, allEdges, srcDomains, tgtDomains, relations, srcEdgeCounts, tgtEdgeCounts, srcMaxM, tgtMaxM } = React.useMemo(() => {
+    const tgtData = selectedTarget ? data.filter(r => r.target_study === selectedTarget) : data;
     const srcLbl = new Map<string, string>(); const tgtLbl = new Map<string, string>();
-    const srcDom = new Map<string, string[]>(); const tgtDom = new Map<string, string[]>();
+    const srcDomMap = new Map<string, string[]>(); const tgtDomMap = new Map<string, string[]>();
     const edges: GEdge[] = [];
-    for (const row of data) {
+    for (const row of tgtData) {
       const sid = row.s_source as string;
       const tid = `${row.target_study}::${row.target}`;
       const dom = ((row.omop_domain as string) || '').split('||')[0].trim().toLowerCase().replace(/ /g, '_');
       if (!srcLbl.has(sid)) srcLbl.set(sid, row.s_label as string || '');
       if (!tgtLbl.has(tid)) tgtLbl.set(tid, (row.target_label as string) || (row.target as string) || '');
-      if (!srcDom.has(sid)) srcDom.set(sid, []);
-      srcDom.get(sid)!.push(dom);
-      if (!tgtDom.has(tid)) tgtDom.set(tid, []);
-      tgtDom.get(tid)!.push(dom);
-      edges.push({ srcId: sid, tgtId: tid, relation: row.mapping_relation as string || '', status: row.harmonization_status as string || 'pending', sim: (row.sim_score as number) || 0.5 });
+      if (!srcDomMap.has(sid)) srcDomMap.set(sid, []);
+      srcDomMap.get(sid)!.push(dom);
+      if (!tgtDomMap.has(tid)) tgtDomMap.set(tid, []);
+      tgtDomMap.get(tid)!.push(dom);
+      edges.push({ srcId: sid, tgtId: tid, relation: row.mapping_relation as string || '', status: row.harmonization_status as string || 'pending', sim: Number(row.sim_score) || 0.5 });
     }
     function modeDom(arr: string[]) {
       const c: Record<string, number> = {};
       for (const d of arr) c[d] = (c[d] || 0) + 1;
       return Object.entries(c).sort((a, b) => b[1] - a[1])[0]?.[0] || '';
     }
-    const sn: GNode[] = [...srcLbl.keys()].map(id => ({ id, varName: id, label: srcLbl.get(id)!, domain: modeDom(srcDom.get(id) || []) }));
-    const tn: GNode[] = [...tgtLbl.keys()].map(id => ({ id, varName: id.split('::')[1] || id, label: tgtLbl.get(id)!, domain: modeDom(tgtDom.get(id) || []) }));
-    return { srcNodes: sn, tgtNodes: tn, allEdges: edges, srcDomains: [...new Set(sn.map(n => n.domain))].filter(Boolean).sort(), tgtDomains: [...new Set(tn.map(n => n.domain))].filter(Boolean).sort(), relations: [...new Set(edges.map(e => e.relation))].filter(Boolean).sort() };
-  }, [data]);
+    const sn: GNode[] = [...srcLbl.keys()].map(id => ({ id, varName: id, label: srcLbl.get(id)!, domain: modeDom(srcDomMap.get(id) || []) }));
+    const tn: GNode[] = [...tgtLbl.keys()].map(id => ({ id, varName: id.split('::')[1] || id, label: tgtLbl.get(id)!, domain: modeDom(tgtDomMap.get(id) || []) }));
+    const srcEdgeCounts = new Map<string, number>();
+    const tgtEdgeCounts = new Map<string, number>();
+    for (const e of edges) {
+      srcEdgeCounts.set(e.srcId, (srcEdgeCounts.get(e.srcId) || 0) + 1);
+      tgtEdgeCounts.set(e.tgtId, (tgtEdgeCounts.get(e.tgtId) || 0) + 1);
+    }
+    const sv = [...srcEdgeCounts.values()]; const tv = [...tgtEdgeCounts.values()];
+    const srcMaxM = sv.length ? Math.max(...sv) : 0;
+    const tgtMaxM = tv.length ? Math.max(...tv) : 0;
+    return { srcNodes: sn, tgtNodes: tn, allEdges: edges, srcDomains: [...new Set(sn.map(n => n.domain))].filter(Boolean).sort(), tgtDomains: [...new Set(tn.map(n => n.domain))].filter(Boolean).sort(), relations: [...new Set(edges.map(e => e.relation))].filter(Boolean).sort(), srcEdgeCounts, tgtEdgeCounts, srcMaxM, tgtMaxM };
+  }, [data, selectedTarget]);
+
+  React.useEffect(() => { setSrcMin(0); setSrcMax(srcMaxM); }, [srcMaxM]);
+  React.useEffect(() => { setTgtMin(0); setTgtMax(tgtMaxM); }, [tgtMaxM]);
 
   const { uncovSrc, uncovTgt } = React.useMemo(() => {
-    if (!showUncovered) return { uncovSrc: [], uncovTgt: [] };
+    if (varFilter === 'mapped') return { uncovSrc: [] as GNode[], uncovTgt: [] as GNode[] };
     const srcKey = Object.keys(cohortsData).find(k => k.toLowerCase() === sourceCohort.toLowerCase());
     const srcCohort = srcKey ? cohortsData[srcKey] : null;
     const mappedSrc = new Set(allEdges.map(e => e.srcId.toLowerCase()));
     const uncovSrc: GNode[] = srcCohort ? Object.keys(srcCohort.variables || {}).filter(k => !mappedSrc.has(k.toLowerCase())).map(k => ({ id: `__us_${k}`, varName: k, label: srcCohort.variables[k]?.var_label || k, domain: 'uncovered', uncovered: true })) : [];
     const uncovTgt: GNode[] = [];
-    for (const tgt of targetCohorts) {
-      const tgtKey = Object.keys(cohortsData).find(k => k.toLowerCase() === tgt.toLowerCase());
+    if (selectedTarget) {
+      const tgtKey = Object.keys(cohortsData).find(k => k.toLowerCase() === selectedTarget.toLowerCase());
       const tgtCohort = tgtKey ? cohortsData[tgtKey] : null;
-      if (!tgtCohort) continue;
-      const mappedTgt = new Set(allEdges.filter(e => e.tgtId.startsWith(`${tgt}::`)).map(e => e.tgtId.split('::')[1].toLowerCase()));
-      Object.keys(tgtCohort.variables || {}).filter(k => !mappedTgt.has(k.toLowerCase())).forEach(k => uncovTgt.push({ id: `__ut_${tgt}_${k}`, varName: k, label: tgtCohort.variables[k]?.var_label || k, domain: 'uncovered', uncovered: true }));
+      if (tgtCohort) {
+        const mappedTgt = new Set(allEdges.map(e => e.tgtId.split('::')[1].toLowerCase()));
+        Object.keys(tgtCohort.variables || {}).filter(k => !mappedTgt.has(k.toLowerCase())).forEach(k => uncovTgt.push({ id: `__ut_${k}`, varName: k, label: tgtCohort.variables[k]?.var_label || k, domain: 'uncovered', uncovered: true }));
+      }
     }
     return { uncovSrc, uncovTgt };
-  }, [showUncovered, cohortsData, sourceCohort, targetCohorts, allEdges]);
+  }, [varFilter, cohortsData, sourceCohort, selectedTarget, allEdges]);
 
-  const visSrc = React.useMemo(() => {
-    let n = activeSrcDomains.length > 0 ? srcNodes.filter(x => activeSrcDomains.includes(x.domain)) : srcNodes;
-    return showUncovered ? [...n, ...uncovSrc] : n;
-  }, [srcNodes, activeSrcDomains, showUncovered, uncovSrc]);
-
-  const visTgt = React.useMemo(() => {
-    let n = activeTgtDomains.length > 0 ? tgtNodes.filter(x => activeTgtDomains.includes(x.domain)) : tgtNodes;
-    return showUncovered ? [...n, ...uncovTgt] : n;
-  }, [tgtNodes, activeTgtDomains, showUncovered, uncovTgt]);
+  const { visSrc, visTgt, visEdges } = React.useMemo(() => {
+    if (varFilter === 'unmapped') {
+      const sUncov = activeSrcDomains.length === 0 ? uncovSrc : uncovSrc.filter(n => activeSrcDomains.includes(n.domain));
+      const tUncov = activeTgtDomains.length === 0 ? uncovTgt : uncovTgt.filter(n => activeTgtDomains.includes(n.domain));
+      return { visSrc: sUncov, visTgt: tUncov, visEdges: [] as GEdge[] };
+    }
+    const relFiltered = activeRelations.length === 0 ? allEdges : allEdges.filter(e => activeRelations.includes(e.relation));
+    const srcPass = (id: string) => { const c = srcEdgeCounts.get(id) || 0; return c >= srcMin && c <= srcMax; };
+    const tgtPass = (id: string) => { const c = tgtEdgeCounts.get(id) || 0; return c >= tgtMin && c <= tgtMax; };
+    const sliderEdges = relFiltered.filter(e => srcPass(e.srcId) || tgtPass(e.tgtId));
+    const srcDomOk = (n: GNode) => activeSrcDomains.length === 0 || activeSrcDomains.includes(n.domain);
+    const tgtDomOk = (n: GNode) => activeTgtDomains.length === 0 || activeTgtDomains.includes(n.domain);
+    const vSrcIds = new Set(sliderEdges.map(e => e.srcId));
+    const vTgtIds = new Set(sliderEdges.map(e => e.tgtId));
+    const sn = srcNodes.filter(n => vSrcIds.has(n.id) && srcDomOk(n));
+    const tn = tgtNodes.filter(n => vTgtIds.has(n.id) && tgtDomOk(n));
+    const snSet = new Set(sn.map(n => n.id)); const tnSet = new Set(tn.map(n => n.id));
+    const ve = sliderEdges.filter(e => snSet.has(e.srcId) && tnSet.has(e.tgtId));
+    if (varFilter === 'mapped') return { visSrc: sn, visTgt: tn, visEdges: ve };
+    return { visSrc: [...sn, ...uncovSrc.filter(srcDomOk)], visTgt: [...tn, ...uncovTgt.filter(tgtDomOk)], visEdges: ve };
+  }, [varFilter, allEdges, srcNodes, tgtNodes, uncovSrc, uncovTgt, activeSrcDomains, activeTgtDomains, activeRelations, srcMin, srcMax, tgtMin, tgtMax, srcEdgeCounts, tgtEdgeCounts]);
 
   const srcY = React.useMemo(() => { const m = new Map<string, number>(); visSrc.forEach((n, i) => m.set(n.id, PAD_TOP + i * STEP)); return m; }, [visSrc]);
   const tgtY = React.useMemo(() => { const m = new Map<string, number>(); visTgt.forEach((n, i) => m.set(n.id, PAD_TOP + i * STEP)); return m; }, [visTgt]);
-
-  const visEdges = React.useMemo(() => {
-    const ss = new Set(visSrc.map(n => n.id)); const ts = new Set(visTgt.map(n => n.id));
-    return allEdges.filter(e => ss.has(e.srcId) && ts.has(e.tgtId) && (activeRelations.length === 0 || activeRelations.includes(e.relation)));
-  }, [allEdges, visSrc, visTgt, activeRelations]);
 
   const connectedIds = React.useMemo(() => {
     if (!hoveredId) return new Set<string>();
@@ -428,6 +461,13 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
   const svgH = Math.max(visSrc.length, visTgt.length) * STEP + PAD_TOP + 20;
   const toggle = (arr: string[], v: string, set: (a: string[]) => void) => set(arr.includes(v) ? arr.filter(x => x !== v) : [...arr, v]);
 
+  function cycleVarFilter() {
+    setActiveSrcDomains([]); setActiveTgtDomains([]);
+    setVarFilter(f => f === 'all' ? 'unmapped' : f === 'unmapped' ? 'mapped' : 'all');
+  }
+  const varFilterLabel = varFilter === 'all' ? 'All variables' : varFilter === 'unmapped' ? 'Only unmapped' : 'Only mapped';
+  const varFilterCls = varFilter === 'all' ? 'btn-outline' : varFilter === 'unmapped' ? 'btn-warning' : 'btn-success';
+
   function DomainBtn({ d, active, onClick }: { d: string; active: boolean; onClick: () => void }) {
     const c = domainClr(d);
     return (
@@ -439,7 +479,18 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
 
   return (
     <div className="w-full">
-      {/* Filter bar */}
+      {/* Target cohort selector */}
+      {targetCohorts.length > 0 && (
+        <div className="mb-4">
+          <div className="text-xs font-semibold mb-2 opacity-50 uppercase tracking-wide">Target cohort</div>
+          <div className="flex flex-wrap gap-2">
+            {targetCohorts.map(t => (
+              <button key={t} className={`btn btn-md ${selectedTarget === t ? 'btn-primary' : 'btn-outline'}`} onClick={() => setSelectedTarget(t)}>{t}</button>
+            ))}
+          </div>
+        </div>
+      )}
+      {/* Domain + relation filters */}
       <div className="flex flex-wrap gap-6 mb-3 items-start">
         <div className="flex-1 min-w-52">
           <div className="text-xs font-semibold mb-1 opacity-50 uppercase tracking-wide">Source domains</div>
@@ -458,7 +509,7 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
       </div>
       <div className="flex flex-wrap gap-4 mb-3 items-center">
         <div className="flex-1 min-w-52">
-          <div className="text-xs font-semibold mb-1 opacity-50 uppercase tracking-wide">Edge type (mapping relation)</div>
+          <div className="text-xs font-semibold mb-1 opacity-50 uppercase tracking-wide">Edge type (relation)</div>
           <div className="flex flex-wrap gap-1">
             {relations.map(r => (
               <button key={r} className={`btn btn-xs ${activeRelations.length === 0 || activeRelations.includes(r) ? 'btn-primary' : 'btn-outline opacity-40'}`} onClick={() => toggle(activeRelations, r, setActiveRelations)}>{r}</button>
@@ -466,11 +517,35 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
             {activeRelations.length > 0 && <button className="btn btn-xs btn-ghost" onClick={() => setActiveRelations([])}>clear</button>}
           </div>
         </div>
-        <button className={`btn btn-sm ${showUncovered ? 'btn-neutral' : 'btn-outline'}`} onClick={() => setShowUncovered(v => !v)}>
-          {showUncovered ? 'Hide uncovered vars' : 'Show uncovered vars'}
-        </button>
+        <button className={`btn btn-sm ${varFilterCls}`} onClick={cycleVarFilter}>{varFilterLabel}</button>
       </div>
-
+      {/* Mapping-count range sliders */}
+      {varFilter !== 'unmapped' && (
+        <div className="flex flex-wrap gap-6 mb-3 items-start">
+          <div className="flex-1 min-w-60">
+            <div className="text-xs font-semibold mb-1 opacity-50 uppercase tracking-wide">
+              Source: mappings per variable &mdash; {srcMin}–{srcMax}{srcMax >= srcMaxM ? '+' : ''}
+            </div>
+            <div className="flex items-center gap-2 text-xs">
+              <span className="w-6">min</span>
+              <input type="range" min={0} max={srcMaxM || 1} value={srcMin} onChange={e => setSrcMin(Math.min(+e.target.value, srcMax))} className="range range-xs flex-1 range-primary" />
+              <span className="w-6">max</span>
+              <input type="range" min={0} max={srcMaxM || 1} value={srcMax} onChange={e => setSrcMax(Math.max(+e.target.value, srcMin))} className="range range-xs flex-1 range-primary" />
+            </div>
+          </div>
+          <div className="flex-1 min-w-60">
+            <div className="text-xs font-semibold mb-1 opacity-50 uppercase tracking-wide">
+              Target: mappings per variable &mdash; {tgtMin}–{tgtMax}{tgtMax >= tgtMaxM ? '+' : ''}
+            </div>
+            <div className="flex items-center gap-2 text-xs">
+              <span className="w-6">min</span>
+              <input type="range" min={0} max={tgtMaxM || 1} value={tgtMin} onChange={e => setTgtMin(Math.min(+e.target.value, tgtMax))} className="range range-xs flex-1 range-primary" />
+              <span className="w-6">max</span>
+              <input type="range" min={0} max={tgtMaxM || 1} value={tgtMax} onChange={e => setTgtMax(Math.max(+e.target.value, tgtMin))} className="range range-xs flex-1 range-primary" />
+            </div>
+          </div>
+        </div>
+      )}
       {/* Legend */}
       <div className="flex flex-wrap gap-x-4 gap-y-1 mb-2 text-xs items-center opacity-70">
         <span className="font-semibold">Edge colour:</span>
@@ -479,22 +554,18 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
         ))}
         <span className="flex items-center gap-1"><span style={{ display: 'inline-block', width: 18, height: 3, background: '#94a3b8', borderRadius: 2 }} />pending</span>
         <span className="ml-4 font-semibold">Edge width:</span><span>sim score</span>
-        {showUncovered && <span className="flex items-center gap-1"><span style={{ display: 'inline-block', width: 18, height: 10, border: '1.5px dashed #94a3b8', borderRadius: 2 }} />uncovered</span>}
+        {varFilter !== 'mapped' && <span className="flex items-center gap-1"><span style={{ display: 'inline-block', width: 18, height: 10, border: '1.5px dashed #94a3b8', borderRadius: 2 }} />uncovered</span>}
       </div>
       <div className="text-xs opacity-50 mb-2">
         {visSrc.filter(n => !n.uncovered).length} src · {visTgt.filter(n => !n.uncovered).length} tgt · {visEdges.length} edges
-        {showUncovered && ` · ${uncovSrc.length} uncov src · ${uncovTgt.length} uncov tgt`}
+        {varFilter !== 'mapped' && ` · ${uncovSrc.length} uncov src · ${uncovTgt.length} uncov tgt`}
         {hoveredId && ' · hover: showing connected edges'}
       </div>
-
       {/* SVG graph */}
       <div className="border rounded-lg bg-base-100 overflow-x-auto" style={{ maxHeight: '72vh', overflowY: 'auto' }}>
         <svg width={SVG_W} height={svgH} style={{ display: 'block', minWidth: SVG_W }}>
-          {/* Column headers */}
           <text x={LEFT_X + NODE_W / 2} y={16} textAnchor="middle" fontSize={11} fontWeight={700} fill="#64748b">{sourceCohort || 'Source'}</text>
-          <text x={RIGHT_X + NODE_W / 2} y={16} textAnchor="middle" fontSize={11} fontWeight={700} fill="#64748b">Target cohorts</text>
-
-          {/* Edges */}
+          <text x={RIGHT_X + NODE_W / 2} y={16} textAnchor="middle" fontSize={11} fontWeight={700} fill="#64748b">{selectedTarget || 'Target'}</text>
           {visEdges.map((e, i) => {
             const sy = srcY.get(e.srcId); const ty = tgtY.get(e.tgtId);
             if (sy == null || ty == null) return null;
@@ -511,8 +582,6 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
               </path>
             );
           })}
-
-          {/* Source nodes */}
           {visSrc.map(n => {
             const y = srcY.get(n.id)!;
             const c = domainClr(n.domain);
@@ -520,24 +589,13 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
             const faded = hoveredId != null && !hl;
             return (
               <g key={n.id} style={{ cursor: 'default' }} onMouseEnter={() => setHoveredId(n.id)} onMouseLeave={() => setHoveredId(null)} opacity={faded ? 0.3 : 1}>
-                <rect x={LEFT_X} y={y} width={NODE_W} height={NODE_H} rx={4}
-                  fill={n.uncovered ? '#f8fafc' : c.fill}
-                  stroke={hoveredId === n.id ? c.text : (n.uncovered ? '#cbd5e1' : c.stroke)}
-                  strokeWidth={hoveredId === n.id ? 2 : 1}
-                  strokeDasharray={n.uncovered ? '4 3' : undefined}
-                />
-                <text x={LEFT_X + 6} y={y + 11} fontSize={10} fontWeight={600} fill={n.uncovered ? '#94a3b8' : c.text}>
-                  {n.varName.length > 21 ? n.varName.slice(0, 21) + '…' : n.varName}
-                </text>
-                <text x={LEFT_X + 6} y={y + 23} fontSize={8.5} fill={n.uncovered ? '#cbd5e1' : c.text} opacity={0.75}>
-                  {(n.label || '').length > 27 ? (n.label || '').slice(0, 27) + '…' : n.label}
-                </text>
-                <title>{n.varName}: {n.label}{n.domain ? ` [${n.domain}]` : ''}{n.uncovered ? ' — uncovered' : ''}</title>
+                <rect x={LEFT_X} y={y} width={NODE_W} height={NODE_H} rx={4} fill={n.uncovered ? '#f8fafc' : c.fill} stroke={hoveredId === n.id ? c.text : (n.uncovered ? '#cbd5e1' : c.stroke)} strokeWidth={hoveredId === n.id ? 2 : 1} strokeDasharray={n.uncovered ? '4 3' : undefined} />
+                <text x={LEFT_X + 6} y={y + 11} fontSize={10} fontWeight={600} fill={n.uncovered ? '#94a3b8' : c.text}>{n.varName.length > 21 ? n.varName.slice(0, 21) + '…' : n.varName}</text>
+                <text x={LEFT_X + 6} y={y + 23} fontSize={8.5} fill={n.uncovered ? '#cbd5e1' : c.text} opacity={0.75}>{(n.label || '').length > 27 ? (n.label || '').slice(0, 27) + '…' : n.label}</text>
+                <title>{n.varName}: {n.label}{n.domain ? ` [${n.domain}]` : ''}{n.uncovered ? ' — uncovered' : ` | ${srcEdgeCounts.get(n.id) || 0} mapping(s)`}</title>
               </g>
             );
           })}
-
-          {/* Target nodes */}
           {visTgt.map(n => {
             const y = tgtY.get(n.id)!;
             const c = domainClr(n.domain);
@@ -545,19 +603,10 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
             const faded = hoveredId != null && !hl;
             return (
               <g key={n.id} style={{ cursor: 'default' }} onMouseEnter={() => setHoveredId(n.id)} onMouseLeave={() => setHoveredId(null)} opacity={faded ? 0.3 : 1}>
-                <rect x={RIGHT_X} y={y} width={NODE_W} height={NODE_H} rx={4}
-                  fill={n.uncovered ? '#f8fafc' : c.fill}
-                  stroke={hoveredId === n.id ? c.text : (n.uncovered ? '#cbd5e1' : c.stroke)}
-                  strokeWidth={hoveredId === n.id ? 2 : 1}
-                  strokeDasharray={n.uncovered ? '4 3' : undefined}
-                />
-                <text x={RIGHT_X + 6} y={y + 11} fontSize={10} fontWeight={600} fill={n.uncovered ? '#94a3b8' : c.text}>
-                  {n.varName.length > 21 ? n.varName.slice(0, 21) + '…' : n.varName}
-                </text>
-                <text x={RIGHT_X + 6} y={y + 23} fontSize={8.5} fill={n.uncovered ? '#cbd5e1' : c.text} opacity={0.75}>
-                  {(n.label || '').length > 27 ? (n.label || '').slice(0, 27) + '…' : n.label}
-                </text>
-                <title>{n.varName}: {n.label}{n.domain ? ` [${n.domain}]` : ''}{n.uncovered ? ' — uncovered' : ''}</title>
+                <rect x={RIGHT_X} y={y} width={NODE_W} height={NODE_H} rx={4} fill={n.uncovered ? '#f8fafc' : c.fill} stroke={hoveredId === n.id ? c.text : (n.uncovered ? '#cbd5e1' : c.stroke)} strokeWidth={hoveredId === n.id ? 2 : 1} strokeDasharray={n.uncovered ? '4 3' : undefined} />
+                <text x={RIGHT_X + 6} y={y + 11} fontSize={10} fontWeight={600} fill={n.uncovered ? '#94a3b8' : c.text}>{n.varName.length > 21 ? n.varName.slice(0, 21) + '…' : n.varName}</text>
+                <text x={RIGHT_X + 6} y={y + 23} fontSize={8.5} fill={n.uncovered ? '#cbd5e1' : c.text} opacity={0.75}>{(n.label || '').length > 27 ? (n.label || '').slice(0, 27) + '…' : n.label}</text>
+                <title>{n.varName}: {n.label}{n.domain ? ` [${n.domain}]` : ''}{n.uncovered ? ' — uncovered' : ` | ${tgtEdgeCounts.get(n.id) || 0} mapping(s)`}</title>
               </g>
             );
           })}
@@ -579,13 +628,7 @@ export default function MappingPage() {
   const [sourceDropdownOpen, setSourceDropdownOpen] = useState(false);
   const [selectedMappingTypes, setSelectedMappingTypes] = useState<string[]>([]);
   const [selectedHarmonizationStatuses, setSelectedHarmonizationStatuses] = useState<string[]>([]);
-  const router = useRouter();
-  const [viewMode, setViewMode] = useState<'table' | 'graph'>(
-    () => (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('view') === 'graph') ? 'graph' : 'table'
-  );
-  useEffect(() => {
-    if (router.isReady) setViewMode(router.query.view === 'graph' ? 'graph' : 'table');
-  }, [router.isReady, router.query.view]);
+  const [viewMode, setViewMode] = useState<'table' | 'graph'>('table');
   const [cacheInfo, setCacheInfo] = useState<{
     cached_pairs: Array<{source: string, target: string, timestamp: number}>,
     uncached_pairs: Array<{source: string, target: string}>,
@@ -1337,6 +1380,14 @@ export default function MappingPage() {
               </div>
             </div>
 
+
+            {/* View mode toggle */}
+            <div className="flex items-center gap-2 mb-3 mt-1">
+              <div className="join">
+                <button className={`join-item btn btn-sm ${viewMode === 'table' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setViewMode('table')}>⊞ Table</button>
+                <button className={`join-item btn btn-sm ${viewMode === 'graph' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setViewMode('graph')}>⬡ Graph</button>
+              </div>
+            </div>
 
             {/* Row count and target info */}
             {(() => {
