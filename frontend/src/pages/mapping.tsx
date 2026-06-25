@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
+import { useRouter } from 'next/router';
 
 // Define the shape of our row data
 interface RowData {
@@ -102,6 +103,8 @@ function transformMappingDataForPreview(jsonData: any): RowData[] {
           ? `${targetCodes} (${targetLabels})` 
           : targetLabels || targetCodes || '';
         newRow['target_categories_codes_labels'] = targetCategoriesCodesLabels;
+        newRow['omop_domain'] = mapping.category || '';
+        newRow['sim_score'] = mapping.sim_score != null ? Number(mapping.sim_score) : null;
         
         return newRow;
       });
@@ -304,6 +307,266 @@ function MappingPreviewJsonTable({ data, sourceCohort }: MappingPreviewJsonTable
 import { useCohorts } from '@/components/CohortsContext';
 import {apiUrl} from '@/utils';
 
+// ─── Graph View ────────────────────────────────────────────────────────────────
+
+const DOMAIN_PALETTE: Record<string, { fill: string; stroke: string; text: string }> = {
+  condition_occurrence:  { fill: '#fee2e2', stroke: '#f87171', text: '#991b1b' },
+  measurement:           { fill: '#dbeafe', stroke: '#60a5fa', text: '#1e40af' },
+  observation:           { fill: '#ede9fe', stroke: '#a78bfa', text: '#5b21b6' },
+  drug_exposure:         { fill: '#dcfce7', stroke: '#4ade80', text: '#166534' },
+  observation_period:    { fill: '#ccfbf1', stroke: '#2dd4bf', text: '#134e4a' },
+  procedure_occurrence:  { fill: '#ffedd5', stroke: '#fb923c', text: '#9a3412' },
+  device_exposure:       { fill: '#fef9c3', stroke: '#facc15', text: '#713f12' },
+  demographics:          { fill: '#fce7f3', stroke: '#f472b6', text: '#831843' },
+  visit_occurrence:      { fill: '#e0e7ff', stroke: '#818cf8', text: '#3730a3' },
+  uncovered:             { fill: '#f8fafc', stroke: '#94a3b8', text: '#64748b' },
+};
+const DEFAULT_DOMAIN_COLOR = { fill: '#f5f5f4', stroke: '#a8a29e', text: '#44403c' };
+function domainClr(raw: string) {
+  const d = (raw || '').split('||')[0].trim().toLowerCase().replace(/ /g, '_');
+  return DOMAIN_PALETTE[d] || DEFAULT_DOMAIN_COLOR;
+}
+
+const HARMONIZATION_COLORS: Record<string, string> = {
+  'Identical Match':  '#16a34a',
+  'Compatible Match': '#2563eb',
+  'Partial Match':    '#d97706',
+  'Not Applicable':   '#dc2626',
+};
+function edgeClr(status: string) { return HARMONIZATION_COLORS[status] || '#94a3b8'; }
+function edgeW(sim: number | null) { return sim == null ? 1.5 : 1 + sim * 3; }
+
+const NODE_W = 168; const NODE_H = 30; const GAP = 8; const STEP = NODE_H + GAP;
+const PAD_TOP = 28; const SVG_W = 920;
+const LEFT_X = 0; const RIGHT_X = SVG_W - NODE_W;
+
+interface GNode { id: string; varName: string; label: string; domain: string; uncovered?: boolean; }
+interface GEdge { srcId: string; tgtId: string; relation: string; status: string; sim: number; }
+
+function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]; sourceCohort: string; cohortsData: Record<string, any>; }) {
+  const [activeSrcDomains, setActiveSrcDomains] = React.useState<string[]>([]);
+  const [activeTgtDomains, setActiveTgtDomains] = React.useState<string[]>([]);
+  const [activeRelations, setActiveRelations] = React.useState<string[]>([]);
+  const [showUncovered, setShowUncovered] = React.useState(false);
+  const [hoveredId, setHoveredId] = React.useState<string | null>(null);
+
+  const targetCohorts = React.useMemo(() => [...new Set(data.map(r => r.target_study as string).filter(Boolean))], [data]);
+
+  const { srcNodes, tgtNodes, allEdges, srcDomains, tgtDomains, relations } = React.useMemo(() => {
+    const srcLbl = new Map<string, string>(); const tgtLbl = new Map<string, string>();
+    const srcDom = new Map<string, string[]>(); const tgtDom = new Map<string, string[]>();
+    const edges: GEdge[] = [];
+    for (const row of data) {
+      const sid = row.s_source as string;
+      const tid = `${row.target_study}::${row.target}`;
+      const dom = ((row.omop_domain as string) || '').split('||')[0].trim().toLowerCase().replace(/ /g, '_');
+      if (!srcLbl.has(sid)) srcLbl.set(sid, row.s_label as string || '');
+      if (!tgtLbl.has(tid)) tgtLbl.set(tid, (row.target_label as string) || (row.target as string) || '');
+      if (!srcDom.has(sid)) srcDom.set(sid, []);
+      srcDom.get(sid)!.push(dom);
+      if (!tgtDom.has(tid)) tgtDom.set(tid, []);
+      tgtDom.get(tid)!.push(dom);
+      edges.push({ srcId: sid, tgtId: tid, relation: row.mapping_relation as string || '', status: row.harmonization_status as string || 'pending', sim: (row.sim_score as number) || 0.5 });
+    }
+    function modeDom(arr: string[]) {
+      const c: Record<string, number> = {};
+      for (const d of arr) c[d] = (c[d] || 0) + 1;
+      return Object.entries(c).sort((a, b) => b[1] - a[1])[0]?.[0] || '';
+    }
+    const sn: GNode[] = [...srcLbl.keys()].map(id => ({ id, varName: id, label: srcLbl.get(id)!, domain: modeDom(srcDom.get(id) || []) }));
+    const tn: GNode[] = [...tgtLbl.keys()].map(id => ({ id, varName: id.split('::')[1] || id, label: tgtLbl.get(id)!, domain: modeDom(tgtDom.get(id) || []) }));
+    return { srcNodes: sn, tgtNodes: tn, allEdges: edges, srcDomains: [...new Set(sn.map(n => n.domain))].filter(Boolean).sort(), tgtDomains: [...new Set(tn.map(n => n.domain))].filter(Boolean).sort(), relations: [...new Set(edges.map(e => e.relation))].filter(Boolean).sort() };
+  }, [data]);
+
+  const { uncovSrc, uncovTgt } = React.useMemo(() => {
+    if (!showUncovered) return { uncovSrc: [], uncovTgt: [] };
+    const srcKey = Object.keys(cohortsData).find(k => k.toLowerCase() === sourceCohort.toLowerCase());
+    const srcCohort = srcKey ? cohortsData[srcKey] : null;
+    const mappedSrc = new Set(allEdges.map(e => e.srcId.toLowerCase()));
+    const uncovSrc: GNode[] = srcCohort ? Object.keys(srcCohort.variables || {}).filter(k => !mappedSrc.has(k.toLowerCase())).map(k => ({ id: `__us_${k}`, varName: k, label: srcCohort.variables[k]?.var_label || k, domain: 'uncovered', uncovered: true })) : [];
+    const uncovTgt: GNode[] = [];
+    for (const tgt of targetCohorts) {
+      const tgtKey = Object.keys(cohortsData).find(k => k.toLowerCase() === tgt.toLowerCase());
+      const tgtCohort = tgtKey ? cohortsData[tgtKey] : null;
+      if (!tgtCohort) continue;
+      const mappedTgt = new Set(allEdges.filter(e => e.tgtId.startsWith(`${tgt}::`)).map(e => e.tgtId.split('::')[1].toLowerCase()));
+      Object.keys(tgtCohort.variables || {}).filter(k => !mappedTgt.has(k.toLowerCase())).forEach(k => uncovTgt.push({ id: `__ut_${tgt}_${k}`, varName: k, label: tgtCohort.variables[k]?.var_label || k, domain: 'uncovered', uncovered: true }));
+    }
+    return { uncovSrc, uncovTgt };
+  }, [showUncovered, cohortsData, sourceCohort, targetCohorts, allEdges]);
+
+  const visSrc = React.useMemo(() => {
+    let n = activeSrcDomains.length > 0 ? srcNodes.filter(x => activeSrcDomains.includes(x.domain)) : srcNodes;
+    return showUncovered ? [...n, ...uncovSrc] : n;
+  }, [srcNodes, activeSrcDomains, showUncovered, uncovSrc]);
+
+  const visTgt = React.useMemo(() => {
+    let n = activeTgtDomains.length > 0 ? tgtNodes.filter(x => activeTgtDomains.includes(x.domain)) : tgtNodes;
+    return showUncovered ? [...n, ...uncovTgt] : n;
+  }, [tgtNodes, activeTgtDomains, showUncovered, uncovTgt]);
+
+  const srcY = React.useMemo(() => { const m = new Map<string, number>(); visSrc.forEach((n, i) => m.set(n.id, PAD_TOP + i * STEP)); return m; }, [visSrc]);
+  const tgtY = React.useMemo(() => { const m = new Map<string, number>(); visTgt.forEach((n, i) => m.set(n.id, PAD_TOP + i * STEP)); return m; }, [visTgt]);
+
+  const visEdges = React.useMemo(() => {
+    const ss = new Set(visSrc.map(n => n.id)); const ts = new Set(visTgt.map(n => n.id));
+    return allEdges.filter(e => ss.has(e.srcId) && ts.has(e.tgtId) && (activeRelations.length === 0 || activeRelations.includes(e.relation)));
+  }, [allEdges, visSrc, visTgt, activeRelations]);
+
+  const connectedIds = React.useMemo(() => {
+    if (!hoveredId) return new Set<string>();
+    const s = new Set<string>();
+    for (const e of visEdges) { if (e.srcId === hoveredId) s.add(e.tgtId); if (e.tgtId === hoveredId) s.add(e.srcId); }
+    return s;
+  }, [hoveredId, visEdges]);
+
+  const hoveredEdgeKeys = React.useMemo(() => {
+    if (!hoveredId) return new Set<string>();
+    return new Set(visEdges.filter(e => e.srcId === hoveredId || e.tgtId === hoveredId).map(e => `${e.srcId}::${e.tgtId}`));
+  }, [hoveredId, visEdges]);
+
+  const svgH = Math.max(visSrc.length, visTgt.length) * STEP + PAD_TOP + 20;
+  const toggle = (arr: string[], v: string, set: (a: string[]) => void) => set(arr.includes(v) ? arr.filter(x => x !== v) : [...arr, v]);
+
+  function DomainBtn({ d, active, onClick }: { d: string; active: boolean; onClick: () => void }) {
+    const c = domainClr(d);
+    return (
+      <button onClick={onClick} className="btn btn-xs border" style={{ backgroundColor: active ? c.fill : '#f8fafc', borderColor: active ? c.stroke : '#cbd5e1', color: active ? c.text : '#94a3b8', fontWeight: active ? 600 : 400 }}>
+        {d.replace(/_/g, ' ')}
+      </button>
+    );
+  }
+
+  return (
+    <div className="w-full">
+      {/* Filter bar */}
+      <div className="flex flex-wrap gap-6 mb-3 items-start">
+        <div className="flex-1 min-w-52">
+          <div className="text-xs font-semibold mb-1 opacity-50 uppercase tracking-wide">Source domains</div>
+          <div className="flex flex-wrap gap-1">
+            {srcDomains.map(d => <DomainBtn key={d} d={d} active={activeSrcDomains.length === 0 || activeSrcDomains.includes(d)} onClick={() => toggle(activeSrcDomains, d, setActiveSrcDomains)} />)}
+            {activeSrcDomains.length > 0 && <button className="btn btn-xs btn-ghost text-xs" onClick={() => setActiveSrcDomains([])}>clear</button>}
+          </div>
+        </div>
+        <div className="flex-1 min-w-52">
+          <div className="text-xs font-semibold mb-1 opacity-50 uppercase tracking-wide">Target domains</div>
+          <div className="flex flex-wrap gap-1">
+            {tgtDomains.map(d => <DomainBtn key={d} d={d} active={activeTgtDomains.length === 0 || activeTgtDomains.includes(d)} onClick={() => toggle(activeTgtDomains, d, setActiveTgtDomains)} />)}
+            {activeTgtDomains.length > 0 && <button className="btn btn-xs btn-ghost text-xs" onClick={() => setActiveTgtDomains([])}>clear</button>}
+          </div>
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-4 mb-3 items-center">
+        <div className="flex-1 min-w-52">
+          <div className="text-xs font-semibold mb-1 opacity-50 uppercase tracking-wide">Edge type (mapping relation)</div>
+          <div className="flex flex-wrap gap-1">
+            {relations.map(r => (
+              <button key={r} className={`btn btn-xs ${activeRelations.length === 0 || activeRelations.includes(r) ? 'btn-primary' : 'btn-outline opacity-40'}`} onClick={() => toggle(activeRelations, r, setActiveRelations)}>{r}</button>
+            ))}
+            {activeRelations.length > 0 && <button className="btn btn-xs btn-ghost" onClick={() => setActiveRelations([])}>clear</button>}
+          </div>
+        </div>
+        <button className={`btn btn-sm ${showUncovered ? 'btn-neutral' : 'btn-outline'}`} onClick={() => setShowUncovered(v => !v)}>
+          {showUncovered ? 'Hide uncovered vars' : 'Show uncovered vars'}
+        </button>
+      </div>
+
+      {/* Legend */}
+      <div className="flex flex-wrap gap-x-4 gap-y-1 mb-2 text-xs items-center opacity-70">
+        <span className="font-semibold">Edge colour:</span>
+        {Object.entries(HARMONIZATION_COLORS).map(([s, c]) => (
+          <span key={s} className="flex items-center gap-1"><span style={{ display: 'inline-block', width: 18, height: 3, background: c, borderRadius: 2 }} />{s}</span>
+        ))}
+        <span className="flex items-center gap-1"><span style={{ display: 'inline-block', width: 18, height: 3, background: '#94a3b8', borderRadius: 2 }} />pending</span>
+        <span className="ml-4 font-semibold">Edge width:</span><span>sim score</span>
+        {showUncovered && <span className="flex items-center gap-1"><span style={{ display: 'inline-block', width: 18, height: 10, border: '1.5px dashed #94a3b8', borderRadius: 2 }} />uncovered</span>}
+      </div>
+      <div className="text-xs opacity-50 mb-2">
+        {visSrc.filter(n => !n.uncovered).length} src · {visTgt.filter(n => !n.uncovered).length} tgt · {visEdges.length} edges
+        {showUncovered && ` · ${uncovSrc.length} uncov src · ${uncovTgt.length} uncov tgt`}
+        {hoveredId && ' · hover: showing connected edges'}
+      </div>
+
+      {/* SVG graph */}
+      <div className="border rounded-lg bg-base-100 overflow-x-auto" style={{ maxHeight: '72vh', overflowY: 'auto' }}>
+        <svg width={SVG_W} height={svgH} style={{ display: 'block', minWidth: SVG_W }}>
+          {/* Column headers */}
+          <text x={LEFT_X + NODE_W / 2} y={16} textAnchor="middle" fontSize={11} fontWeight={700} fill="#64748b">{sourceCohort || 'Source'}</text>
+          <text x={RIGHT_X + NODE_W / 2} y={16} textAnchor="middle" fontSize={11} fontWeight={700} fill="#64748b">Target cohorts</text>
+
+          {/* Edges */}
+          {visEdges.map((e, i) => {
+            const sy = srcY.get(e.srcId); const ty = tgtY.get(e.tgtId);
+            if (sy == null || ty == null) return null;
+            const x1 = LEFT_X + NODE_W; const y1 = sy + NODE_H / 2;
+            const x2 = RIGHT_X;         const y2 = ty + NODE_H / 2;
+            const mx = (x1 + x2) / 2;
+            const highlighted = hoveredId ? hoveredEdgeKeys.has(`${e.srcId}::${e.tgtId}`) : true;
+            return (
+              <path key={i} d={`M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`}
+                fill="none" stroke={edgeClr(e.status)} strokeWidth={edgeW(e.sim)}
+                opacity={highlighted ? (hoveredId ? 0.88 : 0.3) : 0.04}
+              >
+                <title>{e.srcId} → {e.tgtId.split('::')[1]} | {e.relation} | {e.status} | sim={e.sim?.toFixed(2)}</title>
+              </path>
+            );
+          })}
+
+          {/* Source nodes */}
+          {visSrc.map(n => {
+            const y = srcY.get(n.id)!;
+            const c = domainClr(n.domain);
+            const hl = hoveredId === n.id || connectedIds.has(n.id);
+            const faded = hoveredId != null && !hl;
+            return (
+              <g key={n.id} style={{ cursor: 'default' }} onMouseEnter={() => setHoveredId(n.id)} onMouseLeave={() => setHoveredId(null)} opacity={faded ? 0.3 : 1}>
+                <rect x={LEFT_X} y={y} width={NODE_W} height={NODE_H} rx={4}
+                  fill={n.uncovered ? '#f8fafc' : c.fill}
+                  stroke={hoveredId === n.id ? c.text : (n.uncovered ? '#cbd5e1' : c.stroke)}
+                  strokeWidth={hoveredId === n.id ? 2 : 1}
+                  strokeDasharray={n.uncovered ? '4 3' : undefined}
+                />
+                <text x={LEFT_X + 6} y={y + 11} fontSize={10} fontWeight={600} fill={n.uncovered ? '#94a3b8' : c.text}>
+                  {n.varName.length > 21 ? n.varName.slice(0, 21) + '…' : n.varName}
+                </text>
+                <text x={LEFT_X + 6} y={y + 23} fontSize={8.5} fill={n.uncovered ? '#cbd5e1' : c.text} opacity={0.75}>
+                  {(n.label || '').length > 27 ? (n.label || '').slice(0, 27) + '…' : n.label}
+                </text>
+                <title>{n.varName}: {n.label}{n.domain ? ` [${n.domain}]` : ''}{n.uncovered ? ' — uncovered' : ''}</title>
+              </g>
+            );
+          })}
+
+          {/* Target nodes */}
+          {visTgt.map(n => {
+            const y = tgtY.get(n.id)!;
+            const c = domainClr(n.domain);
+            const hl = hoveredId === n.id || connectedIds.has(n.id);
+            const faded = hoveredId != null && !hl;
+            return (
+              <g key={n.id} style={{ cursor: 'default' }} onMouseEnter={() => setHoveredId(n.id)} onMouseLeave={() => setHoveredId(null)} opacity={faded ? 0.3 : 1}>
+                <rect x={RIGHT_X} y={y} width={NODE_W} height={NODE_H} rx={4}
+                  fill={n.uncovered ? '#f8fafc' : c.fill}
+                  stroke={hoveredId === n.id ? c.text : (n.uncovered ? '#cbd5e1' : c.stroke)}
+                  strokeWidth={hoveredId === n.id ? 2 : 1}
+                  strokeDasharray={n.uncovered ? '4 3' : undefined}
+                />
+                <text x={RIGHT_X + 6} y={y + 11} fontSize={10} fontWeight={600} fill={n.uncovered ? '#94a3b8' : c.text}>
+                  {n.varName.length > 21 ? n.varName.slice(0, 21) + '…' : n.varName}
+                </text>
+                <text x={RIGHT_X + 6} y={y + 23} fontSize={8.5} fill={n.uncovered ? '#cbd5e1' : c.text} opacity={0.75}>
+                  {(n.label || '').length > 27 ? (n.label || '').slice(0, 27) + '…' : n.label}
+                </text>
+                <title>{n.varName}: {n.label}{n.domain ? ` [${n.domain}]` : ''}{n.uncovered ? ' — uncovered' : ''}</title>
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+    </div>
+  );
+}
+
 export default function MappingPage() {
   const { cohortsData, userEmail } = useCohorts();
   const [sourceCohort, setSourceCohort] = useState('');
@@ -316,6 +579,13 @@ export default function MappingPage() {
   const [sourceDropdownOpen, setSourceDropdownOpen] = useState(false);
   const [selectedMappingTypes, setSelectedMappingTypes] = useState<string[]>([]);
   const [selectedHarmonizationStatuses, setSelectedHarmonizationStatuses] = useState<string[]>([]);
+  const router = useRouter();
+  const [viewMode, setViewMode] = useState<'table' | 'graph'>(
+    () => (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('view') === 'graph') ? 'graph' : 'table'
+  );
+  useEffect(() => {
+    if (router.isReady) setViewMode(router.query.view === 'graph' ? 'graph' : 'table');
+  }, [router.isReady, router.query.view]);
   const [cacheInfo, setCacheInfo] = useState<{
     cached_pairs: Array<{source: string, target: string, timestamp: number}>,
     uncached_pairs: Array<{source: string, target: string}>,
@@ -1067,6 +1337,7 @@ export default function MappingPage() {
               </div>
             </div>
 
+
             {/* Row count and target info */}
             {(() => {
               // Filter the data based on selected filters
@@ -1104,7 +1375,13 @@ export default function MappingPage() {
               );
             })()}
 
-            {/* Top horizontal scrollbar with arrow buttons */}
+            {/* Graph view */}
+            {viewMode === 'graph' && (
+              <MappingGraphView data={mappingOutput} sourceCohort={sourceCohort} cohortsData={cohortsData} />
+            )}
+
+            {/* Top horizontal scrollbar with arrow buttons — table view only */}
+            {viewMode === 'table' && <>
             <div className="flex items-center gap-1 mb-2">
               <button
                 className="btn btn-xs btn-square"
@@ -1188,6 +1465,8 @@ export default function MappingPage() {
                 return <MappingPreviewJsonTable data={filteredData} sourceCohort={sourceCohort} />;
               })()}
             </div>
+            </>
+            }
           </div>
         )}
       </div>

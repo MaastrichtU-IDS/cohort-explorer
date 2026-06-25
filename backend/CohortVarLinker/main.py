@@ -525,7 +525,8 @@ def combine_all_mappings_to_json(source_study, target_studies, output_dir, json_
             src_var = str(row["source"]).strip()
             if not src_var:
                 continue
-            entry = {"target_study": target, **row.drop(labels=["source"]).to_dict()}
+            row_dict = {k: (None if pd.isna(v) else v) for k, v in row.drop(labels=["source"]).to_dict().items()}
+            entry = {"target_study": target, **row_dict}
             mappings.setdefault(src_var, []).append(entry)
     final_json = {k: {"from": source_study, "mappings": v} for k, v in mappings.items()}
     with open(json_path, "w", encoding="utf-8") as f:
