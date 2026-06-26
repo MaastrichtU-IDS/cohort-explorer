@@ -20,7 +20,8 @@ from .utils import (
     extract_tick_values,
     parse_joined_string,
     create_code_uri,
-    split_categories
+    split_categories,
+    has_real_value
 )
 from typing import Optional, Any
 
@@ -127,9 +128,9 @@ def process_variables_metadata_file(file_path:str, study_metadata_graph_file_pat
                 omop_id=safe_int(row['variable omop id']) if pd.notna(row['variable omop id']) else None,
             )]
          
-            if (pd.notna(row['additional context concept name']) and 
-            pd.notna(row['additional context concept code']) and 
-            pd.notna(row['additional context omop id'])):
+            if (has_real_value(row['additional context concept name']) and 
+            has_real_value(row['additional context concept code']) and 
+            has_real_value(row['additional context omop id'])):
                 try:
                     count1 = len(parse_joined_string(row['additional context concept name']))
                     count2 = len(str(row['additional context concept code']).split("|"))
@@ -696,12 +697,37 @@ def add_histogram_visualization(g: Graph, var_uri: URIRef, cohort_uri: URIRef, c
     print(f"xy_axis: {xy_axis} for var_uri: {var_uri}")
     x_ticks =  extract_tick_values(xy_axis[0])
     y_ticks = extract_tick_values(xy_axis[1])
+    # print(f"x_ticks: {x_ticks}")    
+    # print(f"y_ticks: {y_ticks}")
+    # x_ticks = list(map(float, xy_axis[0].split(" - ")))
+    # y_ticks = list(map(float, xy_axis[1].split(" - ")))
+    
+    #replace("text("," ").replace(")"," ").split(",")))
 
+    # Step 2: Calculate x-axis metadata
     bin_edges = x_ticks
     num_bins = len(bin_edges) - 1
     bin_widths = [bin_edges[i+1] - bin_edges[i] for i in range(num_bins)]
 
-#  adata to the graph
+    # Step 3: Get axis ranges
+    # x_min = min(x_ticks)
+    # x_max = max(x_ticks)
+    # y_min = min(y_ticks)
+    # y_max = max(y_ticks)
+
+    # Step 4: Summary
+    # histogram_info = {
+    #     "x_ticks": x_ticks,
+    #     "y_ticks": y_ticks,
+    #     "number_of_bins": num_bins,
+    #     "bin_edges": bin_edges,
+    #     "bin_widths": bin_widths,
+    #     "x_range": (x_min, x_max),
+    #     "y_range": (y_min, y_max),
+    #     "uniform_bin_width": all(w == bin_widths[0] for w in bin_widths)
+    # }
+  
+    # Step 5: Add metadata to the graph
     data_visualization_process_uri = URIRef(f"{var_uri}/data_visualization_process")
     g.add((data_visualization_process_uri, RDF.type, OntologyNamespaces.CMEO.value.data_visualization_process, cohort_uri))
     g.add((var_uri, OntologyNamespaces.OBI.value.is_specified_input_of, data_visualization_process_uri, cohort_uri))
@@ -1035,3 +1061,99 @@ def add_all_derived_variables(
         print(f"[{dv['name']}] Added derivation process for: {out_var_uri} using {[i['uri'] for i in input_vars]}")
 
     return g
+
+# def add_raw_data_graph(cohort_data_file_path, cohort_name) -> Graph:
+#     try:
+
+#         # Read header to prepare normalized column names (skip patient identifier column)
+#         header_data = pd.read_csv(cohort_data_file_path, nrows=0, low_memory=False)
+#         header_data = header_data.apply(lambda col: col.map(lambda x: x.lower() if isinstance(x, str) else x))
+
+#         n_cohort_name = normalize_text(cohort_name)
+#         cohort_uri= f"{settings.sparql_endpoint}/rdf-graphs/{n_cohort_name}"
+#         print(f"cohort_uri: {cohort_uri}")
+#         normalized_columns = {col: normalize_text(col) for col in header_data.columns[1:]}
+#         var_uris = {col: get_var_uri(n_cohort_name, normalized_columns[col]) for col in normalized_columns}
+#         # print(f"\n top ten normalized columns: {list(normalized_columns.items())[:10]}")
+#         # print(f"\n top ten var_uris: {list(var_uris.items())[:10]}")
+#         var_exists = {col: variable_exists(cohort_uri, normalized_columns[col]) for col in normalized_columns}
+       
+#         # Initialize the RDF graph
+#         cohort_graph = URIRef(OntologyNamespaces.CMEO.value + f"graph/{cohort_name}_pldata")
+#         g = init_graph(default_graph_identifier=cohort_graph)
+#         rows = 0
+#         chunk_size = 100
+
+#         # Process CSV file in chunks
+#         for chunk in pd.read_csv(cohort_data_file_path, chunksize=chunk_size, low_memory=False):
+#             for i, row in chunk.iterrows():
+#                 # Extract and normalize the patient identifier (first column)
+#                 patient_id = normalize_text(row.iloc[0])
+#                 if not patient_id:
+#                     print(f"Skipping row {i}: Missing patient ID.")
+#                     continue
+
+#                 # Create unique URIs for the patient and participant identifier
+#                 # identifier_uri =  URIRef(OntologyNamespaces.OBI.value + f"participant_identifier/{patient_id}")
+#                 participant_under_investigation_role_uri = URIRef(OntologyNamespaces.OBI.value + f"participant_under_investigation_role/{patient_id}")
+#                 person_uri = URIRef(OntologyNamespaces.CMEO.value + f"person/{patient_id}")
+#                 # g.add((identifier_uri, RDF.type, OntologyNamespaces.CMEO.value.participant_identifier,cohort_graph))
+#                 # g.add((identifier_uri, OntologyNamespaces.CMEO.value.has_value, Literal(patient_id, datatype=XSD.string),cohort_graph))
+#                 # particpant identifier denotes person who has role of participant under investigation role which concreatizes data item and data item is instantiated in data element
+                
+#                 g.add((person_uri, RDF.type, OntologyNamespaces.CMEO.value.person,cohort_graph))
+#                 # g.add((person_uri, OntologyNamespaces.CMEO.value.has_identifier, identifier_uri,cohort_graph))
+               
+#                 g.add((participant_under_investigation_role_uri, RDF.type, OntologyNamespaces.CMEO.value.participant_under_investigation_role,cohort_graph))
+#                 g.add((person_uri, OntologyNamespaces.CMEO.value.has_role, participant_under_investigation_role_uri,cohort_graph))
+#                 g.add((participant_under_investigation_role_uri, OntologyNamespaces.CMEO.value.role_of, person_uri,cohort_graph))
+#                 g.add((participant_under_investigation_role_uri, DC.identifier, Literal(row.iloc[0], datatype=XSD.string),cohort_graph))
+
+#                 # Process each variable column (skip the first column)
+#                 for col_name in chunk.columns[1:]:
+#                     # print(row[col_name])
+#                     var_name = normalized_columns.get(col_name)
+#                     # print(var_exists.get(col_name, False))
+#                     var_value = row[col_name]
+#                     # print(f"var_name: {var_name} var_value: {var_value}")
+#                     if not var_name or var_exists.get(var_name, False) == False:
+#                         # print(f"Skipping row {i}: Missing variable name or value.")
+#                         continue
+#                     print(f"Processing data point for {var_name} with value {var_value}")
+#                     # Create a unique URI for this data point
+#                     data_point_uri = URIRef(OntologyNamespaces.CMEO.value + f"data_point/{patient_id}/{var_name}")
+#                     dataset_uri = URIRef(f"{var_uris[col_name]}/dataset")
+#                     # Add triples for this data point
+#                     g.add((data_point_uri, RDF.type, OntologyNamespaces.OBI.value.measurement_datum,cohort_graph))
+#                     g.add((data_point_uri, OntologyNamespaces.RO.value.is_part_of, dataset_uri,cohort_graph))
+#                     g.add((data_point_uri, OntologyNamespaces.IAO.value.is_about, person_uri,cohort_graph))
+#                     g.add((data_point_uri, OntologyNamespaces.CMEO.value.has_value, Literal(var_value, datatype=XSD.string),cohort_graph))
+#                     rows += 1
+
+#         print(f"Processed {rows} data points.")
+#         return g    
+#     except Exception as e:
+#         print(f"Error processing raw data file: {e}")
+#         return None
+       
+#         base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+#         print(f"Base path: {base_path}")
+#         Serialize the graph to a temporary file and post it to the SPARQL endpoint
+#         temp_file = f"{output_dir}/{cohort_name}_raw_data_graph.ttl"
+#         serialized_graph = g.serialize(format="trig")
+#         with open(temp_file, "w", encoding="utf-8") as f:
+#             f.write(serialized_graph)
+
+#         print(f"Serialized raw data graph to {temp_file}")
+
+#         headers = {"Content-Type": "application/trig"}
+#         response = requests.post(f"{settings.sparql_endpoint}/store?graph={cohort_uri}_pldata",
+#                                     headers=headers, data=serialized_graph, timeout=300)
+
+#         if response.status_code in (201, 204):
+#             print("Raw data successfully added to the graph.")
+#         else:
+#             print(f"Failed to publish raw data graph: {response.status_code}, {response.text}")
+
+#     except Exception as e:
+#         print(f"Error processing raw data file: {e}")

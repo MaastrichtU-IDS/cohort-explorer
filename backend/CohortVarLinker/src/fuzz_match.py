@@ -22,25 +22,10 @@ class FuzzyMatcher:
                 return True
             elif hint in t_low:
                 return True
+        
         return s_low == t_low
 
-    # @staticmethod
-    # def check_visit_string(visit_str_1: str, visit_str_2: str) -> bool:
-    #     """Match if periods agree, or if one side is a date-hint placeholder
-    #     and the other is baseline (registry-enrollment convention)."""
-    #     s_low = extract_visit_period(visit_str_1.lower())
-    #     t_low = extract_visit_period(visit_str_2.lower())
-    #     if s_low == t_low:
-    #         return True
-    #     s_hint = any(h in s_low for h in settings.DATE_HINTS)
-    #     t_hint = any(h in t_low for h in settings.DATE_HINTS)
-    #     if s_hint and t_hint:
-    #         return s_low == t_low                    # both placeholders: literal equality
-    #     if s_hint:
-    #         return t_low == "baseline time"          # placeholder ↔ baseline only
-    #     if t_hint:
-    #         return s_low == "baseline time"
-    #     return False                                  # both explicit and unequal
+   
 
     @staticmethod
     def tokenize(text):

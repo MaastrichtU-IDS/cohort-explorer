@@ -9,7 +9,7 @@ import logging
 from .query_builder import SPARQLQueryBuilder
 from .utils import execute_query
 
-# logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
 def fetch_study_context(study_id: str) -> Optional[Dict[str, str]]:
@@ -18,11 +18,11 @@ def fetch_study_context(study_id: str) -> Optional[Dict[str, str]]:
     try:
         bindings = execute_query(query).get("results", {}).get("bindings", [])
     except Exception as e:
-        # logger.error(f"Study context query failed for '{study_id}': {e}")
+        logger.error(f"Study context query failed for '{study_id}': {e}")
         return None
 
     if not bindings:
-        # logger.warning(f"No study metadata found for '{study_id}'")
+        logger.warning(f"No study metadata found for '{study_id}'")
         return None
 
     return {k: v["value"] for k, v in bindings[0].items() if v.get("value")}

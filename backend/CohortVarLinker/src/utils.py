@@ -14,7 +14,6 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime
 import logging
 
-
 _VISIT_MONTH_RE = re.compile(r'(\d+)\s*months?', re.IGNORECASE)
 _VISIT_BASELINE_RE = re.compile(r'baseline|month\s*0|randomization', re.IGNORECASE)
 _PRE_BASELINE_MONTH_RE = re.compile(
@@ -44,8 +43,8 @@ _TEMPORAL_CONTEXT_RE = re.compile(
         r'|\d+\s*(?:months?|years?|weeks?|days?)\s+follow[-\s]*up'
       r')'
 
-      # Pattern B: trailing bare 'Month12' (no 'at' prefix)
-      r'|\s+Month\s*\d+\s*$'
+    #   # Pattern B: trailing bare 'Month12' (no 'at' prefix)
+    #   r'|\s+Month\s*\d+\s*$'
 
       # Pattern C: '[N months] prior to randomization' (no 'at' prefix)
       r'|\s+(?:\d+\s*months?\s+)?prior\s+to\s+randomization'
@@ -288,6 +287,46 @@ def normalize_text(text: str) -> str:
     return urllib.parse.quote(text, safe='_-')
 
 
+# def publish_graph_in_chunks(g: Graph, graph_uri: str | None = None, chunk_size: int = 50000) -> bool:
+#     """
+#     Insert the graph into the triplestore endpoint in chunks.
+    
+#     :param g: RDF Graph (rdflib.Graph)
+#     :param graph_uri: The named graph URI (optional)
+#     :param chunk_size: Number of triples per chunk
+#     :return: True if all chunks are uploaded successfully, False otherwise
+#     """
+#     url = f"{settings.sparql_endpoint}/store"
+#     if graph_uri:
+#         url += f"?graph={graph_uri}"
+#         print(f"URL: {url}")
+
+#     headers = {"Content-Type": "application/trig"}
+#     total_triples = len(g)
+#     print(f"Total triples: {total_triples}")
+
+#     success = True
+#     chunk_graph = Graph()
+    
+#     for i, triple in enumerate(g):
+#         chunk_graph.add(triple)
+
+#         # Upload when chunk reaches chunk_size or at the last iteration
+#         if len(chunk_graph) >= chunk_size or i == total_triples - 1:
+#             with tempfile.NamedTemporaryFile(delete=False, suffix=".trig") as tmp_file:
+#                 chunk_graph.serialize(tmp_file.name, format="trig")
+#                 with open(tmp_file.name, "rb") as file:
+#                     response = requests.post(url, headers=headers, data=file, timeout=300)
+#                     print(f"Chunk {i//chunk_size + 1}: Response {response.status_code}")
+#                     if not response.ok:
+#                         print(f"Failed to upload chunk: {response.status_code}, {response.text}")
+#                         success = False
+            
+#             # Clear the chunk_graph for the next batch
+#             chunk_graph = Graph()
+
+#     return success
+
 def init_graph(default_graph_identifier: str | None = "https://w3id.org/CMEO/graph/studies_metadata") -> Dataset:
     """Initialize a new RDF graph for nquads with the voc namespace bindings."""
     g = Dataset(store="Oxigraph")
@@ -478,7 +517,7 @@ def extract_visit_period(visit: str) -> str:
         return f"follow-up {m2.group(1)} months"
 
     return v
-    
+
 def extract_tick_values(texts: str) -> List[float]:
     """Extract numeric tick labels from a matplotlib Text() list‑string.
 

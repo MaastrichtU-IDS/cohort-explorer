@@ -30,10 +30,16 @@ _CTX_TYPE_TO_VERDICT = {
     ContextMatchType.NOT_APPLICABLE.value:  "IMPOSSIBLE",
 }
 
+
+
 def _llm_tuple_to_evidence(parsed_tuple) -> LLMEvidence:
     """Adapter: llm_call.py returns (matched_or_none, ctx_type, conf, reason_json).
-    Convert to the policy-facing LLMEvidence record."""
+
+    Here `conf` is already logprob-based confidence if llm_call.py applied
+    _apply_logprob_confidence().
+    """
     matched, ctx_type, conf, reason_json = parsed_tuple
+
     if matched is False or ctx_type == ContextMatchType.NOT_APPLICABLE.value:
         verdict = "IMPOSSIBLE"
     else:
@@ -41,6 +47,8 @@ def _llm_tuple_to_evidence(parsed_tuple) -> LLMEvidence:
 
     reason = transform = transform_dir = ""
     harmonized = ""
+    d = {}
+
     try:
         d = json.loads(reason_json) if isinstance(reason_json, str) else {}
         reason = d.get("reason", "") or ""
@@ -50,21 +58,29 @@ def _llm_tuple_to_evidence(parsed_tuple) -> LLMEvidence:
     except (json.JSONDecodeError, TypeError):
         pass
 
+    logprob_conf = float(d.get("logprob_confidence") or conf or 0.0)
+
     return LLMEvidence(
         verdict=verdict,
-        confidence=float(conf) if conf is not None else 0.0,
+        confidence=logprob_conf,
         reason=reason,
         transform=transform,
         transform_direction=transform_dir,
         harmonized_variable=harmonized,
-    )
 
+        # NEW: preserve logprob evidence
+        logprob_dist=d.get("logprob_dist") or {},
+        logprob_confidence=logprob_conf,
+        logprob_runner_up=d.get("logprob_runner_up") or "",
+        logprob_margin=float(d.get("logprob_margin") or 0.0),
+    )
+    
 class StudyMapper:
 
     def __init__(self, vector_db: Any, embedding_model: Any, omop_graph: Any = None,
                  vector_collection: str = "studies",
                  mapping_mode: str = MappingType.OEH.value, llm_model:str = None,
-                 enable_source_claim_early_exit: bool = True,
+                 enable_source_claim_early_exit: bool = False,
                  phase_a_workers: int | None = None):
         self.collection_name = vector_collection
         self.llm_model = llm_model
@@ -196,12 +212,12 @@ class StudyMapper:
         """
         var_names = [v.name for v in collection.variables]
         dup_counts = {name: count for name, count in Counter(var_names).items() if count > 1}
-        if dup_counts:
-            logger.debug( 
-                "Variables with multiple OMOP alignments in %s (expected for composite-coded vars): %s",
-                collection.study,
-                            dup_counts,
-            )
+        # if dup_counts:
+        #     logger.debug( 
+        #         "Variables with multiple OMOP alignments in %s (expected for composite-coded vars): %s",
+        #         collection.study,
+        #                     dup_counts,
+        #     )
         if not var_names:
             return
 
@@ -335,7 +351,18 @@ class StudyMapper:
         matcher = self.matcher
         structurals: Dict[int, Tuple[VariableNode, VariableNode, Any]] = {}
 
-     
+        # def _one(item: Tuple[int, Dict[str, Any]]) -> Tuple[int, Tuple[VariableNode, VariableNode, Any]]:
+        #     idx, row = item
+        #     s = VariableNode.for_match_pair(
+        #         src_col, row, side="source", study=src_study,
+        #     )
+        #     t = VariableNode.for_match_pair(
+        #         tgt_col, row, side="target", study=tgt_study,
+        #     )
+        #     ev = compute_structural(
+        #         s, t, mapping_mode=mapping_mode, matcher=matcher,
+        #     )
+        #     return idx, (s, t, ev)
         def _one(item):
             idx, row = item
             try:
@@ -344,7 +371,7 @@ class StudyMapper:
                 ev = compute_structural(s, t, mapping_mode=mapping_mode, matcher=matcher)
                 return idx, (s, t, ev)
             except Exception as e:
-                logger.error(f"Phase A worker failed on row {idx}: {e}")
+                # logger.error(f"Phase A worker failed on row {idx}: {e}")
                 raise  # or return a fallback
         if workers <= 1:
             for idx, row in enumerate(recs):
@@ -381,7 +408,7 @@ class StudyMapper:
             from .study_context import format_study_context_block
             study_context = format_study_context_block(src_study, tgt_study)
             if study_context:
-                logger.info(f"📋 Study context fetched ({len(study_context)} chars):\n{study_context}")
+                # logger.info(f"📋 Study context fetched ({len(study_context)} chars):\n{study_context}")
                 # Store on the LLM matcher so assess() can prepend it to prompts.
                 self.matcher.llm_matcher.set_study_context(study_context)
         # ── Step 1a: Parse SPARQL → typed VariableCollections ─────
@@ -442,10 +469,10 @@ class StudyMapper:
             recs = df.to_dict("records")
 
             # Phase A: structural evidence (collection lookup + parallel workers)
-            # logger.info(
-            #     f"🧱 Phase A: structural evidence for {len(recs)} candidates "
-            #     f"(workers={min(self.phase_a_workers, len(recs))})..."
-            # )
+            logger.info(
+                f"🧱 Phase A: structural evidence for {len(recs)} candidates "
+                f"(workers={min(self.phase_a_workers, len(recs))})..."
+            )
             structurals = self._run_phase_a_structural(
                 recs, src_col, tgt_col, src_study, tgt_study, mapping_mode,
             )
@@ -455,7 +482,7 @@ class StudyMapper:
             if self.llm_model:
                 ambiguous = [idx for idx, (_, _, ev) in structurals.items()
                               if should_consult_llm(ev)]
-                # n_skipped_structural = len(recs) - len(ambiguous)
+                n_skipped_structural = len(recs) - len(ambiguous)
 
                 if self.enable_source_claim_early_exit and ambiguous:
                     llm_evidence, n_skipped_claim = self._resolve_llm_with_source_claim(

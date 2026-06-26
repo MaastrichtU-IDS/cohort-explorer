@@ -52,7 +52,7 @@ def _demote_hierarchical(s: StructuralEvidence) -> tuple[MatchLevel, Transformat
                           if s.transformation == TransformationType.NONE
                           else s.transformation)
         # phrase = MappingRelation.humanize(relation)
-        reason = f"{s.reason} | Concepts are related but one is more generic, the other more specific; manual review recommended"
+        reason = f"{s.reason}. Concepts are related but one is more generic, the other more specific; manual review recommended"
         return MatchLevel.PARTIAL, transformation, reason
     return s.level, s.transformation, s.reason
 
@@ -124,7 +124,7 @@ def _symbolic_neural_with_llm_decide(s: StructuralEvidence,
                llm_use:bool) -> Verdict:
     if llm is None:
         level, transformation, reason = _demote_hierarchical(s)
-        level = MatchLevel.NOT_APPLICABLE if llm_use and s.level == MatchLevel.PARTIAL else level
+        level = MatchLevel.NOT_APPLICABLE if (llm_use and s.level == MatchLevel.PARTIAL and transformation != TransformationType.DERIVATION)  else level
         return _build_verdict(level, transformation, reason, tp, s.extra)
     
     if llm.verdict == "IMPOSSIBLE":

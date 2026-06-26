@@ -32,7 +32,7 @@ class Settings:
     DATA_DOMAINS: List[str] = field(default_factory=lambda: ["drug_exposure","condition_occurrence","condition_era","observation","observation_era","measurement","visit_occurrence","procedure_occurrence","device_exposure","person"])
 
     # Derived Variable Rules (Example)
-        DERIVED_VARIABLES_LIST: List[Dict[str, Any]] = field(default_factory=lambda: [
+    DERIVED_VARIABLES_LIST: List[Dict[str, Any]] = field(default_factory=lambda: [
     {
         "name": "BMI",
         "omop_id": 3038553,
@@ -161,10 +161,10 @@ class Settings:
     "required_omops": [43055367,4298431],    # Eosinophils/Leukocytes number fraction, Leukocytes [#/volume]  — verify
     "category": "measurement",
     "data_type": "continuous_variable",
-    "formula": "Eos[#/vol] = Eos_fraction × Leukocytes[#/vol] ; Eos_fraction = pct/100 when reported in %"}
+    "formula": "Eos[#/vol] = Eos_fraction × Leukocytes[#/vol] ; Eos_fraction = pct/100 when reported in %"
+}
 
     ])
-
     admins: str = field(default_factory=lambda: os.getenv("ADMINS", ""))
 
     data_folder: str = field(default_factory=lambda: os.getenv("DATA_FOLDER", "./data"))
