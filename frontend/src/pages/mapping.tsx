@@ -335,11 +335,11 @@ const HARMONIZATION_COLORS: Record<string, string> = {
 function edgeClr(status: string) { return HARMONIZATION_COLORS[status] || '#94a3b8'; }
 function edgeW(sim: number | null) { return sim == null ? 1.5 : 1 + sim * 3; }
 
-const NODE_W = 168; const NODE_H = 30; const GAP = 8; const STEP = NODE_H + GAP;
+const NODE_W = 168; const NODE_H = 40; const EXPAND_LINE_H = 11; const GAP = 5;
 const PAD_TOP = 28; const SVG_W = 920;
 const LEFT_X = 0; const RIGHT_X = SVG_W - NODE_W;
 
-interface GNode { id: string; varName: string; label: string; domain: string; uncovered?: boolean; }
+interface GNode { id: string; varName: string; label: string; domain: string; uncovered?: boolean; categories?: string; }
 interface GEdge { srcId: string; tgtId: string; relation: string; status: string; sim: number; }
 
 function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]; sourceCohort: string; cohortsData: Record<string, any>; }) {
@@ -349,11 +349,12 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
   const [varFilter, setVarFilter] = React.useState<'unmapped' | 'mapped'>('mapped');
   const [hoveredId, setHoveredId] = React.useState<string | null>(null);
   const [selectedTarget, setSelectedTarget] = React.useState<string>('');
-  const [srcMin, setSrcMin] = React.useState(0);
-  const [srcMax, setSrcMax] = React.useState(99);
-  const [tgtMin, setTgtMin] = React.useState(0);
-  const [tgtMax, setTgtMax] = React.useState(99);
   const [focusedId, setFocusedId] = React.useState<string | null>(null);
+  const [srcSort, setSrcSort] = React.useState<'default'|'count_asc'|'count_desc'>('default');
+  const [tgtSort, setTgtSort] = React.useState<'default'|'count_asc'|'count_desc'>('default');
+  const [searchQ, setSearchQ] = React.useState('');
+  const [expandedIds, setExpandedIds] = React.useState<Set<string>>(new Set());
+  const [hoveredEdge, setHoveredEdge] = React.useState<GEdge | null>(null);
 
   const targetCohorts = React.useMemo(
     () => [...new Set(data.map(r => r.target_study as string).filter(Boolean))],
@@ -369,6 +370,7 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
     const tgtData = selectedTarget ? data.filter(r => r.target_study === selectedTarget) : data;
     const srcLbl = new Map<string, string>(); const tgtLbl = new Map<string, string>();
     const srcDomMap = new Map<string, string[]>(); const tgtDomMap = new Map<string, string[]>();
+    const srcCatsMap = new Map<string, string>(); const tgtCatsMap = new Map<string, string>();
     const edges: GEdge[] = [];
     for (const row of tgtData) {
       const sid = row.s_source as string;
@@ -381,14 +383,16 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
       if (!tgtDomMap.has(tid)) tgtDomMap.set(tid, []);
       tgtDomMap.get(tid)!.push(dom);
       edges.push({ srcId: sid, tgtId: tid, relation: row.mapping_relation as string || '', status: row.harmonization_status as string || 'pending', sim: Number(row.sim_score) || 0.5 });
+      if (!srcCatsMap.has(sid) && row.source_categories_labels) srcCatsMap.set(sid, row.source_categories_labels as string);
+      if (!tgtCatsMap.has(tid) && row.target_categories_labels) tgtCatsMap.set(tid, row.target_categories_labels as string);
     }
     function modeDom(arr: string[]) {
       const c: Record<string, number> = {};
       for (const d of arr) c[d] = (c[d] || 0) + 1;
       return Object.entries(c).sort((a, b) => b[1] - a[1])[0]?.[0] || '';
     }
-    const sn: GNode[] = [...srcLbl.keys()].map(id => ({ id, varName: id, label: srcLbl.get(id)!, domain: modeDom(srcDomMap.get(id) || []) }));
-    const tn: GNode[] = [...tgtLbl.keys()].map(id => ({ id, varName: id.split('::')[1] || id, label: tgtLbl.get(id)!, domain: modeDom(tgtDomMap.get(id) || []) }));
+    const sn: GNode[] = [...srcLbl.keys()].map(id => ({ id, varName: id, label: srcLbl.get(id)!, domain: modeDom(srcDomMap.get(id) || []), categories: srcCatsMap.get(id) }));
+    const tn: GNode[] = [...tgtLbl.keys()].map(id => ({ id, varName: id.split('::')[1] || id, label: tgtLbl.get(id)!, domain: modeDom(tgtDomMap.get(id) || []), categories: tgtCatsMap.get(id) }));
     const srcEdgeCounts = new Map<string, number>();
     const tgtEdgeCounts = new Map<string, number>();
     for (const e of edges) {
@@ -402,9 +406,6 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
     for (const e of edges) relCounts[e.relation] = (relCounts[e.relation] || 0) + 1;
     return { srcNodes: sn, tgtNodes: tn, allEdges: edges, srcDomains: [...new Set(sn.map(n => n.domain))].filter(Boolean).sort(), tgtDomains: [...new Set(tn.map(n => n.domain))].filter(Boolean).sort(), relations: [...new Set(edges.map(e => e.relation))].filter(Boolean).sort(), srcEdgeCounts, tgtEdgeCounts, srcMaxM, tgtMaxM, relCounts };
   }, [data, selectedTarget]);
-
-  React.useEffect(() => { setSrcMin(0); setSrcMax(srcMaxM); }, [srcMaxM]);
-  React.useEffect(() => { setTgtMin(0); setTgtMax(tgtMaxM); }, [tgtMaxM]);
 
   const { uncovSrc, uncovTgt } = React.useMemo(() => {
     if (varFilter === 'mapped') return { uncovSrc: [] as GNode[], uncovTgt: [] as GNode[] };
@@ -443,37 +444,74 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
       return { visSrc: sUncov, visTgt: tUncov, visEdges: [] as GEdge[] };
     }
     const relFiltered = activeRelations.length === 0 ? allEdges : allEdges.filter(e => activeRelations.includes(e.relation));
-    const srcPass = (id: string) => { const c = srcEdgeCounts.get(id) || 0; return c >= srcMin && c <= srcMax; };
-    const tgtPass = (id: string) => { const c = tgtEdgeCounts.get(id) || 0; return c >= tgtMin && c <= tgtMax; };
-    const sliderEdges = relFiltered.filter(e => srcPass(e.srcId) || tgtPass(e.tgtId));
     const srcDomOk = (n: GNode) => activeSrcDomains.length === 0 || activeSrcDomains.includes(n.domain);
     const tgtDomOk = (n: GNode) => activeTgtDomains.length === 0 || activeTgtDomains.includes(n.domain);
-    const vSrcIds = new Set(sliderEdges.map(e => e.srcId));
-    const vTgtIds = new Set(sliderEdges.map(e => e.tgtId));
+    const vSrcIds = new Set(relFiltered.map(e => e.srcId));
+    const vTgtIds = new Set(relFiltered.map(e => e.tgtId));
     const sn = srcNodes.filter(n => vSrcIds.has(n.id) && srcDomOk(n));
     const tn = tgtNodes.filter(n => vTgtIds.has(n.id) && tgtDomOk(n));
     const snSet = new Set(sn.map(n => n.id)); const tnSet = new Set(tn.map(n => n.id));
-    const ve = sliderEdges.filter(e => snSet.has(e.srcId) && tnSet.has(e.tgtId));
+    const ve = relFiltered.filter(e => snSet.has(e.srcId) && tnSet.has(e.tgtId));
     if (varFilter === 'mapped') return { visSrc: sn, visTgt: tn, visEdges: ve };
     return { visSrc: [...sn, ...uncovSrc.filter(srcDomOk)], visTgt: [...tn, ...uncovTgt.filter(tgtDomOk)], visEdges: ve };
-  }, [focusedId, varFilter, allEdges, srcNodes, tgtNodes, uncovSrc, uncovTgt, activeSrcDomains, activeTgtDomains, activeRelations, srcMin, srcMax, tgtMin, tgtMax, srcEdgeCounts, tgtEdgeCounts]);
+  }, [focusedId, varFilter, allEdges, srcNodes, tgtNodes, uncovSrc, uncovTgt, activeSrcDomains, activeTgtDomains, activeRelations]);
 
-  const srcY = React.useMemo(() => { const m = new Map<string, number>(); visSrc.forEach((n, i) => m.set(n.id, PAD_TOP + i * STEP)); return m; }, [visSrc]);
-  const tgtY = React.useMemo(() => { const m = new Map<string, number>(); visTgt.forEach((n, i) => m.set(n.id, PAD_TOP + i * STEP)); return m; }, [visTgt]);
+  const sortNodes = (arr: GNode[], sort: string, counts: Map<string, number>) => {
+    const cp = [...arr];
+    if (sort === 'count_asc') cp.sort((a, b) => (counts.get(a.id)||0) - (counts.get(b.id)||0));
+    else if (sort === 'count_desc') cp.sort((a, b) => (counts.get(b.id)||0) - (counts.get(a.id)||0));
+    return cp;
+  };
+  const sortedVisSrc = React.useMemo(() => sortNodes(visSrc, srcSort, srcEdgeCounts), [visSrc, srcSort, srcEdgeCounts]);
+  const sortedVisTgt = React.useMemo(() => sortNodes(visTgt, tgtSort, tgtEdgeCounts), [visTgt, tgtSort, tgtEdgeCounts]);
+  const searchedSrc = React.useMemo(() => {
+    if (!searchQ) return sortedVisSrc;
+    const q = searchQ.toLowerCase();
+    return sortedVisSrc.filter(n => n.varName.toLowerCase().includes(q) || (n.label||'').toLowerCase().includes(q));
+  }, [sortedVisSrc, searchQ]);
+  const searchedTgt = React.useMemo(() => {
+    if (!searchQ) return sortedVisTgt;
+    const q = searchQ.toLowerCase();
+    return sortedVisTgt.filter(n => n.varName.toLowerCase().includes(q) || (n.label||'').toLowerCase().includes(q));
+  }, [sortedVisTgt, searchQ]);
+  const searchedEdges = React.useMemo(() => {
+    if (!searchQ) return visEdges;
+    const sIds = new Set(searchedSrc.map(n => n.id)); const tIds = new Set(searchedTgt.map(n => n.id));
+    return visEdges.filter(e => sIds.has(e.srcId) && tIds.has(e.tgtId));
+  }, [visEdges, searchedSrc, searchedTgt, searchQ]);
+
+  const getNodeH = React.useCallback((n: GNode, expanded: boolean) => {
+    if (!expanded || !n.categories) return NODE_H;
+    return NODE_H + 4 + Math.min(n.categories.split('||').length, 5) * EXPAND_LINE_H;
+  }, [expandedIds]);
+
+  const srcY = React.useMemo(() => {
+    const m = new Map<string, number>(); let y = PAD_TOP;
+    for (const n of searchedSrc) { m.set(n.id, y); y += getNodeH(n, expandedIds.has(n.id)) + GAP; }
+    return m;
+  }, [searchedSrc, expandedIds, getNodeH]);
+  const tgtY = React.useMemo(() => {
+    const m = new Map<string, number>(); let y = PAD_TOP;
+    for (const n of searchedTgt) { m.set(n.id, y); y += getNodeH(n, expandedIds.has(n.id)) + GAP; }
+    return m;
+  }, [searchedTgt, expandedIds, getNodeH]);
+
+  const svgH = React.useMemo(() => {
+    const sH = searchedSrc.reduce((a, n) => a + getNodeH(n, expandedIds.has(n.id)) + GAP, PAD_TOP + 20);
+    const tH = searchedTgt.reduce((a, n) => a + getNodeH(n, expandedIds.has(n.id)) + GAP, PAD_TOP + 20);
+    return Math.max(sH, tH, 100);
+  }, [searchedSrc, searchedTgt, expandedIds, getNodeH]);
 
   const connectedIds = React.useMemo(() => {
     if (!hoveredId) return new Set<string>();
     const s = new Set<string>();
-    for (const e of visEdges) { if (e.srcId === hoveredId) s.add(e.tgtId); if (e.tgtId === hoveredId) s.add(e.srcId); }
+    for (const e of searchedEdges) { if (e.srcId === hoveredId) s.add(e.tgtId); if (e.tgtId === hoveredId) s.add(e.srcId); }
     return s;
-  }, [hoveredId, visEdges]);
-
+  }, [hoveredId, searchedEdges]);
   const hoveredEdgeKeys = React.useMemo(() => {
     if (!hoveredId) return new Set<string>();
-    return new Set(visEdges.filter(e => e.srcId === hoveredId || e.tgtId === hoveredId).map(e => `${e.srcId}::${e.tgtId}`));
-  }, [hoveredId, visEdges]);
-
-  const svgH = Math.max(visSrc.length, visTgt.length) * STEP + PAD_TOP + 20;
+    return new Set(searchedEdges.filter(e => e.srcId === hoveredId || e.tgtId === hoveredId).map(e => `${e.srcId}::${e.tgtId}`));
+  }, [hoveredId, searchedEdges]);
   const toggle = (arr: string[], v: string, set: (a: string[]) => void) => set(arr.includes(v) ? arr.filter(x => x !== v) : [...arr, v]);
 
   function cycleVarFilter() {
@@ -483,7 +521,7 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
   function resetAll() {
     setFocusedId(null); setActiveSrcDomains([]); setActiveTgtDomains([]);
     setActiveRelations([]); setVarFilter('mapped');
-    setSrcMin(0); setSrcMax(srcMaxM); setTgtMin(0); setTgtMax(tgtMaxM);
+    setSrcSort('default'); setTgtSort('default'); setSearchQ(''); setExpandedIds(new Set()); setHoveredEdge(null);
   }
   const varFilterLabel = varFilter === 'unmapped' ? 'Only unmapped' : 'Only mapped';
   const varFilterCls = varFilter === 'unmapped' ? 'btn-warning' : 'btn-success';
@@ -497,23 +535,8 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
     );
   }
 
-  function DualRangeSlider({ label, lo, hi, max, onLo, onHi }: { label: string; lo: number; hi: number; max: number; onLo: (v: number) => void; onHi: (v: number) => void }) {
-    const M = max || 1;
-    const plo = lo / M * 100;
-    const phi = hi / M * 100;
-    return (
-      <div className="flex-1 min-w-52">
-        <div className="text-xs font-semibold opacity-50 uppercase tracking-wide mb-1">{label}: {lo}–{hi >= max ? `${max}+` : hi}</div>
-        <div className="relative h-5">
-          <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-1 rounded bg-base-300 pointer-events-none" />
-          <div className="absolute top-1/2 -translate-y-1/2 h-1 rounded bg-primary pointer-events-none" style={{ left: `${plo}%`, width: `${phi - plo}%` }} />
-          <input type="range" min={0} max={M} value={lo} onChange={e => onLo(Math.min(+e.target.value, hi))} className="absolute inset-0 w-full h-full cursor-pointer opacity-0" style={{ zIndex: lo >= hi ? 5 : 3 }} />
-          <input type="range" min={0} max={M} value={hi} onChange={e => onHi(Math.max(+e.target.value, lo))} className="absolute inset-0 w-full h-full cursor-pointer opacity-0" style={{ zIndex: 4 }} />
-          <div className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-primary border-2 border-white shadow-sm pointer-events-none" style={{ left: `calc(${plo}% - 6px)` }} />
-          <div className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-primary border-2 border-white shadow-sm pointer-events-none" style={{ left: `calc(${phi}% - 6px)` }} />
-        </div>
-      </div>
-    );
+  function SortBtn({ label, val, cur, set }: { label: string; val: string; cur: string; set: (v: any) => void }) {
+    return <button className={`btn btn-xs ${cur === val ? 'btn-primary' : 'btn-outline opacity-60'}`} onClick={() => set(cur === val ? 'default' : val)}>{label}</button>;
   }
 
   return (
@@ -567,13 +590,27 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
           <button className="btn btn-primary btn-sm" onClick={resetAll}>← Back to full graph</button>
         </div>
       )}
-      {/* Mapping-count range sliders */}
-      {varFilter !== 'unmapped' && (
-        <div className="flex flex-wrap gap-6 mb-3 items-start">
-          <DualRangeSlider label="Source: mappings per variable" lo={srcMin} hi={srcMax} max={srcMaxM} onLo={setSrcMin} onHi={setSrcMax} />
-          <DualRangeSlider label="Target: mappings per variable" lo={tgtMin} hi={tgtMax} max={tgtMaxM} onLo={setTgtMin} onHi={setTgtMax} />
+      {/* Search box */}
+      <div className="mb-3">
+        <input type="text" className="input input-bordered input-sm w-full" placeholder="Search variables by name or description…" value={searchQ} onChange={e => setSearchQ(e.target.value)} />
+      </div>
+      {/* Sort controls */}
+      <div className="flex flex-wrap gap-6 mb-3">
+        <div className="flex-1 min-w-48">
+          <div className="text-xs font-semibold opacity-50 uppercase tracking-wide mb-1">Sort source by mappings</div>
+          <div className="flex gap-1">
+            <SortBtn label="↑ Least" val="count_asc" cur={srcSort} set={setSrcSort} />
+            <SortBtn label="↓ Most" val="count_desc" cur={srcSort} set={setSrcSort} />
+          </div>
         </div>
-      )}
+        <div className="flex-1 min-w-48">
+          <div className="text-xs font-semibold opacity-50 uppercase tracking-wide mb-1">Sort target by mappings</div>
+          <div className="flex gap-1">
+            <SortBtn label="↑ Least" val="count_asc" cur={tgtSort} set={setTgtSort} />
+            <SortBtn label="↓ Most" val="count_desc" cur={tgtSort} set={setTgtSort} />
+          </div>
+        </div>
+      </div>
       {/* Var filter — centred, right above graph */}
       <div className="flex justify-center mb-3">
         <button className={`btn btn-sm ${varFilterCls}`} onClick={cycleVarFilter}>{varFilterLabel}</button>
@@ -589,8 +626,13 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
         {varFilter !== 'mapped' && <span className="flex items-center gap-1"><span style={{ display: 'inline-block', width: 18, height: 10, border: '1.5px dashed #94a3b8', borderRadius: 2 }} />uncovered</span>}
       </div>
       <div className="text-xs opacity-50 mb-2">
-        {visSrc.filter(n => !n.uncovered).length} src · {visTgt.filter(n => !n.uncovered).length} tgt · {visEdges.length} edges
-        {varFilter !== 'mapped' && ` · ${uncovSrc.length} uncov src · ${uncovTgt.length} uncov tgt`}
+        {searchedSrc.filter(n => !n.uncovered).length} src · {searchedTgt.filter(n => !n.uncovered).length} tgt · {searchedEdges.length} edges
+        {varFilter !== 'mapped' && (() => {
+          const tS = srcNodes.length + uncovSrc.length; const tT = tgtNodes.length + uncovTgt.length;
+          const pS = tS ? Math.round(uncovSrc.length / tS * 100) : 0;
+          const pT = tT ? Math.round(uncovTgt.length / tT * 100) : 0;
+          return ` · ${uncovSrc.length} uncov src (${pS}%) · ${uncovTgt.length} uncov tgt (${pT}%)`;
+        })()}
         {hoveredId && ' · hover: showing connected edges'}
       </div>
       {/* SVG graph */}
@@ -598,47 +640,79 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
         <svg width={SVG_W} height={svgH} style={{ display: 'block', minWidth: SVG_W }}>
           <text x={LEFT_X + NODE_W / 2} y={16} textAnchor="middle" fontSize={11} fontWeight={700} fill="#64748b">{sourceCohort || 'Source'}</text>
           <text x={RIGHT_X + NODE_W / 2} y={16} textAnchor="middle" fontSize={11} fontWeight={700} fill="#64748b">{selectedTarget || 'Target'}</text>
-          {visEdges.map((e, i) => {
+          {searchedEdges.map((e, i) => {
             const sy = srcY.get(e.srcId); const ty = tgtY.get(e.tgtId);
             if (sy == null || ty == null) return null;
-            const x1 = LEFT_X + NODE_W; const y1 = sy + NODE_H / 2;
-            const x2 = RIGHT_X;         const y2 = ty + NODE_H / 2;
+            const nh = getNodeH(searchedSrc.find(n => n.id === e.srcId) || { id: '', varName: '', label: '', domain: '' }, expandedIds.has(e.srcId));
+            const x1 = LEFT_X + NODE_W; const y1 = sy + nh / 2;
+            const x2 = RIGHT_X;         const y2 = ty + getNodeH(searchedTgt.find(n => n.id === e.tgtId) || { id: '', varName: '', label: '', domain: '' }, expandedIds.has(e.tgtId)) / 2;
             const mx = (x1 + x2) / 2;
             const highlighted = hoveredId ? hoveredEdgeKeys.has(`${e.srcId}::${e.tgtId}`) : true;
+            const isHovE = hoveredEdge?.srcId === e.srcId && hoveredEdge?.tgtId === e.tgtId;
             return (
-              <path key={i} d={`M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`}
-                fill="none" stroke={edgeClr(e.status)} strokeWidth={edgeW(e.sim)}
-                opacity={highlighted ? (hoveredId ? 0.88 : 0.3) : 0.04}
-              >
-                <title>{e.srcId} → {e.tgtId.split('::')[1]} | {e.relation} | {e.status} | sim={e.sim?.toFixed(2)}</title>
-              </path>
+              <g key={i}>
+                <path d={`M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`} fill="none" stroke="transparent" strokeWidth={10}
+                  style={{ cursor: 'crosshair' }}
+                  onMouseEnter={() => setHoveredEdge(e)} onMouseLeave={() => setHoveredEdge(null)}
+                  onClick={ev => { ev.stopPropagation(); setHoveredEdge(p => p?.srcId === e.srcId && p?.tgtId === e.tgtId ? null : e); }}
+                />
+                <path d={`M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`}
+                  fill="none" stroke={edgeClr(e.status)} strokeWidth={isHovE ? edgeW(e.sim) + 1.5 : edgeW(e.sim)}
+                  opacity={highlighted ? (hoveredId ? 0.88 : 0.3) : 0.04} style={{ pointerEvents: 'none' }}
+                />
+                {isHovE && (() => {
+                  const label = `${e.relation} · sim ${e.sim?.toFixed(2) ?? '—'}`;
+                  const tw = label.length * 5.2 + 14;
+                  const tx = mx; const ty2 = (y1 + y2) / 2;
+                  return (
+                    <g style={{ pointerEvents: 'none' }}>
+                      <rect x={tx - tw/2} y={ty2 - 11} width={tw} height={17} rx={3} fill="white" stroke="#cbd5e1" strokeWidth={0.8} opacity={0.97} />
+                      <text x={tx} y={ty2 + 2} fontSize={9} fill="#334155" textAnchor="middle">{label}</text>
+                    </g>
+                  );
+                })()}
+              </g>
             );
           })}
-          {visSrc.map(n => {
+          {searchedSrc.map(n => {
             const y = srcY.get(n.id)!;
             const c = domainClr(n.domain);
             const hl = hoveredId === n.id || connectedIds.has(n.id);
             const faded = hoveredId != null && !hl;
+            const count = srcEdgeCounts.get(n.id) || 0;
+            const expanded = expandedIds.has(n.id);
+            const nh = getNodeH(n, expanded);
+            const cats = n.categories ? n.categories.split('||') : [];
             return (
               <g key={n.id} style={{ cursor: 'pointer' }} onMouseEnter={() => setHoveredId(n.id)} onMouseLeave={() => setHoveredId(null)} onClick={() => { setHoveredId(null); setFocusedId(prev => prev === n.id ? null : n.id); }} opacity={faded ? 0.3 : 1}>
-                <rect x={LEFT_X} y={y} width={NODE_W} height={NODE_H} rx={4} fill={c.fill} stroke={hoveredId === n.id ? c.text : c.stroke} strokeWidth={hoveredId === n.id ? 2 : 1} strokeDasharray={n.uncovered ? '4 3' : undefined} />
-                <text x={LEFT_X + 6} y={y + 11} fontSize={10} fontWeight={600} fill={c.text}>{n.varName.length > 21 ? n.varName.slice(0, 21) + '…' : n.varName}</text>
-                <text x={LEFT_X + 6} y={y + 23} fontSize={8.5} fill={c.text} opacity={0.75}>{(n.label || '').length > 27 ? (n.label || '').slice(0, 27) + '…' : n.label}</text>
-                <title>{n.varName}: {n.label}{n.domain ? ` [${n.domain}]` : ''}{n.uncovered ? ' — uncovered' : ` | ${srcEdgeCounts.get(n.id) || 0} mapping(s)`}</title>
+                <rect x={LEFT_X} y={y} width={NODE_W} height={nh} rx={4} fill={c.fill} stroke={hoveredId === n.id ? c.text : c.stroke} strokeWidth={hoveredId === n.id ? 2 : 1} strokeDasharray={n.uncovered ? '4 3' : undefined} />
+                <text x={LEFT_X + 6} y={y + 14} fontSize={10} fontWeight={600} fill={c.text}>{n.varName.length > 20 ? n.varName.slice(0, 20) + '…' : n.varName}</text>
+                <text x={LEFT_X + 6} y={y + 28} fontSize={8.5} fill={c.text} opacity={0.85}>{(n.label || '').length > 32 ? (n.label || '').slice(0, 32) + '…' : n.label}</text>
+                <text x={LEFT_X + NODE_W - 4} y={y + 13} fontSize={8} fill={c.text} textAnchor="end" opacity={0.55}>{count}</text>
+                {n.categories && <text x={LEFT_X + NODE_W - 4} y={y + nh - 5} fontSize={9} fill={c.text} textAnchor="end" style={{ cursor: 'pointer' }} onClick={ev => { ev.stopPropagation(); setExpandedIds(prev => { const s = new Set(prev); s.has(n.id) ? s.delete(n.id) : s.add(n.id); return s; }); }}>{expanded ? '▴' : '▾'}</text>}
+                {expanded && cats.slice(0, 5).map((cat, ci) => <text key={ci} x={LEFT_X + 8} y={y + NODE_H + 4 + (ci + 1) * EXPAND_LINE_H} fontSize={8} fill={c.text} opacity={0.7}>• {cat.length > 28 ? cat.slice(0, 28) + '…' : cat}</text>)}
+                <title>{n.varName}: {n.label}{n.domain ? ` [${n.domain}]` : ''}{n.uncovered ? ' — uncovered' : ` | ${count} mapping(s)`}</title>
               </g>
             );
           })}
-          {visTgt.map(n => {
+          {searchedTgt.map(n => {
             const y = tgtY.get(n.id)!;
             const c = domainClr(n.domain);
             const hl = hoveredId === n.id || connectedIds.has(n.id);
             const faded = hoveredId != null && !hl;
+            const count = tgtEdgeCounts.get(n.id) || 0;
+            const expanded = expandedIds.has(n.id);
+            const nh = getNodeH(n, expanded);
+            const cats = n.categories ? n.categories.split('||') : [];
             return (
               <g key={n.id} style={{ cursor: 'pointer' }} onMouseEnter={() => setHoveredId(n.id)} onMouseLeave={() => setHoveredId(null)} onClick={() => { setHoveredId(null); setFocusedId(prev => prev === n.id ? null : n.id); }} opacity={faded ? 0.3 : 1}>
-                <rect x={RIGHT_X} y={y} width={NODE_W} height={NODE_H} rx={4} fill={c.fill} stroke={hoveredId === n.id ? c.text : c.stroke} strokeWidth={hoveredId === n.id ? 2 : 1} strokeDasharray={n.uncovered ? '4 3' : undefined} />
-                <text x={RIGHT_X + 6} y={y + 11} fontSize={10} fontWeight={600} fill={c.text}>{n.varName.length > 21 ? n.varName.slice(0, 21) + '…' : n.varName}</text>
-                <text x={RIGHT_X + 6} y={y + 23} fontSize={8.5} fill={c.text} opacity={0.75}>{(n.label || '').length > 27 ? (n.label || '').slice(0, 27) + '…' : n.label}</text>
-                <title>{n.varName}: {n.label}{n.domain ? ` [${n.domain}]` : ''}{n.uncovered ? ' — uncovered' : ` | ${tgtEdgeCounts.get(n.id) || 0} mapping(s)`}</title>
+                <rect x={RIGHT_X} y={y} width={NODE_W} height={nh} rx={4} fill={c.fill} stroke={hoveredId === n.id ? c.text : c.stroke} strokeWidth={hoveredId === n.id ? 2 : 1} strokeDasharray={n.uncovered ? '4 3' : undefined} />
+                <text x={RIGHT_X + 6} y={y + 14} fontSize={10} fontWeight={600} fill={c.text}>{n.varName.length > 20 ? n.varName.slice(0, 20) + '…' : n.varName}</text>
+                <text x={RIGHT_X + 6} y={y + 28} fontSize={8.5} fill={c.text} opacity={0.85}>{(n.label || '').length > 32 ? (n.label || '').slice(0, 32) + '…' : n.label}</text>
+                <text x={RIGHT_X + NODE_W - 4} y={y + 13} fontSize={8} fill={c.text} textAnchor="end" opacity={0.55}>{count}</text>
+                {n.categories && <text x={RIGHT_X + NODE_W - 4} y={y + nh - 5} fontSize={9} fill={c.text} textAnchor="end" style={{ cursor: 'pointer' }} onClick={ev => { ev.stopPropagation(); setExpandedIds(prev => { const s = new Set(prev); s.has(n.id) ? s.delete(n.id) : s.add(n.id); return s; }); }}>{expanded ? '▴' : '▾'}</text>}
+                {expanded && cats.slice(0, 5).map((cat, ci) => <text key={ci} x={RIGHT_X + 8} y={y + NODE_H + 4 + (ci + 1) * EXPAND_LINE_H} fontSize={8} fill={c.text} opacity={0.7}>• {cat.length > 28 ? cat.slice(0, 28) + '…' : cat}</text>)}
+                <title>{n.varName}: {n.label}{n.domain ? ` [${n.domain}]` : ''}{n.uncovered ? ' — uncovered' : ` | ${count} mapping(s)`}</title>
               </g>
             );
           })}
