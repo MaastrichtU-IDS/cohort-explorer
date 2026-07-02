@@ -7,8 +7,6 @@ services:
       FRONTEND_URL: http://localhost:3001
       SPARQL_ENDPOINT: "http://db:7878"
       DATA_FOLDER: /data
-      no_proxy: "db,localhost,127.0.0.1"
-      NO_PROXY: "db,localhost,127.0.0.1"
     volumes:
       - ./data:/data
  #     - /data/deploy-services/cohort-explorer/cohortVarLinker/data/:/app/CohortVarLinker/data/
@@ -27,8 +25,8 @@ services:
       - ./data:/data
 
   db:
-    # image: oxigraph/oxigraph:latest
-    image: oxigraph/oxigraph:0.4.0-alpha.3
+    image: oxigraph/oxigraph:latest
+    # image: oxigraph/oxigraph:0.4.0-alpha.3
     volumes:
       - ./data/db:/data
     environment:
