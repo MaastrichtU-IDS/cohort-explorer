@@ -1709,7 +1709,13 @@ async def upload_cohort(
     
     # Read the uploaded file content and normalize just the header line
     cohort_dictionary.file.seek(0)
-    file_content = cohort_dictionary.file.read().decode('utf-8')
+    try:
+        file_content = cohort_dictionary.file.read().decode('utf-8')
+    except UnicodeDecodeError:
+        raise HTTPException(
+            status_code=422,
+            detail="The file does not appear to be saved in UTF-8 encoding. Please re-save it as UTF-8 before uploading. In Excel: File → Save As → choose CSV UTF-8 (Comma delimited). In LibreOffice: File → Save As → select 'Keep Current Format' then set character set to UTF-8.",
+        )
     
     # Normalize the header using the isolated function
     normalized_content = normalize_csv_header(file_content)
