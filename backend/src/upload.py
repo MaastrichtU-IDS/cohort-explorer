@@ -2478,7 +2478,15 @@ def init_triplestore():
             
     except Exception as e:
         print(f"❌ Error during triplestore initialization: {e}")
-        raise
+        print("⚠️  Falling back to cache initialization from source files (no triplestore)...")
+        try:
+            from src.cohort_cache import initialize_cache_from_source_files
+            admin_email = settings.admins_list[0] if settings.admins_list else None
+            initialize_cache_from_source_files(admin_email)
+            print("✅ Cache initialized from source files despite triplestore error")
+        except Exception as cache_err:
+            print(f"❌ Cache fallback also failed: {cache_err}")
+            raise
     finally:
         # Clean up lock file
         if os.path.exists(lock_file_path):
