@@ -333,7 +333,7 @@ const HARMONIZATION_COLORS: Record<string, string> = {
   'Not Applicable':   '#dc2626',
 };
 function edgeClr(status: string) { return HARMONIZATION_COLORS[status] || '#94a3b8'; }
-function edgeW(sim: number | null) { return sim == null ? 1.5 : 1 + sim * 3; }
+function edgeW(sim: number | null) { if (sim == null) return 1.5; const s = Math.max(0, Math.min(1, sim)); return 1 + Math.pow(s, 3) * 14; }
 
 const NODE_W = 168; const NODE_H = 40; const EXPAND_LINE_H = 11; const GAP = 5;
 const PAD_TOP = 28; const SVG_W = 920;
@@ -345,7 +345,7 @@ interface GEdge { srcId: string; tgtId: string; relation: string; status: string
 function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]; sourceCohort: string; cohortsData: Record<string, any>; }) {
   const [activeSrcDomains, setActiveSrcDomains] = React.useState<string[]>([]);
   const [activeTgtDomains, setActiveTgtDomains] = React.useState<string[]>([]);
-  const [activeRelations, setActiveRelations] = React.useState<string[]>([]);
+  const [activeStatuses, setActiveStatuses] = React.useState<string[]>([]);
   const [varFilter, setVarFilter] = React.useState<'unmapped' | 'mapped'>('mapped');
   const [hoveredId, setHoveredId] = React.useState<string | null>(null);
   const [selectedTarget, setSelectedTarget] = React.useState<string>('');
@@ -355,6 +355,10 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
   const [searchQ, setSearchQ] = React.useState('');
   const [expandedIds, setExpandedIds] = React.useState<Set<string>>(new Set());
   const [hoveredEdge, setHoveredEdge] = React.useState<GEdge | null>(null);
+  const [selectedEdge, setSelectedEdge] = React.useState<GEdge | null>(null);
+  const [edaImage, setEdaImage] = React.useState<string | null>(null);
+  const [edaError, setEdaError] = React.useState<string | null>(null);
+  const [edaLoading, setEdaLoading] = React.useState(false);
 
   const targetCohorts = React.useMemo(
     () => [...new Set(data.map(r => r.target_study as string).filter(Boolean))],
@@ -366,7 +370,7 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
       setSelectedTarget(targetCohorts[0]);
   }, [targetCohorts, selectedTarget]);
 
-  const { srcNodes, tgtNodes, allEdges, srcDomains, tgtDomains, relations, srcEdgeCounts, tgtEdgeCounts, srcMaxM, tgtMaxM, relCounts } = React.useMemo(() => {
+  const { srcNodes, tgtNodes, allEdges, srcDomains, tgtDomains, relations, srcEdgeCounts, tgtEdgeCounts, srcMaxM, tgtMaxM, relCounts, statusCounts } = React.useMemo(() => {
     const tgtData = selectedTarget ? data.filter(r => r.target_study === selectedTarget) : data;
     const srcLbl = new Map<string, string>(); const tgtLbl = new Map<string, string>();
     const srcDomMap = new Map<string, string[]>(); const tgtDomMap = new Map<string, string[]>();
@@ -404,7 +408,9 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
     const tgtMaxM = tv.length ? Math.max(...tv) : 0;
     const relCounts: Record<string, number> = {};
     for (const e of edges) relCounts[e.relation] = (relCounts[e.relation] || 0) + 1;
-    return { srcNodes: sn, tgtNodes: tn, allEdges: edges, srcDomains: [...new Set(sn.map(n => n.domain))].filter(Boolean).sort(), tgtDomains: [...new Set(tn.map(n => n.domain))].filter(Boolean).sort(), relations: [...new Set(edges.map(e => e.relation))].filter(Boolean).sort(), srcEdgeCounts, tgtEdgeCounts, srcMaxM, tgtMaxM, relCounts };
+    const statusCounts: Record<string, number> = {};
+    for (const e of edges) statusCounts[e.status] = (statusCounts[e.status] || 0) + 1;
+    return { srcNodes: sn, tgtNodes: tn, allEdges: edges, srcDomains: [...new Set(sn.map(n => n.domain))].filter(Boolean).sort(), tgtDomains: [...new Set(tn.map(n => n.domain))].filter(Boolean).sort(), relations: [...new Set(edges.map(e => e.relation))].filter(Boolean).sort(), srcEdgeCounts, tgtEdgeCounts, srcMaxM, tgtMaxM, relCounts, statusCounts };
   }, [data, selectedTarget]);
 
   const { uncovSrc, uncovTgt } = React.useMemo(() => {
@@ -427,8 +433,8 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
 
   const { visSrc, visTgt, visEdges } = React.useMemo(() => {
     if (focusedId) {
-      const relFiltered = activeRelations.length === 0 ? allEdges : allEdges.filter(e => activeRelations.includes(e.relation));
-      const fe = relFiltered.filter(e => e.srcId === focusedId || e.tgtId === focusedId);
+      const statusFiltered = activeStatuses.length === 0 ? allEdges : allEdges.filter(e => activeStatuses.includes(e.status));
+      const fe = statusFiltered.filter(e => e.srcId === focusedId || e.tgtId === focusedId);
       if (fe.length === 0) {
         const uSrc = uncovSrc.find(n => n.id === focusedId);
         const uTgt = uncovTgt.find(n => n.id === focusedId);
@@ -443,18 +449,18 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
       const tUncov = activeTgtDomains.length === 0 ? uncovTgt : uncovTgt.filter(n => activeTgtDomains.includes(n.domain));
       return { visSrc: sUncov, visTgt: tUncov, visEdges: [] as GEdge[] };
     }
-    const relFiltered = activeRelations.length === 0 ? allEdges : allEdges.filter(e => activeRelations.includes(e.relation));
+    const statusFiltered = activeStatuses.length === 0 ? allEdges : allEdges.filter(e => activeStatuses.includes(e.status));
     const srcDomOk = (n: GNode) => activeSrcDomains.length === 0 || activeSrcDomains.includes(n.domain);
     const tgtDomOk = (n: GNode) => activeTgtDomains.length === 0 || activeTgtDomains.includes(n.domain);
-    const vSrcIds = new Set(relFiltered.map(e => e.srcId));
-    const vTgtIds = new Set(relFiltered.map(e => e.tgtId));
+    const vSrcIds = new Set(statusFiltered.map(e => e.srcId));
+    const vTgtIds = new Set(statusFiltered.map(e => e.tgtId));
     const sn = srcNodes.filter(n => vSrcIds.has(n.id) && srcDomOk(n));
     const tn = tgtNodes.filter(n => vTgtIds.has(n.id) && tgtDomOk(n));
     const snSet = new Set(sn.map(n => n.id)); const tnSet = new Set(tn.map(n => n.id));
-    const ve = relFiltered.filter(e => snSet.has(e.srcId) && tnSet.has(e.tgtId));
+    const ve = statusFiltered.filter(e => snSet.has(e.srcId) && tnSet.has(e.tgtId));
     if (varFilter === 'mapped') return { visSrc: sn, visTgt: tn, visEdges: ve };
     return { visSrc: [...sn, ...uncovSrc.filter(srcDomOk)], visTgt: [...tn, ...uncovTgt.filter(tgtDomOk)], visEdges: ve };
-  }, [focusedId, varFilter, allEdges, srcNodes, tgtNodes, uncovSrc, uncovTgt, activeSrcDomains, activeTgtDomains, activeRelations]);
+  }, [focusedId, varFilter, allEdges, srcNodes, tgtNodes, uncovSrc, uncovTgt, activeSrcDomains, activeTgtDomains, activeStatuses]);
 
   const sortNodes = (arr: GNode[], sort: string, counts: Map<string, number>) => {
     const cp = [...arr];
@@ -520,8 +526,8 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
   }
   function resetAll() {
     setFocusedId(null); setActiveSrcDomains([]); setActiveTgtDomains([]);
-    setActiveRelations([]); setVarFilter('mapped');
-    setSrcSort('default'); setTgtSort('default'); setSearchQ(''); setExpandedIds(new Set()); setHoveredEdge(null);
+    setActiveStatuses([]); setVarFilter('mapped');
+    setSrcSort('default'); setTgtSort('default'); setSearchQ(''); setExpandedIds(new Set()); setHoveredEdge(null); setSelectedEdge(null); setEdaImage(null); setEdaError(null);
   }
   const varFilterLabel = varFilter === 'unmapped' ? 'Only unmapped' : 'Only mapped';
   const varFilterCls = varFilter === 'unmapped' ? 'btn-warning' : 'btn-success';
@@ -572,14 +578,14 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
       <div className="flex flex-wrap gap-4 mb-3 items-center">
         <div className="flex-1 min-w-52">
           <div className="flex items-center justify-between mb-1">
-            <div className="text-xs font-semibold opacity-50 uppercase tracking-wide">Edge type (relation)</div>
+            <div className="text-xs font-semibold opacity-50 uppercase tracking-wide">Harmonization status</div>
             <button className="btn btn-xs btn-ghost text-error" onClick={resetAll}>↺ Reset all filters</button>
           </div>
           <div className="flex flex-wrap gap-1">
-            {relations.map(r => (
-              <button key={r} className={`btn btn-xs ${activeRelations.length === 0 || activeRelations.includes(r) ? 'btn-primary' : 'btn-outline opacity-40'}`} onClick={() => toggle(activeRelations, r, setActiveRelations)}>{r} ({relCounts[r] || 0})</button>
+            {Object.entries(statusCounts).map(([s, count]) => (
+              <button key={s} className={`btn btn-xs ${activeStatuses.length === 0 || activeStatuses.includes(s) ? '' : 'btn-outline opacity-40'}`} style={activeStatuses.length === 0 || activeStatuses.includes(s) ? { backgroundColor: edgeClr(s), color: '#fff', borderColor: edgeClr(s) } : {}} onClick={() => toggle(activeStatuses, s, setActiveStatuses)}>{s} ({count as number})</button>
             ))}
-            {activeRelations.length > 0 && <button className="btn btn-xs btn-ghost" onClick={() => setActiveRelations([])}>clear</button>}
+            {activeStatuses.length > 0 && <button className="btn btn-xs btn-ghost" onClick={() => setActiveStatuses([])}>clear</button>}
           </div>
         </div>
       </div>
@@ -654,7 +660,7 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
                 <path d={`M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`} fill="none" stroke="transparent" strokeWidth={10}
                   style={{ cursor: 'crosshair' }}
                   onMouseEnter={() => setHoveredEdge(e)} onMouseLeave={() => setHoveredEdge(null)}
-                  onClick={ev => { ev.stopPropagation(); setHoveredEdge(p => p?.srcId === e.srcId && p?.tgtId === e.tgtId ? null : e); }}
+                  onClick={ev => { ev.stopPropagation(); setSelectedEdge(p => p?.srcId === e.srcId && p?.tgtId === e.tgtId ? null : e); setEdaImage(null); setEdaError(null); }}
                 />
                 <path d={`M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`}
                   fill="none" stroke={edgeClr(e.status)} strokeWidth={isHovE ? edgeW(e.sim) + 1.5 : edgeW(e.sim)}
@@ -718,6 +724,68 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
           })}
         </svg>
       </div>
+
+      {/* Edge detail panel with EDA comparison */}
+      {selectedEdge && (() => {
+        const srcVar = selectedEdge.srcId;
+        const tgtVar = selectedEdge.tgtId.split('::')[1] || selectedEdge.tgtId;
+        const tgtStudy = selectedEdge.tgtId.split('::')[0] || '';
+        const handleCompareEda = async () => {
+          if (!sourceCohort || !srcVar || !tgtStudy || !tgtVar) return;
+          setEdaLoading(true); setEdaError(null); setEdaImage(null);
+          const imageUrl = `/api/compare-eda/${encodeURIComponent(sourceCohort)}/${encodeURIComponent(srcVar)}/${encodeURIComponent(tgtStudy)}/${encodeURIComponent(tgtVar)}`;
+          try {
+            const response = await fetch(imageUrl);
+            if (!response.ok) {
+              const ct = response.headers.get('content-type');
+              if (ct && ct.includes('application/json')) {
+                const err = await response.json();
+                setEdaError(err.details || err.error || 'Failed to load image');
+              } else {
+                setEdaError(await response.text() || 'Failed to load image');
+              }
+            } else { setEdaImage(imageUrl); }
+          } catch (err) { setEdaError('Failed to fetch: ' + (err as Error).message); }
+          finally { setEdaLoading(false); }
+        };
+        return (
+          <div className="border rounded-lg bg-base-100 shadow-lg p-5 mt-4">
+            <div className="flex justify-between items-start">
+              <div>
+                <h4 className="font-bold text-base mb-2">Mapping Detail</h4>
+                <div className="grid grid-cols-2 gap-x-8 gap-y-1 text-sm">
+                  <div><span className="text-gray-500">Source:</span> <strong>{srcVar}</strong></div>
+                  <div><span className="text-gray-500">Target:</span> <strong>{tgtVar}</strong></div>
+                  <div><span className="text-gray-500">Source Cohort:</span> {sourceCohort}</div>
+                  <div><span className="text-gray-500">Target Cohort:</span> {tgtStudy}</div>
+                  <div><span className="text-gray-500">Score:</span> {selectedEdge.sim?.toFixed(4) ?? '--'}</div>
+                  <div><span className="text-gray-500">Status:</span> <span style={{color: edgeClr(selectedEdge.status), fontWeight: 600}}>{selectedEdge.status}</span></div>
+                  <div><span className="text-gray-500">Relation:</span> {selectedEdge.relation || '--'}</div>
+                </div>
+              </div>
+              <div className="flex gap-2 items-center">
+                <button className="btn btn-primary btn-sm gap-1" onClick={handleCompareEda} disabled={edaLoading}>
+                  {edaLoading ? <span className="loading loading-spinner loading-xs"></span> : <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18"/><path d="M7 16l4-8 4 4 4-8"/></svg>}
+                  Compare EDA
+                </button>
+                <button className="btn btn-ghost btn-sm btn-circle" onClick={() => { setSelectedEdge(null); setEdaImage(null); setEdaError(null); }}>✕</button>
+              </div>
+            </div>
+            {(edaImage || edaError) && (
+              <div className="mt-4 pt-4 border-t">
+                {edaError ? (
+                  <div className="alert alert-error text-sm"><div className="whitespace-pre-wrap">{edaError}</div></div>
+                ) : edaImage ? (
+                  <div className="text-center">
+                    <img src={edaImage} alt="EDA Comparison" style={{ maxWidth: '75%', height: 'auto' }} className="mx-auto rounded shadow" />
+                    <a href={edaImage} download={`comparison_${srcVar}_vs_${tgtVar}.png`} className="btn btn-sm btn-outline mt-3">Save Image</a>
+                  </div>
+                ) : null}
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }
