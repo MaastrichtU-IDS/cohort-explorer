@@ -359,6 +359,19 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
   const [edaImage, setEdaImage] = React.useState<string | null>(null);
   const [edaError, setEdaError] = React.useState<string | null>(null);
   const [edaLoading, setEdaLoading] = React.useState(false);
+  const [edaAvail, setEdaAvail] = React.useState<Record<string, boolean>>({});
+
+  // Check EDA availability for cohorts
+  React.useEffect(() => {
+    const cohortsToCheck = [sourceCohort, selectedTarget].filter(Boolean);
+    cohortsToCheck.forEach(c => {
+      if (!edaAvail[c]) {
+        fetch(`/api/cohort-eda-output/${encodeURIComponent(c)}`, { method: 'HEAD' })
+          .then(r => setEdaAvail(prev => ({ ...prev, [c]: r.ok })))
+          .catch(() => setEdaAvail(prev => ({ ...prev, [c]: false })));
+      }
+    });
+  }, [sourceCohort, selectedTarget]);
 
   const targetCohorts = React.useMemo(
     () => [...new Set(data.map(r => r.target_study as string).filter(Boolean))],
@@ -529,7 +542,7 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
     setActiveStatuses([]); setVarFilter('mapped');
     setSrcSort('default'); setTgtSort('default'); setSearchQ(''); setExpandedIds(new Set()); setHoveredEdge(null); setSelectedEdge(null); setEdaImage(null); setEdaError(null);
   }
-  const varFilterLabel = varFilter === 'unmapped' ? 'Only unmapped' : 'Only mapped';
+  const varFilterLabel = varFilter === 'unmapped' ? 'showing only vars with no cross-mappings' : 'showing only cross-mapped vars';
   const varFilterCls = varFilter === 'unmapped' ? 'btn-warning' : 'btn-success';
 
   function DomainBtn({ d, active, onClick }: { d: string; active: boolean; onClick: () => void }) {
@@ -589,48 +602,21 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
           </div>
         </div>
       </div>
-      {/* Focus mode banner */}
-      {focusedId && (
-        <div className="flex items-center justify-between bg-primary/10 border border-primary/40 rounded-lg px-4 py-2 mb-3">
-          <span className="text-sm">Focused on: <strong>{focusedId.replace(/^__u[st]_/, '')}</strong></span>
-          <button className="btn btn-primary btn-sm" onClick={resetAll}>← Back to full graph</button>
-        </div>
-      )}
       {/* Search box */}
       <div className="mb-3">
         <input type="text" className="input input-bordered input-sm w-full" placeholder="Search variables by name or description…" value={searchQ} onChange={e => setSearchQ(e.target.value)} />
       </div>
-      {/* Sort controls */}
-      <div className="flex flex-wrap gap-6 mb-3">
-        <div className="flex-1 min-w-48">
-          <div className="text-xs font-semibold opacity-50 uppercase tracking-wide mb-1">Sort source by mappings</div>
-          <div className="flex gap-1">
-            <SortBtn label="↑ Least" val="count_asc" cur={srcSort} set={setSrcSort} />
-            <SortBtn label="↓ Most" val="count_desc" cur={srcSort} set={setSrcSort} />
-          </div>
-        </div>
-        <div className="flex-1 min-w-48">
-          <div className="text-xs font-semibold opacity-50 uppercase tracking-wide mb-1">Sort target by mappings</div>
-          <div className="flex gap-1">
-            <SortBtn label="↑ Least" val="count_asc" cur={tgtSort} set={setTgtSort} />
-            <SortBtn label="↓ Most" val="count_desc" cur={tgtSort} set={setTgtSort} />
-          </div>
-        </div>
-      </div>
-      {/* Var filter — centred, right above graph */}
+      {/* Var filter — centred between columns */}
       <div className="flex justify-center mb-3">
         <button className={`btn btn-sm ${varFilterCls}`} onClick={cycleVarFilter}>{varFilterLabel}</button>
       </div>
-      {/* Legend */}
-      <div className="flex flex-wrap gap-x-4 gap-y-1 mb-2 text-xs items-center opacity-70">
-        <span className="font-semibold">Edge colour:</span>
-        {Object.entries(HARMONIZATION_COLORS).map(([s, c]) => (
-          <span key={s} className="flex items-center gap-1"><span style={{ display: 'inline-block', width: 18, height: 3, background: c, borderRadius: 2 }} />{s}</span>
-        ))}
-        <span className="flex items-center gap-1"><span style={{ display: 'inline-block', width: 18, height: 3, background: '#94a3b8', borderRadius: 2 }} />pending</span>
-        <span className="ml-4 font-semibold">Edge width:</span><span>sim score</span>
-        {varFilter !== 'mapped' && <span className="flex items-center gap-1"><span style={{ display: 'inline-block', width: 18, height: 10, border: '1.5px dashed #94a3b8', borderRadius: 2 }} />uncovered</span>}
-      </div>
+      {/* Focus mode banner — below var filter */}
+      {focusedId && (
+        <div className="flex items-center justify-center gap-4 bg-primary/10 border border-primary/40 rounded-lg px-4 py-2 mb-3">
+          <span className="text-sm">Focused on: <strong>{focusedId.replace(/^__u[st]_/, '')}</strong></span>
+          <button className="btn btn-primary btn-sm" onClick={resetAll}>← Back to full graph</button>
+        </div>
+      )}
       <div className="text-xs opacity-50 mb-2">
         {searchedSrc.filter(n => !n.uncovered).length} src · {searchedTgt.filter(n => !n.uncovered).length} tgt · {searchedEdges.length} edges
         {varFilter !== 'mapped' && (() => {
@@ -643,6 +629,18 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
       </div>
       {/* SVG graph */}
       <div className="border rounded-lg bg-base-100 overflow-x-auto" style={{ maxHeight: '72vh', overflowY: 'auto' }}>
+        {/* Sort buttons positioned above columns */}
+        <div className="flex" style={{ width: SVG_W, height: 28 }}>
+          <div style={{ width: NODE_W, paddingLeft: 6 }} className="flex gap-1">
+            <SortBtn label="↑" val="count_asc" cur={srcSort} set={setSrcSort} />
+            <SortBtn label="↓" val="count_desc" cur={srcSort} set={setSrcSort} />
+          </div>
+          <div className="flex-1"></div>
+          <div style={{ width: NODE_W, paddingLeft: 6 }} className="flex gap-1">
+            <SortBtn label="↑" val="count_asc" cur={tgtSort} set={setTgtSort} />
+            <SortBtn label="↓" val="count_desc" cur={tgtSort} set={setTgtSort} />
+          </div>
+        </div>
         <svg width={SVG_W} height={svgH} style={{ display: 'block', minWidth: SVG_W }}>
           <text x={LEFT_X + NODE_W / 2} y={16} textAnchor="middle" fontSize={11} fontWeight={700} fill="#64748b">{sourceCohort || 'Source'}</text>
           <text x={RIGHT_X + NODE_W / 2} y={16} textAnchor="middle" fontSize={11} fontWeight={700} fill="#64748b">{selectedTarget || 'Target'}</text>
@@ -667,13 +665,41 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
                   opacity={highlighted ? (hoveredId ? 0.88 : 0.3) : 0.04} style={{ pointerEvents: 'none' }}
                 />
                 {isHovE && (() => {
-                  const label = `${e.relation} · sim ${e.sim?.toFixed(2) ?? '—'}`;
+                  const srcVar = e.srcId;
+                  const tgtVar = e.tgtId.split('::')[1] || e.tgtId;
+                  const tgtStudy = e.tgtId.split('::')[0] || '';
+                  const hasEda = edaAvail[sourceCohort] && edaAvail[tgtStudy];
+                  const label = `${e.relation} · ${e.status} · sim ${e.sim?.toFixed(2) ?? '—'}`;
                   const tw = label.length * 5.2 + 14;
                   const tx = mx; const ty2 = (y1 + y2) / 2;
+                  const handleCompareEda = async () => {
+                    if (!sourceCohort || !srcVar || !tgtStudy || !tgtVar) return;
+                    setEdaLoading(true); setEdaError(null); setEdaImage(null);
+                    const imageUrl = `/api/compare-eda/${encodeURIComponent(sourceCohort)}/${encodeURIComponent(srcVar)}/${encodeURIComponent(tgtStudy)}/${encodeURIComponent(tgtVar)}`;
+                    try {
+                      const response = await fetch(imageUrl);
+                      if (!response.ok) {
+                        const ct = response.headers.get('content-type');
+                        if (ct && ct.includes('application/json')) {
+                          const err = await response.json();
+                          setEdaError(err.details || err.error || 'Failed to load image');
+                        } else {
+                          setEdaError(await response.text() || 'Failed to load image');
+                        }
+                      } else { setEdaImage(imageUrl); }
+                    } catch (err) { setEdaError('Failed to fetch: ' + (err as Error).message); }
+                    finally { setEdaLoading(false); }
+                  };
                   return (
                     <g style={{ pointerEvents: 'none' }}>
                       <rect x={tx - tw/2} y={ty2 - 11} width={tw} height={17} rx={3} fill="white" stroke="#cbd5e1" strokeWidth={0.8} opacity={0.97} />
                       <text x={tx} y={ty2 + 2} fontSize={9} fill="#334155" textAnchor="middle">{label}</text>
+                      {hasEda && (
+                        <g style={{ cursor: 'pointer', pointerEvents: 'auto' }} onClick={handleCompareEda}>
+                          <rect x={tx - 22} y={ty2 + 10} width={44} height={16} rx={3} fill="#3b82f6" opacity={0.9} />
+                          <text x={tx} y={ty2 + 21} fontSize={8} fill="white" textAnchor="middle">Compare EDA</text>
+                        </g>
+                      )}
                     </g>
                   );
                 })()}
@@ -809,6 +835,15 @@ export default function MappingPage() {
     outdated_pairs: Array<{source: string, target: string, timestamp: number, outdated_cohort: string}>,
     dictionary_timestamps: Record<string, number>
   } | null>(null);
+  const [showCacheInfo, setShowCacheInfo] = useState(true);
+
+  // Auto-hide cache info after 3.5 seconds when mapping output appears
+  React.useEffect(() => {
+    if (mappingOutput && cacheInfo) {
+      const timer = setTimeout(() => setShowCacheInfo(false), 3500);
+      return () => clearTimeout(timer);
+    }
+  }, [mappingOutput, cacheInfo]);
   const [tableScrollWidth, setTableScrollWidth] = useState(2000);
   const [mappingStartTime, setMappingStartTime] = useState<number | null>(null);
   const [computeDuration, setComputeDuration] = useState<{minutes: number, seconds: number} | null>(null);
@@ -1359,7 +1394,7 @@ export default function MappingPage() {
         )}
 
         {/* Cache Information Display - shown after mapping completes for cached pairs */}
-        {cacheInfo && mappingOutput && !hadUncachedPairs && (
+        {cacheInfo && mappingOutput && !hadUncachedPairs && showCacheInfo && (
           <div className="mt-4 p-4 bg-gray-50 rounded-lg">
             <h4 className="font-semibold mb-2">Cache Status:</h4>
             
@@ -1389,7 +1424,7 @@ export default function MappingPage() {
         )}
 
         {/* Cache Information Display - only shown before mapping completes */}
-        {cacheInfo && !mappingOutput && (
+        {cacheInfo && !mappingOutput && showCacheInfo && (
           <div className="mt-4 p-4 bg-gray-50 rounded-lg">
             <h4 className="font-semibold mb-2">Cache Status:</h4>
             
@@ -1457,7 +1492,8 @@ export default function MappingPage() {
         {mappingOutput && (
           <div 
             ref={mappingOutputRef}
-            className="mt-4 p-4 border rounded-lg bg-base-100 w-[85vw] mx-auto"
+            className="mt-4 p-4 border rounded-lg bg-base-100 w-[85vw] mx-auto animate-slide-up"
+            style={{ animation: 'slideUp 0.4s ease-out' }}
           >
             <h2 className="text-lg font-bold mb-3">Mapping Preview</h2>
             
