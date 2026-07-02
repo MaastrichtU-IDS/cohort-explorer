@@ -121,12 +121,9 @@ export default function UploadPage() {
   const [icd10Loading, setIcd10Loading] = useState(false);
   const [icd10LoadFailed, setIcd10LoadFailed] = useState(false);
   const [icd10DropdownOpen, setIcd10DropdownOpen] = useState(false);
-  const [specificDiseaseDropdownOpen, setSpecificDiseaseDropdownOpen] = useState(false);
-  const [diseaseAreaDropdownOpen, setDiseaseAreaDropdownOpen] = useState(false);
+  const [icd10ExpandedChapters, setIcd10ExpandedChapters] = useState<Set<string>>(new Set());
   const [showAdditionalConstraints, setShowAdditionalConstraints] = useState(false);
   const icd10WrapperRef = useRef<HTMLDivElement>(null);
-  const specificDiseaseWrapperRef = useRef<HTMLDivElement>(null);
-  const diseaseAreaWrapperRef = useRef<HTMLDivElement>(null);
   const additionalConstraintsRef = useRef<HTMLDivElement>(null);
   const gsSectionRef = useRef<HTMLDivElement>(null);
   const isSectionRef = useRef<HTMLDivElement>(null);
@@ -178,12 +175,7 @@ export default function UploadPage() {
       if (icd10WrapperRef.current && !icd10WrapperRef.current.contains(e.target as Node)) {
         setIcd10DropdownOpen(false);
       }
-      if (specificDiseaseWrapperRef.current && !specificDiseaseWrapperRef.current.contains(e.target as Node)) {
-        setSpecificDiseaseDropdownOpen(false);
-      }
-      if (diseaseAreaWrapperRef.current && !diseaseAreaWrapperRef.current.contains(e.target as Node)) {
-        setDiseaseAreaDropdownOpen(false);
-      }
+
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
@@ -849,7 +841,16 @@ export default function UploadPage() {
                                      <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 pointer-events-none">
                                        <div className="w-full max-w-5xl bg-base-100 rounded-2xl shadow-2xl flex flex-col pointer-events-auto" style={{maxHeight: '85vh'}}>
                                          <div className="flex items-center justify-between px-5 py-3 border-b border-base-300 shrink-0">
-                                           <h3 className="font-bold text-base">Select Target Disease(s) — ICD-10</h3>
+                                           <div className="flex items-baseline gap-3">
+                                             <h3 className="font-bold text-base">Select Target Disease(s) — ICD-10</h3>
+                                             <button type="button" className="text-xs text-primary/70 hover:text-primary underline-offset-2 hover:underline"
+                                               onClick={() => {
+                                                 const allExpanded = chapters.every(c => icd10ExpandedChapters.has(c.code));
+                                                 setIcd10ExpandedChapters(allExpanded ? new Set() : new Set(chapters.map(c => c.code)));
+                                               }}>
+                                               {chapters.every(c => icd10ExpandedChapters.has(c.code)) ? 'Collapse all' : 'Expand all'}
+                                             </button>
+                                           </div>
                                            <button type="button" className="btn btn-ghost btn-sm btn-circle" onClick={() => setIcd10DropdownOpen(false)}>✕</button>
                                          </div>
                                          <div className="flex-1 p-4 flex flex-col gap-5" style={{overflowY: 'scroll', scrollbarWidth: 'auto', scrollbarColor: '#64748b #e2e8f0'}}>
@@ -858,15 +859,29 @@ export default function UploadPage() {
                                              const cInherited = !cExplicit && ancestorSelected(chapter.code);
                                              const cChecked = cExplicit || cInherited;
                                              const blocks = blocksByParent.get(chapter.code) ?? [];
+                                             const isExpanded = icd10ExpandedChapters.has(chapter.code);
+                                             const toggleChapter = () => setIcd10ExpandedChapters(prev => {
+                                               const next = new Set(prev);
+                                               if (next.has(chapter.code)) next.delete(chapter.code); else next.add(chapter.code);
+                                               return next;
+                                             });
                                              return (
                                                <div key={chapter.code}>
-                                                 <label className="flex items-center gap-2 cursor-pointer pb-1.5 mb-2 border-b-2 border-base-300">
-                                                   <input type="checkbox" className="checkbox checkbox-sm checkbox-primary shrink-0" checked={cChecked}
-                                                     onChange={ev => { if (!cInherited) handleCheck(chapter, ev.target.checked); }} />
-                                                   <span className="font-mono font-bold text-sm text-primary shrink-0">{chapter.code}</span>
-                                                   <span className="text-sm font-semibold text-base-content/80 min-w-0 overflow-hidden">{chapter.label}</span>
-                                                 </label>
-                                                 <div className="grid grid-cols-3 gap-x-3 gap-y-0">
+                                                 <div className="flex items-center gap-2 pb-1.5 mb-2 border-b-2 border-base-300 cursor-pointer" onClick={toggleChapter}>
+                                                   <label className="flex items-center gap-2 cursor-pointer flex-1 min-w-0" onClick={e => e.stopPropagation()}>
+                                                     <input type="checkbox" className="checkbox checkbox-sm checkbox-primary shrink-0" checked={cChecked}
+                                                       onChange={ev => { if (!cInherited) { handleCheck(chapter, ev.target.checked); if (!isExpanded) toggleChapter(); } }} />
+                                                     <span className="font-mono font-bold text-sm text-primary shrink-0">{chapter.code}</span>
+                                                     <span className="text-sm font-semibold text-base-content/80 min-w-0 overflow-hidden">{chapter.label}</span>
+                                                   </label>
+                                                   <button type="button"
+                                                     className="shrink-0 w-5 h-5 flex items-center justify-center rounded hover:bg-base-300 text-base-content/50 hover:text-base-content transition-colors"
+                                                     onClick={e => e.stopPropagation()}
+                                                     aria-label={isExpanded ? 'Collapse chapter' : 'Expand chapter'}>
+                                                     <span className={`text-[10px] inline-block transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`}>▶</span>
+                                                   </button>
+                                                 </div>
+                                                 {isExpanded && <div className="grid grid-cols-3 gap-x-3 gap-y-0">
                                                    {blocks.map(block => {
                                                      const bExplicit = selCodes.has(block.code);
                                                      const bInherited = !bExplicit && ancestorSelected(block.code);
@@ -897,7 +912,7 @@ export default function UploadPage() {
                                                        </div>
                                                      );
                                                    })}
-                                                 </div>
+                                                 </div>}
                                                </div>
                                              );
                                            })}
@@ -929,142 +944,6 @@ export default function UploadPage() {
                        )}
                      </div>
                    )}
-
-                  {/* Specific Disease Codes + Disease Areas side by side */}
-                  {(consentPermission === 'DS' || consentPermission === 'HMB') && icd10TargetedEntries.length > 0 && (() => {
-                    const selSet = new Set(consentDiseaseCodes.map(e => e.code));
-                    const lookup = new Map(icd10TargetedEntries.map(e => [e.code, e]));
-                    const parentMap = new Map(icd10TargetedEntries.map(e => [e.code, e.parent ?? null]));
-
-                    const specificCodes = icd10TargetedEntries.filter(e => e.is_target && e.kind === 'category');
-
-                    const diseaseAreaCodes = (() => {
-                      const seen = new Set<string>();
-                      const result: typeof icd10TargetedEntries = [];
-                      for (const cat of specificCodes) {
-                        let p = parentMap.get(cat.code) ?? null;
-                        while (p) {
-                          if (!seen.has(p)) {
-                            seen.add(p);
-                            const entry = lookup.get(p);
-                            if (entry && (entry.kind === 'block' || entry.kind === 'chapter')) result.push(entry);
-                          }
-                          p = parentMap.get(p) ?? null;
-                        }
-                      }
-                      return result.sort((a, b) => {
-                        if (a.kind !== b.kind) return a.kind === 'chapter' ? -1 : 1;
-                        return a.code.localeCompare(b.code);
-                      });
-                    })();
-
-                    const toggle = (entry: typeof icd10TargetedEntries[0], checked: boolean) => {
-                      if (checked) {
-                        setConsentDiseaseCodes(prev => prev.some(e => e.code === entry.code) ? prev : [...prev, {code: entry.code, label: entry.label, kind: entry.kind}]);
-                      } else {
-                        setConsentDiseaseCodes(prev => prev.filter(e => e.code !== entry.code));
-                      }
-                    };
-
-                    const toggleDiseaseArea = (entry: typeof icd10TargetedEntries[0], checked: boolean) => {
-                      if (checked) {
-                        const toAdd: {code: string; label: string; kind: string}[] = [{code: entry.code, label: entry.label, kind: entry.kind}];
-                        if (entry.kind === 'chapter') {
-                          for (const e of diseaseAreaCodes) {
-                            if (e.kind === 'block' && parentMap.get(e.code) === entry.code) {
-                              toAdd.push({code: e.code, label: e.label, kind: e.kind});
-                            }
-                          }
-                        }
-                        setConsentDiseaseCodes(prev => {
-                          const existing = new Set(prev.map(e => e.code));
-                          return [...prev, ...toAdd.filter(e => !existing.has(e.code))];
-                        });
-                      } else {
-                        const toRemove = new Set([entry.code]);
-                        if (entry.kind === 'chapter') {
-                          for (const e of diseaseAreaCodes) {
-                            if (e.kind === 'block' && parentMap.get(e.code) === entry.code) toRemove.add(e.code);
-                          }
-                        }
-                        setConsentDiseaseCodes(prev => prev.filter(e => !toRemove.has(e.code)));
-                      }
-                    };
-
-                    const renderSimpleDropdown = (
-                      title: string,
-                      items: typeof icd10TargetedEntries,
-                      open: boolean,
-                      setOpen: (v: boolean) => void,
-                      wrapperRef: React.RefObject<HTMLDivElement>,
-                      onToggle?: (entry: typeof icd10TargetedEntries[0], checked: boolean) => void
-                    ) => {
-                      const handleToggle = onToggle ?? toggle;
-                      const selectedItems = items.filter(e => selSet.has(e.code));
-                      return (
-                        <div className="form-control flex-1" ref={wrapperRef}>
-                          <label className="label"><span className="label-text font-semibold">{title}</span></label>
-                          {selectedItems.length > 0 && (
-                            <div className="flex flex-wrap gap-1.5 mb-2">
-                              {selectedItems.map(e => (
-                                <span key={e.code} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border border-primary/40 bg-primary/10 text-primary font-medium">
-                                  <span className="font-mono font-bold">{e.code}</span>
-                                  <button type="button" className="ml-0.5 opacity-50 hover:text-error hover:opacity-100 leading-none" onClick={() => handleToggle(e, false)}>×</button>
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                          <div className="relative">
-                            <button type="button"
-                              className="btn btn-outline w-full justify-between font-normal text-left"
-                              onClick={() => setOpen(!open)}
-                              disabled={items.length === 0}>
-                              <span className="text-base-content/60">{selectedItems.length === 0 ? 'Select…' : `${selectedItems.length} selected — click to edit`}</span>
-                              <span className="text-xs opacity-60">▾</span>
-                            </button>
-                            {open && (
-                              <>
-                                <div className="fixed inset-0 z-[9998] bg-black/50 backdrop-blur-sm" onClick={() => setOpen(false)} />
-                                <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 pointer-events-none">
-                                  <div className="w-full max-w-sm bg-base-100 rounded-2xl shadow-2xl flex flex-col pointer-events-auto" style={{maxHeight: '80vh'}}>
-                                    <div className="flex items-center justify-between px-5 py-3 border-b border-base-300 shrink-0">
-                                      <h3 className="font-bold text-base">{title}</h3>
-                                      <button type="button" className="btn btn-ghost btn-sm btn-circle" onClick={() => setOpen(false)}>✕</button>
-                                    </div>
-                                    <div className="flex-1 p-3 flex flex-col gap-0.5" style={{overflowY: 'scroll', scrollbarWidth: 'auto', scrollbarColor: '#64748b #e2e8f0'}}>
-                                      {items.map(entry => {
-                                        const checked = selSet.has(entry.code);
-                                        const isChapter = entry.kind === 'chapter';
-                                        return (
-                                          <label key={entry.code} className={`flex items-center gap-2 py-1 px-2 cursor-pointer hover:bg-base-200 rounded ${isChapter ? 'mt-2 border-b border-base-300 pb-1.5' : ''}`}>
-                                            <input type="checkbox" className="checkbox checkbox-sm checkbox-primary shrink-0" checked={checked}
-                                              onChange={ev => handleToggle(entry, ev.target.checked)} />
-                                            <span className={`font-mono text-primary shrink-0 w-[4.5rem] ${isChapter ? 'font-bold text-sm' : 'font-semibold text-sm'}`}>{entry.code}</span>
-                                            <span className={`min-w-0 overflow-hidden leading-tight ${isChapter ? 'font-bold text-sm text-base-content' : 'text-sm text-base-content/80'}`}>{entry.label}</span>
-                                          </label>
-                                        );
-                                      })}
-                                    </div>
-                                    <div className="px-5 py-3 border-t border-base-300 flex justify-between items-center shrink-0">
-                                      <span className="text-sm text-base-content/60">{selectedItems.length} selected</span>
-                                      <button type="button" className="btn btn-sm btn-primary" onClick={() => setOpen(false)}>Done</button>
-                                    </div>
-                                  </div>
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    };
-
-                    return (
-                      <div className="flex gap-4 mt-2">
-                        {renderSimpleDropdown('Select specific disease code', specificCodes, specificDiseaseDropdownOpen, setSpecificDiseaseDropdownOpen, specificDiseaseWrapperRef)}
-                        {renderSimpleDropdown('Select disease areas', diseaseAreaCodes, diseaseAreaDropdownOpen, setDiseaseAreaDropdownOpen, diseaseAreaWrapperRef, toggleDiseaseArea)}
-                      </div>
-                    );
-                  })()}
 
                    {consentPermission !== 'NRES' && (
                      <div className="mt-6">
