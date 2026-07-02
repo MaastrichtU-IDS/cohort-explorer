@@ -28,10 +28,12 @@ function transformMappingDataForPreview(jsonData: any): RowData[] {
         const newRow: RowData = {
           s_source: mapping.s_source || mapping.source || sourceVar,
           s_label: mapping.s_slabel || mapping.slabel || mapping.source_label || '',
+          source_study: mapping.source_study || '',
           target_study: mapping.target_study,
           harmonization_status: mapping.harmonization_status || 'pending',
           source_categories_codes_labels: sourceCategoriesCodesLabels,
           mapping_relation: mapping.mapping_relation || '',
+          sim_score: mapping.sim_score != null ? Number(mapping.sim_score) : null,
         };
 
         // Find target fields — check raw keys first, then wildcard suffixes
@@ -259,6 +261,7 @@ function MappingPreviewJsonTable({ data, sourceCohort }: MappingPreviewJsonTable
 
 import { useCohorts } from '@/components/CohortsContext';
 import {apiUrl} from '@/utils';
+import MappingGraphView from '@/components/MappingGraphView';
 
 export default function MappingPage() {
   const { cohortsData, userEmail } = useCohorts();
@@ -286,6 +289,7 @@ export default function MappingPage() {
   const [cachedFiles, setCachedFiles] = useState<any[]>([]);
   const [loadingCacheFiles, setLoadingCacheFiles] = useState(false);
   const [loadingCacheAction, setLoadingCacheAction] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'table' | 'graph'>('table');
   
   // Reference to the mapping output section
   const mappingOutputRef = useRef<HTMLDivElement>(null);
@@ -922,222 +926,248 @@ export default function MappingPage() {
             ref={mappingOutputRef}
             className="mt-4 p-4 border rounded-lg bg-base-100 w-[85vw] mx-auto"
           >
-            <h2 className="text-lg font-bold mb-3">Mapping Preview</h2>
-            
-            {/* Filter Controls - Moved to top */}
-            <div className="flex justify-end mb-4">
-              <div className="bg-gray-50 border rounded-lg p-4 w-full max-w-2xl">
-                <h4 className="font-semibold text-sm mb-3">Filters</h4>
-                <div className="grid grid-cols-2 gap-4">
-                  {/* Mapping Relation Filter */}
-                  <div>
-                    <h5 className="font-medium text-xs mb-2">mapping_relation</h5>
-                    <div className="space-y-1 max-h-32 overflow-y-auto text-xs">
-                      {(() => {
-                        const mappingRelationCounts = mappingOutput.reduce((acc, row) => {
-                          const value = (row.mapping_relation?.toString() || '--');
-                          const currentCount = acc[value] as number || 0;
-                          acc[value] = currentCount + 1;
-                          return acc;
-                        }, {} as Record<string, number>);
-                        
-                        return Object.entries(mappingRelationCounts).map(([value, count]) => (
-                          <div key={value} className="flex items-center gap-2">
-                            <input 
-                              type="checkbox" 
-                              className="checkbox checkbox-xs" 
-                              id={`mapping-${value}`}
-                              checked={selectedMappingTypes.includes(value)}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setSelectedMappingTypes(prev => [...prev, value]);
-                                } else {
-                                  setSelectedMappingTypes(prev => prev.filter(v => v !== value));
-                                }
-                              }}
-                            />
-                            <label htmlFor={`mapping-${value}`} className="cursor-pointer truncate">
-                              {value} ({count})
-                            </label>
-                          </div>
-                        ));
-                      })()}
-                    </div>
-                  </div>
+            {/* Header with title and view toggle */}
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold">Mapping Preview</h2>
+              <div className="join">
+                <button
+                  className={`join-item btn btn-sm ${viewMode === 'table' ? 'btn-active' : ''}`}
+                  onClick={() => setViewMode('table')}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 3v18"/></svg>
+                  <span className="ml-1">Table</span>
+                </button>
+                <button
+                  className={`join-item btn btn-sm ${viewMode === 'graph' ? 'btn-active' : ''}`}
+                  onClick={() => setViewMode('graph')}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><circle cx="18" cy="6" r="3"/><path d="M6 9v6"/><path d="M9 6h6"/><path d="M15 18H9"/></svg>
+                  <span className="ml-1">Graph</span>
+                </button>
+              </div>
+            </div>
 
-                  {/* Harmonization Status Filter */}
-                  <div>
-                    <h5 className="font-medium text-xs mb-2">harmonization_status</h5>
-                    <div className="space-y-1 max-h-32 overflow-y-auto text-xs">
-                      {(() => {
-                        const statusCounts = mappingOutput.reduce((acc, row) => {
-                          const value = (row.harmonization_status?.toString() || '--');
-                          const currentCount = acc[value] as number || 0;
-                          acc[value] = currentCount + 1;
-                          return acc;
-                        }, {} as Record<string, number>);
-                        
-                        return Object.entries(statusCounts).map(([value, count]) => (
-                          <div key={value} className="flex items-center gap-2">
-                            <input 
-                              type="checkbox" 
-                              className="checkbox checkbox-xs" 
-                              id={`status-${value}`}
-                              checked={selectedHarmonizationStatuses.includes(value)}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setSelectedHarmonizationStatuses(prev => [...prev, value]);
-                                } else {
-                                  setSelectedHarmonizationStatuses(prev => prev.filter(v => v !== value));
-                                }
-                              }}
-                            />
-                            <label htmlFor={`status-${value}`} className="cursor-pointer truncate">
-                              {value} ({count})
-                            </label>
-                          </div>
-                        ));
-                      })()}
+            {/* === GRAPH VIEW === */}
+            {viewMode === 'graph' && (
+              <MappingGraphView data={mappingOutput} sourceCohort={sourceCohort} />
+            )}
+
+            {/* === TABLE VIEW === */}
+            {viewMode === 'table' && (
+              <>
+                {/* Filter Controls */}
+                <div className="flex justify-end mb-4">
+                  <div className="bg-gray-50 border rounded-lg p-4 w-full max-w-2xl">
+                    <h4 className="font-semibold text-sm mb-3">Filters</h4>
+                    <div className="grid grid-cols-2 gap-4">
+                      {/* Mapping Relation Filter */}
+                      <div>
+                        <h5 className="font-medium text-xs mb-2">mapping_relation</h5>
+                        <div className="space-y-1 max-h-32 overflow-y-auto text-xs">
+                          {(() => {
+                            const mappingRelationCounts = mappingOutput.reduce((acc, row) => {
+                              const value = (row.mapping_relation?.toString() || '--');
+                              const currentCount = acc[value] as number || 0;
+                              acc[value] = currentCount + 1;
+                              return acc;
+                            }, {} as Record<string, number>);
+                            
+                            return Object.entries(mappingRelationCounts).map(([value, count]) => (
+                              <div key={value} className="flex items-center gap-2">
+                                <input 
+                                  type="checkbox" 
+                                  className="checkbox checkbox-xs" 
+                                  id={`mapping-${value}`}
+                                  checked={selectedMappingTypes.includes(value)}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setSelectedMappingTypes(prev => [...prev, value]);
+                                    } else {
+                                      setSelectedMappingTypes(prev => prev.filter(v => v !== value));
+                                    }
+                                  }}
+                                />
+                                <label htmlFor={`mapping-${value}`} className="cursor-pointer truncate">
+                                  {value} ({count})
+                                </label>
+                              </div>
+                            ));
+                          })()}
+                        </div>
+                      </div>
+
+                      {/* Harmonization Status Filter */}
+                      <div>
+                        <h5 className="font-medium text-xs mb-2">harmonization_status</h5>
+                        <div className="space-y-1 max-h-32 overflow-y-auto text-xs">
+                          {(() => {
+                            const statusCounts = mappingOutput.reduce((acc, row) => {
+                              const value = (row.harmonization_status?.toString() || '--');
+                              const currentCount = acc[value] as number || 0;
+                              acc[value] = currentCount + 1;
+                              return acc;
+                            }, {} as Record<string, number>);
+                            
+                            return Object.entries(statusCounts).map(([value, count]) => (
+                              <div key={value} className="flex items-center gap-2">
+                                <input 
+                                  type="checkbox" 
+                                  className="checkbox checkbox-xs" 
+                                  id={`status-${value}`}
+                                  checked={selectedHarmonizationStatuses.includes(value)}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setSelectedHarmonizationStatuses(prev => [...prev, value]);
+                                    } else {
+                                      setSelectedHarmonizationStatuses(prev => prev.filter(v => v !== value));
+                                    }
+                                  }}
+                                />
+                                <label htmlFor={`status-${value}`} className="cursor-pointer truncate">
+                                  {value} ({count})
+                                </label>
+                              </div>
+                            ));
+                          })()}
+                        </div>
+                      </div>
                     </div>
+                    
+                    {/* Clear Filters Button */}
+                    {(selectedMappingTypes.length > 0 || selectedHarmonizationStatuses.length > 0) && (
+                      <button
+                        className="btn btn-xs btn-outline mt-3 w-full"
+                        onClick={() => {
+                          setSelectedMappingTypes([]);
+                          setSelectedHarmonizationStatuses([]);
+                        }}
+                      >
+                        Clear Filters
+                      </button>
+                    )}
                   </div>
                 </div>
-                
-                {/* Clear Filters Button */}
-                {(selectedMappingTypes.length > 0 || selectedHarmonizationStatuses.length > 0) && (
+
+                {/* Row count and target info */}
+                {(() => {
+                  const filteredData = mappingOutput.filter(row => {
+                    const mappingRelation = (row.mapping_relation?.toString() || '--');
+                    const harmonizationStatus = (row.harmonization_status?.toString() || '--');
+                    
+                    const mappingRelationMatch = selectedMappingTypes.length === 0 || selectedMappingTypes.includes(mappingRelation);
+                    const harmonizationStatusMatch = selectedHarmonizationStatuses.length === 0 || selectedHarmonizationStatuses.includes(harmonizationStatus);
+                    
+                    return mappingRelationMatch && harmonizationStatusMatch;
+                  });
+
+                  return (
+                    <div className="text-xs text-gray-500 mb-3">
+                      <p>{filteredData.length} rows {filteredData.length !== mappingOutput.length && `(filtered from ${mappingOutput.length})`}</p>
+                      {(() => {
+                        const targetCounts: Record<string, number> = {};
+                        filteredData.forEach(row => {
+                          const targetStudy = row.target_study as string;
+                          if (targetStudy) {
+                            targetCounts[targetStudy] = (targetCounts[targetStudy] || 0) + 1;
+                          }
+                        });
+                        return (
+                          <p>
+                            Mappings per target: {Object.entries(targetCounts)
+                              .map(([target, count]) => `${target} (${count})`)
+                              .join(', ')}
+                          </p>
+                        );
+                      })()}
+                    </div>
+                  );
+                })()}
+
+                {/* Top horizontal scrollbar with arrow buttons */}
+                <div className="flex items-center gap-1 mb-2">
                   <button
-                    className="btn btn-xs btn-outline mt-3 w-full"
+                    className="btn btn-xs btn-square"
                     onClick={() => {
-                      setSelectedMappingTypes([]);
-                      setSelectedHarmonizationStatuses([]);
+                      const topScroll = document.getElementById('top-scroll');
+                      const bottomScroll = document.getElementById('bottom-scroll');
+                      if (topScroll && bottomScroll) {
+                        const scrollAmount = 200;
+                        topScroll.scrollLeft -= scrollAmount;
+                        bottomScroll.scrollLeft -= scrollAmount;
+                      }
+                    }}
+                    title="Scroll left"
+                  >
+                    ←
+                  </button>
+                  <div 
+                    id="top-scroll"
+                    className="overflow-x-scroll flex-1 border border-gray-200 rounded"
+                    style={{
+                      height: '20px',
+                      overflowY: 'hidden',
+                      scrollbarWidth: 'auto',
+                      scrollbarColor: '#94a3b8 #e2e8f0'
+                    }}
+                    onScroll={(e) => {
+                      const bottomScroll = document.getElementById('bottom-scroll');
+                      if (bottomScroll) {
+                        bottomScroll.scrollLeft = e.currentTarget.scrollLeft;
+                      }
                     }}
                   >
-                    Clear Filters
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Row count and target info */}
-            {(() => {
-              // Filter the data based on selected filters
-              const filteredData = mappingOutput.filter(row => {
-                const mappingRelation = (row.mapping_relation?.toString() || '--');
-                const harmonizationStatus = (row.harmonization_status?.toString() || '--');
-                
-                const mappingRelationMatch = selectedMappingTypes.length === 0 || selectedMappingTypes.includes(mappingRelation);
-                const harmonizationStatusMatch = selectedHarmonizationStatuses.length === 0 || selectedHarmonizationStatuses.includes(harmonizationStatus);
-                
-                return mappingRelationMatch && harmonizationStatusMatch;
-              });
-
-              return (
-                <div className="text-xs text-gray-500 mb-3">
-                  <p>{filteredData.length} rows {filteredData.length !== mappingOutput.length && `(filtered from ${mappingOutput.length})`}</p>
-                  {(() => {
-                    // Calculate mappings per target cohort for filtered data
-                    const targetCounts: Record<string, number> = {};
-                    filteredData.forEach(row => {
-                      const targetStudy = row.target_study as string;
-                      if (targetStudy) {
-                        targetCounts[targetStudy] = (targetCounts[targetStudy] || 0) + 1;
+                    <div style={{ width: `${tableScrollWidth}px`, height: '1px' }}></div>
+                  </div>
+                  <button
+                    className="btn btn-xs btn-square"
+                    onClick={() => {
+                      const topScroll = document.getElementById('top-scroll');
+                      const bottomScroll = document.getElementById('bottom-scroll');
+                      if (topScroll && bottomScroll) {
+                        const scrollAmount = 200;
+                        topScroll.scrollLeft += scrollAmount;
+                        bottomScroll.scrollLeft += scrollAmount;
                       }
+                    }}
+                    title="Scroll right"
+                  >
+                    →
+                  </button>
+                </div>
+                
+                {/* Main table with scrollbars */}
+                <div 
+                  id="bottom-scroll"
+                  className="overflow-x-scroll overflow-y-scroll max-h-[600px] border border-gray-200 rounded-b" 
+                  style={{
+                    scrollbarWidth: 'auto',
+                    scrollbarColor: '#94a3b8 #e2e8f0',
+                    overflowX: 'scroll',
+                    overflowY: 'scroll'
+                  }}
+                  onScroll={(e) => {
+                    const topScroll = e.currentTarget.previousElementSibling as HTMLElement;
+                    if (topScroll) {
+                      topScroll.scrollLeft = e.currentTarget.scrollLeft;
+                    }
+                  }}
+                >
+                  {(() => {
+                    const filteredData = mappingOutput.filter(row => {
+                      const mappingRelation = (row.mapping_relation?.toString() || '--');
+                      const harmonizationStatus = (row.harmonization_status?.toString() || '--');
+                      
+                      const mappingRelationMatch = selectedMappingTypes.length === 0 || selectedMappingTypes.includes(mappingRelation);
+                      const harmonizationStatusMatch = selectedHarmonizationStatuses.length === 0 || selectedHarmonizationStatuses.includes(harmonizationStatus);
+                      
+                      return mappingRelationMatch && harmonizationStatusMatch;
                     });
-                    return (
-                      <p>
-                        Mappings per target: {Object.entries(targetCounts)
-                          .map(([target, count]) => `${target} (${count})`)
-                          .join(', ')}
-                      </p>
-                    );
+                    
+                    return <MappingPreviewJsonTable data={filteredData} sourceCohort={sourceCohort} />;
                   })()}
                 </div>
-              );
-            })()}
-
-            {/* Top horizontal scrollbar with arrow buttons */}
-            <div className="flex items-center gap-1 mb-2">
-              <button
-                className="btn btn-xs btn-square"
-                onClick={() => {
-                  const topScroll = document.getElementById('top-scroll');
-                  const bottomScroll = document.getElementById('bottom-scroll');
-                  if (topScroll && bottomScroll) {
-                    const scrollAmount = 200;
-                    topScroll.scrollLeft -= scrollAmount;
-                    bottomScroll.scrollLeft -= scrollAmount;
-                  }
-                }}
-                title="Scroll left"
-              >
-                ←
-              </button>
-              <div 
-                id="top-scroll"
-                className="overflow-x-scroll flex-1 border border-gray-200 rounded"
-                style={{
-                  height: '20px',
-                  overflowY: 'hidden',
-                  scrollbarWidth: 'auto',
-                  scrollbarColor: '#94a3b8 #e2e8f0'
-                }}
-                onScroll={(e) => {
-                  const bottomScroll = document.getElementById('bottom-scroll');
-                  if (bottomScroll) {
-                    bottomScroll.scrollLeft = e.currentTarget.scrollLeft;
-                  }
-                }}
-              >
-                <div style={{ width: `${tableScrollWidth}px`, height: '1px' }}></div>
-              </div>
-              <button
-                className="btn btn-xs btn-square"
-                onClick={() => {
-                  const topScroll = document.getElementById('top-scroll');
-                  const bottomScroll = document.getElementById('bottom-scroll');
-                  if (topScroll && bottomScroll) {
-                    const scrollAmount = 200;
-                    topScroll.scrollLeft += scrollAmount;
-                    bottomScroll.scrollLeft += scrollAmount;
-                  }
-                }}
-                title="Scroll right"
-              >
-                →
-              </button>
-            </div>
-            
-            {/* Main table with scrollbars */}
-            <div 
-              id="bottom-scroll"
-              className="overflow-x-scroll overflow-y-scroll max-h-[600px] border border-gray-200 rounded-b" 
-              style={{
-                scrollbarWidth: 'auto',
-                scrollbarColor: '#94a3b8 #e2e8f0',
-                overflowX: 'scroll',
-                overflowY: 'scroll'
-              }}
-              onScroll={(e) => {
-                const topScroll = e.currentTarget.previousElementSibling as HTMLElement;
-                if (topScroll) {
-                  topScroll.scrollLeft = e.currentTarget.scrollLeft;
-                }
-              }}
-            >
-              {(() => {
-                // Calculate filtered data for the table
-                const filteredData = mappingOutput.filter(row => {
-                  const mappingRelation = (row.mapping_relation?.toString() || '--');
-                  const harmonizationStatus = (row.harmonization_status?.toString() || '--');
-                  
-                  const mappingRelationMatch = selectedMappingTypes.length === 0 || selectedMappingTypes.includes(mappingRelation);
-                  const harmonizationStatusMatch = selectedHarmonizationStatuses.length === 0 || selectedHarmonizationStatuses.includes(harmonizationStatus);
-                  
-                  return mappingRelationMatch && harmonizationStatusMatch;
-                });
-                
-                return <MappingPreviewJsonTable data={filteredData} sourceCohort={sourceCohort} />;
-              })()}
-            </div>
+              </>
+            )}
           </div>
         )}
       </div>
