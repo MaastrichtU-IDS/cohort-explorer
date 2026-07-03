@@ -327,10 +327,10 @@ function domainClr(raw: string) {
 }
 
 const HARMONIZATION_COLORS: Record<string, string> = {
-  'Identical Match':  '#16a34a',
-  'Compatible Match': '#2563eb',
-  'Partial Match':    '#d97706',
-  'Not Applicable':   '#dc2626',
+  'Identical Match':  '#166534',
+  'Compatible Match': '#60a5fa',
+  'Partial Match':    '#bef264',
+  'Not Applicable':   '#d1d5db',
 };
 function edgeClr(status: string) { return HARMONIZATION_COLORS[status] || '#94a3b8'; }
 function edgeW(sim: number | null) { if (sim == null) return 1.5; const s = Math.max(0, Math.min(1, sim)); return 1 + Math.pow(s, 3) * 14; }
@@ -1639,8 +1639,8 @@ export default function MappingPage() {
             {/* View mode toggle */}
             <div className="flex items-center justify-center gap-2 mb-3 mt-1">
               <div className="join">
-                <button className={`join-item btn ${viewMode === 'table' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setViewMode('table')}>⊞ Table</button>
-                <button className={`join-item btn ${viewMode === 'graph' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setViewMode('graph')}>⬡ Graph</button>
+                <button className={`join-item btn btn-lg ${viewMode === 'table' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setViewMode('table')}>⊞ Table</button>
+                <button className={`join-item btn btn-lg ${viewMode === 'graph' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setViewMode('graph')}>⬡ Graph</button>
               </div>
             </div>
 
