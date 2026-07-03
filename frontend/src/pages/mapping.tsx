@@ -893,7 +893,7 @@ export default function MappingPage() {
     }
   };
 
-  // Handle preview of a cached mapping file
+  // Handle preview of a cached mapping file (table view)
   const handleCachePreview = async (file: any) => {
     setLoadingCacheAction(file.filename);
     try {
@@ -910,6 +910,37 @@ export default function MappingPage() {
         previewData = transformMappingDataForPreview(jsonData);
       }
       setMappingOutput(previewData);
+      setViewMode('table');
+      // Set the source cohort from the file's first cohort for the EDA comparison feature
+      if (file.cohorts && file.cohorts.length > 0) {
+        setSourceCohort(file.cohorts[0]);
+      }
+      setShowCachePanel(false);
+    } catch (error) {
+      console.error('Failed to preview cached file:', error);
+    } finally {
+      setLoadingCacheAction(null);
+    }
+  };
+
+  // Handle preview of a cached mapping file (graph view)
+  const handleCachePreviewGraph = async (file: any) => {
+    setLoadingCacheAction(file.filename);
+    try {
+      const response = await fetch(`${apiUrl}/api/get-cached-mapping-file/${encodeURIComponent(file.filename)}`, {
+        credentials: 'include',
+      });
+      if (!response.ok) throw new Error('Failed to fetch file');
+      let previewData: RowData[];
+      if (file.filename.endsWith('.csv')) {
+        const csvText = await response.text();
+        previewData = transformCsvDataForPreview(csvText, file.cohorts);
+      } else {
+        const jsonData = await response.json();
+        previewData = transformMappingDataForPreview(jsonData);
+      }
+      setMappingOutput(previewData);
+      setViewMode('graph');
       // Set the source cohort from the file's first cohort for the EDA comparison feature
       if (file.cohorts && file.cohorts.length > 0) {
         setSourceCohort(file.cohorts[0]);
@@ -1343,7 +1374,14 @@ export default function MappingPage() {
                               onClick={() => handleCachePreview(file)}
                               disabled={loadingCacheAction === file.filename}
                             >
-                              {loadingCacheAction === file.filename ? <span className="loading loading-spinner loading-xs"></span> : 'Preview'}
+                              {loadingCacheAction === file.filename ? <span className="loading loading-spinner loading-xs"></span> : 'Show table'}
+                            </button>
+                            <button
+                              className="btn btn-xs btn-outline"
+                              onClick={() => handleCachePreviewGraph(file)}
+                              disabled={loadingCacheAction === file.filename}
+                            >
+                              {loadingCacheAction === file.filename ? <span className="loading loading-spinner loading-xs"></span> : 'Show graph'}
                             </button>
                             <button
                               className="btn btn-xs btn-outline"
