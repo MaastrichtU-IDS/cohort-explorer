@@ -356,7 +356,9 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
   const [expandedIds, setExpandedIds] = React.useState<Set<string>>(new Set());
   const [hoveredEdge, setHoveredEdge] = React.useState<GEdge | null>(null);
   const [selectedEdge, setSelectedEdge] = React.useState<GEdge | null>(null);
+  const [selectedEdgeData, setSelectedEdgeData] = React.useState<RowData | null>(null);
   const [edaImage, setEdaImage] = React.useState<string | null>(null);
+  const edgeDetailsRef = React.useRef<HTMLDivElement>(null);
   const [edaError, setEdaError] = React.useState<string | null>(null);
   const [edaLoading, setEdaLoading] = React.useState(false);
   const [edaAvail, setEdaAvail] = React.useState<Record<string, boolean>>({});
@@ -372,6 +374,13 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
       }
     });
   }, [sourceCohort, selectedTarget]);
+
+  // Auto-scroll to edge details panel when edge is selected
+  React.useEffect(() => {
+    if (selectedEdge && edgeDetailsRef.current) {
+      edgeDetailsRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [selectedEdge]);
 
   const targetCohorts = React.useMemo(
     () => [...new Set(data.map(r => r.target_study as string).filter(Boolean))],
@@ -540,7 +549,7 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
   function resetAll() {
     setFocusedId(null); setActiveSrcDomains([]); setActiveTgtDomains([]);
     setActiveStatuses([]); setVarFilter('mapped');
-    setSrcSort('default'); setTgtSort('default'); setSearchQ(''); setExpandedIds(new Set()); setHoveredEdge(null); setSelectedEdge(null); setEdaImage(null); setEdaError(null);
+    setSrcSort('default'); setTgtSort('default'); setSearchQ(''); setExpandedIds(new Set()); setHoveredEdge(null); setSelectedEdge(null); setSelectedEdgeData(null); setEdaImage(null); setEdaError(null);
   }
   const varFilterLabel = varFilter === 'unmapped' ? 'showing only vars with no cross-mappings' : 'showing only cross-mapped vars';
   const varFilterCls = varFilter === 'unmapped' ? 'btn-warning' : 'btn-success';
@@ -658,7 +667,22 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
                 <path d={`M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`} fill="none" stroke="transparent" strokeWidth={10}
                   style={{ cursor: 'crosshair' }}
                   onMouseEnter={() => setHoveredEdge(e)} onMouseLeave={() => setHoveredEdge(null)}
-                  onClick={ev => { ev.stopPropagation(); setSelectedEdge(p => p?.srcId === e.srcId && p?.tgtId === e.tgtId ? null : e); setEdaImage(null); setEdaError(null); }}
+                  onClick={ev => { ev.stopPropagation(); 
+                    const isDeselecting = selectedEdge?.srcId === e.srcId && selectedEdge?.tgtId === e.tgtId;
+                    setSelectedEdge(isDeselecting ? null : e);
+                    setEdaImage(null); setEdaError(null);
+                    // Find and set full row data for this edge
+                    if (!isDeselecting) {
+                      const rowData = data.find(r => 
+                        r.s_source === e.srcId && 
+                        r.target === e.tgtId.split('::')[1] && 
+                        r.target_study === e.tgtId.split('::')[0]
+                      );
+                      setSelectedEdgeData(rowData || null);
+                    } else {
+                      setSelectedEdgeData(null);
+                    }
+                  }}
                 />
                 <path d={`M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`}
                   fill="none" stroke={edgeClr(e.status)} strokeWidth={isHovE ? edgeW(e.sim) + 1.5 : edgeW(e.sim)}
@@ -775,26 +799,37 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
           finally { setEdaLoading(false); }
         };
         return (
-          <div className="border rounded-lg bg-base-100 shadow-lg p-5 mt-4">
+          <div ref={edgeDetailsRef} className="border rounded-lg bg-base-100 shadow-lg p-5 mt-4">
             <div className="flex justify-between items-start">
-              <div>
+              <div className="flex-1">
                 <h4 className="font-bold text-base mb-2">Mapping Detail</h4>
                 <div className="grid grid-cols-2 gap-x-8 gap-y-1 text-sm">
-                  <div><span className="text-gray-500">Source:</span> <strong>{srcVar}</strong></div>
-                  <div><span className="text-gray-500">Target:</span> <strong>{tgtVar}</strong></div>
-                  <div><span className="text-gray-500">Source Cohort:</span> {sourceCohort}</div>
-                  <div><span className="text-gray-500">Target Cohort:</span> {tgtStudy}</div>
-                  <div><span className="text-gray-500">Score:</span> {selectedEdge.sim?.toFixed(4) ?? '--'}</div>
-                  <div><span className="text-gray-500">Status:</span> <span style={{color: edgeClr(selectedEdge.status), fontWeight: 600}}>{selectedEdge.status}</span></div>
-                  <div><span className="text-gray-500">Relation:</span> {selectedEdge.relation || '--'}</div>
+                  {selectedEdgeData ? (
+                    Object.entries(selectedEdgeData).map(([key, value]) => (
+                      <div key={key}>
+                        <span className="text-gray-500">{key}:</span>{' '}
+                        <span className="font-medium">{value === null || value === undefined || value === 'null' ? '--' : String(value)}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <>
+                      <div><span className="text-gray-500">Source:</span> <strong>{srcVar}</strong></div>
+                      <div><span className="text-gray-500">Target:</span> <strong>{tgtVar}</strong></div>
+                      <div><span className="text-gray-500">Source Cohort:</span> {sourceCohort}</div>
+                      <div><span className="text-gray-500">Target Cohort:</span> {tgtStudy}</div>
+                      <div><span className="text-gray-500">Score:</span> {selectedEdge.sim?.toFixed(4) ?? '--'}</div>
+                      <div><span className="text-gray-500">Status:</span> <span style={{color: edgeClr(selectedEdge.status), fontWeight: 600}}>{selectedEdge.status}</span></div>
+                      <div><span className="text-gray-500">Relation:</span> {selectedEdge.relation || '--'}</div>
+                    </>
+                  )}
                 </div>
               </div>
-              <div className="flex gap-2 items-center">
+              <div className="flex gap-2 items-center ml-4">
                 <button className="btn btn-primary btn-sm gap-1" onClick={handleCompareEda} disabled={edaLoading}>
                   {edaLoading ? <span className="loading loading-spinner loading-xs"></span> : <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18"/><path d="M7 16l4-8 4 4 4-8"/></svg>}
                   Compare EDA
                 </button>
-                <button className="btn btn-ghost btn-sm btn-circle" onClick={() => { setSelectedEdge(null); setEdaImage(null); setEdaError(null); }}>✕</button>
+                <button className="btn btn-ghost btn-sm btn-circle" onClick={() => { setSelectedEdge(null); setSelectedEdgeData(null); setEdaImage(null); setEdaError(null); }}>✕</button>
               </div>
             </div>
             {(edaImage || edaError) && (
