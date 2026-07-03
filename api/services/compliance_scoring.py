@@ -3,8 +3,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
 
+from api.services.ontology import icd10
+
 class RiskLevel(Enum):
-    \
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
@@ -12,7 +13,6 @@ class RiskLevel(Enum):
 
 @dataclass
 class Condition:
-    \
     modifier: str
     requirement: str
     attestation_type: Optional[str] = None
@@ -21,7 +21,6 @@ class Condition:
 
 @dataclass
 class ScoreBreakdown:
-    \
     component: str
     max_score: int
     achieved_score: int
@@ -30,15 +29,6 @@ class ScoreBreakdown:
 
 @dataclass
 class ComplianceScore:
-    \
-\
-\
-\
-\
-\
-\
-\
-\
     total_score: int
 
     permission_score: int
@@ -62,7 +52,6 @@ class ComplianceScore:
 
     @property
     def decision(self) -> str:
-        \
         if self.risk_level == RiskLevel.CRITICAL:
             return "DENIED"
         if self.conditions and any(c.severity == "required" for c in self.conditions):
@@ -170,16 +159,6 @@ MODIFIER_IMPACTS = {
 }
 
 class ComplianceScoringEngine:
-    \
-\
-\
-\
-\
-\
-\
-\
-\
-\
     def calculate_score(
         self,
         consent: dict,
@@ -189,20 +168,6 @@ class ComplianceScoringEngine:
         geographic_proof: Optional[dict] = None,
         institution_proof: Optional[dict] = None
     ) -> ComplianceScore:
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
 
         perm_result = self._score_permission(
             consent.get("permission", ""),
@@ -288,8 +253,6 @@ class ComplianceScoringEngine:
         consent_disease: Optional[str] = None,
         request_disease: Optional[str] = None
     ) -> dict:
-        \
-\
         result = {
             "score": 0,
             "passed": [],
@@ -313,8 +276,8 @@ class ComplianceScoringEngine:
             result["passed"].append(f"Exact permission match: {consent_perm}")
 
             if consent_perm == "DS" and consent_disease and request_disease:
-                if consent_disease == request_disease:
-                    result["passed"].append(f"Exact disease match: {consent_disease}")
+                if icd10.is_compatible(consent_disease, request_disease):
+                    result["passed"].append(f"Disease match: {request_disease} within {consent_disease}")
                 else:
 
                     result["partial"].append(
@@ -370,7 +333,6 @@ class ComplianceScoringEngine:
         return result
 
     def _is_descendant(self, child: str, parent: str) -> bool:
-        \
         current = child
         while current in PERMISSION_HIERARCHY:
             current_parent = PERMISSION_HIERARCHY[current].get("parent")
@@ -390,8 +352,6 @@ class ComplianceScoringEngine:
         geographic_proof: Optional[dict] = None,
         institution_proof: Optional[dict] = None
     ) -> dict:
-        \
-\
         result = {
             "score": 400,
             "passed": [],
@@ -468,8 +428,6 @@ class ComplianceScoringEngine:
         geographic_proof: Optional[dict],
         institution_proof: Optional[dict]
     ) -> tuple[bool, str]:
-        \
-\
         check_type = impact.get("check_type")
 
         if check_type == "requester_type":
@@ -523,8 +481,6 @@ class ComplianceScoringEngine:
         modifier: str,
         attestations: list[dict]
     ) -> int:
-        \
-\
         bonus = 0
 
         for att in attestations:
@@ -546,8 +502,6 @@ class ComplianceScoringEngine:
         required_modifiers: list[str],
         attestations: list[dict]
     ) -> dict:
-        \
-\
         result = {
             "score": 0,
             "passed": [],
@@ -595,8 +549,6 @@ class ComplianceScoringEngine:
         return result
 
     def _score_trust(self, requester_profile: dict) -> dict:
-        \
-\
         result = {
             "score": 0,
             "passed": [],
@@ -640,8 +592,6 @@ class ComplianceScoringEngine:
         conditions: list[Condition],
         requester_profile: dict
     ) -> list[str]:
-        \
-\
         recs = []
 
         if total_score < 600:
@@ -674,7 +624,6 @@ class ComplianceScoringEngine:
 _scoring_engine: Optional[ComplianceScoringEngine] = None
 
 def get_scoring_engine() -> ComplianceScoringEngine:
-    \
     global _scoring_engine
     if _scoring_engine is None:
         _scoring_engine = ComplianceScoringEngine()

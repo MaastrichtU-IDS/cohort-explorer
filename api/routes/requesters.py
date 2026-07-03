@@ -18,12 +18,12 @@ from api.services.auth import (
 from api.services.blockchain import get_blockchain_service
 from api.services.cache import get_cache
 from api.services.ibis import OperationType
+from api.services.ontology import icd10
 
 router = APIRouter(prefix="/requesters", tags=["requesters"])
 
 REQUESTER_TYPES = {"PROFIT", "NONPROFIT", "ACADEMIC", "GOVERNMENT", "INDIVIDUAL"}
 
-_DISEASE_CURIE_RE = re.compile(r"^(MONDO|DOID|HP|ORPHA|EFO|NCIT|OMIM):[A-Za-z0-9_]+$")
 _PROJECT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._\-]{1,63}$")
 _NONPROFIT_TYPES = {"ACADEMIC", "NONPROFIT", "GOVERNMENT"}
 _COMMERCIAL_TYPES = {"PROFIT", "COMMERCIAL"}
@@ -46,11 +46,12 @@ def _validate_request_format(req):
     req.intendedUse = use
 
     if req.diseaseCode is not None:
-        d = req.diseaseCode.strip()
-        if not _DISEASE_CURIE_RE.match(d):
+        d = icd10.normalize(req.diseaseCode)
+        if not icd10.is_requester_leaf(d):
             return (
                 "INVALID_DISEASE_CODE",
-                f"diseaseCode must be a CURIE like MONDO:0005148, DOID:9352, HP:0001250 (got {req.diseaseCode!r})",
+                f"diseaseCode must be a specific bottom-level ICD-10 code (e.g. I50, E11, O24.4); "
+                f"blocks/chapters are not allowed for requests (got {req.diseaseCode!r})",
             )
         req.diseaseCode = d
 
@@ -90,10 +91,10 @@ def _match_or_reject(req, cohort: dict, profile: dict, requester_eoa: str, reque
 
     if req.intendedUse == "DS":
         cd = cohort.get("disease_code")
-        if cd and req.diseaseCode and cd != req.diseaseCode:
+        if cd and req.diseaseCode and not icd10.is_compatible(cd, req.diseaseCode):
             return (
                 "DISEASE_NOT_COMPATIBLE",
-                f"requested {req.diseaseCode!r} != consent {cd!r}",
+                f"requested {req.diseaseCode!r} is not {cd!r} nor one of its ICD-10 descendants",
             )
 
     mods = {m.upper() for m in (cohort.get("modifiers") or [])}

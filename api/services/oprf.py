@@ -23,25 +23,6 @@ _FINALIZE_DST = b"IBIS-OPRF-P256-Finalize-V1"
 _KEY_DERIVE_DST = b"IBIS-OPRF-P256-KeyDerive-V1"
 
 def hash_to_curve(data: bytes, dst: bytes = _HASH_TO_CURVE_DST) -> Point:
-    \
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
     for counter in range(256):
         hash_input = dst + data + counter.to_bytes(4, 'big')
         h = hashlib.sha256(hash_input).digest()
@@ -69,19 +50,11 @@ def hash_to_curve(data: bytes, dst: bytes = _HASH_TO_CURVE_DST) -> Point:
     raise ValueError(f"hash_to_curve failed after 256 iterations for input of length {len(data)}")
 
 def _serialize_point(point: Point) -> bytes:
-    \
-\
-\
-\
     x_bytes = point.x.to_bytes(32, 'big')
     y_bytes = point.y.to_bytes(32, 'big')
     return b'\x04' + x_bytes + y_bytes
 
 def _deserialize_point(data: bytes) -> Point:
-    \
-\
-\
-\
     if len(data) != 65 or data[0] != 0x04:
         raise ValueError(f"Invalid uncompressed point: expected 65 bytes starting with 0x04, got {len(data)} bytes")
     x = int.from_bytes(data[1:33], 'big')
@@ -92,14 +65,6 @@ def _deserialize_point(data: bytes) -> Point:
     return point
 
 def _finalize(output_element: Point, input_data: bytes) -> bytes:
-    \
-\
-\
-\
-\
-\
-\
-\
     element_bytes = _serialize_point(output_element)
     input_len = len(input_data).to_bytes(2, 'big')
     element_len = len(element_bytes).to_bytes(2, 'big')
@@ -110,37 +75,17 @@ def _finalize(output_element: Point, input_data: bytes) -> bytes:
 
 @dataclass
 class OPRFKeyPair:
-    \
-\
-\
-\
-\
-\
-\
     scalar: int
     public_key: Point
 
     @classmethod
     def generate(cls) -> 'OPRFKeyPair':
-        \
         k = secrets.randbelow(_ORDER - 1) + 1
         K = k * _G
         return cls(scalar=k, public_key=K)
 
     @classmethod
     def from_master_key(cls, master_key: bytes) -> 'OPRFKeyPair':
-        \
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
         from cryptography.hazmat.primitives.kdf.hkdf import HKDF
         from cryptography.hazmat.primitives import hashes as crypto_hashes
 
@@ -159,25 +104,9 @@ class OPRFKeyPair:
         return cls(scalar=k, public_key=K)
 
     def serialize_public_key(self) -> bytes:
-        \
         return _serialize_point(self.public_key)
 
 class OPRFServer:
-    \
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
     def __init__(self, key_pair: OPRFKeyPair):
         self._key = key_pair
 
@@ -190,63 +119,21 @@ class OPRFServer:
         return self._key.serialize_public_key()
 
     def blind_evaluate(self, blinded_element: Point) -> Point:
-        \
-\
-\
-\
-\
-\
-\
         if not _CURVE.is_on_curve(blinded_element):
             raise ValueError("Blinded element is not on P-256")
         return self._key.scalar * blinded_element
 
     def full_evaluate(self, input_data: bytes) -> bytes:
-        \
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
         H_input = hash_to_curve(input_data)
         output_element = self._key.scalar * H_input
         return _finalize(output_element, input_data)
 
 class OPRFClient:
-    \
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
     def __init__(self):
         self._r: Optional[int] = None
         self._input_data: Optional[bytes] = None
 
     def blind(self, input_data: bytes) -> Point:
-        \
-\
-\
-\
-\
-\
-\
-\
-\
         self._input_data = input_data
         self._r = secrets.randbelow(_ORDER - 1) + 1
 
@@ -256,15 +143,6 @@ class OPRFClient:
         return blinded_element
 
     def finalize(self, evaluated_element: Point) -> bytes:
-        \
-\
-\
-\
-\
-\
-\
-\
-\
         if self._r is None or self._input_data is None:
             raise ValueError("Must call blind() before finalize()")
 
@@ -280,33 +158,10 @@ class OPRFClient:
         return output
 
 class OPRFIdentityDeriver:
-    \
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
     def __init__(self, server: OPRFServer):
         self._server = server
 
     def derive_server_side(self, email: str) -> tuple[int, int]:
-        \
-\
-\
         from api.services.identity import FIELD_ORDER
         normalized = email.lower().strip()
 
@@ -323,17 +178,6 @@ class OPRFIdentityDeriver:
         return identity_secret, nullifier_secret
 
     def create_blind_request(self, email: str) -> dict:
-        \
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
         normalized = email.lower().strip()
 
         client_id = OPRFClient()
@@ -350,14 +194,6 @@ class OPRFIdentityDeriver:
         }
 
     def server_evaluate(self, blinded_identity_hex: str, blinded_nullifier_hex: str) -> dict:
-        \
-\
-\
-\
-\
-\
-\
-\
         blinded_id = _deserialize_point(bytes.fromhex(blinded_identity_hex))
         blinded_null = _deserialize_point(bytes.fromhex(blinded_nullifier_hex))
 
@@ -376,12 +212,6 @@ class OPRFIdentityDeriver:
         evaluated_identity_hex: str,
         evaluated_nullifier_hex: str,
     ) -> tuple[int, int]:
-        \
-\
-\
-\
-\
-\
         from api.services.identity import FIELD_ORDER
 
         evaluated_id = _deserialize_point(bytes.fromhex(evaluated_identity_hex))
@@ -398,7 +228,6 @@ class OPRFIdentityDeriver:
 _oprf_server: Optional[OPRFServer] = None
 
 def get_oprf_server(master_key: Optional[bytes] = None) -> OPRFServer:
-    \
     global _oprf_server
     if _oprf_server is None:
         if master_key is None:
@@ -420,6 +249,5 @@ def get_oprf_server(master_key: Optional[bytes] = None) -> OPRFServer:
     return _oprf_server
 
 def get_oprf_deriver(master_key: Optional[bytes] = None) -> OPRFIdentityDeriver:
-    \
     server = get_oprf_server(master_key)
     return OPRFIdentityDeriver(server)

@@ -11,10 +11,6 @@ _OVERWRITE_PASSES = 3
 _OVERWRITE_PATTERNS = [0x55, 0xAA, 0x00]
 
 def _try_mlock(buf: bytearray) -> bool:
-    \
-\
-\
-\
     if sys.platform == "darwin" or sys.platform.startswith("linux"):
         try:
             libc = ctypes.CDLL(None)
@@ -26,7 +22,6 @@ def _try_mlock(buf: bytearray) -> bool:
     return False
 
 def _try_munlock(buf: bytearray) -> None:
-    \
     if sys.platform == "darwin" or sys.platform.startswith("linux"):
         try:
             libc = ctypes.CDLL(None)
@@ -36,13 +31,6 @@ def _try_munlock(buf: bytearray) -> None:
             pass
 
 def secure_zero(buf: bytearray) -> None:
-    \
-\
-\
-\
-\
-\
-\
     if not isinstance(buf, bytearray):
         raise TypeError("secure_zero requires a mutable bytearray, not bytes")
 
@@ -62,26 +50,6 @@ def secure_zero(buf: bytearray) -> None:
             raise RuntimeError("secure_zero: verification failed")
 
 class SecureKeyBuffer:
-    \
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
     __slots__ = ('_buf', '_locked', '_erased')
 
     def __init__(self, key_material: bytes | bytearray):
@@ -98,20 +66,11 @@ class SecureKeyBuffer:
             secure_zero(key_material)
 
     def read(self) -> bytes:
-        \
         if self._erased:
             raise RuntimeError("Key buffer has been securely erased")
         return bytes(self._buf)
 
     def evolve(self, new_key: bytes | bytearray) -> None:
-        \
-\
-\
-\
-\
-\
-\
-\
         if self._erased:
             raise RuntimeError("Key buffer has been securely erased")
 
@@ -126,7 +85,6 @@ class SecureKeyBuffer:
             secure_zero(new_key)
 
     def erase(self) -> None:
-        \
         if not self._erased:
             secure_zero(self._buf)
             if self._locked:
@@ -144,7 +102,6 @@ class SecureKeyBuffer:
         self.erase()
 
     def __del__(self):
-        \
         if not self._erased:
             try:
                 self.erase()

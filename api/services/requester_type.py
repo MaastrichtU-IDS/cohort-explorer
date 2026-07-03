@@ -62,18 +62,6 @@ def infer_requester_type(
     email: str,
     declared_type: str | None = None
 ) -> Tuple[str, str]:
-    \
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
     if not email or "@" not in email:
         return ("unknown", "invalid_email")
 
@@ -109,18 +97,6 @@ def infer_requester_type(
     return (inferred, source)
 
 def get_country_from_email_tld(email: str) -> str | None:
-    \
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
     if not email or "@" not in email:
         return None
 
@@ -168,18 +144,6 @@ def get_country_from_email_tld(email: str) -> str | None:
     return None
 
 def is_email_from_allowed_country(email: str, allowed_countries: list[str]) -> bool:
-    \
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
     country = get_country_from_email_tld(email)
 
     if country is None:

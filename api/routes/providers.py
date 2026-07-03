@@ -9,7 +9,6 @@ from pydantic import BaseModel, EmailStr, Field, model_validator
 from api.models.duo import MODIFIER_VALUES, PERMISSION_VALUES
 from api.services.iso3166 import all_codes as _iso_country_codes
 
-_DISEASE_CURIE_RE = re.compile(r"^(MONDO|DOID|HP|ORPHA|EFO|NCIT|OMIM):[A-Za-z0-9_]+$")
 _ROR_RE = re.compile(r"^https?://ror\.org/[0-9a-z]{6,12}$")
 _ETH_ADDR_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
 _HEX64_RE = re.compile(r"^(0x)?[0-9a-fA-F]{64}$")
@@ -30,6 +29,7 @@ from api.services.auth import (
 from api.services.blockchain import get_blockchain_service
 from api.services.cache import get_cache
 from api.services.ibis import OperationType
+from api.services.ontology import icd10
 from api.services.wallet import derive_address_from_email, get_cohort_hash
 
 logger = logging.getLogger(__name__)
@@ -40,7 +40,7 @@ class ConsentDeclaration(BaseModel):
     permission: str = Field(..., description="Primary DUO permission: NRES | GRU | HMB | DS | POA")
     modifiers: list[str] = Field(default_factory=list, description="DUO modifier codes")
 
-    diseaseCode: Optional[str] = Field(None, description="Ontology CURIE (MONDO/DOID/HP); required when permission == DS")
+    diseaseCode: Optional[str] = Field(None, description="ICD-10 code at any level: category (I50), block (I30-I52) or chapter (I00-I99 / IX); required when permission == DS")
     allowedCountries: list[str] = Field(default_factory=list, description="ISO-3166 codes; required when GS modifier set")
     allowedInstitutions: list[str] = Field(default_factory=list, description="ROR IDs; required when IS modifier set")
     allowedProjects: list[str] = Field(default_factory=list, description="Project IDs; required when PS modifier set")
@@ -76,7 +76,7 @@ class ConsentDeclaration(BaseModel):
             self.modifiers = sorted(mods)
 
         if perm == "DS" and not self.diseaseCode:
-            raise ValueError("DS permission requires diseaseCode (e.g. MONDO:0005148)")
+            raise ValueError("DS permission requires diseaseCode (an ICD-10 code, e.g. I50, I30-I52 or IX)")
         if "GS" in mods and not self.allowedCountries:
             raise ValueError("GS modifier requires allowedCountries (ISO-3166)")
         if "IS" in mods and not self.allowedInstitutions:
@@ -95,10 +95,14 @@ class ConsentDeclaration(BaseModel):
             raise ValueError("RTN modifier requires returnTargetUri")
 
         if self.diseaseCode is not None:
-            code = self.diseaseCode.strip()
-            if not _DISEASE_CURIE_RE.match(code):
+            code = icd10.normalize(self.diseaseCode)
+            if not icd10.is_well_formed(code):
                 raise ValueError(
-                    f"diseaseCode must be an ontology CURIE like MONDO:0005148, DOID:9352, HP:0001250 (got {self.diseaseCode!r})"
+                    f"diseaseCode must be an ICD-10 code: a category (I50), block (I30-I52) or chapter (I00-I99 / IX) (got {self.diseaseCode!r})"
+                )
+            if not icd10.is_known_code(code):
+                raise ValueError(
+                    f"diseaseCode {self.diseaseCode!r} is not a supported ICD-10 code"
                 )
             self.diseaseCode = code
 

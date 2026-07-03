@@ -2,7 +2,7 @@ import logging
 from dataclasses import dataclass
 from typing import Optional
 
-from api.services.ontology.mondo import MondoClient, get_mondo_client, DiseaseResult
+from api.services.ontology import icd10
 from api.services.ontology.ror import RORClient, get_ror_client, InstitutionResult
 from api.services.ontology.duo_lookup import DUOLookup, get_duo_lookup, DUOTerm
 
@@ -10,7 +10,6 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class UsageTypeMapping:
-    \
     ui_value: str
     duo_code: str
     label: str
@@ -98,25 +97,11 @@ RESTRICTION_OPTIONS = {
 }
 
 class OntologyService:
-    \
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
     def __init__(self):
-        self.mondo = get_mondo_client()
         self.ror = get_ror_client()
         self.duo = get_duo_lookup()
 
     async def close(self):
-        \
-        await self.mondo.close()
         await self.ror.close()
         await self.duo.close()
 
@@ -125,74 +110,35 @@ class OntologyService:
         query: str,
         limit: int = 10
     ) -> list[dict]:
-        \
-\
-\
-\
-\
-        results = await self.mondo.search(query, limit=limit)
-        return [
-            {
-                "id": r.id,
-                "name": r.name,
-                "description": r.description[:200] if r.description else "",
-                "synonyms": r.synonyms[:3],
-            }
-            for r in results
-        ]
+        return icd10.search(query, limit=limit)
 
-    async def get_disease(self, mondo_id: str) -> Optional[dict]:
-        \
-        result = await self.mondo.get_disease(mondo_id)
-        return result.to_dict() if result else None
+    async def get_disease(self, code: str) -> Optional[dict]:
+        result = icd10.describe(code)
+        return result if result.get("valid") else None
 
-    async def validate_disease(self, mondo_id: str) -> dict:
-        \
-\
-\
-\
-\
-        disease = await self.mondo.get_disease(mondo_id)
-        if disease:
-            return {
-                "valid": True,
-                "id": disease.id,
-                "name": disease.name,
-                "description": disease.description,
-            }
-        return {
-            "valid": False,
-            "error": f"Invalid MONDO ID: {mondo_id}"
-        }
+    async def validate_disease(self, code: str) -> dict:
+        return icd10.describe(code)
 
     async def check_disease_compatibility(
         self,
         consent_disease: str,
         request_disease: str
     ) -> dict:
-        \
-\
-\
-\
-\
-\
-\
         if consent_disease == request_disease:
             return {
                 "compatible": True,
                 "reason": "Exact match"
             }
 
-        is_subtype = await self.mondo.is_subtype_of(request_disease, consent_disease)
-        if is_subtype:
+        if icd10.is_compatible(consent_disease, request_disease):
             return {
                 "compatible": True,
-                "reason": f"{request_disease} is a subtype of {consent_disease}"
+                "reason": f"{request_disease} is a descendant of {consent_disease}"
             }
 
         return {
             "compatible": False,
-            "reason": f"{request_disease} is not a subtype of {consent_disease}"
+            "reason": f"{request_disease} is not {consent_disease} nor one of its ICD-10 descendants"
         }
 
     async def search_institutions(
@@ -201,11 +147,6 @@ class OntologyService:
         country: Optional[str] = None,
         limit: int = 10
     ) -> list[dict]:
-        \
-\
-\
-\
-\
         results = await self.ror.search(query, country=country, limit=limit)
         return [
             {
@@ -220,12 +161,10 @@ class OntologyService:
         ]
 
     async def get_institution(self, ror_id: str) -> Optional[dict]:
-        \
         result = await self.ror.get_institution(ror_id)
         return result.to_dict() if result else None
 
     async def validate_institution(self, ror_id: str) -> dict:
-        \
         institution = await self.ror.get_institution(ror_id)
         if institution:
             return {
@@ -241,11 +180,6 @@ class OntologyService:
         }
 
     async def infer_institution_from_email(self, email: str) -> list[dict]:
-        \
-\
-\
-\
-\
         results = await self.ror.search_by_email_domain(email)
         return [
             {
@@ -258,25 +192,20 @@ class OntologyService:
         ]
 
     def get_duo_permission(self, code: str) -> Optional[dict]:
-        \
         term = self.duo.get_permission(code)
         return term.to_dict() if term else None
 
     def get_duo_modifier(self, code: str) -> Optional[dict]:
-        \
         term = self.duo.get_modifier(code)
         return term.to_dict() if term else None
 
     def get_all_permissions(self) -> list[dict]:
-        \
         return [t.to_dict() for t in self.duo.get_all_permissions()]
 
     def get_all_modifiers(self) -> list[dict]:
-        \
         return [t.to_dict() for t in self.duo.get_all_modifiers()]
 
     def search_duo_terms(self, query: str) -> list[dict]:
-        \
         results = self.duo.search(query)
         return [t.to_dict() for t in results]
 
@@ -285,7 +214,6 @@ class OntologyService:
         consent_perm: str,
         request_perm: str
     ) -> dict:
-        \
         is_compatible = self.duo.is_permission_compatible(consent_perm, request_perm)
         consent_term = self.duo.get_term(consent_perm)
         request_term = self.duo.get_term(request_perm)
@@ -304,7 +232,6 @@ class OntologyService:
         }
 
     def _explain_compatibility(self, consent: str, request: str, compatible: bool) -> str:
-        \
         if consent == request:
             return f"Exact match: both specify {consent}"
 
@@ -314,7 +241,6 @@ class OntologyService:
         return f"{consent} does not allow {request}. The requested use is broader than permitted."
 
     def get_usage_types(self) -> list[dict]:
-        \
         return [
             {
                 "value": m.ui_value,
@@ -326,7 +252,6 @@ class OntologyService:
         ]
 
     def get_restriction_options(self) -> list[dict]:
-        \
         return [
             {
                 "key": key,
@@ -346,20 +271,6 @@ class OntologyService:
         institutions: Optional[list[str]] = None,
         expires_at: Optional[str] = None
     ) -> dict:
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
 
         usage_mapping = USAGE_TYPES.get(usage_type, USAGE_TYPES["health_research"])
         permission_code = usage_mapping.duo_code
@@ -429,11 +340,6 @@ class OntologyService:
         modifiers: list[str],
         disease_code: Optional[str] = None
     ) -> dict:
-        \
-\
-\
-\
-\
         permission_term = self.duo.get_permission(permission)
 
         usage_type = None
@@ -467,14 +373,12 @@ class OntologyService:
 _ontology_service: Optional[OntologyService] = None
 
 def get_ontology_service() -> OntologyService:
-    \
     global _ontology_service
     if _ontology_service is None:
         _ontology_service = OntologyService()
     return _ontology_service
 
 async def close_ontology_service():
-    \
     global _ontology_service
     if _ontology_service:
         await _ontology_service.close()

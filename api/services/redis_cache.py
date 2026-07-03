@@ -1,39 +1,3 @@
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
 import asyncio
 import json
 import logging
@@ -49,18 +13,6 @@ from api.config import get_settings
 logger = logging.getLogger(__name__)
 
 class RedisCache:
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
 
     CONSENT_PREFIX = "consent"
     ACCESS_PREFIX = "access"
@@ -84,18 +36,6 @@ class RedisCache:
         socket_timeout: float = 5.0,
         socket_connect_timeout: float = 5.0,
     ):
-        \
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
         self.redis_url = redis_url
         self.db = db
         self.pool: Optional[ConnectionPool] = None
@@ -120,7 +60,6 @@ class RedisCache:
         }
 
     async def connect(self) -> None:
-        \
         if self._connected:
             return
 
@@ -141,7 +80,6 @@ class RedisCache:
             raise
 
     async def disconnect(self) -> None:
-        \
         if self.pubsub:
             await self.pubsub.close()
         if self.client:
@@ -152,7 +90,6 @@ class RedisCache:
         logger.info("Disconnected from Redis")
 
     async def health_check(self) -> dict[str, Any]:
-        \
         if not self._connected or not self.client:
             return {"healthy": False, "error": "Not connected"}
 
@@ -170,15 +107,6 @@ class RedisCache:
 
     @asynccontextmanager
     async def pipeline(self, transaction: bool = True):
-        \
-\
-\
-\
-\
-\
-\
-\
-\
         if not self.client:
             raise RuntimeError("Redis not connected")
         pipe = self.client.pipeline(transaction=transaction)
@@ -189,7 +117,6 @@ class RedisCache:
             await pipe.reset()
 
     def _serialize(self, data: dict) -> str:
-        \
         def default(obj):
             if isinstance(obj, datetime):
                 return obj.isoformat()
@@ -197,13 +124,11 @@ class RedisCache:
         return json.dumps(data, default=default)
 
     def _deserialize(self, data: str) -> dict:
-        \
         if not data:
             return {}
         return json.loads(data)
 
     def _hash_to_dict(self, hash_data: dict[str, str]) -> dict[str, Any]:
-        \
         result = {}
         for key, value in hash_data.items():
 
@@ -214,7 +139,6 @@ class RedisCache:
         return result
 
     def _dict_to_hash(self, data: dict[str, Any]) -> dict[str, str]:
-        \
         result = {}
         for key, value in data.items():
             if isinstance(value, (dict, list)):
@@ -230,7 +154,6 @@ class RedisCache:
         return result
 
     async def get_consent(self, cohort_hash: str) -> Optional[dict]:
-        \
         if not self.client:
             return None
 
@@ -249,7 +172,6 @@ class RedisCache:
         return result
 
     async def set_consent(self, cohort_hash: str, data: dict) -> None:
-        \
         if not self.client:
             return
 
@@ -279,7 +201,6 @@ class RedisCache:
         })
 
     async def delete_consent(self, cohort_hash: str) -> None:
-        \
         if not self.client:
             return
 
@@ -303,7 +224,6 @@ class RedisCache:
             pipe.delete(requesters_key)
 
     async def update_consent(self, cohort_hash: str, updates: dict) -> None:
-        \
         if not self.client:
             return
 
@@ -327,7 +247,6 @@ class RedisCache:
         })
 
     async def revoke_consent(self, cohort_hash: str) -> None:
-        \
         await self.update_consent(cohort_hash, {
             "active": False,
             "revoked_at": datetime.utcnow().isoformat()
@@ -340,7 +259,6 @@ class RedisCache:
         })
 
     async def get_all_consents(self) -> list[dict]:
-        \
         if not self.client:
             return []
 
@@ -356,7 +274,6 @@ class RedisCache:
         return consents
 
     async def get_access(self, cohort_hash: str, requester: str) -> Optional[dict]:
-        \
         if not self.client:
             return None
 
@@ -369,7 +286,6 @@ class RedisCache:
         return self._hash_to_dict(data)
 
     async def set_access(self, cohort_hash: str, requester: str, data: dict) -> None:
-        \
         if not self.client:
             return
 
@@ -392,7 +308,6 @@ class RedisCache:
         })
 
     async def revoke_access(self, cohort_hash: str, requester: str) -> None:
-        \
         if not self.client:
             return
 
@@ -411,7 +326,6 @@ class RedisCache:
         })
 
     async def revoke_all_access(self, cohort_hash: str) -> int:
-        \
         if not self.client:
             return 0
 
@@ -431,7 +345,6 @@ class RedisCache:
         return count
 
     async def has_access(self, cohort_hash: str, requester: str) -> bool:
-        \
         access = await self.get_access(cohort_hash, requester)
         if not access:
             return False
@@ -443,7 +356,6 @@ class RedisCache:
         return access.get("approved", False)
 
     async def get_cohort_access_grants(self, cohort_hash: str) -> list[dict]:
-        \
         if not self.client:
             return []
 
@@ -459,7 +371,6 @@ class RedisCache:
         return grants
 
     async def get_requester_access_grants(self, requester: str) -> list[dict]:
-        \
         if not self.client:
             return []
 
@@ -480,7 +391,6 @@ class RedisCache:
         return grants
 
     async def get_attestation(self, subject: str, att_type: str, scope: str) -> Optional[dict]:
-        \
         if not self.client:
             return None
 
@@ -493,7 +403,6 @@ class RedisCache:
         return self._hash_to_dict(data)
 
     async def set_attestation(self, subject: str, att_type: str, scope: str, data: dict) -> None:
-        \
         if not self.client:
             return
 
@@ -515,7 +424,6 @@ class RedisCache:
         })
 
     async def has_valid_attestation(self, subject: str, att_type: str, scope: str) -> bool:
-        \
         att = await self.get_attestation(subject, att_type, scope)
         if not att:
             return False
@@ -538,7 +446,6 @@ class RedisCache:
         return True
 
     async def get_subject_attestations(self, subject: str) -> list[dict]:
-        \
         if not self.client:
             return []
 
@@ -561,7 +468,6 @@ class RedisCache:
         return attestations
 
     async def get_collaboration(self, cohort_hash: str, requester: str) -> Optional[dict]:
-        \
         if not self.client:
             return None
 
@@ -574,7 +480,6 @@ class RedisCache:
         return self._hash_to_dict(data)
 
     async def set_collaboration(self, cohort_hash: str, requester: str, data: dict) -> None:
-        \
         if not self.client:
             return
 
@@ -588,7 +493,6 @@ class RedisCache:
             pipe.sadd(index_key, requester)
 
     async def has_collaboration(self, cohort_hash: str, requester: str) -> bool:
-        \
         coll = await self.get_collaboration(cohort_hash, requester)
         if not coll:
             return False
@@ -605,7 +509,6 @@ class RedisCache:
         return coll.get("active", True)
 
     async def get_cohort_collaborations(self, cohort_hash: str) -> list[dict]:
-        \
         if not self.client:
             return []
 
@@ -621,7 +524,6 @@ class RedisCache:
         return collaborations
 
     async def store_transaction(self, tx_hash: str, data: dict) -> None:
-        \
         if not self.client:
             return
 
@@ -641,7 +543,6 @@ class RedisCache:
             await self.client.sadd(f"{self.TRANSACTION_PREFIX}:index:by_cohort:{cohort_id}", tx_hash)
 
     async def get_transaction(self, tx_hash: str) -> Optional[dict]:
-        \
         if not self.client:
             return None
 
@@ -660,7 +561,6 @@ class RedisCache:
         limit: int = 50,
         offset: int = 0
     ) -> list[dict]:
-        \
         if not self.client:
             return []
 
@@ -695,7 +595,6 @@ class RedisCache:
         return transactions
 
     async def get_transaction_count(self, tx_type: Optional[str] = None) -> int:
-        \
         if not self.client:
             return 0
 
@@ -704,7 +603,6 @@ class RedisCache:
         return await self.client.zcard(f"{self.TRANSACTION_PREFIX}:index:all")
 
     async def add_audit_entry(self, entry_id: str, data: dict) -> None:
-        \
         if not self.client:
             return
 
@@ -731,7 +629,6 @@ class RedisCache:
         limit: int = 50,
         offset: int = 0
     ) -> list[dict]:
-        \
         if not self.client:
             return []
 
@@ -766,13 +663,11 @@ class RedisCache:
         return entries
 
     async def get_audit_count(self) -> int:
-        \
         if not self.client:
             return 0
         return await self.client.zcard(f"{self.AUDIT_PREFIX}:index:all")
 
     async def set_authorization_token(self, token: str, data: dict, ttl: int = 3600) -> None:
-        \
         if not self.client:
             return
 
@@ -781,7 +676,6 @@ class RedisCache:
         await self.client.expire(key, ttl)
 
     async def get_authorization_token(self, token: str) -> Optional[dict]:
-        \
         if not self.client:
             return None
 
@@ -794,7 +688,6 @@ class RedisCache:
         return self._hash_to_dict(data)
 
     async def invalidate_authorization_token(self, token: str) -> None:
-        \
         if not self.client:
             return
 
@@ -802,7 +695,6 @@ class RedisCache:
         await self.client.delete(key)
 
     async def _publish_event(self, channel: str, event: dict) -> None:
-        \
         if not self.client:
             return
         try:
@@ -811,12 +703,10 @@ class RedisCache:
             logger.warning(f"Failed to publish event: {e}")
 
     def on_event(self, channel: str, handler: Callable[[dict], Awaitable[None]]) -> None:
-        \
         if channel in self._event_handlers:
             self._event_handlers[channel].append(handler)
 
     async def start_event_listener(self) -> None:
-        \
         if not self.client:
             return
 
@@ -841,7 +731,6 @@ class RedisCache:
                     logger.error(f"Error handling event: {e}")
 
     async def mark_synced(self) -> None:
-        \
         self._synced = True
         self._last_sync = datetime.utcnow()
 
@@ -850,7 +739,6 @@ class RedisCache:
             await self.client.set("_meta:synced", "true")
 
     async def clear(self) -> None:
-        \
         if not self.client:
             return
 
@@ -867,7 +755,6 @@ class RedisCache:
         self._last_sync = None
 
     def get_stats(self) -> dict:
-        \
         return {
             "backend": "redis",
             "connected": self._connected,
@@ -882,11 +769,9 @@ class RedisCache:
 
     @property
     def consent_count(self) -> int:
-        \
         return 0
 
     async def get_consent_count(self) -> int:
-        \
         if not self.client:
             return 0
         return await self.client.scard(f"{self.CONSENT_PREFIX}:index")
@@ -894,7 +779,6 @@ class RedisCache:
 _redis_cache: Optional[RedisCache] = None
 
 async def get_redis_cache() -> RedisCache:
-    \
     global _redis_cache
 
     if _redis_cache is None:
@@ -907,7 +791,6 @@ async def get_redis_cache() -> RedisCache:
     return _redis_cache
 
 async def close_redis_cache() -> None:
-    \
     global _redis_cache
 
     if _redis_cache is not None:

@@ -9,40 +9,24 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 class PQCommitment:
-    \
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
     DOMAIN = b"pq-commit-v1:"
 
     @staticmethod
     def commit(secret: bytes, randomness: bytes = b"") -> bytes:
-        \
         return hashlib.sha256(
             PQCommitment.DOMAIN + secret + randomness
         ).digest()
 
     @staticmethod
     def verify(secret: bytes, commitment: bytes, randomness: bytes = b"") -> bool:
-        \
         return PQCommitment.commit(secret, randomness) == commitment
 
 @dataclass
 class WOTSSignature:
-    \
     signature_chains: list[bytes]
     public_key: bytes
 
     def serialize(self) -> bytes:
-        \
         return b''.join(self.signature_chains) + self.public_key
 
     @classmethod
@@ -54,29 +38,6 @@ class WOTSSignature:
         return cls(signature_chains=chains, public_key=pk)
 
 class WOTSPlus:
-    \
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
     N = 32
     W = 16
     LOG_W = 4
@@ -85,14 +46,12 @@ class WOTSPlus:
     L = 67
 
     def __init__(self, seed: bytes | None = None):
-        \
         self._seed = seed or secrets.token_bytes(self.N)
         self._private_chains = self._generate_private_key()
         self._public_key = self._compute_public_key()
         self._used = False
 
     def _hash_chain(self, start: bytes, steps: int, addr: int) -> bytes:
-        \
         current = start
         for i in range(steps):
             current = hashlib.sha256(
@@ -101,7 +60,6 @@ class WOTSPlus:
         return current
 
     def _generate_private_key(self) -> list[bytes]:
-        \
         chains = []
         for i in range(self.L):
             ki = hmac_mod.new(
@@ -113,7 +71,6 @@ class WOTSPlus:
         return chains
 
     def _compute_public_key(self) -> bytes:
-        \
         pk_elements = []
         for i in range(self.L):
             pk_i = self._hash_chain(self._private_chains[i], self.W - 1, i)
@@ -126,13 +83,6 @@ class WOTSPlus:
         return self._public_key
 
     def sign(self, message: bytes) -> WOTSSignature:
-        \
-\
-\
-\
-\
-\
-\
         if self._used:
             raise RuntimeError(
                 "WOTS+ key already used. One-time signatures must not be reused."
@@ -161,12 +111,6 @@ class WOTSPlus:
 
     @staticmethod
     def verify(message: bytes, signature: WOTSSignature) -> bool:
-        \
-\
-\
-\
-\
-\
         msg_hash = hashlib.sha256(message).digest()
         msg_digits = WOTSPlus._bytes_to_base_w(msg_hash, WOTSPlus.L1)
 
@@ -193,7 +137,6 @@ class WOTSPlus:
 
     @staticmethod
     def _bytes_to_base_w(data: bytes, out_len: int) -> list[int]:
-        \
         digits = []
         for byte in data:
             digits.append((byte >> 4) & 0x0F)
@@ -203,25 +146,10 @@ class WOTSPlus:
         return digits[:out_len]
 
 class PQEnvelopeSigner:
-    \
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
     def __init__(self, master_seed: bytes | None = None):
         self._master_seed = master_seed or secrets.token_bytes(32)
 
     def sign_envelope(self, envelope_bytes: bytes, nonce: bytes) -> WOTSSignature:
-        \
-\
-\
-\
         derived_seed = hmac_mod.new(
             self._master_seed,
             nonce + b"wots-envelope-key",
@@ -231,7 +159,6 @@ class PQEnvelopeSigner:
         return wots.sign(envelope_bytes)
 
     def get_verifier_key(self, nonce: bytes) -> bytes:
-        \
         derived_seed = hmac_mod.new(
             self._master_seed,
             nonce + b"wots-envelope-key",
@@ -244,25 +171,9 @@ class PQEnvelopeSigner:
     def verify_envelope(
         envelope_bytes: bytes, signature: WOTSSignature
     ) -> bool:
-        \
         return WOTSPlus.verify(envelope_bytes, signature)
 
 class LatticeHEAdapter:
-    \
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
     def __init__(self):
         self._tenseal = None
         self._context = None
@@ -288,7 +199,6 @@ class LatticeHEAdapter:
         return self._tenseal is not None
 
     def encrypt(self, value: int) -> bytes:
-        \
         if not self._tenseal:
             raise RuntimeError(
                 "Lattice HE requires tenseal. Install: pip install tenseal"
@@ -297,14 +207,12 @@ class LatticeHEAdapter:
         return encrypted.serialize()
 
     def decrypt(self, ciphertext: bytes) -> int:
-        \
         if not self._tenseal:
             raise RuntimeError("Lattice HE requires tenseal")
         encrypted = self._tenseal.bfv_vector_from(self._context, ciphertext)
         return encrypted.decrypt()[0]
 
     def add_encrypted(self, ct1: bytes, ct2: bytes) -> bytes:
-        \
         if not self._tenseal:
             raise RuntimeError("Lattice HE requires tenseal")
         e1 = self._tenseal.bfv_vector_from(self._context, ct1)
@@ -313,23 +221,10 @@ class LatticeHEAdapter:
         return result.serialize()
 
     def ciphertext_size(self) -> int:
-        \
         return 4096
 
 @dataclass
 class PQCryptoSuite:
-    \
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
     commitment: PQCommitment = field(default_factory=PQCommitment)
     signer: PQEnvelopeSigner = field(default_factory=PQEnvelopeSigner)
     lattice_he: LatticeHEAdapter = field(default_factory=LatticeHEAdapter)

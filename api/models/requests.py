@@ -25,12 +25,11 @@ def _validate_duo_modifiers(v: list[str]) -> list[str]:
     return result
 
 class ConsentPrepareRequest(BaseModel):
-    \
     owner_email: EmailStr = Field(..., description="Email of the data owner")
     cohort_id: str = Field(..., description="Unique cohort identifier")
     duo_permission: str = Field(..., description="Primary DUO permission code (NRES, GRU, HMB, DS, POA)")
     duo_modifiers: list[str] = Field(default_factory=list, description="List of DUO modifier codes")
-    disease_code: str | None = Field(None, description="MONDO disease code (required if DS)")
+    disease_code: str | None = Field(None, description="ICD-10 disease code (required if DS)")
     allowed_countries: list[str] = Field(default_factory=list, description="ISO country codes (if GS)")
     allowed_institutions: list[str] = Field(default_factory=list, description="Institution IDs (if IS)")
     expiration_days: int = Field(0, description="Days until expiration (0 = no expiration)")
@@ -47,14 +46,12 @@ class ConsentPrepareRequest(BaseModel):
         return _validate_duo_modifiers(v)
 
 class EIP712TypedData(BaseModel):
-    \
     domain: dict
     types: dict
     message: dict
     primaryType: str
 
 class ConsentPrepareResponse(BaseModel):
-    \
     typed_data: EIP712TypedData
     message_hash: str
     cohort_hash: str
@@ -62,12 +59,11 @@ class ConsentPrepareResponse(BaseModel):
     nonce: int
 
 class ConsentRecordRequest(BaseModel):
-    \
     owner_email: EmailStr = Field(..., description="Email of the data owner")
     cohort_id: str = Field(..., description="Unique cohort identifier")
     duo_permission: str = Field(..., description="Primary DUO permission code (NRES, GRU, HMB, DS, POA)")
     duo_modifiers: list[str] = Field(default_factory=list, description="List of DUO modifier codes")
-    disease_code: str | None = Field(None, description="MONDO disease code (required if DS)")
+    disease_code: str | None = Field(None, description="ICD-10 disease code (required if DS)")
     allowed_countries: list[str] = Field(default_factory=list, description="ISO country codes (if GS)")
     allowed_institutions: list[str] = Field(default_factory=list, description="Institution IDs (if IS)")
     expiration_days: int = Field(0, description="Days until expiration (0 = no expiration)")
@@ -85,7 +81,6 @@ class ConsentRecordRequest(BaseModel):
         return _validate_duo_modifiers(v)
 
 class ConsentSummary(BaseModel):
-    \
     permission: str
     permission_label: str
     modifiers: list[str]
@@ -93,7 +88,6 @@ class ConsentSummary(BaseModel):
     expires_at: datetime | None
 
 class ConsentRecordResponse(BaseModel):
-    \
     success: bool
     tx_hash: str
     cohort_hash: str
@@ -102,7 +96,6 @@ class ConsentRecordResponse(BaseModel):
     via_signature: bool = False
 
 class ConsentStatusResponse(BaseModel):
-    \
     active: bool
     owners: list[str]
     duo_permission: str
@@ -114,18 +107,15 @@ class ConsentStatusResponse(BaseModel):
     recorded_at: datetime
 
 class ConsentRevokeRequest(BaseModel):
-    \
     owner_email: EmailStr
     cohort_id: str
 
 class ConsentRevokeResponse(BaseModel):
-    \
     success: bool
     tx_hash: str
     revoked_access_count: int
 
 class ConsentUpdateRequest(BaseModel):
-    \
     owner_email: EmailStr
     cohort_id: str
     duo_permission: str
@@ -143,32 +133,27 @@ class ConsentUpdateRequest(BaseModel):
         return _validate_duo_modifiers(v)
 
 class RevalidationResult(BaseModel):
-    \
     total_access_grants: int
     still_valid: int
     revoked: int
     revoked_requesters: list[str]
 
 class ConsentUpdateResponse(BaseModel):
-    \
     success: bool
     tx_hash: str
     revalidation: RevalidationResult
 
 class AddOwnerRequest(BaseModel):
-    \
     owner_email: EmailStr = Field(..., description="Existing owner email (for authorization)")
     cohort_id: str
     new_owner_email: EmailStr
 
 class AddOwnerResponse(BaseModel):
-    \
     success: bool
     tx_hash: str
     new_owner_address: str
 
 class AccessRequestInput(BaseModel):
-    \
     requester_email: EmailStr
     cohort_id: str
     intended_use: str = Field(..., description="DUO permission code for intended use (NRES, GRU, HMB, DS, POA)")
@@ -184,15 +169,12 @@ class AccessRequestInput(BaseModel):
         return _validate_duo_permission(v)
 
 class PassedCheck(BaseModel):
-    \
     check: str
 
 class FailedCheck(BaseModel):
-    \
     check: str
 
 class AccessRequestResponse(BaseModel):
-    \
     compliant: bool
     auto_approved: bool
     request_id: str | None
@@ -203,14 +185,12 @@ class AccessRequestResponse(BaseModel):
     remediation_steps: list[str] = Field(default_factory=list)
 
 class AccessCheckResponse(BaseModel):
-    \
     has_access: bool
     access_type: str | None = None
     granted_at: datetime | None = None
     reason: str | None = None
 
 class CompliancePreviewRequest(BaseModel):
-    \
     requester_email: EmailStr
     cohort_id: str
     intended_use: str
@@ -225,7 +205,6 @@ class CompliancePreviewRequest(BaseModel):
         return _validate_duo_permission(v)
 
 class CompliancePreviewResponse(BaseModel):
-    \
     would_be_compliant: bool
     passed_checks: list[PassedCheck]
     failed_checks: list[FailedCheck]
@@ -233,7 +212,6 @@ class CompliancePreviewResponse(BaseModel):
     remediation_steps: list[str] = Field(default_factory=list)
 
 class IRBAttestationRequest(BaseModel):
-    \
     requester_email: EmailStr
     cohort_id: str
     irb_document_hash: str = Field(..., description="IPFS/hash of IRB document")
@@ -242,20 +220,17 @@ class IRBAttestationRequest(BaseModel):
     valid_days: int = 365
 
 class IRBAttestationResponse(BaseModel):
-    \
     success: bool
     tx_hash: str
     attestation_id: str | None
     valid_until: datetime | None
 
 class AttestationResponse(BaseModel):
-    \
     success: bool
     tx_hash: str
     attestation_id: str
 
 class CommitmentRequest(BaseModel):
-    \
     requester_email: EmailStr
     cohort_id: str
     commitment_type: str = Field(..., description="Type: PUBLICATION, RETURN_DATA, DATA_DESTRUCTION")
@@ -264,14 +239,12 @@ class CommitmentRequest(BaseModel):
     valid_days: int = 365
 
 class CommitmentResponse(BaseModel):
-    \
     success: bool
     tx_hash: str
     commitment_type: str
     recorded_at: datetime
 
 class AttestationStatusResponse(BaseModel):
-    \
     exists: bool
     valid: bool
     attestation_type: str
@@ -280,7 +253,6 @@ class AttestationStatusResponse(BaseModel):
     details: str | None = None
 
 class CollaborationEstablishRequest(BaseModel):
-    \
     owner_email: EmailStr
     cohort_id: str
     requester_email: EmailStr
@@ -288,14 +260,12 @@ class CollaborationEstablishRequest(BaseModel):
     valid_days: int = 365
 
 class CollaborationEstablishResponse(BaseModel):
-    \
     success: bool
     tx_hash: str
     collaboration_id: str | None
     valid_until: datetime | None
 
 class CollaborationStatusResponse(BaseModel):
-    \
     exists: bool
     active: bool
     terms_hash: str | None = None
@@ -303,7 +273,6 @@ class CollaborationStatusResponse(BaseModel):
     established_at: datetime | None = None
 
 class CollaborationRequest(BaseModel):
-    \
     owner_email: EmailStr
     cohort_id: str
     requester_email: EmailStr
@@ -311,19 +280,16 @@ class CollaborationRequest(BaseModel):
     valid_days: int = 365
 
 class CollaborationResponse(BaseModel):
-    \
     success: bool
     tx_hash: str
     collaboration_id: str
 
 class CollaborationCheckResponse(BaseModel):
-    \
     has_collaboration: bool
     established_at: datetime | None = None
     valid_until: datetime | None = None
 
 class PermissionInfo(BaseModel):
-    \
     code: str
     label: str
     description: str
@@ -331,18 +297,15 @@ class PermissionInfo(BaseModel):
     allows: list[str]
 
 class ModifierInfo(BaseModel):
-    \
     code: str
     label: str
     verification_method: str
 
 class OntologyResponse(BaseModel):
-    \
     permissions: list[PermissionInfo]
     modifiers: list[ModifierInfo]
 
 class HealthResponse(BaseModel):
-    \
     status: str
     blockchain_connected: bool
     chain_id: int | None
@@ -351,7 +314,6 @@ class HealthResponse(BaseModel):
     cache_consents: int
 
 class CreateCommitmentRequest(BaseModel):
-    \
     researcher_email: EmailStr
     cohort_id: str
     commitment_type: Literal["PUBLICATION", "DATA_RETURN", "COLLABORATION", "MORATORIUM"]
@@ -359,7 +321,6 @@ class CreateCommitmentRequest(BaseModel):
     deadline_days: int = Field(0, description="Days until deadline (0 = use default)")
 
 class CreateCommitmentResponse(BaseModel):
-    \
     success: bool
     tx_hash: str | None
     commitment_id: str
@@ -367,21 +328,18 @@ class CreateCommitmentResponse(BaseModel):
     commitment_type: str
 
 class FulfillCommitmentRequest(BaseModel):
-    \
     commitment_id: str
     researcher_email: EmailStr | None = Field(None, description="Researcher email (optional, for audit)")
     evidence_hash: str | None = Field(None, description="IPFS hash of evidence")
     evidence_uri: str = Field(..., description="Human-readable evidence (DOI, etc.)")
 
 class FulfillCommitmentResponse(BaseModel):
-    \
     success: bool
     tx_hash: str | None
     fulfilled_at: datetime
     new_reputation_score: int | None = None
 
 class CommitmentDetailResponse(BaseModel):
-    \
     commitment_id: str
     cohort_id: str
     researcher_hash: str = Field("", description="Pseudonymised researcher identifier")
@@ -395,7 +353,6 @@ class CommitmentDetailResponse(BaseModel):
     fulfilled_at: datetime | None = None
 
 class CommitmentSummaryResponse(BaseModel):
-    \
     researcher_hash: str = Field("", description="Pseudonymised researcher identifier")
     total: int
     active: int
@@ -406,17 +363,14 @@ class CommitmentSummaryResponse(BaseModel):
     upcoming_deadlines: list[CommitmentDetailResponse] = Field(default_factory=list)
 
 class MarkExpiredRequest(BaseModel):
-    \
     commitment_ids: list[str] = Field(default_factory=list, description="Specific IDs or empty for all")
 
 class MarkExpiredResponse(BaseModel):
-    \
     success: bool
     marked_expired_count: int
     commitment_ids: list[str]
 
 class TransparencyRequirementResponse(BaseModel):
-    \
     modifier: str
     label: str
     description: str
@@ -430,7 +384,6 @@ class TransparencyRequirementResponse(BaseModel):
     applies_to: list[str] = Field(default_factory=list)
 
 class TransparencyReportResponse(BaseModel):
-    \
     overall_status: Literal["READY", "NEEDS_ACTION", "BLOCKED"]
     status_message: str
     summary: dict = Field(default_factory=dict)
@@ -441,7 +394,6 @@ class TransparencyReportResponse(BaseModel):
     can_create_dcr: bool
 
 class GenerateTransparencyReportRequest(BaseModel):
-    \
     requester_email: EmailStr
     cohort_ids: list[str]
     intended_use: str

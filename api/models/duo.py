@@ -2,7 +2,6 @@ from enum import IntEnum, IntFlag
 from typing import TypedDict
 
 class DUOPermission:
-    \
     NRES = 0x00000004
     GRU = 0x00000042
     HMB = 0x00000006
@@ -11,12 +10,10 @@ class DUOPermission:
 
     @classmethod
     def from_code(cls, code: str) -> int:
-        \
         return PERMISSION_VALUES.get(code.upper(), 0)
 
     @classmethod
     def to_code(cls, value: int) -> str:
-        \
         return PERMISSION_CODES.get(value, "UNKNOWN")
 
 PERMISSION_VALUES = {
@@ -46,16 +43,6 @@ PERMISSION_HIERARCHY = {
 }
 
 def is_permission_compatible(consented: str, requested: str) -> bool:
-    \
-\
-\
-\
-\
-\
-\
-\
-\
-\
     consented = consented.upper()
     requested = requested.upper()
 
@@ -127,15 +114,6 @@ MODIFIER_LABELS = {
 }
 
 def get_modifiers_bitmask(modifiers: list[str]) -> int:
-    \
-\
-\
-\
-\
-\
-\
-\
-\
     bitmask = 0
     for mod in modifiers:
         if mod.upper() in MODIFIER_VALUES:
@@ -143,15 +121,6 @@ def get_modifiers_bitmask(modifiers: list[str]) -> int:
     return bitmask
 
 def bitmask_to_modifiers(bitmask: int) -> list[str]:
-    \
-\
-\
-\
-\
-\
-\
-\
-\
     modifiers = []
     for name, value in MODIFIER_VALUES.items():
         if bitmask & value:
@@ -159,22 +128,12 @@ def bitmask_to_modifiers(bitmask: int) -> list[str]:
     return modifiers
 
 def get_modifier_details(modifiers: list[str]) -> list[dict]:
-    \
-\
-\
-\
-\
-\
-\
-\
-\
     return [
         {"code": mod, "label": MODIFIER_LABELS.get(mod, mod)}
         for mod in modifiers
     ]
 
 class RequesterType(IntEnum):
-    \
     UNKNOWN = 0
     ACADEMIC = 1
     NONPROFIT = 2
@@ -202,16 +161,6 @@ NCU_ALLOWED_TYPES = {
 }
 
 def check_requester_type_constraint(modifiers_bitmask: int, requester_type: str) -> tuple[bool, str]:
-    \
-\
-\
-\
-\
-\
-\
-\
-\
-\
     req_type = REQUESTER_TYPE_VALUES.get(requester_type.lower(), RequesterType.UNKNOWN)
 
     if modifiers_bitmask & DUOModifier.NPU:
@@ -225,7 +174,6 @@ def check_requester_type_constraint(modifiers_bitmask: int, requester_type: str)
     return True, "Requester type constraints satisfied"
 
 class ResearchPurpose(IntEnum):
-    \
     GENERAL = 0
     HEALTH_RESEARCH = 1
     DISEASE_RESEARCH = 2
@@ -245,16 +193,6 @@ RESEARCH_PURPOSE_VALUES = {
 }
 
 def check_purpose_constraint(modifiers_bitmask: int, purpose: str) -> tuple[bool, str]:
-    \
-\
-\
-\
-\
-\
-\
-\
-\
-\
     purpose_type = RESEARCH_PURPOSE_VALUES.get(purpose.lower(), ResearchPurpose.GENERAL)
 
     if modifiers_bitmask & DUOModifier.GSO:
@@ -268,7 +206,6 @@ def check_purpose_constraint(modifiers_bitmask: int, purpose: str) -> tuple[bool
     return True, "Research purpose constraints satisfied"
 
 class ConsentData(TypedDict, total=False):
-    \
     cohort_hash: str
     owners: list[str]
     permission: str
@@ -282,7 +219,6 @@ class ConsentData(TypedDict, total=False):
     metadata_uri: str
 
 class AccessRequestData(TypedDict, total=False):
-    \
     request_id: str
     cohort_hash: str
     requester: str
@@ -296,7 +232,6 @@ class AccessRequestData(TypedDict, total=False):
     reasons: list[str]
 
 class ComplianceResult(TypedDict):
-    \
     compliant: bool
     passed_checks: list[str]
     failed_checks: list[str]
