@@ -560,8 +560,8 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
 
   return (
     <div className="w-full">
-      {/* Target cohort selector */}
-      {targetCohorts.length > 0 && (
+      {/* Target cohort selector - only show if 2+ cohorts */}
+      {targetCohorts.length > 1 && (
         <div className="mb-4">
           <div className="text-xs font-semibold mb-2 opacity-50 uppercase tracking-wide">Target cohort</div>
           <div className="flex flex-wrap gap-2">
@@ -978,6 +978,13 @@ export default function MappingPage() {
   // Loading and error state
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Reset showCacheInfo when mapping starts (new mapping request)
+  React.useEffect(() => {
+    if (loading && !mappingOutput) {
+      setShowCacheInfo(true);
+    }
+  }, [loading, mappingOutput]);
 
   // ... inside MappingPage component, replace the existing handleMapConcepts function with this one ...
 
@@ -1592,10 +1599,10 @@ export default function MappingPage() {
 
 
             {/* View mode toggle */}
-            <div className="flex items-center gap-2 mb-3 mt-1">
+            <div className="flex items-center justify-center gap-2 mb-3 mt-1">
               <div className="join">
-                <button className={`join-item btn btn-sm ${viewMode === 'table' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setViewMode('table')}>⊞ Table</button>
-                <button className={`join-item btn btn-sm ${viewMode === 'graph' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setViewMode('graph')}>⬡ Graph</button>
+                <button className={`join-item btn ${viewMode === 'table' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setViewMode('table')}>⊞ Table</button>
+                <button className={`join-item btn ${viewMode === 'graph' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setViewMode('graph')}>⬡ Graph</button>
               </div>
             </div>
 
