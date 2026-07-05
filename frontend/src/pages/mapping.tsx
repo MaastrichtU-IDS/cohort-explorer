@@ -37,17 +37,30 @@ function transformCsvDataForPreview(csvText: string, cohorts: string[]): RowData
     const values = parseCsvLine(line);
     const csvRow: Record<string, string> = {};
     headers.forEach((h, i) => { csvRow[h] = (values[i] || '').trim(); });
-    return {
-      s_source: csvRow['source'] || '',
-      s_label: csvRow['slabel'] || '',
-      target_study: targetStudy,
-      target: csvRow['target'] || '',
-      target_label: csvRow['tlabel'] || '',
-      mapping_relation: csvRow['mapping type'] || '',
-      source_categories_codes_labels: '',
-      target_categories_codes_labels: '',
-      harmonization_status: '',
-    } as RowData;
+    // Build source/target categories codes/labels
+    const sourceLabels = csvRow['source_categories_labels'] || '';
+    const sourceCodes = csvRow['source_original_categories'] || '';
+    const sourceCategoriesCodesLabels = sourceLabels && sourceCodes
+      ? `${sourceCodes} (${sourceLabels})` : sourceCodes || sourceLabels || '';
+    const targetLabels = csvRow['target_categories_labels'] || '';
+    const targetCodes = csvRow['target_original_categories'] || '';
+    const targetCategoriesCodesLabels = targetLabels && targetCodes
+      ? `${targetCodes} (${targetLabels})` : targetCodes || targetLabels || '';
+    // Start with all CSV columns as-is
+    const row: RowData = { ...csvRow };
+    // Normalize key fields to match expected RowData shape
+    row.s_source = csvRow['source'] || '';
+    row.s_label = csvRow['slabel'] || csvRow['source_label'] || '';
+    row.target_study = csvRow['target_study'] || targetStudy;
+    row.target = csvRow['target'] || '';
+    row.target_label = csvRow['tlabel'] || csvRow['target_label'] || '';
+    row.mapping_relation = csvRow['mapping_relation'] || csvRow['mapping type'] || '';
+    row.harmonization_status = csvRow['harmonization_status'] || '';
+    row.sim_score = csvRow['sim_score'] ? Number(csvRow['sim_score']) : null;
+    row.omop_domain = csvRow['category'] || '';
+    row.source_categories_codes_labels = sourceCategoriesCodesLabels;
+    row.target_categories_codes_labels = targetCategoriesCodesLabels;
+    return row;
   }).filter(row => row.s_source || row.target);
 }
 
@@ -333,7 +346,7 @@ const HARMONIZATION_COLORS: Record<string, string> = {
   'Not Applicable':   '#d1d5db',
 };
 function edgeClr(status: string) { return HARMONIZATION_COLORS[status] || '#94a3b8'; }
-function edgeW(sim: number | null) { if (sim == null) return 1.5; const s = Math.max(0, Math.min(1, sim)); return 1 + Math.pow(s, 3) * 14; }
+function edgeW() { return 2; }
 
 const NODE_W = 168; const NODE_H = 40; const EXPAND_LINE_H = 11; const GAP = 5;
 const PAD_TOP = 28; const SVG_W = 920;
@@ -685,7 +698,7 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
                   }}
                 />
                 <path d={`M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`}
-                  fill="none" stroke={edgeClr(e.status)} strokeWidth={isHovE ? edgeW(e.sim) + 1.5 : edgeW(e.sim)}
+                  fill="none" stroke={edgeClr(e.status)} strokeWidth={isHovE ? edgeW() + 1.5 : edgeW()}
                   opacity={highlighted ? (hoveredId ? 0.88 : 0.3) : 0.04} style={{ pointerEvents: 'none' }}
                 />
                 {isHovE && (() => {
@@ -693,7 +706,7 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
                   const tgtVar = e.tgtId.split('::')[1] || e.tgtId;
                   const tgtStudy = e.tgtId.split('::')[0] || '';
                   const hasEda = edaAvail[sourceCohort] && edaAvail[tgtStudy];
-                  const label = `${e.relation} · ${e.status} · sim ${e.sim?.toFixed(2) ?? '—'}`;
+                  const label = `${e.relation} · ${e.status}`;
                   const tw = label.length * 5.2 + 14;
                   const tx = mx; const ty2 = (y1 + y2) / 2;
                   const handleCompareEda = async () => {
