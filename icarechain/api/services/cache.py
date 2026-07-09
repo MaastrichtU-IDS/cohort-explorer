@@ -1,13 +1,3 @@
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
 import asyncio
 import logging
 import os
@@ -18,8 +8,6 @@ from typing import Any, Optional, Protocol
 logger = logging.getLogger(__name__)
 
 class CacheBackend(Protocol):
-    \
-\
     async def get_consent(self, cohort_hash: str) -> Optional[dict]: ...
     async def set_consent(self, cohort_hash: str, data: dict) -> None: ...
     async def delete_consent(self, cohort_hash: str) -> None: ...
@@ -51,16 +39,6 @@ class CacheBackend(Protocol):
     def is_synced(self) -> bool: ...
 
 class InMemoryCache:
-    \
-\
-\
-\
-\
-\
-\
-\
-\
-\
     def __init__(self):
         self.consents: dict[str, dict] = {}
         self.access_grants: dict[str, dict[str, dict]] = {}
@@ -79,11 +57,9 @@ class InMemoryCache:
         return len(self.consents)
 
     async def get_consent(self, cohort_hash: str) -> Optional[dict]:
-        \
         return self.consents.get(cohort_hash)
 
     async def set_consent(self, cohort_hash: str, data: dict) -> None:
-        \
         async with self._lock:
             self.consents[cohort_hash] = {
                 **data,
@@ -91,7 +67,6 @@ class InMemoryCache:
             }
 
     async def delete_consent(self, cohort_hash: str) -> None:
-        \
         async with self._lock:
             if cohort_hash in self.consents:
                 del self.consents[cohort_hash]
@@ -99,30 +74,25 @@ class InMemoryCache:
                 del self.access_grants[cohort_hash]
 
     async def update_consent(self, cohort_hash: str, updates: dict) -> None:
-        \
         async with self._lock:
             if cohort_hash in self.consents:
                 self.consents[cohort_hash].update(updates)
                 self.consents[cohort_hash]["cached_at"] = datetime.utcnow().isoformat()
 
     async def revoke_consent(self, cohort_hash: str) -> None:
-        \
         async with self._lock:
             if cohort_hash in self.consents:
                 self.consents[cohort_hash]["active"] = False
                 self.consents[cohort_hash]["cached_at"] = datetime.utcnow().isoformat()
 
     async def get_all_consents(self) -> list[dict]:
-        \
         return list(self.consents.values())
 
     async def get_access(self, cohort_hash: str, requester: str) -> Optional[dict]:
-        \
         cohort_grants = self.access_grants.get(cohort_hash, {})
         return cohort_grants.get(requester)
 
     async def set_access(self, cohort_hash: str, requester: str, data: dict) -> None:
-        \
         async with self._lock:
             if cohort_hash not in self.access_grants:
                 self.access_grants[cohort_hash] = {}
@@ -132,7 +102,6 @@ class InMemoryCache:
             }
 
     async def revoke_access(self, cohort_hash: str, requester: str) -> None:
-        \
         async with self._lock:
             if cohort_hash in self.access_grants:
                 if requester in self.access_grants[cohort_hash]:
@@ -140,7 +109,6 @@ class InMemoryCache:
                     self.access_grants[cohort_hash][requester]["revoked_at"] = datetime.utcnow().isoformat()
 
     async def revoke_all_access(self, cohort_hash: str) -> int:
-        \
         async with self._lock:
             if cohort_hash not in self.access_grants:
                 return 0
@@ -155,7 +123,6 @@ class InMemoryCache:
             return count
 
     async def has_access(self, cohort_hash: str, requester: str) -> bool:
-        \
         grant = await self.get_access(cohort_hash, requester)
         if not grant:
             return False
@@ -167,7 +134,6 @@ class InMemoryCache:
         return grant.get("approved", False)
 
     async def get_cohort_access_grants(self, cohort_hash: str) -> list[dict]:
-        \
         grants = self.access_grants.get(cohort_hash, {})
         return [
             {"requester": req, **data}
@@ -175,13 +141,11 @@ class InMemoryCache:
         ]
 
     async def get_attestation(self, subject: str, att_type: str, scope: str) -> Optional[dict]:
-        \
         subject_atts = self.attestations.get(subject, {})
         type_atts = subject_atts.get(att_type, {})
         return type_atts.get(scope)
 
     async def set_attestation(self, subject: str, att_type: str, scope: str, data: dict) -> None:
-        \
         async with self._lock:
             if subject not in self.attestations:
                 self.attestations[subject] = {}
@@ -194,7 +158,6 @@ class InMemoryCache:
             }
 
     async def has_valid_attestation(self, subject: str, att_type: str, scope: str) -> bool:
-        \
         att = await self.get_attestation(subject, att_type, scope)
         if not att:
             return False
@@ -216,12 +179,10 @@ class InMemoryCache:
         return out
 
     async def get_collaboration(self, cohort_hash: str, requester: str) -> Optional[dict]:
-        \
         cohort_colls = self.collaborations.get(cohort_hash, {})
         return cohort_colls.get(requester)
 
     async def set_collaboration(self, cohort_hash: str, requester: str, data: dict) -> None:
-        \
         async with self._lock:
             if cohort_hash not in self.collaborations:
                 self.collaborations[cohort_hash] = {}
@@ -231,7 +192,6 @@ class InMemoryCache:
             }
 
     async def has_collaboration(self, cohort_hash: str, requester: str) -> bool:
-        \
         coll = await self.get_collaboration(cohort_hash, requester)
         if not coll:
             return False
@@ -243,13 +203,11 @@ class InMemoryCache:
         return coll.get("active", True)
 
     def __init_transactions(self):
-        \
         if not hasattr(self, 'transactions'):
             self.transactions: dict[str, dict] = {}
             self.transaction_index: list[str] = []
 
     async def store_transaction(self, tx_hash: str, data: dict) -> None:
-        \
         self.__init_transactions()
         async with self._lock:
             self.transactions[tx_hash] = {
@@ -260,7 +218,6 @@ class InMemoryCache:
                 self.transaction_index.insert(0, tx_hash)
 
     async def get_transaction(self, tx_hash: str) -> Optional[dict]:
-        \
         self.__init_transactions()
         return self.transactions.get(tx_hash)
 
@@ -271,7 +228,6 @@ class InMemoryCache:
         limit: int = 50,
         offset: int = 0
     ) -> list[dict]:
-        \
         self.__init_transactions()
         result = []
 
@@ -290,7 +246,6 @@ class InMemoryCache:
         return result[offset:offset + limit]
 
     async def get_transaction_count(self, tx_type: Optional[str] = None) -> int:
-        \
         self.__init_transactions()
         if not tx_type:
             return len(self.transactions)
@@ -298,13 +253,11 @@ class InMemoryCache:
         return sum(1 for tx in self.transactions.values() if tx.get("type") == tx_type)
 
     def __init_audit(self):
-        \
         if not hasattr(self, 'audit_entries'):
             self.audit_entries: dict[str, dict] = {}
             self.audit_index: list[str] = []
 
     async def add_audit_entry(self, entry_id: str, data: dict) -> None:
-        \
         self.__init_audit()
         async with self._lock:
             self.audit_entries[entry_id] = {
@@ -321,7 +274,6 @@ class InMemoryCache:
         limit: int = 50,
         offset: int = 0
     ) -> list[dict]:
-        \
         self.__init_audit()
         result = []
 
@@ -340,17 +292,14 @@ class InMemoryCache:
         return result[offset:offset + limit]
 
     async def get_audit_count(self) -> int:
-        \
         self.__init_audit()
         return len(self.audit_entries)
 
     def __init_tokens(self):
-        \
         if not hasattr(self, 'auth_tokens'):
             self.auth_tokens: dict[str, dict] = {}
 
     async def set_authorization_token(self, token: str, data: dict, ttl: int = 3600) -> None:
-        \
         self.__init_tokens()
         async with self._lock:
             self.auth_tokens[token] = {
@@ -359,24 +308,20 @@ class InMemoryCache:
             }
 
     async def get_authorization_token(self, token: str) -> Optional[dict]:
-        \
         self.__init_tokens()
         return self.auth_tokens.get(token)
 
     async def invalidate_authorization_token(self, token: str) -> None:
-        \
         self.__init_tokens()
         async with self._lock:
             if token in self.auth_tokens:
                 del self.auth_tokens[token]
 
     async def mark_synced(self) -> None:
-        \
         self._synced = True
         self._last_sync = datetime.utcnow()
 
     async def clear(self) -> None:
-        \
         async with self._lock:
             self.consents.clear()
             self.access_grants.clear()
@@ -386,7 +331,6 @@ class InMemoryCache:
             self._last_sync = None
 
     def get_stats(self) -> dict:
-        \
         total_access = sum(len(grants) for grants in self.access_grants.values())
         total_attestations = sum(
             sum(len(scopes) for scopes in types.values())
@@ -407,17 +351,10 @@ _cache: Optional[CacheBackend] = None
 _cache_type: str = "auto"
 
 def configure_cache(cache_type: str = "auto") -> None:
-    \
-\
-\
-\
-\
-\
     global _cache_type
     _cache_type = cache_type
 
 async def _create_cache() -> CacheBackend:
-    \
     global _cache_type
 
     if _cache_type == "auto":
@@ -440,11 +377,6 @@ async def _create_cache() -> CacheBackend:
         return InMemoryCache()
 
 def get_cache() -> CacheBackend:
-    \
-\
-\
-\
-\
     global _cache
 
     if _cache is None:
@@ -455,7 +387,6 @@ def get_cache() -> CacheBackend:
     return _cache
 
 async def get_cache_async() -> CacheBackend:
-    \
     global _cache
 
     if _cache is None:
@@ -464,7 +395,6 @@ async def get_cache_async() -> CacheBackend:
     return _cache
 
 async def close_cache() -> None:
-    \
     global _cache
 
     if _cache is not None:

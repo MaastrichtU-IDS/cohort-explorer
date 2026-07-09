@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Any
 
 from api.services.cache import get_cache
+from api.services.ontology import icd10
 from api.services.requester_type import infer_requester_type, is_email_from_allowed_country
 from api.models.duo import (
     DUOModifier,
@@ -18,8 +19,6 @@ from api.models.duo import (
 logger = logging.getLogger(__name__)
 
 class ComplianceResult:
-    \
-\
     def __init__(self):
         self.compliant = True
         self.passed_checks: list[str] = []
@@ -50,8 +49,6 @@ class ComplianceResult:
         }
 
 class ComplianceService:
-    \
-\
     def __init__(self):
         self.cache = get_cache()
 
@@ -67,23 +64,6 @@ class ComplianceService:
         disease_code: str | None = None,
         institution_id: str | None = None
     ) -> ComplianceResult:
-        \
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
         result = ComplianceResult()
 
         consent = await self.cache.get_consent(cohort_hash)
@@ -150,13 +130,13 @@ class ComplianceService:
         if consent_permission == "DS" or intended_upper == "DS":
             if consent_disease and disease_code:
 
-                if consent_disease != disease_code:
+                if not icd10.is_compatible(consent_disease, disease_code):
                     result.add_fail(
                         f"Disease code mismatch: consent is for {consent_disease}, "
                         f"requested {disease_code}"
                     )
                 else:
-                    result.add_pass("Disease code matches consent")
+                    result.add_pass("Disease code matches consent (exact or descendant)")
             elif consent_disease and not disease_code:
                 result.add_fail(
                     f"Disease code required: consent is for {consent_disease}",
@@ -239,11 +219,6 @@ class ComplianceService:
         cohort_hash: str,
         requester_address: str
     ) -> dict[str, Any]:
-\
-\
-\
-\
-\
 
         consent = await self.cache.get_consent(cohort_hash)
         if not consent or not consent.get("active"):
@@ -270,7 +245,6 @@ class ComplianceService:
 _compliance_service: ComplianceService | None = None
 
 def get_compliance_service() -> ComplianceService:
-    \
     global _compliance_service
     if _compliance_service is None:
         _compliance_service = ComplianceService()

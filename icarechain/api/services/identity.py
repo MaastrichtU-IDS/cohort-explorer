@@ -20,7 +20,6 @@ FIELD_ORDER = 218882428718392752222464057452572750885483644004160343436982041865
 
 @dataclass
 class DerivedIdentity:
-    \
     identity_secret: int
     nullifier_secret: int
     commitment: int
@@ -30,19 +29,11 @@ class DerivedIdentity:
 
 @dataclass
 class IdentityRecord:
-    \
     commitment: str
     created_at: str
     groups: list[str]
 
 class IdentityVault:
-    \
-\
-\
-\
-\
-\
-\
     def __init__(self, redis_client=None, master_key: Optional[str] = None):
 
         settings = get_settings()
@@ -229,8 +220,6 @@ class SemaphoreGroup:
     synced_at: Optional[datetime] = None
 
 class GroupManager:
-    \
-\
     DEFAULT_DEPTH = 16
     ZEROS: list[int] = []
 
@@ -503,8 +492,6 @@ class CombinedProof:
     epoch: int
 
 class ProofGenerator:
-    \
-\
     def __init__(self):
         self._vault = get_identity_vault()
         self._circuits_dir = Path(__file__).parent.parent.parent / "circuits"
@@ -516,15 +503,6 @@ class ProofGenerator:
         return int.from_bytes(hash_bytes, 'big') % FIELD_ORDER
 
     def _compute_external_nullifier(self, cohort_id: str, epoch: int, nonce: str = "") -> int:
-        \
-\
-\
-\
-\
-\
-\
-\
-\
         cohort_hash = self._compute_cohort_hash(cohort_id)
         combined = f"{cohort_hash}:{epoch}:{nonce}".encode()
         hash_bytes = hashlib.sha256(combined).digest()
@@ -550,13 +528,6 @@ class ProofGenerator:
         merkle_path: list[int], merkle_indices: list[int],
         nonce: str = ""
     ) -> SemaphoreProofData:
-        \
-\
-\
-\
-\
-\
-\
         identity = self._vault.derive_identity(email)
         external_nullifier = self._compute_external_nullifier(cohort_id, epoch, nonce)
         nullifier_hash = self._compute_nullifier_hash(identity.nullifier_secret, external_nullifier)

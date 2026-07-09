@@ -11,7 +11,6 @@ from fastapi.staticfiles import StaticFiles
 
 from api.config import get_settings
 from api.routes import (
-    admin,
     attestations,
     auth,
     cohorts,
@@ -97,5 +96,5 @@ async def custom_swagger():
         },
     )
 
-for r in (admin, auth, providers, requesters, cohorts, attestations, commitments, ontology, health):
+for r in (auth, providers, requesters, cohorts, attestations, commitments, ontology, health):
     app.include_router(r.router, prefix="/api")

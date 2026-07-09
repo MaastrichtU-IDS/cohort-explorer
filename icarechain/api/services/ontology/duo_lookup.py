@@ -8,7 +8,6 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class DUOTerm:
-    \
     code: str
     duo_id: str
     iri: str
@@ -233,12 +232,6 @@ DUO_MODIFIERS = {
 ALL_DUO_TERMS = {**DUO_PERMISSIONS, **DUO_MODIFIERS}
 
 class DUOLookup:
-    \
-\
-\
-\
-\
-\
     OLS_BASE_URL = "https://www.ebi.ac.uk/ols4/api"
 
     def __init__(self, use_ols_fallback: bool = True):
@@ -259,31 +252,21 @@ class DUOLookup:
             await self._client.aclose()
 
     def get_permission(self, code: str) -> Optional[DUOTerm]:
-        \
         return DUO_PERMISSIONS.get(code.upper())
 
     def get_modifier(self, code: str) -> Optional[DUOTerm]:
-        \
         return DUO_MODIFIERS.get(code.upper())
 
     def get_term(self, code: str) -> Optional[DUOTerm]:
-        \
         return ALL_DUO_TERMS.get(code.upper())
 
     def get_all_permissions(self) -> list[DUOTerm]:
-        \
         return list(DUO_PERMISSIONS.values())
 
     def get_all_modifiers(self) -> list[DUOTerm]:
-        \
         return list(DUO_MODIFIERS.values())
 
     def search(self, query: str) -> list[DUOTerm]:
-        \
-\
-\
-\
-\
         query_lower = query.lower()
         results = []
 
@@ -309,11 +292,6 @@ class DUOLookup:
         return [term for _, term in results]
 
     def get_permission_hierarchy(self) -> dict:
-        \
-\
-\
-\
-\
         return {
             "NRES": {
                 "label": DUO_PERMISSIONS["NRES"].label,
@@ -341,18 +319,6 @@ class DUOLookup:
         }
 
     def is_permission_compatible(self, consent_perm: str, request_perm: str) -> bool:
-        \
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
         consent_upper = consent_perm.upper()
         request_upper = request_perm.upper()
 
@@ -374,11 +340,6 @@ class DUOLookup:
         return False
 
     def get_modifier_requirements(self, modifier_code: str) -> dict:
-        \
-\
-\
-\
-\
         requirements = {
             "NPU": {
                 "type": "requester_type",
@@ -443,7 +404,6 @@ class DUOLookup:
 _duo_lookup: Optional[DUOLookup] = None
 
 def get_duo_lookup() -> DUOLookup:
-    \
     global _duo_lookup
     if _duo_lookup is None:
         _duo_lookup = DUOLookup()

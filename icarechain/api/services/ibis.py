@@ -1,21 +1,3 @@
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
 
 import hashlib
 import hmac as hmac_mod

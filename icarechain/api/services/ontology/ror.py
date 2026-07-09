@@ -9,7 +9,6 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class InstitutionResult:
-    \
     id: str
     ror_id: str
     name: str
@@ -36,16 +35,6 @@ class InstitutionResult:
         }
 
 class RORClient:
-    \
-\
-\
-\
-\
-\
-\
-\
-\
-\
     BASE_URL = "https://api.ror.org"
 
     TYPES = {
@@ -74,7 +63,6 @@ class RORClient:
         self._client: Optional[httpx.AsyncClient] = None
 
     async def _get_client(self) -> httpx.AsyncClient:
-        \
         if self._client is None or self._client.is_closed:
             self._client = httpx.AsyncClient(
                 base_url=self.BASE_URL,
@@ -84,7 +72,6 @@ class RORClient:
         return self._client
 
     async def close(self):
-        \
         if self._client and not self._client.is_closed:
             await self._client.aclose()
 
@@ -112,7 +99,6 @@ class RORClient:
         self._cache[key] = (value, expiry)
 
     def _parse_institution(self, data: dict) -> InstitutionResult:
-        \
         ror_id = data.get("id", "").split("/")[-1]
 
         locations = data.get("locations", [])
@@ -150,18 +136,6 @@ class RORClient:
         types: Optional[list[str]] = None,
         limit: int = 10
     ) -> list[InstitutionResult]:
-        \
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
         cache_key = self._cache_key("search", query, country, str(types), limit)
         cached = self._get_cached(cache_key)
         if cached is not None:
@@ -199,15 +173,6 @@ class RORClient:
             return []
 
     async def get_institution(self, ror_id: str) -> Optional[InstitutionResult]:
-\
-\
-\
-\
-\
-\
-\
-\
-\
 
         if ror_id.startswith("https://ror.org/"):
             ror_id = ror_id.split("/")[-1]
@@ -238,36 +203,20 @@ class RORClient:
             return None
 
     async def validate_id(self, ror_id: str) -> bool:
-        \
         institution = await self.get_institution(ror_id)
         return institution is not None
 
     async def get_country(self, ror_id: str) -> Optional[str]:
-        \
-\
-\
-\
-\
         institution = await self.get_institution(ror_id)
         return institution.country_code if institution else None
 
     async def is_type(self, ror_id: str, inst_type: str) -> bool:
-        \
-\
-\
-\
-\
         institution = await self.get_institution(ror_id)
         if not institution:
             return False
         return inst_type in institution.types
 
     async def search_by_email_domain(self, email: str) -> list[InstitutionResult]:
-        \
-\
-\
-\
-\
         domain = email.split("@")[-1].lower()
 
         parts = domain.split(".")
@@ -283,20 +232,17 @@ class RORClient:
         return await self.search(search_term, limit=5)
 
     def clear_cache(self):
-        \
         self._cache.clear()
 
 _ror_client: Optional[RORClient] = None
 
 def get_ror_client() -> RORClient:
-    \
     global _ror_client
     if _ror_client is None:
         _ror_client = RORClient()
     return _ror_client
 
 async def close_ror_client():
-    \
     global _ror_client
     if _ror_client:
         await _ror_client.close()

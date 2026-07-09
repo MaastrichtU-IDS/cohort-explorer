@@ -9,7 +9,6 @@ from collections import Counter
 logger = logging.getLogger(__name__)
 
 class IdealOperationType(IntEnum):
-    \
     REGISTER = 0
     AUTHENTICATE = 1
     RENEW = 2
@@ -17,12 +16,6 @@ class IdealOperationType(IntEnum):
 
 @dataclass
 class IdealEnvelope:
-    \
-\
-\
-\
-\
-\
     operation_tag: str
     commitment: str
     nullifier: str
@@ -34,7 +27,6 @@ class IdealEnvelope:
     nonce: str
 
     def to_observable(self) -> dict:
-        \
         return {
             "operation_tag": self.operation_tag,
             "commitment": self.commitment,
@@ -49,7 +41,6 @@ class IdealEnvelope:
 
 @dataclass
 class IdealIdentityState:
-    \
     identity_secret: bytes
     current_key: bytes
     current_epoch: int = 0
@@ -57,25 +48,6 @@ class IdealIdentityState:
     corrupted: bool = False
 
 class IdealFunctionality:
-    \
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
     PROOF_SIZE = 256
     PAYLOAD_SIZE = 512
 
@@ -85,7 +57,6 @@ class IdealFunctionality:
         self._audit_log: list[dict] = []
 
     def register_identity(self, identity_id: str, secret: bytes) -> str:
-        \
         commitment = hashlib.sha256(b"ideal-commit:" + secret).hexdigest()
         self._registry[identity_id] = IdealIdentityState(
             identity_secret=secret,
@@ -96,17 +67,6 @@ class IdealFunctionality:
     def create(
         self, identity_id: str, op_type: IdealOperationType
     ) -> IdealEnvelope:
-        \
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
         if identity_id not in self._registry:
             raise ValueError(f"Identity not registered: {identity_id}")
 
@@ -172,7 +132,6 @@ class IdealFunctionality:
         return envelope
 
     def process(self, envelope: IdealEnvelope) -> dict:
-        \
         return {
             "success": True,
             "response_tag": secrets.token_hex(32),
@@ -180,7 +139,6 @@ class IdealFunctionality:
         }
 
     def corrupt(self, identity_id: str) -> dict:
-        \
         if identity_id not in self._registry:
             raise ValueError(f"Identity not registered: {identity_id}")
 
@@ -199,77 +157,24 @@ class IdealFunctionality:
         }
 
 class UCSimulator:
-    \
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
     def __init__(self, ideal: IdealFunctionality):
         self._ideal = ideal
         self._adversary_view: list[dict] = []
 
     def on_envelope_created(self, envelope: IdealEnvelope) -> dict:
-        \
-\
-\
-\
-\
-\
-\
         observable = envelope.to_observable()
         self._adversary_view.append(observable)
         return observable
 
     def on_corruption(self, identity_id: str) -> dict:
-        \
-\
-\
-\
-\
-\
         return self._ideal.corrupt(identity_id)
 
     def get_adversary_transcript(self) -> list[dict]:
-        \
         return self._adversary_view
 
 class UCIndistinguishabilityTest:
-    \
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
     @staticmethod
     def byte_entropy(data: str) -> float:
-        \
         if not data:
             return 0.0
         raw = bytes.fromhex(data)
@@ -289,11 +194,6 @@ class UCIndistinguishabilityTest:
         ideal_envelopes: list[dict],
         significance_level: float = 0.05,
     ) -> dict:
-        \
-\
-\
-\
-\
         results = {}
 
         if real_envelopes and ideal_envelopes:

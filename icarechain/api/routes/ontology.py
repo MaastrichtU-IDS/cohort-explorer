@@ -33,14 +33,14 @@ async def permissions():
     ]
     return {"permissions": perms, "modifiers": mods}
 
-@router.get("/diseases", summary="Search MONDO disease ontology by free text")
+@router.get("/diseases", summary="Search the supported ICD-10 disease codes by free text or code")
 async def search_diseases(q: str = Query(..., min_length=2), limit: int = Query(10, ge=1, le=50)):
     results = await get_ontology_service().search_diseases(q, limit=limit)
     return {"query": q, "results": results}
 
-@router.get("/diseases/{mondo_id}", summary="Validate / look up a single MONDO disease id")
-async def get_disease(mondo_id: str):
-    return await get_ontology_service().validate_disease(mondo_id)
+@router.get("/diseases/{code:path}", summary="Validate / look up a single ICD-10 code (any level)")
+async def get_disease(code: str):
+    return await get_ontology_service().validate_disease(code)
 
 @router.get("/institutions", summary="Search ROR institution registry by free text (optional country filter)")
 async def search_institutions(

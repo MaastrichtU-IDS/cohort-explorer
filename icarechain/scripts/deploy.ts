@@ -1,6 +1,7 @@
 import { ethers } from "hardhat";
 import * as fs from "fs";
 import * as path from "path";
+import { seedIcd10Hierarchy } from "./seed-icd10";
 
 async function main() {
   const [deployer] = await ethers.getSigners();
@@ -24,6 +25,7 @@ async function main() {
   await ontology.waitForDeployment();
   const ontologyAddress = await ontology.getAddress();
   console.log("   DUOOntology:", ontologyAddress);
+  await seedIcd10Hierarchy(ontology);
 
   console.log("\n3. Deploying InstitutionRegistry...");
   const InstitutionRegistry = await ethers.getContractFactory("InstitutionRegistry");

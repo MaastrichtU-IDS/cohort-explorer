@@ -16,7 +16,6 @@ logger = logging.getLogger(__name__)
 FIXED_PAYLOAD_SIZE = 256
 
 class TxType(str, Enum):
-    \
     IBIS_ENVELOPE = "ibis_envelope"
     IBIS_SLOT_INIT = "ibis_slot_init"
     CONSENT_RECORD = "consent_record"
@@ -37,7 +36,6 @@ GAS_ESTIMATES: dict[TxType, int] = {
 
 @dataclass
 class RelayResult:
-    \
     success: bool
     tx_hash: str = ""
     gas_used: int = 0
@@ -48,7 +46,6 @@ class RelayResult:
 
 @dataclass
 class OnboardingResult:
-    \
     success: bool
     derived_address: str = ""
     institution_id: str = ""
@@ -57,20 +54,6 @@ class OnboardingResult:
     error: str = ""
 
 class RelayService:
-    \
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
     def __init__(self, blockchain_service=None):
         self.settings = get_settings()
         self._blockchain = blockchain_service
@@ -78,14 +61,6 @@ class RelayService:
         self._init_relay_pool()
 
     def _init_relay_pool(self):
-\
-\
-\
-\
-\
-\
-\
-\
 
         if self.settings.relayer_private_key:
             primary = Account.from_key(self.settings.relayer_private_key)
@@ -111,7 +86,6 @@ class RelayService:
 
     @property
     def relayer(self):
-        \
         if not self._relay_pool:
             return self.blockchain.relayer_account
         return secrets.choice(self._relay_pool)
@@ -122,24 +96,6 @@ class RelayService:
         institution_id: str,
         role: str = "researcher",
     ) -> OnboardingResult:
-        \
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
         try:
             derived_address = derive_address_from_email(email)
             institution_bytes = Web3.keccak(text=institution_id)
@@ -192,18 +148,6 @@ class RelayService:
         contract_call,
         gas_limit: int | None = None,
     ) -> RelayResult:
-        \
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
         if not self.relayer:
             return RelayResult(success=False, error="Relayer not configured")
 
@@ -262,24 +206,6 @@ class RelayService:
         encrypted_payload: bytes,
         proof: bytes,
     ) -> RelayResult:
-        \
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
-\
         verifier = self.blockchain.ibis_verifier
         if verifier is None:
             return RelayResult(success=False, error="IBISVerifier not deployed")
@@ -301,7 +227,6 @@ class RelayService:
     async def _check_sponsorship(
         self, member_address: str, estimated_gas: int
     ) -> dict[str, Any]:
-        \
         gas_sponsor = self.blockchain.gas_sponsor
         if gas_sponsor is None:
             return {"sponsored": False, "reason": "GasSponsor not deployed"}
@@ -337,7 +262,6 @@ class RelayService:
         gas_price: int,
         tx_type: TxType,
     ) -> None:
-        \
         gas_sponsor = self.blockchain.gas_sponsor
         if gas_sponsor is None:
             return
@@ -360,12 +284,6 @@ class RelayService:
     async def get_institution_gas_report(
         self, institution_id: str
     ) -> dict[str, Any]:
-        \
-\
-\
-\
-\
-\
         gas_sponsor = self.blockchain.gas_sponsor
         if gas_sponsor is None:
             return {"error": "GasSponsor not deployed"}
@@ -396,7 +314,6 @@ class RelayService:
     async def get_member_gas_usage(
         self, email: str, institution_id: str
     ) -> dict[str, Any]:
-        \
         gas_sponsor = self.blockchain.gas_sponsor
         if gas_sponsor is None:
             return {"error": "GasSponsor not deployed"}
@@ -427,7 +344,6 @@ class RelayService:
             return {"error": str(e)}
 
     def _tx_params(self, gas: int = 200_000, relay_account=None) -> dict:
-        \
         account = relay_account or self.relayer
         return {
             "from": account.address,
@@ -437,7 +353,6 @@ class RelayService:
         }
 
     async def _send_tx(self, tx: dict, relay_account=None) -> dict:
-        \
         account = relay_account or self.relayer
         signed = account.sign_transaction(tx)
         tx_hash = self.w3.eth.send_raw_transaction(signed.raw_transaction)

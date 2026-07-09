@@ -1,10 +1,3 @@
-\
-\
-\
-\
-\
-\
-\
 
 import json
 import logging
