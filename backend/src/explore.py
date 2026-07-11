@@ -292,3 +292,32 @@ async def get_shuffled_sample(cohort_name: str, user: Any = Depends(get_current_
         media_type="text/csv"
     )
 
+
+@router.get("/org-domain-associations")
+def get_org_domain_associations(user: Any = Depends(get_current_user)) -> dict:
+    """Return the mapping of organization names to their associated email domains.
+
+    Derived from the cohort cache: for each cohort, the institution name is
+    mapped to the set of email domains extracted from the cohort's contact
+    emails (administrator + study contact person).
+    """
+    user_email = user["email"]
+    cohorts = get_cohorts_from_cache(user_email)
+    if not cohorts:
+        initialize_cache_from_source_files(user_email)
+        cohorts = get_cohorts_from_cache(user_email)
+
+    org_domains: dict[str, list[str]] = {}
+    for cohort in cohorts.values():
+        org = cohort.institution
+        if not org:
+            continue
+        if org not in org_domains:
+            org_domains[org] = []
+        for email in (cohort.cohort_email or []):
+            domain = email.split("@")[1].lower() if "@" in email else None
+            if domain and domain not in org_domains[org]:
+                org_domains[org].append(domain)
+
+    return {"associations": {org: sorted(domains) for org, domains in sorted(org_domains.items())}}
+

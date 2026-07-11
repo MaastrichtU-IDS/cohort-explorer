@@ -78,6 +78,7 @@ export default function UploadPage() {
   const [publishedDCR, setPublishedDCR]: any = useState(null);
   
   const [operationMessage, setOperationMessage] = useState<{text: string, type: 'error' | 'success' | 'info' | 'warning'} | null>(null);
+  const [errorModal, setErrorModal] = useState<{title: string, message: string, details?: string} | null>(null);
 
   const [validationErrors, setValidationErrors] = useState<string[] | null>(null);
   const [validationStatusMessage, setValidationStatusMessage] = useState<string | null>(null);
@@ -122,6 +123,7 @@ export default function UploadPage() {
   const [icd10LoadFailed, setIcd10LoadFailed] = useState(false);
   const [icd10DropdownOpen, setIcd10DropdownOpen] = useState(false);
   const [icd10ExpandedChapters, setIcd10ExpandedChapters] = useState<Set<string>>(new Set());
+  const [icd10SearchQuery, setIcd10SearchQuery] = useState('');
   const [showAdditionalConstraints, setShowAdditionalConstraints] = useState(false);
   const icd10WrapperRef = useRef<HTMLDivElement>(null);
   const additionalConstraintsRef = useRef<HTMLDivElement>(null);
@@ -625,12 +627,21 @@ export default function UploadPage() {
                          });
                          const data = await resp.json();
                          if (!resp.ok) {
-                           throw new Error(data.detail || JSON.stringify(data));
+                           const detail = data.detail;
+                           const msg = Array.isArray(detail)
+                             ? detail.map((d: any) => d.msg || JSON.stringify(d)).join('\n')
+                             : (typeof detail === 'string' ? detail : JSON.stringify(detail || data));
+                           throw new Error(msg);
                          }
                          setBlockchainAuthResult(data);
                          setOperationMessage({text: data.message || 'Blockchain authentication successful', type: 'success'});
                        } catch (err: any) {
                          setOperationMessage({text: `Blockchain auth failed: ${err.message}`, type: 'error'});
+                         setErrorModal({
+                           title: 'Blockchain Authentication Failed',
+                           message: 'Could not authenticate with the blockchain service. Please make sure the blockchain services are running and try again.',
+                           details: err.message,
+                         });
                        } finally {
                          setBlockchainLoading(false);
                        }
@@ -696,12 +707,21 @@ export default function UploadPage() {
                        });
                        const data = await resp.json();
                        if (!resp.ok) {
-                         throw new Error(data.detail || JSON.stringify(data));
+                         const detail = data.detail;
+                         const msg = Array.isArray(detail)
+                           ? detail.map((d: any) => d.msg || JSON.stringify(d)).join('\n')
+                           : (typeof detail === 'string' ? detail : JSON.stringify(detail || data));
+                         throw new Error(msg);
                        }
                        setBlockchainConsentResult(data);
                        setOperationMessage({text: data.message || 'Permission recorded on blockchain', type: 'success'});
                      } catch (err: any) {
                        setOperationMessage({text: `Permission recording failed: ${err.message}`, type: 'error'});
+                       setErrorModal({
+                         title: 'Permission Recording Failed',
+                         message: 'The blockchain consent transaction could not be completed. This may be due to invalid input data or a blockchain service issue.',
+                         details: err.message,
+                       });
                      } finally {
                        setBlockchainLoading(false);
                      }
@@ -840,26 +860,44 @@ export default function UploadPage() {
                                      <div className="fixed inset-0 z-[9998] bg-black/50 backdrop-blur-sm" onClick={() => setIcd10DropdownOpen(false)} />
                                      <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 pointer-events-none">
                                        <div className="w-full max-w-5xl bg-base-100 rounded-2xl shadow-2xl flex flex-col pointer-events-auto" style={{maxHeight: '85vh'}}>
-                                         <div className="flex items-center justify-between px-5 py-3 border-b border-base-300 shrink-0">
-                                           <div className="flex items-baseline gap-3">
+                                         <div className="px-5 py-3 border-b border-base-300 shrink-0 flex flex-col gap-2">
+                                           <div className="flex items-center justify-between">
                                              <h3 className="font-bold text-base">Select Target Disease(s) — ICD-10</h3>
-                                             <button type="button" className="text-xs text-primary/70 hover:text-primary underline-offset-2 hover:underline"
+                                             <button type="button" className="btn btn-ghost btn-sm btn-circle" onClick={() => setIcd10DropdownOpen(false)}>✕</button>
+                                           </div>
+                                           <div className="flex items-center gap-2">
+                                             <input type="text" className="input input-sm input-bordered flex-1" placeholder="Search diseases, codes, or keywords…" value={icd10SearchQuery} onChange={e => setIcd10SearchQuery(e.target.value)} autoFocus />
+                                             {icd10SearchQuery && <button type="button" className="btn btn-ghost btn-xs" onClick={() => setIcd10SearchQuery('')}>Clear</button>}
+                                             <button type="button"
+                                               className={`btn btn-sm ${chapters.every(c => icd10ExpandedChapters.has(c.code)) ? 'btn-outline' : 'btn-primary'}`}
                                                onClick={() => {
                                                  const allExpanded = chapters.every(c => icd10ExpandedChapters.has(c.code));
                                                  setIcd10ExpandedChapters(allExpanded ? new Set() : new Set(chapters.map(c => c.code)));
                                                }}>
-                                               {chapters.every(c => icd10ExpandedChapters.has(c.code)) ? 'Collapse all' : 'Expand all'}
+                                               {chapters.every(c => icd10ExpandedChapters.has(c.code)) ? 'Collapse All' : 'Expand All'}
                                              </button>
                                            </div>
-                                           <button type="button" className="btn btn-ghost btn-sm btn-circle" onClick={() => setIcd10DropdownOpen(false)}>✕</button>
                                          </div>
                                          <div className="flex-1 p-4 flex flex-col gap-5" style={{overflowY: 'scroll', scrollbarWidth: 'auto', scrollbarColor: '#64748b #e2e8f0'}}>
-                                           {chapters.map((chapter, idx) => {
+                                           {(() => {
+                                             const sq = icd10SearchQuery.trim().toLowerCase();
+                                             const ms = (text: string) => sq ? text.toLowerCase().includes(sq) : true;
+                                             return chapters.filter(ch => {
+                                               if (!sq) return true;
+                                               if (ms(ch.code) || ms(ch.label)) return true;
+                                               const chBlocks = blocksByParent.get(ch.code) ?? [];
+                                               return chBlocks.some(b => ms(b.code) || ms(b.label) || (categoriesByParent.get(b.code) ?? []).some(c => ms(c.code) || ms(c.label)));
+                                             });
+                                           })().map((chapter, idx) => {
+                                             const sq = icd10SearchQuery.trim().toLowerCase();
+                                             const ms = (text: string) => sq ? text.toLowerCase().includes(sq) : true;
                                              const cExplicit = selCodes.has(chapter.code);
                                              const cInherited = !cExplicit && ancestorSelected(chapter.code);
                                              const cChecked = cExplicit || cInherited;
-                                             const blocks = blocksByParent.get(chapter.code) ?? [];
-                                             const isExpanded = icd10ExpandedChapters.has(chapter.code);
+                                             const allBlocks = blocksByParent.get(chapter.code) ?? [];
+                                             const chapterDirectMatch = sq && (ms(chapter.code) || ms(chapter.label));
+                                             const blocks = sq && !chapterDirectMatch ? allBlocks.filter(b => ms(b.code) || ms(b.label) || (categoriesByParent.get(b.code) ?? []).some(c => ms(c.code) || ms(c.label))) : allBlocks;
+                                             const isExpanded = sq ? true : icd10ExpandedChapters.has(chapter.code);
                                              const toggleChapter = () => setIcd10ExpandedChapters(prev => {
                                                const next = new Set(prev);
                                                if (next.has(chapter.code)) next.delete(chapter.code); else next.add(chapter.code);
@@ -876,7 +914,7 @@ export default function UploadPage() {
                                                    </label>
                                                    <button type="button"
                                                      className="shrink-0 w-5 h-5 flex items-center justify-center rounded hover:bg-base-300 text-base-content/50 hover:text-base-content transition-colors"
-                                                     onClick={e => e.stopPropagation()}
+                                                     onClick={e => { e.stopPropagation(); toggleChapter(); }}
                                                      aria-label={isExpanded ? 'Collapse chapter' : 'Expand chapter'}>
                                                      <span className={`text-[10px] inline-block transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`}>▶</span>
                                                    </button>
@@ -886,7 +924,9 @@ export default function UploadPage() {
                                                      const bExplicit = selCodes.has(block.code);
                                                      const bInherited = !bExplicit && ancestorSelected(block.code);
                                                      const bChecked = bExplicit || bInherited;
-                                                     const categories = categoriesByParent.get(block.code) ?? [];
+                                                     const allCategories = categoriesByParent.get(block.code) ?? [];
+                                                     const blockDirectMatch = sq && (ms(block.code) || ms(block.label));
+                                                     const categories = sq && !chapterDirectMatch && !blockDirectMatch ? allCategories.filter(c => ms(c.code) || ms(c.label)) : allCategories;
                                                      return (
                                                        <div key={block.code} className="flex flex-col">
                                                          <label className="flex items-center gap-1.5 py-1 px-1 cursor-pointer hover:bg-base-200 rounded min-w-0">
@@ -1266,6 +1306,33 @@ export default function UploadPage() {
           </div>
         )}
       </div>
+
+      {/* Error Modal Overlay */}
+      {errorModal && (
+        <>
+          <div className="fixed inset-0 z-[9998] bg-black/50 backdrop-blur-sm" onClick={() => setErrorModal(null)} />
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 pointer-events-none">
+            <div className="w-full max-w-lg bg-base-100 rounded-2xl shadow-2xl pointer-events-auto">
+              <div className="flex items-center gap-3 px-5 py-4 border-b border-error/30 bg-error/10 rounded-t-2xl">
+                <XCircle className="w-6 h-6 text-error shrink-0" />
+                <h3 className="font-bold text-lg text-error">{errorModal.title}</h3>
+                <button type="button" className="btn btn-ghost btn-sm btn-circle ml-auto" onClick={() => setErrorModal(null)}>✕</button>
+              </div>
+              <div className="px-5 py-4">
+                <p className="text-base-content/90 text-sm whitespace-pre-wrap">{errorModal.message}</p>
+                {errorModal.details && (
+                  <div className="mt-3 p-3 bg-base-200 rounded-lg">
+                    <p className="text-xs font-mono text-base-content/70 break-all whitespace-pre-wrap">{errorModal.details}</p>
+                  </div>
+                )}
+              </div>
+              <div className="px-5 py-3 border-t border-base-300 flex justify-end">
+                <button type="button" className="btn btn-sm btn-primary" onClick={() => setErrorModal(null)}>Close</button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
     </main>
   );
 }

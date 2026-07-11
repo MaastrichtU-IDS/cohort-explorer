@@ -3,7 +3,7 @@
 import React, {useState, useEffect, useMemo, useCallback, useRef} from 'react';
 import Link from 'next/link';
 import {useRouter} from 'next/router';
-import {LogIn, LogOut, Compass, Upload, HardDrive, Map as MapIcon, Box, FileText, Settings, Check, Activity} from 'react-feather';
+import {LogIn, LogOut, Compass, Upload, HardDrive, Map as MapIcon, Box, FileText, Settings, Check, Activity, AlertTriangle} from 'react-feather';
 import {useCohorts} from '@/components/CohortsContext';
 import {DarkThemeIcon, LightThemeIcon} from '@/components/Icons';
 import {apiUrl} from '@/utils';
@@ -68,6 +68,7 @@ export function Nav() {
   const [dcrOrgDropdownOpen, setDcrOrgDropdownOpen] = useState(false);
   const [dcrIntendedUses, setDcrIntendedUses] = useState<string[]>([]);
   const [dcrPurpose, setDcrPurpose] = useState<number>(0);
+  const [dcrDomainOverride, setDcrDomainOverride] = useState(false);
   // Requester auth state for blockchain integration
   const [dcrRequesterAuthResult, setDcrRequesterAuthResult] = useState<any>(null);
   const [dcrBlockchainToken, setDcrBlockchainToken] = useState<string | null>(null);
@@ -84,6 +85,22 @@ export function Nav() {
   const [isAdmin, setIsAdmin] = useState(false);
   const notificationRef = React.useRef<HTMLDivElement>(null);
   const dcrIcd10WrapperRef = useRef<HTMLDivElement>(null);
+
+  // Org → email domains mapping derived from cohortsData
+  const orgDomainsMap = useMemo(() => {
+    const m: Record<string, Set<string>> = {};
+    if (!cohortsData) return m;
+    for (const c of Object.values(cohortsData as Record<string, {institution?: string; cohort_email?: string[]}>)) {
+      const org = c.institution;
+      if (!org) continue;
+      if (!m[org]) m[org] = new Set();
+      for (const email of (c.cohort_email || [])) {
+        const domain = email.split('@')[1]?.toLowerCase();
+        if (domain) m[org].add(domain);
+      }
+    }
+    return m;
+  }, [cohortsData]);
 
   // Check admin status
   useEffect(() => {
@@ -246,6 +263,7 @@ export function Nav() {
     setDcrRequesterLoading(false);
     setDcrPurpose(0);
     setDcrIntendedUses([]);
+    setDcrDomainOverride(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userEmail, logWizardEvent]);
 
@@ -1224,7 +1242,7 @@ export function Nav() {
                                     <label key={name} className="flex items-center gap-1.5 py-1 cursor-pointer hover:bg-base-200 rounded px-1" style={{breakInside: 'avoid' as const}}>
                                       <input type="radio" name="dcrOrgName" className="radio radio-xs radio-primary shrink-0"
                                         checked={dcrOrgName === name}
-                                        onChange={() => { setDcrOrgName(name); setDcrOrgDropdownOpen(false); }} />
+                                        onChange={() => { setDcrOrgName(name); setDcrOrgDropdownOpen(false); setDcrDomainOverride(false); }} />
                                       <span className="text-xs text-base-content/80">{name}</span>
                                     </label>
                                   ))}
@@ -1239,6 +1257,30 @@ export function Nav() {
                             );
                           })()}
                         </div>
+                        {(() => {
+                          const userDomain = userEmail?.split('@')[1]?.toLowerCase() || '';
+                          const allowedDomains = dcrOrgName ? orgDomainsMap[dcrOrgName] : null;
+                          const domainMismatch = !!dcrOrgName && !!allowedDomains && allowedDomains.size > 0 && !allowedDomains.has(userDomain);
+
+                          return domainMismatch ? (
+                            <div className="alert alert-warning mt-3 items-start">
+                              <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
+                              <div className="text-sm flex-1">
+                                <p className="font-semibold">Email domain does not match the selected organization</p>
+                                <p className="mt-1 opacity-80">Your email domain <code className="text-xs">{userDomain || 'unknown'}</code> does not match the domain(s) associated with <strong>{dcrOrgName}</strong>: {Array.from(allowedDomains!).join(', ')}.</p>
+                                <div className="flex flex-wrap gap-2 mt-3">
+                                  {!dcrDomainOverride ? (
+                                    <button type="button" className="btn btn-sm btn-warning" onClick={() => setDcrDomainOverride(true)}>
+                                      Continue for testing purposes
+                                    </button>
+                                  ) : (
+                                    <span className="text-xs self-center opacity-70 italic">Domain check bypassed for testing purposes</span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          ) : null;
+                        })()}
                       </div>
 
                       <div className="form-control mb-6">
@@ -1323,12 +1365,19 @@ export function Nav() {
                       {/* Requester Blockchain Auth Section */}
                       <div className="divider mt-8 mb-4">Blockchain Authentication</div>
                       <div className="bg-base-200/50 rounded-lg p-4 space-y-4">
+                        {(() => {
+                          const userDomain = userEmail?.split('@')[1]?.toLowerCase() || '';
+                          const allowedDomains = dcrOrgName ? orgDomainsMap[dcrOrgName] : null;
+                          const domainMismatch = !!dcrOrgName && !!allowedDomains && allowedDomains.size > 0 && !allowedDomains.has(userDomain);
+
+                          return (
+                            <>
                         {!dcrRequesterAuthResult && (
                           <div>
                             <button
                               type="button"
                               className="btn btn-accent w-full"
-                              disabled={dcrRequesterLoading}
+                              disabled={dcrRequesterLoading || (domainMismatch && !dcrDomainOverride)}
                               onClick={async () => {
                                 setDcrRequesterLoading(true);
                                 try {
@@ -1483,7 +1532,8 @@ export function Nav() {
                                             const accessRequestBody = {
                                               email: userEmail,
                                               cohortId,
-                                              intendedUse: dcrIntendedUses.includes('ancestry') ? 'POA' : 'GRU',
+                                              intendedUse: dcrIntendedUses.includes('ancestry') ? 'POA'
+                                                : (dcrDiseaseCodes.length > 0 ? 'DS' : 'GRU'),
                                               purpose: dcrPurpose || 1,
                                               diseaseCode: dcrDiseaseCodes.length > 0 ? dcrDiseaseCodes[0].code : undefined,
                                               projectId: `DCR-${Date.now()}`,
@@ -1535,6 +1585,9 @@ export function Nav() {
                             </div>
                           </div>
                         )}
+                            </>
+                          );
+                        })()}
                       </div>
                     </>
                   )}
