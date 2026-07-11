@@ -342,11 +342,19 @@ function domainClr(raw: string) {
 const HARMONIZATION_COLORS: Record<string, string> = {
   'Identical Match':  '#166534',
   'Compatible Match': '#60a5fa',
-  'Partial Match':    '#bef264',
-  'Not Applicable':   '#d1d5db',
+  'Partial Match':    '#86efac',
+  'Not Applicable':   '#6b7280',
 };
 function edgeClr(status: string) { return HARMONIZATION_COLORS[status] || '#94a3b8'; }
 function edgeW() { return 2; }
+function edgeDashArray(status: string): string | undefined {
+  if (status === 'Partial Match') return '4 2';
+  return undefined;
+}
+function edgeWidth(status: string): number {
+  if (status === 'Not Applicable') return 1;
+  return edgeW();
+}
 
 const NODE_W = 168; const NODE_H = 40; const EXPAND_LINE_H = 11; const GAP = 5;
 const PAD_TOP = 28; const SVG_W = 920;
@@ -553,14 +561,26 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
     if (!hoveredId) return new Set<string>();
     return new Set(searchedEdges.filter(e => e.srcId === hoveredId || e.tgtId === hoveredId).map(e => `${e.srcId}::${e.tgtId}`));
   }, [hoveredId, searchedEdges]);
+  // Auto-select all domains when data changes
+  React.useEffect(() => {
+    if (srcDomains.length > 0 && activeSrcDomains.length === 0) {
+      setActiveSrcDomains(srcDomains);
+    }
+  }, [srcDomains]);
+  React.useEffect(() => {
+    if (tgtDomains.length > 0 && activeTgtDomains.length === 0) {
+      setActiveTgtDomains(tgtDomains);
+    }
+  }, [tgtDomains]);
+
   const toggle = (arr: string[], v: string, set: (a: string[]) => void) => set(arr.includes(v) ? arr.filter(x => x !== v) : [...arr, v]);
 
   function cycleVarFilter() {
-    setActiveSrcDomains([]); setActiveTgtDomains([]);
+    setActiveSrcDomains(srcDomains); setActiveTgtDomains(tgtDomains);
     setVarFilter(f => f === 'mapped' ? 'unmapped' : 'mapped');
   }
   function resetAll() {
-    setFocusedId(null); setActiveSrcDomains([]); setActiveTgtDomains([]);
+    setFocusedId(null); setActiveSrcDomains(srcDomains); setActiveTgtDomains(tgtDomains);
     setActiveStatuses([]); setVarFilter('mapped');
     setSrcSort('default'); setTgtSort('default'); setSearchQ(''); setExpandedIds(new Set()); setHoveredEdge(null); setSelectedEdge(null); setSelectedEdgeData(null); setEdaImage(null); setEdaError(null);
   }
@@ -570,9 +590,10 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
   function DomainBtn({ d, active, onClick }: { d: string; active: boolean; onClick: () => void }) {
     const c = domainClr(d);
     return (
-      <button onClick={onClick} className="btn btn-xs border" style={{ backgroundColor: active ? c.fill : '#f8fafc', borderColor: active ? c.stroke : '#cbd5e1', color: active ? c.text : '#94a3b8', fontWeight: active ? 600 : 400, fontSize: 10, padding: '1px 6px', height: 20, minHeight: 20 }}>
-        {d.replace(/_/g, ' ')}
-      </button>
+      <label onClick={onClick} className="flex items-center gap-1 cursor-pointer border rounded" style={{ backgroundColor: active ? c.fill : '#f8fafc', borderColor: active ? c.stroke : '#cbd5e1', color: active ? c.text : '#94a3b8', fontWeight: active ? 600 : 400, fontSize: 10, padding: '1px 6px', height: 20, minHeight: 20, opacity: active ? 1 : 0.5 }}>
+        <input type="checkbox" checked={active} readOnly className="checkbox checkbox-xs" style={{ minHeight: 12, height: 12, width: 12 }} />
+        <span>{d.replace(/_/g, ' ')}</span>
+      </label>
     );
   }
 
@@ -597,16 +618,22 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
       <div className="flex flex-wrap gap-6 mb-3 items-start">
         <div className="flex-1 min-w-52">
           <div className="text-xs font-semibold mb-1 opacity-60 tracking-wide">Click to filter source variables by their OMOP domains</div>
-          <div className="flex flex-wrap gap-1">
-            {srcDomains.map(d => <DomainBtn key={d} d={d} active={activeSrcDomains.length === 0 || activeSrcDomains.includes(d)} onClick={() => toggle(activeSrcDomains, d, setActiveSrcDomains)} />)}
-            {activeSrcDomains.length > 0 && <button className="btn btn-xs btn-ghost text-xs" onClick={() => setActiveSrcDomains([])}>clear</button>}
+          <div className="flex gap-3 mb-1">
+            <button className="btn btn-xs btn-ghost text-xs" style={{ fontSize: 10, padding: '0 4px', height: 16, minHeight: 16 }} onClick={() => setActiveSrcDomains(srcDomains)}>select all</button>
+            <button className="btn btn-xs btn-ghost text-xs" style={{ fontSize: 10, padding: '0 4px', height: 16, minHeight: 16 }} onClick={() => setActiveSrcDomains([])}>unselect all</button>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-1">
+            {srcDomains.map(d => <DomainBtn key={d} d={d} active={activeSrcDomains.includes(d)} onClick={() => toggle(activeSrcDomains, d, setActiveSrcDomains)} />)}
           </div>
         </div>
         <div className="flex-1 min-w-52">
           <div className="text-xs font-semibold mb-1 opacity-60 tracking-wide">Click to filter target variables by their OMOP domains</div>
-          <div className="flex flex-wrap gap-1">
-            {tgtDomains.map(d => <DomainBtn key={d} d={d} active={activeTgtDomains.length === 0 || activeTgtDomains.includes(d)} onClick={() => toggle(activeTgtDomains, d, setActiveTgtDomains)} />)}
-            {activeTgtDomains.length > 0 && <button className="btn btn-xs btn-ghost text-xs" onClick={() => setActiveTgtDomains([])}>clear</button>}
+          <div className="flex gap-3 mb-1">
+            <button className="btn btn-xs btn-ghost text-xs" style={{ fontSize: 10, padding: '0 4px', height: 16, minHeight: 16 }} onClick={() => setActiveTgtDomains(tgtDomains)}>select all</button>
+            <button className="btn btn-xs btn-ghost text-xs" style={{ fontSize: 10, padding: '0 4px', height: 16, minHeight: 16 }} onClick={() => setActiveTgtDomains([])}>unselect all</button>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-1">
+            {tgtDomains.map(d => <DomainBtn key={d} d={d} active={activeTgtDomains.includes(d)} onClick={() => toggle(activeTgtDomains, d, setActiveTgtDomains)} />)}
           </div>
         </div>
       </div>
@@ -698,7 +725,7 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
                   }}
                 />
                 <path d={`M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`}
-                  fill="none" stroke={edgeClr(e.status)} strokeWidth={isHovE ? edgeW() + 1.5 : edgeW()}
+                  fill="none" stroke={edgeClr(e.status)} strokeWidth={isHovE ? edgeWidth(e.status) + 1.5 : edgeWidth(e.status)} strokeDasharray={edgeDashArray(e.status)}
                   opacity={highlighted ? (hoveredId ? 0.88 : 0.3) : 0.04} style={{ pointerEvents: 'none' }}
                 />
                 {isHovE && (() => {
