@@ -7,6 +7,62 @@ interface RowData {
   [key: string]: string | number | boolean | null | undefined;
 }
 
+// Helper function to parse a single CSV line (handles quoted fields)
+function parseCsvLine(line: string): string[] {
+  const result: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (line[i + 1] === '"') { current += '"'; i++; }
+        else { inQuotes = false; }
+      } else { current += ch; }
+    } else {
+      if (ch === '"') { inQuotes = true; }
+      else if (ch === ',') { result.push(current); current = ''; }
+      else { current += ch; }
+    }
+  }
+  result.push(current);
+  return result;
+}
+
+// Transform CSV text from _full.csv pairs files into preview rows
+function transformCsvDataForPreview(csvText: string, cohorts: string[]): RowData[] {
+  const lines = csvText.trim().split('\n').filter(l => l.trim() !== '');
+  if (lines.length < 2) return [];
+  const headers = parseCsvLine(lines[0]).map(h => h.trim());
+  const targetStudy = cohorts && cohorts.length > 1 ? cohorts[1] : '';
+  return lines.slice(1).map(line => {
+    const values = parseCsvLine(line);
+    const csvRow: Record<string, string> = {};
+    headers.forEach((h, i) => { csvRow[h] = (values[i] || '').trim(); });
+    const sourceLabels = csvRow['source_categories_labels'] || '';
+    const sourceCodes = csvRow['source_original_categories'] || '';
+    const sourceCategoriesCodesLabels = sourceLabels && sourceCodes
+      ? `${sourceCodes} (${sourceLabels})` : sourceCodes || sourceLabels || '';
+    const targetLabels = csvRow['target_categories_labels'] || '';
+    const targetCodes = csvRow['target_original_categories'] || '';
+    const targetCategoriesCodesLabels = targetLabels && targetCodes
+      ? `${targetCodes} (${targetLabels})` : targetCodes || targetLabels || '';
+    const row: RowData = { ...csvRow };
+    row.s_source = csvRow['source'] || '';
+    row.s_label = csvRow['slabel'] || csvRow['source_label'] || '';
+    row.target_study = csvRow['target_study'] || targetStudy;
+    row.target = csvRow['target'] || '';
+    row.target_label = csvRow['tlabel'] || csvRow['target_label'] || '';
+    row.mapping_relation = csvRow['mapping_relation'] || csvRow['mapping type'] || '';
+    row.harmonization_status = csvRow['harmonization_status'] || '';
+    row.sim_score = csvRow['sim_score'] ? Number(csvRow['sim_score']) : null;
+    row.omop_domain = csvRow['category'] || '';
+    row.source_categories_codes_labels = sourceCategoriesCodesLabels;
+    row.target_categories_codes_labels = targetCategoriesCodesLabels;
+    return row;
+  }).filter(row => row.s_source || row.target);
+}
+
 // Helper function to extract relevant fields from the mapping JSON
 function transformMappingDataForPreview(jsonData: any): RowData[] {
   let allMappings: RowData[] = [];
@@ -89,7 +145,7 @@ function MappingPreviewJsonTable({ data, sourceCohort }: MappingPreviewJsonTable
   if (!data || !Array.isArray(data) || data.length === 0) return <div className="italic text-slate-400">No mapping data to preview.</div>;
   
   // Define columns in a specific order for consistency
-  const columns = ['s_source', 's_label', 'target_study', 'target', 'target_label', 'compare_eda', 'mapping_relation', 'source_categories_codes_labels', 'target_categories_codes_labels', 'harmonization_status'];
+  const columns = ['s_source', 's_label', 'target_study', 'target', 'target_label', 'compare_eda', 'harmonization_status', 'source_categories_codes_labels', 'target_categories_codes_labels', 'mapping_relation'];
   
   // Define display names for columns
   const columnDisplayNames: Record<string, string> = {
@@ -273,7 +329,6 @@ export default function MappingPage() {
   const [sourceFilter, setSourceFilter] = useState('');
   const [targetFilter, setTargetFilter] = useState('');
   const [sourceDropdownOpen, setSourceDropdownOpen] = useState(false);
-  const [selectedMappingTypes, setSelectedMappingTypes] = useState<string[]>([]);
   const [selectedHarmonizationStatuses, setSelectedHarmonizationStatuses] = useState<string[]>([]);
   const [cacheInfo, setCacheInfo] = useState<{
     cached_pairs: Array<{source: string, target: string, timestamp: number}>,
@@ -289,7 +344,7 @@ export default function MappingPage() {
   const [cachedFiles, setCachedFiles] = useState<any[]>([]);
   const [loadingCacheFiles, setLoadingCacheFiles] = useState(false);
   const [loadingCacheAction, setLoadingCacheAction] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<'table' | 'graph'>('table');
+  const [viewMode, setViewMode] = useState<'table' | 'graph'>('graph');
   
   // Reference to the mapping output section
   const mappingOutputRef = useRef<HTMLDivElement>(null);
@@ -331,7 +386,7 @@ export default function MappingPage() {
     }
   };
 
-  // Handle preview of a cached mapping file
+  // Handle preview of a cached mapping file (table view)
   const handleCachePreview = async (file: any) => {
     setLoadingCacheAction(file.filename);
     try {
@@ -339,9 +394,52 @@ export default function MappingPage() {
         credentials: 'include',
       });
       if (!response.ok) throw new Error('Failed to fetch file');
-      const jsonData = await response.json();
-      const previewData = transformMappingDataForPreview(jsonData);
+      let previewData: RowData[];
+      if (file.filename.endsWith('.csv')) {
+        const csvText = await response.text();
+        previewData = transformCsvDataForPreview(csvText, file.cohorts);
+      } else {
+        const jsonData = await response.json();
+        previewData = transformMappingDataForPreview(jsonData);
+      }
       setMappingOutput(previewData);
+      // Select all harmonization statuses by default
+      const allStatuses = [...new Set(previewData.map(r => (r.harmonization_status?.toString() || '--')))];
+      setSelectedHarmonizationStatuses(allStatuses);
+      setViewMode('table');
+      // Set the source cohort from the file's first cohort for the EDA comparison feature
+      if (file.cohorts && file.cohorts.length > 0) {
+        setSourceCohort(file.cohorts[0]);
+      }
+      setShowCachePanel(false);
+    } catch (error) {
+      console.error('Failed to preview cached file:', error);
+    } finally {
+      setLoadingCacheAction(null);
+    }
+  };
+
+  // Handle preview of a cached mapping file (graph view)
+  const handleCachePreviewGraph = async (file: any) => {
+    setLoadingCacheAction(file.filename);
+    try {
+      const response = await fetch(`${apiUrl}/api/get-cached-mapping-file/${encodeURIComponent(file.filename)}`, {
+        credentials: 'include',
+      });
+      if (!response.ok) throw new Error('Failed to fetch file');
+      let previewData: RowData[];
+      if (file.filename.endsWith('.csv')) {
+        const csvText = await response.text();
+        previewData = transformCsvDataForPreview(csvText, file.cohorts);
+      } else {
+        const jsonData = await response.json();
+        previewData = transformMappingDataForPreview(jsonData);
+      }
+      setMappingOutput(previewData);
+      // Select all harmonization statuses by default
+      const allStatuses = [...new Set(previewData.map(r => (r.harmonization_status?.toString() || '--')))];
+      setSelectedHarmonizationStatuses(allStatuses);
+      setViewMode('graph');
       // Set the source cohort from the file's first cohort for the EDA comparison feature
       if (file.cohorts && file.cohorts.length > 0) {
         setSourceCohort(file.cohorts[0]);
@@ -525,6 +623,10 @@ export default function MappingPage() {
         const jsonData = JSON.parse(cleanedFileContent);
         const previewData = transformMappingDataForPreview(jsonData);
         setMappingOutput(previewData);
+        // Select all harmonization statuses by default
+        const allStatuses = [...new Set(previewData.map(r => (r.harmonization_status?.toString() || '--')))];
+        setSelectedHarmonizationStatuses(allStatuses);
+        setViewMode('graph');
       } catch (error) {
         console.error('Error parsing JSON response for preview:', error);
         setMappingOutput([]); // Clear the preview on error
@@ -768,7 +870,14 @@ export default function MappingPage() {
                               onClick={() => handleCachePreview(file)}
                               disabled={loadingCacheAction === file.filename}
                             >
-                              {loadingCacheAction === file.filename ? <span className="loading loading-spinner loading-xs"></span> : 'Preview'}
+                              {loadingCacheAction === file.filename ? <span className="loading loading-spinner loading-xs"></span> : 'Show table'}
+                            </button>
+                            <button
+                              className="btn btn-xs btn-outline"
+                              onClick={() => handleCachePreviewGraph(file)}
+                              disabled={loadingCacheAction === file.filename}
+                            >
+                              {loadingCacheAction === file.filename ? <span className="loading loading-spinner loading-xs"></span> : 'Show graph'}
                             </button>
                             <button
                               className="btn btn-xs btn-outline"
@@ -929,19 +1038,19 @@ export default function MappingPage() {
             {/* Header with title and view toggle */}
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold">Mapping Preview</h2>
-              <div className="join">
+              <div className="join join-lg">
                 <button
-                  className={`join-item btn btn-sm ${viewMode === 'table' ? 'btn-active' : ''}`}
+                  className={`join-item btn btn-md ${viewMode === 'table' ? 'btn-active' : ''}`}
                   onClick={() => setViewMode('table')}
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 3v18"/></svg>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 3v18"/></svg>
                   <span className="ml-1">Table</span>
                 </button>
                 <button
-                  className={`join-item btn btn-sm ${viewMode === 'graph' ? 'btn-active' : ''}`}
+                  className={`join-item btn btn-md ${viewMode === 'graph' ? 'btn-active' : ''}`}
                   onClick={() => setViewMode('graph')}
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><circle cx="18" cy="6" r="3"/><path d="M6 9v6"/><path d="M9 6h6"/><path d="M15 18H9"/></svg>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><circle cx="18" cy="6" r="3"/><path d="M6 9v6"/><path d="M9 6h6"/><path d="M15 18H9"/></svg>
                   <span className="ml-1">Graph</span>
                 </button>
               </div>
@@ -955,109 +1064,52 @@ export default function MappingPage() {
             {/* === TABLE VIEW === */}
             {viewMode === 'table' && (
               <>
-                {/* Filter Controls */}
-                <div className="flex justify-end mb-4">
-                  <div className="bg-gray-50 border rounded-lg p-4 w-full max-w-2xl">
-                    <h4 className="font-semibold text-sm mb-3">Filters</h4>
-                    <div className="grid grid-cols-2 gap-4">
-                      {/* Mapping Relation Filter */}
-                      <div>
-                        <h5 className="font-medium text-xs mb-2">mapping_relation</h5>
-                        <div className="space-y-1 max-h-32 overflow-y-auto text-xs">
-                          {(() => {
-                            const mappingRelationCounts = mappingOutput.reduce((acc, row) => {
-                              const value = (row.mapping_relation?.toString() || '--');
-                              const currentCount = acc[value] as number || 0;
-                              acc[value] = currentCount + 1;
-                              return acc;
-                            }, {} as Record<string, number>);
-                            
-                            return Object.entries(mappingRelationCounts).map(([value, count]) => (
-                              <div key={value} className="flex items-center gap-2">
-                                <input 
-                                  type="checkbox" 
-                                  className="checkbox checkbox-xs" 
-                                  id={`mapping-${value}`}
-                                  checked={selectedMappingTypes.includes(value)}
-                                  onChange={(e) => {
-                                    if (e.target.checked) {
-                                      setSelectedMappingTypes(prev => [...prev, value]);
-                                    } else {
-                                      setSelectedMappingTypes(prev => prev.filter(v => v !== value));
-                                    }
-                                  }}
-                                />
-                                <label htmlFor={`mapping-${value}`} className="cursor-pointer truncate">
-                                  {value} ({count})
-                                </label>
-                              </div>
-                            ));
-                          })()}
-                        </div>
-                      </div>
-
-                      {/* Harmonization Status Filter */}
-                      <div>
-                        <h5 className="font-medium text-xs mb-2">harmonization_status</h5>
-                        <div className="space-y-1 max-h-32 overflow-y-auto text-xs">
-                          {(() => {
-                            const statusCounts = mappingOutput.reduce((acc, row) => {
-                              const value = (row.harmonization_status?.toString() || '--');
-                              const currentCount = acc[value] as number || 0;
-                              acc[value] = currentCount + 1;
-                              return acc;
-                            }, {} as Record<string, number>);
-                            
-                            return Object.entries(statusCounts).map(([value, count]) => (
-                              <div key={value} className="flex items-center gap-2">
-                                <input 
-                                  type="checkbox" 
-                                  className="checkbox checkbox-xs" 
-                                  id={`status-${value}`}
-                                  checked={selectedHarmonizationStatuses.includes(value)}
-                                  onChange={(e) => {
-                                    if (e.target.checked) {
-                                      setSelectedHarmonizationStatuses(prev => [...prev, value]);
-                                    } else {
-                                      setSelectedHarmonizationStatuses(prev => prev.filter(v => v !== value));
-                                    }
-                                  }}
-                                />
-                                <label htmlFor={`status-${value}`} className="cursor-pointer truncate">
-                                  {value} ({count})
-                                </label>
-                              </div>
-                            ));
-                          })()}
-                        </div>
-                      </div>
-                    </div>
+                {/* Harmonization Status Filter (horizontal, above table) */}
+                <div className="flex items-center gap-3 mb-4 flex-wrap">
+                  <span className="font-medium text-xs text-gray-600">harmonization_status:</span>
+                  {(() => {
+                    const statusCounts = mappingOutput.reduce((acc, row) => {
+                      const value = (row.harmonization_status?.toString() || '--');
+                      const currentCount = acc[value] as number || 0;
+                      acc[value] = currentCount + 1;
+                      return acc;
+                    }, {} as Record<string, number>);
                     
-                    {/* Clear Filters Button */}
-                    {(selectedMappingTypes.length > 0 || selectedHarmonizationStatuses.length > 0) && (
-                      <button
-                        className="btn btn-xs btn-outline mt-3 w-full"
-                        onClick={() => {
-                          setSelectedMappingTypes([]);
-                          setSelectedHarmonizationStatuses([]);
-                        }}
-                      >
-                        Clear Filters
-                      </button>
-                    )}
-                  </div>
+                    return Object.entries(statusCounts).map(([value, count]) => (
+                      <label key={value} className="flex items-center gap-1 text-xs cursor-pointer">
+                        <input 
+                          type="checkbox" 
+                          className="checkbox checkbox-xs" 
+                          id={`status-${value}`}
+                          checked={selectedHarmonizationStatuses.includes(value)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedHarmonizationStatuses(prev => [...prev, value]);
+                            } else {
+                              setSelectedHarmonizationStatuses(prev => prev.filter(v => v !== value));
+                            }
+                          }}
+                        />
+                        <span>{value} ({count})</span>
+                      </label>
+                    ));
+                  })()}
+                  {selectedHarmonizationStatuses.length > 0 && (
+                    <button
+                      className="btn btn-xs btn-outline"
+                      onClick={() => setSelectedHarmonizationStatuses([])}
+                    >
+                      Clear
+                    </button>
+                  )}
                 </div>
 
                 {/* Row count and target info */}
                 {(() => {
                   const filteredData = mappingOutput.filter(row => {
-                    const mappingRelation = (row.mapping_relation?.toString() || '--');
                     const harmonizationStatus = (row.harmonization_status?.toString() || '--');
-                    
-                    const mappingRelationMatch = selectedMappingTypes.length === 0 || selectedMappingTypes.includes(mappingRelation);
                     const harmonizationStatusMatch = selectedHarmonizationStatuses.length === 0 || selectedHarmonizationStatuses.includes(harmonizationStatus);
-                    
-                    return mappingRelationMatch && harmonizationStatusMatch;
+                    return harmonizationStatusMatch;
                   });
 
                   return (
@@ -1154,13 +1206,9 @@ export default function MappingPage() {
                 >
                   {(() => {
                     const filteredData = mappingOutput.filter(row => {
-                      const mappingRelation = (row.mapping_relation?.toString() || '--');
                       const harmonizationStatus = (row.harmonization_status?.toString() || '--');
-                      
-                      const mappingRelationMatch = selectedMappingTypes.length === 0 || selectedMappingTypes.includes(mappingRelation);
                       const harmonizationStatusMatch = selectedHarmonizationStatuses.length === 0 || selectedHarmonizationStatuses.includes(harmonizationStatus);
-                      
-                      return mappingRelationMatch && harmonizationStatusMatch;
+                      return harmonizationStatusMatch;
                     });
                     
                     return <MappingPreviewJsonTable data={filteredData} sourceCohort={sourceCohort} />;
