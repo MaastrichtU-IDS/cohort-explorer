@@ -1550,6 +1550,9 @@ export function Nav() {
                                             });
                                             const data = await resp.json();
                                             if (!resp.ok) {
+                                              if (resp.status === 404) {
+                                                throw new Error('Cohort does not yet have usage permissions specified');
+                                              }
                                               const detail = data.detail;
                                               throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail ?? data));
                                             }

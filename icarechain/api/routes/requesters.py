@@ -319,15 +319,7 @@ async def create_access_request(req: AccessRequestCreate, user: AuthenticatedUse
     cohort_hash_unprefixed = _gch(req.cohortId).hex()
     cohort = await cache.get_consent(cohort_hash_unprefixed) or await cache.get_consent("0x" + cohort_hash_unprefixed)
     if not cohort:
-        raise HTTPException(
-            status_code=404,
-            detail={
-                "matched": False,
-                "reason": "NO_CONSENT_DECLARED",
-                "detail": "Cohort does not yet have usage permissions specified",
-                "cohortId": req.cohortId,
-            },
-        )
+        raise HTTPException(404, "Cohort not found")
 
     format_error = _validate_request_format(req)
     if format_error is not None:

@@ -66,10 +66,7 @@ async def _read(cohort_id: str) -> dict:
 
     chain = await get_blockchain_service().get_consent_status(cohort_id)
     if chain.get("error"):
-        raise HTTPException(
-            status_code=404,
-            detail="Cohort does not yet have usage permissions specified",
-        )
+        raise HTTPException(404, "Cohort not found")
     return {
         "cohort_id": cohort_id,
         "cohort_hash": "0x" + h,
