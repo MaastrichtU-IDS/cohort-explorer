@@ -29,7 +29,7 @@ def _write(path: Path, content: str) -> Path:
 
 def _upstream_error(path: str, failed_step: str, *, status_code: int, detail: str):
     return AadcrUpstreamError(
-        method="POST" if "computation-nodes" in path or path == "/api/upload" else "GET",
+        method="POST" if "computation-nodes" in path or path in {"/api/dcr/", "/api/upload"} else "GET",
         path=path,
         detail=detail,
         failed_step=failed_step,
@@ -47,12 +47,14 @@ class CreationService:
         fail_prod_once: bool = False,
         fail_upload_number_once: int | None = None,
         fail_participant_after_mutation_once: bool = False,
+        fail_room_after_mutation_once: bool = False,
     ):
         self.calls: list[dict] = []
         self.participants: list[dict] = []
         self.data_nodes: list[dict] = []
         self.computation_nodes: list[dict] = []
         self.permissions: list[dict] = []
+        self.rooms: list[dict] = []
         self.room_count = 0
         self.merge_count = 0
         self.fail_prod_once = fail_prod_once
@@ -62,6 +64,8 @@ class CreationService:
         self.upload_count = 0
         self.fail_participant_after_mutation_once = fail_participant_after_mutation_once
         self.failed_participant = False
+        self.fail_room_after_mutation_once = fail_room_after_mutation_once
+        self.failed_room = False
 
     async def __aenter__(self):
         return self
@@ -79,9 +83,11 @@ class CreationService:
                 "body": json_body,
             }
         )
+        if method == "GET" and path == "/api/dcr/":
+            return list(self.rooms)
         if method == "POST" and path == "/api/dcr/":
             self.room_count += 1
-            return {
+            room = {
                 "id": f"room-{self.room_count}",
                 "name": json_body["name"],
                 "creatorEmail": "creator@example.test",
@@ -89,6 +95,21 @@ class CreationService:
                 "createdAt": "2026-07-15T09:00:00Z",
                 "updatedAt": "2026-07-15T09:00:00Z",
             }
+            self.rooms.append(room)
+            if self.fail_room_after_mutation_once and not self.failed_room:
+                self.failed_room = True
+                raise _upstream_error(
+                    path,
+                    failed_step,
+                    status_code=503,
+                    detail="room response was interrupted after commit",
+                )
+            return room
+        if method == "PATCH" and path.startswith("/api/dcr/"):
+            room_id = path.rsplit("/", 1)[-1]
+            room = next(room for room in self.rooms if room["id"] == room_id)
+            room["name"] = json_body["name"]
+            return room
         if path.endswith("/dev/participants"):
             response = {
                 "id": f"dev-participant-{len(self.participants)}",
@@ -349,6 +370,33 @@ def test_completed_session_rejects_changed_request_without_contacting_native(set
     assert caught.value.status_code == 409
     assert caught.value.failed_step == "resume operation"
     assert service.calls == calls_after_completion
+
+
+def test_retry_recovers_room_when_create_committed_before_response_was_lost(
+    settings_factory,
+    tmp_path,
+):
+    service = CreationService(fail_room_after_mutation_once=True)
+    backend, settings, request = _creation_fixture(settings_factory, tmp_path, service)
+
+    with pytest.raises(DcrOperationError) as interrupted:
+        run(backend.create_live_room(request, {"email": "creator@example.test"}))
+    interrupted_state = OperationJournal(settings.aadcrv2_operation_journal).load("session-resume-123")
+
+    assert interrupted.value.failed_step == "create DCR"
+    assert interrupted_state.dcr_id is None
+    assert service.room_count == 1
+
+    result = run(backend.create_live_room(request, {"email": "creator@example.test"}))
+    create_calls = [call for call in service.calls if call["method"] == "POST" and call["path"] == "/api/dcr/"]
+    reconcile_calls = [call for call in service.calls if call["method"] == "GET" and call["path"] == "/api/dcr/"]
+
+    assert result.dcr_id == "room-1"
+    assert service.room_count == 1
+    assert len(service.rooms) == 1
+    assert len(create_calls) == 1
+    assert len(reconcile_calls) == 2
+    assert service.rooms[0]["name"] == "Resumable synthetic study - created by creator@example.test"
 
 
 def test_retry_reconciles_a_native_dev_mutation_that_failed_before_response(

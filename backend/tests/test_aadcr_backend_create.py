@@ -1,4 +1,5 @@
 import asyncio
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -43,6 +44,7 @@ class RecordingClient:
         self.data_nodes: list[dict] = []
         self.computation_nodes: list[dict] = []
         self.permissions: list[dict] = []
+        self.rooms: list[dict] = []
         self.missing_prod_node = missing_prod_node
         self.fail_upload = fail_upload
 
@@ -62,8 +64,19 @@ class RecordingClient:
                 "body": json_body,
             }
         )
+        if method == "GET" and path == "/api/dcr/":
+            return list(self.rooms)
         if method == "POST" and path == "/api/dcr/":
-            return {"id": "room-123", "name": json_body["name"]}
+            room = {
+                "id": "room-123",
+                "name": json_body["name"],
+                "creatorEmail": "creator@example.test",
+            }
+            self.rooms.append(room)
+            return room
+        if method == "PATCH" and path == "/api/dcr/room-123":
+            self.rooms[0]["name"] = json_body["name"]
+            return self.rooms[0]
         if path.endswith("/dev/participants"):
             response = {
                 "id": f"dev-participant-{len(self.participants)}",
@@ -253,9 +266,24 @@ def test_create_live_room_uses_exact_native_dev_merge_prod_and_provision_sequenc
     calls = client.calls
     assert calls[0] == {
         "kind": "json",
-        "method": "POST",
+        "method": "GET",
         "path": "/api/dcr/",
-        "failed_step": "create DCR",
+        "failed_step": "reconcile DCR creation",
+        "body": None,
+    }
+    assert calls[1]["method"] == "POST"
+    assert calls[1]["path"] == "/api/dcr/"
+    pending_name = calls[1]["body"]["name"]
+    assert re.fullmatch(
+        r"Local AADCR study - created by creator@example\.test \[ce-operation:[0-9a-f]{64}\]",
+        pending_name,
+    )
+    assert request["session_id"] not in pending_name
+    assert calls[2] == {
+        "kind": "json",
+        "method": "PATCH",
+        "path": "/api/dcr/room-123",
+        "failed_step": "finalize DCR name",
         "body": {"name": "Local AADCR study - created by creator@example.test"},
     }
 

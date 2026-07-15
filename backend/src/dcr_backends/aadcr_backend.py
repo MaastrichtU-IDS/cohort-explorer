@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import math
 from datetime import datetime
 from pathlib import Path
@@ -323,6 +324,8 @@ class AadcrBackend:
                     resume_dcr_id=state.dcr_id,
                     confirmed_steps=set(state.confirmed_steps),
                     on_confirm=confirm_step,
+                    creation_key=hashlib.sha256(f"{session_id}\0{fingerprint}".encode()).hexdigest(),
+                    expected_creator_email=self._require_email(user),
                 )
             result = self._live_result(plan, outcome)
             completed_steps = [*state.confirmed_steps]

@@ -881,21 +881,61 @@ async def create_aadcr_room(
     resume_dcr_id: str | None = None,
     confirmed_steps: set[str] | frozenset[str] = frozenset(),
     on_confirm: ConfirmationCallback | None = None,
+    creation_key: str | None = None,
+    expected_creator_email: str | None = None,
 ) -> CreationOutcome:
     """Execute or resume one native create -> DEV -> merge -> provision flow."""
     dcr_id = _safe_api_identifier(resume_dcr_id, failed_step="resume operation") if resume_dcr_id is not None else None
     durable_steps = set(confirmed_steps)
     try:
         if dcr_id is None:
-            room = await client.request_json(
-                "POST",
-                "/api/dcr/",
-                failed_step="create DCR",
-                json_body={"name": plan.title},
-            )
+            pending_name = plan.title
+            room = None
+            if creation_key is not None:
+                marker = f" [ce-operation:{creation_key}]"
+                pending_name = f"{plan.title[: 255 - len(marker)]}{marker}"
+                rooms = await client.request_json(
+                    "GET",
+                    "/api/dcr/",
+                    failed_step="reconcile DCR creation",
+                )
+                if not isinstance(rooms, list):
+                    raise DcrOperationError(
+                        detail="AADCR room list was not an array",
+                        failed_step="reconcile DCR creation",
+                    )
+                creator = _normalize_email(expected_creator_email)
+                matches = [
+                    candidate
+                    for candidate in rooms
+                    if isinstance(candidate, dict)
+                    and candidate.get("name") == pending_name
+                    and _normalize_email(candidate.get("creatorEmail")) == creator
+                ]
+                if len(matches) > 1:
+                    raise DcrOperationError(
+                        detail="AADCR returned multiple rooms for the same creation operation",
+                        failed_step="reconcile DCR creation",
+                        status_code=409,
+                    )
+                room = matches[0] if matches else None
+            if room is None:
+                room = await client.request_json(
+                    "POST",
+                    "/api/dcr/",
+                    failed_step="create DCR",
+                    json_body={"name": pending_name},
+                )
             dcr_id = _required_api_identifier(room, "id", failed_step="create DCR")
             await _confirm_step(on_confirm, "room_created", dcr_id)
             durable_steps.add("room_created")
+        if creation_key is not None:
+            await client.request_json(
+                "PATCH",
+                f"/api/dcr/{dcr_id}",
+                failed_step="finalize DCR name",
+                json_body={"name": plan.title},
+            )
         dev_root = f"/api/dcr/{dcr_id}/dev"
 
         merge_request_id = _confirmed_merge_request_id(durable_steps)
