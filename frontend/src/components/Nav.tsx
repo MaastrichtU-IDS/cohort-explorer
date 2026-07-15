@@ -7,7 +7,7 @@ import {LogIn, LogOut, Compass, Upload, HardDrive, Map, Box, FileText, Settings}
 import {useCohorts} from '@/components/CohortsContext';
 import {DarkThemeIcon, LightThemeIcon} from '@/components/Icons';
 import {apiUrl} from '@/utils';
-import {projectDcrProvider} from '@/utils/dcrProvider';
+import {projectDcrAirlockSettings, projectDcrProvider, projectDcrWizard} from '@/utils/dcrProvider';
 
 // Not used: Next Auth.js: https://authjs.dev/getting-started/providers/oauth-tutorial
 // Auth0: https://github.com/nextauthjs/next-auth/blob/main/packages/core/src/providers/auth0.ts
@@ -77,16 +77,10 @@ export function Nav() {
       .catch(() => {});
   }, [userEmail]);
 
-  // Wizard step definitions (declared before the logging hooks below so their
-  // closures can read step ids safely).
-  const wizardSteps = [
-    { id: 'name', title: 'DCR Name & Cohorts' },
-    { id: 'participants', title: 'Participants' },
-    { id: 'research-goals', title: 'Research Goals' },
-    { id: 'data-samples', title: 'Data Samples' },
-    { id: 'mapping', title: 'Mapping Files' },
-    { id: 'review', title: 'Review & Create' },
-  ];
+  // Provider-specific wizard capabilities are projected in one pure helper so
+  // local simulations cannot accidentally inherit production security claims.
+  const dcrWizardUi = useMemo(() => projectDcrWizard(dcrProviderUi), [dcrProviderUi]);
+  const wizardSteps = dcrWizardUi.steps;
 
   // --- DCR activity logging (wizard) -------------------------------------
   // Session id correlates every event a user emits during one wizard session.
@@ -395,12 +389,7 @@ export function Nav() {
           include_shuffled_samples: shuffledSampleSettings,
           additional_analysts: additionalAnalysts,
           excluded_data_owners: excludedDataOwners,
-          airlock_settings: Object.fromEntries(
-            Object.entries(airlockSettings).map(([cohortId, isEnabled]) => [
-              cohortId,
-              isEnabled ? 20 : 0
-            ])
-          ),
+          airlock_settings: projectDcrAirlockSettings(dcrWizardUi, airlockSettings),
           dcr_name: dcrName,
           research_question: researchQuestion,
           session_id: sessionIdRef.current,
@@ -825,6 +814,12 @@ export function Nav() {
                     </li>
                   ))}
                 </ul>
+
+                {dcrWizardUi.creationWarning && (
+                  <div className="alert alert-warning mb-6" role="alert" data-testid="dcr-local-simulation-warning">
+                    <span>⚠️ {dcrWizardUi.creationWarning}</span>
+                  </div>
+                )}
                 
                 {/* Step content */}
                 <div className="min-h-[300px]" data-testid={`dcr-wizard-panel-${wizardSteps[wizardStep].id}`}>
@@ -975,13 +970,15 @@ export function Nav() {
                     </>
                   )}
                   
-                  {/* Step 3: Data Samples Settings (merged Airlock + Shuffled Samples) */}
+                  {/* Step 3: Provider-supported sample settings */}
                   {wizardStep === 3 && (
                     <>
-                      <h3 className="font-bold text-lg mb-4">Step 4: Data Samples</h3>
+                      <h3 className="font-bold text-lg mb-4">Step 4: {wizardSteps[3].title}</h3>
                       <div className="text-sm text-base-content/70 mb-4 space-y-2">
                         <p><strong>Shuffled Sample:</strong> A shuffled sample contains a maximum of 500 rows from dataset without the patient id column. Each column in the sample is shuffled independently of the other columns. The sample can be downloaded for code testing and validation outside this platform.</p>
-                        <p><strong>Airlock:</strong> The airlock allows 20% of the real data to be available to analysts inside the DCR for code testing and validation purposes. Note that the patient id column and the rows with outlier values (|z-score - mean| &gt; 2) are excluded from the airlock sample.</p>
+                        {dcrWizardUi.supportsAirlock && (
+                          <p><strong>Airlock:</strong> The airlock allows 20% of the real data to be available to analysts inside the DCR for code testing and validation purposes. Note that the patient id column and the rows with outlier values (|z-score - mean| &gt; 2) are excluded from the airlock sample.</p>
+                        )}
                       </div>
                       
                       {loadingShuffledSamples ? (
@@ -990,8 +987,9 @@ export function Nav() {
                         <div className="space-y-4">
                           {dataCleanRoom?.cohorts && Object.keys(dataCleanRoom.cohorts).sort().map((cohortId) => {
                             const hasShuffledSample = cohortsWithShuffledSamples.includes(cohortId);
-                            // Default: shuffled sample if available, otherwise airlock
-                            const defaultAirlock = !hasShuffledSample;
+                            // Production rooms can fall back to Airlock; local
+                            // simulations only expose the samples they implement.
+                            const defaultAirlock = dcrWizardUi.supportsAirlock && !hasShuffledSample;
                             const defaultShuffled = hasShuffledSample;
                             const currentAirlock = airlockSettings[cohortId] ?? defaultAirlock;
                             const currentShuffled = shuffledSampleSettings[cohortId] ?? defaultShuffled;
@@ -1029,17 +1027,19 @@ export function Nav() {
                                       Shuffled Sample
                                     </button>
                                   )}
-                                  <button
-                                    className={`btn btn-sm ${currentSelection === 'airlock' ? 'btn-primary' : 'btn-outline'}`}
-                                    onClick={() => {
-                                      setAirlockSettings({...airlockSettings, [cohortId]: true});
-                                      setShuffledSampleSettings({...shuffledSampleSettings, [cohortId]: false});
-                                    }}
-                                    data-testid="dcr-sample-airlock"
-                                  >
-                                    Airlocked Sample
-                                  </button>
-                                  {hasShuffledSample && (
+                                  {dcrWizardUi.supportsAirlock && (
+                                    <button
+                                      className={`btn btn-sm ${currentSelection === 'airlock' ? 'btn-primary' : 'btn-outline'}`}
+                                      onClick={() => {
+                                        setAirlockSettings({...airlockSettings, [cohortId]: true});
+                                        setShuffledSampleSettings({...shuffledSampleSettings, [cohortId]: false});
+                                      }}
+                                      data-testid="dcr-sample-airlock"
+                                    >
+                                      Airlocked Sample
+                                    </button>
+                                  )}
+                                  {dcrWizardUi.supportsAirlock && hasShuffledSample && (
                                     <button
                                       className={`btn btn-sm ${currentSelection === 'both' ? 'btn-primary' : 'btn-outline'}`}
                                       onClick={() => {
@@ -1135,9 +1135,11 @@ export function Nav() {
                             <strong>Research Question:</strong> {researchQuestion}
                           </div>
                         )}
-                        <div className="p-3 bg-base-200 rounded-lg">
-                          <strong>Airlock Cohorts:</strong> {Object.entries(airlockSettings).filter(([_, v]) => v !== false).map(([k]) => k).join(', ') || 'None'}
-                        </div>
+                        {dcrWizardUi.supportsAirlock && (
+                          <div className="p-3 bg-base-200 rounded-lg">
+                            <strong>Airlock Cohorts:</strong> {Object.entries(airlockSettings).filter(([_, v]) => v !== false).map(([k]) => k).join(', ') || 'None'}
+                          </div>
+                        )}
                         <div className="p-3 bg-base-200 rounded-lg">
                           <strong>Shuffled Samples:</strong> {Object.entries(shuffledSampleSettings).filter(([_, v]) => v !== false).map(([k]) => k).join(', ') || 'None'}
                         </div>
