@@ -186,8 +186,8 @@ Use cohort population, inclusion criteria, and shared morbidities to identify va
 """
 _SHARED_BODY = """
 {study_context_block}
-### MANDATORY SEMANTIC GATES
 
+### MANDATORY SEMANTIC GATES
 Assess harmonizability for pooled patient-level analysis, not surface semantic similarity.
 
 For each variable, where the metadata allows, identify:
@@ -197,7 +197,7 @@ For each variable, where the metadata allows, identify:
 4. Anatomical scope — general, organ-specific, regional, unilateral, bilateral, or other site restriction.
 5. Composition — single entity, parent class, subtype/member, union, sum, aggregate, or residual "other" field.
 6. Value support — which clinical states are explicitly represented and what a missing value means.
-7. Timepoint — baseline, follow-up, event date, or other study period.
+7. If visit is omitted, assume source and target are recorded at the same timepoint.
 
 Apply the following gates before assigning a status.
 ** Composite/component gate. On each side identify whether it is a single entity, a parent class, a member/subtype, or a pre-composed aggregate (sum or union), and whether the axis is dose or presence.
@@ -209,25 +209,27 @@ Apply the following gates before assigning a status.
 ** Anatomical-scope gate. Laterality and site restriction are defining when one variable can be positive while the other is negative for the same patient. Identical category sets do not override a scope difference.
 ** Setting/default gate. A defining qualifier (posture, physiological state, specimen, provocation, assay) present on one side and omitted on the other is read as the conventional default for that measurement, but only where a recognized clinical default exists. COMPLETE/COMPATIBLE only if the specified value is that default; if it departs from the default, or if both sides specify conflicting values, no single pooled variable exists → IMPOSSIBLE. Where no recognized default exists (assay/method, device scale, anatomical site), an omitted qualifier stays unverifiable — do not upgrade to COMPLETE.
 ** Value-mapping gate. For every explicit observed value, determine whether it maps to a valid harmonized value or must remain unknown. Never map missing, not recorded, not assessed, or an unsupported negative to "No".
+** When dealing with clinical observations versus true physiological states, the goal shifts to preserving diagnostic precision.
 
 ### STATUS BOUNDARIES
 
 COMPLETE
 Same clinical entity, information axis, observation frame, anatomical scope, granularity, and value meaning; values merge as-is, with no recoding, conversion, threshold reinterpretation, or category normalization. Mathematically equivalent unit notation is allowed only when the numeric values are unchanged.
 Examples:
-- systolic BP (mmHg) vs sitting systolic BP (mmHg)  [seated is the office-BP default]
-- NT-proBNP (ug/L) vs NT-proBNP (ng/mL)  [1 ug/L = 1 ng/mL]
-- central venous pressure > 6 cmH2O (1=yes|0=no) vs jugular vein elevated (1=yes|0=no)
-- atrial fibrillation at baseline (t=yes|f=no) vs atrial fibrillation on ECG at baseline (t=yes|f=no)
+- source: systolic BP (mmHg) vs target: sitting systolic BP (mmHg)  [seated is the office-BP default]
+- source: NT-proBNP (ug/L) vs target: NT-proBNP (ng/mL)  [1 ug/L = 1 ng/mL]
+- source: history of atrial fibrillation(1=yes|0=no) vs target: Atrial fibrillation during ECG(yes=yes|no=no) : maps target-to-source (more complete path) — yes→1, no→0 (observation-frame abstraction).
+- source: central venous pressure > 6 cm H2O (0=no|1=yes) vs target: jugular vein elevated (0=no|1=yes): maps target-to-source (more complete direction) — 1→1, 0→0 
+
 
 COMPATIBLE
 The same six attributes as COMPLETE, but value representations differ and a deterministic, lossless, reversible transformation aligns them — unit conversion, or bijective recoding (equal number of distinct clinical states). Clinical association or approximate interchangeability is not sufficient; a surrogate qualifies only where the metadata or adjudication policy establishes equivalence and a deterministic mapping.
 Examples:
-- weight (kg) vs weight (lb)
-- myocardial infarction (yes|no) vs myocardial infarction (t=yes|f=no)
-- aspartate aminotransferase [enzymatic activity/volume] in /L vs AST measurement in (U/L) 
-- central venous pressure > 6 cmH2O (3=yes|1=no) vs jugular vein elevated (0=no|1=yes) 
-
+- source: weight (kg) vs target:weight (lb)
+- source: myocardial infarction (yes|no) vs target: myocardial infarction (t=yes|f=no)  [recoding only]
+- source: aspartate aminotransferase [enzymatic activity/volume]/L vs target: AST measurement (U/L)
+- source: jugular vein elevated (0=no|1=yes) vs target: central venous pressure > 6 cm H2O (3=yes|1=no): maps target-to-source (more complete direction) — 3→1, 1→0.
+- source: atrial fibrillation on ECG at baseline (t=yes|f=no) vs target: history of atrial fibrillation (t=yes|f=no): maps source-to-target (more complete path) — t→1, f→0 (observation-frame abstraction).
 PARTIAL
 One clinically meaningful variable can be built through a lossy, directional, or externally supported transformation. All must hold:
 1. Same entity, or a subtype/member/scope-restriction relationship identifiable from the provided metadata.
@@ -236,21 +238,21 @@ One clinically meaningful variable can be built through a lossy, directional, or
 4. No unsupported negative or missing value becomes "No".
 5. The transformation names the information loss: category collapse, positive-only derivation, observation-frame reduction, anatomical reduction, datetime approximation, or external-reference conversion.
 Examples:
-- Year/date of diabetes diagnosis vs diabetes history: recorded date→yes, missing→unknown (positive-only).
-- Atrial fibrillation during ECG vs history of atrial fibrillation: different frames; ECG yes→history yes, ECG no→unknown.
-- LVEF category (1:<40%, 2:40-49%, 3:>=50%) vs LVEF <40% (1=yes|0=no): collapse cat1→yes, cat2/3→no (target→source; not reversible).
-- Ordinal pulmonary-rales extent (0=absent | 1= few basal | 2=less than lower third of thorax | 3= more than thord of thorax) vs basal rales (1=yes/0=no): maps positive — 1→yes; 0→no; 2,3→no (extent exceeds the basal zone, (category collapse).
-- Left-leg edema vs general lower-limb edema: harmonize as presence — left-leg positive→general positive, left-leg negative→general unknown; severity not comparable across scopes.
-- captopril dose (mg) vs ACE-inhibitor dose (% target): single member→class via external target-dose conversion.
+- source: Year/date of diabetes diagnosis vs target: diabetes history: maps source-to-target (more complete direction) — recorded date→yes, missing→unknown (positive-only derivation)
+- source: date of stroke event (dd/mm/yyyy) vs target: year of stroke event: maps source-to-target (more complete direction) — exact date→extracted year, missing→missing (datetime approximation).
+- source: LVEF <40% (1=yes|0=no) vs target: LVEF category (1:<40%, 2:40-49%, 3:>=50%): maps target-to-source (more complete direction) — cat1→1, cat2->0 and 3→0 (category collapse).
+- source: Ordinal pulmonary-rales extent (0=absent|1=basal|2=lower-third|3=upper-zones) vs target: basal rales (1=yes|0=no): maps source-to-target (more complete direction) — 1→1, 0→0, cat2→0 and 3→0(extent exceeds basal zone, category collapse)
+- source: Left-leg edema (0=no|1=yes) vs target: lower-limb edema (0=no|1=yes): maps source-to-target (more complete direction) — 1→1, 0→unknown (anatomical scope reduction).
+- source: captopril dose (mg) vs target: ACE-inhibitor dose (% target): maps source-to-target (more complete direction) — single member to parent class via external target-dose conversion factor (external-reference conversion).
 
 IMPOSSIBLE
 No single pooled variable can be built without ambiguous decomposition or unsupported inference:
-- ARB-or-ACE use (yes/no) vs ACE-inhibitor use (yes/no)  [union → component].
-- Sum of ACE-inhibitor and ARB dose vs ARB dose  [aggregate → component].
-- "Other ARB" dose vs total ARB dose  [residual; membership unknown].
-- captopril dose (mg) vs trandolapril dose (mg)  [sibling drugs; raw mg not comparable across agents].
-- disease severity vs disease etiology  [different axes].
-- sitting systolic BP (mmHg) vs standing systolic BP (mmHg)  [conflicting specified settings].
+- source: ARB-or-ACE use (yes/no) vs target: ACE-inhibitor use (yes/no)  [union → component].
+- source: Sum of ACE-inhibitor and ARB dose vs target: ARB dose  [aggregate → component].
+- source: "Other ARB" dose vs target: total ARB dose  [residual; membership unknown].
+- source: captopril dose (mg) vs target: trandolapril dose (mg)  [sibling drugs; raw mg not comparable across agents].
+- source: disease severity vs target: disease etiology  [different axes].
+- source: sitting systolic BP (mmHg) vs target: standing systolic BP (mmHg)  [conflicting specified settings].
 
 ### FINAL VERIFICATION
 1. Is the harmonized variable one single clinical concept?
