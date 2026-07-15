@@ -57,7 +57,7 @@ The Cohort Explorer branch is `codex/aadcrv2-local-integration`. The Delta branc
 - Fixture providers for concept search, concept validation, and automatic cross-study mapping that preserve the existing route and artifact contracts without model downloads, hosted vector databases, LLMs, or credentials.
 - Deterministic local EDA and shuffled-sample assets derived from the synthetic rows.
 - Docker and command-line orchestration, contract tests, a local API end-to-end smoke test, browser checkpoints during implementation, and a complete local browser acceptance run.
-- Small provider-neutral text/link and stable-selector corrections where the current frontend hardcodes Decentriq or lacks a durable browser locator, without redesigning the UI.
+- Small provider-neutral text/link, provisioning/result-status, and stable-selector corrections where the current frontend hardcodes Decentriq or lacks a visible local-browser proof, without redesigning the UI.
 
 ### Excluded
 
@@ -132,7 +132,9 @@ Existing HTTP paths remain stable, including:
 - `POST /my-dcrs/refresh`
 - `GET /my-dcrs/last-modified`
 
-The provider-neutral room record preserves the fields already consumed by Cohort Explorer: `id`, `title`, `description`, `createdAt`, `dcr_url`, `provider`, `owner.email`, participants, nodes, cohorts, and optional error information. The live-create response preserves `message`, `dcr_id`, `dcr_url`, `dcr_title`, `cohort_ids`, `num_cohorts`, all upload result maps/counts, and `participants`. `dcr_url` is built from an `AADCRV2_ROOM_URL_TEMPLATE`; its local default points to the AADCR API room resource and can later be changed to an AADCR frontend route without changing the response contract.
+The provider-neutral room record preserves the fields already consumed by Cohort Explorer: `id`, `title`, `description`, `createdAt`, `dcr_url`, `provider`, `owner.email`, participants, nodes, cohorts, and optional error information. It adds optional provider-neutral capabilities and provisioned-dataset status so My DCRs can prove the local flow. The live-create response preserves `message`, `dcr_id`, `dcr_url`, `dcr_title`, `cohort_ids`, `num_cohorts`, all upload result maps/counts, and `participants`. `dcr_url` is built from an `AADCRV2_ROOM_URL_TEMPLATE`; its local default points to the AADCR API room resource and can later be changed to an AADCR frontend route without changing the response contract.
+
+My DCRs receives a compact provider-neutral result panel rather than a new workflow. It shows provisioned dataset/node status and invokes the existing `GET /compute-get-output/{dcr_id}` contract when the selected provider advertises computation support. JSON aggregates render inline; ZIP results remain downloads and the panel reports their ready state, filename, and size. The browser suite validates the downloaded ZIP contents and hash.
 
 The existing Decentriq-specific refresh endpoint remains as a compatibility alias. New internal naming and documentation use provider-neutral terms.
 
@@ -246,21 +248,21 @@ The generator is `backend/scripts/seed_synthetic_data.py` and is invoked as:
 
 ```bash
 uv run --project backend python backend/scripts/seed_synthetic_data.py \
-  --seed 42 --rows 2500 --output data/synthetic-demo
+  --seed 42 --rows 2500 --output data/synthetic-demo-pack
 ```
 
-It refuses a non-empty output directory unless `--force` is supplied. The demo backend runs with `DATA_FOLDER=data/synthetic-demo`, preventing collisions with normal local or live data.
+It refuses a non-empty output directory unless `--force` is supplied. Generated inputs and mutable application state are deliberately separate: the ignored, immutable pack is mounted read-only at `DEMO_PACK_DIR=/demo-pack`, while cohort files, Oxigraph-derived cache, mapping outputs, journals, and rooms use the browser/API namespace's fresh `DATA_FOLDER=/demo-runtime`. This prevents generated dictionaries from masquerading as UI uploads and makes `demo-browser-ready` capable of starting with zero runtime dictionaries.
 
 Generated outputs are:
 
-- `data/synthetic-demo/iCARE4CVD_Cohorts.xlsx`
-- `data/synthetic-demo/cohorts/TIME-CHF/TIME-CHF_datadictionary.csv`
-- `data/synthetic-demo/cohorts/GISSI-HF/GISSI-HF_datadictionary.csv`
-- `data/synthetic-demo/dcr-input/TIME-CHF.csv`
-- `data/synthetic-demo/dcr-input/GISSI-HF.csv`
-- `data/synthetic-demo/dcr_output_TIME-CHF/eda_output_TIME-CHF.json`, per-variable PNGs, `shuffled_sample.csv`, and `shuffle_summary.txt`
-- `data/synthetic-demo/dcr_output_GISSI-HF/eda_output_GISSI-HF.json`, per-variable PNGs, `shuffled_sample.csv`, and `shuffle_summary.txt`
-- `data/synthetic-demo/manifest.json`
+- `data/synthetic-demo-pack/iCARE4CVD_Cohorts.xlsx`
+- `data/synthetic-demo-pack/cohorts/TIME-CHF/TIME-CHF_datadictionary.csv`
+- `data/synthetic-demo-pack/cohorts/GISSI-HF/GISSI-HF_datadictionary.csv`
+- `data/synthetic-demo-pack/dcr-input/TIME-CHF.csv`
+- `data/synthetic-demo-pack/dcr-input/GISSI-HF.csv`
+- `data/synthetic-demo-pack/dcr_output_TIME-CHF/eda_output_TIME-CHF.json`, per-variable PNGs, `shuffled_sample.csv`, and `shuffle_summary.txt`
+- `data/synthetic-demo-pack/dcr_output_GISSI-HF/eda_output_GISSI-HF.json`, per-variable PNGs, `shuffled_sample.csv`, and `shuffle_summary.txt`
+- `data/synthetic-demo-pack/manifest.json`
 
 The manifest records the seed, generator version, row counts, source commit, mapping source, selected mapping rows, and SHA-256 hashes. Generated demo data is ignored by Git; the generator, parameter profile, schemas, and small test fixtures are committed.
 
@@ -376,7 +378,7 @@ The browser lane uses the same generated synthetic pack and contracts rather tha
 
 ## 11. Local orchestration
 
-Cohort Explorer owns the integration orchestration without copying Delta source. A Compose overlay accepts the sibling AADCR backend path through an environment variable and adds the `aadcrv2` service to the existing backend, frontend, and Oxigraph services. The overlay pins the Oxigraph image by version/digest rather than using `latest` and selects all three fixture metadata providers explicitly.
+Cohort Explorer owns the integration orchestration without copying Delta source. A Compose overlay accepts the sibling AADCR backend path through an environment variable and adds the `aadcrv2` service to the existing backend, frontend, and Oxigraph services. The overlay pins the Oxigraph image by version/digest rather than using `latest` and selects all three fixture metadata providers explicitly. It mounts the generated pack read-only at `/demo-pack` and Compose-project-scoped mutable volumes at `/demo-runtime`; `DATA_FOLDER`, mapping output, cache, journals, and Oxigraph state never point into the pack. Server-side Next.js proxy calls use `INTERNAL_API_URL=http://backend:80`, while browser calls retain `http://localhost:3000`. Readiness waits for Cohort Explorer backend/frontend, Oxigraph, and AADCR probes rather than open ports alone.
 
 Expected ports:
 
