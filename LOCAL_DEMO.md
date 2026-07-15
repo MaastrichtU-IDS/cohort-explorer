@@ -137,9 +137,9 @@ make demo-browser-ready
 ```
 
 The command prints a JSON handoff containing the URL, namespace, pack, admin email,
-and browser-evidence directory. It seeds the central workbook and both cohort
-dictionaries while leaving replacement upload, mapping, and DCR flows available
-for visible verification.
+and browser-evidence directory. It seeds only the API-only central workbook;
+runtime dictionaries, mappings, and rooms remain absent so the visible browser
+lane proves the dictionary upload, mapping, and DCR flows from a clean state.
 
 ## Stop and clean up
 

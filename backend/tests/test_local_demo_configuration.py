@@ -328,15 +328,15 @@ def test_demo_seed_runs_with_the_backend_uv_environment():
 
     assert 'cd "${DEMO_ROOT}/backend"' in script
     assert "uv run python ../scripts/demo-seed.py" in script
+    assert '"$@"' in script
     assert '"${DEMO_ROOT}/scripts/demo-seed.py"' not in script
 
 
-def test_browser_checkpoint_reuses_full_metadata_seed_entrypoint():
+def test_browser_checkpoint_seeds_only_the_central_workbook():
     script = (ROOT / "scripts" / "demo-browser-ready.sh").read_text()
 
-    assert '"${script_dir}/demo-seed.sh"' in script
+    assert '"${script_dir}/demo-seed.sh" --central-only' in script
     assert "demo-seed.py" not in script
-    assert "--central-only" not in script
 
 
 def test_readiness_does_not_publish_or_probe_oxigraph():

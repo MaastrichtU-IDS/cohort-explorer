@@ -22,7 +22,7 @@ demo_compose down --remove-orphans --volumes >/dev/null 2>&1 || true
 DEMO_FORCE=true "${script_dir}/demo-generate.sh"
 "${script_dir}/demo-up.sh"
 frontend_port="$(demo_gateway_host_port 3001)"
-"${script_dir}/demo-seed.sh"
+"${script_dir}/demo-seed.sh" --central-only
 
 evidence_dir="${DEMO_STATE_DIR}/browser-evidence"
 mkdir -p "${evidence_dir}"

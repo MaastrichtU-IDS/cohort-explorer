@@ -8,4 +8,5 @@ backend_port="$(demo_gateway_host_port 3000)"
 cd "${DEMO_ROOT}/backend"
 uv run python ../scripts/demo-seed.py \
   --base-url "http://127.0.0.1:${backend_port}" \
-  --pack "$(demo_runtime_value DEMO_PACK_HOST_DIR)"
+  --pack "$(demo_runtime_value DEMO_PACK_HOST_DIR)" \
+  "$@"
