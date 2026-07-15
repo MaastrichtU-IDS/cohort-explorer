@@ -78,6 +78,10 @@ Mappings defined via the UI are stored in a separate named graph (e.g., `icare:c
 
 ## 🧑‍💻 Development
 
+For the self-contained synthetic Cohort Explorer ↔ AADCR v2 workflow, including
+local admin login, offline metadata-model stubs, deterministic fixture generation,
+and the verified upload-to-aggregate path, see [LOCAL_DEMO.md](LOCAL_DEMO.md).
+
 [![Update ontology documentation](https://github.com/MaastrichtU-IDS/cohort-explorer/actions/workflows/docs.yml/badge.svg)](https://github.com/MaastrichtU-IDS/cohort-explorer/actions/workflows/docs.yml)
 
 > [!WARNING]

@@ -13,7 +13,7 @@ describe('DCR provider UI projection', () => {
     ).toEqual({
       provider: 'aadcrv2',
       createLabel: 'Create Data Clean Room',
-      openLabel: 'Open created room',
+      openLabel: 'Open in My DCRs',
       refreshLabel: 'Refresh rooms',
       loadingLabel: 'Creating the local Data Clean Room. This may take a few seconds...',
       canRunResult: true,

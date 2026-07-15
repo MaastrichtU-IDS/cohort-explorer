@@ -5,6 +5,7 @@ import {ArrowLeft, Check, SkipForward, Upload, AlertTriangle, Info as InfoIcon, 
 import {useCohorts} from '@/components/CohortsContext';
 import {TrashIcon} from '@/components/Icons';
 import {apiUrl} from '@/utils';
+import {projectDcrProvider} from '@/utils/dcrProvider';
 
 // Helper component for wizard steps
 const WizardSteps = ({currentStep}: {currentStep: number}) => {
@@ -215,11 +216,16 @@ export default function UploadPage() {
         throw new Error(errorMsg);
       }
       const dcrMessage = result.message.replace(result.dcr_url, '').replace('provisioned at', 'provisioned.').trim();
+      const providerUi = projectDcrProvider(result.provider, result.capabilities);
       setPublishedDCR({ 
         ...result, 
-        message: dcrMessage
+        message: dcrMessage,
+        openLabel: providerUi.openLabel
       }); 
-      setOperationMessage({text: `${dcrMessage} You can view it on Decentriq.`, type: 'success'});
+      setOperationMessage({
+        text: `${dcrMessage} ${providerUi.localSimulation ? 'Open it in My DCRs.' : 'You can view it on Decentriq.'}`,
+        type: 'success'
+      });
     } catch (error: any) {
       console.error('Error creating DCR:', error);
       setOperationMessage({text: error.message || 'Failed to create DCR', type: 'error'});
@@ -488,7 +494,7 @@ export default function UploadPage() {
                 {publishedDCR.dcr_url && (
                   <p className="text-sm mt-1">
                     <a href={publishedDCR.dcr_url} className="link link-neutral hover:link-primary" target="_blank" rel="noopener noreferrer">
-                      View on Decentriq: <span className="break-all">{publishedDCR.dcr_url}</span>
+                      {publishedDCR.openLabel || 'Open room'}: <span className="break-all">{publishedDCR.dcr_url}</span>
                     </a>
                   </p>
                 )}

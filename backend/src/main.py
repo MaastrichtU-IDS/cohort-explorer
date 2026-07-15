@@ -18,6 +18,7 @@ from src.dcr_routes import router as dcr_router
 from src.decentriq import router as decentriq_router
 from src.docs import router as docs_router
 from src.explore import router as explore_router
+from src.health import build_health_router
 from src.mapping import router as mapping_router
 from src.metadata_reports import build_syntax_report
 from src.upload import init_triplestore
@@ -104,6 +105,7 @@ app.include_router(admin_router, tags=["admin"])
 if settings.dev_mode:
     app.include_router(debug_router)
 app.include_router(docs_router, prefix="/docs-api", tags=["documents"])
+app.include_router(build_health_router(settings), tags=["health"])
 
 
 app.add_middleware(

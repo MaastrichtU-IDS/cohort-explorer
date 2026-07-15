@@ -2684,6 +2684,18 @@ def init_triplestore():
             # If we reach here, we have the lock and should proceed with initialization
             print("Clearing cohort cache before initialization...")
             clear_cache()
+
+            # A fresh offline-demo namespace intentionally starts with an empty
+            # mutable volume. The central workbook is uploaded transactionally
+            # through /upload-cohorts-metadata after the API becomes ready.
+            if settings.offline_demo and not os.path.isfile(
+                COHORTS_METADATA_FILEPATH
+            ):
+                print(
+                    "Offline demo runtime is empty; waiting for the central "
+                    "workbook API seed."
+                )
+                return
             
             # Continue with the rest of the initialization logic...
             _perform_triplestore_initialization()

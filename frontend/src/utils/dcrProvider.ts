@@ -34,7 +34,7 @@ export function projectDcrProvider(
   return {
     provider: normalizedProvider,
     createLabel: 'Create Data Clean Room',
-    openLabel: isLocal ? 'Open created room' : 'Open on Decentriq',
+    openLabel: isLocal ? 'Open in My DCRs' : 'Open on Decentriq',
     refreshLabel: isLocal ? 'Refresh rooms' : 'Refresh from Decentriq',
     loadingLabel: isLocal
       ? 'Creating the local Data Clean Room. This may take a few seconds...'

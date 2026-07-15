@@ -10,11 +10,16 @@ __pycache__
 
 *.jar
 backend/variables.db
+.coverage
+backend/.coverage
+.demo-state/
+artifacts/browser-demo/
 
 # Local environment files
 .env
 .env.*
 !/.env.example
+!/.env.local-demo.example
 
 # Frontend local env
 frontend/.env.local

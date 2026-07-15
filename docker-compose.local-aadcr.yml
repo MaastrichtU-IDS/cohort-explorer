@@ -1,0 +1,189 @@
+services:
+  backend:
+    depends_on:
+      db:
+        condition: service_started
+      aadcrv2:
+        condition: service_healthy
+    env_file: !reset []
+    environment:
+      FRONTEND_URL: http://localhost:3001
+      PUBLIC_API_URL: http://localhost:3000
+      SPARQL_ENDPOINT: http://db:7878
+      DATA_FOLDER: /demo-runtime
+      DEMO_PACK_DIR: /demo-pack
+      MAPPING_OUTPUT_DIR: /demo-runtime/mappings
+      DCR_BACKEND: aadcrv2
+      AADCRV2_URL: http://aadcrv2:8000
+      AADCRV2_JWT_SECRET: ${AADCRV2_JWT_SECRET:?demo-up generates AADCRV2_JWT_SECRET}
+      AADCRV2_JWT_ISSUER: cohort-explorer-local
+      AADCRV2_JWT_AUDIENCE: aadcrv2-local
+      AADCRV2_ROOM_URL_TEMPLATE: http://localhost:${DEMO_FRONTEND_PORT:-3001}/dcrs?room={dcr_id}
+      AADCRV2_OPERATION_JOURNAL: /demo-runtime/aadcrv2-operations.jsonl
+      AADCRV2_SYNTHETIC_DEMO: "true"
+      CONCEPT_SEARCH_BACKEND: fixture
+      CONCEPT_VALIDATION_BACKEND: fixture
+      MAPPING_GENERATION_BACKEND: fixture
+      OFFLINE_DEMO: "true"
+      DEV_MODE: "true"
+      LOCAL_AUTH_ENABLED: "true"
+      LOCAL_AUTH_EMAIL: ${LOCAL_AUTH_EMAIL:-nikolas.molyndris@decentriq.ch}
+      ADMINS: ${LOCAL_AUTH_EMAIL:-nikolas.molyndris@decentriq.ch}
+      SESSION_COOKIE_SECURE: "false"
+      JWT_SECRET: ${JWT_SECRET:?demo-up generates JWT_SECRET}
+    volumes: !override
+      - type: bind
+        source: ${DEMO_PACK_HOST_DIR:?demo-generate sets DEMO_PACK_HOST_DIR}
+        target: /demo-pack
+        read_only: true
+      - type: volume
+        source: demo_runtime
+        target: /demo-runtime
+    entrypoint:
+      - uv
+      - run
+      - --no-sync
+      - uvicorn
+      - src.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "80"
+    ports: !reset []
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:80/health', timeout=2).read()"
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
+    networks:
+      - demo_internal
+
+  frontend:
+    depends_on:
+      backend:
+        condition: service_healthy
+    env_file: !reset []
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:3000
+      INTERNAL_API_URL: http://backend:80
+    volumes: !reset []
+    ports: !reset []
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3001/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
+    networks:
+      - demo_internal
+
+  db:
+    image: ghcr.io/oxigraph/oxigraph:0.5.9
+    volumes: !override
+      - type: volume
+        source: demo_triplestore
+        target: /data
+    ports: !reset []
+    networks:
+      - demo_internal
+
+  aadcrv2:
+    build:
+      context: ${AADCRV2_REPO_DIR:?demo-up records AADCRV2_REPO_DIR}/avato-backend/frontend/decentriq-platform/src/features/aadcrv2/backend
+    environment:
+      DATABASE_URL: sqlite:////aadcr-data/aadcrv2.sqlite
+      RESULTS_DIR: /aadcr-data/results
+      CORS_ORIGINS: http://localhost:3001
+      JWT_SECRET: ${AADCRV2_JWT_SECRET:?demo-up generates AADCRV2_JWT_SECRET}
+      JWT_ISSUER: cohort-explorer-local
+      JWT_AUDIENCE: aadcrv2-local
+      UPLOAD_MAX_BYTES: "26214400"
+      SEED_SAMPLE_DATA: "false"
+      SEED_OWNER_EMAIL: ${LOCAL_AUTH_EMAIL:-nikolas.molyndris@decentriq.ch}
+      ENABLE_TEST_ROUTES: "false"
+      COMPUTATION_TIMEOUT_SECONDS: "30"
+    volumes:
+      - type: volume
+        source: aadcr_runtime
+        target: /aadcr-data
+    ports: !reset []
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).read()"
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    networks:
+      - demo_internal
+
+  gateway:
+    image: nginx:1.27.5-alpine
+    depends_on:
+      aadcrv2:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+      db:
+        condition: service_started
+      frontend:
+        condition: service_healthy
+    entrypoint:
+      - nginx
+      - -g
+      - daemon off;
+    user: "101:101"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    volumes:
+      - type: bind
+        source: ./config/local-demo-gateway.conf
+        target: /etc/nginx/nginx.conf
+        read_only: true
+    ports:
+      - "127.0.0.1:${DEMO_BACKEND_PORT:-3000}:3000"
+      - "127.0.0.1:${DEMO_FRONTEND_PORT:-3001}:3001"
+      - "127.0.0.1:${DEMO_AADCRV2_PORT:-18000}:18000"
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - -qO-
+        - http://127.0.0.1:3001/api/health
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    networks:
+      - demo_internal
+      - demo_ingress
+
+networks:
+  demo_internal:
+    internal: true
+  demo_ingress:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.host_binding_ipv4: "127.0.0.1"
+
+volumes:
+  demo_runtime:
+  demo_triplestore:
+  aadcr_runtime:
