@@ -71,6 +71,126 @@
       "domain": "Observation",
       "vocabulary": "SNOMED",
       "omop_id": "8532"
+    },
+    {
+      "id": "loinc:2160-0",
+      "uri": "http://loinc.org/rdf/2160-0",
+      "label": "Creatinine [mass/volume] in serum or plasma",
+      "domain": "Measurement",
+      "vocabulary": "LOINC",
+      "omop_id": "3016723"
+    },
+    {
+      "id": "loinc:29463-7",
+      "uri": "http://loinc.org/rdf/29463-7",
+      "label": "Body weight",
+      "domain": "Measurement",
+      "vocabulary": "LOINC",
+      "omop_id": "3025315"
+    },
+    {
+      "id": "loinc:30525-0",
+      "uri": "http://loinc.org/rdf/30525-0",
+      "label": "Age",
+      "domain": "Person",
+      "vocabulary": "LOINC",
+      "omop_id": "3022304"
+    },
+    {
+      "id": "loinc:33762-6",
+      "uri": "http://loinc.org/rdf/33762-6",
+      "label": "Natriuretic peptide.B prohormone N-terminal [mass/volume] in serum or plasma",
+      "domain": "Measurement",
+      "vocabulary": "LOINC",
+      "omop_id": "3029187"
+    },
+    {
+      "id": "loinc:718-7",
+      "uri": "http://loinc.org/rdf/718-7",
+      "label": "Hemoglobin [mass/volume] in blood",
+      "domain": "Measurement",
+      "vocabulary": "LOINC",
+      "omop_id": "3000963"
+    },
+    {
+      "id": "loinc:76689-9",
+      "uri": "http://loinc.org/rdf/76689-9",
+      "label": "Sex assigned at birth",
+      "domain": "Person",
+      "vocabulary": "LOINC",
+      "omop_id": "46235213"
+    },
+    {
+      "id": "loinc:8302-2",
+      "uri": "http://loinc.org/rdf/8302-2",
+      "label": "Body height",
+      "domain": "Measurement",
+      "vocabulary": "LOINC",
+      "omop_id": "3036277"
+    },
+    {
+      "id": "rxnorm:9997",
+      "uri": "https://mor.nlm.nih.gov/RxNav/search?searchBy=RXCUI&searchTerm=9997",
+      "label": "Spironolactone",
+      "domain": "Drug",
+      "vocabulary": "RxNorm",
+      "omop_id": "970250"
+    },
+    {
+      "id": "snomed:1311000175101",
+      "uri": "http://snomed.info/id/1311000175101",
+      "label": "Smoking assessment",
+      "domain": "Condition",
+      "vocabulary": "SNOMED",
+      "omop_id": "761009"
+    },
+    {
+      "id": "snomed:184107009",
+      "uri": "http://snomed.info/id/184107009",
+      "label": "Patient hospital number",
+      "domain": "Person",
+      "vocabulary": "SNOMED",
+      "omop_id": "4086934"
+    },
+    {
+      "id": "snomed:250908004",
+      "uri": "http://snomed.info/id/250908004",
+      "label": "Left ventricular ejection fraction",
+      "domain": "Measurement",
+      "vocabulary": "SNOMED",
+      "omop_id": "4108582"
+    },
+    {
+      "id": "snomed:38341003",
+      "uri": "http://snomed.info/id/38341003",
+      "label": "Hypertensive disorder",
+      "domain": "Condition",
+      "vocabulary": "SNOMED",
+      "omop_id": "316866"
+    },
+    {
+      "id": "snomed:416683003",
+      "uri": "http://snomed.info/id/416683003",
+      "label": "Emergency hospital admission for heart failure",
+      "domain": "Condition",
+      "vocabulary": "SNOMED",
+      "omop_id": "4215511"
+    },
+    {
+      "id": "snomed:420816009",
+      "uri": "http://snomed.info/id/420816009",
+      "label": "New York Heart Association classification",
+      "domain": "Observation",
+      "vocabulary": "SNOMED",
+      "omop_id": "4223299"
+    },
+    {
+      "id": "snomed:73211009",
+      "uri": "http://snomed.info/id/73211009",
+      "label": "Diabetes mellitus",
+      "domain": "Condition",
+      "vocabulary": "SNOMED",
+      "omop_id": "201820"
     }
   ]
 }

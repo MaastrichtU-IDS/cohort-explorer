@@ -2,6 +2,7 @@ import json
 import logging
 import os
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -15,11 +16,30 @@ from src.cohort_cache import (
     is_cache_initialized,
 )
 from src.config import settings
+from src.demo.assets import asset_root, contained_asset_path, validate_asset_component
 from src.metadata_paths import canonical_dictionary_path
 from src.models import Cohort
 from src.utils import retrieve_cohorts_metadata
 
 router = APIRouter()
+
+
+def _asset_data_root() -> Path:
+    return asset_root(settings)
+
+
+def _route_asset_component(value: str) -> str:
+    try:
+        return validate_asset_component(value)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+def _route_asset_path(*parts: str) -> Path:
+    try:
+        return contained_asset_path(_asset_data_root(), *parts)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @router.get("/cohorts-metadata")
@@ -54,9 +74,12 @@ async def head_cohort_eda_output(
     user: Any = Depends(get_current_user),
 ):
     """Quick check whether EDA output exists for a cohort (HEAD request)."""
-    dcr_output_dir = os.path.join(settings.data_folder, f"dcr_output_{cohort_name}")
-    eda_file_path = os.path.join(dcr_output_dir, f"eda_output_{cohort_name}.json")
-    if not os.path.exists(eda_file_path):
+    cohort_name = _route_asset_component(cohort_name)
+    eda_file_path = _route_asset_path(
+        f"dcr_output_{cohort_name}",
+        f"eda_output_{cohort_name}.json",
+    )
+    if not eda_file_path.is_file():
         raise HTTPException(status_code=404, detail="Not found")
     return {}
 
@@ -68,18 +91,22 @@ async def get_cohort_eda_output(
 ) -> dict[str, Any]:
     """Retrieve the EDA output JSON file for a given cohort."""
     # Construct the directory and file paths
-    dcr_output_dir = os.path.join(settings.data_folder, f"dcr_output_{cohort_name}")
-    eda_file_path = os.path.join(dcr_output_dir, f"eda_output_{cohort_name}.json")
+    cohort_name = _route_asset_component(cohort_name)
+    eda_file_path = _route_asset_path(
+        f"dcr_output_{cohort_name}",
+        f"eda_output_{cohort_name}.json",
+    )
+    dcr_output_dir = eda_file_path.parent
     
     # Check if directory exists
-    if not os.path.exists(dcr_output_dir):
+    if not dcr_output_dir.is_dir():
         raise HTTPException(
             status_code=404,
             detail=f"DCR output directory not found for cohort '{cohort_name}'"
         )
     
     # Check if file exists
-    if not os.path.exists(eda_file_path):
+    if not eda_file_path.is_file():
         raise HTTPException(
             status_code=404,
             detail=f"EDA output file not found for cohort '{cohort_name}'"
@@ -87,7 +114,7 @@ async def get_cohort_eda_output(
     
     # Read and return the JSON file
     try:
-        with open(eda_file_path, 'r') as f:
+        with eda_file_path.open("r", encoding="utf-8") as f:
             eda_data = json.load(f)
         return eda_data
     except json.JSONDecodeError as e:
@@ -218,9 +245,16 @@ def _get_cohorts_with_shuffled_samples() -> list[str]:
     all_cohort_ids = _get_all_cohort_ids()
     
     for cohort_id in all_cohort_ids:
-        storage_dir = os.path.join(settings.data_folder, f"dcr_output_{cohort_id}")
-        shuffled_csv = os.path.join(storage_dir, "shuffled_sample.csv")
-        if os.path.exists(shuffled_csv):
+        try:
+            safe_cohort_id = validate_asset_component(cohort_id)
+            shuffled_csv = contained_asset_path(
+                _asset_data_root(),
+                f"dcr_output_{safe_cohort_id}",
+                "shuffled_sample.csv",
+            )
+        except ValueError:
+            continue
+        if shuffled_csv.is_file():
             cohorts_with_samples.append(cohort_id)
     
     return cohorts_with_samples
@@ -260,6 +294,7 @@ async def get_shuffled_sample(cohort_name: str, user: Any = Depends(get_current_
     - 404 if cohort name is not valid
     - 404 if cohort exists but has no shuffled sample yet (includes list of cohorts that do have samples)
     """
+    cohort_name = _route_asset_component(cohort_name)
     # Find the actual cohort ID matching the normalized name
     actual_cohort_id = _find_cohort_id_by_name(cohort_name)
     
@@ -270,10 +305,13 @@ async def get_shuffled_sample(cohort_name: str, user: Any = Depends(get_current_
         )
     
     # Check if shuffled sample file exists
-    storage_dir = os.path.join(settings.data_folder, f"dcr_output_{actual_cohort_id}")
-    shuffled_csv = os.path.join(storage_dir, "shuffled_sample.csv")
+    actual_cohort_id = _route_asset_component(actual_cohort_id)
+    shuffled_csv = _route_asset_path(
+        f"dcr_output_{actual_cohort_id}",
+        "shuffled_sample.csv",
+    )
     
-    if not os.path.exists(shuffled_csv):
+    if not shuffled_csv.is_file():
         cohorts_with_samples = _get_cohorts_with_shuffled_samples()
         raise HTTPException(
             status_code=404,

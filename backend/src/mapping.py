@@ -1,4 +1,3 @@
-import os
 import time
 from dataclasses import asdict
 from pathlib import Path
@@ -10,6 +9,7 @@ from PIL import Image
 
 from src.auth import get_current_user
 from src.config import settings
+from src.demo.assets import asset_root, contained_asset_path, validate_asset_component
 from src.mapping_artifacts import MappingArtifactStore
 from src.metadata_providers.factory import (
     get_concept_search_provider,
@@ -246,22 +246,40 @@ def find_dcr_output_folder(cohort_id: str) -> str | None:
     Find the actual dcr_output folder for a cohort, handling case-insensitive matching.
     Returns the actual folder name if found, None otherwise.
     """
-    data_folder = settings.data_folder
-    if not os.path.exists(data_folder):
+    try:
+        cohort_id = validate_asset_component(cohort_id)
+    except ValueError:
+        return None
+    data_folder = asset_root(settings).resolve()
+    if not data_folder.is_dir():
         return None
     
     # Try exact match first
     exact_folder = f"dcr_output_{cohort_id}"
-    if os.path.exists(os.path.join(data_folder, exact_folder)):
+    if (data_folder / exact_folder).is_dir():
         return exact_folder
     
     # Try case-insensitive search
     target_prefix = f"dcr_output_{cohort_id.lower()}"
-    for folder in os.listdir(data_folder):
-        if folder.lower() == target_prefix and os.path.isdir(os.path.join(data_folder, folder)):
-            return folder
+    for folder in data_folder.iterdir():
+        if folder.name.lower() == target_prefix and folder.is_dir():
+            return folder.name
     
     return None
+
+
+def _route_asset_component(value: str) -> str:
+    try:
+        return validate_asset_component(value)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+def _route_asset_path(*parts: str) -> Path:
+    try:
+        return contained_asset_path(asset_root(settings), *parts)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 @router.get("/compare-eda/{source_cohort}/{source_var}/{target_cohort}/{target_var}")
 async def compare_eda(
@@ -274,6 +292,11 @@ async def compare_eda(
     Merge two EDA PNG files vertically (source on top, target on bottom) and return the merged image.
     """
     import io
+
+    source_cohort = _route_asset_component(source_cohort)
+    source_var = _route_asset_component(source_var)
+    target_cohort = _route_asset_component(target_cohort)
+    target_var = _route_asset_component(target_var)
     
     # Find the actual folder names (case-insensitive)
     source_folder = find_dcr_output_folder(source_cohort)
@@ -286,16 +309,22 @@ async def compare_eda(
     if not source_folder:
         errors.append(f"Source cohort '{source_cohort}': Exploratory Data Analysis has not yet been run on this cohort")
     else:
-        source_image_path = os.path.join(settings.data_folder, source_folder, f"{source_var.lower()}.png")
-        if not os.path.exists(source_image_path):
+        source_image_path = _route_asset_path(
+            source_folder,
+            f"{source_var.lower()}.png",
+        )
+        if not source_image_path.is_file():
             errors.append(f"Source variable '{source_var}' in cohort '{source_cohort}': This variable was excluded from the EDA analysis")
     
     # Check target cohort
     if not target_folder:
         errors.append(f"Target cohort '{target_cohort}': Exploratory Data Analysis has not yet been run on this cohort")
     else:
-        target_image_path = os.path.join(settings.data_folder, target_folder, f"{target_var.lower()}.png")
-        if not os.path.exists(target_image_path):
+        target_image_path = _route_asset_path(
+            target_folder,
+            f"{target_var.lower()}.png",
+        )
+        if not target_image_path.is_file():
             errors.append(f"Target variable '{target_var}' in cohort '{target_cohort}': This variable was excluded from the EDA analysis")
     
     # If any errors, raise with detailed message
@@ -307,8 +336,14 @@ async def compare_eda(
         )
     
     # Both files exist, construct paths
-    source_image_path = os.path.join(settings.data_folder, source_folder, f"{source_var.lower()}.png")
-    target_image_path = os.path.join(settings.data_folder, target_folder, f"{target_var.lower()}.png")
+    source_image_path = _route_asset_path(
+        source_folder,
+        f"{source_var.lower()}.png",
+    )
+    target_image_path = _route_asset_path(
+        target_folder,
+        f"{target_var.lower()}.png",
+    )
     
     try:
         # Load both images

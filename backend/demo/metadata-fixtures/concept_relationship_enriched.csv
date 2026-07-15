@@ -8,3 +8,18 @@ loinc:8462-4,3012888,Diastolic blood pressure,Measurement,LOINC
 rxnorm:4603,956874,Furosemide,Drug,RxNorm
 snomedct:248153007,8507,Male,Observation,SNOMED
 snomedct:248152002,8532,Female,Observation,SNOMED
+loinc:2160-0,3016723,Creatinine [mass/volume] in serum or plasma,Measurement,LOINC
+loinc:29463-7,3025315,Body weight,Measurement,LOINC
+loinc:30525-0,3022304,Age,Person,LOINC
+loinc:33762-6,3029187,Natriuretic peptide.B prohormone N-terminal [mass/volume] in serum or plasma,Measurement,LOINC
+loinc:718-7,3000963,Hemoglobin [mass/volume] in blood,Measurement,LOINC
+loinc:76689-9,46235213,Sex assigned at birth,Person,LOINC
+loinc:8302-2,3036277,Body height,Measurement,LOINC
+rxnorm:9997,970250,Spironolactone,Drug,RxNorm
+snomed:1311000175101,761009,Smoking assessment,Condition,SNOMED
+snomed:184107009,4086934,Patient hospital number,Person,SNOMED
+snomed:250908004,4108582,Left ventricular ejection fraction,Measurement,SNOMED
+snomed:38341003,316866,Hypertensive disorder,Condition,SNOMED
+snomed:416683003,4215511,Emergency hospital admission for heart failure,Condition,SNOMED
+snomed:420816009,4223299,New York Heart Association classification,Observation,SNOMED
+snomed:73211009,201820,Diabetes mellitus,Condition,SNOMED

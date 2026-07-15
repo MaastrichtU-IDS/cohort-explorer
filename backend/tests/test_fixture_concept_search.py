@@ -62,7 +62,10 @@ async def test_fixture_search_is_ranked_filtered_and_enriched(fixture_search_pro
 async def test_fixture_search_filters_domains_case_insensitively(fixture_search_provider):
     results = await fixture_search_provider.search("heart", ["condition"])
 
-    assert [item.id for item in results] == ["snomedct:84114007"]
+    assert [item.id for item in results] == [
+        "snomed:416683003",
+        "snomedct:84114007",
+    ]
 
 
 @pytest.mark.anyio
