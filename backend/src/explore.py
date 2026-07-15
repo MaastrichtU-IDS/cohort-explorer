@@ -1,22 +1,23 @@
-import os
-import logging
 import json
-from typing import Any
+import logging
+import os
 from datetime import datetime
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 
 from src.auth import get_current_user
+from src.cohort_cache import (
+    cohort_to_dict,
+    get_cohorts_from_cache,
+    initialize_cache_from_source_files,
+    is_cache_initialized,
+)
 from src.config import settings
+from src.metadata_paths import canonical_dictionary_path
 from src.models import Cohort
 from src.utils import retrieve_cohorts_metadata
-from src.cohort_cache import (
-    get_cohorts_from_cache,
-    is_cache_initialized,
-    cohort_to_dict,
-    initialize_cache_from_source_files,
-)
 
 router = APIRouter()
 
@@ -139,21 +140,17 @@ def get_cohorts_metadata_sparql(summary: bool = False, user: Any = Depends(get_c
 @router.get("/cohort-spreadsheet/{cohort_id}")
 async def download_cohort_spreasheet(cohort_id: str, user: Any = Depends(get_current_user)) -> FileResponse:
     """Download the data dictionary of a specified cohort as a spreadsheet."""
-    cohorts_folder = os.path.join(settings.data_folder, "cohorts", cohort_id)
-
-    # List all CSV files excluding those with 'noHeader' in the name
-    csv_files = [
-        f for f in os.listdir(cohorts_folder)
-        if f.endswith('.csv') and 'noHeader' not in f
-    ]
-    if not csv_files:
+    try:
+        dictionary_path = canonical_dictionary_path(settings.cohort_folder, cohort_id)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    if not dictionary_path.is_file():
         raise HTTPException(status_code=404, detail=f"No metadata csv file found for cohort ID '{cohort_id}'")
-
-    # Find the latest CSV file by modification time
-    csv_files_full = [os.path.join(cohorts_folder, f) for f in csv_files]
-    latest_file = max(csv_files_full, key=os.path.getmtime)
-    latest_file_name = os.path.basename(latest_file)
-    return FileResponse(path=latest_file, filename=latest_file_name, media_type="application/octet-stream")
+    return FileResponse(
+        path=dictionary_path,
+        filename=dictionary_path.name,
+        media_type="text/csv",
+    )
 
 
 @router.get("/download-cohorts-metadata-spreadsheet")
@@ -291,4 +288,3 @@ async def get_shuffled_sample(cohort_name: str, user: Any = Depends(get_current_
         filename=f"{actual_cohort_id}_shuffled_sample.csv",
         media_type="text/csv"
     )
-

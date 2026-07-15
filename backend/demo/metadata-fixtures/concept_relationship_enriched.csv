@@ -1,0 +1,10 @@
+concept_code,omop_id,concept_name,domain,vocabulary
+snomedct:364075005,3027018,Heart rate,Measurement,SNOMED
+loinc:8867-4,3027018,Heart rate measurement,Measurement,LOINC
+snomedct:84114007,316139,Heart failure,Condition,SNOMED
+snomedct:86290005,3024171,Respiratory rate,Measurement,SNOMED
+loinc:8480-6,3004249,Systolic blood pressure,Measurement,LOINC
+loinc:8462-4,3012888,Diastolic blood pressure,Measurement,LOINC
+rxnorm:4603,956874,Furosemide,Drug,RxNorm
+snomedct:248153007,8507,Male,Observation,SNOMED
+snomedct:248152002,8532,Female,Observation,SNOMED

@@ -1,17 +1,19 @@
+import csv
 import glob
+import json
 import logging
 import math
 import os
 import re
 import shutil
-import csv
-import json
+import tempfile
 import warnings
+from copy import deepcopy
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any
 from re import sub
+from typing import Any
 
 # Silence noisy openpyxl warnings that fire every time we read the central
 # iCARE4CVD Cohorts Excel spreadsheet. The workbook contains data-validation
@@ -38,27 +40,39 @@ warnings.filterwarnings(
 import pandas as pd
 import requests
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
-from rdflib import Graph, Literal, URIRef, Dataset
+from rdflib import Dataset, Graph, Literal, URIRef
 from rdflib.namespace import DC, RDF, RDFS, XSD
 from SPARQLWrapper import SPARQLWrapper
 
-from src.config import settings
 from src.auth import get_current_user
+from src.cohort_cache import (
+    add_cohort_to_cache,
+    clear_cache,
+    create_cohort_from_dict_file,
+    create_cohort_from_metadata_graph,
+)
+from src.config import settings
+from src.decentriq import metadatadict_cols_schema1
+from src.dictionary_validation import InvalidDictionary, validate_dictionary_upload
+from src.mapping_logger import PROCESS_SCM, MappingRun, log_detail, log_main
+from src.metadata_paths import STUDIES_METADATA_GRAPH_URI, canonical_dictionary_path
+from src.metadata_providers.factory import get_concept_validation_provider
+from src.triplestore import (
+    replace_metadata_transactionally,
+    replace_named_graph,
+    snapshot_named_graph,
+)
 from src.utils import (
     ICARE,
+    OntologyNamespaces,
     curie_converter,
     extract_age_range,
     get_cohorts_metadata_query,
     init_graph,
-    OntologyNamespaces,
     normalize_text,
     retrieve_cohorts_metadata,
-    run_query
+    run_query,
 )
-from src.cohort_cache import add_cohort_to_cache, clear_cache, create_cohort_from_dict_file, create_cohort_from_metadata_graph
-from src.decentriq import metadatadict_cols_schema1
-from src.mapping_generation.retriever import map_csv_to_standard_codes
-from src.mapping_logger import log_main, log_detail, MappingRun, PROCESS_SCM
 
 router = APIRouter()
 
@@ -766,12 +780,11 @@ def get_athena_validation_errors(dict_path: str) -> list[str]:
     Any component with status FAIL contributes its reason to the message.
     """
     import re
-    from CohortVarLinker.validate_cde import validate_dictionary
-
     error_messages: list[str] = []
     temp_csv = dict_path + f"._athena_tmp_{os.getpid()}.csv"
     try:
-        validate_dictionary(dict_path, temp_csv)
+        provider = get_concept_validation_provider(settings)
+        provider.validate(Path(dict_path), Path(temp_csv))
         if not os.path.exists(temp_csv):
             return []
         result_df = pd.read_csv(temp_csv)
@@ -1163,6 +1176,7 @@ async def normalize_all_dictionary_headers(
         raise HTTPException(status_code=403, detail="You need to be admin to perform this action.")
     
     from fastapi.responses import FileResponse
+
     from src.cohort_cache import get_cohorts_from_cache
     
     # Generate timestamp for filename
@@ -1191,10 +1205,13 @@ async def normalize_all_dictionary_headers(
             cohorts_without_dict += 1
             continue
         
-        # Get the latest metadata dictionary file
-        latest_dict_file = get_latest_datadictionary(cohort_folder_path)
-        
-        if not latest_dict_file:
+        # Operate only on the canonical dictionary path.
+        try:
+            dictionary_path = canonical_dictionary_path(settings.cohort_folder, cohort_id)
+        except ValueError:
+            dictionary_path = None
+
+        if dictionary_path is None or not dictionary_path.is_file():
             cohorts_without_dict += 1
             with open(report_file, "a") as f:
                 f.write(f"COHORT: {cohort_id}\n")
@@ -1205,6 +1222,7 @@ async def normalize_all_dictionary_headers(
         
         # Read the file
         try:
+            latest_dict_file = str(dictionary_path)
             with open(latest_dict_file, "r", encoding='utf-8') as f:
                 file_content = f.read()
             
@@ -1298,6 +1316,26 @@ async def metadata_syntax_issues_report(
     if user_email not in settings.admins_list:
         raise HTTPException(status_code=403, detail="You need to be admin to perform this action.")
     from fastapi.responses import FileResponse
+
+    from src.metadata_reports import build_syntax_report
+
+    report = build_syntax_report()
+    return FileResponse(
+        path=report.path,
+        media_type="text/plain",
+        filename=report.path.name,
+        headers={
+            "X-Total-Cohorts": str(report.total_cohorts),
+            "X-Cohorts-With-Errors": str(report.cohorts_with_errors),
+            "X-Cohorts-Without-Dict": str(report.cohorts_without_dictionary),
+            "X-Total-Errors": str(report.total_errors),
+        },
+    )
+
+    # Legacy inline report implementation retained below until all deployment
+    # environments have migrated to the canonical report service.
+    from fastapi.responses import FileResponse
+
     from src.cohort_cache import get_cohorts_from_cache
     
     # Generate timestamp for filename
@@ -1458,8 +1496,9 @@ async def validate_athena_codes(
     if user_email not in settings.admins_list:
         raise HTTPException(status_code=403, detail="You need to be admin to perform this action.")
     from fastapi.responses import FileResponse
+
     from src.cohort_cache import get_cohorts_from_cache
-    from CohortVarLinker.validate_cde import validate_dictionary
+    provider = get_concept_validation_provider(settings)
 
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     reports_folder = os.path.join(settings.data_folder, "ATHENA_VALIDATION_REPORTS")
@@ -1482,22 +1521,19 @@ async def validate_athena_codes(
 
     for cohort_id in sorted(all_cohorts.keys()):
         total_cohorts += 1
-        cohort_folder_path = os.path.join(settings.cohort_folder, cohort_id)
-
-        if not os.path.exists(cohort_folder_path):
+        try:
+            dictionary_path = canonical_dictionary_path(settings.cohort_folder, cohort_id)
+        except ValueError:
             cohorts_without_dict += 1
             continue
-
-        latest_dict_file = get_latest_datadictionary(cohort_folder_path)
-
-        if not latest_dict_file:
+        if not dictionary_path.is_file():
             cohorts_without_dict += 1
             continue
 
         # Run Athena/graph validation — results go to a temp per-cohort CSV
         out_csv = os.path.join(reports_folder, f"{cohort_id}_athena_{timestamp}.csv")
         try:
-            all_pass = validate_dictionary(latest_dict_file, out_csv)
+            all_pass = provider.validate(dictionary_path, Path(out_csv))
 
             # Read the per-cohort CSV to extract counts and variable names
             n_pass = n_fail = n_na = 0
@@ -1584,8 +1620,9 @@ async def validate_athena_codes_single(
     if user_email not in settings.admins_list:
         raise HTTPException(status_code=403, detail="You need to be admin to perform this action.")
     from fastapi.responses import FileResponse
+
     from src.cohort_cache import get_cohorts_from_cache
-    from CohortVarLinker.validate_cde import validate_dictionary
+    provider = get_concept_validation_provider(settings)
 
     all_cohorts = get_cohorts_from_cache(user_email)
     # Case-insensitive match: resolve the supplied cohort_id to the canonical key
@@ -1595,9 +1632,11 @@ async def validate_athena_codes_single(
         raise HTTPException(status_code=404, detail=f"Cohort '{cohort_id}' does not exist in the system. Please check the cohort name and try again.")
     cohort_id = canonical_id
 
-    cohort_folder_path = os.path.join(settings.cohort_folder, cohort_id)
-    latest_dict_file = get_latest_datadictionary(cohort_folder_path) if os.path.exists(cohort_folder_path) else None
-    if not latest_dict_file:
+    try:
+        dictionary_path = canonical_dictionary_path(settings.cohort_folder, cohort_id)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    if not dictionary_path.is_file():
         raise HTTPException(status_code=404, detail=f"Cohort '{cohort_id}' exists but has no metadata dictionary uploaded.")
 
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -1607,7 +1646,7 @@ async def validate_athena_codes_single(
     out_csv = os.path.join(reports_folder, f"{cohort_id}_athena_{timestamp}.csv")
 
     try:
-        all_pass = validate_dictionary(latest_dict_file, out_csv)
+        all_pass = provider.validate(dictionary_path, Path(out_csv))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Validation failed for cohort {cohort_id}: {str(e)}")
 
@@ -1760,6 +1799,48 @@ async def delete_cohort(
 
 
 @router.post(
+    "/validate-cohort-dictionary",
+    name="Validate cohort metadata without replacing it",
+    response_description="Dictionary validation result",
+)
+async def validate_cohort_dictionary(
+    user: Any = Depends(get_current_user),
+    cohort_id: str = Form(...),
+    cohort_dictionary: UploadFile = File(...),
+) -> dict[str, Any]:
+    """Validate a dictionary using temporary state only."""
+    user_email = user["email"]
+    from src.cohort_cache import get_cohorts_from_cache
+
+    cohort_info = get_cohorts_from_cache(user_email).get(cohort_id)
+    if cohort_info is None:
+        raise HTTPException(status_code=403, detail=f"Cohort ID {cohort_id} does not exist")
+    if not cohort_info.can_edit:
+        raise HTTPException(
+            status_code=403,
+            detail=f"User {user_email} cannot edit cohort {cohort_id}",
+        )
+
+    content = await cohort_dictionary.read()
+    provider = get_concept_validation_provider(settings)
+    try:
+        result = validate_dictionary_upload(
+            cohort_id,
+            content,
+            provider,
+            Path(settings.data_folder) / ".metadata-validation",
+        )
+    except InvalidDictionary as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return {
+        "message": "Dictionary validation successful.",
+        "identifier": result.cohort_id,
+        "concepts_valid": result.concepts_valid,
+        "syntax_issues": list(result.syntax_issues),
+    }
+
+
+@router.post(
     "/upload-cohort",
     name="Upload cohort metadata file",
     response_description="Upload result",
@@ -1772,16 +1853,22 @@ async def upload_cohort(
     cohort_dictionary: UploadFile = File(...),
     cohort_data: UploadFile | None = None,
 ) -> dict[str, Any]:
-    """Upload a cohort metadata file to the server and add its variables to the triplestore."""
+    """Validate and transactionally replace a cohort dictionary."""
     user_email = user["email"]
-    # Use cache instead of SPARQL query for better performance
-    from src.cohort_cache import get_cohorts_from_cache
+    from src.cohort_cache import (
+        add_cohort_to_cache,
+        build_cohort_variables_from_csv,
+        get_cohorts_from_cache,
+        remove_cohort_from_cache,
+        save_cache_to_disk,
+    )
+
     cohorts = get_cohorts_from_cache(user_email)
     cohort_info = cohorts.get(cohort_id)
-    if not cohort_info:
+    if cohort_info is None:
         raise HTTPException(
             status_code=403,
-            detail=f"Cohort ID {cohort_id} does not exists",
+            detail=f"Cohort ID {cohort_id} does not exist",
         )
     if not cohort_info.can_edit:
         raise HTTPException(
@@ -1789,88 +1876,72 @@ async def upload_cohort(
             detail=f"User {user_email} cannot edit cohort {cohort_id}",
         )
 
-    # Create directory named after cohort_id
-    os.makedirs(cohort_info.folder_path, exist_ok=True)
-    # Track backup info so we can restore the original dictionary if processing fails
-    backed_up_original_path = None
-    backed_up_to_path = None
-    # Check if cohort already uploaded
-    if cohort_info and len(cohort_info.variables) > 0:
-        # Check for existing data dictionary file and back it up
-        for file_name in os.listdir(cohort_info.folder_path):
-            if file_name.endswith("_datadictionary.csv"):
-                # Construct the backup file name with the current date
-                backup_file_name = f"{file_name.rsplit('.', 1)[0]}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-                backup_file_path = os.path.join(cohort_info.folder_path, backup_file_name)
-                existing_file_path = os.path.join(cohort_info.folder_path, file_name)
-                # Rename (backup) the existing file
-                os.rename(existing_file_path, backup_file_path)
-                backed_up_original_path = existing_file_path
-                backed_up_to_path = backup_file_path
-                break  # Assuming there's only one data dictionary file per cohort
-
-    # Make sure metadata file ends with _datadictionary
-    metadata_filename = cohort_dictionary.filename
-    filename, ext = os.path.splitext(metadata_filename)
-    if not filename.endswith("_datadictionary"):
-        filename += "_datadictionary"
-
-    # Store metadata file on disk, preserving original headers
-    metadata_path = os.path.join(cohort_info.folder_path, filename + ext)
-    
-    cohort_dictionary.file.seek(0)
+    content = await cohort_dictionary.read()
+    provider = get_concept_validation_provider(settings)
     try:
-        file_content = cohort_dictionary.file.read().decode('utf-8')
-    except UnicodeDecodeError:
-        raise HTTPException(
-            status_code=422,
-            detail="The file does not appear to be saved in UTF-8 encoding. Please re-save it as UTF-8 before uploading. In Excel: File → Save As → choose CSV UTF-8 (Comma delimited). In LibreOffice: File → Save As → select 'Keep Current Format' then set character set to UTF-8.",
+        validation = validate_dictionary_upload(
+            cohort_id,
+            content,
+            provider,
+            Path(settings.data_folder) / ".metadata-validation",
         )
-    
-    with open(metadata_path, "w", encoding='utf-8') as f:
-        f.write(file_content)
+    except InvalidDictionary as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
 
-    try:
-        g = load_cohort_dict_file(metadata_path, cohort_id, source="upload_dict", user_email=user_email, filename=metadata_filename)
-        # Airlock preview setting goes to mapping graph because it is defined in the explorer UI
-        # g.add(
-        #     (
-        #         get_cohort_uri(cohort_id),
-        #         ICARE.previewEnabled,
-        #         Literal(str(airlock).lower(), datatype=XSD.boolean),
-        #         get_cohort_mapping_uri(cohort_id),
-        #     )
-        # )
+    staging_root = Path(settings.data_folder) / ".metadata-staging"
+    staging_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=f"{cohort_id}-", dir=staging_root) as temporary:
+        staged_path = Path(temporary) / f"{cohort_id}_datadictionary.csv"
+        staged_path.write_bytes(validation.normalized_csv)
+        staged_graph = load_cohort_dict_file(
+            str(staged_path),
+            cohort_id,
+            source="staged_upload",
+            user_email=user_email,
+            filename=cohort_dictionary.filename,
+        )
+        if len(staged_graph) == 0:
+            raise HTTPException(status_code=422, detail="Dictionary produced an empty metadata graph")
 
-        # TODO: waiting for more tests before sending to production
-        # if settings.dev_mode:
-        if False:
-            background_tasks.add_task(generate_mappings, cohort_id, metadata_path, g)
-        else:
-            # Delete previous graph for this file from triplestore
-            # TODO: remove these lines once we move to generating mapping through the background task
-            # delete_existing_triples(
-            #     get_cohort_mapping_uri(cohort_id), f"<{get_cohort_uri(cohort_id)!s}>", "icare:previewEnabled"
-            # )
-            delete_existing_triples(get_cohort_graph_uri(cohort_id))
-            if publish_graph_to_endpoint(g):
-                # Cache was already updated directly from the graph in load_cohort_dict_file
-                logging.info(f"Cohort {cohort_id} published to triplestore and cache updated")
-    except Exception as e:
-        # Remove the newly written (invalid) file
-        if os.path.exists(metadata_path):
-            os.remove(metadata_path)
-        # Restore the original dictionary from backup if one was made
-        if backed_up_original_path and backed_up_to_path and os.path.exists(backed_up_to_path):
-            os.rename(backed_up_to_path, backed_up_original_path)
-            logging.info(f"Restored original dictionary for cohort {cohort_id} after failed upload")
-        raise e
+        graph_uri = str(get_cohort_graph_uri(cohort_id))
+        canonical_path = canonical_dictionary_path(settings.cohort_folder, cohort_id)
 
-    # return {
-    #     "message": f"Metadata for cohort {cohort_id} have been successfully uploaded. The variables are being mapped to standard codes and will be available in the Cohort Explorer in a few minutes.",
-    #     "identifier": cohort_id,
-    #     # **cohort.dict(),
-    # }
+        def replace_cache(path: Path) -> None:
+            if not build_cohort_variables_from_csv(cohort_id, str(path)):
+                raise RuntimeError(f"Failed to rebuild cache for cohort {cohort_id}")
+            save_cache_to_disk()
+
+        def restore_cache(snapshot: Any) -> None:
+            if snapshot is None:
+                remove_cohort_from_cache(cohort_id)
+            else:
+                add_cohort_to_cache(snapshot)
+
+        try:
+            replace_metadata_transactionally(
+                canonical_path=canonical_path,
+                content=validation.normalized_csv,
+                staged_graph=staged_graph,
+                snapshot_graph=lambda: snapshot_named_graph(settings.sparql_endpoint, graph_uri),
+                replace_graph=lambda graph: replace_named_graph(
+                    settings.sparql_endpoint,
+                    graph_uri,
+                    graph,
+                ),
+                snapshot_cache=lambda: deepcopy(
+                    get_cohorts_from_cache(user_email).get(cohort_id)
+                ),
+                replace_cache=replace_cache,
+                restore_cache=restore_cache,
+            )
+        except Exception as error:
+            logging.exception("Transactional dictionary replacement failed for %s", cohort_id)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Metadata replacement failed and prior state was restored: {error}",
+            ) from error
+
+    _ = background_tasks, cohort_data
     return {
         "message": f"Metadata for cohort {cohort_id} have been successfully uploaded.",
         "identifier": cohort_id,
@@ -1880,6 +1951,8 @@ async def upload_cohort(
 
 def generate_mappings(cohort_id: str, metadata_path: str, g: Graph) -> None:
     """Function to generate mappings for a cohort and publish them to the triplestore running as background task"""
+    from src.mapping_generation.retriever import map_csv_to_standard_codes
+
     print(f"Generating mappings for cohort {cohort_id}")
     with MappingRun(PROCESS_SCM, cohort_id=cohort_id, metadata_path=metadata_path):
         map_csv_to_standard_codes(metadata_path)
@@ -1909,25 +1982,68 @@ async def upload_cohorts_metadata(
     user: Any = Depends(get_current_user),
     cohorts_metadata: UploadFile = File(...),
 ) -> dict[str, Any]:
-    """Upload the file with all cohorts metadata to the server and triplestore."""
+    """Transactionally replace the central workbook, graph, and cache."""
     if user["email"] not in settings.admins_list:
         raise HTTPException(status_code=403, detail="You need to be admin to perform this action.")
-    with open(COHORTS_METADATA_FILEPATH, "wb") as buffer:
-        shutil.copyfileobj(cohorts_metadata.file, buffer)
-    g = cohorts_metadata_file_to_graph(COHORTS_METADATA_FILEPATH)
-    if len(g) > 0:
-        delete_existing_triples(ICARE["graph/metadata"])
-        publish_graph_to_endpoint(g)
+    from src.cohort_cache import (
+        add_cohort_to_cache,
+        clear_cache,
+        get_cohorts_from_cache,
+        initialize_cache_from_excel,
+        save_cache_to_disk,
+    )
 
-    # Refresh the cache directly from the Excel file we just saved — independent of the
-    # triplestore. Runs in the background to avoid blocking the response.
-    from src.cohort_cache import initialize_cache_from_excel
-    background_tasks.add_task(initialize_cache_from_excel, COHORTS_METADATA_FILEPATH, user["email"])
-    logging.info("Cache refresh (from Excel source file) scheduled after cohorts metadata update")
-    
+    content = await cohorts_metadata.read()
+    staging_root = Path(settings.data_folder) / ".metadata-staging"
+    staging_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="central-workbook-", dir=staging_root) as temporary:
+        staged_path = Path(temporary) / "iCARE4CVD_Cohorts.xlsx"
+        staged_path.write_bytes(content)
+        try:
+            staged_graph = cohorts_metadata_file_to_graph(str(staged_path))
+        except Exception as error:
+            raise HTTPException(status_code=422, detail=f"Invalid cohorts metadata workbook: {error}") from error
+        if len(staged_graph) == 0:
+            raise HTTPException(status_code=422, detail="Cohorts metadata workbook produced an empty graph")
+
+        def replace_cache(path: Path) -> None:
+            initialize_cache_from_excel(str(path), user["email"])
+
+        def restore_cache(snapshot: dict[str, Any]) -> None:
+            clear_cache()
+            for cohort in snapshot.values():
+                add_cohort_to_cache(cohort, save_to_disk=False)
+            save_cache_to_disk()
+
+        try:
+            replace_metadata_transactionally(
+                canonical_path=Path(COHORTS_METADATA_FILEPATH),
+                content=content,
+                staged_graph=staged_graph,
+                snapshot_graph=lambda: snapshot_named_graph(
+                    settings.sparql_endpoint,
+                    STUDIES_METADATA_GRAPH_URI,
+                ),
+                replace_graph=lambda graph: replace_named_graph(
+                    settings.sparql_endpoint,
+                    STUDIES_METADATA_GRAPH_URI,
+                    graph,
+                ),
+                snapshot_cache=lambda: deepcopy(get_cohorts_from_cache(user["email"])),
+                replace_cache=replace_cache,
+                restore_cache=restore_cache,
+            )
+        except Exception as error:
+            logging.exception("Transactional central metadata replacement failed")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Metadata replacement failed and prior state was restored: {error}",
+            ) from error
+
+    _ = background_tasks
     return {
-        "message": "Cohorts metadata file has been successfully uploaded and processed. The cache will be refreshed in the background and changes will be visible in a few minutes.",
-        "triples_count": len(g)
+        "message": "Cohorts metadata file has been successfully uploaded and processed.",
+        "triples_count": len(staged_graph),
     }
 
 
@@ -1961,7 +2077,7 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
     # Convert column names to lowercase for consistency
     df.columns = df.columns.str.lower()
     g = init_graph()
-    metadata_graph = URIRef(OntologyNamespaces.CMEO.value + "graph/studies_metadata")
+    metadata_graph = URIRef(STUDIES_METADATA_GRAPH_URI)
     
     for _i, row in df.iterrows():
         print("now processing cohorts' metadata row: ", _i, row)
@@ -2575,35 +2691,6 @@ def _perform_triplestore_initialization():
             break
         time.sleep(0.5)  # Small delay between checks
     
-    # Generate metadata issues report (runs on every startup).
-    # Use the synchronous httpx.Client here rather than AsyncClient + asyncio.run(),
-    # because init_triplestore() may be invoked from inside a running event loop
-    # (e.g. when the ASGI server imports src.main with a loop already started),
-    # in which case asyncio.run() raises "cannot be called from a running event
-    # loop" and the coroutine is never awaited. Sync httpx works in both cases.
-    print("Generating metadata issues report...")
-    try:
-        import httpx
-
-        with httpx.Client() as client:
-            response = client.post(
-                "http://localhost:3000/upload/metadata-syntax-issues-report",
-                timeout=60.0,
-            )
-
-        # Extract summary info from response headers
-        filename = response.headers.get('content-disposition', '').split('filename=')[-1].strip('"')
-        total_cohorts = response.headers.get('X-Total-Cohorts', 'N/A')
-        cohorts_with_errors = response.headers.get('X-Cohorts-With-Errors', 'N/A')
-        cohorts_without_dict = response.headers.get('X-Cohorts-Without-Dict', 'N/A')
-
-        print(f"✅ Metadata issues report generated: {filename}")
-        print(f"   Total cohorts: {total_cohorts}")
-        print(f"   Cohorts with errors: {cohorts_with_errors}")
-        print(f"   Cohorts without dictionary: {cohorts_without_dict}")
-    except Exception as e:
-        print(f"⚠️  Failed to generate metadata issues report: {e}")
-    
     # If triplestore is already initialized, initialize cache directly from Excel and return
     if triplestore_initialized:
         from src.cohort_cache import initialize_cache_from_excel
@@ -2619,7 +2706,7 @@ def _perform_triplestore_initialization():
     g = cohorts_metadata_file_to_graph(COHORTS_METADATA_FILEPATH)
     
     # Delete existing triples for cohorts metadata before publishing new ones
-    cohorts_graph = URIRef("https://w3id.org/icare4cvd/cohorts")
+    cohorts_graph = URIRef(STUDIES_METADATA_GRAPH_URI)
     delete_existing_triples(cohorts_graph)
 
     if publish_graph_to_endpoint(g):
@@ -2636,8 +2723,12 @@ def _perform_triplestore_initialization():
             try:
                 #Note (August 2025): we now find the latest version of a data dictionary instead of processing all
                 #for file in glob.glob(os.path.join(folder_path, "*_datadictionary.*")):
-                latest_dict_file = get_latest_datadictionary(folder_path)
-                if latest_dict_file:
+                try:
+                    dictionary_path = canonical_dictionary_path(settings.cohort_folder, folder)
+                except ValueError:
+                    dictionary_path = None
+                if dictionary_path is not None and dictionary_path.is_file():
+                    latest_dict_file = str(dictionary_path)
                     print(f"Using latest datadictionary file for {folder}: {os.path.basename(latest_dict_file)}, date: {os.path.getmtime(latest_dict_file)}")
                     g = load_cohort_dict_file(latest_dict_file, folder, source="init_triplestore")
                     

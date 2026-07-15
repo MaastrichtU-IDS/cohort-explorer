@@ -72,7 +72,7 @@ export default function UploadPage() {
     setValidationErrors(null);
     setValidationStatusMessage(null);
     setIsValidationPaneOpen(false);
-    const fileInput = document.getElementById('metadataFile') as HTMLInputElement;
+    const fileInput = document.getElementById('metadata-file') as HTMLInputElement;
     if (fileInput) {
       fileInput.value = '';
     }
@@ -95,7 +95,7 @@ export default function UploadPage() {
     formData.append('cohort_dictionary', metadataFile);
 
     try {
-      const response = await fetch(`${apiUrl}/upload-cohort`, {
+      const response = await fetch(`${apiUrl}/validate-cohort-dictionary`, {
         method: 'POST',
         body: formData,
         credentials: 'include'
@@ -252,7 +252,7 @@ export default function UploadPage() {
         )}
 
         {isValidationPaneOpen && (
-          <div className="fixed top-0 right-0 w-full md:w-1/3 lg:w-1/4 h-full bg-base-200 shadow-xl p-6 overflow-y-auto z-50 flex flex-col">
+          <div id="validation-results" className="fixed top-0 right-0 w-full md:w-1/3 lg:w-1/4 h-full bg-base-200 shadow-xl p-6 overflow-y-auto z-50 flex flex-col">
             <div className="flex-grow">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-xl font-semibold">Validation Results</h3>
@@ -326,11 +326,11 @@ export default function UploadPage() {
 
               <form onSubmit={handleMetadataSubmit} className="space-y-5">
                 <div className="form-control">
-                  <label htmlFor="cohortId" className="label">
+                  <label htmlFor="upload-cohort-select" className="label">
                     <span className="label-text font-semibold">Select Cohort</span>
                   </label>
                   <select
-                    id="cohortId"
+                    id="upload-cohort-select"
                     className="select select-bordered w-full"
                     value={cohortId}
                     onChange={(event) => setCohortId(event.target.value)}
@@ -375,14 +375,14 @@ export default function UploadPage() {
                 </div>
 
                 <div className="form-control">
-                   <label htmlFor="metadataFile" className="label">
+                   <label htmlFor="metadata-file" className="label">
                      <span className="label-text font-semibold">Metadata Dictionary File (.csv)</span>
                       {metadataExists && <span className="label-text-alt">(Optional: only needed to replace existing)</span>}
                    </label>
                    <div className="flex items-center gap-2">
                       <input
                         type="file"
-                        id="metadataFile"
+                        id="metadata-file"
                         className={`file-input file-input-bordered file-input-info w-full max-w-xs ${!metadataExists ? 'file-input-required' : ''}`}
                         accept=".csv"
                         onChange={(event) => {if (event.target.files) setMetadataFile(event.target.files[0])}}
@@ -408,6 +408,7 @@ export default function UploadPage() {
                      </button>
                    )}
                   <button 
+                    id="validate-dictionary"
                     type="button" 
                     className="btn btn-outline btn-accent" 
                     onClick={handleValidateDictionary}
@@ -418,6 +419,7 @@ export default function UploadPage() {
                   </button>
 
                    <button 
+                     id="upload-dictionary"
                      type="submit" 
                      className="btn btn-info" 
                      disabled={isLoading || isValdating || !cohortId || !isValidated || !metadataFile}

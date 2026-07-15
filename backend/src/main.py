@@ -19,6 +19,7 @@ from src.decentriq import router as decentriq_router
 from src.docs import router as docs_router
 from src.explore import router as explore_router
 from src.mapping import router as mapping_router
+from src.metadata_reports import build_syntax_report
 from src.upload import init_triplestore
 from src.upload import router as upload_router
 
@@ -74,7 +75,15 @@ async def lifespan(_app: FastAPI):
         except Exception as exc:  # pragma: no cover - already logged inside
             logging.warning("DCR refresh task crashed: %s", exc)
 
+    async def _report_runner() -> None:
+        try:
+            report = await asyncio.to_thread(build_syntax_report)
+            logging.info("Startup metadata syntax report generated: %s", report.path)
+        except Exception as exc:
+            logging.warning("Startup metadata syntax report failed: %s", exc)
+
     _app.state.refresh_task = asyncio.create_task(_runner())
+    _app.state.metadata_report_task = asyncio.create_task(_report_runner())
     yield
 
 
