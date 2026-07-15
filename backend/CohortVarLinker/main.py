@@ -321,9 +321,6 @@ def generate_mapping_csv(
             src_study=source_study,
             tgt_study=tstudy,
             mapping_mode=mapping_mode)        
-
-    
-    
         if mapping_transformed is None or mapping_transformed.empty:
             # If possible, preserve the expected columns
             columns = getattr(mapping_transformed, 'columns', None)
