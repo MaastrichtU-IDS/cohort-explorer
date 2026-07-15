@@ -1,109 +1,30 @@
-import logging
+import os
+import time
 from dataclasses import asdict
+from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import Response
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse, Response
 from PIL import Image
 
 from src.auth import get_current_user
-from src.mapping_logger import log_main, log_detail, MappingRun, PROCESS_CVL
-from src.metadata_providers.factory import get_concept_search_provider
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+from src.config import settings
+from src.mapping_artifacts import MappingArtifactStore
+from src.metadata_providers.factory import (
+    get_concept_search_provider,
+    get_mapping_generation_provider,
+)
 
 router = APIRouter()
 
-# NOTE: not really use now, Komal do the mappings in mapping_generation folder
 
-from fastapi import Body
-from fastapi.responses import StreamingResponse, JSONResponse
-import io
-import os
-import sys
-import json
-import glob
-from src.config import settings
+def _mapping_store() -> MappingArtifactStore:
+    return MappingArtifactStore(
+        Path(settings.mapping_output_dir),
+        cohorts_root=Path(settings.cohort_folder),
+    )
 
-# Add CohortVarLinker to path for lazy imports
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../CohortVarLinker')))
-
-
-def _read_or_generate_meta(json_filepath: str) -> dict | None:
-    """Read the sidecar .meta.json for a mapping file.
-    
-    If the sidecar is missing or older than the mapping file, lazily
-    parse the mapping JSON and write a fresh sidecar.
-    Returns the stats dict or None on failure.
-    """
-    if json_filepath.endswith('.meta.json'):
-        return None
-    meta_path = json_filepath + ".meta.json"
-    mapping_mtime = os.path.getmtime(json_filepath)
-    
-    # Check if sidecar exists and is up-to-date
-    if os.path.exists(meta_path):
-        meta_mtime = os.path.getmtime(meta_path)
-        if meta_mtime >= mapping_mtime:
-            try:
-                with open(meta_path, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except Exception:
-                pass  # fall through to regeneration
-    
-    # Sidecar missing or stale — regenerate from the mapping JSON
-    try:
-        with open(json_filepath, "r", encoding="utf-8") as f:
-            raw = f.read().replace("NaN", "null")
-            data = json.loads(raw)
-        
-        total = 0
-        harm_counts: dict[str, int] = {}
-        rel_counts: dict[str, int] = {}
-        for entry in data.values():
-            if not isinstance(entry, dict) or "mappings" not in entry:
-                continue
-            for m in entry["mappings"]:
-                total += 1
-                hs = str(m.get("harmonization_status") or "pending")
-                mr = str(m.get("mapping_relation") or "")
-                harm_counts[hs] = harm_counts.get(hs, 0) + 1
-                rel_counts[mr] = rel_counts.get(mr, 0) + 1
-        
-        meta = {
-            "total_mappings": total,
-            "harmonization_status": harm_counts,
-            "mapping_relation": rel_counts,
-        }
-        with open(meta_path, "w", encoding="utf-8") as f:
-            json.dump(meta, f, indent=2, ensure_ascii=False)
-        logger.info(f"Generated sidecar stats: {meta_path}")
-        return meta
-    except Exception as e:
-        logger.warning(f"Failed to generate sidecar for {json_filepath}: {e}")
-        return None
-
-def get_latest_dictionary_timestamp(cohort_id: str) -> float | None:
-    """Get the timestamp of the latest data dictionary file for a cohort"""
-    try:
-        cohort_folder = os.path.join(settings.cohort_folder, cohort_id)
-        if not os.path.exists(cohort_folder):
-            return None
-            
-        # Select most recent CSV file with 'datadictionary' in the name
-        csv_candidates = [
-            f for f in glob.glob(os.path.join(cohort_folder, "*.csv"))
-            if ("datadictionary" in os.path.basename(f).lower()
-            and "noheader" not in os.path.basename(f).lower())
-        ]
-        
-        if csv_candidates:
-            latest_file = max(csv_candidates, key=os.path.getmtime)
-            return os.path.getmtime(latest_file)
-        return None
-    except Exception:
-        return None
 
 @router.post("/check-mapping-cache")
 async def check_mapping_cache(
@@ -111,96 +32,50 @@ async def check_mapping_cache(
     target_studies: list = Body(...),
     user: Any = Depends(get_current_user),
 ):
-    """
-    Check cache status for mapping pairs without generating mappings.
-    Returns cache information immediately with dictionary timestamps.
-    """
-    # Lazy import to avoid module-level import errors
-    from CohortVarLinker.src.config import settings as cohort_linker_settings
-    from CohortVarLinker.src.utils import get_member_studies
-    
-    output_dir = cohort_linker_settings.output_dir
-    
-    source_study = source_study.lower()
-    target_studies_names = [t[0].lower() for t in target_studies]
-    
-    # Add member studies (replicate the same logic as in generate_mapping_csv)
-    new_studies = []
-    for tstudy in target_studies_names:
-        member_studies = get_member_studies(tstudy)
-        if member_studies:
-            new_studies.extend(member_studies)
-    target_studies_names.extend(new_studies)
-    
-    # Get dictionary timestamps for all involved cohorts
-    all_cohorts = set([source_study] + target_studies_names)
-    dictionary_timestamps = {}
-    for cohort in all_cohorts:
-        dict_timestamp = get_latest_dictionary_timestamp(cohort)
-        if dict_timestamp:
-            dictionary_timestamps[cohort] = dict_timestamp
-    
-    # Check cache status for each mapping pair
-    cached_pairs = []
-    uncached_pairs = []
-    outdated_pairs = []
-    
-    # Replicate the same naming convention as generate_mapping_csv
-    model_name = "biolord"
-    mapping_mode = "OEH"
-    # LLM tag computation mirrors main.py logic
-    from CohortVarLinker.src.config import settings as _cvl_settings
-    from CohortVarLinker.src.data_model import MappingType as _MT
-    _llm_model = _cvl_settings.llm_model
-    if _llm_model and mapping_mode != _MT.OO.value:
-        llm_tag = _llm_model.split("/")[-1].replace(":nitro", "")
-    else:
-        llm_tag = "no_llm"
+    """Check canonical dictionary mtimes against configured mapping artifacts."""
+    _ = user
+    store = _mapping_store()
+    source = source_study.strip().casefold()
+    try:
+        targets = [str(target[0]).strip().casefold() for target in target_studies]
+    except (IndexError, TypeError):
+        raise HTTPException(status_code=422, detail="Invalid target study request")
 
-    for tstudy in target_studies_names:
-        out_filename = f'{source_study}_{tstudy}_{model_name}+{llm_tag}_{mapping_mode}_full.csv'
-        out_path = os.path.join(output_dir, out_filename)
-        
-        if os.path.exists(out_path):
-            # Get file modification time
-            cache_timestamp = os.path.getmtime(out_path)
-            
-            # Check if cache is outdated compared to dictionaries
-            source_dict_time = dictionary_timestamps.get(source_study)
-            target_dict_time = dictionary_timestamps.get(tstudy)
-            
-            is_outdated = False
-            outdated_cohort = None
-            
-            if source_dict_time and source_dict_time > cache_timestamp:
-                is_outdated = True
-                outdated_cohort = source_study
-            elif target_dict_time and target_dict_time > cache_timestamp:
-                is_outdated = True
-                outdated_cohort = tstudy
-            
-            pair_info = {
-                'source': source_study,
-                'target': tstudy,
-                'timestamp': cache_timestamp
-            }
-            
-            if is_outdated:
-                pair_info['outdated_cohort'] = outdated_cohort
-                outdated_pairs.append(pair_info)
-            else:
-                cached_pairs.append(pair_info)
-        else:
-            uncached_pairs.append({
-                'source': source_study,
-                'target': tstudy
-            })
-    
+    dictionary_mtimes_ns = {
+        cohort: store.dictionary_mtime_ns(cohort)
+        for cohort in {source, *targets}
+    }
+    dictionary_timestamps = {
+        cohort: mtime_ns / 1_000_000_000
+        for cohort, mtime_ns in dictionary_mtimes_ns.items()
+        if mtime_ns
+    }
+    cached_pairs: list[dict[str, Any]] = []
+    uncached_pairs: list[dict[str, Any]] = []
+    outdated_pairs: list[dict[str, Any]] = []
+    for target in targets:
+        artifact = store.find_pair(source, target, include_stale=True)
+        if artifact is None:
+            uncached_pairs.append({"source": source, "target": target})
+            continue
+        pair_info: dict[str, Any] = {
+            "source": source,
+            "target": target,
+            "timestamp": artifact.timestamp,
+        }
+        if store.cache_status(artifact).fresh:
+            cached_pairs.append(pair_info)
+            continue
+        source_mtime = dictionary_mtimes_ns.get(source, 0)
+        target_mtime = dictionary_mtimes_ns.get(target, 0)
+        pair_info["outdated_cohort"] = source if source_mtime >= target_mtime else target
+        outdated_pairs.append(pair_info)
+
     return JSONResponse(content={
-        'cached_pairs': cached_pairs,
-        'uncached_pairs': uncached_pairs,
-        'outdated_pairs': outdated_pairs,
-        'dictionary_timestamps': dictionary_timestamps
+        "cached_pairs": cached_pairs,
+        "uncached_pairs": uncached_pairs,
+        "outdated_pairs": outdated_pairs,
+        "dictionary_timestamps": dictionary_timestamps,
     })
 
 
@@ -209,108 +84,15 @@ async def get_available_mapping_files(
     cohort_ids: list[str] = Body(...),
     user: Any = Depends(get_current_user)
 ):
-    """
-    Get all available mapping files for the given cohort IDs.
-    
-    Mapping files are .json files with naming pattern:
-    {cohort1}_{cohort2}_..._{cohortN}_{model}+{llm_tag}_{mode}.json
-    e.g. time-chf_aachen-hf_biolord+no_llm_OEH.json
-
-    All parts before the model token (e.g. 'biolord') are cohort names.
-    A file is only included if ALL cohorts in its filename are among the
-    selected cohorts.
-    """
-    logger.info(f"[DEBUG] get_available_mapping_files called with cohort_ids = {cohort_ids}")
-    
-    from CohortVarLinker.src.config import settings as cohort_linker_settings
-    
-    output_dir = cohort_linker_settings.output_dir
-    logger.info(f"[DEBUG] get_available_mapping_files: output_dir = {output_dir}")
-    logger.info(f"[DEBUG] get_available_mapping_files: os.path.exists(output_dir) = {os.path.exists(output_dir)}")
-    
-    logger.info(f"[DEBUG] get_available_mapping_files: received {len(cohort_ids)} cohort_ids")
-    
-    available_mappings = []
-    
-    # Scan directory for _full.csv pairs files
-    if os.path.exists(output_dir):
-        all_files = os.listdir(output_dir)
-        logger.info(f"[DEBUG] get_available_mapping_files: all files in output_dir = {all_files}")
-        csv_files = [f for f in all_files if f.endswith('_full.csv')]
-        logger.info(f"[DEBUG] get_available_mapping_files: full csv files = {csv_files}")
-        for filename in all_files:
-            if not filename.endswith('_full.csv'):
-                continue
-            
-            # Parse cohort names from filename.
-            # New pattern: {cohorts}_{model}+{llm}_{mode}_full.csv
-            # Old pattern: {cohort1}_{cohort2}_full.csv
-            # Strip the _full.csv suffix, then use '+' to distinguish formats.
-            stem = filename[:-len('_full.csv')]
-            plus_idx = stem.find('+')
-            if plus_idx == -1:
-                # Old format: all underscore-separated parts are cohort names
-                file_cohorts = [p.lower() for p in stem.split('_')]
-            else:
-                # New format: everything before the last '_' before '+' is cohorts+model
-                before_plus = stem[:plus_idx]
-                parts_before = before_plus.rsplit('_', 1)
-                if len(parts_before) < 2:
-                    continue
-                cohort_part = parts_before[0]  # everything before model name
-                file_cohorts = [p.lower() for p in cohort_part.split('_')]
-            logger.info(f"[DEBUG] Parsed file '{filename}': cohorts = {file_cohorts}")
-            
-            if len(file_cohorts) < 2:
-                # Need at least 2 cohorts for a mapping file
-                logger.info(f"[DEBUG] Skipping '{filename}': less than 2 cohorts")
-                continue
-            
-            filepath = os.path.join(output_dir, filename)
-            file_size = os.path.getsize(filepath)
-            mtime = os.path.getmtime(filepath)
-            
-            # Create display name showing all cohorts
-            display_name = ' → '.join(file_cohorts)
-            
-            # Count data rows (minus header) for stats
-            try:
-                with open(filepath, 'r', encoding='utf-8') as f:
-                    row_count = max(0, sum(1 for _ in f) - 1)
-            except Exception:
-                row_count = 0
-            
-            stats = {"total_mappings": row_count}
-            
-            # Skip files with 0 mappings (failed or empty runs)
-            if row_count == 0:
-                logger.info(f"[DEBUG] Skipping '{filename}': 0 total mappings")
-                continue
-            
-            available_mappings.append({
-                'cohorts': file_cohorts,
-                'filename': filename,
-                'filepath': filepath,
-                'file_size': file_size,
-                'timestamp': mtime,
-                'display_name': display_name,
-                'stats': stats,
-            })
-    
-    # De-duplicate: for each unique cohort set, keep only the most recent file
-    seen: dict[str, int] = {}  # cohort_key -> index in available_mappings
-    deduped = []
-    # Sort by timestamp descending so we encounter newest first
-    available_mappings.sort(key=lambda x: x['timestamp'], reverse=True)
-    for entry in available_mappings:
-        key = "_".join(sorted(entry['cohorts']))
-        if key not in seen:
-            seen[key] = len(deduped)
-            deduped.append(entry)
-    
+    """List fresh mapping CSVs whose cohorts are all currently selected."""
+    _ = user
+    deduped = [
+        artifact.to_api_dict()
+        for artifact in _mapping_store().list_for_cohorts(set(cohort_ids))
+    ]
     return JSONResponse(content={
-        'available_mappings': deduped,
-        'cohort_count': len(cohort_ids)
+        "available_mappings": deduped,
+        "cohort_count": len(cohort_ids),
     })
 
 
@@ -325,28 +107,26 @@ async def get_cached_mapping_file(
     to avoid double-serialization overhead on large files.
     The filename is returned via the X-Filename response header.
     """
-    from CohortVarLinker.src.config import settings as cohort_linker_settings
-    
-    output_dir = cohort_linker_settings.output_dir
-    # Security: prevent path traversal
-    safe_filename = os.path.basename(filename)
-    filepath = os.path.join(output_dir, safe_filename)
-    
-    if not os.path.exists(filepath):
+    _ = user
+    store = _mapping_store()
+    try:
+        filepath = store.safe_path(filename)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    if not filepath.is_file():
         raise HTTPException(status_code=404, detail="Mapping file not found")
-    
-    if safe_filename.endswith('.meta.json'):
-        raise HTTPException(status_code=400, detail="Cannot download sidecar meta files directly")
-    
-    with open(filepath, 'r', encoding='utf-8') as f:
-        file_content = f.read()
-    
-    if safe_filename.endswith('.csv'):
+    artifact = store.artifact_for(filepath)
+    if artifact is None:
+        raise HTTPException(status_code=404, detail="Mapping file not found")
+    if not store.cache_status(artifact).fresh:
+        raise HTTPException(status_code=409, detail="Mapping file is outdated")
+    file_content = filepath.read_text(encoding="utf-8")
+    if filepath.suffix.casefold() == ".csv":
         return Response(
             content=file_content,
             media_type="text/csv",
             headers={
-                "X-Filename": safe_filename,
+                "X-Filename": filepath.name,
                 "Access-Control-Expose-Headers": "X-Filename",
             },
         )
@@ -358,7 +138,7 @@ async def get_cached_mapping_file(
         content=file_content,
         media_type="application/json",
         headers={
-            "X-Filename": safe_filename,
+            "X-Filename": filepath.name,
             "Access-Control-Expose-Headers": "X-Filename",
         },
     )
@@ -370,66 +150,68 @@ async def generate_mapping(
     target_studies: list = Body(...),
     user: Any = Depends(get_current_user),
 ):
-    """
-    Generate a mapping CSV for the given source and target studies and return it as a downloadable file.
-    target_studies should be a list of [study_name, visit_constraint_bool]
-    """
-    # Lazy import to avoid module-level import errors
-    from CohortVarLinker.main import generate_mapping_csv
-    from CohortVarLinker.src.config import settings as cohort_linker_settings
-    
-    # Call the backend function
-    # The function writes CSVs to CohortVarLinker/data/mapping_output/{source}_{target}_{model}+{llm}_{mode}_full.csv
-    # We'll return the combined JSON file
-    
-    target_studies = sorted(target_studies, key=lambda x: x[0])
-    target_names = [t[0] for t in target_studies]
+    """Generate through the selected provider, then serve its fresh JSON artifact."""
+    try:
+        normalized_targets = sorted(target_studies, key=lambda target: str(target[0]).casefold())
+        target_names = [str(target[0]) for target in normalized_targets]
+    except (IndexError, TypeError):
+        raise HTTPException(status_code=422, detail="Invalid target study request")
 
-    with MappingRun(PROCESS_CVL, source=source_study, targets=target_names,
-                    user=user.get("email", "unknown")):
-        cache_info = generate_mapping_csv(source_study, target_studies)
+    store = _mapping_store()
+    run_context = {
+        "source": source_study,
+        "targets": target_names,
+        "user": user.get("email", "unknown"),
+    }
+    started_at = time.monotonic()
+    store.record_activity(
+        "run_started",
+        "Mapping run started",
+        context=run_context,
+    )
+    provider = get_mapping_generation_provider(settings)
+    try:
+        result = provider.generate(source_study, normalized_targets)
+    except Exception as error:
+        store.record_activity(
+            "run_failed",
+            f"Mapping run failed: {error}",
+            context={**run_context, "error": str(error)},
+        )
+        status_code = getattr(error, "status_code", None)
+        detail = getattr(error, "detail", str(error))
+        if isinstance(status_code, int):
+            raise HTTPException(status_code=status_code, detail=detail) from error
+        raise
 
-    output_dir = cohort_linker_settings.output_dir
-    
-    # generate_mapping_csv may expand target_studies with member/sub-studies,
-    # so the JSON filename can differ from what we'd construct here.
-    # Scan the output directory for the most recent JSON that starts with
-    # the source study and contains all requested target cohorts.
-    source_lower = source_study.lower()
-    target_lowers = set(t[0].lower() for t in target_studies)
-    
-    best_file = None
-    best_mtime = 0
-    if os.path.exists(output_dir):
-        for fname in os.listdir(output_dir):
-            if not fname.endswith('.json') or fname.endswith('.meta.json'):
-                continue
-            if not fname.startswith(source_lower + '_'):
-                continue
-            fpath = os.path.join(output_dir, fname)
-            mtime = os.path.getmtime(fpath)
-            # Check that all requested targets appear in the filename
-            stem = fname.replace('.json', '').lower()
-            if all(t in stem for t in target_lowers) and mtime >= best_mtime:
-                best_file = fpath
-                best_mtime = mtime
-    
-    if best_file and os.path.exists(best_file):
-        with open(best_file, 'r') as f:
-            file_content = f.read()
-        
-        log_detail(PROCESS_CVL, "result_file_served",
-                   f"Serving mapping result: {os.path.basename(best_file)}",
-                   ctx={"filename": os.path.basename(best_file),
-                        "file_size_bytes": os.path.getsize(best_file)})
+    artifact = store.result_for_request(source_study, target_names)
+    if artifact is not None:
+        elapsed = round(time.monotonic() - started_at, 2)
+        store.record_activity(
+            "result_file_served",
+            f"Serving mapping result: {artifact.filename}",
+            context={
+                "filename": artifact.filename,
+                "file_size_bytes": artifact.file_size,
+            },
+            level="DETAIL",
+            depth=1,
+        )
+        store.record_activity(
+            "run_completed",
+            f"Mapping run completed in {elapsed}s",
+            context={**run_context, "elapsed_s": elapsed},
+        )
         return JSONResponse(content={
-            "cache_info": cache_info,
-            "file_content": file_content,
-            "filename": os.path.basename(best_file)
+            "cache_info": result.cache_info,
+            "file_content": artifact.path.read_text(encoding="utf-8"),
+            "filename": artifact.filename,
         })
-    log_main(PROCESS_CVL, "result_not_found",
-             f"No mapping output file found for {source_study}",
-             ctx={"source": source_study, "targets": list(target_lowers)})
+    store.record_activity(
+        "result_not_found",
+        f"No fresh mapping output file found for {source_study}",
+        context=run_context,
+    )
     return JSONResponse(status_code=404, content={"error": "Cache error. Mapping file not found."})
 
 
@@ -440,36 +222,13 @@ async def get_mapping_activity_log(
     process: str | None = Query(default=None, description="Filter by process: cohort_var_linker or standard_code_mapping"),
     user: Any = Depends(get_current_user),
 ):
-    """Return the mapping activity log (JSONL) as a JSON array for web display.
-    
-    Supports filtering by level and process, and returns the most recent `limit` entries.
-    """
-    from src.mapping_logger import _get_log_path
-    import json as _json
-
-    log_path = _get_log_path()
-    if not os.path.exists(log_path):
-        return JSONResponse(content={"entries": [], "total": 0})
-
-    entries = []
-    with open(log_path, "r", encoding="utf-8") as fh:
-        for line in fh:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                entry = _json.loads(line)
-            except _json.JSONDecodeError:
-                continue
-            if level and entry.get("level") != level:
-                continue
-            if process and entry.get("process") != process:
-                continue
-            entries.append(entry)
-
-    # Return only the most recent `limit` entries
-    total = len(entries)
-    entries = entries[-limit:]
+    """Return mapping activity from the same configured artifact directory."""
+    _ = user
+    entries, total = _mapping_store().read_activity(
+        limit=limit,
+        level=level,
+        process=process,
+    )
     return JSONResponse(content={"entries": entries, "total": total})
 
 

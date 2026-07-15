@@ -1282,6 +1282,21 @@ def build_cohort_variables_from_csv(cohort_id: str, csv_path: str) -> bool:
             continue
 
     cohort.variables = new_variables
+    # The canonical CSV does not contain user-created mappings.  Overlay them
+    # from the separate mapping graph after parsing so a cache rebuild or
+    # metadata re-upload preserves manual variable and category mappings.
+    try:
+        from src.metadata_mappings import hydrate_manual_mappings
+
+        hydrate_manual_mappings(cohort_id, cohort.variables)
+    except Exception as mapping_exc:
+        # Cache reconstruction must remain available when the triplestore is
+        # temporarily offline; the next successful rebuild will rehydrate.
+        logging.warning(
+            "Failed to hydrate manual mappings for cohort '%s': %s",
+            cohort_id,
+            mapping_exc,
+        )
     cohort.physical_dictionary_exists = True
     logging.info(
         f"Loaded {len(new_variables)} variables for cohort '{cohort_id}' directly from CSV "

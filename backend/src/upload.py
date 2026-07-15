@@ -198,8 +198,11 @@ def get_var_uri(cohort_id: str | URIRef, var_id: str) -> URIRef:
     return ICARE[f"cohort/{cohort_id_clean}/{var_id_clean}"]
 
 
-def get_category_uri(var_uri: str | URIRef, category_id: str) -> URIRef:
-    return URIRef(f"{var_uri!s}/category/{category_id}")
+def get_category_uri(var_uri: str | URIRef, category_label: str) -> URIRef:
+    normalized_label = normalize_text(category_label)
+    if not normalized_label:
+        raise ValueError("Category label cannot be empty")
+    return URIRef(f"{var_uri!s}/categorical_value_specification/{normalized_label}")
 
 
 def get_latest_datadictionary(cohort_folder_path: str) -> str | None:
@@ -246,7 +249,7 @@ def insert_triples(
 ) -> None:
     """Insert triples about mappings for cohorts variables or variables categories into the triplestore"""
     # Use cache instead of SPARQL query for better performance
-    from src.cohort_cache import get_cohorts_from_cache
+    from src.cohort_cache import add_cohort_to_cache, get_cohorts_from_cache
     cohorts = get_cohorts_from_cache(user["email"])
     cohort_info = cohorts.get(cohort_id)
     if not cohort_info:
@@ -261,9 +264,22 @@ def insert_triples(
         )
     graph_uri = get_cohort_mapping_uri(cohort_id)
     subject_uri = get_var_uri(cohort_id, var_id)
-    if category_id:
-        subject_uri = get_category_uri(subject_uri, category_id)
-        # TODO: handle when a category is provided (we add triple to the category instead of the variable)
+    variable = cohort_info.variables.get(var_id)
+    if variable is None:
+        raise HTTPException(status_code=422, detail=f"Unknown variable ID: {var_id}")
+    selected_category = None
+    if category_id is not None:
+        try:
+            category_index = int(category_id)
+            if category_index < 0:
+                raise IndexError(category_index)
+            selected_category = variable.categories[category_index]
+        except (TypeError, ValueError, IndexError):
+            raise HTTPException(
+                status_code=422,
+                detail=f"Unknown category index {category_id!r} for variable {var_id}",
+            )
+        subject_uri = get_category_uri(subject_uri, selected_category.label)
     delete_existing_triples(graph_uri, f"<{subject_uri!s}>", predicate)
     label_part = ""
     object_uri = f"<{curie_converter.expand(value)}>"
@@ -285,6 +301,17 @@ def insert_triples(
     query_endpoint.setTimeout(300)  # 5 minutes timeout
     query_endpoint.setQuery(query)
     query_endpoint.query()
+
+    # Keep the process-local/disk cache immediately consistent.  Rebuilds use
+    # metadata_mappings.hydrate_manual_mappings as the durable source of truth.
+    compact_id = curie_converter.compress(str(curie_converter.expand(value))) or value
+    if selected_category is not None:
+        selected_category.mapped_id = compact_id
+        selected_category.mapped_label = label
+    else:
+        variable.mapped_id = compact_id
+        variable.mapped_label = label
+    add_cohort_to_cache(cohort_info)
 
 
 def parse_categorical_string(s: str) -> list[dict[str, str]]:

@@ -1,0 +1,16 @@
+{
+  "profile_version": 1,
+  "provider": "fixture",
+  "synthetic": true,
+  "source_artifact": "CohortVarLinker/mapping_output/time-chf_gissi-hf_full.csv",
+  "source_commit": "ecf8ca97d84576d9b605b4c93e529fc90d32049b",
+  "source_sha256": "e6a2509e2b81237c9ee9208f3fe9f017e67fb68a4528fc067235dcd1a9103ce3",
+  "supported_request": {
+    "source_study": "time-chf",
+    "target_study": "gissi-hf"
+  },
+  "outputs": {
+    "csv": "time-chf_gissi-hf_full.csv",
+    "json": "time-chf_gissi-hf_fixture.json"
+  }
+}
