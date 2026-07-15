@@ -4,7 +4,7 @@ Date: 2026-07-14
 
 Revised: 2026-07-15
 
-Status: Architecture approved in conversation; metadata-scope amendment pending written-spec review
+Status: Approved in conversation; local browser lane required during implementation and final verification
 
 Local admin: `nikolas.molyndris@decentriq.ch`
 
@@ -22,7 +22,7 @@ Build a reproducible, code-first local demonstration in which Cohort Explorer ca
 8. run an aggregate computation and retrieve its result and audit trail; and
 9. keep the existing live metadata providers and Decentriq SDK backend available as production defaults.
 
-The first implementation and verification pass is API- and test-driven. It does not inspect or seed the live Cohort Explorer, use browser state, or depend on the AADCR frontend.
+Implementation is test-first: hermetic unit/contract tests and the local API smoke flow establish deterministic state before UI assertions. A required browser lane then runs at integration checkpoints and as the final acceptance pass against the local Cohort Explorer at `http://localhost:3001`. It uses only the generated synthetic pack and local services, never the live Cohort Explorer or live Decentriq platform, and does not depend on the AADCR frontend.
 
 ## 2. Pinned source baselines and workspaces
 
@@ -56,8 +56,8 @@ The Cohort Explorer branch is `codex/aadcrv2-local-integration`. The Delta branc
 - The current Cohort Explorer metadata lifecycle, backed by real local Oxigraph/filesystem state and deterministic replacements for external concept and model services.
 - Fixture providers for concept search, concept validation, and automatic cross-study mapping that preserve the existing route and artifact contracts without model downloads, hosted vector databases, LLMs, or credentials.
 - Deterministic local EDA and shuffled-sample assets derived from the synthetic rows.
-- Docker and command-line orchestration, contract tests, and a code-only end-to-end smoke test.
-- Small provider-neutral text/link corrections where the current frontend hardcodes Decentriq, without redesigning the UI or using browser verification in this phase.
+- Docker and command-line orchestration, contract tests, a local API end-to-end smoke test, browser checkpoints during implementation, and a complete local browser acceptance run.
+- Small provider-neutral text/link and stable-selector corrections where the current frontend hardcodes Decentriq or lacks a durable browser locator, without redesigning the UI.
 
 ### Excluded
 
@@ -292,24 +292,25 @@ The local demonstration must exercise the metadata behavior already present on t
 
 | Current capability | Existing contract/state | Local demonstration evidence |
 | --- | --- | --- |
-| Central cohort inventory | `POST /upload-cohorts-metadata`, `GET /cohorts-metadata`, and `GET /cohorts-metadata-sparql` | Upload the synthetic `Descriptions` workbook, then assert full and summary views for TIME-CHF and GISSI-HF from local Oxigraph/cache. |
-| Dictionary upload and re-upload | `POST /upload-cohort`; cohort files, base graph, and separate mapping graph | Upload both valid dictionaries. Re-upload one with a changed label but stable variable names and prove its existing manual mapping survives. Submit one invalid re-upload and prove the prior dictionary and graph are restored. |
+| Central cohort inventory | `POST /upload-cohorts-metadata`, `GET /cohorts-metadata`, and `GET /cohorts-metadata-sparql` | Upload the synthetic `Descriptions` workbook through the local API, assert full/summary views from Oxigraph/cache, and verify both cohort cards and their real synthetic counts in the browser. |
+| Dictionary upload and re-upload | `POST /upload-cohort`; cohort files, base graph, separate mapping graph, and the existing upload page | Upload both valid dictionaries. Re-upload one with a changed label but stable variable names and prove its manual mapping survives. Submit one invalid re-upload and prove restoration. Exercise the visible upload/replace flow in a browser after correcting its current destructive “Validate” action. |
 | Syntax and concept validation | `POST /metadata-syntax-issues-report`, `POST /validate-athena-codes/{cohort_id}`, and `POST /validate-athena-codes-all-summary` | Show a clean report for the valid pack and deterministic failures for a checked-in malformed dictionary and unknown concept. Concept validation uses the fixture provider in offline mode. |
-| Metadata exploration | `GET /cohorts-metadata`, cohort/variable/category metadata, and the current client-side search/filter/equivalent-name utilities | Verify cohort, variable, and category payloads through HTTP. Exercise OR, AND, exact-phrase, study/institute, OMOP-domain, type, category-count, visit, outcome, and source predicates plus equivalent-variable grouping by standard code/OMOP ID in frontend unit tests without changing their semantics. |
-| Manual concept mapping | `GET /api/search-concepts` and `POST /insert-triples` | Search the local fixture catalog, map one variable and one categorical value, fetch metadata again, and assert the mapping labels/codes/IDs and local `used_by` enrichment. Re-selecting a concept exercises the current overwrite behavior. |
-| Automatic cross-study mapping | `/api/check-mapping-cache`, `/api/generate-mapping`, `/api/get-available-mapping-files`, `/api/get-cached-mapping-file/{filename}`, and `/api/mapping-activity-log` | Generate the TIME-CHF/GISSI-HF fixture mapping through the existing API, retrieve its CSV/JSON artifact, list it, observe cache status, verify the activity entry, and exercise the existing table/graph data projections in frontend tests. |
-| EDA and sample assets | `GET /cohort-eda-output/{cohort_name}`, `GET /api/compare-eda/{source_cohort}/{source_var}/{target_cohort}/{target_var}`, `GET /get-cohorts-with-shuffled-samples`, and `GET /get-shuffled-sample/{cohort_name}` | Generate deterministic EDA JSON/PNGs and shuffled samples from synthetic rows, retrieve them, and compare one mapped variable pair. |
+| Metadata exploration | `GET /cohorts-metadata`, cohort/variable/category metadata, and the current client-side search/filter/equivalent-name utilities | Verify payloads through HTTP and predicates through unit tests, then exercise OR/AND/exact search, study/institute, OMOP-domain, type, category-count, visit, outcome, source, and equivalent-variable grouping in the browser. |
+| Manual concept mapping | `GET /api/search-concepts` and `POST /insert-triples` | Search the local fixture catalog, map one variable and one categorical value, assert fresh metadata and local `used_by`, then repeat the same operations from the visible concept controls in the browser. Re-selecting a concept exercises overwrite behavior. |
+| Automatic cross-study mapping | `/api/check-mapping-cache`, `/api/generate-mapping`, `/api/get-available-mapping-files`, `/api/get-cached-mapping-file/{filename}`, and `/api/mapping-activity-log` | Generate/retrieve/list/cache-check the fixture mapping through the API, verify its log, test table/graph projections, and use the mapping page in the browser to generate or load the same artifact and switch between table and graph views. |
+| EDA and sample assets | `GET /cohort-eda-output/{cohort_name}`, `GET /api/compare-eda/{source_cohort}/{source_var}/{target_cohort}/{target_var}`, `GET /get-cohorts-with-shuffled-samples`, and `GET /get-shuffled-sample/{cohort_name}` | Generate deterministic EDA JSON/PNGs and shuffled samples, retrieve/compare them through HTTP, and open the corresponding local variable/EDA view in the browser. |
 | Metadata export and cache | `GET /cohort-spreadsheet/{cohort_id}`, `GET /download-cohorts-metadata-spreadsheet`, `GET /api/download-cohorts-cache`, `POST /api/compare-cohorts-cache`, `POST /refresh-cache`, and `POST /clear-cache` | Download each cohort dictionary and the central cohort-inventory workbook, round-trip the cache comparison, and prove cache refresh reconstructs the same synthetic inventory. Cache clearing is tested against isolated fixture state rather than during the presentation path. |
-| Selection and DCR handoff | Existing whole-cohort selection state and six-step DCR request contract | Add both cohorts with their current variables, include a generated mapping artifact, preview participants, and hand the same request to the AADCR provider. The baseline contains unrendered per-variable helpers, so this design does not present subset selection as an existing UI capability. |
+| Selection and DCR handoff | Existing whole-cohort selection state and six-step DCR request contract | Add both cohorts, select the generated mapping, preview participants, and hand the request to AADCR through API tests and the complete visible browser wizard. The baseline contains unrendered per-variable helpers, so subset selection is not presented as an existing UI capability. |
 | Guarded metadata administration | `POST /normalize-all-dictionary-headers`, `POST /get-logs`, and `POST /delete-cohort` | Preserve the routes and add authorization/regression tests. Destructive deletion uses an isolated scratch cohort and is not part of the two-cohort happy path. |
 
-The search and filter behavior is currently client-side. The API smoke test therefore proves that all required fields are present, while frontend pure-function tests prove the current predicates. This phase does not claim browser verification.
+The search and filter behavior is currently client-side. The API smoke test proves that all required fields are present, frontend pure-function tests prove the predicates, and the browser lane proves that the real controls render and apply those predicates to the generated metadata.
 
 ### Baseline fidelity repairs included
 
 Code inspection found several baseline defects that would make a successful-looking demo misleading. The implementation includes only the repairs needed to make the existing contracts behave consistently:
 
 - use one canonical studies-metadata graph identifier and make central-workbook replacement transactional, preventing stale triples or a corrupt replacement from becoming the active source;
+- extract dictionary validation from persistence and make the upload page's “Validate” action call a non-mutating validation route before its one intentional upload/replace request;
 - hydrate variable and category manual mappings from the separate mapping graph into fresh metadata/cache responses, and make category subjects use the same URI scheme during dictionary import and manual mapping;
 - update concept-search `used_by` enrichment to query the CMEO study/data-element vocabulary actually emitted by the uploader, rather than the legacy iCARE cohort/variable vocabulary;
 - preserve the current mapping upsert/overwrite behavior; no mapping delete/history feature is added;
@@ -321,7 +322,7 @@ Code inspection found several baseline defects that would make a successful-look
 - avoid importing or refreshing Decentriq/model clients during startup when their providers are not selected; and
 - make generated EDA links use a configured local/public API base URL instead of the hard-coded live Explorer hostname.
 
-These are regression-tested repairs to routes and screens that already exist. They do not add mapping deletion, mapping history, per-variable DCR controls, or a new metadata workflow.
+These are regression-tested repairs to routes and screens that already exist. The non-mutating validation route corrects the existing upload-screen contract; the work does not add mapping deletion, mapping history, per-variable DCR controls, or a new metadata workflow.
 
 ### Provider seams and safe defaults
 
@@ -356,9 +357,9 @@ The mapping fixture is intentionally limited to the generated TIME-CHF/GISSI-HF 
 
 The synthetic generator also writes deterministic EDA JSON, per-variable PNGs, combined comparison inputs, and shuffled samples into the filenames/directories already consumed by the current endpoints. These are computed locally from the generated synthetic rows; no EDA, ontology, embedding, vector-database, or LLM service is contacted.
 
-### Metadata demonstration sequence
+### Deterministic metadata/API sequence
 
-The repeatable code-only flow is:
+The repeatable foundation flow is:
 
 1. authenticate the guarded local administrator and upload the central workbook;
 2. upload the valid TIME-CHF and GISSI-HF dictionaries and assert full/summary inventory state;
@@ -371,7 +372,7 @@ The repeatable code-only flow is:
 9. run the frontend search/filter and equivalent-variable grouping suite against the same fixture metadata; and
 10. add both cohorts through the current whole-cohort selection semantics, select the mapping artifact, preview the existing six-step request, and continue into the AADCR v2 creation/provision/computation flow.
 
-This sequence is API/code-driven now. The later browser walkthrough will reuse the same persisted synthetic metadata and mapping state rather than seed a different lane.
+The browser lane uses the same generated synthetic pack and contracts rather than a different fixture or live seed. Incremental checkpoints may reuse API-seeded local state, but the final browser run uses an isolated clean demo namespace so prior API-smoke mappings, rooms, or cookies cannot mask a UI defect.
 
 ## 11. Local orchestration
 
@@ -390,6 +391,7 @@ Convenience commands are exposed through a Makefile or scripts with these stable
 - `demo-up`: build/start the local stack with AADCR and offline metadata fixtures selected;
 - `demo-seed`: upload the central workbook and both dictionaries through Cohort Explorer APIs and refresh their metadata/cache state; it does not pre-populate the runtime mapping cache;
 - `demo-smoke`: exercise the complete API flow and verify results; and
+- `demo-browser-ready`: reset/start an isolated browser-demo namespace, generate the pack, upload only the API-only central inventory workbook, wait for local health, and print the frontend URL plus fixed administrator identity; dictionaries, mappings, and rooms remain unseeded for the browser journey; and
 - `demo-down`: stop services without deleting persisted data.
 
 The production Compose file explicitly retains `DCR_BACKEND=decentriq`. AADCR local mode requires an intentional overlay/profile and cannot be selected by a missing environment value.
@@ -406,6 +408,7 @@ Add focused tests under `backend/tests/` for:
 - fixture concept validation success and invalid-code, mismatched-code/ID, and malformed-category failures;
 - fixture mapping artifact, cache invalidation, sidecar hashes, activity log, and unsupported-pair error;
 - valid upload, invalid re-upload rollback, canonical study-graph replacement, mapping projection/preservation across re-upload, metadata summaries, cache refresh, exact dictionary downloads, EDA, and shuffled samples;
+- non-mutating dictionary validation followed by exactly one upload/replace mutation;
 - mapping-directory consistency, cohort filtering, freshness, canonical dictionary selection, category-URI alignment, explicit provider failures, and local EDA URLs;
 - a no-socket unit/import suite for the fixture providers and an external-egress denial assertion covering the composed metadata flow;
 - AADCR request translation with a mocked HTTP transport;
@@ -443,9 +446,9 @@ Add or update tests for:
 
 Live-server computation tests are marked separately from hermetic TestClient tests. Baseline and integration commands use Python 3.11.
 
-### Code-only end-to-end smoke test
+### API end-to-end smoke test
 
-The smoke test uses HTTP clients and generated data, not a browser:
+The API smoke test uses HTTP clients and generated data so backend failures are diagnosed independently of UI state:
 
 1. wait for Oxigraph, Cohort Explorer, and AADCR health checks;
 2. call local login and retain the Cohort Explorer cookie;
@@ -461,12 +464,27 @@ The smoke test uses HTTP clients and generated data, not a browser:
 
 The runtime smoke flow contacts none of the live OAuth, Cohort Explorer, Decentriq, Athena, Hugging Face, Qdrant, Together, OpenRouter, Gemini, Anthropic, Groq, Ollama, or OpenAI endpoints. External concept search, concept validation, and model-based mapping are served by the checked-in deterministic providers. Initial installation may still use ordinary package/image registries; runtime application behavior requires no hosted model or service credential.
 
+### Required browser lane
+
+Browser verification is a required implementation lane, not a post-project optional walkthrough. It targets only `http://localhost:3001` and the local services prepared by `demo-browser-ready`. The live Explorer and live Decentriq platform are never opened or mutated.
+
+Run these browser checkpoints as their dependencies land:
+
+1. after local auth, synthetic generation, and metadata seeding: log in as `nikolas.molyndris@decentriq.ch`, confirm administrator state, cohort cards/counts, dictionary details, and the upload/replace validation flow;
+2. after metadata providers and fidelity repairs: exercise cohort/variable search modes and filters, equivalent-variable grouping, variable/category concept mapping, generated-mapping cache/table/graph/log views, EDA, and one metadata download;
+3. after the AADCR adapter: add both cohorts, complete every visible step of the six-step wizard, create the room, and confirm the normalized success state, My DCRs entry, participants, audit log, provisioned status, and aggregate result from Cohort Explorer; and
+4. after all automated suites pass: reset to clean synthetic demo volumes and repeat the complete browser journey without API shortcuts beyond the API-only central-workbook seed.
+
+The upload page receives stable `data-testid` attributes only where semantic labels are not unique enough for durable automation. Browser actions use DOM-backed locators, assert the authoritative visible state after every mutation, and inspect console errors after each checkpoint. Final evidence includes screenshots of the Explorer inventory, a mapped variable/category, mapping graph/table, wizard review, creation success, My DCRs, and result/audit views. Generated browser evidence lives under an ignored `artifacts/browser/` directory and is summarized in the verification handoff; it is not committed unless explicitly requested.
+
+The committed browser runbook distinguishes API-only setup from browser behavior. Central workbook upload remains API-only because the baseline has no corresponding screen. Dictionary upload/re-upload, concept mapping, exploration, mapping views, DCR wizard, and My DCRs are browser-verified. The browser lane supplements rather than replaces backend, frontend, and API tests.
+
 ## 13. Known baseline debt
 
 Baseline verification on the pinned commits found:
 
 - Cohort Explorer dependency setup succeeds on Python 3.10, but bare `pytest` collects the network-active `test_sparql_data.py` and fails because no SPARQL service is running. The repository currently has no hermetic auth/DCR suite.
-- The upload screen's “Validate Dictionary” action calls the mutating upload route, and final submission calls it again; there is no dry-run per-file endpoint. This code-only phase calls the route once and does not present dry-run validation as an existing capability.
+- The upload screen's “Validate Dictionary” action calls the mutating upload route, and final submission calls it again; there is no dry-run per-file endpoint. Section 10 scopes the non-mutating validation repair required before browser acceptance.
 - Manual mappings are not reliably projected back into refreshed metadata, category mapping subjects use a different URI shape from imported categories, the tracked sample mapping is outside the default runtime mapping directory, and mapping freshness/list filtering is inconsistent. Section 10 scopes the corresponding fidelity repairs.
 - Per-variable DCR helper functions exist but are not rendered in the current variable list; the current visible selection path is whole-cohort selection. The demo does not overstate this boundary.
 - AADCR v2 Poetry initially selects Python 3.14, which its locked `pydantic-core` cannot build; Python 3.11 succeeds.
@@ -483,22 +501,23 @@ The work is complete when all of the following are demonstrated from clean local
 2. Local AADCR mode starts through documented commands without live credentials or committed secrets.
 3. `nikolas.molyndris@decentriq.ch` receives a valid local session and administrator permissions only in guarded development mode.
 4. The synthetic generator produces both cohorts deterministically and passes the existing local schema/content validator, the explicit fixture concept validator, and plausibility tests.
-5. The full metadata capability matrix is demonstrated through the existing APIs plus focused frontend predicate tests, without a browser or a new metadata UI.
+5. The full metadata capability matrix is demonstrated through existing APIs, focused frontend tests, and the required local browser checkpoints without introducing a new metadata UI.
 6. Concept search, concept validation, and generated mapping work locally through deterministic fixtures with exact route/artifact compatibility and explicit fixture provenance.
 7. Manual variable/category mappings are visible after a fresh metadata read; a valid dictionary re-upload preserves them, and an invalid re-upload restores the prior dictionary and graph.
 8. EDA, shuffled samples, spreadsheets, cache export/comparison, mapping cache/retrieval/logs/table/graph projections, and metadata selection all work from the synthetic pack.
 9. Offline mode starts only with fixture metadata providers; fixture unit/import tests allow no socket, and the composed test proves that its metadata flow makes no public-network request or model download.
-10. The existing Cohort Explorer upload and DCR-creation endpoints work without a browser.
+10. The existing Cohort Explorer upload and DCR-creation endpoints work independently in the API lane and through their corresponding local browser controls.
 11. One wizard request creates a native AADCR DEV graph, initial merge request, PROD graph, participants, nodes, and permissions.
 12. Both synthetic row-level datasets are uploaded and provisioned to the correct PROD nodes only in explicit demo mode; Cohort Explorer does not claim to ingest raw participant rows through its unused form field.
 13. An aggregate computation completes, its result is retrievable, and the audit trail records the flow.
 14. Repeating the same `session_id` does not create a duplicate room.
 15. Invalid/tampered tokens, outsider access, cross-DCR node use, and oversized uploads are rejected by tests.
-16. No live/browser lane was used, no real patient rows were included, and no secret was committed.
-17. Cohort Explorer and Delta changes are committed separately with their pinned cross-repository dependency documented.
+16. The complete local browser journey passes after a clean synthetic reset, with the required screenshots and no unexplained browser-console errors.
+17. No live Cohort Explorer or live Decentriq state was read or written, no real patient rows were included, and no secret was committed.
+18. Cohort Explorer and Delta changes are committed separately with their pinned cross-repository dependency documented.
 
 ## 15. Repository delivery
 
 The canonical adapter, synthetic generator, orchestration, and user documentation live in the MaastrichtU-IDS Cohort Explorer branch and are suitable for an IDS pull request. AADCR runtime fixes remain a separate Delta branch based on `davstur/aadcrv2`; they are not vendored. If Delta push permission is unavailable, the local branch and its commit series remain the reproducible dependency, and the Cohort Explorer documentation records the exact base and required commits.
 
-Live seeding and browser walkthrough are a later, explicit phase after the code-only local acceptance criteria pass.
+The local browser lane is part of implementation and acceptance. Any future live seeding or live-environment walkthrough remains a separate, explicit phase after all local API and browser criteria pass.
