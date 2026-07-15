@@ -14,9 +14,9 @@ interface Props {
   dcrId: string;
 }
 
-/** Inline "Fetch latest events" panel that pulls the Decentriq-side audit log
+/** Inline "Fetch latest events" panel that pulls the provider-side audit log
  *  for a specific DCR and renders it as a small table. Used on both /dcrs and
- *  /dcrs-details to expose platform events (data provisioned, computations
+ *  /dcrs-details to expose room events (data provisioned, computations
  *  run, etc.) alongside our wizard activity log. */
 export function DcrLogPanel({ dcrId }: Props) {
   const [events, setEvents] = useState<DcrAuditEvent[] | null>(null);
@@ -55,12 +55,13 @@ export function DcrLogPanel({ dcrId }: Props) {
   };
 
   return (
-    <div className="mt-3 pt-3 border-t border-base-300">
+    <div className="mt-3 pt-3 border-t border-base-300" data-testid="dcr-room-audit">
       <div className="flex flex-wrap items-center gap-2">
         <button
           className="btn btn-sm btn-outline gap-2"
           onClick={fetchEvents}
           disabled={isLoading || !dcrId}
+          data-testid="dcr-room-audit-fetch"
         >
           <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
           {events === null ? 'Fetch DCR log' : 'Refresh'}
@@ -86,7 +87,10 @@ export function DcrLogPanel({ dcrId }: Props) {
       )}
 
       {events !== null && events.length > 0 && (
-        <div className="mt-2 max-h-80 overflow-auto rounded border border-base-300 bg-base-200">
+        <div
+          className="mt-2 max-h-80 overflow-auto rounded border border-base-300 bg-base-200"
+          data-testid="dcr-room-audit-events"
+        >
           <table className="table table-xs">
             <thead>
               <tr>

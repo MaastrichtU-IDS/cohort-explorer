@@ -7,6 +7,7 @@ import {LogIn, LogOut, Compass, Upload, HardDrive, Map, Box, FileText, Settings}
 import {useCohorts} from '@/components/CohortsContext';
 import {DarkThemeIcon, LightThemeIcon} from '@/components/Icons';
 import {apiUrl} from '@/utils';
+import {projectDcrProvider} from '@/utils/dcrProvider';
 
 // Not used: Next Auth.js: https://authjs.dev/getting-started/providers/oauth-tutorial
 // Auth0: https://github.com/nextauthjs/next-auth/blob/main/packages/core/src/providers/auth0.ts
@@ -54,6 +55,7 @@ export function Nav() {
   const [showAddCohortModal, setShowAddCohortModal] = useState(false);
   const [cohortSearchQuery, setCohortSearchQuery] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
+  const [dcrProviderUi, setDcrProviderUi] = useState(() => projectDcrProvider());
   const notificationRef = React.useRef<HTMLDivElement>(null);
 
   // Check admin status
@@ -62,6 +64,16 @@ export function Nav() {
     fetch(`${apiUrl}/admin/check`, {credentials: 'include'})
       .then(res => res.ok ? res.json() : null)
       .then(data => { if (data) setIsAdmin(data.is_admin); })
+      .catch(() => {});
+  }, [userEmail]);
+
+  useEffect(() => {
+    if (!userEmail) return;
+    fetch(`${apiUrl}/my-dcrs`, {credentials: 'include'})
+      .then(response => response.ok ? response.json() : null)
+      .then(data => {
+        if (data) setDcrProviderUi(projectDcrProvider(data.provider, data.capabilities));
+      })
       .catch(() => {});
   }, [userEmail]);
 
@@ -322,8 +334,10 @@ export function Nav() {
           details: { variant: 'zip_with_samples' },
         });
         setPublishedDCR((
-          <p>✅ Data Clean Room configuration package (with shuffled samples) has been downloaded. <br />
-          Please go to <a href="https://platform.decentriq.com/" target="_blank" className="underline text-blue-600 hover:text-blue-800">https://platform.decentriq.com</a> to create a new DCR from the configuration file. </p>
+          <p data-testid="dcr-wizard-success">✅ Data Clean Room configuration package (with shuffled samples) has been downloaded. <br />
+          {dcrProviderUi.provider === 'decentriq'
+            ? <>Please go to <a href="https://platform.decentriq.com/" target="_blank" className="underline text-blue-600 hover:text-blue-800">https://platform.decentriq.com</a> to create a new DCR from the configuration file.</>
+            : <>You can now create the local room from this wizard.</>}</p>
         ));
         scrollToNotification();
       } else {
@@ -346,8 +360,10 @@ export function Nav() {
           details: { variant: 'json_only' },
         });
         setPublishedDCR((
-          <p>✅ Data Clean Room configuration file has been downloaded. <br />
-          Please go to <a href="https://platform.decentriq.com/" target="_blank" className="underline text-blue-600 hover:text-blue-800">https://platform.decentriq.com</a> to create a new DCR from the configuration file. </p>
+          <p data-testid="dcr-wizard-success">✅ Data Clean Room configuration file has been downloaded. <br />
+          {dcrProviderUi.provider === 'decentriq'
+            ? <>Please go to <a href="https://platform.decentriq.com/" target="_blank" className="underline text-blue-600 hover:text-blue-800">https://platform.decentriq.com</a> to create a new DCR from the configuration file.</>
+            : <>You can now create the local room from this wizard.</>}</p>
         ));
         scrollToNotification();
       }
@@ -398,6 +414,8 @@ export function Nav() {
       const result = await response.json();
       
       if (response.ok) {
+        const resultProviderUi = projectDcrProvider(result.provider, result.capabilities);
+        setDcrProviderUi(resultProviderUi);
         // Categorize cohorts by shuffled sample availability
         const cohortsWithSamples: string[] = [];
         const cohortsWithoutSamples: string[] = [];
@@ -414,7 +432,7 @@ export function Nav() {
         setDcrCreated(true);
         wizardCompletedRef.current = true;
         setPublishedDCR((
-          <div className="bg-success text-slate-900 p-4 rounded-lg">
+          <div className="bg-success text-slate-900 p-4 rounded-lg" data-testid="dcr-wizard-success">
             <p className="font-bold mb-4 text-lg">✅ {result.message}</p>
             <div className="flex justify-center mb-4">
               <a 
@@ -422,13 +440,15 @@ export function Nav() {
                 target="_blank" 
                 rel="noopener noreferrer"
                 className="btn btn-lg gap-2 bg-blue-100 text-blue-900 hover:bg-blue-200 border-blue-300 font-semibold"
+                data-testid="dcr-created-room-link"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                 </svg>
-                Go to the created DCR (On The Decentriq Platform)
+                {resultProviderUi.openLabel}
               </a>
             </div>
+            <p className="mb-2" data-testid="dcr-created-room-id">Room ID: {result.dcr_id}</p>
             <p className="mb-2">Title: {result.dcr_title}</p>
             <p className="mb-2">Cohorts: {result.num_cohorts}</p>
             <p className="mb-2">Metadata uploads: {result.metadata_uploads_successful}/{result.num_cohorts}</p>
@@ -448,17 +468,14 @@ export function Nav() {
         ));
         scrollToNotification();
       } else {
-        // Non-OK response - show detailed error information
-        console.error('DCR creation failed with response:', result);
+        console.error('DCR creation failed', response.status, response.statusText);
         setPublishedDCR((
-          <div className="bg-error text-error-content p-4 rounded-lg space-y-2">
+          <div className="bg-error text-error-content p-4 rounded-lg space-y-2" data-testid="dcr-wizard-error">
             <p className="font-bold text-lg">❌ Error: Failed to create live DCR</p>
             <div className="bg-black bg-opacity-20 p-3 rounded text-xs font-mono overflow-auto max-h-96">
               <p className="font-bold mb-2">Error Details:</p>
               <p className="mb-2">Status: {response.status} {response.statusText}</p>
-              <p className="mb-2">Message: {result.detail || 'No error message provided'}</p>
-              <p className="font-bold mt-3 mb-2">Full Response:</p>
-              <pre className="whitespace-pre-wrap break-words">{JSON.stringify(result, null, 2)}</pre>
+              <p className="mb-2">Message: {String(result.detail || 'No error message provided')}</p>
             </div>
           </div>
         ));
@@ -468,24 +485,15 @@ export function Nav() {
       setIsLoading(false);
       setLoadingAction(null);
     } catch (error: any) {
-      console.error('Error creating live DCR:', error);
-      console.error('Error stack:', error?.stack);
+      console.error('Error creating live DCR', error?.name, error?.message);
       
       setPublishedDCR((
-        <div className="bg-error text-error-content p-4 rounded-lg space-y-2">
+        <div className="bg-error text-error-content p-4 rounded-lg space-y-2" data-testid="dcr-wizard-error">
           <p className="font-bold text-lg">❌ Error: Failed to create live DCR</p>
           <div className="bg-black bg-opacity-20 p-3 rounded text-xs font-mono overflow-auto max-h-96">
             <p className="font-bold mb-2">Exception Details:</p>
             <p className="mb-2">Type: {error?.name || 'Unknown'}</p>
             <p className="mb-2">Message: {error?.message || 'No error message'}</p>
-            {error?.stack && (
-              <>
-                <p className="font-bold mt-3 mb-2">Stack Trace:</p>
-                <pre className="whitespace-pre-wrap break-words text-xs">{error.stack}</pre>
-              </>
-            )}
-            <p className="font-bold mt-3 mb-2">Full Error Object:</p>
-            <pre className="whitespace-pre-wrap break-words">{JSON.stringify(error, Object.getOwnPropertyNames(error), 2)}</pre>
           </div>
         </div>
       ));
@@ -749,7 +757,7 @@ export function Nav() {
         {/* Desktop */}
         <div className="menu menu-horizontal my-0 py-0 space-x-6 pr-6 items-center">
           {(pathname === '/' || pathname === '/cohorts' || pathname === '/mapping' || pathname === '/dcrs') && (
-            <button id="dcr-button" onClick={() => { setShowModal(true); setWizardStep(0); }} className="btn bg-white border-2 border-gray-300 shadow-md hover:shadow-lg hover:bg-gray-50 transition-all duration-200 py-3 px-6" style={{ minWidth: '280px' }}>
+            <button id="dcr-button" data-testid="dcr-launcher" onClick={() => { setShowModal(true); setWizardStep(0); }} className="btn bg-white border-2 border-gray-300 shadow-md hover:shadow-lg hover:bg-gray-50 transition-all duration-200 py-3 px-6" style={{ minWidth: '280px' }}>
               Create a Data Clean Room <div className="badge badge-neutral badge-sm">{Object.keys(dataCleanRoom?.cohorts).length || 0}</div>
             </button>
           )}
@@ -788,7 +796,7 @@ export function Nav() {
       </div>
       {/* Popup to publish a Data Clean Room with selected cohorts */}
       {showModal && (
-        <div className="modal modal-open">
+        <div className="modal modal-open" data-testid="dcr-wizard-modal">
           <div className="modal-box max-w-4xl max-h-[85vh]">
             {!userEmail ? (
               /* ========== NOT LOGGED IN ========== */
@@ -811,6 +819,7 @@ export function Nav() {
                       key={step.id} 
                       className={`step ${idx <= wizardStep ? 'step-primary' : ''} cursor-pointer`}
                       onClick={() => setWizardStep(idx)}
+                      data-testid={`dcr-wizard-step-${step.id}`}
                     >
                       {step.title}
                     </li>
@@ -818,7 +827,7 @@ export function Nav() {
                 </ul>
                 
                 {/* Step content */}
-                <div className="min-h-[300px]">
+                <div className="min-h-[300px]" data-testid={`dcr-wizard-panel-${wizardSteps[wizardStep].id}`}>
                   {/* Step 0: DCR Name & Cohorts */}
                   {wizardStep === 0 && (
                     <>
@@ -829,7 +838,7 @@ export function Nav() {
                         </label>
                         {!isEditingDcrName ? (
                           <div className="flex items-center gap-2">
-                            <div className="flex-1 input input-bordered flex items-center bg-base-200 cursor-default">
+                            <div className="flex-1 input input-bordered flex items-center bg-base-200 cursor-default" data-testid="dcr-name-display">
                               <span className="truncate">{dcrName || defaultDcrName}</span>
                             </div>
                             <button
@@ -837,6 +846,7 @@ export function Nav() {
                               className="btn btn-outline btn-sm"
                               title="Edit DCR name"
                               onClick={() => setIsEditingDcrName(true)}
+                              data-testid="dcr-name-edit"
                             >
                               ✏️ Edit
                             </button>
@@ -848,6 +858,7 @@ export function Nav() {
                               placeholder={defaultDcrName}
                               className="input input-bordered w-full"
                               value={dcrName}
+                              data-testid="dcr-name-input"
                               autoFocus
                               onChange={(e) => {
                                 setDcrName(e.target.value);
@@ -919,6 +930,7 @@ export function Nav() {
                       <button 
                         className="btn btn-outline"
                         onClick={() => setShowParticipantsModal(true)}
+                        data-testid="dcr-participants-open"
                       >
                         Edit Participants List
                       </button>
@@ -954,6 +966,7 @@ export function Nav() {
                           value={researchQuestion}
                           onChange={(e) => setResearchQuestion(e.target.value.slice(0, 1000))}
                           maxLength={1000}
+                          data-testid="dcr-research-question-input"
                         />
                         <span className="text-xs text-base-content/60 mt-1 self-end">
                           {researchQuestion.length}/1000
@@ -1000,6 +1013,7 @@ export function Nav() {
                                       setAirlockSettings({...airlockSettings, [cohortId]: false});
                                       setShuffledSampleSettings({...shuffledSampleSettings, [cohortId]: false});
                                     }}
+                                    data-testid="dcr-sample-none"
                                   >
                                     None
                                   </button>
@@ -1010,6 +1024,7 @@ export function Nav() {
                                         setAirlockSettings({...airlockSettings, [cohortId]: false});
                                         setShuffledSampleSettings({...shuffledSampleSettings, [cohortId]: true});
                                       }}
+                                      data-testid="dcr-sample-shuffled"
                                     >
                                       Shuffled Sample
                                     </button>
@@ -1020,6 +1035,7 @@ export function Nav() {
                                       setAirlockSettings({...airlockSettings, [cohortId]: true});
                                       setShuffledSampleSettings({...shuffledSampleSettings, [cohortId]: false});
                                     }}
+                                    data-testid="dcr-sample-airlock"
                                   >
                                     Airlocked Sample
                                   </button>
@@ -1030,6 +1046,7 @@ export function Nav() {
                                         setAirlockSettings({...airlockSettings, [cohortId]: true});
                                         setShuffledSampleSettings({...shuffledSampleSettings, [cohortId]: true});
                                       }}
+                                      data-testid="dcr-sample-both"
                                     >
                                       Both
                                     </button>
@@ -1066,6 +1083,7 @@ export function Nav() {
                                       setSelectedMappingFiles({...selectedMappingFiles, [mapping.filename]: e.target.checked});
                                     }}
                                     className="checkbox checkbox-primary"
+                                    data-testid="dcr-mapping-toggle"
                                   />
                                   <span className="label-text text-base">{mapping.display_name}</span>
                                 </label>
@@ -1086,6 +1104,7 @@ export function Nav() {
                             checked={includeMappingUploadSlot}
                             onChange={(e) => setIncludeMappingUploadSlot(e.target.checked)}
                             className="checkbox checkbox-primary"
+                            data-testid="dcr-mapping-upload-slot"
                           />
                           <span className="label-text text-base">Include a file upload slot for cross-study mapping</span>
                         </label>
@@ -1133,13 +1152,15 @@ export function Nav() {
                           className="btn btn-primary" 
                           onClick={createLiveDCR} 
                           disabled={isLoading || dcrCreated || Object.keys(dataCleanRoom?.cohorts || {}).length === 0}
+                          data-testid="dcr-create"
                         >
-                          Create Live DCR
+                          {dcrProviderUi.createLabel}
                         </button>
                         <button 
                           className="btn btn-neutral h-auto min-h-0 py-2 px-4" 
                           onClick={getDCRDefinitionFile} 
                           disabled={isLoading || configDownloaded || Object.keys(dataCleanRoom?.cohorts || {}).length === 0}
+                          data-testid="dcr-preview-download"
                         >
                           <span className="flex flex-col items-center">
                             <span>Download DCR Config</span>
@@ -1163,19 +1184,21 @@ export function Nav() {
                       <button 
                         className="btn btn-outline"
                         onClick={() => setWizardStep(wizardStep - 1)}
+                        data-testid="dcr-wizard-previous"
                       >
                         ← Previous
                       </button>
                     )}
                   </div>
                   <div className="flex gap-2">
-                    <button className="btn" onClick={closeWizard}>
+                    <button className="btn" onClick={closeWizard} data-testid="dcr-wizard-close">
                       Close
                     </button>
                     {wizardStep < wizardSteps.length - 1 && (
                       <button 
                         className="btn btn-primary"
                         onClick={() => setWizardStep(wizardStep + 1)}
+                        data-testid="dcr-wizard-next"
                       >
                         Next →
                       </button>
@@ -1189,7 +1212,7 @@ export function Nav() {
                     <span className="loading loading-spinner loading-lg mb-4"></span>
                     <p>
                       {loadingAction === 'live' 
-                        ? 'Creating the Data Clean Room on Decentriq Platform. Will take a few seconds...'
+                        ? dcrProviderUi.loadingLabel
                         : 'Creating the file specification for a DCR draft...'}
                     </p>
                   </div>
@@ -1364,7 +1387,7 @@ const ParticipantsModal = React.memo(({
     }
   };
   return (
-    <div className="modal modal-open">
+    <div className="modal modal-open" data-testid="dcr-participants-modal">
       <div className="modal-box">
         <h3 className="font-bold text-lg mb-4">DCR Participants</h3>
         
@@ -1392,6 +1415,7 @@ const ParticipantsModal = React.memo(({
                     checked={!isExcluded(owner.email)}
                     onChange={() => toggleDataOwner(owner.email)}
                     className="checkbox checkbox-primary mt-1"
+                    data-testid="dcr-participant-owner-toggle"
                   />
                   <div className="flex-1">
                     <p className={`font-semibold ${isExcluded(owner.email) ? 'line-through' : ''}`}>
@@ -1431,6 +1455,7 @@ const ParticipantsModal = React.memo(({
                 <button 
                   className="btn btn-sm btn-error btn-outline"
                   onClick={() => removeAnalyst(email)}
+                  data-testid="dcr-participant-analyst-remove"
                 >
                   Remove
                 </button>
@@ -1448,11 +1473,13 @@ const ParticipantsModal = React.memo(({
               value={newAnalystEmail}
               onChange={(e) => setNewAnalystEmail(e.target.value)}
               onKeyPress={(e) => e.key === 'Enter' && addAnalyst()}
+              data-testid="dcr-participant-analyst-input"
             />
             <button 
               className="btn btn-primary"
               onClick={addAnalyst}
               disabled={!newAnalystEmail.trim()}
+              data-testid="dcr-participant-analyst-add"
             >
               Add Analyst
             </button>

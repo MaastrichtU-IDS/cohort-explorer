@@ -4,6 +4,8 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { apiUrl } from '@/utils';
 import { AlertTriangle, Clock, RefreshCw, ExternalLink } from 'react-feather';
 import { DcrLogPanel } from '@/components/DcrLogPanel';
+import {DcrResultPanel} from '@/components/DcrResultPanel';
+import {DcrCapabilities, projectDcrProvider} from '@/utils/dcrProvider';
 
 /** Shape of a single DCR record returned by the /my-dcrs endpoint. */
 interface DcrRecord {
@@ -15,8 +17,27 @@ interface DcrRecord {
   participants?: { email?: string; roles?: string[]; data_owner_of?: string[]; analyst_of?: string[] }[];
   nodes?: { name?: string; type?: string; script?: string }[];
   cohorts?: string[];
+  dcr_url?: string;
+  provider?: string;
+  capabilities?: DcrCapabilities;
+  provisioned_datasets?: {
+    dataset_name?: string;
+    node_name?: string;
+    dataset_node_name?: string;
+    status?: string;
+    [key: string]: any;
+  }[];
   error?: string;
   [key: string]: any;
+}
+
+function normalizeRooms(data: any): DcrRecord[] {
+  const rooms = Array.isArray(data?.dcrs) ? data.dcrs : [];
+  return rooms.map((room: DcrRecord) => ({
+    ...room,
+    provider: room.provider ?? data?.provider,
+    capabilities: room.capabilities ?? data?.capabilities
+  }));
 }
 
 export default function DcrsPage() {
@@ -26,6 +47,7 @@ export default function DcrsPage() {
   const [error, setError] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
+  const [providerUi, setProviderUi] = useState(() => projectDcrProvider());
 
   const fetchMyDcrs = useCallback(async () => {
     setIsLoading(true);
@@ -39,7 +61,7 @@ export default function DcrsPage() {
         throw new Error(`Failed to fetch DCRs: ${response.status} ${response.statusText}`);
       }
       const data = await response.json();
-      const dcrs = Array.isArray(data?.dcrs) ? data.dcrs : [];
+      const dcrs = normalizeRooms(data);
       // Sort reverse chronologically by createdAt (newest first)
       dcrs.sort((a: DcrRecord, b: DcrRecord) => {
         if (!a.createdAt) return 1;
@@ -48,6 +70,7 @@ export default function DcrsPage() {
       });
       setDcrs(dcrs);
       setUserEmail(data?.email ?? null);
+      setProviderUi(projectDcrProvider(data?.provider, data?.capabilities));
 
       // Fetch the last modified timestamp of the DCR history file
       try {
@@ -84,7 +107,7 @@ export default function DcrsPage() {
         throw new Error(`Refresh failed: ${response.status} ${response.statusText}`);
       }
       const data = await response.json();
-      const dcrs = Array.isArray(data?.dcrs) ? data.dcrs : [];
+      const dcrs = normalizeRooms(data);
       // Sort reverse chronologically by createdAt (newest first)
       dcrs.sort((a: DcrRecord, b: DcrRecord) => {
         if (!a.createdAt) return 1;
@@ -93,6 +116,7 @@ export default function DcrsPage() {
       });
       setDcrs(dcrs);
       setUserEmail(data?.email ?? null);
+      setProviderUi(projectDcrProvider(data?.provider, data?.capabilities));
       setLastRefreshedAt(new Date());
     } catch (err: any) {
       setError(err?.message || 'Failed to refresh DCRs');
@@ -106,7 +130,10 @@ export default function DcrsPage() {
   }, [fetchMyDcrs]);
 
   return (
-    <main className="flex flex-col items-center justify-start p-6 min-h-screen bg-base-200">
+    <main
+      className="flex flex-col items-center justify-start p-6 min-h-screen bg-base-200"
+      data-testid="my-dcrs-page"
+    >
       <div className="w-full max-w-5xl space-y-6">
         <header className="text-center">
           <h1 className="text-3xl font-bold">My Data Clean Rooms</h1>
@@ -123,10 +150,11 @@ export default function DcrsPage() {
             className="btn btn-sm btn-outline gap-2"
             onClick={handleRefresh}
             disabled={isRefreshing}
-            title="Re-fetch DCR data from Decentriq"
+            title={providerUi.refreshLabel}
+            data-testid="my-dcrs-refresh"
           >
             <RefreshCw size={14} className={isRefreshing ? 'animate-spin' : ''} />
-            {isRefreshing ? 'Refreshing...' : 'Refresh from Decentriq'}
+            {isRefreshing ? 'Refreshing...' : providerUi.refreshLabel}
           </button>
           {lastRefreshedAt && (
             <span className="text-xs text-base-content/60">
@@ -184,10 +212,8 @@ function formatTimestamp(iso?: string): string {
 }
 
 function DcrCard({ dcr }: { dcr: DcrRecord }) {
-  const participantCount = dcr.participants?.length ?? 0;
-  const dcrUrl = dcr.id
-    ? `https://platform.decentriq.com/datarooms/p/${dcr.id}`
-    : null;
+  const dcrUrl = dcr.dcr_url || null;
+  const providerUi = projectDcrProvider(dcr.provider, dcr.capabilities);
 
   // Determine DCR type based on whether any compute node name starts with c3_eda
   const hasC3EdaScript = dcr.nodes?.some(
@@ -199,7 +225,10 @@ function DcrCard({ dcr }: { dcr: DcrRecord }) {
   const badgeColor = hasC3EdaScript ? 'badge-success' : 'badge-secondary';
 
   return (
-    <div className={`card bg-base-100 shadow-sm border ${hasC3EdaScript ? 'border-success/30' : 'border-secondary/60'}`}>
+    <div
+      className={`card bg-base-100 shadow-sm border ${hasC3EdaScript ? 'border-success/30' : 'border-secondary/60'}`}
+      data-testid="dcr-room-card"
+    >
       <div className="card-body p-4">
         <div className="flex flex-wrap items-center gap-2 mb-1">
           <span className={`badge ${badgeColor} badge-lg font-semibold text-base px-4 py-2`}>
@@ -229,6 +258,12 @@ function DcrCard({ dcr }: { dcr: DcrRecord }) {
 
         {dcr.description && (
           <div className="mt-2 text-sm text-base-content/80">{dcr.description}</div>
+        )}
+
+        {providerUi.localSimulation && (
+          <div className="alert alert-info py-2 text-sm mt-2">
+            Local synthetic-data simulation; this is not a confidential-computing boundary.
+          </div>
         )}
 
         {/* Participants detail */}
@@ -295,6 +330,25 @@ function DcrCard({ dcr }: { dcr: DcrRecord }) {
           </div>
         )}
 
+        {dcr.provisioned_datasets && dcr.provisioned_datasets.length > 0 && (
+          <div className="mt-3 text-sm">
+            <span className="font-semibold">Provisioned datasets:</span>
+            <div className="mt-1 space-y-1">
+              {dcr.provisioned_datasets.map((dataset, index) => (
+                <div
+                  key={`${dataset.dataset_name || 'dataset'}-${index}`}
+                  className="flex flex-wrap gap-2 rounded bg-base-200 px-2 py-1"
+                  data-testid="dcr-provisioning-row"
+                >
+                  <span>{dataset.dataset_name || 'dataset'}</span>
+                  <span className="text-base-content/60">→ {dataset.node_name || dataset.dataset_node_name || 'PROD node'}</span>
+                  <span className="badge badge-sm">{dataset.status || 'provisioned'}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Link to platform */}
         {dcrUrl && (
           <div className="mt-2">
@@ -304,12 +358,19 @@ function DcrCard({ dcr }: { dcr: DcrRecord }) {
               rel="noopener noreferrer"
               className="link link-primary text-sm flex items-center gap-1 w-fit"
             >
-              <ExternalLink size={14} /> Open on Decentriq
+              <ExternalLink size={14} /> {providerUi.openLabel}
             </a>
           </div>
         )}
 
-        {dcr.id && <DcrLogPanel dcrId={dcr.id} />}
+        {dcr.id && dcr.capabilities?.supports_audit_log !== false && <DcrLogPanel dcrId={dcr.id} />}
+        {dcr.id && (
+          <DcrResultPanel
+            dcrId={dcr.id}
+            provider={dcr.provider}
+            capabilities={dcr.capabilities}
+          />
+        )}
       </div>
     </div>
   );
