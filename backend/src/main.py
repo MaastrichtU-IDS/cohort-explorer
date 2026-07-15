@@ -13,7 +13,8 @@ from src.admin import router as admin_router
 from src.auth import router as auth_router
 from src.config import settings
 from src.data_analysis import router as data_analysis_router
-from src.decentriq import refresh_all_dcrs_via_decentriq_api
+from src.dcr_backends.factory import get_dcr_backend
+from src.dcr_routes import router as dcr_router
 from src.decentriq import router as decentriq_router
 from src.docs import router as docs_router
 from src.explore import router as explore_router
@@ -31,6 +32,14 @@ def _refresh_dcr_history_with_lock() -> None:
     multi-worker deployments, only one worker actually performs the SDK-heavy
     refresh. Other workers see ``LOCK_EX | LOCK_NB`` fail and skip silently.
     """
+    backend = get_dcr_backend()
+    if not backend.capabilities.supports_room_refresh:
+        logging.info(
+            "Skipping startup DCR refresh: provider %s does not support it.",
+            backend.provider_name,
+        )
+        return
+
     os.makedirs(settings.data_folder, exist_ok=True)
     lock_path = os.path.join(settings.data_folder, ".dcr_refresh.lock")
     try:
@@ -45,8 +54,11 @@ def _refresh_dcr_history_with_lock() -> None:
                 return
             logging.info("Worker %s acquired DCR refresh lock", os.getpid())
             try:
-                summary = refresh_all_dcrs_via_decentriq_api()
-                logging.info("Startup DCR refresh summary: %s", summary)
+                service_user = {
+                    "email": settings.decentriq_email or settings.local_auth_email,
+                }
+                result = asyncio.run(backend.list_rooms(service_user, refresh=True))
+                logging.info("Startup DCR refresh summary: %s", result.to_dict())
             finally:
                 fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
     except Exception as exc:
@@ -77,6 +89,7 @@ app.include_router(mapping_router, prefix="/api", tags=["mapping"])
 app.include_router(data_analysis_router, prefix="/api", tags=["data-analysis"])
 app.include_router(upload_router, tags=["upload"])
 app.include_router(decentriq_router, tags=["upload"])
+app.include_router(dcr_router, tags=["dcr"])
 app.include_router(auth_router, tags=["authentication"])
 app.include_router(admin_router, tags=["admin"])
 if settings.dev_mode:

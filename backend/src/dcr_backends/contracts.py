@@ -51,6 +51,7 @@ class DcrBackend(Protocol):
         self,
         dcr_id: str,
         user: CurrentUser,
+        main_only: bool = True,
     ) -> list[AuditEntry]: ...
 
     async def computation_output(

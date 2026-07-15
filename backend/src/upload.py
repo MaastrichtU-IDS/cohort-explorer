@@ -56,7 +56,7 @@ from src.utils import (
     run_query
 )
 from src.cohort_cache import add_cohort_to_cache, clear_cache, create_cohort_from_dict_file, create_cohort_from_metadata_graph
-from src.decentriq import create_provision_dcr, metadatadict_cols_schema1
+from src.decentriq import metadatadict_cols_schema1
 from src.mapping_generation.retriever import map_csv_to_standard_codes
 from src.mapping_logger import log_main, log_detail, MappingRun, PROCESS_SCM
 
@@ -1894,44 +1894,6 @@ def generate_mappings(cohort_id: str, metadata_path: str, g: Graph) -> None:
         if build_cohort_variables_from_csv(cohort_id, metadata_path):
             save_cache_to_disk()
             logging.info(f"Refreshed cache variables for cohort {cohort_id} after generating mappings")
-
-
-@router.post(
-    "/create-provision-dcr",
-    name="Create Data Clean Room to provision the dataset",
-    response_description="Creation result",
-)
-async def post_create_provision_dcr(
-    user: Any = Depends(get_current_user),
-    # cohort_id: str = Form(..., pattern="^[a-zA-Z0-9-_\w]+$"),
-    cohort_id: str = Form(...),
-) -> dict[str, Any]:
-    import time
-    t0 = time.time()
-    # Use cache instead of SPARQL query for better performance
-    from src.cohort_cache import get_cohorts_from_cache
-    cohorts = get_cohorts_from_cache(user["email"])
-    logging.info(f"[TIMING] Retrieved cohorts from cache in {time.time() - t0:.3f}s")
-    
-    cohort_info = cohorts.get(cohort_id)
-    if not cohort_info:
-        raise HTTPException(
-            status_code=403,
-            detail=f"Cohort ID {cohort_id} does not exists",
-        )
-    if not cohort_info.can_edit:
-        raise HTTPException(
-            status_code=403,
-            detail=f"User {user['email']} cannot publish cohort {cohort_id}",
-        )
-    try:
-        dcr_data = create_provision_dcr(user, cohort_info)
-    except Exception as e:
-        raise HTTPException(
-            status_code=422,
-            detail=f"There was an issue when uploading the cohort {cohort_id} to Decentriq: {e}",
-        )
-    return dcr_data
 
 
 COHORTS_METADATA_FILEPATH = os.path.join(settings.data_folder, "iCARE4CVD_Cohorts.xlsx")

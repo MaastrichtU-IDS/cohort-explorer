@@ -106,8 +106,13 @@ class LazyDcrBackend:
     async def rooms_last_modified(self, user: CurrentUser) -> datetime | None:
         return await self._resolve().rooms_last_modified(user)
 
-    async def audit_log(self, dcr_id: str, user: CurrentUser) -> list[AuditEntry]:
-        return await self._resolve().audit_log(dcr_id, user)
+    async def audit_log(
+        self,
+        dcr_id: str,
+        user: CurrentUser,
+        main_only: bool = True,
+    ) -> list[AuditEntry]:
+        return await self._resolve().audit_log(dcr_id, user, main_only=main_only)
 
     async def computation_output(self, dcr_id: str, user: CurrentUser) -> ResponsePayload:
         return await self._resolve().computation_output(dcr_id, user)

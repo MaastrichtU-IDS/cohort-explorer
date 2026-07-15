@@ -1297,11 +1297,6 @@ async def create_live_compute_dcr(
         )
 
 
-@router.post(
-    "/create-live-compute-dcr",
-    name="Create and publish a live compute DCR",
-    response_description="DCR information with ID and URL",
-)
 async def api_create_live_compute_dcr(
     cohorts_request: dict[str, Any],
     user: Any = Depends(get_current_user),
@@ -1435,11 +1430,6 @@ async def api_create_live_compute_dcr(
         raise HTTPException(status_code=500, detail=error_msg)
 
 
-@router.post(
-    "/get-compute-dcr-definition",
-    name="Get the Data Clean Room definition for computing as JSON or ZIP with shuffled samples",
-    response_description="DCR definition JSON or ZIP file with config and shuffled samples",
-)
 async def api_get_compute_dcr_definition(
     cohorts_request: dict[str, Any],
     user: Any = Depends(get_current_user),
@@ -1595,8 +1585,6 @@ async def api_get_compute_dcr_definition(
         raise HTTPException(status_code=500, detail=f"Failed to create ZIP file: {str(e)}")
 
 
-@router.get("/dcr-log/{dcr_id}", 
-            name = "display the log file of the specified DCR")
 def get_dcr_log(dcr_id: str,  user: Any = Depends(get_current_user)):
     print("now in get-dcr-log function")
     #id = "d2b060860906f94bce726a6cba3d948e236386359956c47cdc2dc477bbe199ee"
@@ -1615,16 +1603,12 @@ def get_dcr_log(dcr_id: str,  user: Any = Depends(get_current_user)):
 
 
 
-@router.get("/dcr-log-main/{dcr_id}", 
-            name = "display the main events in the log file of the specified DCR (excludes log fetching events)")
 def get_dcr_log_main(dcr_id: str,  user: Any = Depends(get_current_user)):
     all_events = get_dcr_log(dcr_id, user)
     main_events = [e for e in all_events if e['desc'].find("log has been retrieved") == -1]
     return main_events
 
 
-@router.get("/compute-get-output/{dcr_id}", 
-            name = "run the scripts for a given DCR and download the output")
 def run_computation_get_output(dcr_id: str,  user: Any = Depends(get_current_user)):
     """Run the scripts for a given DCR and download the output. Admins only."""
     if user["email"] not in settings.admins_list:
@@ -1667,8 +1651,6 @@ def run_computation_get_output(dcr_id: str,  user: Any = Depends(get_current_use
     return {"status": "success", "saved_path": str(storage_dir)}
 
 
-@router.get("/shuffle-get-output/{dcr_id}",
-            name = "run the C4 shuffle script for a given DCR and download the output")
 def run_shuffle_get_output(dcr_id: str, user: Any = Depends(get_current_user)):
     """Run the C4 shuffle_data script and save output to the same folder as C3 (EDA) output.
     
@@ -2492,11 +2474,6 @@ async def api_refresh_all_dcrs_via_decentriq_api(
     return await asyncio.to_thread(refresh_all_dcrs_via_decentriq_api)
 
 
-@router.get(
-    "/my-dcrs",
-    name="List DCRs for the current user",
-    response_description="DCR records where the current user is a participant",
-)
 async def api_my_dcrs(
     user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
@@ -2510,11 +2487,6 @@ async def api_my_dcrs(
     return {"dcrs": records, "count": len(records), "email": user_email}
 
 
-@router.post(
-    "/my-dcrs/refresh",
-    name="Refresh DCR history and return current user's DCRs",
-    response_description="Summary of the refresh plus the user's DCR records",
-)
 async def api_refresh_my_dcrs(
     user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
@@ -2530,11 +2502,6 @@ async def api_refresh_my_dcrs(
     return {"dcrs": records, "count": len(records), "email": user_email, "refresh_summary": summary}
 
 
-@router.get(
-    "/my-dcrs/last-modified",
-    name="Get last modified timestamp of DCR history",
-    response_description="ISO timestamp of when the DCR history JSONL file was last modified",
-)
 async def api_dcr_history_last_modified(
     user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:

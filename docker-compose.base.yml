@@ -7,6 +7,7 @@ services:
       FRONTEND_URL: http://localhost:3001
       SPARQL_ENDPOINT: "http://db:7878"
       DATA_FOLDER: /data
+      DCR_BACKEND: decentriq
     volumes:
       - ./data:/data
  #     - /data/deploy-services/cohort-explorer/cohortVarLinker/data/:/app/CohortVarLinker/data/
