@@ -11,9 +11,15 @@ import GenderPieChart from '@/components/GenderPieChart';
 import AgeDistributionBar from '@/components/AgeDistributionBar';
 import AgeRangeWhisker from '@/components/AgeRangeWhisker';
 import {Users} from 'react-feather';
-import {parseSearchQuery, searchInObject, highlightSearchTerms} from '@/utils/search';
+import {highlightSearchTerms} from '@/utils/search';
 import {apiUrl} from '@/utils';
 import EdaDashboard from '@/components/eda/EdaDashboard';
+import {
+  cohortElementId,
+  collectCohortSearchResults,
+  filterCohorts
+} from '@/utils/cohortFiltering';
+import {groupEquivalentVariables} from '@/utils/equivalentVariables';
 
 // Helper component to render highlighted text
 const HighlightedText = ({text, searchTerms, searchMode}: {text: string, searchTerms: string[], searchMode?: 'or' | 'and' | 'exact'}) => {
@@ -26,27 +32,6 @@ const HighlightedText = ({text, searchTerms, searchMode}: {text: string, searchT
   return <span dangerouslySetInnerHTML={{__html: highlightedHtml}} />;
 };
 
-// Normalize text for fuzzy matching: split camelCase and replace common separators with spaces
-const normalizeText = (text: string): string =>
-  text
-    .replace(/([a-z])([A-Z])/g, '$1 $2')   // camelCase: aB → a B
-    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2') // acronym boundary: ABc → A Bc
-    .replace(/[_\-.,—]/g, ' ');
-
-// Helper function to check if text matches search terms (reusable)
-const matchesSearchTerms = (text: string | null | undefined, searchTerms: string[], searchMode: 'or' | 'and' | 'exact'): boolean => {
-  if (!text || searchTerms.length === 0) return false;
-  const textNorm = normalizeText(String(text).toLowerCase());
-  
-  if (searchMode === 'exact') {
-    return textNorm.includes(normalizeText(searchTerms.join(' ').toLowerCase()));
-  } else if (searchMode === 'and') {
-    return searchTerms.every(term => textNorm.includes(normalizeText(term.toLowerCase())));
-  } else { // 'or' mode
-    return searchTerms.some(term => textNorm.includes(normalizeText(term.toLowerCase())));
-  }
-};
-
 // Component to count and display variable search results
 // Detailed search results component that shows matched names
 const SearchResultsDisplay = React.memo(({cohortsData, searchTerms, searchMode, searchScope}: {
@@ -55,83 +40,10 @@ const SearchResultsDisplay = React.memo(({cohortsData, searchTerms, searchMode, 
   searchMode: 'or' | 'and' | 'exact',
   searchScope: 'cohorts' | 'variables' | 'all'
 }) => {
-  const results = useMemo(() => {
-    if (searchTerms.length === 0) return { 
-      matchedCohorts: [] as {cohortId: string; sections: string[]}[], 
-      variablesByCohort: {} as Record<string, string[]>,
-      totalVariables: 0 
-    };
-    
-    // Map field names to human-readable section names (lowercase)
-    const fieldToSection: Record<string, string> = {
-      'cohort_id': 'cohort name',
-      'institution': 'institution',
-      'study_type': 'study type',
-      'study_design': 'study design',
-      'study_objective': 'study objective',
-      'morbidity': 'morbidity',
-      'study_participants': 'study participants',
-      'study_population': 'study population',
-      'administrator': 'administrator',
-      'population_location': 'population location',
-      'primary_outcome_spec': 'primary outcome specification',
-      'secondary_outcome_spec': 'secondary outcome specification',
-      'interventions': 'interventions',
-      'comparator': 'comparator',
-      'race_ethnicity': 'race/ethnicity',
-      'part_of_study': 'part of study',
-    };
-    const searchableCohortFields = Object.keys(fieldToSection);
-    const searchableVarFields = ['var_name', 'var_label', 'concept_name', 'mapped_label', 'omop_domain', 'concept_code', 'omop_id'];
-    const searchableCatFields = ['value', 'label', 'mapped_label'];
-    
-    const matchedCohorts: {cohortId: string; sections: string[]}[] = [];
-    const variablesByCohort: Record<string, string[]> = {};
-    let totalVariables = 0;
-    
-    Object.entries(cohortsData).forEach(([cohortId, cohortData]) => {
-      // Check cohort metadata match (for 'cohorts' or 'all' scope)
-      if (searchScope === 'cohorts' || searchScope === 'all') {
-        const cohortWithId = { ...cohortData, cohort_id: cohortId };
-        const matchedSections: string[] = [];
-        searchableCohortFields.forEach(field => {
-          if (matchesSearchTerms((cohortWithId as any)[field], searchTerms, searchMode)) {
-            matchedSections.push(fieldToSection[field]);
-          }
-        });
-        if (matchedSections.length > 0 && !matchedCohorts.some(c => c.cohortId === cohortId)) {
-          matchedCohorts.push({ cohortId, sections: matchedSections });
-        }
-      }
-      
-      // Check variable matches (for 'variables' or 'all' scope)
-      if (searchScope === 'variables' || searchScope === 'all') {
-        const matchingVars: string[] = [];
-        
-        Object.entries(cohortData.variables || {}).forEach(([varName, varData]: any) => {
-          const variableWithName = { ...varData, var_name: varName };
-          const varMatches = searchableVarFields.some(field => 
-            matchesSearchTerms(variableWithName[field], searchTerms, searchMode)
-          );
-          
-          const catMatches = !varMatches && varData.categories?.some((cat: any) =>
-            searchableCatFields.some(field => matchesSearchTerms(cat[field], searchTerms, searchMode))
-          );
-          
-          if (varMatches || catMatches) {
-            matchingVars.push(varName);
-            totalVariables++;
-          }
-        });
-        
-        if (matchingVars.length > 0) {
-          variablesByCohort[cohortId] = matchingVars;
-        }
-      }
-    });
-    
-    return { matchedCohorts, variablesByCohort, totalVariables };
-  }, [cohortsData, searchTerms, searchMode, searchScope]);
+  const results = useMemo(
+    () => collectCohortSearchResults(cohortsData, searchTerms, searchMode, searchScope),
+    [cohortsData, searchTerms, searchMode, searchScope]
+  );
   
   const cohortsWithVarMatches = Object.keys(results.variablesByCohort).length;
   
@@ -222,116 +134,10 @@ const EquivalentVariableNames = React.memo(({cohortsData, searchTerms, searchMod
 }) => {
   const [expanded, setExpanded] = useState(false);
 
-  const equivalentNames = useMemo(() => {
-    if (searchTerms.length === 0) return null;
-    // Only relevant when searching variables or all
-    if (searchScope === 'cohorts') return null;
-
-    // Step 1: Find variables whose var_name/concept_name matches the query.
-    // Track matched var_names by (cohortId, varName) and by their concept_code / omop_id.
-    const matchedConceptCodes = new Map<string, Set<string>>(); // concept_code -> set of matched var_names
-    const matchedOmopIds = new Map<string, Set<string>>(); // omop_id -> set of matched var_names
-    const uncodedByCohort = new Map<string, string[]>(); // cohortId -> list of matched var names with NO concept_code AND NO omop_id
-
-    Object.entries(cohortsData).forEach(([cohortId, cohortData]) => {
-      Object.entries(cohortData.variables || {}).forEach(([varName, varData]) => {
-        const nameMatches = matchesSearchTerms(varName, searchTerms, 'and') || matchesSearchTerms(varData.concept_name, searchTerms, 'and');
-        if (!nameMatches) return;
-
-        const rawCode = varData.concept_code ? varData.concept_code.trim() : '';
-        const rawOmop = varData.omop_id ? String(varData.omop_id).trim() : '';
-
-        if (rawCode) {
-          const code = rawCode.toUpperCase();
-          if (!matchedConceptCodes.has(code)) matchedConceptCodes.set(code, new Set());
-          matchedConceptCodes.get(code)!.add(varName);
-        }
-        if (rawOmop) {
-          if (!matchedOmopIds.has(rawOmop)) matchedOmopIds.set(rawOmop, new Set());
-          matchedOmopIds.get(rawOmop)!.add(varName);
-        }
-        if (!rawCode && !rawOmop) {
-          if (!uncodedByCohort.has(cohortId)) uncodedByCohort.set(cohortId, []);
-          uncodedByCohort.get(cohortId)!.push(varName);
-        }
-      });
-    });
-
-    if (matchedConceptCodes.size === 0 && matchedOmopIds.size === 0 && uncodedByCohort.size === 0) return null;
-
-    // Helper: build cohort entries for a given key, by scanning all cohorts for variables sharing that key.
-    // keyType: 'concept_code' matches by varData.concept_code (uppercased/trimmed).
-    //          'omop_id' matches by varData.omop_id (trimmed, case-sensitive string compare).
-    const buildEntries = (
-      keyType: 'concept_code' | 'omop_id',
-      key: string,
-      matchedVarNames: Set<string>,
-    ) => {
-      let conceptName: string | null = null;
-      const cohortEntries: {cohortId: string; names: string[]; isMatched: boolean}[] = [];
-
-      Object.entries(cohortsData).forEach(([cohortId, cohortData]) => {
-        const namesInCohort: string[] = [];
-        Object.entries(cohortData.variables || {}).forEach(([varName, varData]) => {
-          const matches = keyType === 'concept_code'
-            ? (varData.concept_code && varData.concept_code.trim().toUpperCase() === key)
-            : (varData.omop_id && String(varData.omop_id).trim() === key);
-          if (matches) {
-            namesInCohort.push(varName);
-            if (!conceptName && varData.concept_name) conceptName = varData.concept_name;
-          }
-        });
-        if (namesInCohort.length > 0) {
-          const hasMatchedName = namesInCohort.some(n => matchedVarNames.has(n));
-          cohortEntries.push({ cohortId, names: namesInCohort.sort(), isMatched: hasMatchedName });
-        }
-      });
-
-      // Sort: cohorts with non-matched (equivalent) names first, matched cohorts last
-      cohortEntries.sort((a, b) => {
-        if (a.isMatched === b.isMatched) return a.cohortId.localeCompare(b.cohortId);
-        return a.isMatched ? 1 : -1;
-      });
-
-      return { conceptName, cohortEntries };
-    };
-
-    // Step 2a: Build concept_code groups
-    const conceptGroups: {code: string; conceptName: string | null; namesByCohort: {cohortId: string; names: string[]; isMatched: boolean}[]}[] = [];
-    matchedConceptCodes.forEach((matchedVarNames, conceptCode) => {
-      const { conceptName, cohortEntries } = buildEntries('concept_code', conceptCode, matchedVarNames);
-      if (cohortEntries.length > 0) {
-        conceptGroups.push({ code: conceptCode, conceptName, namesByCohort: cohortEntries });
-      }
-    });
-    conceptGroups.sort((a, b) => {
-      const countA = a.namesByCohort.reduce((sum, e) => sum + e.names.length, 0);
-      const countB = b.namesByCohort.reduce((sum, e) => sum + e.names.length, 0);
-      return countB - countA;
-    });
-
-    // Step 2b: Build omop_id groups
-    const omopGroups: {code: string; conceptName: string | null; namesByCohort: {cohortId: string; names: string[]; isMatched: boolean}[]}[] = [];
-    matchedOmopIds.forEach((matchedVarNames, omopId) => {
-      const { conceptName, cohortEntries } = buildEntries('omop_id', omopId, matchedVarNames);
-      if (cohortEntries.length > 0) {
-        omopGroups.push({ code: omopId, conceptName, namesByCohort: cohortEntries });
-      }
-    });
-    omopGroups.sort((a, b) => {
-      const countA = a.namesByCohort.reduce((sum, e) => sum + e.names.length, 0);
-      const countB = b.namesByCohort.reduce((sum, e) => sum + e.names.length, 0);
-      return countB - countA;
-    });
-
-    // Build uncoded list sorted by cohort id
-    const uncoded = Array.from(uncodedByCohort.entries())
-      .map(([cohortId, names]) => ({ cohortId, names: names.slice().sort() }))
-      .sort((a, b) => a.cohortId.localeCompare(b.cohortId));
-
-    if (conceptGroups.length === 0 && omopGroups.length === 0 && uncoded.length === 0) return null;
-    return { conceptGroups, omopGroups, uncoded };
-  }, [cohortsData, searchTerms, searchMode, searchScope]);
+  const equivalentNames = useMemo(
+    () => groupEquivalentVariables(cohortsData, searchTerms, searchMode, searchScope),
+    [cohortsData, searchTerms, searchMode, searchScope]
+  );
 
   if (!equivalentNames) return null;
 
@@ -441,8 +247,8 @@ export default function CohortsList() {
   
   // Check if we should use SPARQL mode based on query parameter
   const useSparqlMode = router.query.mode === 'sparql';
-  const [selectedStudyTypes, setSelectedStudyTypes] = useState(new Set());
-  const [selectedInstitutes, setSelectedInstitutes] = useState(new Set());
+  const [selectedStudyTypes, setSelectedStudyTypes] = useState(new Set<string>());
+  const [selectedInstitutes, setSelectedInstitutes] = useState(new Set<string>());
   // State to track which cohorts have aggregate data analysis available
   const [analysisAvailability, setAnalysisAvailability] = useState<{[key: string]: boolean}>({});
   // State to track which cohorts are expanded
@@ -715,63 +521,17 @@ export default function CohortsList() {
   // - When searchScope='cohorts': filter by cohort metadata only
   // - When searchScope='variables': filter by variable matches only
   // - When searchScope='all': filter by either cohort metadata OR variable matches
-  const filteredCohorts = useMemo(() => {
-    const searchableCohortFields = [
-      'cohort_id', 'institution', 'study_type', 'study_design', 'study_objective', 'morbidity',
-      'study_participants', 'study_population', 'administrator', 'population_location',
-      'primary_outcome_spec', 'secondary_outcome_spec',
-      'interventions', 'comparator', 'race_ethnicity', 'part_of_study'
-    ];
-    const searchableVarFields = ['var_name', 'var_label', 'concept_name', 'mapped_label', 'omop_domain', 'concept_code', 'omop_id'];
-    const searchableCatFields = ['value', 'label', 'mapped_label'];
-    
-    // Helper to check if cohort metadata matches
-    const cohortMetadataMatches = (key: string, value: Cohort) => {
-      const cohortWithId = { ...value, cohort_id: key };
-      return searchableCohortFields.some(field => 
-        matchesSearchTerms((cohortWithId as any)[field], searchTerms, searchMode)
-      );
-    };
-    
-    // Helper to check if any variable matches
-    const variableMatches = (value: Cohort) => {
-      return Object.entries(value.variables || {}).some(([varName, varData]: any) => {
-        const variableWithName = { ...varData, var_name: varName };
-        
-        const varMatches = searchableVarFields.some(field => 
-          matchesSearchTerms(variableWithName[field], searchTerms, searchMode)
-        );
-        
-        if (varMatches) return true;
-        return varData.categories?.some((cat: any) =>
-          searchableCatFields.some(field => matchesSearchTerms(cat[field], searchTerms, searchMode))
-        );
-      });
-    };
-    
-    return Object.entries(cohortsData as Record<string, Cohort>)
-      .filter(([key, value]) => {
-        // Apply metadata filters (study type, institution)
-        // The sidebar filter is labelled "Filter by study design" so it
-        // matches against study_design (Excel "Study Design" column), not
-        // study_type ("Study Type" column).
-        if (selectedStudyTypes.size > 0 && !selectedStudyTypes.has((value as any).study_design)) return false;
-        if (selectedInstitutes.size > 0 && !selectedInstitutes.has(value.institution)) return false;
-        
-        // No search terms - show all cohorts
-        if (searchTerms.length === 0) return true;
-        
-        if (searchScope === 'cohorts') {
-          return cohortMetadataMatches(key, value);
-        } else if (searchScope === 'variables') {
-          return variableMatches(value);
-        } else {
-          // 'all' scope - match if either cohort metadata OR variables match
-          return cohortMetadataMatches(key, value) || variableMatches(value);
-        }
-      })
-      .map(([, cohortData]) => cohortData);
-  }, [selectedStudyTypes, selectedInstitutes, cohortsData, searchScope, searchTerms, searchMode]);
+  const filteredCohorts = useMemo(
+    () =>
+      filterCohorts(cohortsData as Record<string, Cohort>, {
+        selectedStudyTypes,
+        selectedInstitutes,
+        searchTerms,
+        searchMode,
+        searchScope
+      }),
+    [selectedStudyTypes, selectedInstitutes, cohortsData, searchScope, searchTerms, searchMode]
+  );
   // NOTE: Filters work on ALL variables in the cohort, not just the search-matched ones.
 
   // Function to toggle between cache and SPARQL modes
@@ -1005,6 +765,8 @@ export default function CohortsList() {
           {filteredCohorts.map((cohortData: Cohort) => (
             <div
               key={cohortData.cohort_id}
+              id={cohortElementId(cohortData.cohort_id)}
+              data-testid={cohortElementId(cohortData.cohort_id)}
               className={`collapse card card-compact bg-base-100 shadow-xl ${!(Object.keys(cohortData.variables).length > 0) ? 'opacity-50' : ''}`}
             >
               <input 

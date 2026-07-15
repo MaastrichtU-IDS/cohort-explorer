@@ -2,6 +2,7 @@ import React, {useState, useEffect} from 'react';
 import {AutocompleteConceptProps, Concept} from '@/types';
 import {apiUrl} from '@/utils';
 import {useCohorts} from '@/components/CohortsContext';
+import {conceptMapElementId} from '@/utils/variableFiltering';
 
 const acceptedDomains = [
   'Condition',
@@ -56,6 +57,7 @@ const AutocompleteConcept: React.FC<AutocompleteConceptProps> = ({
   value = '',
   domain = '',
   index = '',
+  cohortId = '',
   tooltip = '',
   canEdit = false
 }: any) => {
@@ -134,12 +136,14 @@ const AutocompleteConcept: React.FC<AutocompleteConceptProps> = ({
     setIsUserInteracted(false);
   };
 
-  const autocompleteModalId = `autocomplete_concept_modal_${index}`;
+  const autocompleteModalId = `autocomplete_concept_modal_${cohortId ? `${cohortId}_` : ''}${index}`;
 
   return (
     <div>
       {canEdit && (
         <button
+          id={cohortId && index ? conceptMapElementId(cohortId, String(index)) : undefined}
+          data-testid={cohortId && index ? conceptMapElementId(cohortId, String(index)) : undefined}
           className={`badge badge-outline tooltip tooltip-bottom hover:bg-base-300 before:max-w-[10rem] before:content-[attr(data-tip)] before:whitespace-pre-wrap`}
           data-tip={tooltip}
           onClick={() => {

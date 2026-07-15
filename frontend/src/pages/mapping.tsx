@@ -1,131 +1,19 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
+import {
+  mappingTargetElementId,
+  parseMappingPreview,
+  projectMappingJson,
+  type MappingRow
+} from '@/utils/mappingPreview';
+import {
+  buildMappingGraph,
+  type MappingGraphEdge,
+  type MappingGraphNode
+} from '@/utils/mappingGraph';
 
-// Define the shape of our row data
-interface RowData {
-  [key: string]: string | number | boolean | null | undefined;
-}
-
-// Simple CSV line parser that handles quoted fields
-function parseCsvLine(line: string): string[] {
-  const result: string[] = [];
-  let current = '';
-  let inQuotes = false;
-  for (let i = 0; i < line.length; i++) {
-    const char = line[i];
-    if (char === '"') {
-      inQuotes = !inQuotes;
-    } else if (char === ',' && !inQuotes) {
-      result.push(current);
-      current = '';
-    } else {
-      current += char;
-    }
-  }
-  result.push(current);
-  return result;
-}
-
-// Transform CSV text from _full.csv pairs files into preview rows
-function transformCsvDataForPreview(csvText: string, cohorts: string[]): RowData[] {
-  const lines = csvText.trim().split('\n').filter(l => l.trim() !== '');
-  if (lines.length < 2) return [];
-  const headers = parseCsvLine(lines[0]).map(h => h.trim());
-  const targetStudy = cohorts && cohorts.length > 1 ? cohorts[1] : '';
-  return lines.slice(1).map(line => {
-    const values = parseCsvLine(line);
-    const csvRow: Record<string, string> = {};
-    headers.forEach((h, i) => { csvRow[h] = (values[i] || '').trim(); });
-    // Build source/target categories codes/labels
-    const sourceLabels = csvRow['source_categories_labels'] || '';
-    const sourceCodes = csvRow['source_original_categories'] || '';
-    const sourceCategoriesCodesLabels = sourceLabels && sourceCodes
-      ? `${sourceCodes} (${sourceLabels})` : sourceCodes || sourceLabels || '';
-    const targetLabels = csvRow['target_categories_labels'] || '';
-    const targetCodes = csvRow['target_original_categories'] || '';
-    const targetCategoriesCodesLabels = targetLabels && targetCodes
-      ? `${targetCodes} (${targetLabels})` : targetCodes || targetLabels || '';
-    // Start with all CSV columns as-is
-    const row: RowData = { ...csvRow };
-    // Normalize key fields to match expected RowData shape
-    row.s_source = csvRow['source'] || '';
-    row.s_label = csvRow['slabel'] || csvRow['source_label'] || '';
-    row.target_study = csvRow['target_study'] || targetStudy;
-    row.target = csvRow['target'] || '';
-    row.target_label = csvRow['tlabel'] || csvRow['target_label'] || '';
-    row.mapping_relation = csvRow['mapping_relation'] || csvRow['mapping type'] || '';
-    row.harmonization_status = csvRow['harmonization_status'] || '';
-    row.sim_score = csvRow['sim_score'] ? Number(csvRow['sim_score']) : null;
-    row.omop_domain = csvRow['category'] || '';
-    row.source_categories_codes_labels = sourceCategoriesCodesLabels;
-    row.target_categories_codes_labels = targetCategoriesCodesLabels;
-    return row;
-  }).filter(row => row.s_source || row.target);
-}
-
-// Helper function to extract relevant fields from the mapping JSON
-function transformMappingDataForPreview(jsonData: any): RowData[] {
-  let allMappings: RowData[] = [];
-  if (typeof jsonData !== 'object' || jsonData === null) {
-    return [];
-  }
-
-  Object.entries(jsonData).forEach(([sourceVar, value]: [string, any]) => {
-    if (value && Array.isArray(value.mappings)) {
-      const transformed = value.mappings.map((mapping: any) => {
-        // Support both old prefixed format (s_source, s_slabel, {target}_target)
-        // and new raw column format (source, slabel, target, tlabel)
-        const sourceLabels = mapping.s_source_categories_labels || mapping.source_categories_labels || '';
-        const sourceCodes = mapping.s_source_original_categories || mapping.source_original_categories || '';
-        const sourceCategoriesCodesLabels = sourceLabels && sourceCodes 
-          ? `${sourceCodes} (${sourceLabels})` 
-          : sourceLabels || sourceCodes || '';
-
-        const newRow: RowData = {
-          s_source: mapping.s_source || mapping.source || sourceVar,
-          s_label: mapping.s_slabel || mapping.slabel || mapping.source_label || '',
-          target_study: mapping.target_study,
-          harmonization_status: mapping.harmonization_status || 'pending',
-          source_categories_codes_labels: sourceCategoriesCodesLabels,
-          mapping_relation: mapping.mapping_relation || '',
-        };
-
-        // Find target fields — check raw keys first, then wildcard suffixes
-        let targetLabels = mapping.target_categories_labels || '';
-        let targetCodes = mapping.target_original_categories || '';
-        
-        newRow['target'] = mapping.target || '';
-        newRow['target_label'] = mapping.tlabel || mapping.target_label || '';
-
-        Object.keys(mapping).forEach(key => {
-          if (!newRow['target'] && key.endsWith('_target')) {
-            newRow['target'] = mapping[key];
-          } else if (!newRow['target_label'] && key.endsWith('_tlabel')) {
-            newRow['target_label'] = mapping[key];
-          } else if (!targetLabels && key.endsWith('_target_categories_labels')) {
-            targetLabels = mapping[key] || '';
-          } else if (!targetCodes && key.endsWith('_target_original_categories')) {
-            targetCodes = mapping[key] || '';
-          }
-        });
-        
-        // Construct target categories codes/labels
-        const targetCategoriesCodesLabels = targetLabels && targetCodes 
-          ? `${targetCodes} (${targetLabels})` 
-          : targetLabels || targetCodes || '';
-        newRow['target_categories_codes_labels'] = targetCategoriesCodesLabels;
-        newRow['omop_domain'] = mapping.category || '';
-        newRow['sim_score'] = mapping.sim_score != null ? Number(mapping.sim_score) : null;
-        
-        return newRow;
-      });
-      allMappings = allMappings.concat(transformed);
-    }
-  });
-
-  return allMappings;
-}
+type RowData = MappingRow;
 
 // Helper component for the mapping preview table
 interface MappingPreviewJsonTableProps {
@@ -360,8 +248,8 @@ const NODE_W = 168; const NODE_H = 40; const EXPAND_LINE_H = 11; const GAP = 5;
 const PAD_TOP = 28; const SVG_W = 920;
 const LEFT_X = 0; const RIGHT_X = SVG_W - NODE_W;
 
-interface GNode { id: string; varName: string; label: string; domain: string; uncovered?: boolean; categories?: string; }
-interface GEdge { srcId: string; tgtId: string; relation: string; status: string; sim: number; }
+type GNode = MappingGraphNode;
+type GEdge = MappingGraphEdge;
 
 function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]; sourceCohort: string; cohortsData: Record<string, any>; }) {
   const [activeSrcDomains, setActiveSrcDomains] = React.useState<string[]>([]);
@@ -413,62 +301,41 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
       setSelectedTarget(targetCohorts[0]);
   }, [targetCohorts, selectedTarget]);
 
-  const { srcNodes, tgtNodes, allEdges, srcDomains, tgtDomains, relations, srcEdgeCounts, tgtEdgeCounts, srcMaxM, tgtMaxM, relCounts, statusCounts } = React.useMemo(() => {
-    const tgtData = selectedTarget ? data.filter(r => r.target_study === selectedTarget) : data;
-    const srcLbl = new Map<string, string>(); const tgtLbl = new Map<string, string>();
-    const srcDomMap = new Map<string, string[]>(); const tgtDomMap = new Map<string, string[]>();
-    const srcCatsMap = new Map<string, string>(); const tgtCatsMap = new Map<string, string>();
-    const edges: GEdge[] = [];
-    for (const row of tgtData) {
-      const sid = row.s_source as string;
-      const tid = `${row.target_study}::${row.target}`;
-      const dom = ((row.omop_domain as string) || '').split('||')[0].trim().toLowerCase().replace(/ /g, '_');
-      if (!srcLbl.has(sid)) srcLbl.set(sid, row.s_label as string || '');
-      if (!tgtLbl.has(tid)) tgtLbl.set(tid, (row.target_label as string) || (row.target as string) || '');
-      if (!srcDomMap.has(sid)) srcDomMap.set(sid, []);
-      srcDomMap.get(sid)!.push(dom);
-      if (!tgtDomMap.has(tid)) tgtDomMap.set(tid, []);
-      tgtDomMap.get(tid)!.push(dom);
-      edges.push({ srcId: sid, tgtId: tid, relation: row.mapping_relation as string || '', status: row.harmonization_status as string || 'pending', sim: Number(row.sim_score) || 0.5 });
-      if (!srcCatsMap.has(sid) && row.source_categories_labels) srcCatsMap.set(sid, row.source_categories_labels as string);
-      if (!tgtCatsMap.has(tid) && row.target_categories_labels) tgtCatsMap.set(tid, row.target_categories_labels as string);
-    }
-    function modeDom(arr: string[]) {
-      const c: Record<string, number> = {};
-      for (const d of arr) c[d] = (c[d] || 0) + 1;
-      return Object.entries(c).sort((a, b) => b[1] - a[1])[0]?.[0] || '';
-    }
-    const sn: GNode[] = [...srcLbl.keys()].map(id => ({ id, varName: id, label: srcLbl.get(id)!, domain: modeDom(srcDomMap.get(id) || []), categories: srcCatsMap.get(id) }));
-    const tn: GNode[] = [...tgtLbl.keys()].map(id => ({ id, varName: id.split('::')[1] || id, label: tgtLbl.get(id)!, domain: modeDom(tgtDomMap.get(id) || []), categories: tgtCatsMap.get(id) }));
-    const srcEdgeCounts = new Map<string, number>();
-    const tgtEdgeCounts = new Map<string, number>();
-    for (const e of edges) {
-      srcEdgeCounts.set(e.srcId, (srcEdgeCounts.get(e.srcId) || 0) + 1);
-      tgtEdgeCounts.set(e.tgtId, (tgtEdgeCounts.get(e.tgtId) || 0) + 1);
-    }
-    const sv = [...srcEdgeCounts.values()]; const tv = [...tgtEdgeCounts.values()];
-    const srcMaxM = sv.length ? Math.max(...sv) : 0;
-    const tgtMaxM = tv.length ? Math.max(...tv) : 0;
-    const relCounts: Record<string, number> = {};
-    for (const e of edges) relCounts[e.relation] = (relCounts[e.relation] || 0) + 1;
-    const statusCounts: Record<string, number> = {};
-    for (const e of edges) statusCounts[e.status] = (statusCounts[e.status] || 0) + 1;
-    return { srcNodes: sn, tgtNodes: tn, allEdges: edges, srcDomains: [...new Set(sn.map(n => n.domain))].filter(Boolean).sort(), tgtDomains: [...new Set(tn.map(n => n.domain))].filter(Boolean).sort(), relations: [...new Set(edges.map(e => e.relation))].filter(Boolean).sort(), srcEdgeCounts, tgtEdgeCounts, srcMaxM, tgtMaxM, relCounts, statusCounts };
-  }, [data, selectedTarget]);
+  const {
+    sourceNodes: srcNodes,
+    targetNodes: tgtNodes,
+    edges: allEdges,
+    sourceDomains: srcDomains,
+    targetDomains: tgtDomains,
+    relations,
+    sourceEdgeCounts: srcEdgeCounts,
+    targetEdgeCounts: tgtEdgeCounts,
+    sourceMaxMappings: srcMaxM,
+    targetMaxMappings: tgtMaxM,
+    relationCounts: relCounts,
+    statusCounts
+  } = React.useMemo(
+    () =>
+      buildMappingGraph(data, {
+        sourceCohort,
+        targetCohort: selectedTarget || undefined
+      }),
+    [data, sourceCohort, selectedTarget]
+  );
 
   const { uncovSrc, uncovTgt } = React.useMemo(() => {
     if (varFilter === 'mapped') return { uncovSrc: [] as GNode[], uncovTgt: [] as GNode[] };
     const srcKey = Object.keys(cohortsData).find(k => k.toLowerCase() === sourceCohort.toLowerCase());
     const srcCohort = srcKey ? cohortsData[srcKey] : null;
-    const mappedSrc = new Set(allEdges.map(e => e.srcId.toLowerCase()));
-    const uncovSrc: GNode[] = srcCohort ? Object.keys(srcCohort.variables || {}).filter(k => !mappedSrc.has(k.toLowerCase())).map(k => ({ id: `__us_${k}`, varName: k, label: srcCohort.variables[k]?.var_label || k, domain: (((srcCohort.variables[k]?.omop_domain as string) || '').split('||')[0].trim().toLowerCase().replace(/ /g, '_')) || 'uncovered', uncovered: true })) : [];
+    const mappedSrc = new Set(allEdges.map(edge => edge.sourceVar.toLowerCase()));
+    const uncovSrc: GNode[] = srcCohort ? Object.keys(srcCohort.variables || {}).filter(k => !mappedSrc.has(k.toLowerCase())).map(k => ({ id: `__us_${k}`, varName: k, label: srcCohort.variables[k]?.var_label || k, domain: (((srcCohort.variables[k]?.omop_domain as string) || '').split('||')[0].trim().toLowerCase().replace(/ /g, '_')) || 'uncovered', cohortId: srcKey || sourceCohort, side: 'source', uncovered: true })) : [];
     const uncovTgt: GNode[] = [];
     if (selectedTarget) {
       const tgtKey = Object.keys(cohortsData).find(k => k.toLowerCase() === selectedTarget.toLowerCase());
       const tgtCohort = tgtKey ? cohortsData[tgtKey] : null;
       if (tgtCohort) {
-        const mappedTgt = new Set(allEdges.map(e => e.tgtId.split('::')[1].toLowerCase()));
-        Object.keys(tgtCohort.variables || {}).filter(k => !mappedTgt.has(k.toLowerCase())).forEach(k => uncovTgt.push({ id: `__ut_${k}`, varName: k, label: tgtCohort.variables[k]?.var_label || k, domain: (((tgtCohort.variables[k]?.omop_domain as string) || '').split('||')[0].trim().toLowerCase().replace(/ /g, '_')) || 'uncovered', uncovered: true }));
+        const mappedTgt = new Set(allEdges.map(edge => edge.targetVar.toLowerCase()));
+        Object.keys(tgtCohort.variables || {}).filter(k => !mappedTgt.has(k.toLowerCase())).forEach(k => uncovTgt.push({ id: `__ut_${k}`, varName: k, label: tgtCohort.variables[k]?.var_label || k, domain: (((tgtCohort.variables[k]?.omop_domain as string) || '').split('||')[0].trim().toLowerCase().replace(/ /g, '_')) || 'uncovered', cohortId: tgtKey || selectedTarget, side: 'target', uncovered: true }));
       }
     }
     return { uncovSrc, uncovTgt };
@@ -529,7 +396,7 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
     return visEdges.filter(e => sIds.has(e.srcId) && tIds.has(e.tgtId));
   }, [visEdges, searchedSrc, searchedTgt, searchQ]);
 
-  const getNodeH = React.useCallback((n: GNode, expanded: boolean) => {
+  const getNodeH = React.useCallback((n: {categories?: string}, expanded: boolean) => {
     if (!expanded || !n.categories) return NODE_H;
     return NODE_H + 4 + Math.min(n.categories.split('||').length, 5) * EXPAND_LINE_H;
   }, [expandedIds]);
@@ -696,9 +563,9 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
           {searchedEdges.map((e, i) => {
             const sy = srcY.get(e.srcId); const ty = tgtY.get(e.tgtId);
             if (sy == null || ty == null) return null;
-            const nh = getNodeH(searchedSrc.find(n => n.id === e.srcId) || { id: '', varName: '', label: '', domain: '' }, expandedIds.has(e.srcId));
+            const nh = getNodeH(searchedSrc.find(n => n.id === e.srcId) || {}, expandedIds.has(e.srcId));
             const x1 = LEFT_X + NODE_W; const y1 = sy + nh / 2;
-            const x2 = RIGHT_X;         const y2 = ty + getNodeH(searchedTgt.find(n => n.id === e.tgtId) || { id: '', varName: '', label: '', domain: '' }, expandedIds.has(e.tgtId)) / 2;
+            const x2 = RIGHT_X;         const y2 = ty + getNodeH(searchedTgt.find(n => n.id === e.tgtId) || {}, expandedIds.has(e.tgtId)) / 2;
             const mx = (x1 + x2) / 2;
             const highlighted = hoveredId ? hoveredEdgeKeys.has(`${e.srcId}::${e.tgtId}`) : true;
             const isHovE = hoveredEdge?.srcId === e.srcId && hoveredEdge?.tgtId === e.tgtId;
@@ -714,9 +581,9 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
                     // Find and set full row data for this edge
                     if (!isDeselecting) {
                       const rowData = data.find(r => 
-                        r.s_source === e.srcId && 
-                        r.target === e.tgtId.split('::')[1] && 
-                        r.target_study === e.tgtId.split('::')[0]
+                        r.s_source === e.sourceVar &&
+                        r.target === e.targetVar &&
+                        r.target_study === e.targetStudy
                       );
                       setSelectedEdgeData(rowData || null);
                     } else {
@@ -729,9 +596,9 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
                   opacity={highlighted ? (hoveredId ? 0.88 : 0.3) : 0.04} style={{ pointerEvents: 'none' }}
                 />
                 {isHovE && (() => {
-                  const srcVar = e.srcId;
-                  const tgtVar = e.tgtId.split('::')[1] || e.tgtId;
-                  const tgtStudy = e.tgtId.split('::')[0] || '';
+                  const srcVar = e.sourceVar;
+                  const tgtVar = e.targetVar;
+                  const tgtStudy = e.targetStudy;
                   const hasEda = edaAvail[sourceCohort] && edaAvail[tgtStudy];
                   const label = `${e.relation} · ${e.status}`;
                   const tw = label.length * 5.2 + 14;
@@ -817,9 +684,9 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
 
       {/* Edge detail panel with EDA comparison */}
       {selectedEdge && (() => {
-        const srcVar = selectedEdge.srcId;
-        const tgtVar = selectedEdge.tgtId.split('::')[1] || selectedEdge.tgtId;
-        const tgtStudy = selectedEdge.tgtId.split('::')[0] || '';
+        const srcVar = selectedEdge.sourceVar;
+        const tgtVar = selectedEdge.targetVar;
+        const tgtStudy = selectedEdge.targetStudy;
         const handleCompareEda = async () => {
           if (!sourceCohort || !srcVar || !tgtStudy || !tgtVar) return;
           setEdaLoading(true); setEdaError(null); setEdaImage(null);
@@ -978,10 +845,10 @@ export default function MappingPage() {
       let previewData: RowData[];
       if (file.filename.endsWith('.csv')) {
         const csvText = await response.text();
-        previewData = transformCsvDataForPreview(csvText, file.cohorts);
+        previewData = parseMappingPreview(csvText, file.cohorts).rows;
       } else {
         const jsonData = await response.json();
-        previewData = transformMappingDataForPreview(jsonData);
+        previewData = projectMappingJson(jsonData);
       }
       setMappingOutput(previewData);
       setViewMode('table');
@@ -1008,10 +875,10 @@ export default function MappingPage() {
       let previewData: RowData[];
       if (file.filename.endsWith('.csv')) {
         const csvText = await response.text();
-        previewData = transformCsvDataForPreview(csvText, file.cohorts);
+        previewData = parseMappingPreview(csvText, file.cohorts).rows;
       } else {
         const jsonData = await response.json();
-        previewData = transformMappingDataForPreview(jsonData);
+        previewData = projectMappingJson(jsonData);
       }
       setMappingOutput(previewData);
       setViewMode('graph');
@@ -1203,7 +1070,7 @@ export default function MappingPage() {
       // Handle preview by parsing the cleaned file content
       try {
         const jsonData = JSON.parse(cleanedFileContent);
-        const previewData = transformMappingDataForPreview(jsonData);
+        const previewData = projectMappingJson(jsonData);
         setMappingOutput(previewData);
         // Select all harmonization statuses by default
         const allStatuses = [...new Set(previewData.map(r => (r.harmonization_status?.toString() || '--')))];
@@ -1287,6 +1154,8 @@ export default function MappingPage() {
               )}
             </label>
             <input
+              id="mapping-source"
+              data-testid="mapping-source"
               type="text"
               placeholder="Type to search..."
               className="input input-bordered input-sm w-full mb-1"
@@ -1338,6 +1207,8 @@ export default function MappingPage() {
                   return (
                     <label key={cohortId} className="cursor-pointer flex items-center gap-2 py-0.5 text-sm">
                       <input
+                        id={mappingTargetElementId(cohortId)}
+                        data-testid={mappingTargetElementId(cohortId)}
                         type="checkbox"
                         className="checkbox checkbox-xs"
                         checked={checked}
@@ -1483,6 +1354,8 @@ export default function MappingPage() {
 
         <div className="text-center mt-8" ref={mapButtonRef}>
           <button
+            id="generate-mapping"
+            data-testid="generate-mapping"
             className="btn btn-primary"
             onClick={handleMapConcepts}
             disabled={!sourceCohort || selectedTargets.length === 0 || loading}
@@ -1614,6 +1487,8 @@ export default function MappingPage() {
         {/* Mapping Preview - wider container, breaks out of max-w-6xl constraint */}
         {mappingOutput && (
           <div 
+            id="mapping-preview"
+            data-testid="mapping-preview"
             ref={mappingOutputRef}
             className="mt-4 p-4 border rounded-lg bg-base-100 w-[85vw] mx-auto animate-slide-up"
             style={{ animation: 'slideUp 0.4s ease-out' }}
@@ -1623,8 +1498,8 @@ export default function MappingPage() {
             {/* View mode toggle */}
             <div className="flex items-center justify-center gap-2 mb-3 mt-1">
               <div className="join">
-                <button className={`join-item btn btn-lg ${viewMode === 'table' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setViewMode('table')}>⊞ Table</button>
-                <button className={`join-item btn btn-lg ${viewMode === 'graph' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setViewMode('graph')}>⬡ Graph</button>
+                <button id="mapping-view-table" data-testid="mapping-view-table" className={`join-item btn btn-lg ${viewMode === 'table' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setViewMode('table')}>⊞ Table</button>
+                <button id="mapping-view-graph" data-testid="mapping-view-graph" className={`join-item btn btn-lg ${viewMode === 'graph' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setViewMode('graph')}>⬡ Graph</button>
               </div>
             </div>
 

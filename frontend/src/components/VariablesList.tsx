@@ -4,9 +4,18 @@ import AutocompleteConcept from '@/components/AutocompleteConcept';
 import FilterByMetadata from '@/components/FilterByMetadata';
 import VariableGraphModal from '@/components/VariableGraphModal';
 import {InfoIcon} from '@/components/Icons';
-import {Concept, Variable} from '@/types';
+import {Concept} from '@/types';
 import {apiUrl} from '@/utils';
-import {parseSearchQuery, searchInObject, highlightSearchTerms} from '@/utils/search';
+import {highlightSearchTerms} from '@/utils/search';
+import {
+  buildSourceDisplayMap,
+  filterVariables,
+  filterVariablesBySource,
+  getSourceTabs,
+  parseVariableSources,
+  resolveVariableSearchTerms,
+  variableElementId
+} from '@/utils/variableFiltering';
 
 // Helper component to render highlighted text
 const HighlightedText = ({text, searchTerms, searchMode}: {text: string, searchTerms: string[], searchMode?: 'or' | 'and' | 'exact'}) => {
@@ -175,129 +184,31 @@ const VariablesList = ({
   });
 
   // Get search configuration from props - simple space-separated terms
-  const searchTerms = useMemo(() => {
-    if (searchFilters.searchTerms) {
-      return searchFilters.searchTerms;
-    }
-    if (searchFilters.searchQuery) {
-      // Simple split on spaces, trim, and filter out empty strings
-      return searchFilters.searchQuery
-        .split(' ')
-        .map((term: string) => term.trim())
-        .filter((term: string) => term.length > 0);
-    }
-    return [];
-  }, [searchFilters.searchTerms, searchFilters.searchQuery]);
+  const searchTerms = useMemo(
+    () => resolveVariableSearchTerms(searchFilters.searchTerms, searchFilters.searchQuery),
+    [searchFilters.searchTerms, searchFilters.searchQuery]
+  );
   
   const searchMode = searchFilters.searchMode || 'or';
-
-  // Helper function to check if a variable matches search terms
-  const variableMatchesSearch = (variableName: string, variableData: any): boolean => {
-    if (searchTerms.length === 0) return true;
-    
-    const searchableVarFields = ['var_name', 'var_label', 'concept_name', 'mapped_label', 'omop_domain', 'concept_code', 'omop_id'];
-    const searchableCatFields = ['value', 'label', 'mapped_label'];
-    const variableWithName = { ...variableData, var_name: variableName };
-    
-    // Check variable fields
-    for (const field of searchableVarFields) {
-      const fieldValue = variableWithName[field];
-      if (fieldValue != null) {
-        const fieldText = String(fieldValue).toLowerCase();
-        if (searchMode === 'exact') {
-          if (fieldText.includes(searchTerms.join(' ').toLowerCase())) return true;
-        } else if (searchMode === 'and') {
-          if (searchTerms.every(term => fieldText.includes(term.toLowerCase()))) return true;
-        } else {
-          if (searchTerms.some(term => fieldText.includes(term.toLowerCase()))) return true;
-        }
-      }
-    }
-    
-    // Check categories
-    if (variableData.categories) {
-      for (const category of variableData.categories) {
-        for (const field of searchableCatFields) {
-          const fieldValue = category[field];
-          if (fieldValue != null) {
-            const fieldText = String(fieldValue).toLowerCase();
-            if (searchMode === 'exact') {
-              if (fieldText.includes(searchTerms.join(' ').toLowerCase())) return true;
-            } else if (searchMode === 'and') {
-              if (searchTerms.every(term => fieldText.includes(term.toLowerCase()))) return true;
-            } else {
-              if (searchTerms.some(term => fieldText.includes(term.toLowerCase()))) return true;
-            }
-          }
-        }
-      }
-    }
-    
-    return false;
-  };
 
   // Filter variables based on filters and search (when searchScope is 'variables')
   // When searchScope is 'variables', only show matching variables
   // Otherwise, show all variables and use search only for highlighting
-  const filteredVars = useMemo(() => {
-    if (cohortsData && cohortsData[cohortId]) {
-      return Object.entries(cohortsData[cohortId]['variables'])
-        .filter(
-          ([variableName, variableData]: any) => {
-            // When searchScope is 'variables', filter by search terms
-            if (searchFilters.searchScope === 'variables' && searchTerms.length > 0) {
-              if (!variableMatchesSearch(variableName, variableData)) return false;
-            }
-            
-            // Filter by outcome keywords if enabled
-            if (showOnlyOutcomes) {
-              const outcomeKeywords = ['outcome', 'endpoint', 'end point'];
-              const searchableFields = ['var_name', 'var_label', 'concept_name', 'mapped_label', 'omop_domain', 'concept_code', 'omop_id'];
-              
-              // Add variable name to the data for searching
-              const variableWithName = { ...variableData, var_name: variableName };
-              
-              // Check if any searchable field contains any outcome keyword
-              let hasOutcomeKeyword = false;
-              for (const field of searchableFields) {
-                const fieldValue = variableWithName[field];
-                if (fieldValue != null) {
-                  const fieldText = String(fieldValue).toLowerCase();
-                  if (outcomeKeywords.some(keyword => fieldText.includes(keyword))) {
-                    hasOutcomeKeyword = true;
-                    break;
-                  }
-                }
-              }
-              
-              if (!hasOutcomeKeyword) return false;
-            }
-            
-            // Apply other filters
-            const passesOMOPFilter = selectedOMOPDomains.size === 0 || selectedOMOPDomains.has(variableData.omop_domain);
-            const passesDataTypeFilter = selectedDataTypes.size === 0 || selectedDataTypes.has(variableData.var_type);
-            const passesVisitTypeFilter = selectedVisitTypes.size === 0 || selectedVisitTypes.has(variableData.visits);
-            
-            // Category filter logic
-            let passesCategoryFilter = true;
-            if (selectedCategoryTypes.size > 0) {
-              const catCount = variableData.categories.length;
-              passesCategoryFilter = false;
-              if (selectedCategoryTypes.has('Non-categorical') && catCount === 0) passesCategoryFilter = true;
-              if (selectedCategoryTypes.has('All categorical') && catCount > 0) passesCategoryFilter = true;
-              if (selectedCategoryTypes.has('2 categories') && catCount === 2) passesCategoryFilter = true;
-              if (selectedCategoryTypes.has('3 categories') && catCount === 3) passesCategoryFilter = true;
-              if (selectedCategoryTypes.has('4+ categories') && catCount >= 4) passesCategoryFilter = true;
-            }
-            
-            return passesOMOPFilter && passesDataTypeFilter && passesCategoryFilter && passesVisitTypeFilter;
-          }
-        )
-        .map(([variableName, variableData]: any) => ({...variableData, var_name: variableName}));
-    } else {
-      return [];
-    }
-  }, [
+  const filteredVars = useMemo(
+    () =>
+      cohortsData?.[cohortId]
+        ? filterVariables(cohortsData[cohortId].variables, {
+            selectedOMOPDomains,
+            selectedDataTypes,
+            selectedCategoryTypes,
+            selectedVisitTypes,
+            showOnlyOutcomes,
+            searchScope: searchFilters.searchScope,
+            searchTerms,
+            searchMode
+          })
+        : [],
+    [
     cohortsData,
     cohortId,
     selectedOMOPDomains,
@@ -308,49 +219,21 @@ const VariablesList = ({
     searchFilters.searchScope,
     searchTerms,
     searchMode
-  ]);
-
-  // Helper: parse a variable's source_name into an array of capitalized source keys
-  const parseSources = (sourceName: string | null | undefined): string[] => {
-    if (!sourceName) return [];
-    return sourceName.split('|').map(s => s.trim().toUpperCase()).filter(Boolean);
-  };
+    ]
+  );
 
   // Build a map from source key (SOURCENAME, uppercased) → display label (SOURCE LABEL or fallback)
-  const sourceDisplayMap = useMemo(() => {
-    const map: Record<string, string> = {};
-    filteredVars.forEach((variable: any) => {
-      const keys = parseSources(variable.source_name);
-      const labels = variable.source_label
-        ? variable.source_label.split('|').map((s: string) => s.trim()).filter(Boolean)
-        : [];
-      keys.forEach((key, idx) => {
-        if (!map[key]) {
-          // Use source_label at same pipe-index if available, otherwise fall back to key
-          map[key] = labels[idx] || key;
-        }
-      });
-    });
-    return map;
-  }, [filteredVars]);
+  const sourceDisplayMap = useMemo(() => buildSourceDisplayMap(filteredVars), [filteredVars]);
 
   // Compute unique source keys from the filtered variables (for multi-source cohorts)
-  const sourceTabs = useMemo(() => {
-    const sources = new Set<string>();
-    filteredVars.forEach((variable: any) => {
-      parseSources(variable.source_name).forEach(s => sources.add(s));
-    });
-    // Only show tabs if there are 2+ distinct sources
-    return sources.size >= 2 ? Array.from(sources).sort() : [];
-  }, [filteredVars]);
+  const sourceTabs = useMemo(() => getSourceTabs(filteredVars), [filteredVars]);
 
   // Variables to display: filtered by active source tab (if tabs exist)
   // A variable belongs to a tab if any of its pipe-separated sources matches
-  const displayedVars = useMemo(() => {
-    if (sourceTabs.length === 0) return filteredVars;
-    if (!activeSourceTab || activeSourceTab === '__all__') return filteredVars;
-    return filteredVars.filter((v: any) => parseSources(v.source_name).includes(activeSourceTab));
-  }, [filteredVars, sourceTabs, activeSourceTab]);
+  const displayedVars = useMemo(
+    () => filterVariablesBySource(filteredVars, sourceTabs, activeSourceTab),
+    [filteredVars, sourceTabs, activeSourceTab]
+  );
 
   // Handle tab switching with animation
   const handleSourceTabClick = (tab: string) => {
@@ -554,7 +437,9 @@ const VariablesList = ({
               {/* Source tabs — overlapping paper-folder style */}
               {sourceTabs.map((source, idx) => {
                 const isActive = activeSourceTab === source;
-                const count = filteredVars.filter((v: any) => parseSources(v.source_name).includes(source)).length;
+                const count = filteredVars.filter((variable: any) =>
+                  parseVariableSources(variable.source_name).includes(source)
+                ).length;
                 return (
                   <button
                     key={source}
@@ -584,6 +469,8 @@ const VariablesList = ({
           {displayedVars?.map((variable: any, varIdx: number) => (
             <div
               key={variable.var_name}
+              id={variableElementId(cohortId, variable.var_name)}
+              data-testid={variableElementId(cohortId, variable.var_name)}
               className="card card-compact card-bordered bg-base-100 shadow-xl"
               style={{
                 animation: !isTabSwitching ? `varFadeIn 0.3s ease-out ${varIdx * 0.03}s both` : 'none',
@@ -609,7 +496,8 @@ const VariablesList = ({
                       query={variable.var_label}
                       value={variable.mapped_id || variable.concept_id}
                       domain={variable.omop_domain}
-                      index={`${cohortId}_${variable.index}`}
+                      index={variable.var_name}
+                      cohortId={cohortId}
                       tooltip={variable.mapped_label || variable.mapped_id || variable.concept_id}
                       onSelect={(concept: any) => handleConceptSelect(variable.var_name, concept)}
                       canEdit={cohortsData[cohortId].can_edit}
@@ -677,7 +565,8 @@ const VariablesList = ({
                             query={variable.var_label}
                             value={variable.mapped_id || variable.concept_id}
                             domain={variable.omop_domain}
-                            index={`${cohortId}_${variable.index}_inside`}
+                            index={`${variable.var_name}-inside`}
+                            cohortId={cohortId}
                             tooltip={variable.mapped_label || variable.mapped_id || variable.concept_id}
                             onSelect={(concept: any) => handleConceptSelect(variable.var_name, concept)}
                             canEdit={cohortsData[cohortId].can_edit}
@@ -720,7 +609,8 @@ const VariablesList = ({
                                 <td>
                                   <AutocompleteConcept
                                     query={option.label}
-                                    index={`${cohortId}_${variable.index}_category_${index}`}
+                                    index={`${variable.var_name}-category-${index}`}
+                                    cohortId={cohortId}
                                     value={option.mapped_id || option.concept_id}
                                     tooltip={option.mapped_label || option.mapped_id || option.concept_id}
                                     onSelect={concept => handleConceptSelect(variable.var_name, concept, index)}

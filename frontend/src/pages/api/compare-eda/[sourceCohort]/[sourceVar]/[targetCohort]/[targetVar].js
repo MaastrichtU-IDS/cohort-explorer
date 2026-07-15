@@ -1,3 +1,5 @@
+import {resolveServerApiUrl} from '@/utils/apiUrls';
+
 export default async function handler(req, res) {
   const { sourceCohort, sourceVar, targetCohort, targetVar } = req.query;
   
@@ -5,7 +7,7 @@ export default async function handler(req, res) {
   
   try {
     // Get the API URL from environment or use default
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+    const apiUrl = resolveServerApiUrl(process.env);
     const backendUrl = `${apiUrl}/api/compare-eda/${sourceCohort}/${sourceVar}/${targetCohort}/${targetVar}`;
     
     console.log('Fetching from backend:', backendUrl);
