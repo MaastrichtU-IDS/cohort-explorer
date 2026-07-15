@@ -7,7 +7,7 @@ DEMO_STATE_DIR="${DEMO_STATE_ROOT}/${DEMO_NAMESPACE}"
 DEMO_RUNTIME_ENV="${DEMO_STATE_DIR}/runtime.env"
 DEMO_DEFAULT_AADCRV2_REPO="$(cd "${DEMO_ROOT}/.." && pwd)/delta-aadcrv2"
 DEMO_AADCRV2_BASE_COMMIT="f13ef54fc3f0f56dae185d4aa35c6dff01ee8839"
-DEMO_AADCRV2_REQUIRED_COMMIT="cc82d753b73f5c46d58fe7022f69c7989cea86d0"
+DEMO_AADCRV2_REQUIRED_COMMIT="08993663db8084b145d70d369309e82f7080b0f7"
 DEMO_AADCRV2_BACKEND_RELATIVE="avato-backend/frontend/decentriq-platform/src/features/aadcrv2/backend"
 
 demo_die() {
@@ -64,6 +64,8 @@ demo_runtime_value() {
 
 demo_validate_aadcr_checkout() {
   local aadcr_repo
+  local actual_head
+  local dirty_state
   aadcr_repo="$(demo_runtime_value AADCRV2_REPO_DIR)"
   [[ -e "${aadcr_repo}/.git" ]] || demo_die "AADCRV2_REPO_DIR is not a Git checkout: ${aadcr_repo}" || return 1
   [[ -f "${aadcr_repo}/${DEMO_AADCRV2_BACKEND_RELATIVE}/pyproject.toml" ]] || \
@@ -74,8 +76,12 @@ demo_validate_aadcr_checkout() {
     demo_die "AADCR checkout HEAD does not descend from ${DEMO_AADCRV2_BASE_COMMIT}" || return 1
   git -C "${aadcr_repo}" cat-file -e "${DEMO_AADCRV2_REQUIRED_COMMIT}^{commit}" 2>/dev/null || \
     demo_die "required reviewed AADCR integration commit ${DEMO_AADCRV2_REQUIRED_COMMIT} is missing" || return 1
-  git -C "${aadcr_repo}" merge-base --is-ancestor "${DEMO_AADCRV2_REQUIRED_COMMIT}" HEAD || \
-    demo_die "AADCR checkout HEAD does not include reviewed integration ${DEMO_AADCRV2_REQUIRED_COMMIT}" || return 1
+  actual_head="$(git -C "${aadcr_repo}" rev-parse HEAD)" || return 1
+  [[ "${actual_head}" == "${DEMO_AADCRV2_REQUIRED_COMMIT}" ]] || \
+    demo_die "AADCR checkout HEAD ${actual_head} is not the reviewed commit ${DEMO_AADCRV2_REQUIRED_COMMIT}" || return 1
+  dirty_state="$(git -C "${aadcr_repo}" status --porcelain --untracked-files=all)" || return 1
+  [[ -z "${dirty_state}" ]] || \
+    demo_die "AADCR checkout contains tracked or untracked changes; use the exact clean reviewed commit" || return 1
 }
 
 demo_compose() {

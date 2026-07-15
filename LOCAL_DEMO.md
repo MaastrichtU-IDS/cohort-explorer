@@ -23,7 +23,7 @@ The demo provides:
 The launch scripts fail closed unless the AADCR checkout descends from both:
 
 - `davstur/aadcrv2` baseline `f13ef54fc3f0f56dae185d4aa35c6dff01ee8839`; and
-- reviewed local integration `cc82d753b73f5c46d58fe7022f69c7989cea86d0`.
+- exact clean reviewed integration `08993663db8084b145d70d369309e82f7080b0f7`.
 
 The default adjacent checkouts are:
 

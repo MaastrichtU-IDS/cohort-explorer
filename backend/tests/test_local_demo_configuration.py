@@ -19,7 +19,7 @@ DELTA_ROOT = Path(
 DOCKER = shutil.which("docker") or "/usr/local/bin/docker"
 GIT = shutil.which("git") or "/usr/bin/git"
 DELTA_BACKEND = "avato-backend/frontend/decentriq-platform/src/features/aadcrv2/backend"
-REQUIRED_AADCR_COMMIT = "cc82d753b73f5c46d58fe7022f69c7989cea86d0"
+REQUIRED_AADCR_COMMIT = "08993663db8084b145d70d369309e82f7080b0f7"
 
 
 def _load_demo_seed_module():
@@ -248,11 +248,13 @@ def test_demo_compose_uses_the_validated_runtime_paths_not_later_shell_overrides
     )
 
 
-def test_demo_common_pins_the_reviewed_aadcr_integration_commit():
+def test_demo_common_requires_the_exact_clean_reviewed_aadcr_checkout():
     script = (ROOT / "scripts" / "demo-common.sh").read_text(encoding="utf-8")
 
     assert f'DEMO_AADCRV2_REQUIRED_COMMIT="{REQUIRED_AADCR_COMMIT}"' in script
-    assert 'merge-base --is-ancestor "${DEMO_AADCRV2_REQUIRED_COMMIT}" HEAD' in script
+    assert 'actual_head="$(git -C "${aadcr_repo}" rev-parse HEAD)"' in script
+    assert '[[ "${actual_head}" == "${DEMO_AADCRV2_REQUIRED_COMMIT}" ]]' in script
+    assert 'status --porcelain --untracked-files=all' in script
 
 
 def test_wait_script_names_the_probe_that_never_becomes_ready():
