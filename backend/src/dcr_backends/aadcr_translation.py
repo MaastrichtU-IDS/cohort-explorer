@@ -3,10 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
+import io
 import json
+import stat
+import struct
+import zipfile
+from collections.abc import Awaitable
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any
+from pathlib import Path, PurePosixPath
+from typing import Any, Callable
 
 from fastapi import HTTPException
 
@@ -16,6 +23,8 @@ from src.dcr_backends.aadcr_client import AadcrUpstreamError
 METADATA_PREVIEW_NODE_NAME = "metadata-preview-local-simulation"
 AGGREGATE_NODE_NAME = "aggregate-summary-local-simulation"
 PROVIDER_NAME = "aadcrv2"
+
+ConfirmationCallback = Callable[[str, str], Awaitable[None]]
 
 
 class DcrOperationError(HTTPException):
@@ -587,6 +596,36 @@ def _required_string(payload: Any, key: str, *, failed_step: str, dcr_id: str | 
     return value
 
 
+def _safe_api_identifier(value: str, *, failed_step: str, dcr_id: str | None = None) -> str:
+    if (
+        not value
+        or len(value) > 255
+        or value in {".", ".."}
+        or any(character in value for character in "/\\?#")
+        or any(ord(character) < 32 for character in value)
+    ):
+        raise DcrOperationError(
+            detail="AADCR returned an invalid API identifier",
+            failed_step=failed_step,
+            dcr_id=dcr_id,
+        )
+    return value
+
+
+def _required_api_identifier(
+    payload: Any,
+    key: str,
+    *,
+    failed_step: str,
+    dcr_id: str | None = None,
+) -> str:
+    return _safe_api_identifier(
+        _required_string(payload, key, failed_step=failed_step, dcr_id=dcr_id),
+        failed_step=failed_step,
+        dcr_id=dcr_id,
+    )
+
+
 def _collect_dev_change_ids(dev_view: Any, expected_count: int, dcr_id: str) -> list[str]:
     if not isinstance(dev_view, dict):
         raise DcrOperationError(
@@ -734,125 +773,306 @@ def _content_type(path: Path) -> str:
     return "text/csv"
 
 
+def _confirmed_merge_request_id(confirmed_steps: set[str]) -> str | None:
+    prefix = "merge_requested:"
+    matches = [step[len(prefix) :] for step in confirmed_steps if step.startswith(prefix)]
+    if len(matches) > 1 or (matches and not matches[0]):
+        raise DcrOperationError(
+            detail="The operation journal contains ambiguous merge state",
+            failed_step="resume operation",
+        )
+    return _safe_api_identifier(matches[0], failed_step="resume operation") if matches else None
+
+
+def _index_dev_items(
+    items: Any,
+    *,
+    collection_name: str,
+    identity_key: str,
+    failed_step: str,
+    dcr_id: str,
+) -> dict[str, str]:
+    if not isinstance(items, list):
+        raise DcrOperationError(
+            detail=f"AADCR DEV view omitted {collection_name}",
+            failed_step=failed_step,
+            dcr_id=dcr_id,
+        )
+    indexed: dict[str, str] = {}
+    duplicates: set[str] = set()
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        identity = item.get(identity_key)
+        item_id = item.get("id")
+        if identity_key == "userEmail":
+            identity = _normalize_email(identity)
+        if not isinstance(identity, str) or not identity or not isinstance(item_id, str) or not item_id:
+            continue
+        if identity in indexed:
+            duplicates.add(identity)
+        indexed[identity] = item_id
+    if duplicates:
+        raise DcrOperationError(
+            detail=f"AADCR DEV view contains duplicate {collection_name}: {', '.join(sorted(duplicates))}",
+            failed_step=failed_step,
+            dcr_id=dcr_id,
+        )
+    return indexed
+
+
+def _existing_permission_keys(
+    permissions: Any,
+    *,
+    participant_ids: dict[str, str],
+    data_node_ids: dict[str, str],
+    computation_node_ids: dict[str, str],
+    dcr_id: str,
+) -> set[tuple[str, str, str]]:
+    if not isinstance(permissions, list):
+        raise DcrOperationError(
+            detail="AADCR DEV view omitted permissions",
+            failed_step="resume DEV graph",
+            dcr_id=dcr_id,
+        )
+    participants_by_id = {participant_id: email for email, participant_id in participant_ids.items()}
+    nodes_by_id = {
+        **{node_id: name for name, node_id in data_node_ids.items()},
+        **{node_id: name for name, node_id in computation_node_ids.items()},
+    }
+    keys: set[tuple[str, str, str]] = set()
+    for permission in permissions:
+        if not isinstance(permission, dict):
+            continue
+        permission_type = permission.get("type") or permission.get("permissionType")
+        email = permission.get("userEmail")
+        node_name = permission.get("resourceName")
+        if not isinstance(email, str):
+            email = participants_by_id.get(str(permission.get("participantId") or ""))
+        if not isinstance(node_name, str):
+            node_name = nodes_by_id.get(str(permission.get("nodeId") or ""))
+        normalized_email = _normalize_email(email)
+        if (
+            isinstance(permission_type, str)
+            and permission_type
+            and normalized_email
+            and isinstance(node_name, str)
+            and node_name
+        ):
+            keys.add((permission_type, normalized_email, node_name))
+    return keys
+
+
+async def _confirm_step(
+    callback: ConfirmationCallback | None,
+    step: str,
+    dcr_id: str,
+) -> None:
+    if callback is not None:
+        await callback(step, dcr_id)
+
+
 async def create_aadcr_room(
     client: Any,
     plan: RoomPlan,
     *,
     merge_poll_attempts: int,
     merge_poll_interval: float,
+    resume_dcr_id: str | None = None,
+    confirmed_steps: set[str] | frozenset[str] = frozenset(),
+    on_confirm: ConfirmationCallback | None = None,
 ) -> CreationOutcome:
-    """Execute one native create -> DEV -> merge -> PROD -> provision flow."""
-    dcr_id: str | None = None
+    """Execute or resume one native create -> DEV -> merge -> provision flow."""
+    dcr_id = _safe_api_identifier(resume_dcr_id, failed_step="resume operation") if resume_dcr_id is not None else None
+    durable_steps = set(confirmed_steps)
     try:
-        room = await client.request_json(
-            "POST",
-            "/api/dcr/",
-            failed_step="create DCR",
-            json_body={"name": plan.title},
-        )
-        dcr_id = _required_string(room, "id", failed_step="create DCR")
+        if dcr_id is None:
+            room = await client.request_json(
+                "POST",
+                "/api/dcr/",
+                failed_step="create DCR",
+                json_body={"name": plan.title},
+            )
+            dcr_id = _required_api_identifier(room, "id", failed_step="create DCR")
+            await _confirm_step(on_confirm, "room_created", dcr_id)
+            durable_steps.add("room_created")
         dev_root = f"/api/dcr/{dcr_id}/dev"
 
-        participant_ids: dict[str, str] = {}
-        for email in plan.participant_emails:
-            response = await client.request_json(
-                "POST",
-                f"{dev_root}/participants",
-                failed_step="add DEV participant",
-                json_body={"userEmail": email},
-            )
-            participant_ids[email] = _required_string(
-                response,
-                "id",
-                failed_step="add DEV participant",
-                dcr_id=dcr_id,
-            )
+        merge_request_id = _confirmed_merge_request_id(durable_steps)
+        if "merged" not in durable_steps and merge_request_id is None:
+            if resume_dcr_id is None:
+                participant_ids: dict[str, str] = {}
+                dev_data_ids: dict[str, str] = {}
+                dev_computation_ids: dict[str, str] = {}
+                existing_permissions: set[tuple[str, str, str]] = set()
+            else:
+                existing_view = await client.request_json(
+                    "GET",
+                    f"{dev_root}/view",
+                    failed_step="resume DEV graph",
+                )
+                if not isinstance(existing_view, dict):
+                    raise DcrOperationError(
+                        detail="AADCR DEV view was not an object",
+                        failed_step="resume DEV graph",
+                        dcr_id=dcr_id,
+                    )
+                participant_ids = _index_dev_items(
+                    existing_view.get("participants"),
+                    collection_name="participants",
+                    identity_key="userEmail",
+                    failed_step="resume DEV graph",
+                    dcr_id=dcr_id,
+                )
+                dev_data_ids = _index_dev_items(
+                    existing_view.get("data_nodes"),
+                    collection_name="data nodes",
+                    identity_key="name",
+                    failed_step="resume DEV graph",
+                    dcr_id=dcr_id,
+                )
+                dev_computation_ids = _index_dev_items(
+                    existing_view.get("computation_nodes"),
+                    collection_name="computation nodes",
+                    identity_key="name",
+                    failed_step="resume DEV graph",
+                    dcr_id=dcr_id,
+                )
+                existing_permissions = _existing_permission_keys(
+                    existing_view.get("permissions"),
+                    participant_ids=participant_ids,
+                    data_node_ids=dev_data_ids,
+                    computation_node_ids=dev_computation_ids,
+                    dcr_id=dcr_id,
+                )
 
-        dev_data_ids: dict[str, str] = {}
-        for node in plan.data_nodes:
-            response = await client.request_json(
-                "POST",
-                f"{dev_root}/data-nodes",
-                failed_step="add DEV data node",
-                json_body={"name": node.name, "type": node.type},
-            )
-            dev_data_ids[node.name] = _required_string(
-                response,
-                "id",
-                failed_step="add DEV data node",
-                dcr_id=dcr_id,
-            )
+            for email in plan.participant_emails:
+                if email in participant_ids:
+                    continue
+                response = await client.request_json(
+                    "POST",
+                    f"{dev_root}/participants",
+                    failed_step="add DEV participant",
+                    json_body={"userEmail": email},
+                )
+                participant_ids[email] = _required_string(
+                    response,
+                    "id",
+                    failed_step="add DEV participant",
+                    dcr_id=dcr_id,
+                )
 
-        dev_computation_ids: dict[str, str] = {}
-        for node in plan.computation_nodes:
-            try:
-                data_dependencies = [dev_data_ids[name] for name in node.data_dependencies]
-                computation_dependencies = [dev_computation_ids[name] for name in node.computation_dependencies]
-            except KeyError as exc:
-                raise DcrOperationError(
-                    detail=f"Computation dependency {exc.args[0]} was not created in DEV",
+            for node in plan.data_nodes:
+                if node.name in dev_data_ids:
+                    continue
+                response = await client.request_json(
+                    "POST",
+                    f"{dev_root}/data-nodes",
+                    failed_step="add DEV data node",
+                    json_body={"name": node.name, "type": node.type},
+                )
+                dev_data_ids[node.name] = _required_string(
+                    response,
+                    "id",
+                    failed_step="add DEV data node",
+                    dcr_id=dcr_id,
+                )
+
+            for node in plan.computation_nodes:
+                if node.name in dev_computation_ids:
+                    continue
+                try:
+                    data_dependencies = [dev_data_ids[name] for name in node.data_dependencies]
+                    computation_dependencies = [dev_computation_ids[name] for name in node.computation_dependencies]
+                except KeyError as exc:
+                    raise DcrOperationError(
+                        detail=f"Computation dependency {exc.args[0]} was not created in DEV",
+                        failed_step="add DEV computation node",
+                        dcr_id=dcr_id,
+                    ) from None
+                response = await client.request_json(
+                    "POST",
+                    f"{dev_root}/computation-nodes",
+                    failed_step="add DEV computation node",
+                    json_body={
+                        "name": node.name,
+                        "code": node.code,
+                        "dataDependencies": data_dependencies,
+                        "computationDependencies": computation_dependencies,
+                    },
+                )
+                dev_computation_ids[node.name] = _required_string(
+                    response,
+                    "id",
                     failed_step="add DEV computation node",
                     dcr_id=dcr_id,
-                ) from None
-            response = await client.request_json(
+                )
+
+            for permission in plan.permissions:
+                permission_key = (permission.type, permission.email, permission.node_name)
+                if permission_key in existing_permissions:
+                    continue
+                node_ids = dev_data_ids if permission.type == "DATA_OWNER" else dev_computation_ids
+                await client.request_json(
+                    "POST",
+                    f"{dev_root}/permissions",
+                    failed_step="add DEV permission",
+                    json_body={
+                        "type": permission.type,
+                        "participantId": participant_ids[permission.email],
+                        "nodeId": node_ids[permission.node_name],
+                    },
+                )
+                existing_permissions.add(permission_key)
+
+            dev_view = await client.request_json(
+                "GET",
+                f"{dev_root}/view",
+                failed_step="read DEV view",
+            )
+            expected_change_count = (
+                len(plan.participant_emails)
+                + len(plan.data_nodes)
+                + len(plan.computation_nodes)
+                + len(plan.permissions)
+            )
+            change_ids = _collect_dev_change_ids(dev_view, expected_change_count, dcr_id)
+            merge = await client.request_json(
                 "POST",
-                f"{dev_root}/computation-nodes",
-                failed_step="add DEV computation node",
+                f"/api/dcr/{dcr_id}/merge-requests/",
+                failed_step="create merge request",
                 json_body={
-                    "name": node.name,
-                    "code": node.code,
-                    "dataDependencies": data_dependencies,
-                    "computationDependencies": computation_dependencies,
+                    "title": f"Create {plan.title}"[:255],
+                    "description": "Initial Cohort Explorer graph for the AADCR local simulation.",
+                    "change_ids": change_ids,
                 },
             )
-            dev_computation_ids[node.name] = _required_string(
-                response,
+            merge_request_id = _required_api_identifier(
+                merge,
                 "id",
-                failed_step="add DEV computation node",
+                failed_step="create merge request",
                 dcr_id=dcr_id,
             )
+            merge_step = f"merge_requested:{merge_request_id}"
+            await _confirm_step(on_confirm, merge_step, dcr_id)
+            durable_steps.add(merge_step)
 
-        for permission in plan.permissions:
-            node_ids = dev_data_ids if permission.type == "DATA_OWNER" else dev_computation_ids
-            await client.request_json(
-                "POST",
-                f"{dev_root}/permissions",
-                failed_step="add DEV permission",
-                json_body={
-                    "type": permission.type,
-                    "participantId": participant_ids[permission.email],
-                    "nodeId": node_ids[permission.node_name],
-                },
+        if merge_request_id is None:
+            raise DcrOperationError(
+                detail="The operation journal omitted the merge request identifier",
+                failed_step="resume operation",
+                dcr_id=dcr_id,
             )
-
-        dev_view = await client.request_json("GET", f"{dev_root}/view", failed_step="read DEV view")
-        expected_change_count = (
-            len(plan.participant_emails) + len(plan.data_nodes) + len(plan.computation_nodes) + len(plan.permissions)
-        )
-        change_ids = _collect_dev_change_ids(dev_view, expected_change_count, dcr_id)
-        merge = await client.request_json(
-            "POST",
-            f"/api/dcr/{dcr_id}/merge-requests/",
-            failed_step="create merge request",
-            json_body={
-                "title": f"Create {plan.title}"[:255],
-                "description": "Initial Cohort Explorer graph for the AADCR local simulation.",
-                "change_ids": change_ids,
-            },
-        )
-        merge_request_id = _required_string(
-            merge,
-            "id",
-            failed_step="create merge request",
-            dcr_id=dcr_id,
-        )
-        await wait_for_merge(
-            client,
-            dcr_id,
-            merge_request_id,
-            max_attempts=merge_poll_attempts,
-            poll_interval=merge_poll_interval,
-        )
+        if "merged" not in durable_steps:
+            await wait_for_merge(
+                client,
+                dcr_id,
+                merge_request_id,
+                max_attempts=merge_poll_attempts,
+                poll_interval=merge_poll_interval,
+            )
+            await _confirm_step(on_confirm, "merged", dcr_id)
+            durable_steps.add("merged")
 
         prod_view = await client.request_json(
             "GET",
@@ -872,6 +1092,10 @@ async def create_aadcr_room(
             "synthetic": outcome.row_upload_results,
         }
         for asset in plan.assets:
+            checkpoint = f"provisioned:{asset.kind}:{asset.node_name}"
+            if checkpoint in durable_steps:
+                result_maps[asset.kind][asset.key] = "success"
+                continue
             try:
                 content = asset.path.read_bytes()
             except OSError:
@@ -905,6 +1129,8 @@ async def create_aadcr_room(
                 },
             )
             result_maps[asset.kind][asset.key] = "success"
+            await _confirm_step(on_confirm, checkpoint, dcr_id)
+            durable_steps.add(checkpoint)
         return outcome
     except DcrOperationError:
         raise
@@ -927,3 +1153,381 @@ def participants_response(plan: RoomPlan) -> dict[str, dict[str, list[str]]]:
         }
         for email in plan.participant_emails
     }
+
+
+def normalize_aadcr_room(
+    room: Any,
+    prod_view: Any,
+    provisioned_payload: Any,
+    journal_state: Any,
+    *,
+    dcr_url: str,
+    capabilities: Any,
+) -> dict[str, Any]:
+    """Project native room state into the provider-neutral My DCRs shape."""
+    if not isinstance(room, dict) or not isinstance(prod_view, dict):
+        raise DcrOperationError(
+            detail="AADCR room or PROD state was not an object",
+            failed_step="normalize room",
+        )
+    dcr_id = _required_string(room, "id", failed_step="normalize room")
+    collections: dict[str, list[Any]] = {}
+    for collection_name in ("participants", "data_nodes", "computation_nodes", "permissions"):
+        collection = prod_view.get(collection_name)
+        if not isinstance(collection, list):
+            raise DcrOperationError(
+                detail=f"AADCR PROD view omitted {collection_name}",
+                failed_step="normalize room",
+                dcr_id=dcr_id,
+            )
+        collections[collection_name] = collection
+
+    participant_roles: dict[str, dict[str, set[str]]] = {}
+    participant_order: list[str] = []
+    for participant in collections["participants"]:
+        if not isinstance(participant, dict):
+            continue
+        email = _normalize_email(participant.get("userEmail"))
+        if email and email not in participant_roles:
+            participant_roles[email] = {"data_owner_of": set(), "analyst_of": set()}
+            participant_order.append(email)
+    for permission in collections["permissions"]:
+        if not isinstance(permission, dict):
+            continue
+        email = _normalize_email(permission.get("userEmail"))
+        resource_name = permission.get("resourceName")
+        permission_type = permission.get("permissionType")
+        if not email or not isinstance(resource_name, str) or not resource_name:
+            continue
+        if email not in participant_roles:
+            participant_roles[email] = {"data_owner_of": set(), "analyst_of": set()}
+            participant_order.append(email)
+        if permission_type == "DATA_OWNER":
+            participant_roles[email]["data_owner_of"].add(resource_name)
+        elif permission_type == "DATA_ANALYST":
+            participant_roles[email]["analyst_of"].add(resource_name)
+
+    participants = [
+        {
+            "email": email,
+            "data_owner_of": sorted(participant_roles[email]["data_owner_of"]),
+            "analyst_of": sorted(participant_roles[email]["analyst_of"]),
+        }
+        for email in participant_order
+    ]
+
+    nodes: list[dict[str, Any]] = []
+    data_node_names: dict[str, str] = {}
+    for node in collections["data_nodes"]:
+        if not isinstance(node, dict):
+            continue
+        node_id = node.get("id")
+        name = node.get("name")
+        if not isinstance(node_id, str) or not node_id or not isinstance(name, str) or not name:
+            continue
+        if node_id in data_node_names:
+            raise DcrOperationError(
+                detail="AADCR PROD view contains duplicate data-node identifiers",
+                failed_step="normalize room",
+                dcr_id=dcr_id,
+            )
+        data_node_names[node_id] = name
+        normalized_node: dict[str, Any] = {
+            "id": node_id,
+            "name": name,
+            "type": "RawDataNodeDefinition",
+            "provider_type": str(node.get("type") or "FILE"),
+        }
+        dataset_status = node.get("datasetStatus")
+        if isinstance(dataset_status, str) and dataset_status:
+            normalized_node["status"] = dataset_status
+        nodes.append(normalized_node)
+    for node in collections["computation_nodes"]:
+        if not isinstance(node, dict):
+            continue
+        node_id = node.get("id")
+        name = node.get("name")
+        if not isinstance(node_id, str) or not node_id or not isinstance(name, str) or not name:
+            continue
+        normalized_node = {
+            "id": node_id,
+            "name": name,
+            "type": "PythonComputeNodeDefinition",
+        }
+        computation_status = node.get("computationStatus")
+        if isinstance(computation_status, str) and computation_status:
+            normalized_node["status"] = computation_status
+        nodes.append(normalized_node)
+
+    provisioned = provisioned_payload.get("provisioned_datasets") if isinstance(provisioned_payload, dict) else None
+    if not isinstance(provisioned, list):
+        raise DcrOperationError(
+            detail="AADCR provisioned-dataset response omitted provisioned_datasets",
+            failed_step="normalize room",
+            dcr_id=dcr_id,
+        )
+    provisioned_datasets: list[dict[str, Any]] = []
+    safe_provision_fields = (
+        "dataset_id",
+        "dataset_node_id",
+        "dataset_name",
+        "provision_type",
+        "provisioned_at",
+        "provisioned_by",
+        "uploader",
+        "uploaded_at",
+        "data_size_kb",
+    )
+    for dataset in provisioned:
+        if not isinstance(dataset, dict):
+            continue
+        node_id = dataset.get("dataset_node_id")
+        if not isinstance(node_id, str) or node_id not in data_node_names:
+            raise DcrOperationError(
+                detail="AADCR provisioned dataset references an unknown PROD data node",
+                failed_step="normalize room",
+                dcr_id=dcr_id,
+            )
+        normalized_dataset = {
+            field_name: dataset[field_name]
+            for field_name in safe_provision_fields
+            if field_name in dataset and dataset[field_name] is not None
+        }
+        normalized_dataset["node_name"] = data_node_names[node_id]
+        normalized_dataset["status"] = "provisioned"
+        provisioned_datasets.append(normalized_dataset)
+
+    metadata = getattr(journal_state, "request_metadata", {}) if journal_state else {}
+    cohort_ids = list(getattr(journal_state, "cohort_ids", ())) if journal_state else []
+    research_question = metadata.get("research_question") if isinstance(metadata, dict) else None
+    if isinstance(research_question, str):
+        description = f"RESEARCH QUESTION: {research_question or 'no research question specified'}."
+    else:
+        native_description = room.get("description")
+        description = native_description if isinstance(native_description, str) else None
+
+    normalized_room: dict[str, Any] = {
+        "id": dcr_id,
+        "title": str(room.get("name") or ""),
+        "description": description,
+        "owner": {"email": str(room.get("creatorEmail") or "")},
+        "participants": participants,
+        "nodes": nodes,
+        "cohorts": cohort_ids,
+        "provisioned_datasets": provisioned_datasets,
+        "dcr_url": dcr_url,
+        "provider": PROVIDER_NAME,
+        "capabilities": capabilities,
+    }
+    for native_name, normalized_name in (
+        ("createdAt", "createdAt"),
+        ("updatedAt", "updatedAt"),
+        ("version", "version"),
+    ):
+        if room.get(native_name) is not None:
+            normalized_room[normalized_name] = room[native_name]
+    return normalized_room
+
+
+def normalize_aadcr_audit(payload: Any, *, dcr_id: str, main_only: bool) -> list[dict[str, Any]]:
+    """Return safe audit aliases without native request bodies or response output."""
+    audit_rows = payload.get("audit_logs") if isinstance(payload, dict) else None
+    if not isinstance(audit_rows, list):
+        raise DcrOperationError(
+            detail="AADCR audit response omitted audit_logs",
+            failed_step="read audit log",
+            dcr_id=dcr_id,
+        )
+    normalized: list[dict[str, Any]] = []
+    for row in audit_rows:
+        if not isinstance(row, dict):
+            continue
+        method = str(row.get("http_method") or "").upper()
+        path = str(row.get("path") or "")
+        if main_only and method == "GET" and path.rstrip("/").endswith("/audit-logs"):
+            continue
+        entry = {
+            "timestamp": str(row.get("timestamp") or ""),
+            "user": str(row.get("user_email") or ""),
+            "desc": str(row.get("action_label") or "")[:300],
+            "provider": PROVIDER_NAME,
+        }
+        source = {
+            key: value
+            for key, value in {
+                "id": row.get("id"),
+                "method": method,
+                "path": path,
+            }.items()
+            if isinstance(value, str) and value
+        }
+        if source:
+            entry["source"] = source
+        normalized.append(entry)
+    return normalized
+
+
+def resolve_computation_node_id(prod_view: Any, node_name: str, dcr_id: str) -> str:
+    """Resolve one exact PROD computation node without accepting name drift."""
+    if not isinstance(prod_view, dict):
+        raise DcrOperationError(
+            detail="AADCR PROD view was not an object",
+            failed_step="resolve aggregate computation",
+            dcr_id=dcr_id,
+        )
+    indexed = _index_prod_nodes(prod_view.get("computation_nodes"), "computation_nodes", dcr_id)
+    node_id = indexed.get(node_name)
+    if node_id is None:
+        raise DcrOperationError(
+            detail="AADCR PROD view is missing the aggregate computation node",
+            failed_step="resolve aggregate computation",
+            dcr_id=dcr_id,
+        )
+    return node_id
+
+
+def decode_result_archive(
+    payload: Any,
+    *,
+    dcr_id: str,
+    max_archive_bytes: int,
+    max_members: int,
+) -> bytes:
+    """Validate a bounded base64 ZIP result without extracting untrusted paths."""
+
+    def invalid(detail: str) -> DcrOperationError:
+        return DcrOperationError(
+            detail=detail,
+            failed_step="decode computation result",
+            dcr_id=dcr_id,
+        )
+
+    encoded = payload.get("results") if isinstance(payload, dict) else None
+    if not isinstance(encoded, str) or not encoded:
+        raise invalid("Completed computation did not include a base64 result archive")
+    max_encoded_length = ((max_archive_bytes + 2) // 3) * 4
+    if len(encoded) > max_encoded_length:
+        raise invalid("Computation result exceeds the archive size limit")
+    try:
+        archive_bytes = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError):
+        raise invalid("Computation result was not valid base64") from None
+    if len(archive_bytes) > max_archive_bytes:
+        raise invalid("Computation result exceeds the archive size limit")
+
+    eocd_signature = b"PK\x05\x06"
+    search_start = max(0, len(archive_bytes) - (65_535 + 22))
+    search_end = len(archive_bytes)
+    eocd_offset = -1
+    while search_end > search_start:
+        candidate = archive_bytes.rfind(eocd_signature, search_start, search_end)
+        if candidate < 0:
+            break
+        if candidate + 22 <= len(archive_bytes):
+            comment_length = struct.unpack_from("<H", archive_bytes, candidate + 20)[0]
+            if candidate + 22 + comment_length == len(archive_bytes):
+                eocd_offset = candidate
+                break
+        search_end = candidate
+    if eocd_offset < 0:
+        raise invalid("Computation result was not a valid ZIP archive")
+    (
+        _signature,
+        disk_number,
+        central_directory_disk,
+        entries_on_disk,
+        declared_entries,
+        central_directory_size,
+        central_directory_offset,
+        _comment_length,
+    ) = struct.unpack_from("<4s4H2LH", archive_bytes, eocd_offset)
+    if (
+        disk_number != 0
+        or central_directory_disk != 0
+        or entries_on_disk != declared_entries
+        or declared_entries == 0xFFFF
+        or central_directory_size == 0xFFFFFFFF
+        or central_directory_offset == 0xFFFFFFFF
+    ):
+        raise invalid("Computation result ZIP uses an unsupported archive structure")
+    if declared_entries > max_members:
+        raise invalid("Computation result ZIP contains too many members")
+    central_directory_end = central_directory_offset + central_directory_size
+    if central_directory_end != eocd_offset:
+        raise invalid("Computation result was not a valid ZIP archive")
+    cursor = central_directory_offset
+    counted_entries = 0
+    while cursor < central_directory_end:
+        if (
+            counted_entries >= max_members
+            or cursor + 46 > central_directory_end
+            or archive_bytes[cursor : cursor + 4] != b"PK\x01\x02"
+        ):
+            raise invalid("Computation result ZIP contains too many or invalid members")
+        filename_length, extra_length, member_comment_length = struct.unpack_from("<HHH", archive_bytes, cursor + 28)
+        cursor += 46 + filename_length + extra_length + member_comment_length
+        if cursor > central_directory_end:
+            raise invalid("Computation result was not a valid ZIP archive")
+        counted_entries += 1
+    if cursor != central_directory_end or counted_entries != declared_entries:
+        raise invalid("Computation result was not a valid ZIP archive")
+
+    try:
+        with zipfile.ZipFile(io.BytesIO(archive_bytes), "r") as archive:
+            members = archive.infolist()
+            if len(members) > max_members:
+                raise invalid("Computation result ZIP contains too many members")
+            seen_paths: set[str] = set()
+            advertised_size = 0
+            for member in members:
+                name = member.filename
+                path = PurePosixPath(name)
+                path_parts = name[:-1].split("/") if name.endswith("/") else name.split("/")
+                if (
+                    not name
+                    or "\\" in name
+                    or "\x00" in name
+                    or path.is_absolute()
+                    or not path_parts
+                    or any(part in {"", ".", ".."} for part in path_parts)
+                    or ":" in path_parts[0]
+                ):
+                    raise invalid("Computation result ZIP contains an unsafe member path")
+                canonical_path = path.as_posix()
+                if canonical_path in seen_paths:
+                    raise invalid("Computation result ZIP contains duplicate member paths")
+                seen_paths.add(canonical_path)
+                if member.flag_bits & 0x1:
+                    raise invalid("Computation result ZIP contains an encrypted member")
+                unix_mode = (member.external_attr >> 16) & 0xFFFF
+                file_type = stat.S_IFMT(unix_mode)
+                if stat.S_ISLNK(unix_mode) or file_type not in {0, stat.S_IFREG, stat.S_IFDIR}:
+                    raise invalid("Computation result ZIP contains an unsafe member type")
+                if member.file_size < 0 or member.file_size > max_archive_bytes:
+                    raise invalid("Computation result exceeds the archive size limit")
+                advertised_size += member.file_size
+                if advertised_size > max_archive_bytes:
+                    raise invalid("Computation result exceeds the archive size limit")
+
+            actual_size = 0
+            for member in members:
+                if member.is_dir():
+                    continue
+                with archive.open(member, "r") as member_file:
+                    while chunk := member_file.read(64 * 1024):
+                        actual_size += len(chunk)
+                        if actual_size > max_archive_bytes:
+                            raise invalid("Computation result exceeds the archive size limit")
+    except DcrOperationError:
+        raise
+    except (
+        EOFError,
+        NotImplementedError,
+        OSError,
+        RuntimeError,
+        ValueError,
+        zipfile.BadZipFile,
+        zipfile.LargeZipFile,
+    ):
+        raise invalid("Computation result was not a valid ZIP archive") from None
+    return archive_bytes
