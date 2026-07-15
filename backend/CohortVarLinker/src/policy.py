@@ -7,7 +7,7 @@ from typing import Optional
 
 from .verdict import StructuralEvidence, LLMEvidence, Verdict, TimepointInfo
 from .data_model import MatchLevel, TransformationType, MappingType, MappingRelation, ContextMatchType
-
+import json
 
 def decide(mode: str,
            structural: StructuralEvidence,
@@ -23,7 +23,8 @@ def decide(mode: str,
     return _ontology_only_decide(structural, timepoint)
 
 
-# Penalise broader vs specific pair matching
+
+
 
 def _extra_info_from_llm(extra: dict, llm: Optional[LLMEvidence]) -> dict:
     out = dict(extra)
@@ -31,14 +32,33 @@ def _extra_info_from_llm(extra: dict, llm: Optional[LLMEvidence]) -> dict:
     if llm is not None:
         if llm.transform_direction:
             out["transform_direction"] = llm.transform_direction
+
         if llm.transform:
             out["llm_transform"] = llm.transform
+
         out["llm_verdict"] = llm.verdict
         out["llm_confidence"] = llm.confidence
+
+        uncertainty = {
+            "logprob_usable": getattr(llm, "logprob_usable", False),
+            "distribution_type": getattr(llm, "logprob_distribution_type", ""),
+            "observability": getattr(llm, "logprob_observability", 0.0),
+            "logprob_confidence": getattr(llm, "logprob_confidence", 0.0),
+            "top_label": getattr(llm, "logprob_top_label", ""),
+            "top_prob": getattr(llm, "logprob_top_prob", 0.0),
+            "runner_up": getattr(llm, "logprob_runner_up", ""),
+            "margin": getattr(llm, "logprob_margin", 0.0),
+            "raw_margin": getattr(llm, "logprob_raw_margin", 0.0),
+            "confidence_source": getattr(llm, "confidence_source", ""),
+            "dist": getattr(llm, "logprob_dist", {}),
+        }
+
+        out["llm_uncertainty"] = json.dumps(uncertainty, ensure_ascii=False)
+
         hv = (getattr(llm, "harmonized_variable", None) or "").strip()
         if hv:
             out["harmonized_variable"] = hv
-        # print(out)
+
     return out
 
     
@@ -266,20 +286,6 @@ def should_consult_llm(s: StructuralEvidence) -> bool:
     # PARTIAL is genuinely ambiguous — let the LLM weigh in.
     return True
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Source-claim early-exit support
-#
-# When a source variable is matched to a target with verdict COMPLETE or
-# COMPATIBLE, we can skip the LLM on the same source's remaining ambiguous
-# candidates ("source claim"). This requires a defensible per-source
-# ordering so the *best* candidate gets the LLM first; otherwise a mediocre
-# COMPATIBLE could claim the source before the LLM ever sees an IDENTICAL
-# one further down the list.
-# Ordering is built entirely from structural-layer signals that already
-# exist on the candidate row.
-# ─────────────────────────────────────────────────────────────────────────────
-
-
 # Lower rank = considered first. Hierarchical relations are pushed last
 # because _demote_hierarchical will demote them in policy anyway.
 _RELATION_RANK = {
@@ -333,8 +339,4 @@ def llm_priority_key(structural: StructuralEvidence) -> tuple:
         -sim_score,
     )
 
-
-# Verdicts that claim the source and shut down further LLM calls for it.
-# PARTIAL is deliberately excluded — a PARTIAL doesn't harmonize the
-# source, so a later candidate might still produce a real match.
 CLAIMING_VERDICTS = frozenset({"COMPLETE", "COMPATIBLE"})

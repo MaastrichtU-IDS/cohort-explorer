@@ -5,8 +5,6 @@ from typing import List, Tuple
 from collections import deque, OrderedDict
 from llm.data_model import MappingRelation
 
-# LOINC_REQUIRED_AXES = ['component', 'system', 'time_aspect']
-# LOINC_IGNORABLE_AXES = ['property', 'method', 'scale_type', 'specimen']
 LOINC_REQUIRED_AXES = ["component", "time_aspect"]
 LOINC_DECISIVE_AXES = ["property"]
 LOINC_CONTEXT_AXES = ["system", "specimen"]
@@ -138,7 +136,36 @@ class OmopGraphNX:
         IS_A, SUBS, EQUIV = self._rel_ints()
         g = self.graph
 
+        # Resolve the "maps to" int for multi-target detection
+        rm_fwd = {r: i for i, r in g.graph.get('rel_map_rev', {}).items()}
+        print(f"forward rel = {rm_fwd}")
+        MAPTO_INT = rm_fwd.get("maps to", -1)
+        print(f"mapto edges: {MAPTO_INT}")
+        # MAPTO_INTS = frozenset(x for x in (
+        #         rm_fwd.get("maps to"), rm_fwd.get("mapped from")
+        #     ) if x)
+        # isa_succ, subs_succ, equiv_bidir = {}, {}, {}
+        # maps_to_count = {}  # node → count of outgoing maps_to edges
 
+        # t0 = time.time()
+        # for u, v, data in g.edges(data=True):
+ 
+        #     rels = data.get('all_r') or frozenset({data.get('r', 0)})
+        #     if IS_A in rels:
+        #         isa_succ.setdefault(u, set()).add(v)
+        #     if SUBS in rels:
+        #         subs_succ.setdefault(u, set()).add(v)
+        #     if rels & EQUIV:
+        #         equiv_bidir.setdefault(u, set()).add(v)
+        #         equiv_bidir.setdefault(v, set()).add(u)
+        #     if MAPTO_INT in rels:
+        #         maps_to_count[u] = maps_to_count.get(u, 0) + 1
+
+        # self._isa_succ = {k: frozenset(v) for k, v in isa_succ.items()}
+        # self._subs_succ = {k: frozenset(v) for k, v in subs_succ.items()}
+        # self._equiv_bidir = {k: frozenset(v) for k, v in equiv_bidir.items()}
+        # self._multi_target_mappers = frozenset(
+        #     u for u, c in maps_to_count.items() if c > 1)
 
         isa_succ, subs_succ, equiv_bidir = {}, {}, {}
         equiv_targets = {}  # Track fan-out for ALL equivalence types
@@ -167,11 +194,11 @@ class OmopGraphNX:
         )
 
         elapsed = time.time() - t0
-        # print(f"[INFO] Built typed adjacency index in {elapsed:.2f}s "
-        #       f"(is_a:{sum(len(v) for v in self._isa_succ.values()):,}, "
-        #       f"subsumes:{sum(len(v) for v in self._subs_succ.values()):,}, "
-        #       f"equiv:{sum(len(v) for v in self._equiv_bidir.values()):,}, "
-        #       f"multi_target_mappers:{len(self._multi_target_mappers):,})")
+        print(f"[INFO] Built typed adjacency index in {elapsed:.2f}s "
+              f"(is_a:{sum(len(v) for v in self._isa_succ.values()):,}, "
+              f"subsumes:{sum(len(v) for v in self._subs_succ.values()):,}, "
+              f"equiv:{sum(len(v) for v in self._equiv_bidir.values()):,}, "
+              f"multi_target_mappers:{len(self._multi_target_mappers):,})")
 
     # ══════════════════════════════════════════════════════════════════
     # Shared helpers
@@ -398,7 +425,27 @@ class OmopGraphNX:
         except (ValueError, TypeError):
             return {}
 
-   
+    # def compare_loinc_axes(self, sid: int, tid: int) -> dict:
+    #     try:
+    #         sid, tid = int(sid), int(tid)
+    #     except (ValueError, TypeError):
+    #         return {'is_match': False, 'reason': 'invalid IDs'}
+    #     sa, ta = self.get_loinc_axes(sid), self.get_loinc_axes(tid)
+    #     if 'component' not in sa or 'component' not in ta:
+    #         return {'is_match': False, 'reason': 'component missing',
+    #                 'source_axes': sa, 'target_axes': ta}
+    #     matched, mismatched = [], []
+    #     for ax in LOINC_REQUIRED_AXES:
+    #         s, t = sa.get(ax), ta.get(ax)
+    #         if s and t:
+    #             (matched if s[0] == t[0] else mismatched).append(
+    #                 (ax, s[1]) if s[0] == t[0] else (ax, s[1], t[1]))
+    #         elif ax == 'component':
+    #             mismatched.append((ax, s, t))
+    #     ignored = [(a, sa[a][1], ta[a][1]) for a in LOINC_IGNORABLE_AXES
+    #                if a in sa and a in ta and sa[a][0] != ta[a][0]]
+    #     return {'is_match': not mismatched,
+    #             'matched': matched, 'mismatched': mismatched or ignored}
 
     
     def compare_loinc_axes(self, sid: int, tid: int) -> dict:
@@ -506,7 +553,7 @@ class OmopGraphNX:
 
         # Then use explain_path because it already detects mixed is_a + subsumes paths
         p = self.explain_path(src, tid, max_depth=allowed + 2)
-
+        # print(f"explain_path= {p}")
         return p.get("path_type") == "sibling"
 
     # ══════════════════════════════════════════════════════════════════
@@ -855,7 +902,7 @@ class OmopGraphNX:
         meta = self.graph.graph.get('meta')
         if meta is not None and 'concept_vocabulary' in meta.columns:
             c = meta['concept_vocabulary'].value_counts()
-            # print(f"Total unique vocabularies:{len(c)}\n\nVocabulary distribution:\n{c}")
+            print(f"Total unique vocabularies:{len(c)}\n\nVocabulary distribution:\n{c}")
             return c
         return None
 
@@ -868,7 +915,7 @@ class OmopGraphNX:
         if not csv_file_path:
             raise ValueError("No CSV file path provided.")
 
-        # print("Reading CSV...")
+        print("Reading CSV...")
         use_cols = [
             "concept_id_1", "concept_id_2", "relationship_id",
             "concept_vocabulary_1", "concept_vocabulary_2",
@@ -882,21 +929,22 @@ class OmopGraphNX:
         df = pd.read_csv(csv_file_path, usecols=actual, dtype=str)
         df['relationship_id'] = df['relationship_id'].str.lower()
 
-        # for col in ['concept_vocabulary_1', 'concept_vocabulary_2']:
-        #     if col in df.columns:
-        #         print(f"Unique vocabs:{sorted(df[col].dropna().unique())}")
+        for col in ['concept_vocabulary_1', 'concept_vocabulary_2']:
+            if col in df.columns:
+                print(f"Unique vocabs:{sorted(df[col].dropna().unique())}")
 
         # ── Separate LOINC axis rows from edge rows ──
         loinc_df = df[df['relationship_id'].isin(LOINC_AXIS_RELS)].copy()
         df_e = df[~df['relationship_id'].isin(LOINC_AXIS_RELS)].copy()
         df_e = df_e[df_e['relationship_id'].isin(set(EQ_RELS) | set[str](DIR_RELS))].copy()
-      
+        print(f"df_e head\n{df_e.head()}")
+        print(f"LOINC axis:{len(loinc_df):,}, Edge rows:{len(df_e):,}")
 
         # ── Build node metadata ──
         c1 = {c: c[:-2] for c in actual if c.endswith('_1')}
-
+        print(f"c1= {c1}")
         c2 = {c: c[:-2] for c in actual if c.endswith('_2')}
-       
+        print(f"c2= {c2}")
         all_df = pd.concat([df_e, loinc_df], ignore_index=True)
         fm = pd.concat([
             all_df[list[str](c1)].rename(columns=c1),
@@ -977,7 +1025,7 @@ class OmopGraphNX:
         self._build_typed_adjacency()
 
         self.save_graph(self.output_file)
-      
+        print(f"[INFO] Done. Nodes:{self.graph.number_of_nodes():,}, Edges:{self.graph.number_of_edges():,}")
 
     def save_graph(self, path):
         out = path if path.endswith(".gz") else path + ".gz"
@@ -990,7 +1038,7 @@ class OmopGraphNX:
         }
         with gzip.open(out, "wb", compresslevel=6) as f:
             pickle.dump(bundle, f, protocol=pickle.HIGHEST_PROTOCOL)
-     
+        print(f"[INFO] Saved to {out}")
 
     def load_graph(self, path):
         if not path.endswith(".gz") and os.path.exists(path + ".gz"):
@@ -1007,7 +1055,7 @@ class OmopGraphNX:
             self.graph = data  # backward compat with old pickles
             self._build_typed_adjacency()
         self._IS_A = self._SUBSUMES = self._EQUIV_INTS = None
-       
+        print(f"[INFO] Loaded {path}. Nodes:{self.graph.number_of_nodes()} Edges:{self.graph.number_of_edges()}")
 
     def clear_caches(self):
         """Clear all caches."""
@@ -1254,128 +1302,111 @@ class OmopGraphNX:
 
         return equiv_chain + hier_chain[1:]
 
-# def run_pair_tests(omop_nx):
-#     """Test source_to_targets_paths against curated concept pairs."""
+def run_pair_tests(omop_nx):
+    """Test source_to_targets_paths against curated concept pairs."""
 
-#     cases = [
-#         # (src, tgt, should_match, description)
-#         # ── LOINC hierarchy: parent-child should NOT match ──
-#         (4248525, 4060832, True,
-#          "lying systolic BP vs systolic BP (parent-child)"),
-#         (4248525, 4326744, False,
-#          "lying systolic BP vs blood pressure (too broad"),
+    cases = [
+        # (src, tgt, should_match, description)
+        # ── LOINC hierarchy: parent-child should NOT match ──
+        (4248525, 4060832, True,
+         "lying systolic BP vs systolic BP (parent-child)"),
+        (4248525, 4326744, False,
+         "lying systolic BP vs blood pressure (too broad"),
 
-#         # ── Drug cross-vocab: unrelated vs related ──
-#         (4306892, 21601810, False,
-#          "furosemide vs cilazapril+diuretics (unrelated combo)"),
-#         (4306892, 21601516, True,
-#          "furosemide vs HIGH-CEILING DIURETICS (ancestor class)"),
+        # ── Drug cross-vocab: unrelated vs related ──
+        (4306892, 21601810, False,
+         "furosemide vs cilazapril+diuretics (unrelated combo)"),
+        (4306892, 21601516, True,
+         "furosemide vs HIGH-CEILING DIURETICS (ancestor class)"),
 
-#         # ── Combination ingredient: should NOT match single ingredient ──
-#         (21035025, 956874, False,
-#          "amiloride/furosemide oral soln vs furosemide (combo→ingredient)"),
+        # ── Combination ingredient: should NOT match single ingredient ──
+        (21035025, 956874, False,
+         "amiloride/furosemide oral soln vs furosemide (combo→ingredient)"),
 
-#         # ── Maps-to equivalence ──
-#         (4151548, 3020399, False,
-#          "Glucose measurement, body fluid vs glucose [mass/volume] urine (maps_to)"),
+        # ── Maps-to equivalence ──
+        (4151548, 3020399, False,
+         "Glucose measurement, body fluid vs glucose [mass/volume] urine (maps_to)"),
 
-#         # ── LOINC loose match (same component, different property) ──
-#         (3020399, 3005570, True,
-#          "glucose [mass/vol] urine vs glucose [mol/vol] urine (LOINC axes)"),
+        # ── LOINC loose match (same component, different property) ──
+        (3020399, 3005570, True,
+         "glucose [mass/vol] urine vs glucose [mol/vol] urine (LOINC axes)"),
 
-#         # ── ATC hierarchy ──
-#         (21601517, 21601520, True,
-#          "sulfonamides plain vs piretanide (parent→child)"),
-#         (21601517, 21601521, True,
-#          "sulfonamides plain vs torasemide (parent→child)"),
-#         (21601517, 942350, True,
-#          "sulfonamides plain vs torsemide (cross-vocab descendant)"),
+        # ── ATC hierarchy ──
+        (21601517, 21601520, True,
+         "sulfonamides plain vs piretanide (parent→child)"),
+        (21601517, 21601521, True,
+         "sulfonamides plain vs torasemide (parent→child)"),
+        (21601517, 942350, True,
+         "sulfonamides plain vs torsemide (cross-vocab descendant)"),
 
-#         # ── ATC siblings: should NOT match ──
-#         (942350, 21601520, False,
-#          "torsemide vs piretanide (siblings under same parent)"),
+        # ── ATC siblings: should NOT match ──
+        (942350, 21601520, False,
+         "torsemide vs piretanide (siblings under same parent)"),
 
-#         # ── Disease hierarchy ──
-#         (312327, 4329847, True,
-#          "acute MI vs myocardial infarction (child→parent)"),
-#         (4173632, 312327, False,
-#          "microinfarct of heart vs acute MI (siblings)"),
-#          (4242997, 4336464, False,
-#          "Cholecystectomy vsC oronary artery bypass graft"),
-#          (21600961,4146455,False,
-#          "ANTITHROMBOTIC AGENTS Antihypertensive therapy"),
-#          (21600961, 3655005, False,
-#          "antithrombotic agents vs Platelet aggregation inhibitor therapy"),
-#          (4029066, 21601521, True,
-#          "Torsemide vs torasemide; oral, parenteral"),
-#          (21601665, 1314002, True,
-#          "BETA BLOCKING AGENTS vs Atenolol"),
-#           (1314002, 21601665, True,
-#          "Atenolol vs BETA BLOCKING AGENTS"),
-#          (3000963,3009744, False,
-#          "hemoglobin [mass/volume] in blood vs mchc [mass/volume] by automated count"),
-#          (3005456,3023103, True,
-#          "Potassium [Moles/volume] in Serum or Plasma vs Potassium [Moles/volume] in Blood"),
-#          (21601665,1332418, False,
-#          "beta blocking agents vs amlodipine"),
-#            (1326303,1243623, False,
-#          "digoxin vs inotropic therapy"),
-#          (3001308,3007070, False, "ldl vs hdl"),
-#          (21601665,1318853,False,
-#          "beta blocking agents,nifedipine"),
-#          (970250,21601517, 
-#          False, "spironolactone vs diuretics")
-#     ]
+        # ── Disease hierarchy ──
+        (312327, 4329847, True,
+         "acute MI vs myocardial infarction (child→parent)"),
+        (4173632, 312327, False,
+         "microinfarct of heart vs acute MI (siblings)"),
+         (4242997, 4336464, False,
+         "Cholecystectomy vsC oronary artery bypass graft"),
+         (21600961,4146455,False,
+         "ANTITHROMBOTIC AGENTS Antihypertensive therapy"),
+         (21600961, 3655005, False,
+         "antithrombotic agents vs Platelet aggregation inhibitor therapy"),
+         (4029066, 21601521, True,
+         "Torsemide vs torasemide; oral, parenteral"),
+         (21601665, 1314002, True,
+         "BETA BLOCKING AGENTS vs Atenolol"),
+          (1314002, 21601665, True,
+         "Atenolol vs BETA BLOCKING AGENTS"),
+         (3000963,3009744, False,
+         "hemoglobin [mass/volume] in blood vs mchc [mass/volume] by automated count"),
+         (3005456,3023103, True,
+         "Potassium [Moles/volume] in Serum or Plasma vs Potassium [Moles/volume] in Blood"),
+         (21601665,1332418, False,
+         "beta blocking agents vs amlodipine"),
+           (1326303,1243623, False,
+         "digoxin vs inotropic therapy"),
+         (3001308,3007070, False, "ldl vs hdl"),
+         (21601665,1318853,False,
+         "beta blocking agents,nifedipine"),
+         (970250,21601517, 
+         False, "spironolactone vs diuretics")
+    ]
 
-#     passed = failed = 0
-#     for src, tgt, expected, desc in cases:
-#         results = omop_nx.source_to_targets_paths(src, [tgt], max_depth=1)
-#         matched = len(results) > 0
-#         ok = matched == expected
+    passed = failed = 0
+    for src, tgt, expected, desc in cases:
+        results = omop_nx.source_to_targets_paths(src, [tgt], max_depth=1)
+        matched = len(results) > 0
+        ok = matched == expected
 
-#         # Gather diagnostics
-#         src_name = omop_nx.get_node_attr(src, 'name')
-#         tgt_name = omop_nx.get_node_attr(tgt, 'name')
-#         src_vocab = omop_nx.get_node_attr(src, 'vocabulary')
-#         tgt_vocab = omop_nx.get_node_attr(tgt, 'vocabulary')
-#         match_label = results[0][1] if results else "none"
+        # Gather diagnostics
+        src_name = omop_nx.get_node_attr(src, 'name')
+        tgt_name = omop_nx.get_node_attr(tgt, 'name')
+        src_vocab = omop_nx.get_node_attr(src, 'vocabulary')
+        tgt_vocab = omop_nx.get_node_attr(tgt, 'vocabulary')
+        match_label = results[0][1] if results else "none"
 
-#         status = "✓" if ok else "✗ FAIL"
-#         expect_str = "match" if expected else "no match"
-#         got_str = f"matched ({match_label})" if matched else "no match"
+        status = "✓" if ok else "✗ FAIL"
+        expect_str = "match" if expected else "no match"
+        got_str = f"matched ({match_label})" if matched else "no match"
 
-#         # print(f"  {status}  [{src_vocab}] {src_name} ({src}) "
-#         #       f"→ [{tgt_vocab}] {tgt_name} ({tgt})")
-#         # print(f"         expected: {expect_str}, got: {got_str}")
+        print(f"  {status}  [{src_vocab}] {src_name} ({src}) "
+              f"→ [{tgt_vocab}] {tgt_name} ({tgt})")
+        print(f"         expected: {expect_str}, got: {got_str}")
 
-#         if not ok:
-#             failed += 1
-#             path = omop_nx.explain_path(src, tgt)
-#             # print(f"         explain:  {path['path_type']} — {path['explanation']}")
-#             eq_src = omop_nx._equiv_closure(src)
-#             # print(f"equv({src}): {sorted(eq_src)[:8]}{'...' if len(eq_src) > 8 else ''}")
-#         else:
-#             passed += 1
+        if not ok:
+            failed += 1
+            path = omop_nx.explain_path(src, tgt)
+            print(f"         explain:  {path['path_type']} — {path['explanation']}")
+            eq_src = omop_nx._equiv_closure(src)
+            print(f"equv({src}): {sorted(eq_src)[:8]}{'...' if len(eq_src) > 8 else ''}")
+        else:
+            passed += 1
 
-#     # print(f"\n  Pair tests: {passed} passed, {failed} failed, {passed + failed} total")
-#     return failed == 0
-    
-# if __name__ == "__main__":
-#     start_time = time.time()
-#     csv_path = "/Users/komalgilani/phd_projects/CohortVarLinker/data/concept_relationship_enriched.csv"
-#     omop_nx = OmopGraphNX(csv_path, output_file='graph_nx.pkl.gz')
-#     run_pair_tests(omop_nx)
-#     p = omop_nx.explain_path(970250, 21601517, max_depth=4)
-#     print(p['explanation'])
-#     for u, v, rel in p['edges']:
-#         print(f"  {u} ({omop_nx.get_node_attr(u,'name')}, {omop_nx.get_node_attr(u,'vocabulary')}) "
-#             f"--{rel}--> "
-#             f"{v} ({omop_nx.get_node_attr(v,'name')}, {omop_nx.get_node_attr(v,'vocabulary')})")
-#     # 970250,21601517, 
-# #     print(p['path'])        # [(21600961, name, vocab), (X, name, vocab), (3655005, name, vocab)]
-# #     print(omop_nx.get_edge_rels(p['path'][1][0], 3655005))   # every relation stored on X→365500
+    print(f"\n  Pair tests: {passed} passed, {failed} failed, {passed + failed} total")
+    return failed == 0
 
-# #     eq = omop_nx._equiv_closure(778939)
-# #     print(eq)
    
 

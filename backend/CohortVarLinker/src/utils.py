@@ -13,6 +13,8 @@ from enum import Enum
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 import logging
+import unicodedata
+# import re
 
 _VISIT_MONTH_RE = re.compile(r'(\d+)\s*months?', re.IGNORECASE)
 _VISIT_BASELINE_RE = re.compile(r'baseline|month\s*0|randomization', re.IGNORECASE)
@@ -20,9 +22,17 @@ _PRE_BASELINE_MONTH_RE = re.compile(
     r'(\d+)\s*months?\s*(?:prior to|before)\s*baseline',
     re.IGNORECASE,
 )
-
 _BASELINE_PRIOR_MONTH_RE = re.compile(
     r'baseline.*?(\d+)\s*months?\s*(?:prior|before)',
+    re.IGNORECASE,
+)
+_BETWEEN_BASELINE_VISIT_RE = re.compile(
+    r"\b(?:between|from)\s+(?:baseline|bl)\s+(?:and|to|-)\s+(?:visit\s*)?(\d+)\b",
+    re.IGNORECASE,
+)
+_BASELINE_TO_VISIT_RE = re.compile(
+    r"\b(?:baseline|bl)\s*(?:to|[-–—]|through|until)\s*"
+    r"(?:(?:visit|month|week|day)s?\s*)?(\d+)\b",
     re.IGNORECASE,
 )
 
@@ -54,6 +64,18 @@ _TEMPORAL_CONTEXT_RE = re.compile(
     r')',
     re.IGNORECASE
 )
+
+def is_interval_period(period: str) -> bool:
+    if not period:
+        return False
+
+    p = str(period).lower().strip()
+    return (
+        p.startswith("interval ")
+        or p.startswith("pre-baseline ")
+        or "between" in p
+        or " to " in p
+    )
 def has_real_value(x):
     if x is None or pd.isna(x):
         return False
@@ -152,6 +174,48 @@ def is_identifier_like_variable(row: pd.Series) -> tuple[bool, list[str]]:
             reasons.append(f"{field} contains '{m.group(0)}'")
     return bool(reasons), reasons
 
+
+
+_INSTANCE_PREFIX_RE = re.compile(r"^\s*\d+\s*\.\s*")  # leading event index: "1.", "10."
+
+def canonical_var_key(x, strip_instance_prefix: bool = True) -> str:
+    """Robust key for comparing variable names across CSVs.
+
+    Encoding-invariant (mojibake repaired, diacritics folded) and
+    separator-invariant ('.', '_', '-', whitespace all unified), so names
+    differing only in punctuation or accent encoding collapse to one key.
+    """
+    if pd.isna(x):
+        return ""
+    s = str(x).strip()
+
+    # 1) Repair mojibake deterministically: ftfy if available, else fixed table.
+    try:
+        from ftfy import fix_text
+        s = fix_text(s)
+    except Exception:
+        for bad, good in {
+            "Ã¤": "ä", "Ã¶": "ö", "Ã¼": "ü", "ÃŸ": "ß",
+            "Ã„": "Ä", "Ã–": "Ö", "Ãœ": "Ü",
+            "√§": "ä", "√∂": "ö", "√º": "ü", "â¤": "ä",
+        }.items():
+            s = s.replace(bad, good)
+
+    # 2) Normalise + casefold + strip diacritics (ä->a, é->e): key no longer
+    #    depends on how the accent was encoded on disk.
+    s = unicodedata.normalize("NFKC", s).casefold()
+    s = "".join(ch for ch in unicodedata.normalize("NFKD", s)
+                if not unicodedata.combining(ch))
+
+    # 3) Optional: drop a leading repeated-event index so per-instance source
+    #    variables align with a single base dictionary entry.
+    if strip_instance_prefix:
+        s = _INSTANCE_PREFIX_RE.sub("", s)
+
+    # 4) Unify ALL separators so 'hf.first.diagnosed' == 'hf_first_diagnosed'.
+    s = re.sub(r"[\s._\-]+", "_", s)
+    s = re.sub(r"[^a-z0-9_]+", "", s)
+    return s.strip("_").lower()
 
 
 def is_absolute_vs_percent_dose(src_unit: Optional[str], tgt_unit: Optional[str]) -> bool:
@@ -493,13 +557,26 @@ def build_concept_text(main_label, composite_labels_str) -> str:
     """String form of the concept signature (kept for callers that expect a string)."""
     return " ".join(build_concept_parts(main_label, composite_labels_str)).strip()
 
+def is_interval_period(period: str) -> bool:
+    if not period:
+        return False
+
+    p = str(period).lower().strip()
+    return (
+        p.startswith("interval ")
+        or p.startswith("pre-baseline ")
+        or "between" in p
+        or " to " in p
+    )
 def extract_visit_period(visit: str) -> str:
     """Normalize visit string to comparable period label."""
     if not visit:
         return ""
 
     v = str(visit).lower().strip()
-
+    m = _BETWEEN_BASELINE_VISIT_RE.search(v) or _BASELINE_TO_VISIT_RE.search(v)
+    if m:
+        return f"interval baseline to visit {m.group(1)}"
     # Must come before generic baseline detection.
     m = _PRE_BASELINE_MONTH_RE.search(v) or _BASELINE_PRIOR_MONTH_RE.search(v)
     if m:
@@ -518,6 +595,25 @@ def extract_visit_period(visit: str) -> str:
 
     return v
 
+def is_determinate_period(visit: str) -> bool:
+    """Return True iff the visit string resolves to a recognised discrete or
+    interval period.
+
+    A visit that does not resolve — an undetermined label, a date field, or a
+    study-period axis such as 'study days'
+    """
+    if not visit:
+        return False
+    v = str(visit).lower().strip()
+    return bool(
+        _BETWEEN_BASELINE_VISIT_RE.search(v)
+        or _BASELINE_TO_VISIT_RE.search(v)
+        or _PRE_BASELINE_MONTH_RE.search(v)
+        or _BASELINE_PRIOR_MONTH_RE.search(v)
+        or _VISIT_BASELINE_RE.search(v)
+        or _VISIT_MONTH_RE.search(v)
+        or re.search(r'month\s*(\d+)', v, re.IGNORECASE)
+    )
 def extract_tick_values(texts: str) -> List[float]:
     """Extract numeric tick labels from a matplotlib Text() list‑string.
 

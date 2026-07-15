@@ -185,7 +185,6 @@ def generate_mapping_csv(
 ):
     """
     Generate mapping CSV files for a source study and a list of target studies.
-
     Args:
         source_study (str): The name of the source study.
         target_studies (list of tuple): Each tuple is (target_study_name, visit_constraint_bool).
@@ -193,22 +192,19 @@ def generate_mapping_csv(
         cohort_file_path (str, optional): Path to the cohorts directory. Defaults to settings.cohort_folder.
         cohorts_metadata_file (str, optional): Path to the cohort metadata file. Defaults to f"{data_dir}/cohort_metadata_sheet_v2.csv".
         output_dir (str, optional): Directory to store output mapping CSVs. Defaults to settings.output_dir (CohortVarLinker/data/mapping_output).
-    
     Returns:
         dict: Cache information with 'cached_pairs' and 'uncached_pairs' lists containing pair info and timestamps.
     """
-
     if data_dir is None:
         data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
     from CohortVarLinker.updated_src.config import settings
     if cohort_file_path is None:
         cohort_file_path = settings.cohort_folder
     # Robust check: ensure all selected cohorts exist
-   
     missing_cohorts = []
     model_name = "biolord"
-    embedding_mode = EmbeddingType.EC.value  # embedding_concepts
-    mapping_mode = MappingType.OEC.value # ontology + embedding_concepts
+    embedding_mode = EmbeddingType.EH.value  # embedding_concepts
+    mapping_mode = MappingType.OEH.value # ontology + embedding_concepts
     # select_relevant_studies = True
     collection_name=f"studies_metadata_{model_name}_{embedding_mode}",
     for cohort_id in [source_study] + [t[0] for t in target_studies]:
@@ -257,7 +253,7 @@ def generate_mapping_csv(
         out_filename = f'{source_study}_{tstudy}_cross_mapping.csv'
         out_path = os.path.join(output_dir, out_filename)
         print(f"Checking if {out_path} exists")
-        
+
         if os.path.exists(out_path):
             # Get file modification time
             mtime = os.path.getmtime(out_path)
@@ -298,9 +294,9 @@ def generate_mapping_csv(
     # min_score_list = [0.5,0.6,0.65,0.7, 0.75, 0.8, 0.85, 0.9]
     # vector_db, embedding_model = generate_studies_embeddings(cohort_file_path, "qdrant", f"studies_metadata_{model_name}", model_name=model_name, recreate_db=True)
     vector_db, embedding_model = generate_studies_embeddings(cohort_file_path, "localhost", collection_name, model_name=model_name, embedding_mode=embedding_mode, recreate_db=True)
-    llm_model = None 
+    llm_model = "litellm/gpt-oss:120b" 
     omop_graph = None if mapping_mode == MappingType.NE.value else OmopGraphNX(csv_file_path=settings.concepts_file_path)
-   
+
 
     mapper = StudyMapper(
         vector_db=vector_db,

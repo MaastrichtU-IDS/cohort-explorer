@@ -16,36 +16,33 @@ logger = logging.getLogger(__name__)
 
 MODEL_MAP = {
     # --- Biomedical domain models ---
-    "cardioembed":"michiyasunaga/BioLinkBERT-large",
-    "zembed":"zeroentropy/zembed-1",
-    "sapbert":  "cambridgeltl/SapBERT-from-PubMedBERT-fulltext",
+    # "cardioembed":"michiyasunaga/BioLinkBERT-large",
+    # "zembed":"zeroentropy/zembed-1",
+    # "sapbert":  "cambridgeltl/SapBERT-from-PubMedBERT-fulltext",
     "biolord":  "FremyCompany/BioLORD-2023",
     # "coder":"GanjinZero/UMLSBert_ENG",
-    "medembed":"abhinand/MedEmbed-base-v0.1",
-    "coder":"GanjinZero/coder_eng",
-    # --- General-purpose models ---
-    "qwen3-0.6b":    "Qwen/Qwen3-Embedding-0.6B", 
-    "qwen3-8b" :  "accounts/fireworks/models/qwen3-embedding-8b", #"qwen3-embedding:8b" ,
-    "gemma": "google/embeddinggemma-300m",
-    "nomic":"nomic-ai/nomic-embed-text-v2-moe",
-    "e5":       "intfloat/e5-large-v2", 
-    "minilm":   "all-MiniLM-L6-v2",
-    "mxbai":    "mixedbread-ai/mxbai-embed-large-v1",
-    "bge":      "BAAI/bge-large-en-v1.5", # same bge, cloud-hosted
-    "gte":      "Alibaba-NLP/gte-modernbert-base", # same gte, cloud-hosted
-    "openai": "text-embedding-3-large",
-    "gemini": "models/gemini-embedding-001",
-    "kalm": "KaLM-Embedding/KaLM-embedding-multilingual-mini-instruct-v2.5",
-    "qwen2":"Alibaba-NLP/gte-Qwen2-7B-instruct",
-    "biobart":"GanjinZero/biobart-large",
-    "sentence_sapbert": "amrothemich/sapbert-sentence-transformers"
+    # "medembed":"abhinand/MedEmbed-base-v0.1",
+    # "coder":"GanjinZero/coder_eng",
+    # # --- General-purpose models ---
+    # "qwen3-0.6b":    "Qwen/Qwen3-Embedding-0.6B", 
+    # "qwen3-8b" :  "accounts/fireworks/models/qwen3-embedding-8b", #"qwen3-embedding:8b" ,
+    # "gemma": "google/embeddinggemma-300m",
+    # "nomic":"nomic-ai/nomic-embed-text-v2-moe",
+    # "e5":       "intfloat/e5-large-v2", 
+    # "minilm":   "all-MiniLM-L6-v2",
+    # "mxbai":    "mixedbread-ai/mxbai-embed-large-v1",
+    # "bge":      "BAAI/bge-large-en-v1.5", # same bge, cloud-hosted
+    # "gte":      "Alibaba-NLP/gte-modernbert-base", # same gte, cloud-hosted
+    # "openai": "text-embedding-3-large",
+    # "gemini": "models/gemini-embedding-001",
+    # "kalm": "KaLM-Embedding/KaLM-embedding-multilingual-mini-instruct-v2.5",
+    # "qwen2":"Alibaba-NLP/gte-Qwen2-7B-instruct",
+    # "biobart":"GanjinZero/biobart-large",
+    # "sentence_sapbert": "amrothemich/sapbert-sentence-transformers"
               # MTEB #2  (0.6B)
     # "linq":     "Linq-AI-Research/Linq-Embed-Mistral",   # MTEB #5  (7B)
-    # NOTE: gemini-embedding-001 and text-embedding-3-large are API-only.
-    #       Use APIEmbeddingModel("gemini"|"openai", api_key=...) for those.
 
-  
-  
+
 }
 OLLAMA_MODELS = {"qwen3-8b"}
 POOLING_STRATEGY = {
@@ -164,18 +161,7 @@ class UnifiedEmbeddingModel:
         # mean pooling
         mask = attention_mask.unsqueeze(-1).float()
         return (last_hidden * mask).sum(1) / mask.sum(1).clamp(min=1e-9)
-    # def _pool(self, last_hidden: torch.Tensor,
-    #           attention_mask: torch.Tensor) -> torch.Tensor:
-    #     if self._pooling == "cls":
-    #         return last_hidden[:, 0]
-    #     if self._pooling == "last":
-    #         # last non-pad token per sequence
-    #         seq_lens = attention_mask.sum(dim=1) - 1
-    #         return last_hidden[torch.arange(last_hidden.size(0),
-    #                            device=last_hidden.device), seq_lens]
-    #     # mean pooling
-    #     mask = attention_mask.unsqueeze(-1).float()
-    #     return (last_hidden * mask).sum(1) / mask.sum(1).clamp(min=1e-9)
+   
 
     @torch.no_grad()
     def embed_batch(self, texts: List[str], show_progress: bool = False,

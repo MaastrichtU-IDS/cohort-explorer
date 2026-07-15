@@ -15,6 +15,10 @@ class Settings:
     DATE_HINTS: List[str] = field(default_factory=lambda: ["visit date", "date of visit", "date of event", "event date"])
     # TOGETHER_API_KEY: str = field(default_factory=lambda: os.getenv("TOGETHER_API_KEY"))   
     OPENROUTER_API_KEY: str = field(default_factory=lambda: os.getenv("OPENROUTER_API_KEY"))
+    FIREWORKS_API_KEY: str = field(default_factory=lambda: os.getenv("FIREWORKS_API_KEY"))
+    FIREWORKS_BASE_URL: str = "https://api.fireworks.ai/inference/v1"
+    LITELLM_BASE_URL: str = field(default_factory=lambda: os.getenv("LITELLM_BASE_URL", "https://litellm.137.120.31.164.nip.io/v1"))
+    LITELLM_API_KEY: str = field(default_factory=lambda: os.getenv("LITELLM_API_KEY", "sk-noauth"))
     OLLAMA_URL = "localhost:11434"
     CROSS_CATS: Set[str] = field(default_factory=lambda: {
         "measurement", "observation", "condition_occurrence", 
@@ -162,6 +166,20 @@ class Settings:
     "category": "measurement",
     "data_type": "continuous_variable",
     "formula": "Eos[#/vol] = Eos_fraction × Leukocytes[#/vol] ; Eos_fraction = pct/100 when reported in %"
+},
+{
+    "name": "Age_at_baseline",
+    "omop_id": 3022304,
+    "code": "loinc:30525-0",
+    "label": "Age",
+    "unit": "ucum:a",
+    "required_omops": [
+        4083587,  # Date of birth
+        4231970,  # Date of visit
+    ],
+    "category": "person",
+    "data_type": "continuous_variable",
+    "formula": "completed calendar years between date of birth and baseline date",
 }
 
     ])

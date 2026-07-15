@@ -29,6 +29,9 @@ def _node_to_profile_cols(node: VariableNode, side: str) -> Dict[str, Any]:
     and VariableNode.from_target_row(), so the constraint solver gets typed inputs.
     """
     st = node.statistical_type
+    stats = node.statistics
+    if isinstance(stats, tuple):
+        stats = stats[0] if stats else None
     return {
         f"{side}_type": st.value if isinstance(st, StatisticalType) else (st or ""),
         f"{side}_unit": node.unit,
@@ -38,9 +41,9 @@ def _node_to_profile_cols(node: VariableNode, side: str) -> Dict[str, Any]:
         f"{side}_composite_code_labels": "||".join(node.context_labels) if node.context_labels else "",
         f"{side}_composite_code_omop_ids": "||".join(str(x) for x in node.context_ids) if node.context_ids else "",
         f"{side}_composite_code_codes": "||".join(str(x) for x in node.context_codes) if node.context_codes else "",
-        f"{side}_min_val": node.statistics.min_val,
-        f"{side}_max_val": node.statistics.max_val,
-        f"{side}_data_type": node.data_type,
+        f"{side}_min_val": stats.min_val  if stats else None ,
+        f"{side}_max_val": stats.max_val  if stats else None ,
+        f"{side}_data_type": node.data_type or "",
     }
 
         
@@ -406,7 +409,175 @@ class NeuroSymbolicMatcher:
               
             })
         return final_results
-   
+    # def _extend_with_derived_variables(
+    #     self,
+    #     single_source: dict,
+    #     standard_derived_variable: tuple,
+    #     parameters_omop_ids: list,
+    #     variable_name: str,
+    #     category: str,
+    #     stats_type: str = "continuous_variable",
+    #     unit_label: str = "",
+    # ) -> List[Dict]:
+    #     """Check if a derived variable can be synthesized. Returns list of match dicts."""
+    #     data_context = single_source.copy()
+
+    #     def _find_omop_id_rows(data_list: list, omop_code: int, code_key: str = "omop_id") -> list:
+    #         found = []
+    #         for row in data_list:
+    #             try:
+    #                 curr_val = int(row.get(code_key, 0))
+    #             except (ValueError, TypeError):
+    #                 continue
+    #             if curr_val == int(omop_code):
+    #                 found.append(row)
+    #         return found
+
+    #     def _get_parameter_visits(data: dict, parameters_codes: list, side: str = "source") -> Tuple[bool, Set[str]]:
+    #         code_key_mapped = "somop_id" if side == "source" else "tomop_id"
+    #         visit_key_mapped = "source_visit" if side == "source" else "target_visit"
+    #         visits = set()
+    #         all_found = True
+    #         for code in parameters_codes:
+    #             unmapped_rows = _find_omop_id_rows(data[side], code, code_key="omop_id")
+    #             mapped_rows = _find_omop_id_rows(data['mapped'], code, code_key=code_key_mapped)
+    #             if unmapped_rows:
+    #                 for row in unmapped_rows:
+    #                     v = str(row.get('visit', '')).strip().lower()
+    #                     if v:
+    #                         visits.add(v)
+    #             elif mapped_rows:
+    #                 for row in mapped_rows:
+    #                     v = str(row.get(visit_key_mapped, '')).strip().lower()
+    #                     if v:
+    #                         visits.add(v)
+    #             else:
+    #                 all_found = False
+    #                 break
+    #         return all_found, visits
+
+    #     def _find_aligned_visit_pairs(source_visits: Set[str], target_visits: Set[str]) -> Dict[Tuple[str, str], bool]:
+    #         aligned_pairs = {}
+    #         for src_vis in source_visits:
+    #             for tgt_vis in target_visits:
+    #                 if FuzzyMatcher.check_visit_string(src_vis, tgt_vis):
+    #                     aligned_pairs[(src_vis, tgt_vis)] = True
+    #         return aligned_pairs
+
+    #     def _get_varname_for_visit(derived_rows: list, visit: str, default_name: str, key: str) -> str:
+    #         for row in derived_rows:
+    #             row_visit = str(row.get('visit', '')).strip().lower()
+    #             if row_visit == visit:
+    #                 return row.get(key, default_name)
+    #         return default_name
+
+    #     target_omop_id = int(standard_derived_variable[2])
+    #     source_derived_rows = _find_omop_id_rows(data_context["source"], target_omop_id, code_key="omop_id")
+    #     target_derived_rows = _find_omop_id_rows(data_context["target"], target_omop_id, code_key="omop_id")
+    #     if source_derived_rows and target_derived_rows:
+    #         return []
+
+    #     already_mapped = False
+
+    #     for row in data_context.get("mapped", []):
+    #         try:
+    #             s_id = int(float(row.get("somop_id", 0)))
+    #             t_id = int(float(row.get("tomop_id", 0)))
+    #         except (TypeError, ValueError):
+    #             continue
+
+    #         if s_id == target_omop_id and t_id == target_omop_id:
+    #             already_mapped = True
+    #             break
+    #     if already_mapped:
+    #         return []
+
+    #     source_can_calc, source_param_visits = _get_parameter_visits(
+    #         data_context,
+    #         parameters_omop_ids,
+    #         side="source",
+    #     )
+
+    #     target_can_calc, target_param_visits = _get_parameter_visits(
+    #         data_context,
+    #         parameters_omop_ids,
+    #         side="target",
+    #     )
+      
+    #     for row in source_derived_rows:
+    #         v = str(row.get('visit', '')).strip().lower()
+    #         if v:
+    #             source_param_visits.add(v)
+    #     for row in target_derived_rows:
+    #         v = str(row.get('visit', '')).strip().lower()
+    #         if v:
+    #             target_param_visits.add(v)
+
+    #     source_valid = (len(source_derived_rows) > 0) or source_can_calc
+    #     target_valid = (len(target_derived_rows) > 0) or target_can_calc
+    #     if not (source_valid and target_valid):
+    #         return []
+
+    #     aligned_visit_pairs = _find_aligned_visit_pairs(source_param_visits, target_param_visits)
+    #     if not aligned_visit_pairs:
+    #         return []
+
+    #     final_stats_type = stats_type
+    #     all_rows = source_derived_rows + target_derived_rows
+    #     if all_rows and all_rows[0].get('stats_type'):
+    #         final_stats_type = all_rows[0].get('stats_type')
+
+    #     src_unit, tgt_unit = "", ""
+    #     if source_derived_rows and source_derived_rows[0].get('unit_label'):
+    #         src_unit = source_derived_rows[0].get('unit_label')
+    #     elif target_derived_rows and target_derived_rows[0].get('unit_label'):
+    #         tgt_unit = target_derived_rows[0].get('unit_label')
+
+    #     final_results = []
+       
+
+    #     for (src_visit, tgt_visit) in aligned_visit_pairs.keys():
+    #         if not src_visit or not tgt_visit:
+    #             continue
+
+    #         src_visit_norm = str(src_visit).strip().lower()
+    #         tgt_visit_norm = str(tgt_visit).strip().lower()
+
+          
+
+    #         source_varname = _get_varname_for_visit(
+    #             source_derived_rows,
+    #             src_visit,
+    #             f"derived_{variable_name}",
+    #             "source",
+    #         )
+
+    #         target_varname = _get_varname_for_visit(
+    #             target_derived_rows,
+    #             tgt_visit,
+    #             f"derived_{variable_name}",
+    #             "target",
+    #         )
+    #         final_results.append({
+    #             "source": source_varname, "target": target_varname,
+    #             "somop_id": target_omop_id, "tomop_id": target_omop_id,
+    #             "scode": standard_derived_variable[0], "slabel": standard_derived_variable[1],
+    #             "tcode": standard_derived_variable[0], "tlabel": standard_derived_variable[1],
+    #             "source_visit": src_visit, "target_visit": tgt_visit,
+    #             "category": category,
+    #             "source_type": final_stats_type, "target_type": final_stats_type,
+    #             "source_unit": src_unit if src_unit else unit_label,
+    #             "target_unit": tgt_unit if tgt_unit else unit_label,
+    #             "source_composite_code_labels": standard_derived_variable[1],
+    #             "source_composite_code_omop_ids": f"{target_omop_id}",
+    #             "target_composite_code_labels": standard_derived_variable[1],
+    #             "target_composite_code_omop_ids": f"{target_omop_id}",
+    #             "mapping_relation": MappingRelation.SymbolicCloseMatch.value,
+    #             "context_match_type": ContextMatchType.EXACT.value,
+    #             "sim_score": 1.0,
+    #             "transformation_rule": f"Derived variable {variable_name} using parameter columns {parameters_omop_ids}.",
+    #         })
+    #     return final_results
 
 
     # =================================================================
@@ -451,14 +622,14 @@ class NeuroSymbolicMatcher:
                 vectors = self.embed_model.embed_batch(uncached, is_query=True)
                 for text, vec in zip(uncached, vectors):
                     _embed_cache[_cache_key(self.embed_model.model_name, text)] = vec.tolist()
-                # print(f" ✅ Pre-embedded {len(uncached)} query texts (1 batch)")
+                print(f" ✅ Pre-embedded {len(uncached)} query texts (1 batch)")
 
         concept_matches = {}
         total_groups = len(src_grouped)
 
         for idx, (sid, s_group) in enumerate(src_grouped.items()):
-            # if (idx + 1) % 50 == 0 or idx == 0:
-                # print(f"resolve_matches: {idx + 1}/{total_groups} source groups...")
+            if (idx + 1) % 50 == 0 or idx == 0:
+                print(f"resolve_matches: {idx + 1}/{total_groups} source groups...")
 
             rep = s_group[0]
             matched_candidates = set()
@@ -512,7 +683,7 @@ class NeuroSymbolicMatcher:
                 # seen_pairs = set()
                 for tgt_node in tgt_nodes:
                     for src_node in s_group:
-                        if not FuzzyMatcher.check_visit_string(src_node.visit, tgt_node.visit):
+                        if not FuzzyMatcher.visits_compatible(src_node.visit, tgt_node.visit):
                             continue
                         ckey = self._concept_key(src_node, tgt_node)
                         if ckey not in concept_matches:
@@ -525,7 +696,7 @@ class NeuroSymbolicMatcher:
                             }
                         concept_matches[ckey]["group_pairs"].append((src_node, tgt_node, score))
         
-        # print(f"total concept_matches unique pairs: {len(concept_matches)}")
+        print(f"total concept_matches unique pairs: {len(concept_matches)}")
         for ckey, entry in concept_matches.items():
             rel_str = entry["relation"].strip().lower() if entry["relation"] else "unknown"
             for src_node, tgt_node, score in entry["group_pairs"]:
@@ -608,10 +779,10 @@ class NeuroSymbolicMatcher:
 
         # ── Step 3: call the LLM once across all groups.
         case_ids = [f"P{i}" for i in range(len(flat_keys))]
-        if len(flat_keys) > 1:
-            logger.info(f"  🤖 LLM Validating : {len(flat_keys)} concept pairs")
-        else:
-            logger.debug(f"  🤖 LLM Validating : {len(flat_keys)} concept pair")
+        # if len(flat_keys) > 1:
+        #     logger.info(f"  🤖 LLM Validating : {len(flat_keys)} concept pairs")
+        # else:
+        #     logger.debug(f"  🤖 LLM Validating : {len(flat_keys)} concept pair")
         grouped_results, _stats = self.llm_matcher.assess(groups, case_ids=case_ids)
 
         # ── Step 4: convert verdicts to LLMEvidence
@@ -689,8 +860,13 @@ class NeuroSymbolicMatcher:
         # t_cats = tuple(sorted(l.strip() for l in
         #     (tgt_node.category_labels if use_ontology else tgt_node.category_labels) if l.strip()))
 
-        s_cats = tuple(sorted(l.strip() for l in src_node.category_labels if l.strip()))
-        t_cats = tuple(sorted(l.strip() for l in tgt_node.category_labels if l.strip()))
+        # s_cats = tuple(sorted(l.strip() for l in src_node.category_labels if l.strip()))
+        # t_cats = tuple(sorted(l.strip() for l in tgt_node.category_labels if l.strip()))
+
+        s_cat_src = src_node.category_pairs or src_node.category_labels
+        t_cat_src = tgt_node.category_pairs or tgt_node.category_labels
+        s_cats = tuple(sorted(l.strip() for l in s_cat_src if l.strip()))
+        t_cats = tuple(sorted(l.strip() for l in t_cat_src if l.strip()))
 
         return (" | ".join(s_parts), s_cats, " | ".join(t_parts), t_cats)
 
@@ -734,7 +910,7 @@ class NeuroSymbolicMatcher:
             groups.append(group)
 
         case_ids = [f"P{i}" for i in range(len(flat_keys))]
-        logger.info(f"  🤖 LLM: {len(flat_keys)} concept pairs")
+        # logger.info(f"  🤖 LLM: {len(flat_keys)} concept pairs")
 
         grouped_results, stats = self.llm_matcher.assess(groups, case_ids=case_ids)
         
@@ -841,7 +1017,7 @@ class NeuroSymbolicMatcher:
             src_ids_per_row.append(s_row)
             tgt_ids_per_row.append(t_row)
 
-        # print(f"🔤 Ontology cache: {len(label_cache)} label→OMOP mappings")
+        print(f"🔤 Ontology cache: {len(label_cache)} label→OMOP mappings")
 
         if self.graph is not None:
             pairs_to_check = {
@@ -857,7 +1033,7 @@ class NeuroSymbolicMatcher:
                     hit = bool(resolve(sid, {tid}, max_depth=1))
                     align_cache[(sid, tid)] = hit
                     aligned += hit
-                # print(f"✅ Alignment cache: {aligned} aligned / {len(pairs_to_check)} checked")
+                print(f"✅ Alignment cache: {aligned} aligned / {len(pairs_to_check)} checked")
 
         if self.mapping_mode == MappingType.OO.value or not all_labels:
             return df
@@ -865,16 +1041,16 @@ class NeuroSymbolicMatcher:
         # Encode ONLY what isn't already cached — biggest speedup across repeated calls
         new_lbls = [l for l in all_labels if l not in emb_cache]
         new_ctx  = [(c, l) for c, l in ctx_pairs if f"{c}::{l}" not in emb_cache]
-        # cached_n = (len(all_labels) - len(new_lbls)) + (len(ctx_pairs) - len(new_ctx))
+        cached_n = (len(all_labels) - len(new_lbls)) + (len(ctx_pairs) - len(new_ctx))
 
         if new_lbls or new_ctx:
             texts = new_lbls + [f"{c} {l}" for c, l in new_ctx]
             keys  = new_lbls + [f"{c}::{l}" for c, l in new_ctx]
-            # print(f"🔤 Pre-encoding {len(texts)} NEW embeddings "
-                # f"({len(new_lbls)} labels + {len(new_ctx)} contextualized; {cached_n} reused from cache)...")
+            print(f"🔤 Pre-encoding {len(texts)} NEW embeddings "
+                f"({len(new_lbls)} labels + {len(new_ctx)} contextualized; {cached_n} reused from cache)...")
             emb_cache.update(zip(keys, model_object.embed_batch(texts, show_progress=False)))
-        # else:
-            # print(f"🔤 All {cached_n} embeddings reused from cache — no encoding needed.")
+        else:
+            print(f"🔤 All {cached_n} embeddings reused from cache — no encoding needed.")
 
-        # print(f"✅ Cache size: {len(emb_cache)} embeddings")
+        print(f"✅ Cache size: {len(emb_cache)} embeddings")
         return df

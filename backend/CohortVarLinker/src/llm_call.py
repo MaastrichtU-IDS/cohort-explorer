@@ -2,6 +2,8 @@ from __future__ import annotations
 import json, re, time
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass, field
+
+from .utils import setup_logger
 from .config import settings
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from .data_model import ContextMatchType, MappingType
@@ -9,6 +11,7 @@ from .data_model import ContextMatchType, MappingType
 import hashlib
 from pathlib import Path
 
+logger = setup_logger("llm_logs.log")
 _LABELS = {
     "COMPLETE",
     "COMPATIBLE",
@@ -24,6 +27,9 @@ _LABEL_ALIASES = {
 }
 
 _CODE_TO_LABEL = {"1": "COMPLETE", "2": "COMPATIBLE", "3": "PARTIAL", "4": "IMPOSSIBLE"}
+
+
+
 class LLMDiskCache:
     def __init__(self, cache_dir: str = settings.LLM_CACHE_DIR):
         self.root = Path(cache_dir)
@@ -61,6 +67,7 @@ class LLMDiskCache:
             # Backward compatibility with old cache format:
             # {"prompt": ..., "r": "..."}
             if "r" in data:
+                # logger.info(f"cached = {data}")
                 return data
 
             return None
@@ -97,72 +104,58 @@ class LLMDiskCache:
 _INPUT_NE = """
 # INPUT
 Two variables are provided: Source and Target. Source/Target are positional labels only — they do not imply which side is finer or coarser, nor which side is the reference.
- 
 Each variable has:
 - description: variable label from study metadata
 - unit: measurement unit, if available
-- categories: allowed values; [] means continuous or free-text
+- categories: allowed values in format [original value=readable label|original value=readable label]
 """
 
 _BATCH_INPUT_NE = """
 # INPUT
 One Source variable and multiple target variables are provided. Source/Target are positional labels only — they do not imply which side is finer or coarser, nor which side is the reference.
- 
 Each variable has:
 - description: variable label from study metadata
 - unit: measurement unit, if available
-- categories: allowed values; [] means continuous or free-text
+- categories: allowed values in format [original value=readable label|original value=readable label]
 """
  
 _INPUT_EV = """
 # INPUT
-Two variables are provided: Source and Target. Source/Target are positional labels only — they do not imply which side is finer or coarser, nor which side is the reference.
- 
+The source and target variables originate from separate studies. Harmonization pools these patients into a single patient-level analysis variable, one row per patient; the two sides are therefore never repeated measurements of the same individual.
+Two variables are provided: Source and Target. Source/Target are positional labels only.
 Each variable may include:
 - Description: short variable label
 - Concepts: ordered concepts separated by " | "
   - first concept = primary concept (authoritative for meaning)
   - remaining concepts = refinements that may narrow or qualify meaning
-- Categories: allowed values, if available
+- categories: allowed values in format [original value=readable label|original value=readable label]
 - Unit: measurement unit, if available
-- Graph evidence: optional semantic evidence from OMOP vocabularies
+- Graph evidence: optional hierarchical structure of primary standard concept from controlled vocabularies
 """
 
 _BATCH_INPUT_EV = """
 # INPUT
 One Source variable and multiple target variables are provided. Source/Target are positional labels only — they do not imply which side is finer or coarser, nor which side is the reference.
- 
 Each variable may include:
 - Description: short variable label
 - Concepts: ordered concepts separated by " | "
   - first concept = primary concept (authoritative for meaning)
   - remaining concepts = refinements that may narrow or qualify meaning
-- Categories: allowed values, if available
+- categories: allowed values in format [original value=readable label|original value=readable label]
 - Unit: measurement unit, if available
-- Graph evidence: optional semantic evidence from OMOP vocabularies
+- Graph evidence: hierarchical structure of primary standard concept from controlled vocabularies
 """
 
-_RULES_EV_ONLY = """- The first concept is authoritative for variable meaning. Treat additional concepts as refinements only if they materially change clinical interpretation; otherwise treat them as annotation context. 
-- If Description and Concepts conflict, use Concepts as the primary meaning. 
-- When graph evidence conflicts with descriptions or concepts, prefer the explicit metadata. Use graph evidence to break ties or confirm relationships, not to override stated meaning."""
- 
 _OUTPUT_PAIR = """
-# OUTPUT CONSTRAINTS
-- status: COMPLETE | COMPATIBLE | PARTIAL | IMPOSSIBLE
-- confidence: float 0.0-1.0
-- reason: 50 words or fewer; prioritize clarity and explanation over word count. explain which rules you applied and why.
-- transform: 40 words or fewer, or ""
-- harmonized_variable: 12 words or fewer, snake_case, or ""
-- alignment_direction: "bidirectional" | "source to target" | "target to source" | "both for derivation" | ""
-
 # OUTPUT FORMAT
 Return ONLY one valid JSON object:
 {{
+  "status_code": <1|2|3|4> (1=COMPLETE, 2=COMPATIBLE, 3=PARTIAL, 4=IMPOSSIBLE),
   "status": "<COMPLETE|COMPATIBLE|PARTIAL|IMPOSSIBLE>",
   "confidence": <float>,
-  "reason": "<50 words or fewer>",
+  "reason": "<50 words or fewer; prioritize clarity and explanation over word count. explain which rules you applied and why.>",
   "transform": "<40 words or fewer, or empty>",
-  "harmonized_variable": "<snake_case or empty>",
+  "harmonized_variable": "<12 words or fewer; snake_case or empty>",
   "alignment_direction": "<direction or empty>"
 }}
 """
@@ -171,14 +164,13 @@ _OUTPUT_BATCH = """
 # OUTPUT CONSTRAINTS
 - Each verdict has the same fields and limits as the single-pair schema.
 - Evaluate each (Source, Target i) pair independently. Targets must not influence one another.
-
 # OUTPUT FORMAT
 Return ONLY one valid JSON array, one object per target, in the same order as Target 1 .. Target N:
 [
   {{
     "status": "<COMPLETE|COMPATIBLE|PARTIAL|IMPOSSIBLE>",
     "confidence": <float>,
-    "reason": "<25 words or fewer>",
+    "reason": "<50 words or fewer>",
     "transform": "<40 words or fewer, or empty>",
     "harmonized_variable": "<snake_case or empty>",
     "alignment_direction": "<direction or empty>"
@@ -186,160 +178,343 @@ Return ONLY one valid JSON array, one object per target, in the same order as Ta
 ]
 """
 
+_STUDY_CONTEXT_RULES = """
+
+# STUDY CONTEXT
+Use study metadata only when relevant to judging whether the harmonized variable is meaningful for pooled analysis.
+Use cohort population, inclusion criteria, and shared morbidities to identify variables that would be constant (zero variance), structurally non-informative , or non-comparable across cohorts. 
+"""
 _SHARED_BODY = """
-# REASONING PROCEDURE
-Before assigning a status, answer these questions internally:
-1. What clinical entity does each variable measure? Separate the entity itself from how, where, or when it is observed. 
-2. Are these the same entity, or genuinely different entities? Are the entities interchanble in medical and physiological standard?
-3. If the same entity: can a single common variable be defined that both sides can populate — even if one side requires reduction, recoding, or approximation?
-4. If a common variable exists: can at least one side fully populate it while the other contributes without fabricating values? Mapping a genuinely unknown value to missing/unknown is allowed and expected.
+{study_context_block}
+### MANDATORY SEMANTIC GATES
 
-Use the answers to select exactly ONE status below.
+Assess harmonizability for pooled patient-level analysis, not surface semantic similarity.
 
-# STATUS DEFINITIONS
+For each variable, where the metadata allows, identify:
+1. Clinical entity — condition, measurement, medication, procedure, or event.
+2. Information axis — presence, severity, amount, dose, date, frequency, cause, method, or other attribute.
+3. Observation frame — history/ever, current state, during a specified test, incident event, cumulative period, or point-in-time assessment.
+4. Anatomical scope — general, organ-specific, regional, unilateral, bilateral, or other site restriction.
+5. Composition — single entity, parent class, subtype/member, union, sum, aggregate, or residual "other" field.
+6. Value support — which clinical states are explicitly represented and what a missing value means.
+7. Timepoint — baseline, follow-up, event date, or other study period.
 
-- COMPLETE:
-  Same clinical entity, same granularity, clinically interpretable threshold and same values representation. Values merge as-is with no transformation. Only Mathematically equivalent units with different notation (e.g., ug/L = ng/mL, {{counts}}/min = /min) should be considered of the same representation. 
-  Examples:
-  - systolic BP (mmHg) vs sitting systolic BP (mmHg)
-  - history of myocardial infarction (yes/no) vs myocardial infarction using ecg (yes/no)
-  - age (years) vs age at baseline (years)
-  - aspartate aminotransferase [enzymatic activity/volume] in serum or plasma ([U]/L) vs aspartate aminotransferase measurement ([U]/L)
-  - NT-proBNP (ug/L) vs NT-proBNP (ng/mL)
-  - jugular vein elevated (yes/no) vs central venous pressure > 6 cm H₂O (yes/no)
+Apply the following gates before assigning a status.
+** Composite/component gate. On each side identify whether it is a single entity, a parent class, a member/subtype, or a pre-composed aggregate (sum or union), and whether the axis is dose or presence.
+    - A pre-composed aggregate of members matched to the parent class they exhaust, with the axis-correct operator (sum for dose, logical OR for presence), equals the class total → valid. Classify by representation: COMPLETE if value and unit align, COMPATIBLE if a lossless reversible recode/conversion is needed, PARTIAL if lossy or external-reference dependent. If the members do not exhaust the class, PARTIAL, or IMPOSSIBLE where the shortfall cannot be quantified.
+    - An aggregate or composite matched to a single member, or to a different aggregate, would require isolating a component from a combined figure → IMPOSSIBLE.
+    - An operator that does not match the axis (sum on presence, OR on dose) constructs a different variable → IMPOSSIBLE.
+    - Rolling members up to their class is permitted; pulling a component out of a composite is not.
+** Residual-field gate. "Other X" or "remaining X" excludes the separately itemized members of X, so its membership is unknown from the pair alone. It cannot align to a single itemized member (disjoint by construction) or to total X (unknown membership) → IMPOSSIBLE. A true parent "any X" that excludes nothing is not a residual field; a specific member maps to it as subtype→parent (PARTIAL).
+** Observation-frame gate. History/ever, current presence, incident occurrence, and presence during a specified test are different frames. Do not assign COMPLETE or COMPATIBLE on a matching disease concept alone when the frames differ; a frame reduction is PARTIAL.
+** Anatomical-scope gate. Laterality and site restriction are defining when one variable can be positive while the other is negative for the same patient. Identical category sets do not override a scope difference.
+** Setting/default gate. A defining qualifier (posture, physiological state, specimen, provocation, assay) present on one side and omitted on the other is read as the conventional default for that measurement, but only where a recognized clinical default exists. COMPLETE/COMPATIBLE only if the specified value is that default; if it departs from the default, or if both sides specify conflicting values, no single pooled variable exists → IMPOSSIBLE. Where no recognized default exists (assay/method, device scale, anatomical site), an omitted qualifier stays unverifiable — do not upgrade to COMPLETE.
+** Value-mapping gate. For every explicit observed value, determine whether it maps to a valid harmonized value or must remain unknown. Never map missing, not recorded, not assessed, or an unsupported negative to "No".
 
-- COMPATIBLE:
-  Same clinical entity, same analysis-level granularity clinically interpretable threshold and different values representation. Values can be merged through deterministic, lossless recoding, unit conversion, or rescaling.
-  Examples:
-  - weight (kg) vs weight (lb)
-  - history of myocardial infarction (yes/no) vs myocardial infarction using ecg (1/0)
-  - blood glucose (mmol/L) vs blood glucose (mg/dL)
-  - Gender (Female/Male) vs Gender (m/f)
-  - NYHA class (I/II/III/IV) vs NYHA class (1/2/3/4)
-  - jugular vein elevated (1/0) vs central venous pressure > 6 cm H₂O (yes/no)
+### STATUS BOUNDARIES
 
-- PARTIAL:
-  A valid common harmonized variable can be created, but at least one side requires transformation that is lossy or requires manual review (e.g., reduction, collapsing, recoding, temporal approximation, or external interpretation).
-  Use PARTIAL only when ALL of these hold:
-  1. The variables measure the same clinical entity, or one variable is a clinical subclass of the other.
-  2. The harmonized_variable must represent ONE clinical concept, not a union such as "A or B".
-  3. If one variable can only provide positive evidence (“yes”) while its negative or missing values are genuinely unknown, classify as PARTIAL only when the other side can fully populate the harmonized variable and the positive-only evidence is clinically valid. Map unsupported negative or missing values to unknown, never to “no”.  
-  4. Values may be collapsed or mapped to missing/unknown, but never to invented quantitative values, subtype labels, causes, procedures, or patient facts.
-  5. If one side records only a parent class and the other records clinical subtype, the harmonized_variable must be the parent class unless the parent side explicitly encodes the subtype/detail.Do not create a subtype/detail harmonized_variable from a parent-class value.
-  6. The harmonized variable is directly supported by the provided metadata — not a new concept invented by merging two different entities.
+COMPLETE
+Same clinical entity, information axis, observation frame, anatomical scope, granularity, and value meaning; values merge as-is, with no recoding, conversion, threshold reinterpretation, or category normalization. Mathematically equivalent unit notation is allowed only when the numeric values are unchanged.
+Examples:
+- systolic BP (mmHg) vs sitting systolic BP (mmHg)  [seated is the office-BP default]
+- NT-proBNP (ug/L) vs NT-proBNP (ng/mL)  [1 ug/L = 1 ng/mL]
+- central venous pressure > 6 cmH2O (1=yes|0=no) vs jugular vein elevated (1=yes|0=no)
+- atrial fibrillation at baseline (t=yes|f=no) vs atrial fibrillation on ECG at baseline (t=yes|f=no)
 
-  Sub-patterns:
-  (a) Granularity reduction — one side is finer-grained; collapse to the coarser level.
-  (b) External-reference alignment — same or class-related entity in different scales/units, convertible via external references (target-dose tables, drug-equivalence tables, conversion factors). Member-drug vs class-level dose across scales (e.g., mg vs % of target) qualifies. Excluded: composites/sums of sibling classes (e.g., "A + B" vs "A") — those are IMPOSSIBLE.
+COMPATIBLE
+The same six attributes as COMPLETE, but value representations differ and a deterministic, lossless, reversible transformation aligns them — unit conversion, or bijective recoding (equal number of distinct clinical states). Clinical association or approximate interchangeability is not sufficient; a surrogate qualifies only where the metadata or adjudication policy establishes equivalence and a deterministic mapping.
+Examples:
+- weight (kg) vs weight (lb)
+- myocardial infarction (yes|no) vs myocardial infarction (t=yes|f=no)  [recoding only]
+- aspartate aminotransferase [enzymatic activity/volume]/L vs AST measurement (U/L)
+- central venous pressure > 6 cmH2O (3=yes|1=no) vs jugular vein elevated (0=no|1=yes)  [adjudicated surrogate; recoding]
 
-  Examples:
-  - smoking status (never/former/current) vs smoker yes/no -> harmonized: smoker_yes_no
-  - month of coronary angioplasty vs coronary angioplasty yes/no -> coronary_angioplasty_yes_no
-  - edema severity (mild/moderate/severe) vs left leg edema((mild/moderate/severe)) -> leg_edema_severity
-  - type of cancer (breast|lung|colon|other) vs breast cancer (yes/no) -> breast_cancer_yes_no
-  - metoprolol dose (mg) vs beta-blocker dose (% of target) -> harmonized: beta_blocker_dose_pct_target
-  - Torsemide use yes/no vs loop diuretic dose (mg) -> harmonized: loop_diuretic_use_yes_no
-  - hydrochlorothiazide use yes/no vs diuretics use (yes/no) -> harmonized: diuretic_use_yes_no
+PARTIAL
+One clinically meaningful variable can be built through a lossy, directional, or externally supported transformation. All must hold:
+1. Same entity, or a subtype/member/scope-restriction relationship identifiable from the provided metadata.
+2. The harmonized variable is one clinical concept, not a union or sum.
+3. Every explicit observed value is mapped validly or retained as unknown.
+4. No unsupported negative or missing value becomes "No".
+5. The transformation names the information loss: category collapse, positive-only derivation, observation-frame reduction, anatomical reduction, temporal approximation, or external-reference conversion.
+Examples:
+- Year/date of diabetes diagnosis vs diabetes history: recorded date→yes, missing→unknown (positive-only).
+- Atrial fibrillation during ECG vs history of atrial fibrillation: different frames; ECG yes→history yes, ECG no→unknown.
+- LVEF category (1:<40%, 2:40-49%, 3:>=50%) vs LVEF <40% (1=yes|0=no): collapse cat1→yes, cat2/3→no (target→source; not reversible).
+- Ordinal pulmonary-rales extent (0=absent | 1= few basal | 2=less than lower third of thorax | 3= more than thord of thorax) vs basal rales (1=yes/0=no): maps positive — 1→yes; 0→no; 2,3→no (extent exceeds the basal zone, (category collapse).
+- Left-leg edema vs general lower-limb edema: harmonize as presence — left-leg positive→general positive, left-leg negative→general unknown; severity not comparable across scopes.
+- captopril dose (mg) vs ACE-inhibitor dose (% target): single member→class via external target-dose conversion.
 
-- IMPOSSIBLE:
-  No valid common harmonized variable can be created without fabricating information.
+IMPOSSIBLE
+No single pooled variable can be built without ambiguous decomposition or unsupported inference:
+- ARB-or-ACE use (yes/no) vs ACE-inhibitor use (yes/no)  [union → component].
+- Sum of ACE-inhibitor and ARB dose vs ARB dose  [aggregate → component].
+- "Other ARB" dose vs total ARB dose  [residual; membership unknown].
+- captopril dose (mg) vs trandolapril dose (mg)  [sibling drugs; raw mg not comparable across agents].
+- disease severity vs disease etiology  [different axes].
+- sitting systolic BP (mmHg) vs standing systolic BP (mmHg)  [conflicting specified settings].
 
-  Use IMPOSSIBLE when ANY of these hold:
-  1. The variables measure genuinely different clinical entities, even if superficially related.
-  2. The variables are sibling concepts (e.g., two different drug classes, two different conditions) rather than a finer/coarser version of the same variable.
-  3. Creating a common variable would require fabricating values (numeric or inferential).
-  4. A composite variable on one side cannot be decomposed into the specific component on the other side.
+### FINAL VERIFICATION
+1. Is the harmonized variable one single clinical concept?
+2. Are information axis and observation frame preserved, or explicitly reduced with the loss named?
+3. Is every explicit value mapped, or safely retained as unknown?
+4. Did any missing or unsupported value become "No"?
+5. Did a composite, residual field, sibling relationship, anatomical restriction, setting conflict, or history/current distinction invalidate the match?
 
-  Note: different units or scales alone do NOT make a pair IMPOSSIBLE. If the underlying clinical entity is the same (or related by class membership) and a conversion path exists via external references, the pair is PARTIAL(b).
-  Examples:
-  - sitting SBP vs standing SBP (different physiological states)
-  - ACE inhibitor use vs ARB use (sibling drug classes, not member/class)
-  - ACEi+ARB total dose vs ACE inhibitor dose
-  - hemoglobin concentration vs MCHC (different lab analytes despite shared terminology)
-  - LVEF value (%) vs LVEF measurement method (different dimensions of same entity)
-  - all-cause death (yes/no) vs HF hospitalization or death (yes/no) (composite cannot be decomposed from component)
-  - cause of death (cancer|heart attack|accident) vs skin cancer death yes/no
-
-
-# IMPORTANT RULES
-- Harmonization can only reduce information, never invent it. Map unsupported values to missing/unknown rather than inventing "no". Absence is "no" only under a complete denominator; case-only or not-assessed fields stay missing.
-- Source/Target order must not change the status. The same pair in reverse should receive the same verdict. Only the alignment_direction may differ based on which side is finer-grained.
-- Causal or clinical association alone does not make variables harmonizable; classify as IMPOSSIBLE unless both measure the same entity or one value directly entails a broader class concept without information loss.
-- Interpreted threshold variables follow the same granularity rule: same N-of-classes is COMPLETE/COMPATIBLE; different granularity (e.g., binary vs graded) is PARTIAL.
-- Detection method, data source, or assessment setting (e.g., "on ECG", "during echo") does not change a diagnosis: classify as COMPLETE, or COMPATIBLE when only value representation differs. Laterality, anatomical site, time window, or granularity DO change the population — classify these as PARTIAL.
-- Unit or scale differences (mg vs %, counts/min vs /min, kg vs lb) are about values representation, not about whether two variables measure the same entity. Do not treat unit match/mismatch alone as evidence of different clinical entities.
-- Recognize mathematically equivalent units: ug/L = ng/mL, {{counts}}/min = /min = bpm, mg/dL = mg/100mL. Classify them as COMPLETE only in such cases. 
-{extra_rules}
-- member/class requires one concept to be an ancestor of the other — a shared parent does not
-- Do not treat a compound/composite concept as equivalent to one of its components. A component can only support a broader harmonized variable if both variables explicitly represent that broader concept; otherwise classify as IMPOSSIBLE.
-- Use only the provided metadata. Do not invent units, categories, or details that are not stated.
-- When in doubt between two statuses, prefer the more conservative one.
-- Before finalizing: if leaning IMPOSSIBLE, check whether a single-concept (non-composite) harmonized variable satisfies PARTIAL; if leaning PARTIAL, check whether your named harmonized variable is actually a composite/union — if so, return IMPOSSIBLE.
 
 # CONFIDENCE
-Confidence reflects how certain you are about the chosen status, regardless of which status it is:
-- 0.95-1.00: unambiguous; metadata clearly supports the verdict
+Certainty in the chosen status, whatever it is:
+- 0.95-1.00: unambiguous
 - 0.80-0.94: minor ambiguity (e.g., unit missing but inferable)
-- 0.60-0.79: meaningful ambiguity; manual review recommended
-- below 0.60: low certainty; reconsider whether the verdict is defensible
+- 0.60-0.79: meaningful ambiguity; manual review advised
+- below 0.60: low certainty; reconsider the verdict
 
 # TRANSFORM
-The data operation needed to create the harmonized variable. Limitations belong in reason, not here.
+The data operation that builds the harmonized variable; limitations go in reason.
 - COMPLETE: ""
-- COMPATIBLE: deterministic conversion (e.g., "kg = lb x 0.4536", "recode {{0->Male, 1->Female}}")
-- PARTIAL: lossy reduction (e.g., "collapse categories to yes/no", "derive presence from date", "convert mg to % via target-dose reference", "member yes->class yes, member no->missing")
+- COMPATIBLE: deterministic conversion ("kg = lb x 0.4536", "recode {{0 maps to no,1 maps to yes}}")
+- PARTIAL: lossy reduction ("collapse to yes/no", "derive presence from date", "mg to % via target-dose external conversion", "specific subtype yes -> broader class yes; specific subtype no -> broader class unknown/missing")
 - IMPOSSIBLE: ""
 
 # HARMONIZED VARIABLE
-- COMPLETE/COMPATIBLE/PARTIAL: short snake_case name of the common analysis variable (e.g., "smoker_yes_no", "weight_kg", "beta_blocker_dose_pct_target")
+- COMPLETE/COMPATIBLE/PARTIAL: short snake_case name ("smoker_yes_no", "weight_kg")
 - IMPOSSIBLE: ""
 
 # ALIGNMENT DIRECTION
 - COMPLETE: "bidirectional"
-- COMPATIBLE: "bidirectional" if reversible; otherwise the valid one-way direction
-- PARTIAL:
-  -- "source to target" if source is finer-grained and target is the coarser harmonized meaning
-  -- "target to source" if target is finer-grained and source is the coarser harmonized meaning
-  -- "both for derivation" when both variables contribute partial positive evidence to a new broader harmonized variable
+- COMPATIBLE: "bidirectional" if reversible, else the valid one-way direction
+- PARTIAL: "source to target" (source finer) | "target to source" (target finer) | "both for derivation" (both contribute positive evidence to a broader variable)
 - IMPOSSIBLE: ""
+
 """
  
-_PREAMBLE = """You are a clinical data harmonization expert assessing whether two variables can be aligned and merged into a common harmonized analysis variable for pooled statistical analysis.
-"""
+_PREAMBLE = """You are a clinical data harmonization expert assessing whether two variables from separate studies can be aligned into a common harmonized variable for pooled patient-level analysis. Determine whether the merge is clinically meaningful and whether any required transformation is supported by clinical guidelines or accepted domain knowledge.
+The source and target variables come from different cohorts. Harmonization pools different patients into one dataset, with one row per patient; therefore, the two sides are never repeated measurements of the same individual."""
 
-_BATCH_PREAMBLE = """You are a clinical data harmonization expert assessing whether a single Source variable can be aligned to each of several candidate Target variables and merged into a common harmonized analysis variable for pooled statistical analysis.
-
+_BATCH_PREAMBLE = """You are a clinical data harmonization expert assessing whether a single Source variable can be aligned to each of several candidate Target variables and merged into a common harmonized analysis variable for pooled statistical analysis. The source and target variables originate from separate studies. Harmonization pools these patients into a single patient-level analysis variable, one row per patient; the two sides are therefore never repeated measurements of the same individual.
 You will receive ONE Source and multiple Targets in a single request. Evaluate each (Source, Target i) pair independently and in isolation, using the same rules and definitions as a single-pair assessment. A target's verdict must depend only on that target and the Source — never on the presence, similarity, or verdict of any other target in the batch. Do not normalize, balance, or rank verdicts across targets. Two targets that would each receive COMPLETE in isolation must each receive COMPLETE here.
 """
-SYSTEM_PROMPT_NE = (
-    _PREAMBLE
-    + _INPUT_NE
-    + _SHARED_BODY.format(extra_rules="")
-    + _OUTPUT_PAIR
-)
-
-SYSTEM_PROMPT_EV = (
-    _PREAMBLE
-    + _INPUT_EV
-    + _SHARED_BODY.format(extra_rules=_RULES_EV_ONLY)
-    + _OUTPUT_PAIR
-)
-
-SYSTEM_PROMPT_NE_BATCH = (
-    _BATCH_PREAMBLE
-    + _BATCH_INPUT_NE
-    + _SHARED_BODY.format(extra_rules="")
-    + _OUTPUT_BATCH
-)
-
-SYSTEM_PROMPT_EV_BATCH = (
-    _BATCH_PREAMBLE
-    + _BATCH_INPUT_EV
-    + _SHARED_BODY.format(extra_rules=_RULES_EV_ONLY)
-    + _OUTPUT_BATCH
-)
 
 
+VERDICT_JSON_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": [
+        "status_code",
+        "status",
+        "confidence",
+        "reason",
+        "transform",
+        "harmonized_variable",
+        "alignment_direction",
+    ],
+    "properties": {
+        "status_code": {"type": "integer", "enum": [1, 2, 3, 4]}, 
+
+        "status": {
+            "type": "string",
+            "enum": ["COMPLETE", "COMPATIBLE", "PARTIAL", "IMPOSSIBLE"],
+        },
+        "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "reason": {"type": "string"},
+        "transform": {"type": "string"},
+        "harmonized_variable": {"type": "string"},
+        "alignment_direction": {
+            "type": "string",
+            "enum": [
+                "bidirectional",
+                "source to target",
+                "target to source",
+                "both for derivation",
+                "",
+            ],
+        },
+    }
+}
+
+def _get_field(obj: Any, key: str, default: Any = None) -> Any:
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
+
+
+def _extract_single_code(token: Any) -> str:
+    s = str(token or "")
+    m = re.fullmatch(
+        r'[\s"\':,\{\}\[\]\n\r\t]*([1-4])[\s"\':,\{\}\[\]\n\r\t]*',
+        s,
+    )
+    return m.group(1) if m else ""
+
+
+def _reconstruct_token_text(tokens: list) -> str:
+    return "".join(str(_get_field(t, "token", "")) for t in tokens)
+
+
+def _find_token_at_char_offset(tokens: list, char_pos: int) -> int | None:
+    best_i = None
+
+    for i, tok in enumerate(tokens):
+        off = _get_field(tok, "text_offset", None)
+        if off is None:
+            continue
+
+        token_text = str(_get_field(tok, "token", ""))
+        end = off + len(token_text)
+
+        if off <= char_pos < end:
+            return i
+
+        if off <= char_pos:
+            best_i = i
+
+    return best_i
+
+def _extract_status_code_logprob_evidence(logprobs_obj) -> dict:
+    """
+    Extract logprob evidence from the final JSON status_code decision point.
+
+    Returns complete or truncated observed-alternative evidence.
+    """
+    tokens = _get_field(logprobs_obj, "content", None)
+
+    if not tokens:
+        return {
+            "logprob_usable": False,
+            "error": "missing_logprob_content",
+            "dist": {},
+        }
+
+    full_text = _reconstruct_token_text(tokens)
+
+    # matches = list(re.finditer(r'"status_code"\s*:\s*([1-4])', full_text))
+    matches = list(re.finditer(r'"status_code"\s*:\s*"?([1-4])', full_text))
+
+    if not matches:
+        return {
+            "logprob_usable": False,
+            "error": "final_status_code_not_found",
+            "dist": {},
+        }
+
+    m = matches[-1]
+    emitted_code = m.group(1)
+    digit_char_pos = m.start(1)
+
+    token_index = _find_token_at_char_offset(tokens, digit_char_pos)
+
+    if token_index is None:
+        return {
+            "logprob_usable": False,
+            "error": "status_code_token_index_not_found",
+            "emitted_code": emitted_code,
+            "dist": {},
+        }
+
+    tok = tokens[token_index]
+    sampled_code = _extract_single_code(_get_field(tok, "token", ""))
+
+    # If landed on whitespace/punctuation, scan nearby tokens.
+    if sampled_code != emitted_code:
+        for j in range(token_index, min(token_index + 5, len(tokens))):
+            candidate_code = _extract_single_code(_get_field(tokens[j], "token", ""))
+            if candidate_code == emitted_code:
+                token_index = j
+                tok = tokens[j]
+                sampled_code = candidate_code
+                break
+
+    if sampled_code != emitted_code:
+        return {
+            "logprob_usable": False,
+            "error": "sampled_token_does_not_match_final_status_code",
+            "emitted_code": emitted_code,
+            "sampled_token": _get_field(tok, "token", ""),
+            "token_index": token_index,
+            "dist": {},
+        }
+
+    code_logprobs = {}
+
+    sampled_lp = _get_field(tok, "logprob", None)
+    if sampled_code in _CODE_TO_LABEL and sampled_lp is not None:
+        code_logprobs[sampled_code] = float(sampled_lp)
+
+    for alt in _get_field(tok, "top_logprobs", []) or []:
+        alt_code = _extract_single_code(_get_field(alt, "token", ""))
+        alt_lp = _get_field(alt, "logprob", None)
+
+        if alt_code in _CODE_TO_LABEL and alt_lp is not None:
+            code_logprobs[alt_code] = float(alt_lp)
+
+    required_codes = {"1", "2", "3", "4"}
+    observed_codes = set(code_logprobs)
+    missing_codes = required_codes - observed_codes
+    observability = len(observed_codes) / 4
+
+    if len(observed_codes) < 2:
+        return {
+            "logprob_usable": False,
+            "error": "insufficient_code_alternatives",
+            "distribution_type": "unusable",
+            "complete_distribution": False,
+            "observability": observability,
+            "token_index": token_index,
+            "emitted_code": emitted_code,
+            "sampled_code": sampled_code,
+            "observed_codes": sorted(observed_codes),
+            "missing_codes": sorted(missing_codes),
+            "raw_code_logprobs": code_logprobs,
+            "dist": {},
+        }
+
+    distribution_type = (
+        "complete_four_class"
+        if observed_codes == required_codes
+        else "observed_alternatives"
+    )
+
+    label_logprobs = {
+        _CODE_TO_LABEL[code]: lp
+        for code, lp in code_logprobs.items()
+    }
+
+    probs = _normalize_logprobs(label_logprobs)
+    dist = {
+        k: float(f"{v:.8g}")
+        for k, v in probs.items()
+    }
+
+    ranked = sorted(probs.items(), key=lambda x: x[1], reverse=True)
+
+    top_label, top_prob = ranked[0]
+    runner_up, runner_up_prob = ranked[1]
+
+    label_to_code = {v: k for k, v in _CODE_TO_LABEL.items()}
+    raw_margin = (
+        code_logprobs[label_to_code[top_label]]
+        - code_logprobs[label_to_code[runner_up]]
+    )
+
+    return {
+        "logprob_usable": True,
+        "error": "" if distribution_type == "complete_four_class" else "incomplete_code_alternatives",
+        "distribution_type": distribution_type,
+        "complete_distribution": distribution_type == "complete_four_class",
+        "observability": observability,
+        "token_index": token_index,
+        "emitted_code": emitted_code,
+        "sampled_code": sampled_code,
+        "observed_codes": sorted(observed_codes),
+        "missing_codes": sorted(missing_codes),
+        "raw_code_logprobs": code_logprobs,
+        "dist": dist,
+        "top_label": top_label,
+        "top_prob": round(float(top_prob), 6),
+        "runner_up": runner_up,
+        "runner_up_prob": round(float(runner_up_prob), 6),
+        "margin": round(float(top_prob - runner_up_prob), 6),
+        "raw_logprob_margin": round(float(raw_margin), 6),
+    }
 def _build_pair_prompt(src_concepts:str = "", src_cats:str = "", tgt_concepts:str = "", tgt_cats:str = "",
                        src_desc:str = "", tgt_desc:str = "",
                        src_unit:str = "", tgt_unit:str = "",
@@ -355,8 +530,9 @@ def _build_pair_prompt(src_concepts:str = "", src_cats:str = "", tgt_concepts:st
     src_line += f", categories: [{src_cats}]"
     tgt_line += f", categories: [{tgt_cats}]"
     prompt = f"## INPUT\n{src_line}\n{tgt_line}"
-    if evidence:
-        prompt += f"\ngraph_evidence: [{evidence}]"
+    # if evidence:
+    #     prompt += f"\ngraph_evidence: [{evidence}]"
+
     return prompt
 
 def _build_batch_prompt(
@@ -375,6 +551,7 @@ def _build_batch_prompt(
     if mode == MappingType.NE.value:
         src_line = f"Source: description: {src_desc}"
     else:
+        # src_line = f"Source: description: {src_desc}"
         src_line = f"Source: description: {src_desc}, concepts: {src_concepts}"
     if src_unit:
         src_line += f", unit: {src_unit}"
@@ -385,6 +562,9 @@ def _build_batch_prompt(
         if mode == MappingType.NE.value:
             line = f"Target {i}: description: {t.get('desc', '')}"
         else:
+            # line = (
+            #     f"Target {i}: description: {t.get('desc', '')}"
+            # )
             line = (
                 f"Target {i}: description: {t.get('desc', '')}, "
                 f"concepts: {t.get('tgt_concepts', '')}"
@@ -392,142 +572,70 @@ def _build_batch_prompt(
         if t.get("tgt_unit"):
             line += f", unit: {t['tgt_unit']}"
         line += f", categories: [{t.get('tgt_cats', '')}]"
-        if t.get("evidence"):
-            line += f"\n  graph_evidence: [{t['evidence']}]"
+        # if t.get("evidence"):
+        #     line += f"\n  graph_evidence: [{t['evidence']}]"
         target_lines.append(line)
 
     return "## INPUT\n" + src_line + "\n" + "\n".join(target_lines)
 
 
 
-# def _extract_logprob_dist(logprobs_obj) -> dict | None:
-#     """Find the status_code token position and return {label: prob} or None."""
-#     if not logprobs_obj or not logprobs_obj.content:
-#         return None
-#     for tok in logprobs_obj.content:
-#         if tok.token.strip() in _CODE_TO_LABEL:
-#             import math
-#             dist = {}
-#             for alt in tok.top_logprobs:
-#                 label = _CODE_TO_LABEL.get(alt.token.strip())
-#                 if label:
-#                     dist[label] = math.exp(alt.logprob)
-#             # include the sampled token itself if not already in alts
-#             sampled_label = _CODE_TO_LABEL.get(tok.token.strip())
-#             if sampled_label and sampled_label not in dist:
-#                 dist[sampled_label] = math.exp(tok.logprob)
-#             return dist if dist else None
-#     return None
+# def _parse_batch(text: str, expected_n: int) -> List[Tuple[Optional[bool], str, float, str]]:
+#     """Parse a JSON array of verdicts. Returns exactly expected_n results,
+#     padding with PENDING entries if the model under-delivered.
+#     """
+#     _pending = (
+#         None,
+#         ContextMatchType.PENDING.value,
+#         0.0,
+#         json.dumps({"status": "PARSE_ERROR", "reason": "batch_missing_item"}),
+#     )
 
-def _parse_batch(text: str, expected_n: int) -> List[Tuple[Optional[bool], str, float, str]]:
-    """Parse a JSON array of verdicts. Returns exactly expected_n results,
-    padding with PENDING entries if the model under-delivered.
-    """
-    _pending = (
-        None,
-        ContextMatchType.PENDING.value,
-        0.0,
-        json.dumps({"status": "PARSE_ERROR", "reason": "batch_missing_item"}),
-    )
+#     if not text:
+#         return [_pending] * expected_n
 
-    if not text:
-        return [_pending] * expected_n
+#     text = text.strip()
+#     text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
 
-    text = text.strip()
-    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+#     if text.startswith("```"):
+#         text = re.sub(r"^```(?:json)?\s*", "", text)
+#         text = re.sub(r"\s*```$", "", text).strip()
 
-    if text.startswith("```"):
-        text = re.sub(r"^```(?:json)?\s*", "", text)
-        text = re.sub(r"\s*```$", "", text).strip()
+#     # Try full JSON array parse
+#     try:
+#         arr = json.loads(text)
+#         if isinstance(arr, dict):
+#             # Some models wrap in {"results": [...]}
+#             arr = arr.get("results") or arr.get("verdicts") or [arr]
+#         if not isinstance(arr, list):
+#             arr = [arr]
+#         results = [_parse_single(json.dumps(item)) for item in arr[:expected_n]]
+#         while len(results) < expected_n:
+#             results.append(_pending)
+#         return results
+#     except json.JSONDecodeError:
+#         pass
 
-    # Try full JSON array parse
-    try:
-        arr = json.loads(text)
-        if isinstance(arr, dict):
-            # Some models wrap in {"results": [...]}
-            arr = arr.get("results") or arr.get("verdicts") or [arr]
-        if not isinstance(arr, list):
-            arr = [arr]
-        results = [_parse_single(json.dumps(item)) for item in arr[:expected_n]]
-        while len(results) < expected_n:
-            results.append(_pending)
-        return results
-    except json.JSONDecodeError:
-        pass
+#     # Fallback: extract balanced JSON objects from the text
+#     objects, depth, start = [], 0, None
+#     for i, ch in enumerate(text):
+#         if ch == "{":
+#             if depth == 0:
+#                 start = i
+#             depth += 1
+#         elif ch == "}":
+#             depth -= 1
+#             if depth == 0 and start is not None:
+#                 objects.append(text[start : i + 1])
+#                 start = None
 
-    # Fallback: extract balanced JSON objects from the text
-    objects, depth, start = [], 0, None
-    for i, ch in enumerate(text):
-        if ch == "{":
-            if depth == 0:
-                start = i
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0 and start is not None:
-                objects.append(text[start : i + 1])
-                start = None
+#     if objects:
+#         results = [_parse_single(obj) for obj in objects[:expected_n]]
+#         while len(results) < expected_n:
+#             results.append(_pending)
+#         return results
 
-    if objects:
-        results = [_parse_single(obj) for obj in objects[:expected_n]]
-        while len(results) < expected_n:
-            results.append(_pending)
-        return results
-
-    return [_pending] * expected_n
-
-
-def _apply_logprob_confidence(parsed_tuple, logprob_dist: Dict[str, float] | None):
-    """
-    Replace the model-written JSON confidence with normalized logprob confidence.
-    """
-    matched, ctx_type, self_reported_conf, reason_json = parsed_tuple
-
-    try:
-        d = json.loads(reason_json) if isinstance(reason_json, str) else {}
-    except Exception:
-        d = {"reason": str(reason_json)}
-
-    status = str(d.get("status", "")).upper().strip()
-    logprob_dist = logprob_dist or {}
-    
-    logprob_conf = float(logprob_dist.get(status, 0.0)) if len(logprob_dist.keys()) > 0 else None
-
-    confidence_source = (
-        "normalized_status_token_logprob"
-        if logprob_dist
-        else "unavailable_logprob"
-    )
-
-    ranked = sorted(logprob_dist.items(), key=lambda x: x[1], reverse=True)
-
-    top_label = ""
-    top_prob = 0.0
-    runner_up = ""
-    margin = 0.0
-
-    if ranked:
-        top_label, top_prob = ranked[0]
-
-    if len(ranked) >= 2:
-        runner_up, second_prob = ranked[1]
-        margin = float(top_prob - second_prob)
-
-    d["llm_self_reported_confidence"] = float(self_reported_conf or 0.0)
-    d["logprob_dist"] = logprob_dist
-    d["logprob_confidence"] = logprob_conf
-    d["logprob_top_label"] = top_label
-    d["logprob_top_prob"] = float(top_prob)
-    d["logprob_runner_up"] = runner_up
-    d["logprob_margin"] = margin
-    d["confidence_source"] = confidence_source
-    conf = logprob_conf if logprob_conf else self_reported_conf
-    return matched, ctx_type, conf, json.dumps(d, ensure_ascii=False)
-
-
-def _clean_token(tok: str) -> str:
-    return str(tok).strip().strip('"').strip("'").strip(":,{}[] \n\t").upper()
-
+#     return [_pending] * expected_n
 
 def _normalize_logprobs(label_logprobs: dict[str, float]) -> dict[str, float]:
     import math
@@ -545,124 +653,127 @@ def _normalize_logprobs(label_logprobs: dict[str, float]) -> dict[str, float]:
     if total <= 0:
         return {}
 
-    return {
+    normalized_logprob =  {
         label: val / total
         for label, val in exp_vals.items()
     }
 
+    return normalized_logprob
 
-def _extract_status_logprob_dist(logprobs_obj) -> dict[str, float]:
+
+def _apply_logprob_confidence(parsed_tuple, logprob_evidence: Dict[str, Any] | None):
     """
-    Extract normalized probabilities over COMPLETE / COMPATIBLE / PARTIAL / IMPOSSIBLE
-    without changing the old prompt schema.
+    Preserve model-written confidence, and attach logprob evidence separately.
 
-    Works when the status value appears as a single token in top_logprobs.
+    Use logprob confidence only when logprob evidence is usable.
     """
-    if not logprobs_obj or not getattr(logprobs_obj, "content", None):
-        return {}
+    matched, ctx_type, self_reported_conf, reason_json = parsed_tuple
 
-    for tok in logprobs_obj.content:
-        sampled = _clean_token(getattr(tok, "token", ""))
-        sampled_label = sampled if sampled in _LABELS else None
+    try:
+        d = json.loads(reason_json) if isinstance(reason_json, str) else {}
+    except Exception:
+        d = {"reason": str(reason_json)}
 
-        if not sampled_label:
-            continue
+    status = str(d.get("status", "")).upper().strip()
+    logprob_evidence = logprob_evidence or {
+        "logprob_usable": False,
+        "error": "unavailable_logprob",
+        "dist": {},
+    }
 
-        label_logprobs = {}
+    dist = logprob_evidence.get("dist") or {}
 
-        sampled_lp = getattr(tok, "logprob", None)
-        if sampled_lp is not None:
-            label_logprobs[sampled_label] = sampled_lp
+    logprob_conf = None
+    if logprob_evidence.get("logprob_usable") and dist:
+        logprob_conf = float(dist.get(status, 0.0))
 
-        for alt in getattr(tok, "top_logprobs", []) or []:
-            alt_token = _clean_token(getattr(alt, "token", ""))
-            alt_label = alt_token if alt_token in _LABELS else None
-            alt_lp = getattr(alt, "logprob", None)
+    d["llm_self_reported_confidence"] = float(self_reported_conf or 0.0)
 
-            if alt_label and alt_lp is not None:
-                label_logprobs[alt_label] = alt_lp
+    d["logprob_usable"] = bool(logprob_evidence.get("logprob_usable"))
+    d["logprob_error"] = logprob_evidence.get("error", "")
+    d["logprob_distribution_type"] = logprob_evidence.get("distribution_type", "")
+    d["logprob_complete_distribution"] = logprob_evidence.get("complete_distribution", False)
+    d["logprob_observability"] = logprob_evidence.get("observability", 0.0)
 
-        return _normalize_logprobs(label_logprobs)
+    d["observed_codes"] = logprob_evidence.get("observed_codes", [])
+    d["missing_codes"] = logprob_evidence.get("missing_codes", [])
+    d["raw_code_logprobs"] = logprob_evidence.get("raw_code_logprobs", {})
 
-    return {}
-    
-# def _parse_batch(text: str, expected_n: int) -> List[Tuple[Optional[bool], int, float, str]]:
-#     _fail = (None, ContextMatchType.NOT_APPLICABLE.value, 0.0, "empty")
-#     if not text:
-#         return [_fail] * expected_n
-#     text = re.sub(r'<think>.*?</think>', '', text.strip(), flags=re.DOTALL).strip()
-#     if text.startswith("```"):
-#         text = re.sub(r"^```(?:json)?\s*", "", text)
-#         text = re.sub(r"\s*```$", "", text)
+    d["logprob_dist"] = dist
+    d["logprob_confidence"] = logprob_conf
+    d["logprob_top_label"] = logprob_evidence.get("top_label", "")
+    d["logprob_top_prob"] = logprob_evidence.get("top_prob", "")
+    d["logprob_runner_up"] = logprob_evidence.get("runner_up", "")
+    d["logprob_margin"] = logprob_evidence.get("margin", "")
+    d["logprob_raw_margin"] = logprob_evidence.get("raw_logprob_margin", "")
 
-#     # Try full JSON parse
-#     try:
-#         arr = json.loads(text)
-#         if isinstance(arr, dict):
-#             arr = arr.get("results", [arr])
-#         results = [_parse_single(json.dumps(item)) for item in arr[:expected_n]]
-#         while len(results) < expected_n:
-#             results.append(_fail)
-#         return results
-#     except json.JSONDecodeError:
-#         pass
+    if logprob_evidence.get("logprob_usable"):
+        d["confidence_source"] = (
+            "logprob_complete_four_class"
+            if logprob_evidence.get("complete_distribution")
+            else "logprob_observed_alternatives"
+        )
+    else:
+        d["confidence_source"] = "self_reported_confidence"
 
-#     # Fallback: extract individual JSON objects
-#     objects = re.findall(r'\{[^{}]+\}', text)
-#     if objects:
-#         results = [_parse_single(obj) for obj in objects[:expected_n]]
-#         while len(results) < expected_n:
-#             results.append(_fail)
-#         return results
+    # Important methodological choice:
+    # Keep the model-written confidence as the operational confidence.
+    # Store logprob evidence separately for uncertainty analysis.
+    conf = self_reported_conf
 
-#     # Last resort: single parse, pad rest
-#     return [_parse_single(text)] + [_fail] * (expected_n - 1)
+    return matched, ctx_type, conf, json.dumps(d, ensure_ascii=False)
 
-# def _parse_single(text: str) -> Tuple[Optional[bool], str, float, str]:
-#     if not text:
-#         return (None, ContextMatchType.NOT_APPLICABLE.value, 0.0, "empty_response")
-#     text = text.strip()
-#     text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
-#     if not text:
-#         return (None, ContextMatchType.NOT_APPLICABLE.value, 0.0, "think_only_response")
-#     if text.startswith("```"):
-#         text = re.sub(r"^```(?:json)?\s*", "", text)
-#         text = re.sub(r"\s*```$", "", text)
+def _build_system_prompt(
+    *,
+    mode: str,
+    batching: bool,
+    study_context: str = "",
+) -> str:
+    preamble = _BATCH_PREAMBLE if batching else _PREAMBLE
 
-#     # Extract fields directly via regex — works on truncated JSON
-#     status_m = re.search(r'"status"\s*:\s*"([^"]+)"', text)
-#     conf_m = re.search(r'"confidence"\s*:\s*([\d.]+)', text)
-#     reason_m = re.search(r'"reason"\s*:\s*"((?:[^"\\]|\\.)*)"?', text)
-#     transform_m = re.search(r'"transform"\s*:\s*"((?:[^"\\]|\\.)*)"?', text)
-#     transform = transform_m.group(1) if transform_m else ""
-#     alignment_direction = re.search(r'"alignment_direction"\s*:\s*"([^"]+)"', text)
-#     harmonized_variable = re.search(r'"harmonized_variable"\s*:\s*"([^"]+)"', text)
-#     if status_m:
+    if batching:
+        input_block = (
+            _BATCH_INPUT_NE
+            if mode == MappingType.NE.value
+            else _BATCH_INPUT_EV
+        )
+        output_block = _OUTPUT_BATCH
+    else:
+        input_block = (
+            _INPUT_NE
+            if mode == MappingType.NE.value
+            else _INPUT_EV
+        )
+        output_block = _OUTPUT_PAIR
 
-#         alignment_direction = alignment_direction.group(1) if alignment_direction else ""
-#         harmonized_variable = harmonized_variable.group(1) if harmonized_variable else ""
+    context_parts = [_STUDY_CONTEXT_RULES]
 
-#         status = status_m.group(1).upper()
-#         conf = float(conf_m.group(1)) if conf_m else 0.8
-#         reason = reason_m.group(1) if reason_m else "truncated"
-#         reason = f"{reason}: harmonized_variable: {harmonized_variable}"
-#         reason = json.dumps({
-#             "status": status,
-#             "llm_confidence": conf,
-#             "reason": reason,
-#             "transform": transform,
-#             "alignment_direction": alignment_direction,
-#             "harmonized_variable": harmonized_variable,
-#         })        # print(f"status: {status}, conf: {conf}, reason: {reason}, transform: {transform}")
-#         if status.startswith("IMPOSSIBLE"):
-#             return (False, ContextMatchType.NOT_APPLICABLE.value, 0.0, reason)
-#         if status.startswith("COMPLETE"):
-#             return (True,ContextMatchType.EXACT.value,  max(conf, 0.9), reason)
-#         if status.startswith("COMPATIBLE"):
-#             return (True, ContextMatchType.COMPATIBLE.value , max(min(conf, 0.9), 0.8), reason)
-#         if status.startswith("PARTIAL"):
-#             return (True, ContextMatchType.PARTIAL.value, max(min(conf, 0.8), 0.75), reason)
-#     return (None, ContextMatchType.PENDING.value, 0.0, "json_parse_fail")
+    if study_context:
+        dynamic_context = study_context.strip()
+
+        # format_study_context_block() already starts with "# STUDY CONTEXT";
+        # remove it to avoid duplicate headers.
+        dynamic_context = re.sub(
+            r"^\s*#\s*STUDY CONTEXT\s*",
+            "",
+            dynamic_context,
+            flags=re.IGNORECASE,
+        ).strip()
+
+        if dynamic_context:
+            context_parts.append(dynamic_context)
+
+    study_context_block = "\n".join(context_parts)
+
+    final_prompt =(
+        preamble
+        + input_block
+        + _SHARED_BODY.format(study_context_block=study_context_block)
+        + output_block
+    )
+   
+    return final_prompt
+
 
 def _parse_single(text: str) -> Tuple[Optional[bool], str, float, str]:
     if not text:
@@ -684,6 +795,7 @@ def _parse_single(text: str) -> Tuple[Optional[bool], str, float, str]:
         return (None, ContextMatchType.PENDING.value, 0.0, "json_parse_fail")
 
     required = {
+        "status_code",
         "status",
         "confidence",
         "reason",
@@ -701,12 +813,13 @@ def _parse_single(text: str) -> Tuple[Optional[bool], str, float, str]:
             f"missing_required_fields:{sorted(missing)}",
         )
 
-    status = str(d.get("status", "")).upper().strip()
-    
+    code = str(d.get("status_code", "")).strip()
+    status = _CODE_TO_LABEL.get(code, str(d.get("status", "")).upper().strip())    
     conf = float(d.get("confidence") or 0.0)
 
     reason_json = json.dumps({
         "status": status,
+        "status_code": code, 
         "reason": d.get("reason", ""),
         "transform": d.get("transform", ""),
         "transform_direction": d.get("alignment_direction", ""),
@@ -732,6 +845,8 @@ def _parse_single(text: str) -> Tuple[Optional[bool], str, float, str]:
         0.0,
         f"invalid_status:{status}",
     )
+
+
 @dataclass
 class LLMConceptMatcher:
     models: List[str] = field(default_factory=list)
@@ -740,13 +855,13 @@ class LLMConceptMatcher:
     _study_context: str = field(default="", repr=False)
 
      # Deterministic generation parameters
-    max_tokens: int = 2000
-    temperature: float = 0.0  
-    top_p: float = 0.95
+    max_tokens: int = 4096
+    temperature: float = 0.0 # 0.0
+    top_p: float = 1.0  # 1.0
     top_k: int = 0  # 0 = disabled/default for OpenRouter; omit for Gemini if 0
     frequency_penalty: float = 0.0
     presence_penalty: float = 0.0
-    repetition_penalty: float = 1
+    repetition_penalty: float = 1.0
     min_p: float = 0.0
     top_a: float = 0.0
 
@@ -755,21 +870,17 @@ class LLMConceptMatcher:
     backend:str = "google"
     _clients: Dict[str, Any] = field(default_factory=dict, repr=False)
     batching:bool =False
+   
     def __post_init__(self):
         self._cache = LLMDiskCache()
-        if self.batching:
-            sys_prompt = SYSTEM_PROMPT_NE_BATCH if self.mode == MappingType.NE.value else SYSTEM_PROMPT_EV_BATCH
-        else: 
-
-            sys_prompt = SYSTEM_PROMPT_NE if self.mode == MappingType.NE.value else SYSTEM_PROMPT_EV
-        # batch_sys = SYSTEM_PROMPT_NE_BATCH if self.mode == MappingType.NE.value else SYSTEM_PROMPT_EV_BATCH
-        self._cache.set_system_prompt(sys_prompt)
+        self._refresh_system_prompt()
+     
+        # self._cache.set_system_prompt(sys_prompt)
         model = self.models[0]
 
         self.backend = self._backend_for(model)
-        self.temperature = 1.0 if self.backend == "google" else self.temperature
+        self._apply_model_generation_defaults(model)
         if self.backend  == "ollama":
-             
             from ollama import Client
             self._clients["ollama"] = Client(host=settings.OLLAMA_URL)
         # elif backend == "together":
@@ -787,25 +898,81 @@ class LLMConceptMatcher:
         elif self.backend  == "openrouter":
             from openrouter import OpenRouter
             self._clients["openrouter"] = OpenRouter(api_key=settings.OPENROUTER_API_KEY)
+        elif self.backend == "fireworks":
+            if not settings.FIREWORKS_API_KEY:
+                raise ValueError(
+                    "Fireworks backend selected but FIREWORKS_API_KEY is not set."
+                )
+            from openai import OpenAI
+            self._clients["fireworks"] = OpenAI(
+                api_key=settings.FIREWORKS_API_KEY,
+                base_url=settings.FIREWORKS_BASE_URL,
+                timeout=self.timeout,
+            )
+        elif self.backend == "litellm":
+            from openai import OpenAI
+            self._clients["litellm"] = OpenAI(
+                api_key=settings.LITELLM_API_KEY,
+                base_url=settings.LITELLM_BASE_URL,
+                timeout=self.timeout,
+            )
 
+  
+
+    def _refresh_system_prompt(self) -> None:
+            self._system_prompt = _build_system_prompt(
+                mode=self.mode,
+                batching=self.batching,
+                study_context=self._study_context,
+            )
+            self._cache.set_system_prompt(self._system_prompt)
+
+
+   
+    def _apply_model_generation_defaults(self, model: str) -> None:
+        """Apply model-specific decoding defaults for LLM-as-classifier runs.
+
+        top_k=0 means disabled in this code path; OpenRouter/Gemini params
+        omit top_k unless the value is greater than zero.
+        """
+        m = model.lower()
+
+        is_gpt_oss_120b = (
+            ("gpt-oss" in m or "gpt_oss" in m or "gpt oss" in m or "gpt-120" in m)
+            and ("120b" in m or "120-b" in m or "120" in m)
+        )
+        if is_gpt_oss_120b:
+            self.max_tokens = 16384
+        # logger.info (f"for LLM {m}, temperature = { self.temperature}, top_p = {self.top_p},top_k = {self.top_k} ")
     @staticmethod
     def _backend_for(model: str) -> str:
         m = model.lower()
         if "ollama/" in m: return "ollama"
+        if m.startswith("fireworks/") or m.startswith("accounts/fireworks/") or m.startswith("accounts/komalsyeda29-qw87svj/") :
+            return "fireworks"
         if "openrouter/" in m: return "openrouter"
         # if m.startswith("gpt-"): return "openai"
         # if m.startswith("claude-"): return "anthropic"
         if m.startswith("gemini-") or m.startswith("gemma-"): return "google"
+        if "litellm/" in m: 
+            return "litellm"
         return "openrouter"
 
     def _openrouter_generation_params(self) -> Dict[str, Any]:
         params = {
+           
+            # "reasoning": {"enabled": True},
+            # "reasoning_effort":"high",
             "max_tokens": self.max_tokens,
             "temperature": self.temperature,
             "top_p": self.top_p,
             "frequency_penalty": self.frequency_penalty,
             "presence_penalty": self.presence_penalty,
-            "service_tier":"flex"
+            # "logprobs": True,
+            # Fireworks currently accepts top_logprobs in the range 0..5.
+            # "top_logprobs": 10,
+            # "service_tier":"flex"
+           
         }
 
         # Only send non-default optional controls.
@@ -824,6 +991,40 @@ class LLMConceptMatcher:
 
         return params
 
+    def _fireworks_model_name(self, model: str) -> str:
+        """Return the Fireworks model id accepted by the OpenAI-compatible API.
+
+        Supported inputs:
+        - fireworks/deepseek-v4-flash
+        - fireworks/accounts/fireworks/models/deepseek-v4-flash"
+        - accounts/fireworks/models/deepseek-v4-flash
+        """
+        if model.startswith("fireworks/"):
+            model = model.replace("fireworks/", "", 1)
+        if model.startswith("accounts/fireworks/"):
+            return model
+        # Convenience alias for common serverless model ids.
+        if "/" not in model:
+            return f"accounts/fireworks/models/{model}"
+        return model
+
+    def _fireworks_generation_params(self) -> Dict[str, Any]:
+        params = {
+            "reasoning_effort":"high",
+            # "reasoning_history": "preserved",
+            "max_tokens": self.max_tokens,
+            "temperature": self.temperature,
+            "top_p": self.top_p,
+            "frequency_penalty": self.frequency_penalty,
+            "presence_penalty": self.presence_penalty,
+            "logprobs": True,
+            # Fireworks currently accepts top_logprobs in the range 0..5.
+            "top_logprobs": 5,
+        }
+        if self.top_k and self.top_k > 0:
+            params["top_k"] = self.top_k
+        return params
+
     def _gemini_generation_config(self, sys_prompt: str, force_freeform: bool = False):
         from google.genai import types
 
@@ -835,13 +1036,20 @@ class LLMConceptMatcher:
             "presence_penalty": self.presence_penalty,
             "frequency_penalty": self.frequency_penalty,
             "thinking_config": types.ThinkingConfig(
-                thinking_level="medium"
+                thinking_level="high"
             ),
+
+            # "response_logprobs":True,
+            # "logprobs":5,
         }
 
         # Use JSON mode on first attempt, but allow free-form fallback on retries.
         if not force_freeform:
+            # kwargs["response_mime_type"] = "application/json"
+            # kwargs["response_mime_type"] = {"type": "json_schema",
+                        # "json_schema": {"name": "HarmonizationVerdict", "schema": VERDICT_JSON_SCHEMA}}
             kwargs["response_mime_type"] = "application/json"
+            # kwargs["response_schema"] = VERDICT_JSON_SCHEMA
 
         # For Gemini, do not send top_k=0. Treat 0 as disabled/default.
         if self.top_k and self.top_k > 0:
@@ -851,21 +1059,7 @@ class LLMConceptMatcher:
         
     def _cache_mode(self) -> str:
         return f"{self.mode}::{self._generation_fingerprint()}"
-    # def _generation_fingerprint(self) -> str:
-    #     cfg = {
-    #         "max_tokens": self.max_tokens,
-    #         "temperature": self.temperature,
-    #         "top_p": self.top_p,
-    #         "top_k": self.top_k,
-    #         "frequency_penalty": self.frequency_penalty,
-    #         "presence_penalty": self.presence_penalty,
-    #         "repetition_penalty": self.repetition_penalty,
-    #         "min_p": self.min_p,
-    #         "top_a": self.top_a,
-    #     }
-    #     return hashlib.sha256(
-    #         json.dumps(cfg, sort_keys=True).encode()
-    #     ).hexdigest()[:12]
+  
 
     def _generation_fingerprint(self) -> str:
         cfg = {
@@ -878,10 +1072,10 @@ class LLMConceptMatcher:
             "repetition_penalty": self.repetition_penalty,
             "min_p": self.min_p,
             "top_a": self.top_a,
-
             # logprob-aware cache separation
-            "logprobs": self.backend == "openrouter",
-            "top_logprobs": 20 if self.backend == "openrouter" else 0,
+            "backend": self.backend,
+            "logprobs": self.backend in {"openrouter", "fireworks"},
+            "top_logprobs": 5 if self.backend == "fireworks" else (20 if self.backend == "openrouter" else 0),
             "confidence_source": "normalized_status_token_logprob_v1",
         }
         return hashlib.sha256(
@@ -892,18 +1086,19 @@ class LLMConceptMatcher:
         # output_token_limit = self.max_tokens
 
         output_token_limit = self.max_tokens
-        api_model = model.replace("openrouter/", "") if self.backend == "openrouter" else model
+        api_model = self._fireworks_model_name(model) if self.backend == "fireworks" else (model.replace("openrouter/", "") if self.backend == "openrouter" else model)
         mname = model.split('/')[-1]
         client = self._clients[self.backend]
 
-        if self.batching:
-            sys_prompt = SYSTEM_PROMPT_NE_BATCH if self.mode == MappingType.NE.value else SYSTEM_PROMPT_EV_BATCH
-        else:
-            sys_prompt = SYSTEM_PROMPT_NE if self.mode == MappingType.NE.value else SYSTEM_PROMPT_EV
-        api_model = model.replace("openrouter/", "") if self.backend == "openrouter" else model
+      
+
+        sys_prompt = self._system_prompt
+        api_model = self._fireworks_model_name(model) if self.backend == "fireworks" else (model.replace("openrouter/", "") if self.backend == "openrouter" else model)
         mname = model.split('/')[-1]
         client = self._clients[self.backend]
-        logprob_dist = None
+        logprob_evidence = None
+
+    
         try:
             if self.backend == "ollama":
                 resp = client.chat(
@@ -915,25 +1110,7 @@ class LLMConceptMatcher:
                 result = resp["message"]["content"] or ""
                 print(f"[ollama] got {len(result)} chars")
 
-            # elif backend == "together":
-            #     print(f"api_model: {api_model}")
-            #     resp = client.chat.completions.create(
-            #         model=api_model, temperature=self.temperature, max_tokens=token_limit,
-            #         messages=[{"role": "system", "content": sys_prompt},
-            #                 {"role": "user", "content": prompt}],
-            #     )
-            #     result = resp.choices[0].message.content or ""
-            # elif backend == "openrouter":
-            #     resp = client.chat.send(
-            #         model=api_model, temperature=self.temperature, max_tokens=output_token_limit,
-            #         stream=False,
-            #         messages=[{"role": "system", "content": sys_prompt},
-            #                 {"role": "user", "content": prompt}],
-            #                  reasoning={
-            #          "effort": "low"  # "low", "medium", or "high"
-            #             },
-            #     )
-            #     result = resp.choices[0].message.content if resp.choices else ""
+          
 
             elif self.backend == "openrouter":
                 kwargs = {
@@ -943,25 +1120,27 @@ class LLMConceptMatcher:
                         {"role": "system", "content": sys_prompt},
                         {"role": "user", "content": prompt},
                     ],
-                    "reasoning": {"effort": "medium"},
+                    "reasoning": {"effort": "high"},
                   
-                    # "reasoning": {
-                    #     "effort": "medium"
-                    # },
-                    # "provider": {
-                    #     "require_parameters": True
-                    # },
+                    "provider": {
+                        "quantizations": [
+                        "bf16"
+                        ]
+                    },
                      "logprobs": True,
-                    "top_logprobs": 20,
+                    "top_logprobs": 10,
                     **self._openrouter_generation_params(),
                 }
 
                 # Use JSON mode on first attempt only.
                 # If a routed provider rejects JSON mode, retry free-form and parse with regex.
                 if not force_freeform:
-                    kwargs["response_format"] = {
-                        "type": "json_object"
-                    }
+                    # kwargs["response_format"] = {
+                    #     "type": "json_object"
+                    # }
+                     kwargs["response_format"] = {"type": "json_schema",
+                        "json_schema": {"name": "HarmonizationVerdict", "schema": VERDICT_JSON_SCHEMA}}
+                   
 
                 resp = client.chat.send(**kwargs)
                 if not resp.choices:
@@ -969,30 +1148,69 @@ class LLMConceptMatcher:
 
                 choice = resp.choices[0]
                 text = choice.message.content or ""
-                logprob_dist = _extract_status_logprob_dist(getattr(choice, "logprobs", None))
-                print("DEBUG status text:", text[:500])
-                logprobs_obj = getattr(choice, "logprobs", None)
-                print("DEBUG logprob_dist:", _extract_status_logprob_dist(logprobs_obj))
-                return text, logprob_dist
-            # elif backend == "openai":
-            #     msgs = [{"role": "system", "content": sys_prompt},
-            #             {"role": "user", "content": prompt}]
-            #     kwargs = dict(model=api_model, messages=msgs)
-            #     kwargs["max_completion_tokens"] = token_limit
-            #     kwargs["temperature"] = self.temperature
-            #     kwargs["reasoning_effort"] = "low"
-            #     if not force_freeform:
-            #         kwargs["response_format"] = {"type": "json_object"}
-            #     resp = client.chat.completions.create(**kwargs)
-            #     result = resp.choices[0].message.content or ""
+                logprob_evidence = _extract_status_code_logprob_evidence( getattr(choice, "logprobs", None))
 
-            # elif backend == "anthropic":
-            #     resp = client.messages.create(
-            #         model=api_model, max_tokens=token_limit, temperature=self.temperature,
-            #         system=sys_prompt,
-            #         messages=[{"role": "user", "content": prompt}],
-            #     )
-            #     result = resp.content[0].text if resp.content else ""
+                print("DEBUG status text:", text[:500])
+                # logprobs_obj = getattr(choice, "logprobs", None)
+                # print("DEBUG logprob_dist:", _extract_status_logprob_dist(logprobs_obj))
+                return text, logprob_evidence
+
+            elif self.backend == "litellm":
+                kwargs = {
+                    "model": model.replace("litellm/", "", 1),
+                    "messages": [
+                        {"role": "system", "content": sys_prompt},
+                        {"role": "user", "content": prompt},
+                    ],
+                     "extra_body": {
+                        "reasoning_effort": "high",
+                        "allowed_openai_params": ["reasoning_effort"],
+                        "drop_params": True,
+                    },
+                    **self._fireworks_generation_params(),
+                }
+                if not force_freeform:
+                    kwargs["response_format"] = {"type": "json_schema",
+                        "json_schema": {"name": "HarmonizationVerdict", "schema": VERDICT_JSON_SCHEMA}}
+
+                resp = client.chat.completions.create(**kwargs)
+                if not resp.choices:
+                    return "", {}
+                choice = resp.choices[0]
+                text = choice.message.content or ""
+                logprob_evidence = _extract_status_code_logprob_evidence(
+                    getattr(choice, "logprobs", None)
+                )
+                return text, logprob_evidence
+            elif self.backend == "fireworks":
+                kwargs = {
+                    "model": api_model,
+                    "messages": [
+                        {"role": "system", "content": sys_prompt},
+                        {"role": "user", "content": prompt},
+                    ],
+           
+                    **self._fireworks_generation_params(),
+                }
+
+                # Use JSON mode on early attempts; retry without it for models
+                # that do not support response_format on the routed backend.
+                if not force_freeform:
+                    # kwargs["response_format"] = {"type": "json_object"}
+                    kwargs["response_format"] = {"type": "json_schema",
+                        "json_schema": {"name": "HarmonizationVerdict", "schema": VERDICT_JSON_SCHEMA}}
+
+                resp = client.chat.completions.create(**kwargs)
+                if not resp.choices:
+                    return "", {}
+
+                choice = resp.choices[0]
+                text = choice.message.content or ""
+                logprob_evidence = _extract_status_code_logprob_evidence(
+                    getattr(choice, "logprobs", None)
+                )
+                return text, logprob_evidence
+    
             elif self.backend == "google":
                 resp = client.models.generate_content(
                     model=api_model,
@@ -1005,28 +1223,13 @@ class LLMConceptMatcher:
         except Exception as e:
             print(f"[{mname}] call failed: {e}")
             return "", {}
-        return result, logprob_dist
+        
+        return result, logprob_evidence
 
-    # def _eval_pair(self, model: str, prompt: str) -> Tuple[Optional[bool], str, float, str]:
-    #     cache_mode = self._cache_mode()
-    #     cached = self._cache.get(model, prompt, mode=cache_mode)
-    #     if cached:
-    #         v = _parse_single(cached)
-    #         if v[0] is not None: 
-    #             return v
-    #     for attempt in range(self.max_retries):
-    #         text, logprob_dist = self._call_one(model, prompt, force_freeform=(attempt > 1))
-    #         v = _parse_single(text)
-    #         if v[0] is not None:
-    #             self._cache.put(model, prompt, text, mode=cache_mode)
-    #             return v
-    #         time.sleep(1 + attempt)
-    #     return (None, ContextMatchType.PENDING.value, 0.0,
-    #             json.dumps({"status": "IMPOSSIBLE", "reason": "parse_failed_after_retries"}))
+   
 
     def _eval_pair(self, model: str, prompt: str) -> Tuple[Optional[bool], str, float, str]:
         cache_mode = self._cache_mode()
-
         cached = self._cache.get_record(model, prompt, mode=cache_mode)
         # cached = None
         if cached and cached.get("r"):
@@ -1041,7 +1244,7 @@ class LLMConceptMatcher:
             text, logprob_dist = self._call_one(
                 model,
                 prompt,
-                force_freeform=(attempt > 1),
+                force_freeform=(attempt > 3),
             )
 
             v = _parse_single(text)
@@ -1050,7 +1253,7 @@ class LLMConceptMatcher:
                 v = _apply_logprob_confidence(v, logprob_dist)
 
                 self._cache.put_record(
-                    model,
+                    model, 
                     prompt,
                     text,
                     mode=cache_mode,
@@ -1073,22 +1276,7 @@ class LLMConceptMatcher:
                 "confidence_source": "unavailable_logprob",
             }),
         )
-        
-    # def _eval_batch(self, model: str, prompt: str, expected_n: int) -> List[Tuple]:
-    #     cached = self._cache.get(model, prompt, mode=self.mode, batch=True)
-    #     if cached:
-    #         v = _parse_batch(cached, expected_n)
-    #         if sum(1 for x in v if x[0] is not None) == expected_n: return v
-    #     for attempt in range(self.max_retries):
-    #         text = self._call_one(model, prompt, force_freeform=(attempt > 0), batch=True)
-    #         v = _parse_batch(text, expected_n)
-    #         parsed = sum(1 for x in v if x[0] is not None)
-    #         if parsed == expected_n:
-    #             self._cache.put(model, prompt, text, mode=self.mode, batch=True)
-    #             return v
-    #         if parsed > 0 and attempt == self.max_retries - 1: return v
-    #         time.sleep(1 + attempt)
-    #     return [(None, ContextMatchType.NOT_APPLICABLE.value, 0.0, "batch_parse_fail")] * expected_n
+ 
 
     def _is_pending_llm_result(self, result) -> bool:
         """
@@ -1123,35 +1311,7 @@ class LLMConceptMatcher:
             pass
 
         return False
-    # def assess(self, groups: List[Dict], case_ids: List[str] = None) -> Tuple[List[List[Tuple]], Dict]:
-    #     if not groups: return [], {}
-    #     model = self.models[0]
-    #     flat_meta, prompts = [], []
-    #     for g_idx, g in enumerate(groups):
-    #         for t_idx, t in enumerate(g["targets"]):
-    #             flat_meta.append((g_idx, t_idx))
-    #             prompts.append(_build_pair_prompt(
-    #                 g.get("src_concepts", ""), g.get("src_cats", ""),
-    #                 t.get("tgt_concepts", ""), t.get("tgt_cats", ""),
-    #                 src_desc=g.get("src_desc", ""), tgt_desc=t.get("desc", ""),
-    #                 src_unit=g.get("src_unit", ""), tgt_unit=t.get("tgt_unit", ""),
-    #                 evidence=t.get("evidence", ""), mode=self.mode))
-    #     with ThreadPoolExecutor(max_workers=5) as pool:
-    #         futures = {pool.submit(self._eval_pair, model, p): i for i, p in enumerate(prompts)}
-    #         results = [None] * len(prompts)
-    #         for fut in as_completed(futures):
-    #             results[futures[fut]] = fut.result()
-    #     grouped = [[] for _ in range(len(groups))]
-    #     for fi, (g_idx, _) in enumerate(flat_meta):
-    #         grouped[g_idx].append(results[fi])
-    #     return grouped, {"total_targets": len(prompts), "model": model}
-
-    def set_study_context(self, context_block: str) -> None:
-        """Inject a cohort-pair context block to be prepended to every
-        user prompt built during this run.
-        """
-        self._study_context = (context_block or "").strip()
-    
+  
     def assess(
             self,
             groups: List[Dict],
@@ -1184,8 +1344,11 @@ class LLMConceptMatcher:
                         )
                     
                     if self._study_context and self._study_context != "":
-                        pair_prompt = f"{self._study_context}\n\n{pair_prompt}"
+                        self._refresh_system_prompt()
+                        # pair_prompt = f"{self._study_context}\n\n{pair_prompt}"
                     prompts.append(pair_prompt)
+
+
 
             results = [None] * len(prompts)
 
@@ -1280,23 +1443,4 @@ class LLMConceptMatcher:
                 "model": model,
             }
 
-    # def assess_batch(self, groups: List[Dict], case_ids: List[str] = None) -> Tuple[List[List[Tuple]], Dict]:
-    #     if not groups: return [], {}
-    #     model = self.models[0]
-    #     prompts, sizes = [], []
-    #     for g in groups:
-    #         prompts.append(_build_batch_prompt(
-    #             src_desc=g.get("src_desc", ""), src_concepts=g.get("src_concepts", ""),
-    #             src_cats=g.get("src_cats", ""), src_unit=g.get("src_unit", ""),
-    #             targets=g["targets"], mode=self.mode))
-    #         sizes.append(len(g["targets"]))
-    #     with ThreadPoolExecutor(max_workers=5) as pool:
-    #         futures = {pool.submit(self._eval_batch, model, prompts[i], sizes[i]): i
-    #                    for i in range(len(prompts))}
-    #         results = [None] * len(prompts)
-    #         for fut in as_completed(futures):
-    #             i = futures[fut]
-    #             try: results[i] = fut.result()
-    #             except Exception as e:
-    #                 results[i] = [(None, ContextMatchType.NOT_APPLICABLE.value, 0.0, str(e))] * sizes[i]
-    #     return results, {"total_groups": len(prompts), "total_targets": sum(sizes), "model": model}
+   

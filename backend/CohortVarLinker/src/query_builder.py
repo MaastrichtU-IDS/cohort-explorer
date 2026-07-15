@@ -152,6 +152,8 @@ class SPARQLQueryBuilder:
         (GROUP_CONCAT(DISTINCT STR(?cat_omop_id); SEPARATOR="||") AS ?cat_omop_ids)
         (GROUP_CONCAT(DISTINCT ?_catL; SEPARATOR="||") AS ?all_cat_labels)
         (GROUP_CONCAT(DISTINCT ?_catV; SEPARATOR="||") AS ?all_original_cat_values)
+        (GROUP_CONCAT(DISTINCT ?_catPair; SEPARATOR="||") AS ?all_cat_pairs)
+
         (SAMPLE(?_ordered_code_labels) AS ?code_label)
         (SAMPLE(?_ordered_code_values) AS ?code_value)
         (SAMPLE(?_ordered_omop_ids) AS ?omop_ids)
@@ -200,6 +202,7 @@ class SPARQLQueryBuilder:
 
             BIND(COALESCE(?standard_unit, ?raw_unit) AS ?_unit_label)
         }}
+
             # Categories
             OPTIONAL {{
             ?cat_val a obi:categorical_value_specification ;
@@ -212,6 +215,8 @@ class SPARQLQueryBuilder:
             OPTIONAL {{ ?cat_code iao:denotes/cmeo:has_value ?cat_omop_id . }}
         
         }}
+        BIND(CONCAT(STR(?_catV), "=", COALESCE(STR(?_catL), STR(?_catV))) AS ?_catPair)
+
         }}
 
             # Codes subquery - OUTSIDE the GRAPH block but joined on ?dataElement

@@ -417,41 +417,75 @@ class CategoricalHandler:
     @staticmethod
     def apply(ctx: CandidateContext, s_cats: Set[str], t_cats: Set[str],
               cat_label_map: Optional[Dict]):
+        # s_raw_norm = _canonical_cats(ctx.src.original_categories)
+        # t_raw_norm = _canonical_cats(ctx.tgt.original_categories)
+        # _range_match = RangeHelper.exact_match(ctx)
+        # s_lbl_norm = _canonical_cats(s_cats)
+        # t_lbl_norm = _canonical_cats(t_cats)
+        # has_overlap = cat_label_map.get("has_overlap", False) if cat_label_map else False
+
+        # # trusted_raw_match = (s_raw == t_raw) and (has_overlap or context_is_exact)
+        # # Case 1: Equality
+       
+        # if s_raw_norm == t_raw_norm or s_lbl_norm == t_lbl_norm or _range_match:
+        #     if s_raw_norm == t_raw_norm:
+        #         is_generic = (s_raw_norm == _GENERIC_BOOL)
+        #         ctx_is_exact = (ctx.context_match_type == ContextMatchType.EXACT.value)
+        #         if is_generic and not ctx_is_exact:
+        #             level = MatchLevel.PARTIAL
+        #             reason = "Same raw 0/1 codes; semantic equivalence unverified."
+        #             extra = {"categories": s_lbl_norm,
+        #              "transformation": TransformationType.MANUAL_REVIEW}
+        #         else:
+        #             level = MatchLevel.IDENTICAL
+        #             reason = "Same raw codes." 
+        #             extra = {"categories": s_lbl_norm, "transformation": TransformationType.NONE}
+        #     else:
+        #         level = MatchLevel.COMPATIBLE
+        #         reason = "Same categories (different format)."
+        #         extra = {"categories": s_lbl_norm, "transformation": TransformationType.VALUE_NORMALIZATION} 
+        #     if level == MatchLevel.COMPATIBLE and cat_label_map:
+        #         extra.update(cat_label_map)
+            
+        #     ctx.set_result(
+        #         level=level,
+        #         reason=reason,
+        #         extra_details=extra
+        #     )
+        #     return
+
         s_raw_norm = _canonical_cats(ctx.src.original_categories)
         t_raw_norm = _canonical_cats(ctx.tgt.original_categories)
+        # literal raw tokens, no boolean folding — distinguishes "yes/no" from "1/0"
+        s_raw_strict = frozenset(str(c).strip().lower() for c in ctx.src.original_categories)
+        t_raw_strict = frozenset(str(c).strip().lower() for c in ctx.tgt.original_categories)
         _range_match = RangeHelper.exact_match(ctx)
         s_lbl_norm = _canonical_cats(s_cats)
         t_lbl_norm = _canonical_cats(t_cats)
         has_overlap = cat_label_map.get("has_overlap", False) if cat_label_map else False
 
-        # trusted_raw_match = (s_raw == t_raw) and (has_overlap or context_is_exact)
-        # Case 1: Equality
-       
         if s_raw_norm == t_raw_norm or s_lbl_norm == t_lbl_norm or _range_match:
-            if s_raw_norm == t_raw_norm:
+            raw_tokens_identical = bool(s_raw_strict) and (s_raw_strict == t_raw_strict)
+            if s_raw_norm == t_raw_norm and raw_tokens_identical:
                 is_generic = (s_raw_norm == _GENERIC_BOOL)
                 ctx_is_exact = (ctx.context_match_type == ContextMatchType.EXACT.value)
                 if is_generic and not ctx_is_exact:
                     level = MatchLevel.PARTIAL
                     reason = "Same raw 0/1 codes; semantic equivalence unverified."
                     extra = {"categories": s_lbl_norm,
-                     "transformation": TransformationType.MANUAL_REVIEW}
+                            "transformation": TransformationType.MANUAL_REVIEW}
                 else:
                     level = MatchLevel.IDENTICAL
-                    reason = "Same raw codes." 
+                    reason = "Same raw codes."
                     extra = {"categories": s_lbl_norm, "transformation": TransformationType.NONE}
             else:
                 level = MatchLevel.COMPATIBLE
-                reason = "Same categories (different format)."
-                extra = {"categories": s_lbl_norm, "transformation": TransformationType.VALUE_NORMALIZATION} 
+                reason = "Same categories (different value encoding)."
+                extra = {"categories": s_lbl_norm,
+                        "transformation": TransformationType.VALUE_NORMALIZATION}
             if level == MatchLevel.COMPATIBLE and cat_label_map:
                 extra.update(cat_label_map)
-            
-            ctx.set_result(
-                level=level,
-                reason=reason,
-                extra_details=extra
-            )
+            ctx.set_result(level=level, reason=reason, extra_details=extra)
             return
 
         # Case 2: Strict subset (canonical)

@@ -25,6 +25,7 @@ class VariableProfile:
                     categories_labels=val('all_cat_labels'),
                     categories_omop_ids=val('cat_omop_ids'),
                     original_categories=val('all_original_cat_values'),
+                    categories_pairs=val('all_cat_pairs'),
                     composite_code_labels=val('code_label'),
                     composite_code_values=val('code_value'),
                     composite_code_omop_ids=val('omop_ids'),
