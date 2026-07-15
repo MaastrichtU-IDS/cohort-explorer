@@ -1,0 +1,76 @@
+{
+  "concepts": [
+    {
+      "id": "snomedct:364075005",
+      "uri": "http://snomed.info/id/364075005",
+      "label": "Heart rate",
+      "domain": "Measurement",
+      "vocabulary": "SNOMED",
+      "omop_id": "3027018"
+    },
+    {
+      "id": "loinc:8867-4",
+      "uri": "http://loinc.org/rdf/8867-4",
+      "label": "Heart rate measurement",
+      "domain": "Measurement",
+      "vocabulary": "LOINC",
+      "omop_id": "3027018"
+    },
+    {
+      "id": "snomedct:84114007",
+      "uri": "http://snomed.info/id/84114007",
+      "label": "Heart failure",
+      "domain": "Condition",
+      "vocabulary": "SNOMED",
+      "omop_id": "316139"
+    },
+    {
+      "id": "snomedct:86290005",
+      "uri": "http://snomed.info/id/86290005",
+      "label": "Respiratory rate",
+      "domain": "Measurement",
+      "vocabulary": "SNOMED",
+      "omop_id": "3024171"
+    },
+    {
+      "id": "loinc:8480-6",
+      "uri": "http://loinc.org/rdf/8480-6",
+      "label": "Systolic blood pressure",
+      "domain": "Measurement",
+      "vocabulary": "LOINC",
+      "omop_id": "3004249"
+    },
+    {
+      "id": "loinc:8462-4",
+      "uri": "http://loinc.org/rdf/8462-4",
+      "label": "Diastolic blood pressure",
+      "domain": "Measurement",
+      "vocabulary": "LOINC",
+      "omop_id": "3012888"
+    },
+    {
+      "id": "rxnorm:4603",
+      "uri": "https://mor.nlm.nih.gov/RxNav/search?searchBy=RXCUI&searchTerm=4603",
+      "label": "Furosemide",
+      "domain": "Drug",
+      "vocabulary": "RxNorm",
+      "omop_id": "956874"
+    },
+    {
+      "id": "snomedct:248153007",
+      "uri": "http://snomed.info/id/248153007",
+      "label": "Male",
+      "domain": "Observation",
+      "vocabulary": "SNOMED",
+      "omop_id": "8507"
+    },
+    {
+      "id": "snomedct:248152002",
+      "uri": "http://snomed.info/id/248152002",
+      "label": "Female",
+      "domain": "Observation",
+      "vocabulary": "SNOMED",
+      "omop_id": "8532"
+    }
+  ]
+}
