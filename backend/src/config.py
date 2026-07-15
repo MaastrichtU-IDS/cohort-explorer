@@ -54,8 +54,31 @@ class Settings:
     )
     demo_pack_dir: str = field(default_factory=lambda: os.getenv("DEMO_PACK_DIR", "../data/synthetic-demo-pack"))
     public_api_url: str = field(default_factory=lambda: os.getenv("PUBLIC_API_URL", "http://localhost:3000"))
+    dcr_backend: str = field(default_factory=lambda: os.getenv("DCR_BACKEND", "decentriq").strip().lower())
+    aadcrv2_url: str = field(default_factory=lambda: os.getenv("AADCRV2_URL", "http://aadcrv2:8000").rstrip("/"))
+    aadcrv2_jwt_secret: str = field(default_factory=lambda: os.getenv("AADCRV2_JWT_SECRET", "").strip())
+    aadcrv2_jwt_issuer: str = field(
+        default_factory=lambda: os.getenv("AADCRV2_JWT_ISSUER", "cohort-explorer-local").strip()
+    )
+    aadcrv2_jwt_audience: str = field(
+        default_factory=lambda: os.getenv("AADCRV2_JWT_AUDIENCE", "aadcrv2-local").strip()
+    )
+    aadcrv2_timeout_seconds: float = field(
+        default_factory=lambda: float(os.getenv("AADCRV2_TIMEOUT_SECONDS", "10"))
+    )
+    aadcrv2_room_url_template: str = field(
+        default_factory=lambda: os.getenv(
+            "AADCRV2_ROOM_URL_TEMPLATE",
+            "http://localhost:8001/api/dcr/{dcr_id}",
+        ).strip()
+    )
+    aadcrv2_operation_journal: str = field(
+        default_factory=lambda: os.getenv("AADCRV2_OPERATION_JOURNAL", "../data/aadcrv2-operations.jsonl").strip()
+    )
+    aadcrv2_synthetic_demo: bool = field(default_factory=lambda: env_bool("AADCRV2_SYNTHETIC_DEMO", False))
 
     def validate_runtime(self) -> None:
+        dcr_backend = self.dcr_backend.strip().lower()
         providers = (
             self.concept_search_backend,
             self.concept_validation_backend,
@@ -67,6 +90,15 @@ class Settings:
             raise ValueError("LOCAL_AUTH_ENABLED requires DEV_MODE=true")
         if not self.jwt_secret:
             raise ValueError("JWT_SECRET is required")
+        if dcr_backend not in {"decentriq", "aadcrv2"}:
+            raise ValueError(f"Unsupported DCR_BACKEND: {self.dcr_backend}")
+        if dcr_backend == "aadcrv2":
+            if not self.aadcrv2_jwt_secret:
+                raise ValueError("AADCRV2_JWT_SECRET is required when DCR_BACKEND=aadcrv2")
+            if self.aadcrv2_timeout_seconds <= 0:
+                raise ValueError("AADCRV2_TIMEOUT_SECONDS must be greater than zero")
+            if "{dcr_id}" not in self.aadcrv2_room_url_template:
+                raise ValueError("AADCRV2_ROOM_URL_TEMPLATE must contain {dcr_id}")
 
     @property
     def redirect_uri(self) -> str:
