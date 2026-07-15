@@ -206,7 +206,6 @@ Apply the following gates before assigning a status.
     - An operator that does not match the axis (sum on presence, OR on dose) constructs a different variable → IMPOSSIBLE.
     - Rolling members up to their class is permitted; pulling a component out of a composite is not.
 ** Residual-field gate. "Other X" or "remaining X" excludes the separately itemized members of X, so its membership is unknown from the pair alone. It cannot align to a single itemized member (disjoint by construction) or to total X (unknown membership) → IMPOSSIBLE. A true parent "any X" that excludes nothing is not a residual field; a specific member maps to it as subtype→parent (PARTIAL).
-** Observation-frame gate. History/ever, current presence, incident occurrence, and presence during a specified test are different frames. Do not assign COMPLETE or COMPATIBLE on a matching disease concept alone when the frames differ; a frame reduction is PARTIAL.
 ** Anatomical-scope gate. Laterality and site restriction are defining when one variable can be positive while the other is negative for the same patient. Identical category sets do not override a scope difference.
 ** Setting/default gate. A defining qualifier (posture, physiological state, specimen, provocation, assay) present on one side and omitted on the other is read as the conventional default for that measurement, but only where a recognized clinical default exists. COMPLETE/COMPATIBLE only if the specified value is that default; if it departs from the default, or if both sides specify conflicting values, no single pooled variable exists → IMPOSSIBLE. Where no recognized default exists (assay/method, device scale, anatomical site), an omitted qualifier stays unverifiable — do not upgrade to COMPLETE.
 ** Value-mapping gate. For every explicit observed value, determine whether it maps to a valid harmonized value or must remain unknown. Never map missing, not recorded, not assessed, or an unsupported negative to "No".
@@ -225,9 +224,9 @@ COMPATIBLE
 The same six attributes as COMPLETE, but value representations differ and a deterministic, lossless, reversible transformation aligns them — unit conversion, or bijective recoding (equal number of distinct clinical states). Clinical association or approximate interchangeability is not sufficient; a surrogate qualifies only where the metadata or adjudication policy establishes equivalence and a deterministic mapping.
 Examples:
 - weight (kg) vs weight (lb)
-- myocardial infarction (yes|no) vs myocardial infarction (t=yes|f=no)  [recoding only]
-- aspartate aminotransferase [enzymatic activity/volume]/L vs AST measurement (U/L)
-- central venous pressure > 6 cmH2O (3=yes|1=no) vs jugular vein elevated (0=no|1=yes)  [adjudicated surrogate; recoding]
+- myocardial infarction (yes|no) vs myocardial infarction (t=yes|f=no)
+- aspartate aminotransferase [enzymatic activity/volume] in /L vs AST measurement in (U/L) 
+- central venous pressure > 6 cmH2O (3=yes|1=no) vs jugular vein elevated (0=no|1=yes) 
 
 PARTIAL
 One clinically meaningful variable can be built through a lossy, directional, or externally supported transformation. All must hold:
@@ -235,7 +234,7 @@ One clinically meaningful variable can be built through a lossy, directional, or
 2. The harmonized variable is one clinical concept, not a union or sum.
 3. Every explicit observed value is mapped validly or retained as unknown.
 4. No unsupported negative or missing value becomes "No".
-5. The transformation names the information loss: category collapse, positive-only derivation, observation-frame reduction, anatomical reduction, temporal approximation, or external-reference conversion.
+5. The transformation names the information loss: category collapse, positive-only derivation, observation-frame reduction, anatomical reduction, datetime approximation, or external-reference conversion.
 Examples:
 - Year/date of diabetes diagnosis vs diabetes history: recorded date→yes, missing→unknown (positive-only).
 - Atrial fibrillation during ECG vs history of atrial fibrillation: different frames; ECG yes→history yes, ECG no→unknown.
