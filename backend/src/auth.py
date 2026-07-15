@@ -1,8 +1,8 @@
 import base64
 import json
 import time
-from datetime import datetime, timezone
-from typing import Optional, Any
+from datetime import datetime, timedelta, timezone
+from typing import Optional
 from urllib.parse import urlencode
 
 import httpx
@@ -13,7 +13,6 @@ from jose import JWTError, jwt
 from starlette.status import HTTP_401_UNAUTHORIZED, HTTP_403_FORBIDDEN
 
 from src.config import settings
-
 
 router = APIRouter()
 
@@ -58,16 +57,34 @@ oauth2_scheme = OAuth2AuthorizationCodeCookie(
 
 
 @router.get("/login")
-def login() -> RedirectResponse:
+async def login() -> Response:
     """Redirect to Auth0 login page to authenticate the user and get the code to exchange for a token"""
-    login_url = f"""{settings.authorization_endpoint}?{urlencode({
+    if settings.dev_mode and settings.local_auth_enabled:
+        expires = datetime.now(timezone.utc) + timedelta(hours=8)
+        token = create_access_token(
+            {"email": settings.local_auth_email, "access_token": "local-demo"},
+            int(expires.timestamp()),
+        )
+        response = RedirectResponse(settings.frontend_url)
+        response.set_cookie(
+            "token",
+            token,
+            httponly=True,
+            secure=settings.session_cookie_secure,
+            samesite="lax",
+        )
+        return response
+    return RedirectResponse(build_authorization_url())
+
+
+def build_authorization_url() -> str:
+    return f"""{settings.authorization_endpoint}?{urlencode({
         **auth_params,
         'scope': settings.scope,
         'response_type': settings.response_type,
         'client_id': settings.client_id,
         'prompt': 'login',
     })}"""
-    return RedirectResponse(login_url)
 
 
 def create_access_token(data: dict[str, str], expires_timestamp: int) -> str:
@@ -153,49 +170,6 @@ async def auth_callback(code: str) -> RedirectResponse:
                 status_code=HTTP_403_FORBIDDEN,
                 detail="User is not authorized",
             )
-
-
-@router.get("/debug/permissions")
-async def debug_permissions() -> dict[str, Any]:
-    """
-    Compact permission map for emails present in spreadsheet fields.
-    For each email that appears as cohort email, administrator_email, or study_contact_person_email,
-    list cohorts where that email has access (owner or admin). Cohorts with no access are omitted.
-    """
-    from src.cohort_cache import get_cohorts_from_cache
-    from src.config import settings
-
-    all_cohorts = get_cohorts_from_cache("")
-
-    # Collect emails from spreadsheet-driven fields
-    spreadsheet_emails: set[str] = set()
-    for c in all_cohorts.values():
-        spreadsheet_emails.update(e.lower() for e in c.cohort_email or [] if e)
-        if c.administrator_email:
-            spreadsheet_emails.add(c.administrator_email.lower())
-        if c.study_contact_person_email:
-            spreadsheet_emails.add(c.study_contact_person_email.lower())
-
-    admins_lower = {a.lower() for a in settings.admins_list}
-
-    # Build compact mapping email -> [cohort_ids]
-    emails_map: dict[str, list[str]] = {}
-    for email in sorted(spreadsheet_emails):
-        has_admin = email in admins_lower
-        accessible: list[str] = []
-        for cohort_id, cohort in all_cohorts.items():
-            is_owner = email in [e.lower() for e in (cohort.cohort_email or [])] or \
-                       (cohort.administrator_email and email == cohort.administrator_email.lower()) or \
-                       (cohort.study_contact_person_email and email == cohort.study_contact_person_email.lower())
-            if has_admin or is_owner:
-                accessible.append(cohort_id)
-        if accessible:
-            emails_map[email] = sorted(accessible)
-
-    return {
-        "admins": sorted(settings.admins_list),
-        "emails": emails_map,
-    }
 
 
 @router.post("/logout")

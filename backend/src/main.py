@@ -1,26 +1,27 @@
-from contextlib import asynccontextmanager
 import asyncio
 import fcntl
 import logging
 import os
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
 from starlette.middleware.cors import CORSMiddleware
 
+from src.admin import debug_router
+from src.admin import router as admin_router
 from src.auth import router as auth_router
 from src.config import settings
 from src.data_analysis import router as data_analysis_router
-from src.decentriq import router as decentriq_router
 from src.decentriq import refresh_all_dcrs_via_decentriq_api
+from src.decentriq import router as decentriq_router
+from src.docs import router as docs_router
 from src.explore import router as explore_router
 from src.mapping import router as mapping_router
 from src.upload import init_triplestore
 from src.upload import router as upload_router
-from src.monitoring import run_periodic_monitoring
-from src.admin import router as admin_router
-from src.docs import router as docs_router
 
+settings.validate_runtime()
 init_triplestore()
 #asyncio.create_task(run_periodic_monitoring())
 
@@ -61,7 +62,7 @@ async def lifespan(_app: FastAPI):
         except Exception as exc:  # pragma: no cover - already logged inside
             logging.warning("DCR refresh task crashed: %s", exc)
 
-    asyncio.create_task(_runner())
+    _app.state.refresh_task = asyncio.create_task(_runner())
     yield
 
 
@@ -78,6 +79,8 @@ app.include_router(upload_router, tags=["upload"])
 app.include_router(decentriq_router, tags=["upload"])
 app.include_router(auth_router, tags=["authentication"])
 app.include_router(admin_router, tags=["admin"])
+if settings.dev_mode:
+    app.include_router(debug_router)
 app.include_router(docs_router, prefix="/docs-api", tags=["documents"])
 
 
