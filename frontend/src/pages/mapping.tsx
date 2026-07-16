@@ -958,6 +958,266 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
   );
 }
 
+function CohortMetadataComparison({ cohortsData, sourceCohort, selectedTargets }: { cohortsData: Record<string, any>; sourceCohort: string; selectedTargets: string[]; }) {
+  const allCohorts = [sourceCohort, ...selectedTargets];
+  const cohortEntries = allCohorts.map(id => {
+    const key = Object.keys(cohortsData).find(k => k.toLowerCase() === id.toLowerCase());
+    return { id, data: key ? cohortsData[key] : null };
+  });
+
+  // Build mapping: omopId → { cohortIdx → varName }
+  const omopIdToVarNames = React.useMemo(() => {
+    const map: Record<string, string[]> = {};
+    cohortEntries.forEach(({ data }, i) => {
+      if (!data || !data.variables) return;
+      for (const [varName, v] of Object.entries(data.variables)) {
+        const omopId = (v as any)?.omop_id;
+        if (omopId) {
+          if (!map[omopId]) map[omopId] = new Array(cohortEntries.length).fill('');
+          map[omopId][i] = varName;
+        }
+      }
+    });
+    // Keep only OMOP IDs present in all cohorts
+    const common: Record<string, string[]> = {};
+    for (const [omopId, arr] of Object.entries(map)) {
+      if (arr.every(v => v !== '')) common[omopId] = arr;
+    }
+    return common;
+  }, [cohortsData, sourceCohort, selectedTargets.join(',')]);
+
+  const commonOmopIds = Object.keys(omopIdToVarNames);
+  const commonVarNames = cohortEntries.map((_, i) =>
+    commonOmopIds.map(omopId => omopIdToVarNames[omopId][i]).filter(v => v !== '')
+  );
+
+  // Compare Variable state
+  const [selectedOmopId, setSelectedOmopId] = React.useState<string>('');
+  const [edaData, setEdaData] = React.useState<Record<string, any>>({});
+  const [edaLoading, setEdaLoading] = React.useState(false);
+  const [edaError, setEdaError] = React.useState<string | null>(null);
+
+  // Fetch EDA for all cohorts when a variable is selected
+  React.useEffect(() => {
+    if (!selectedOmopId) { setEdaData({}); setEdaError(null); return; }
+    setEdaLoading(true); setEdaError(null); setEdaData({});
+    Promise.all(
+      cohortEntries.map(({ id }) =>
+        fetch(`/api/cohort-eda-output/${encodeURIComponent(id)}`, { credentials: 'include' })
+          .then(r => r.ok ? r.json() : null)
+          .catch(() => null)
+          .then(data => [id, data] as [string, any])
+      )
+    ).then(results => {
+      const map: Record<string, any> = {};
+      for (const [id, data] of results) map[id] = data;
+      setEdaData(map);
+      setEdaLoading(false);
+    });
+  }, [selectedOmopId, sourceCohort, selectedTargets.join(',')]);
+
+  // Get EDA entry for a specific cohort + variable
+  function getEdaEntry(cohortIdx: number): any | null {
+    if (!selectedOmopId) return null;
+    const cohortId = cohortEntries[cohortIdx].id;
+    const raw = edaData[cohortId];
+    if (!raw) return null;
+    const varName = omopIdToVarNames[selectedOmopId]?.[cohortIdx];
+    if (!varName || varName === '') return null;
+    // EDA JSON keys are lowercase variable names
+    return raw[varName.toLowerCase()] || raw[varName] || null;
+  }
+
+  const baseRows: { label: string; render: (idx: number) => React.ReactNode }[] = [
+    {
+      label: 'Number of Participants',
+      render: (i) => cohortEntries[i].data?.study_participants || '—',
+    },
+    {
+      label: 'Age Range',
+      render: (i) => {
+        const d = cohortEntries[i].data;
+        if (!d) return '—';
+        const ageRaw = (d as any).age_group_inclusion as string | undefined;
+        if (ageRaw && ageRaw.trim() && ageRaw.trim().toLowerCase() !== 'not applicable') return ageRaw.trim();
+        if (d.age_distribution && Object.keys(d.age_distribution).length > 0) {
+          return Object.entries(d.age_distribution).map(([range, pct]) => `${range}: ${pct}%`).join('; ');
+        }
+        return '—';
+      },
+    },
+    {
+      label: 'Male %',
+      render: (i) => {
+        const v = cohortEntries[i].data?.male_percentage;
+        return v != null ? `${v}%` : '—';
+      },
+    },
+    {
+      label: 'Female %',
+      render: (i) => {
+        const v = cohortEntries[i].data?.female_percentage;
+        return v != null ? `${v}%` : '—';
+      },
+    },
+    {
+      label: 'Number of Variables',
+      render: (i) => {
+        const d = cohortEntries[i].data;
+        return d?.variables ? Object.keys(d.variables).length : '—';
+      },
+    },
+    {
+      label: 'Study Design',
+      render: (i) => cohortEntries[i].data?.study_design || '—',
+    },
+    {
+      label: 'Study Objective',
+      render: (i) => cohortEntries[i].data?.study_objective || '—',
+    },
+    {
+      label: 'Common OMOP IDs',
+      render: (i) => commonVarNames[i].length > 0 ? commonVarNames[i].join(', ') : '—',
+    },
+  ];
+
+  // EDA rows for selected variable
+  const edaRows: { label: string; render: (idx: number) => React.ReactNode }[] = selectedOmopId ? [
+    {
+      label: 'Variable Name',
+      render: (i) => {
+        const v = omopIdToVarNames[selectedOmopId]?.[i];
+        return v && v !== '' ? v : '—';
+      },
+    },
+    {
+      label: 'Variable Type',
+      render: (i) => {
+        const e = getEdaEntry(i);
+        return e?.['type'] || '—';
+      },
+    },
+    {
+      label: 'Total Observations',
+      render: (i) => {
+        const e = getEdaEntry(i);
+        if (!e) return '—';
+        const obs = e['count of observations (ex. missing/empty)'];
+        return obs != null ? obs : '—';
+      },
+    },
+    {
+      label: 'Missing %',
+      render: (i) => {
+        const e = getEdaEntry(i);
+        if (!e) return '—';
+        const m = e['count missing'];
+        if (!m) return '—';
+        const match = String(m).match(/\((\d+\.?\d*)%\)/);
+        return match ? `${match[1]}%` : '—';
+      },
+    },
+    {
+      label: 'Mean',
+      render: (i) => {
+        const e = getEdaEntry(i);
+        return e?.['mean'] != null ? Number(e['mean']).toFixed(2) : '—';
+      },
+    },
+    {
+      label: 'Median',
+      render: (i) => {
+        const e = getEdaEntry(i);
+        return e?.['median'] != null ? e['median'] : '—';
+      },
+    },
+    {
+      label: 'Std Dev',
+      render: (i) => {
+        const e = getEdaEntry(i);
+        return e?.['std dev'] != null ? Number(e['std dev']).toFixed(2) : '—';
+      },
+    },
+    {
+      label: 'Min',
+      render: (i) => {
+        const e = getEdaEntry(i);
+        return e?.['min'] != null ? e['min'] : '—';
+      },
+    },
+    {
+      label: 'Max',
+      render: (i) => {
+        const e = getEdaEntry(i);
+        return e?.['max'] != null ? e['max'] : '—';
+      },
+    },
+    {
+      label: 'Class Balance',
+      render: (i) => {
+        const e = getEdaEntry(i);
+        if (!e) return '—';
+        const cb = e['class balance'];
+        if (!cb) return '—';
+        return String(cb).split(/\n\t?/).map(s => s.trim()).filter(Boolean).join(', ');
+      },
+    },
+  ] : [];
+
+  const allRows = [...baseRows, ...edaRows];
+
+  return (
+    <div className="max-w-6xl mx-auto mt-6">
+      <h3 className="text-sm font-semibold mb-2 opacity-70">Cohort Metadata Comparison</h3>
+      <div className="overflow-x-auto border rounded-lg">
+        <table className="table table-xs">
+          <thead>
+            <tr>
+              <th className="sticky left-0 bg-base-100 z-10"></th>
+              {cohortEntries.map(({ id }) => (
+                <th key={id} className="text-center whitespace-nowrap">{id}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {allRows.map((row, ri) => (
+              <tr key={row.label} className={ri >= baseRows.length ? 'bg-base-200' : ''}>
+                <td className="font-medium sticky left-0 bg-base-100 z-10 whitespace-nowrap">{row.label}</td>
+                {cohortEntries.map((_, i) => (
+                  <td key={i} className="text-xs align-top">{row.render(i)}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {/* Compare Variable dropdown */}
+      <div className="flex items-center gap-2 mt-3">
+        <span className="text-xs font-semibold opacity-60">Compare Variable:</span>
+        <select
+          className="select select-xs select-bordered max-w-xs"
+          value={selectedOmopId}
+          onChange={e => setSelectedOmopId(e.target.value)}
+        >
+          <option value="">— Select a common variable —</option>
+          {commonOmopIds.map(omopId => {
+            const varNames = omopIdToVarNames[omopId];
+            const label = varNames.map((v, i) => `${v} (${cohortEntries[i].id})`).join(' / ');
+            return <option key={omopId} value={omopId}>{label}</option>;
+          })}
+        </select>
+        {edaLoading && <span className="loading loading-spinner loading-xs"></span>}
+        {edaError && <span className="text-xs text-error">{edaError}</span>}
+        {selectedOmopId && !edaLoading && (() => {
+          const anyEda = cohortEntries.some((_, i) => getEdaEntry(i) !== null);
+          if (!anyEda) return <span className="text-xs text-gray-500">No EDA data available for selected cohorts</span>;
+          return null;
+        })()}
+      </div>
+    </div>
+  );
+}
+
 export default function MappingPage() {
   const { cohortsData, userEmail } = useCohorts();
   const [sourceCohort, setSourceCohort] = useState('');
@@ -969,7 +1229,7 @@ export default function MappingPage() {
   const [targetFilter, setTargetFilter] = useState('');
   const [sourceDropdownOpen, setSourceDropdownOpen] = useState(false);
   const [selectedHarmonizationStatuses, setSelectedHarmonizationStatuses] = useState<string[]>([]);
-  const [viewMode, setViewMode] = useState<'table' | 'graph'>('graph');
+  const [viewMode, setViewMode] = useState<'table' | 'graph' | 'metadata'>('graph');
   const [cacheInfo, setCacheInfo] = useState<{
     cached_pairs: Array<{source: string, target: string, timestamp: number}>,
     uncached_pairs: Array<{source: string, target: string}>,
@@ -1567,6 +1827,11 @@ export default function MappingPage() {
         </div>
         </div>
 
+        {/* Cohort Metadata Comparison Table — shown before and during mapping */}
+        {sourceCohort && selectedTargets.length > 0 && !mappingOutput && (
+          <CohortMetadataComparison cohortsData={cohortsData} sourceCohort={sourceCohort} selectedTargets={selectedTargets} />
+        )}
+
         {/* Success Message - only shown after mapping completes for uncached pairs */}
         <div className="max-w-6xl mx-auto">
         {mappingOutput && mappingOutput.length > 0 && computeDuration && hadUncachedPairs && (
@@ -1695,6 +1960,7 @@ export default function MappingPage() {
             {/* View mode toggle */}
             <div className="flex items-center justify-center gap-2 mb-3 mt-1">
               <div className="join">
+                <button className={`join-item btn btn-lg ${viewMode === 'metadata' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setViewMode('metadata')}>📋 Metadata Table</button>
                 <button className={`join-item btn btn-lg ${viewMode === 'table' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setViewMode('table')}>⊞ Table</button>
                 <button className={`join-item btn btn-lg ${viewMode === 'graph' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setViewMode('graph')}>⬡ Graph</button>
               </div>
@@ -1773,6 +2039,11 @@ export default function MappingPage() {
                 </div>
               );
             })()}
+
+            {/* Metadata comparison view */}
+            {viewMode === 'metadata' && (
+              <CohortMetadataComparison cohortsData={cohortsData} sourceCohort={sourceCohort} selectedTargets={selectedTargets} />
+            )}
 
             {/* Graph view */}
             {viewMode === 'graph' && (
