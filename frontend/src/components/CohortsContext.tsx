@@ -4,6 +4,7 @@ import React, {createContext, useState, useEffect, useContext, useRef, useCallba
 import {Cohort} from '@/types';
 import {apiUrl} from '@/utils';
 import {calculateCohortStatistics, type CohortStatistics} from '@/utils/cohortStatistics';
+import {isLatestMetadataResponse} from '@/utils/metadataRequest';
 
 // Define loading metrics interface
 interface LoadingMetrics {
@@ -25,6 +26,7 @@ export const CohortsProvider = ({children, useSparql = false}: {children: any, u
   // Dict with cohort ID and list of variables ID?
   const [userEmail, setUserEmail]: [string | null, any] = useState('');
   const worker: MutableRefObject<Worker | null> = useRef(null);
+  const metadataRequestGeneration = useRef(0);
   const statisticsGeneration = useRef(0);
   
   // Add state for statistics
@@ -36,6 +38,7 @@ export const CohortsProvider = ({children, useSparql = false}: {children: any, u
     patientsInCohortsWithMetadata: 0,
     totalVariables: 0
   });
+  const [statisticsStatus, setStatisticsStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
 
   // Add state for loading metrics
   const [loadingMetrics, setLoadingMetrics] = useState<LoadingMetrics>({
@@ -70,33 +73,29 @@ export const CohortsProvider = ({children, useSparql = false}: {children: any, u
   };
 
   const calculateStatisticsFor = useCallback(async (snapshot: {[cohortId: string]: Cohort}) => {
-    if (Object.keys(snapshot).length === 0) return;
     const generation = ++statisticsGeneration.current;
-    const statistics = await calculateCohortStatistics(snapshot, async cohortId => {
-      const response = await fetch(`/api/check-analysis-folder/${cohortId}`);
-      if (!response.ok) throw new Error(`Aggregate-analysis check failed for ${cohortId}: ${response.status}`);
-      const data = await response.json();
-      return Boolean(data.exists);
-    });
-    if (generation !== statisticsGeneration.current) return;
+    setStatisticsStatus('loading');
 
-    setCohortStatistics(statistics);
-    const saveResponse = await fetch('/api/save-statistics', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(statistics)
-    });
-    if (!saveResponse.ok) throw new Error(`Saving cohort statistics failed: ${saveResponse.status}`);
+    try {
+      const statistics = await calculateCohortStatistics(snapshot, async cohortId => {
+        const response = await fetch(`/api/check-analysis-folder/${cohortId}`);
+        if (!response.ok) throw new Error(`Aggregate-analysis check failed for ${cohortId}: ${response.status}`);
+        const data = await response.json();
+        return Boolean(data.exists);
+      });
+      if (generation !== statisticsGeneration.current) return;
+
+      setCohortStatistics(statistics);
+      setStatisticsStatus('loaded');
+    } catch (error) {
+      if (generation === statisticsGeneration.current) setStatisticsStatus('error');
+      throw error;
+    }
   }, []);
 
-  const calculateStatistics = useCallback(
-    async () => calculateStatisticsFor(cohortsData),
-    [calculateStatisticsFor, cohortsData]
-  );
-
   useEffect(() => {
+    metadataRequestGeneration.current += 1;
+    statisticsGeneration.current += 1;
     setDataCleanRoom(JSON.parse(sessionStorage.getItem('dataCleanRoom') || '{"cohorts": {}}'));
 
     // Reset loading metrics when switching data sources
@@ -116,13 +115,16 @@ export const CohortsProvider = ({children, useSparql = false}: {children: any, u
     // Track start time
     const startTime = performance.now();
     setIsLoading(true);
+    setStatisticsStatus('loading');
     
     worker.current.onmessage = event => {
       const endTime = performance.now();
       const loadTime = endTime - startTime;
       
-      const data = event.data;
-      if (!data.detail && !data.error) {
+      const {requestId, payload: data, error: workerError} = event.data;
+      if (!isLatestMetadataResponse(requestId, metadataRequestGeneration.current)) return;
+
+      if (data && !data.detail && !data.error && !workerError) {
         // Extract cohorts data (filter out metadata properties)
         const { sparqlRows, sparqlMetadata, userEmail: fetchedUserEmail, ...cohortsData } = data;
         
@@ -151,9 +153,14 @@ export const CohortsProvider = ({children, useSparql = false}: {children: any, u
           console.error('Error calculating cohort statistics:', error);
         });
       } else {
+        statisticsGeneration.current += 1;
+        setStatisticsStatus('error');
         setUserEmail(null);
         setIsLoading(false);
-        console.error(`Error fetching data in ${useSparql ? 'SPARQL' : 'cache'} worker:`, data.detail || data.error);
+        console.error(
+          `Error fetching data in ${useSparql ? 'SPARQL' : 'cache'} worker:`,
+          data?.detail || data?.error || workerError
+        );
       }
     };
 
@@ -167,7 +174,8 @@ export const CohortsProvider = ({children, useSparql = false}: {children: any, u
 
   // Fetch cohorts data from the API using the web worker
   const fetchCohortsData = () => {
-    worker.current?.postMessage({apiUrl});
+    if (!worker.current) return;
+    worker.current.postMessage({apiUrl, requestId: ++metadataRequestGeneration.current});
   };
 
   // Update the metadata of a specific cohort in the context
@@ -194,7 +202,7 @@ export const CohortsProvider = ({children, useSparql = false}: {children: any, u
         setUserEmail,
         // Expose the statistics
         cohortStatistics,
-        calculateStatistics,
+        statisticsStatus,
         // Expose loading metrics and state
         loadingMetrics,
         isLoading

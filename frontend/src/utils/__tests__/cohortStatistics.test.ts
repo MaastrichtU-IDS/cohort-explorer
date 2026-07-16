@@ -49,4 +49,23 @@ describe('cohort statistics', () => {
       totalVariables: 1
     });
   });
+
+  it('publishes exact zeroes for an empty metadata snapshot without aggregate calls', async () => {
+    let aggregateChecks = 0;
+
+    expect(
+      await calculateCohortStatistics({}, async () => {
+        aggregateChecks += 1;
+        return true;
+      })
+    ).toEqual({
+      totalCohorts: 0,
+      cohortsWithMetadata: 0,
+      cohortsWithAggregateAnalysis: 0,
+      totalPatients: 0,
+      patientsInCohortsWithMetadata: 0,
+      totalVariables: 0
+    });
+    expect(aggregateChecks).toBe(0);
+  });
 });

@@ -2,101 +2,20 @@ import Image from 'next/image';
 import Link from 'next/link';
 import {Inter} from 'next/font/google';
 import { useCohorts } from '@/components/CohortsContext';
-import React from 'react';
-import { Cohort } from '@/types';
 
 const inter = Inter({subsets: ['latin']});
 
 export default function Home() {
-  // Get statistics and calculation function from context
-  const { cohortStatistics, calculateStatistics } = useCohorts();
-  
-  // State to store statistics from API
-  const [stats, setStats] = React.useState<{
-    totalCohorts: number | string;
-    cohortsWithMetadata: number | string;
-    cohortsWithAggregateAnalysis: number | string;
-    totalPatients: number | string;
-    patientsInCohortsWithMetadata: number | string;
-    totalVariables: number | string;
-  }>({
-    totalCohorts: "waiting to refresh...",
-    cohortsWithMetadata: "waiting to refresh...",
-    cohortsWithAggregateAnalysis: "waiting to refresh...",
-    totalPatients: "--",
-    patientsInCohortsWithMetadata: "--",
-    totalVariables: "--"
-  });
-  
-  // State to track if statistics are being recalculated
-  const [isRecalculating, setIsRecalculating] = React.useState(false);
-  
-  // Fetch statistics from API on component mount
-  React.useEffect(() => {
-    const fetchStatistics = async () => {
-      try {
-        // Check if the page was reloaded (user hit refresh)
-        const navigationEntries = performance.getEntriesByType('navigation') as PerformanceNavigationTiming[];
-        const isPageRefresh = navigationEntries.length > 0 && navigationEntries[0].type === 'reload';
-        
-        // First, try to fetch existing statistics
-        const cacheBuster = Date.now();
-        const response = await fetch(`/api/get-statistics?_=${cacheBuster}`);
-        let data = null;
-        if (response.ok) {
-          data = await response.json();
-        }
-        
-        // Check if statistics are missing (file doesn't exist or has default values)
-        const statsAreMissing = !data || data.totalCohorts === "--" || data.totalCohorts === "waiting to refresh...";
-        
-        // Recalculate if page refresh OR if statistics file doesn't exist
-        if ((isPageRefresh || statsAreMissing) && calculateStatistics) {
-          console.log(statsAreMissing ? 'Statistics missing, calculating...' : 'Page refresh detected, recalculating statistics...');
-          setIsRecalculating(true);
-          setStats({
-            totalCohorts: "counting...",
-            cohortsWithMetadata: "counting...",
-            cohortsWithAggregateAnalysis: "counting...",
-            totalPatients: "counting...",
-            patientsInCohortsWithMetadata: "counting...",
-            totalVariables: "counting..."
-          });
-          await calculateStatistics();
-          // Wait a bit for the file to be written
-          await new Promise(resolve => setTimeout(resolve, 500));
-          
-          // Fetch the newly calculated statistics
-          const newResponse = await fetch(`/api/get-statistics?_=${Date.now()}`);
-          if (newResponse.ok) {
-            data = await newResponse.json();
-          }
-        }
-        
-        if (data) {
-          setStats(data);
-        }
-        setIsRecalculating(false);
-      } catch (error) {
-        console.error('Error fetching statistics:', error);
-        setIsRecalculating(false);
-        // Fallback to context statistics if API fails
-        if (cohortStatistics) {
-          setStats(cohortStatistics);
-        }
-      }
-    };
-    
-    fetchStatistics();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Only run once on mount
-  
-  // Update stats when cohortStatistics from context changes (after cohorts load)
-  React.useEffect(() => {
-    if (cohortStatistics && cohortStatistics.totalCohorts !== undefined) {
-      setStats(cohortStatistics);
-    }
-  }, [cohortStatistics]);
+  const {cohortStatistics, statisticsStatus} = useCohorts();
+  const placeholder = statisticsStatus === 'error' ? '--' : 'counting...';
+  const stats = statisticsStatus === 'loaded' ? cohortStatistics : {
+    totalCohorts: placeholder,
+    cohortsWithMetadata: placeholder,
+    cohortsWithAggregateAnalysis: placeholder,
+    totalPatients: placeholder,
+    patientsInCohortsWithMetadata: placeholder,
+    totalVariables: placeholder
+  };
 
   return (
     <main className={`flex flex-col items-center justify-between p-24 ${inter.className}`}>

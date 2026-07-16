@@ -1,5 +1,5 @@
 self.onmessage = async e => {
-  const apiUrl = e.data.apiUrl;
+  const {apiUrl, requestId} = e.data;
   try {
     const response = await fetch(`${apiUrl}/cohorts-metadata-sparql`, {
       credentials: 'include'
@@ -14,12 +14,12 @@ self.onmessage = async e => {
         sparqlRows: data.sparql_metadata.row_count,
         sparqlMetadata: data.sparql_metadata
       };
-      self.postMessage(response);
+      self.postMessage({requestId, payload: response});
     } else {
       // Fallback for old format
-      self.postMessage(data);
+      self.postMessage({requestId, payload: data});
     }
   } catch (error) {
-    self.postMessage({error: error.message});
+    self.postMessage({requestId, error: error.message});
   }
 };

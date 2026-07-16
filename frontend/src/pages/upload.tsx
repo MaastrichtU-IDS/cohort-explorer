@@ -169,7 +169,6 @@ export default function UploadPage() {
         setValidationStatusMessage("Validation successful! Your dictionary is ready for upload.");
         setValidationErrors(null);
         setIsValidated(true);
-        fetchCohortsData(); 
       }
       setIsValidationPaneOpen(true);
     } catch (error: any) {
