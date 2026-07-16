@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import {
+  canonicalCohortId,
   mappingTargetElementId,
   parseMappingPreview,
   projectMappingJson,
@@ -19,9 +20,10 @@ type RowData = MappingRow;
 interface MappingPreviewJsonTableProps {
   data: RowData[];
   sourceCohort: string;
+  cohortsData: Record<string, any>;
 }
 
-function MappingPreviewJsonTable({ data, sourceCohort }: MappingPreviewJsonTableProps) {
+function MappingPreviewJsonTable({ data, sourceCohort, cohortsData }: MappingPreviewJsonTableProps) {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [imageError, setImageError] = useState<string | null>(null);
   const [comparisonDetails, setComparisonDetails] = useState<{
@@ -69,18 +71,20 @@ function MappingPreviewJsonTable({ data, sourceCohort }: MappingPreviewJsonTable
                   const sourceVar = row['s_source'] as string;
                   const targetVar = row['target'] as string;
                   const targetStudy = row['target_study'] as string;
+                  const canonicalSource = canonicalCohortId(sourceCohort, cohortsData);
+                  const canonicalTarget = canonicalCohortId(targetStudy, cohortsData);
                   
                   const handleCompare = async () => {
                     if (sourceCohort && sourceVar && targetStudy && targetVar) {
-                      const imageUrl = `/api/compare-eda/${encodeURIComponent(sourceCohort)}/${encodeURIComponent(sourceVar)}/${encodeURIComponent(targetStudy)}/${encodeURIComponent(targetVar)}`;
-                      console.log('Compare EDA clicked:', { sourceCohort, sourceVar, targetStudy, targetVar, imageUrl });
+                      const imageUrl = `/api/compare-eda/${encodeURIComponent(canonicalSource)}/${encodeURIComponent(sourceVar)}/${encodeURIComponent(canonicalTarget)}/${encodeURIComponent(targetVar)}`;
+                      console.log('Compare EDA clicked:', { sourceCohort: canonicalSource, sourceVar, targetStudy: canonicalTarget, targetVar, imageUrl });
                       
                       setImageError(null);
                       setComparisonDetails({
                         sourceVar,
-                        sourceCohort,
+                        sourceCohort: canonicalSource,
                         targetVar,
-                        targetCohort: targetStudy
+                        targetCohort: canonicalTarget
                       });
                       
                       // Fetch the image to check for errors before displaying
@@ -271,10 +275,12 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
   const [edaError, setEdaError] = React.useState<string | null>(null);
   const [edaLoading, setEdaLoading] = React.useState(false);
   const [edaAvail, setEdaAvail] = React.useState<Record<string, boolean>>({});
+  const canonicalSourceCohort = canonicalCohortId(sourceCohort, cohortsData);
+  const canonicalSelectedTarget = canonicalCohortId(selectedTarget, cohortsData);
 
   // Check EDA availability for cohorts
   React.useEffect(() => {
-    const cohortsToCheck = [sourceCohort, selectedTarget].filter(Boolean);
+    const cohortsToCheck = [...new Set([canonicalSourceCohort, canonicalSelectedTarget].filter(Boolean))];
     cohortsToCheck.forEach(c => {
       if (!edaAvail[c]) {
         fetch(`/api/cohort-eda-output/${encodeURIComponent(c)}`, { method: 'HEAD' })
@@ -282,7 +288,7 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
           .catch(() => setEdaAvail(prev => ({ ...prev, [c]: false })));
       }
     });
-  }, [sourceCohort, selectedTarget]);
+  }, [canonicalSourceCohort, canonicalSelectedTarget]);
 
   // Auto-scroll to edge details panel when edge is selected
   React.useEffect(() => {
@@ -599,14 +605,15 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
                   const srcVar = e.sourceVar;
                   const tgtVar = e.targetVar;
                   const tgtStudy = e.targetStudy;
-                  const hasEda = edaAvail[sourceCohort] && edaAvail[tgtStudy];
+                  const canonicalTgtStudy = canonicalCohortId(tgtStudy, cohortsData);
+                  const hasEda = edaAvail[canonicalSourceCohort] && edaAvail[canonicalTgtStudy];
                   const label = `${e.relation} · ${e.status}`;
                   const tw = label.length * 5.2 + 14;
                   const tx = mx; const ty2 = (y1 + y2) / 2;
                   const handleCompareEda = async () => {
                     if (!sourceCohort || !srcVar || !tgtStudy || !tgtVar) return;
                     setEdaLoading(true); setEdaError(null); setEdaImage(null);
-                    const imageUrl = `/api/compare-eda/${encodeURIComponent(sourceCohort)}/${encodeURIComponent(srcVar)}/${encodeURIComponent(tgtStudy)}/${encodeURIComponent(tgtVar)}`;
+                    const imageUrl = `/api/compare-eda/${encodeURIComponent(canonicalSourceCohort)}/${encodeURIComponent(srcVar)}/${encodeURIComponent(canonicalTgtStudy)}/${encodeURIComponent(tgtVar)}`;
                     try {
                       const response = await fetch(imageUrl);
                       if (!response.ok) {
@@ -1662,7 +1669,7 @@ export default function MappingPage() {
                   return harmonizationStatusMatch;
                 });
                 
-                return <MappingPreviewJsonTable data={filteredData} sourceCohort={sourceCohort} />;
+                return <MappingPreviewJsonTable data={filteredData} sourceCohort={sourceCohort} cohortsData={cohortsData} />;
               })()}
             </div>
             </>

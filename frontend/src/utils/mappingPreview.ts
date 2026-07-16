@@ -8,6 +8,12 @@ export interface MappingPreview {
 
 export const mappingTargetElementId = (cohortId: string): string => `mapping-target-${cohortId}`;
 
+export const canonicalCohortId = (
+  cohortId: string,
+  cohortsData: Record<string, unknown>
+): string =>
+  Object.keys(cohortsData).find(key => key.toLowerCase() === cohortId.toLowerCase()) || cohortId;
+
 export const parseCsvLine = (line: string): string[] => {
   const result: string[] = [];
   let current = '';

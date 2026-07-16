@@ -1,6 +1,11 @@
 import {describe, expect, it} from 'vitest';
 import {buildMappingGraph} from '@/utils/mappingGraph';
-import {mappingTargetElementId, parseMappingPreview, projectMappingJson} from '@/utils/mappingPreview';
+import {
+  canonicalCohortId,
+  mappingTargetElementId,
+  parseMappingPreview,
+  projectMappingJson
+} from '@/utils/mappingPreview';
 
 const mappingCsv = [
   'source_study,target_study,source,target,slabel,tlabel,category,mapping_relation,harmonization_status,sim_score,source_original_categories,source_categories_labels,target_original_categories,target_categories_labels',
@@ -11,6 +16,14 @@ const mappingCsv = [
 describe('mapping projections', () => {
   it('builds a stable target-cohort selector', () => {
     expect(mappingTargetElementId('GISSI-HF')).toBe('mapping-target-GISSI-HF');
+  });
+
+  it('resolves fixture study identifiers to canonical metadata keys', () => {
+    const cohorts = {'TIME-CHF': {}, 'GISSI-HF': {}};
+
+    expect(canonicalCohortId('time-chf', cohorts)).toBe('TIME-CHF');
+    expect(canonicalCohortId('gissi-hf', cohorts)).toBe('GISSI-HF');
+    expect(canonicalCohortId('unknown', cohorts)).toBe('unknown');
   });
 
   it('parses CSV rows and category labels into the stable table shape', () => {
