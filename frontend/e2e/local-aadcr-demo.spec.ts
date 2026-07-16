@@ -286,7 +286,8 @@ test('complete local AADCR journey preserves metadata and returns one aggregate 
     'Variables in Cohorts with Uploaded Metadata': '70'
   };
   for (const [title, value] of Object.entries(expectedStats)) {
-    await expect(page.locator('.stat').filter({hasText: title}).locator('.stat-value')).toHaveText(value, {
+    const stat = page.locator('.stat-title').getByText(title, {exact: true}).locator('..');
+    await expect(stat.locator('.stat-value')).toHaveText(value, {
       timeout: 15_000
     });
   }
