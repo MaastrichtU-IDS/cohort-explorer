@@ -118,7 +118,7 @@ async def check_mapping_cache(
     # Lazy import to avoid module-level import errors
     from CohortVarLinker.src.config import settings as cohort_linker_settings
     from CohortVarLinker.src.utils import get_member_studies
-    from CohortVarLinker.main_llm import find_cached_csv
+    from CohortVarLinker.main import find_cached_csv
     
     output_dir = cohort_linker_settings.output_dir
     
