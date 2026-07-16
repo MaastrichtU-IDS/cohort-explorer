@@ -124,6 +124,9 @@ def test_local_frontend_runs_the_built_app_without_runtime_compilation(compose_c
         "npm",
         "run",
         "start",
+        "--",
+        "-p",
+        "3001",
     ]
 
 
