@@ -5,6 +5,8 @@ import pytest
 from src.concept_usage import get_concept_usage
 from src.metadata_providers.contracts import ConceptResult
 from src.metadata_providers.factory import get_concept_search_provider
+from src.metadata_providers.fixture_catalog import FixtureConceptSearchProvider
+from src.models import Cohort, CohortVariable, VariableCategory
 
 HEART_RATE_URI = "http://snomed.info/id/364075005"
 
@@ -15,12 +17,7 @@ def anyio_backend():
 
 
 @pytest.fixture
-def fixture_settings(settings_factory):
-    return settings_factory(concept_search_backend="fixture")
-
-
-@pytest.fixture
-def fixture_search_provider(monkeypatch, fixture_settings):
+def fixture_search_provider(monkeypatch):
     from src import concept_usage
 
     def fake_run_query(_query: str):
@@ -39,7 +36,7 @@ def fixture_search_provider(monkeypatch, fixture_settings):
         }
 
     monkeypatch.setattr(concept_usage, "run_query", fake_run_query)
-    return get_concept_search_provider(fixture_settings)
+    return FixtureConceptSearchProvider(usage_lookup=get_concept_usage)
 
 
 @pytest.mark.anyio
@@ -72,6 +69,74 @@ async def test_fixture_search_filters_domains_case_insensitively(fixture_search_
 async def test_fixture_search_returns_empty_for_unknown_or_blank_query(fixture_search_provider):
     assert await fixture_search_provider.search("not-in-the-catalog", []) == []
     assert await fixture_search_provider.search("  ", []) == []
+
+
+@pytest.mark.anyio
+async def test_fixture_search_uses_metadata_cache_without_sparql(monkeypatch):
+    from src import cohort_cache, concept_usage
+
+    def fail_if_sparql_is_queried(_query: str):
+        raise AssertionError("fixture concept search must not query SPARQL")
+
+    age = CohortVariable(
+        var_name="age",
+        var_label="Age at enrollment",
+        var_type="FLOAT",
+        count=2_500,
+        mapped_id="loinc:30525-0",
+        omop_domain="Person",
+    )
+    cohort = Cohort(cohort_id="TIME-CHF", variables={"age": age})
+    monkeypatch.setattr(concept_usage, "run_query", fail_if_sparql_is_queried)
+    monkeypatch.setattr(cohort_cache, "get_cohorts_from_cache", lambda _email: {"TIME-CHF": cohort})
+
+    results = await FixtureConceptSearchProvider().search("age", ["Person"])
+
+    assert [item.id for item in results][:1] == ["loinc:30525-0"]
+    assert results[0].used_by == [
+        {
+            "cohort_id": "TIME-CHF",
+            "var_name": "age",
+            "var_label": "Age at enrollment",
+            "omop_domain": "Person",
+        }
+    ]
+
+
+@pytest.mark.anyio
+async def test_fixture_cache_usage_normalizes_aliases_categories_and_full_uris(monkeypatch):
+    from src import cohort_cache
+
+    heart_failure_admission_uri = "http://snomed.info/id/416683003"
+    admission = CohortVariable(
+        var_name="hf_hosp",
+        var_label="Emergency hospital admission for heart failure",
+        var_type="BOOL",
+        count=2_500,
+        mapped_id=heart_failure_admission_uri,
+        omop_domain="Condition",
+        categories=[
+            VariableCategory(
+                value="1",
+                label="Yes",
+                mapped_id="snomedct:416683003",
+            )
+        ],
+    )
+    cohort = Cohort(cohort_id="TIME-CHF", variables={"hf_hosp": admission})
+    monkeypatch.setattr(cohort_cache, "get_cohorts_from_cache", lambda _email: {"TIME-CHF": cohort})
+
+    results = await FixtureConceptSearchProvider().search("emergency hospital admission", ["Condition"])
+
+    concept = next(item for item in results if item.id == "snomed:416683003")
+    assert concept.used_by == [
+        {
+            "cohort_id": "TIME-CHF",
+            "var_name": "hf_hosp",
+            "var_label": "Emergency hospital admission for heart failure",
+            "omop_domain": "Condition",
+        }
+    ]
 
 
 def test_concept_usage_queries_cmeo_study_and_data_element_graphs(monkeypatch):

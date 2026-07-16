@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 
-from src.concept_usage import get_concept_usage
 from src.metadata_providers.contracts import ConceptResult
 
 DEFAULT_CATALOG_PATH = Path(__file__).resolve().parents[2] / "demo" / "metadata-fixtures" / "concepts.json"
@@ -40,10 +39,49 @@ class FixtureConceptSearchProvider:
     def __init__(
         self,
         catalog_path: Path = DEFAULT_CATALOG_PATH,
-        usage_lookup: UsageLookup = get_concept_usage,
+        usage_lookup: UsageLookup | None = None,
     ) -> None:
         self._catalog = load_catalog(catalog_path)
-        self._usage_lookup = usage_lookup
+        self._usage_lookup = usage_lookup or self._usage_from_cache
+
+    def _usage_from_cache(self, concept_uris: Sequence[str]) -> dict[str, list[dict[str, str]]]:
+        from src.cohort_cache import get_cohorts_from_cache
+
+        requested_uris = sorted(set(concept_uris))
+        usage_by_uri: dict[str, list[dict[str, str]]] = {uri: [] for uri in requested_uris}
+        if not requested_uris:
+            return usage_by_uri
+
+        uri_by_identifier: dict[str, str] = {}
+        for concept in self._catalog:
+            identifiers = {concept.uri, concept.id}
+            if concept.uri.startswith("http://snomed.info/id/"):
+                code = concept.uri.removeprefix("http://snomed.info/id/")
+                identifiers.update({f"snomed:{code}", f"snomedct:{code}"})
+            for identifier in identifiers:
+                uri_by_identifier[identifier] = concept.uri
+                uri_by_identifier[identifier.casefold()] = concept.uri
+
+        for cohort_id, cohort in get_cohorts_from_cache("").items():
+            for variable in cohort.variables.values():
+                mapped_ids = [variable.mapped_id, *(category.mapped_id for category in variable.categories)]
+                for mapped_id in mapped_ids:
+                    identifier = str(mapped_id or "").strip()
+                    mapped_uri = uri_by_identifier.get(identifier) or uri_by_identifier.get(identifier.casefold())
+                    if mapped_uri not in usage_by_uri:
+                        continue
+                    entry = {
+                        "cohort_id": cohort_id,
+                        "var_name": variable.var_name,
+                        "var_label": variable.var_label,
+                        "omop_domain": variable.omop_domain or "",
+                    }
+                    if entry not in usage_by_uri[mapped_uri]:
+                        usage_by_uri[mapped_uri].append(entry)
+
+        for entries in usage_by_uri.values():
+            entries.sort(key=lambda entry: (entry["cohort_id"], entry["var_name"]))
+        return usage_by_uri
 
     async def search(self, query: str, domains: Sequence[str]) -> list[ConceptResult]:
         normalized_query = " ".join(query.casefold().split())

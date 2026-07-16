@@ -4,53 +4,11 @@ import {apiUrl} from '@/utils';
 import {useCohorts} from '@/components/CohortsContext';
 import {conceptMapElementId} from '@/utils/variableFiltering';
 import {resolveMappingApiUrl} from '@/utils/apiUrls';
-
-const acceptedDomains = [
-  'Condition',
-  'Device',
-  'Drug',
-  'Geography',
-  'Meas Value',
-  'Measurement',
-  'Metadata',
-  'Observation',
-  'Procedure',
-  'Spec Anatomic Site',
-  'Specimen',
-  'Condition Status',
-  'Condition/Device',
-  'Condition/Meas',
-  'Condition/Obs',
-  'Condition/Procedure',
-  'Cost',
-  'Currency',
-  'Device/Drug',
-  'Device/Procedure',
-  'Drug/Procedure',
-  'Episode',
-  'Ethnicity',
-  'Gender',
-  'Language',
-  'Meas Value Operator',
-  'Meas/Procedure',
-  'Note',
-  'Obs/Procedure',
-  'Payer',
-  'Place of Service',
-  'Plan',
-  'Plan Stop Reason',
-  'Provider',
-  'Race',
-  'Regimen',
-  'Relationship',
-  'Revenue Code',
-  'Route',
-  'Spec Disease Status',
-  'Sponsor',
-  'Type Concept',
-  'Unit',
-  'Visit'
-];
+import {
+  ACCEPTED_CONCEPT_DOMAINS,
+  resolveConceptSuggestionState,
+  resolveInitialConceptDomains
+} from '@/utils/conceptSearch';
 
 const AutocompleteConcept: React.FC<AutocompleteConceptProps> = ({
   onSelect,
@@ -67,10 +25,10 @@ const AutocompleteConcept: React.FC<AutocompleteConceptProps> = ({
   const [inputValue, setInputValue] = useState(query);
   const [debouncedInput, setDebouncedInput] = useState('');
   const [isUserInteracted, setIsUserInteracted] = useState(false);
-  const [selectedDomains, setSelectedDomains] = useState<string[]>(
-    domain && acceptedDomains.includes(domain.trim()) ? [domain.trim()] : acceptedDomains
-  );
+  const [selectedDomains, setSelectedDomains] = useState<string[]>(() => resolveInitialConceptDomains(domain));
   const [errorMsg, setErrorMsg] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
   // const [selectedConcept, setSelectedConcept] = useState<Concept | null>(null);
 
   if (!tooltip) {
@@ -95,8 +53,14 @@ const AutocompleteConcept: React.FC<AutocompleteConceptProps> = ({
     if (!isUserInteracted) return;
     const domainBit = selectedDomains.map(domain => `&domain=${domain}`).join('');
     if (debouncedInput.length > 0 && isUserInteracted) {
+      const controller = new AbortController();
+      setIsLoading(true);
+      setHasSearched(false);
+      setErrorMsg('');
+      setFilteredSuggestions([]);
       fetch(resolveMappingApiUrl(apiUrl, `search-concepts?query=${debouncedInput}${domainBit}`), {
-        credentials: 'include'
+        credentials: 'include',
+        signal: controller.signal
       })
         .then(async response => {
           if (!response.ok) {
@@ -111,10 +75,23 @@ const AutocompleteConcept: React.FC<AutocompleteConceptProps> = ({
         .then(data => {
           // console.log('DEBUG: Autocomplete response', data);
           setFilteredSuggestions(data);
+          setHasSearched(true);
         })
-        .catch(error => setErrorMsg(error.message));
+        .catch(error => {
+          if (error.name !== 'AbortError') {
+            setErrorMsg(error.message);
+            setHasSearched(true);
+          }
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setIsLoading(false);
+        });
+      return () => controller.abort();
     } else {
       setFilteredSuggestions([]);
+      setIsLoading(false);
+      setHasSearched(false);
+      setErrorMsg('');
     }
   }, [debouncedInput, selectedDomains, isUserInteracted]);
 
@@ -138,6 +115,12 @@ const AutocompleteConcept: React.FC<AutocompleteConceptProps> = ({
   };
 
   const autocompleteModalId = `autocomplete_concept_modal_${cohortId ? `${cohortId}_` : ''}${index}`;
+  const suggestionState = resolveConceptSuggestionState({
+    isLoading,
+    hasSearched,
+    errorMsg,
+    resultCount: filteredSuggestions.length
+  });
 
   return (
     <div>
@@ -182,7 +165,7 @@ const AutocompleteConcept: React.FC<AutocompleteConceptProps> = ({
                     tabIndex={0}
                     className="dropdown-content menu menu-horizontal shadow bg-base-100 rounded-box w-52 z-50"
                   >
-                    {acceptedDomains.map(domain => (
+                    {ACCEPTED_CONCEPT_DOMAINS.map(domain => (
                       <li key={domain} className="opacity-100">
                         <label>
                           <input
@@ -198,7 +181,7 @@ const AutocompleteConcept: React.FC<AutocompleteConceptProps> = ({
                   </ul>
                 </div>
               </div>
-              {filteredSuggestions.length > 0 ? (
+              {suggestionState === 'results' ? (
                 <table className="table-auto w-full">
                   <thead>
                     <tr>
@@ -232,13 +215,17 @@ const AutocompleteConcept: React.FC<AutocompleteConceptProps> = ({
                 </table>
               ) : (
                 <>
-                  {errorMsg ? (
+                  {suggestionState === 'error' ? (
                     <div className="text-red-500 text-center">{errorMsg}</div>
-                  ) : (
+                  ) : suggestionState === 'loading' ? (
                     <div className="flex flex-col items-center opacity-70 text-slate-500 mt-5 mb-5">
                       <span className="loading loading-spinner loading-lg mb-4"></span>
                       <p>Getting concepts suggestions...</p>
                     </div>
+                  ) : suggestionState === 'empty' ? (
+                    <div className="text-center opacity-70 text-slate-500 mt-5 mb-5">No matching concepts found.</div>
+                  ) : (
+                    <div className="text-center opacity-70 text-slate-500 mt-5 mb-5">Enter a concept name to search.</div>
                   )}
                 </>
               )}

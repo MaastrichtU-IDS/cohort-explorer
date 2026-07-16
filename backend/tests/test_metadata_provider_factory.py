@@ -21,6 +21,8 @@ def fixture_settings(settings_factory):
 
 def test_live_search_provider_is_not_imported_in_fixture_mode(monkeypatch, fixture_settings):
     monkeypatch.setitem(sys.modules, "src.metadata_providers.athena_search", ImportBomb())
+    monkeypatch.delitem(sys.modules, "src.metadata_providers.fixture_catalog", raising=False)
+    monkeypatch.setitem(sys.modules, "src.concept_usage", ImportBomb())
 
     provider = get_concept_search_provider(fixture_settings)
 
