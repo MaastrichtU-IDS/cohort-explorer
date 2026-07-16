@@ -3,7 +3,7 @@ import {createHash} from 'crypto';
 import {copyFileSync, mkdirSync, readFileSync, writeFileSync} from 'fs';
 import path from 'path';
 
-import {expect, test, type APIResponse, type Download, type Page} from '@playwright/test';
+import {expect, test, type APIResponse, type Download, type Page, type Request} from '@playwright/test';
 
 const browserUrl = process.env.DEMO_BROWSER_URL || 'http://localhost:3001';
 const apiUrl = process.env.DEMO_API_URL || 'http://localhost:3000';
@@ -143,6 +143,8 @@ test('complete local AADCR journey preserves metadata and returns one aggregate 
   const preAuthFailedLocalResponses: string[] = [];
   const approvedLocalFailures: string[] = [];
   const failedLocalResponses: string[] = [];
+  const preAuthMetadataRequests = new Set<Request>();
+  let loginStarted = false;
   let allowInvalidDictionaryValidation = false;
 
   page.on('console', message => {
@@ -156,6 +158,14 @@ test('complete local AADCR journey preserves metadata and returns one aggregate 
   page.on('pageerror', error => pageErrors.push(error.message));
   page.context().on('request', request => {
     const url = new URL(request.url());
+    if (
+      !loginStarted &&
+      url.pathname === '/cohorts-metadata' &&
+      request.method() === 'GET' &&
+      (url.hostname === 'localhost' || url.hostname === '127.0.0.1')
+    ) {
+      preAuthMetadataRequests.add(request);
+    }
     if (
       (url.protocol === 'http:' || url.protocol === 'https:') &&
       url.hostname !== 'localhost' &&
@@ -190,17 +200,29 @@ test('complete local AADCR journey preserves metadata and returns one aggregate 
     }
   });
 
-  const preAuthMetadataResponse = page.waitForResponse(response => {
-    const url = new URL(response.url());
-    return url.pathname === '/cohorts-metadata' && response.request().method() === 'GET' && response.status() === 401;
-  });
   await page.goto(browserUrl);
   await expect(page.getByText('Login', {exact: true})).toBeVisible();
+  const authenticatedMetadataResponse = page.waitForResponse(response => {
+    const url = new URL(response.url());
+    return url.pathname === '/cohorts-metadata' && response.request().method() === 'GET' && response.status() === 200;
+  });
+  const providerResponse = page.waitForResponse(response => {
+    const url = new URL(response.url());
+    return url.pathname === '/api/dcr/provider' && response.request().method() === 'GET' && response.status() === 200;
+  });
+  loginStarted = true;
   await page.getByText('Login', {exact: true}).click();
   await page.waitForURL(`${browserUrl}/**`);
   await expect(page.getByText('Logout', {exact: true})).toBeVisible();
-  expect((await preAuthMetadataResponse).status()).toBe(401);
-  await page.waitForLoadState('networkidle');
+  expect(preAuthMetadataRequests.size).toBeGreaterThan(0);
+  expect(preAuthMetadataRequests.size).toBeLessThanOrEqual(2);
+  const preAuthMetadataResponses = await Promise.all([...preAuthMetadataRequests].map(request => request.response()));
+  for (const response of preAuthMetadataResponses) {
+    expect(response).not.toBeNull();
+    expect(response?.status()).toBe(401);
+  }
+  expect((await authenticatedMetadataResponse).status()).toBe(200);
+  expect((await providerResponse).status()).toBe(200);
   await expect.poll(() => preAuthConsoleErrors.length).toBeGreaterThan(0);
   expect(preAuthConsoleErrors.length).toBeLessThanOrEqual(2);
   expect(new Set(preAuthConsoleErrors)).toEqual(new Set([expectedPreAuthConsoleError]));

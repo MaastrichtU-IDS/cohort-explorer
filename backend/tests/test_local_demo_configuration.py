@@ -119,6 +119,14 @@ def test_local_backend_never_attempts_an_online_uv_sync(compose_config):
     assert entrypoint[:3] == ["uv", "run", "--no-sync"]
 
 
+def test_local_frontend_runs_the_built_app_without_runtime_compilation(compose_config):
+    assert compose_config["services"]["frontend"]["entrypoint"] == [
+        "npm",
+        "run",
+        "start",
+    ]
+
+
 def test_local_overlay_separates_immutable_pack_and_mutable_state(compose_config):
     backend = compose_config["services"]["backend"]
     pack = _volume_for(backend, "/demo-pack")

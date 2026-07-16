@@ -67,6 +67,10 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+    entrypoint:
+      - npm
+      - run
+      - start
     env_file: !reset []
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:3000
