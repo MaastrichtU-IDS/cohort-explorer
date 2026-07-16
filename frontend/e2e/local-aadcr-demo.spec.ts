@@ -436,11 +436,11 @@ test('complete local AADCR journey preserves metadata and returns one aggregate 
   await expect.poll(() => ageDistribution.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
   await variableGraphModal.getByRole('button', {name: 'Close', exact: true}).click();
   const ageConceptButton = page.getByTestId('concept-map-TIME-CHF-age');
-  await ageConceptButton.click();
-  const ageConceptDialog = page.locator('#autocomplete_concept_modal_TIME-CHF_age');
   const ageConceptResponsePromise = page.waitForResponse(
     response => response.url().includes('/api/search-concepts?') && response.url().includes('query=age')
   );
+  await ageConceptButton.click();
+  const ageConceptDialog = page.locator('#autocomplete_concept_modal_TIME-CHF_age');
   expect((await ageConceptResponsePromise).status()).toBe(200);
   const ageInsertPromise = page.waitForResponse(
     response => response.url() === `${apiUrl}/insert-triples` && response.request().method() === 'POST'
@@ -452,11 +452,11 @@ test('complete local AADCR journey preserves metadata and returns one aggregate 
   const genderDetails = page.locator('#source_modal_TIME-CHF_gender');
   await expect(genderDetails).toBeVisible();
   const femaleConceptButton = page.getByTestId('concept-map-TIME-CHF-gender-category-0');
-  await femaleConceptButton.click();
-  const femaleConceptDialog = page.locator('#autocomplete_concept_modal_TIME-CHF_gender-category-0');
   const femaleSearchPromise = page.waitForResponse(
     response => response.url().includes('/api/search-concepts?') && response.url().includes('query=Female')
   );
+  await femaleConceptButton.click();
+  const femaleConceptDialog = page.locator('#autocomplete_concept_modal_TIME-CHF_gender-category-0');
   expect((await femaleSearchPromise).status()).toBe(200);
   const femaleInsertPromise = page.waitForResponse(
     response => response.url() === `${apiUrl}/insert-triples` && response.request().method() === 'POST'
