@@ -150,8 +150,8 @@ class StudyMapper:
             omop = int(result["omop_id"]["value"])
             code_label = result.get("code_label", {}).get("value", "")
             code_value = result.get("code_value", {}).get("value", "")
-            src_cat = result["source_domain"]["value"].strip().lower()
-            tgt_cat = result["target_domain"]["value"].strip().lower()
+            src_cat = result.get("source_domain", {}).get("value", "").strip().lower()
+            tgt_cat = result.get("target_domain", {}).get("value", "").strip().lower()
 
             def parse_raw(raw: str) -> List[Tuple[str, str, str]]:
                 out = []
