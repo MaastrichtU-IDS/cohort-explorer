@@ -661,7 +661,9 @@ test('complete local AADCR journey preserves metadata and returns one aggregate 
   const previewBytes = await downloadBuffer(previewDownload);
   expect(previewBytes.subarray(0, 2).toString()).toBe('PK');
   expect(previewResponse.headers()['content-type']).toContain('application/zip');
-  expect(previewResponse.headers()['content-disposition']).toContain('dcr_config_with_samples.zip');
+  // The UI gives the downloaded artifact a descriptive local name, while the
+  // backend's stable API contract retains its generic package filename.
+  expect(previewResponse.headers()['content-disposition']).toContain('dcr_config_package.zip');
   const definitionHash = sha256(previewBytes);
   const persistedDefinition = path.join(evidenceDir, 'dcr-definition.zip');
   copyFileSync(previewPath as string, persistedDefinition);
