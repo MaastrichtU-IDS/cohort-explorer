@@ -36,7 +36,7 @@ from src.demo.profiles import (
 )
 from src.dictionary_validation import REQUIRED_DICTIONARY_COLUMNS
 
-GENERATOR_VERSION = "1.0.0"
+GENERATOR_VERSION = "1.1.0"
 MAX_ROWS_PER_COHORT = 100_000
 PACK_MARKER_NAME = ".cohort-explorer-synthetic-demo-pack"
 PACK_MARKER_BYTES = b"cohort-explorer-synthetic-demo-pack-v1\n"
@@ -49,6 +49,24 @@ FIXED_WORKBOOK_TIME = datetime(2000, 1, 1, 0, 0, 0)
 VARIABLE_CONCEPT_LABEL_OVERRIDES = {
     ("loinc:8867-4", "3027018"): "Heart rate measurement",
 }
+SOURCE_LABELS = {
+    "EHR": "Electronic Health Record",
+    "CRF": "Case Report Form",
+    "REGISTRY": "Outcome Registry",
+}
+CRF_SEMANTICS = {
+    "nyha_class",
+    "furosemide_exposed",
+    "furosemide_dose",
+    "spironolactone_exposed",
+    "spironolactone_dose",
+}
+SHARED_DEMOGRAPHIC_SEMANTICS = {"patient_id", "age", "sex"}
+DEMO_DICTIONARY_COLUMNS = (
+    *REQUIRED_DICTIONARY_COLUMNS,
+    "SOURCENAME",
+    "SOURCE LABEL",
+)
 
 
 def _sha256(content: bytes) -> str:
@@ -306,6 +324,18 @@ def _value_text(value: Any) -> str:
     return str(value)
 
 
+def _source_metadata(semantic: str) -> tuple[str, str]:
+    if semantic == "heart_failure_hospitalization":
+        sources = ("EHR", "REGISTRY")
+    elif semantic in SHARED_DEMOGRAPHIC_SEMANTICS:
+        sources = ("EHR", "CRF")
+    elif semantic in CRF_SEMANTICS:
+        sources = ("CRF",)
+    else:
+        sources = ("EHR",)
+    return " | ".join(sources), " | ".join(SOURCE_LABELS[source] for source in sources)
+
+
 def _dictionary_frame(
     profile: CohortProfile,
     rows: pd.DataFrame,
@@ -328,6 +358,7 @@ def _dictionary_frame(
             (concept_code, concept_omop_id),
             mapping_row[f"{prefix}label"],
         )
+        source_name, source_label = _source_metadata(binding.semantic)
         dictionary_rows.append(
             {
                 "VARIABLENAME": variable_name,
@@ -358,9 +389,11 @@ def _dictionary_frame(
                 "VISIT OMOP ID": "",
                 "VISIT CONCEPT NAME": "",
                 "VISIT CONCEPT CODE": "",
+                "SOURCENAME": source_name,
+                "SOURCE LABEL": source_label,
             }
         )
-    return pd.DataFrame(dictionary_rows, columns=REQUIRED_DICTIONARY_COLUMNS)
+    return pd.DataFrame(dictionary_rows, columns=DEMO_DICTIONARY_COLUMNS)
 
 
 def _csv_bytes(frame: pd.DataFrame) -> bytes:
@@ -445,13 +478,23 @@ def _normalized_workbook_bytes(row_count: int) -> bytes:
         "Enrolled with CVD (%)": "100%",
         "Part of Study": "Local AADCR v2 demonstration",
     }
+    cohort_metadata = {
+        "TIME-CHF": {
+            "Institute": "Synthetic iCARE4CVD Demo Consortium - TIME-CHF Site",
+            "Study design": "Prospective synthetic cohort study",
+        },
+        "GISSI-HF": {
+            "Institute": "Synthetic iCARE4CVD Demo Consortium - GISSI-HF Site",
+            "Study design": "Synthetic registry cohort study",
+        },
+    }
 
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "Descriptions"
     sheet.append(headers)
     for cohort_id in ("TIME-CHF", "GISSI-HF"):
-        values = {**common, "Study name": cohort_id}
+        values = {**common, **cohort_metadata[cohort_id], "Study name": cohort_id}
         sheet.append([values[header] for header in headers])
     workbook.properties.creator = "Cohort Explorer deterministic demo generator"
     workbook.properties.lastModifiedBy = "Cohort Explorer deterministic demo generator"

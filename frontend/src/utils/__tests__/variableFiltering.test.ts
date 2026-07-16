@@ -92,6 +92,36 @@ describe('variable predicates', () => {
     ).toEqual(['nyha_class', 'status']);
   });
 
+  it('recognizes hospitalization metadata as an outcome without rewriting its source label', () => {
+    const hospitalization = {
+      hf_hosp: {
+        var_label: 'heart failure hospitalization',
+        var_type: 'INT',
+        visits: 'baseline time',
+        omop_domain: 'observation',
+        categories: [
+          {value: '0', label: 'No'},
+          {value: '1', label: 'Yes'}
+        ]
+      }
+    } as any;
+
+    expect(
+      filterVariables(hospitalization, {
+        ...noFilters,
+        showOnlyOutcomes: true
+      }).map(variable => variable.var_name)
+    ).toEqual(['hf_hosp']);
+
+    hospitalization.hf_hosp.var_label = 'emergency hospital admission for heart failure';
+    expect(
+      filterVariables(hospitalization, {
+        ...noFilters,
+        showOnlyOutcomes: true
+      }).map(variable => variable.var_name)
+    ).toEqual(['hf_hosp']);
+  });
+
   it('keeps all variables for all-scope highlighting and projects source tabs', () => {
     const filtered = filterVariables(variables, {
       ...noFilters,

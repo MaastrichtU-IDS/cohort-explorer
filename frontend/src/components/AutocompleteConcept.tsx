@@ -3,6 +3,7 @@ import {AutocompleteConceptProps, Concept} from '@/types';
 import {apiUrl} from '@/utils';
 import {useCohorts} from '@/components/CohortsContext';
 import {conceptMapElementId} from '@/utils/variableFiltering';
+import {resolveMappingApiUrl} from '@/utils/apiUrls';
 
 const acceptedDomains = [
   'Condition',
@@ -94,7 +95,7 @@ const AutocompleteConcept: React.FC<AutocompleteConceptProps> = ({
     if (!isUserInteracted) return;
     const domainBit = selectedDomains.map(domain => `&domain=${domain}`).join('');
     if (debouncedInput.length > 0 && isUserInteracted) {
-      fetch(`${apiUrl}/search-concepts?query=${debouncedInput}${domainBit}`, {
+      fetch(resolveMappingApiUrl(apiUrl, `search-concepts?query=${debouncedInput}${domainBit}`), {
         credentials: 'include'
       })
         .then(async response => {

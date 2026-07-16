@@ -56,7 +56,7 @@ def test_manifest_contract_and_validation_detect_corruption(
         "files",
     ]
     assert payload["schema_version"] == 1
-    assert payload["generator_version"] == "1.0.0"
+    assert payload["generator_version"] == "1.1.0"
     assert len(payload["source_commit"]) == 40
     assert set(payload["source_commit"]) <= set("0123456789abcdef")
     assert payload["workbook"] == "iCARE4CVD_Cohorts.xlsx"
@@ -111,7 +111,20 @@ def test_dictionary_columns_match_rows_and_validate(
         rows = generated_pack.rows_frame(cohort)
         dictionary_path = generated_pack.dictionary(cohort)
 
-        assert tuple(dictionary.columns) == REQUIRED_DICTIONARY_COLUMNS
+        assert tuple(dictionary.columns) == (
+            *REQUIRED_DICTIONARY_COLUMNS,
+            "SOURCENAME",
+            "SOURCE LABEL",
+        )
+        source_names = {source.strip() for value in dictionary["SOURCENAME"] for source in value.split("|")}
+        assert source_names == {"CRF", "EHR", "REGISTRY"}
+        assert not dictionary[["SOURCENAME", "SOURCE LABEL"]].isna().any().any()
+        outcome = dictionary.loc[
+            dictionary["VARIABLENAME"] == COHORT_PROFILES[cohort].column("heart_failure_hospitalization")
+        ].iloc[0]
+        assert any(
+            phrase in outcome["VARIABLELABEL"].casefold() for phrase in ("hospitalization", "hospital admission")
+        )
         assert list(rows.columns) == list(dictionary["VARIABLENAME"])
         assert len(rows) == 1500
         assert validate_dictionary_schema(dictionary_path.read_text(encoding="utf-8")) == []
@@ -126,6 +139,14 @@ def test_dictionary_columns_match_rows_and_validate(
     assert set(workbook["Study name"]) == set(COHORTS)
     assert set(workbook["Administrator email address"]) == {
         "nikolas.molyndris@decentriq.ch"
+    }
+    assert set(workbook["Study design"]) == {
+        "Prospective synthetic cohort study",
+        "Synthetic registry cohort study",
+    }
+    assert set(workbook["Institute"]) == {
+        "Synthetic iCARE4CVD Demo Consortium - GISSI-HF Site",
+        "Synthetic iCARE4CVD Demo Consortium - TIME-CHF Site",
     }
 
 

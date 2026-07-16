@@ -240,7 +240,9 @@ The generator uses only checked-in code, schemas, and variable mappings. It neve
 Source grounding:
 
 - dictionary validation in `backend/src/upload.py`;
-- the 28-column Decentriq dictionary schema in `backend/src/decentriq.py`;
+- the 28 required Decentriq dictionary columns plus the parser-supported optional
+  `SOURCENAME` and `SOURCE LABEL` metadata in `backend/src/upload.py` and
+  `backend/src/cohort_cache.py`;
 - the `Descriptions` parser in `backend/src/cohort_cache.py`; and
 - `backend/CohortVarLinker/mapping_output/time-chf_gissi-hf_full.csv`.
 
@@ -268,13 +270,22 @@ The manifest records the seed, generator version, row counts, source commit, map
 
 ### Dictionary schema
 
-Each dictionary is UTF-8 without BOM and contains exactly these 28 columns in this order:
+Amendment (2026-07-15): the later requirement to demonstrate all current metadata
+capabilities in the local browser lane makes source tabs part of the canonical demo
+contract. Each dictionary is UTF-8 without BOM and contains the 28 required columns
+in their existing order, followed by the two already-supported optional source
+columns:
 
 ```text
-VARIABLENAME,VARIABLELABEL,VARTYPE,UNITS,CATEGORICAL,MISSING,COUNT,NA,MIN,MAX,Formula,Categorical Value Concept Code,Categorical Value Concept Name,Categorical Value OMOP ID,Variable Concept Code,Variable Concept Name,Variable OMOP ID,Additional Context Concept Name,Additional Context Concept Code,Additional Context OMOP ID,Unit Concept Name,Unit Concept Code,Unit OMOP ID,Domain,Visits,Visit OMOP ID,Visit Concept Name,Visit Concept Code
+VARIABLENAME,VARIABLELABEL,VARTYPE,UNITS,CATEGORICAL,MISSING,COUNT,NA,MIN,MAX,Formula,Categorical Value Concept Code,Categorical Value Concept Name,Categorical Value OMOP ID,Variable Concept Code,Variable Concept Name,Variable OMOP ID,Additional Context Concept Name,Additional Context Concept Code,Additional Context OMOP ID,Unit Concept Name,Unit Concept Code,Unit OMOP ID,Domain,Visits,Visit OMOP ID,Visit Concept Name,Visit Concept Code,SOURCENAME,SOURCE LABEL
 ```
 
 Required row fields are `VARIABLENAME`, `VARIABLELABEL`, `VARTYPE`, `Domain`, and `Variable OMOP ID`. Types are `STR`, `FLOAT`, `INT`, or `DATETIME`. Domains use one accepted value. Concept IDs/codes are scalar; any pipe-separated concept triples have matching lengths. `COUNT`, `NA`, `MIN`, and `MAX` are calculated from the emitted rows.
+
+The source fields deterministically project variable semantics into clearly labelled
+synthetic EHR, case-report-form, and outcome-registry sources. They exercise the
+existing multi-source UI without claiming real data provenance. Generator version
+1.1 records this schema amendment, and manifest hashes cover the extended files.
 
 The `Descriptions` workbook includes the parser-required study fields plus institute, population, duration, sex/age distribution, administrator/contact emails, location, language, dataset format, and coding system. Both cohorts use the configured local administrator for demo permissions.
 

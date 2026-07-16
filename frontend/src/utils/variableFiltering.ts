@@ -24,7 +24,14 @@ const SEARCHABLE_VARIABLE_FIELDS = [
   'omop_id'
 ];
 const SEARCHABLE_CATEGORY_FIELDS = ['value', 'label', 'mapped_label'];
-const OUTCOME_KEYWORDS = ['outcome', 'endpoint', 'end point'];
+const OUTCOME_KEYWORDS = [
+  'outcome',
+  'endpoint',
+  'end point',
+  'hospitalization',
+  'hospitalisation',
+  'hospital admission'
+];
 
 export const variableElementId = (cohortId: string, variableName: string): string =>
   `variable-${cohortId}-${variableName}`;
@@ -100,7 +107,8 @@ export const filterVariables = (
         return false;
       }
       if (options.showOnlyOutcomes && !variableMatchesOutcome(variableName, variableData)) return false;
-      if (options.selectedOMOPDomains.size > 0 && !options.selectedOMOPDomains.has(variableData.omop_domain)) return false;
+      if (options.selectedOMOPDomains.size > 0 && !options.selectedOMOPDomains.has(variableData.omop_domain))
+        return false;
       if (options.selectedDataTypes.size > 0 && !options.selectedDataTypes.has(variableData.var_type)) return false;
       if (options.selectedVisitTypes.size > 0 && !options.selectedVisitTypes.has(variableData.visits)) return false;
       return matchesCategoryCount((variableData.categories || []).length, options.selectedCategoryTypes);
