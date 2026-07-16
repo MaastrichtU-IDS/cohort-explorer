@@ -717,11 +717,11 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
       <div className="text-xs opacity-50 mb-2">
         {varFilter === 'mapped' ? (
           <>
-            {searchedSrc.filter(n => !n.uncovered).length} source ({srcCoverage}% coverage) · {searchedTgt.filter(n => !n.uncovered).length} target ({tgtCoverage}% coverage) · {searchedEdges.length} edges
+            {srcNodes.length} source ({srcCoverage}% coverage) · {tgtNodes.length} target ({tgtCoverage}% coverage) · {allEdges.length} edges
           </>
         ) : (
           <>
-            {uncovSrc.length} uncovered source · {uncovTgt.length} uncovered target
+            {totalSrcVars - srcNodes.length} uncovered source · {totalTgtVars - tgtNodes.length} uncovered target
           </>
         )}
         {hoveredId && ' · hover: showing connected edges'}
