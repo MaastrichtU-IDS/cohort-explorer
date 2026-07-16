@@ -184,6 +184,30 @@ class AadcrBackend:
             }
         )
 
+    @staticmethod
+    def _asset_fingerprints(plan: Any) -> list[dict[str, str]]:
+        fingerprints: list[dict[str, str]] = []
+        for asset in plan.assets:
+            digest = hashlib.sha256()
+            try:
+                with asset.path.open("rb") as source:
+                    for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                        digest.update(chunk)
+            except OSError:
+                raise DcrOperationError(
+                    detail=f"Upload asset {asset.path.name} is no longer available",
+                    failed_step="fingerprint upload assets",
+                ) from None
+            fingerprints.append(
+                {
+                    "kind": asset.kind,
+                    "key": asset.key,
+                    "node_name": asset.node_name,
+                    "sha256": digest.hexdigest(),
+                }
+            )
+        return fingerprints
+
     async def create_provision_room(
         self,
         request: dict[str, Any],
@@ -247,7 +271,11 @@ class AadcrBackend:
                 failed_step="validate session",
             ) from None
         metadata = self._journal_metadata(request, user, plan)
-        fingerprint = request_fingerprint(metadata, plan.cohort_ids)
+        fingerprint = request_fingerprint(
+            metadata,
+            plan.cohort_ids,
+            asset_fingerprints=self._asset_fingerprints(plan),
+        )
 
         async with self._journal.session_lock(session_id):
             try:

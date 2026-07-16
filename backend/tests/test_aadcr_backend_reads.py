@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import hashlib
 import io
 import stat
 import zipfile
@@ -536,6 +537,36 @@ def test_retry_after_first_provision_skips_every_confirmed_upload_and_provision(
     assert len(provision_calls) == 2
     assert service.room_count == 1
     assert service.merge_count == 1
+
+
+def test_retry_rejects_source_asset_mutation_before_resuming_confirmed_steps(
+    settings_factory,
+    tmp_path,
+):
+    service = CreationService(fail_upload_number_once=2)
+    backend, settings, request = _creation_fixture(settings_factory, tmp_path, service)
+
+    with pytest.raises(DcrOperationError):
+        run(backend.create_live_room(request, {"email": "creator@example.test"}))
+    calls_after_failure = list(service.calls)
+    initial_state = OperationJournal(settings.aadcrv2_operation_journal).load("session-resume-123")
+    assert any(step.startswith("provisioned:metadata:") for step in initial_state.confirmed_steps)
+    raw_journal = Path(settings.aadcrv2_operation_journal).read_text(encoding="utf-8")
+    assert "asset_fingerprints" not in raw_journal
+    assert hashlib.sha256(b"VARIABLENAME\nAGE\n").hexdigest() not in raw_journal
+
+    _write(
+        tmp_path / "dictionaries" / "TIME-CHF_datadictionary.csv",
+        "VARIABLENAME\nAGE\nWEIGHT\n",
+    )
+
+    with pytest.raises(DcrOperationError) as changed:
+        run(backend.create_live_room(request, {"email": "creator@example.test"}))
+
+    assert changed.value.status_code == 409
+    assert changed.value.failed_step == "resume operation"
+    assert service.calls == calls_after_failure
+    assert OperationJournal(settings.aadcrv2_operation_journal).load("session-resume-123") == initial_state
 
 
 def _prod_view():

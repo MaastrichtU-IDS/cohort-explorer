@@ -264,3 +264,44 @@ def test_retry_fingerprint_covers_participants_and_mapping_semantics_without_pat
     assert "/private/" not in repr(normalized)
     assert baseline != changed_participant
     assert baseline != changed_mapping
+
+
+def test_retry_fingerprint_binds_stable_asset_identity_and_content_without_paths():
+    metadata = _metadata()
+    assets = [
+        {
+            "kind": "metadata",
+            "key": "TIME-CHF",
+            "node_name": "TIME-CHF_metadata_dictionary",
+            "sha256": "a" * 64,
+            "path": "/private/first/TIME-CHF_datadictionary.csv",
+        },
+        {
+            "kind": "mapping",
+            "key": "time-gissi.csv",
+            "node_name": "TIME-CHF_GISSI-HF_mapping",
+            "sha256": "b" * 64,
+        },
+    ]
+
+    baseline = request_fingerprint(metadata, ["TIME-CHF"], asset_fingerprints=assets)
+    reordered = request_fingerprint(metadata, ["TIME-CHF"], asset_fingerprints=reversed(assets))
+    relocated = request_fingerprint(
+        metadata,
+        ["TIME-CHF"],
+        asset_fingerprints=[assets[0] | {"path": "/another/private/location.csv"}, assets[1]],
+    )
+    changed_content = request_fingerprint(
+        metadata,
+        ["TIME-CHF"],
+        asset_fingerprints=[assets[0] | {"sha256": "c" * 64}, assets[1]],
+    )
+    changed_identity = request_fingerprint(
+        metadata,
+        ["TIME-CHF"],
+        asset_fingerprints=[assets[0] | {"node_name": "different_node"}, assets[1]],
+    )
+
+    assert baseline == reordered == relocated
+    assert baseline != changed_content
+    assert baseline != changed_identity

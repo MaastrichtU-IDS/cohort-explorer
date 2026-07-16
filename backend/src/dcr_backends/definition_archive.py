@@ -55,7 +55,7 @@ def build_definition_archive(plan: RoomPlan) -> bytes:
         "files": sorted(provenance_files, key=lambda item: item["archive_path"]),
         "format_version": 1,
         "provider": "aadcrv2",
-        "synthetic_fixture": True,
+        "synthetic_fixture": bool(plan.synthetic_demo),
     }
     members["fixture-provenance.json"] = _canonical_json(provenance)
 

@@ -150,9 +150,39 @@ def normalize_request_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
-def request_fingerprint(metadata: dict[str, Any], cohort_ids: Iterable[str]) -> str:
-    """Hash only normalized metadata and cohort IDs, never source file contents."""
+def request_fingerprint(
+    metadata: dict[str, Any],
+    cohort_ids: Iterable[str],
+    *,
+    asset_fingerprints: Iterable[dict[str, Any]] = (),
+) -> str:
+    """Hash normalized request identity plus path-free asset digests, never raw contents."""
+    normalized_assets: list[dict[str, str]] = []
+    for asset in asset_fingerprints:
+        if not isinstance(asset, dict):
+            raise ValueError("asset fingerprint must be an object")
+        kind = asset.get("kind")
+        key = asset.get("key")
+        node_name = asset.get("node_name")
+        sha256 = asset.get("sha256")
+        if not all(isinstance(value, str) and value for value in (kind, key, node_name)):
+            raise ValueError("asset fingerprint identity fields must be non-empty strings")
+        if not isinstance(sha256, str) or _FINGERPRINT_PATTERN.fullmatch(sha256) is None:
+            raise ValueError("asset fingerprint sha256 must be a lowercase SHA-256 digest")
+        normalized_assets.append(
+            {
+                "key": key,
+                "kind": kind,
+                "node_name": node_name,
+                "sha256": sha256,
+            }
+        )
+
     payload = {
+        "asset_fingerprints": sorted(
+            normalized_assets,
+            key=lambda asset: (asset["kind"], asset["key"], asset["node_name"], asset["sha256"]),
+        ),
         "cohort_ids": sorted({str(cohort_id) for cohort_id in cohort_ids}),
         "request_metadata": normalize_request_metadata(metadata),
     }

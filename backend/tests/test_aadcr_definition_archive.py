@@ -7,6 +7,8 @@ import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from src.dcr_backends.aadcr_backend import AadcrBackend
 from src.dcr_backends.aadcr_translation import build_room_plan
 from src.dcr_backends.definition_archive import build_definition_archive
@@ -24,9 +26,10 @@ def _write(path: Path, content: str) -> Path:
     return path
 
 
-def _make_plan(settings_factory, root: Path):
+def _make_plan(settings_factory, root: Path, *, synthetic_demo: bool = False):
     dictionary = _write(root / "source" / "TIME-CHF_datadictionary.csv", "VARIABLENAME\nAGE\n")
     mapping = _write(root / "mappings" / "time-gissi.csv", "from,to\nAGE,age\n")
+    _write(root / "pack" / "dcr-input" / "TIME-CHF.csv", "AGE\n70\n")
     _write(root / "runtime" / "dcr_output_TIME-CHF" / "shuffled_sample.csv", "AGE\n70\n")
     cohort = SimpleNamespace(
         cohort_id="TIME-CHF",
@@ -51,7 +54,7 @@ def _make_plan(settings_factory, root: Path):
     settings = settings_factory(
         dcr_backend="aadcrv2",
         aadcrv2_jwt_secret=TEST_AADCR_SECRET,
-        aadcrv2_synthetic_demo=False,
+        aadcrv2_synthetic_demo=synthetic_demo,
         data_folder=str(root / "runtime"),
         demo_pack_dir=str(root / "pack"),
         mapping_output_dir=str(root / "mappings"),
@@ -120,8 +123,27 @@ def test_definition_archive_has_stable_hash_members_metadata_and_no_absolute_pat
             ],
             "format_version": 1,
             "provider": "aadcrv2",
-            "synthetic_fixture": True,
+            "synthetic_fixture": False,
         }
+
+
+@pytest.mark.parametrize("synthetic_demo", [False, True])
+def test_definition_archive_provenance_matches_room_plan_synthetic_mode(
+    settings_factory,
+    tmp_path,
+    synthetic_demo,
+):
+    plan, _settings, _cohorts, _request = _make_plan(
+        settings_factory,
+        tmp_path / str(synthetic_demo).lower(),
+        synthetic_demo=synthetic_demo,
+    )
+
+    with zipfile.ZipFile(io.BytesIO(build_definition_archive(plan))) as package:
+        provenance = json.loads(package.read("fixture-provenance.json"))
+
+    assert plan.synthetic_demo is synthetic_demo
+    assert provenance["synthetic_fixture"] is synthetic_demo
 
 
 def test_preview_returns_existing_zip_contract_without_loading_decentriq(settings_factory, tmp_path):
