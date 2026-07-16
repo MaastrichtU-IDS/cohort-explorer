@@ -939,6 +939,58 @@ async def create_aadcr_room(
         dev_root = f"/api/dcr/{dcr_id}/dev"
 
         merge_request_id = _confirmed_merge_request_id(durable_steps)
+        merge_title = f"Create {plan.title}"[:255]
+        if creation_key is not None:
+            merge_marker = f" [ce-operation:{creation_key}]"
+            merge_prefix = "Create "
+            merge_title = f"{merge_prefix}{plan.title[: 255 - len(merge_prefix) - len(merge_marker)]}{merge_marker}"
+        if (
+            "merged" not in durable_steps
+            and merge_request_id is None
+            and creation_key is not None
+            and resume_dcr_id is not None
+        ):
+            merge_requests_payload = await client.request_json(
+                "GET",
+                f"/api/dcr/{dcr_id}/merge-requests/",
+                failed_step="reconcile merge request creation",
+            )
+            merge_requests = (
+                merge_requests_payload.get("mergeRequests")
+                if isinstance(merge_requests_payload, dict)
+                else None
+            )
+            if not isinstance(merge_requests, list):
+                raise DcrOperationError(
+                    detail="AADCR merge-request list omitted mergeRequests",
+                    failed_step="reconcile merge request creation",
+                    dcr_id=dcr_id,
+                )
+            creator = _normalize_email(expected_creator_email)
+            matches = [
+                candidate
+                for candidate in merge_requests
+                if isinstance(candidate, dict)
+                and candidate.get("title") == merge_title
+                and _normalize_email(candidate.get("createdBy")) == creator
+            ]
+            if len(matches) > 1:
+                raise DcrOperationError(
+                    detail="AADCR returned multiple merge requests for the same creation operation",
+                    failed_step="reconcile merge request creation",
+                    dcr_id=dcr_id,
+                    status_code=409,
+                )
+            if matches:
+                merge_request_id = _required_api_identifier(
+                    matches[0],
+                    "id",
+                    failed_step="reconcile merge request creation",
+                    dcr_id=dcr_id,
+                )
+                merge_step = f"merge_requested:{merge_request_id}"
+                await _confirm_step(on_confirm, merge_step, dcr_id)
+                durable_steps.add(merge_step)
         if "merged" not in durable_steps and merge_request_id is None:
             if resume_dcr_id is None:
                 participant_ids: dict[str, str] = {}
@@ -1082,7 +1134,7 @@ async def create_aadcr_room(
                 f"/api/dcr/{dcr_id}/merge-requests/",
                 failed_step="create merge request",
                 json_body={
-                    "title": f"Create {plan.title}"[:255],
+                    "title": merge_title,
                     "description": "Initial Cohort Explorer graph for the AADCR local simulation.",
                     "change_ids": change_ids,
                 },

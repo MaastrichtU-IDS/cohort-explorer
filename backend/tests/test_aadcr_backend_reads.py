@@ -48,6 +48,7 @@ class CreationService:
         fail_upload_number_once: int | None = None,
         fail_participant_after_mutation_once: bool = False,
         fail_room_after_mutation_once: bool = False,
+        fail_merge_after_mutation_once: bool = False,
     ):
         self.calls: list[dict] = []
         self.participants: list[dict] = []
@@ -55,8 +56,10 @@ class CreationService:
         self.computation_nodes: list[dict] = []
         self.permissions: list[dict] = []
         self.rooms: list[dict] = []
+        self.merge_requests: list[dict] = []
         self.room_count = 0
         self.merge_count = 0
+        self.prod_graph_count = 0
         self.fail_prod_once = fail_prod_once
         self.failed_prod = False
         self.fail_upload_number_once = fail_upload_number_once
@@ -66,6 +69,8 @@ class CreationService:
         self.failed_participant = False
         self.fail_room_after_mutation_once = fail_room_after_mutation_once
         self.failed_room = False
+        self.fail_merge_after_mutation_once = fail_merge_after_mutation_once
+        self.failed_merge = False
 
     async def __aenter__(self):
         return self
@@ -161,8 +166,30 @@ class CreationService:
                 "computation_nodes": changed(self.computation_nodes),
                 "permissions": changed(self.permissions),
             }
+        if method == "GET" and path.endswith("/merge-requests/"):
+            return {"mergeRequests": list(self.merge_requests)}
         if method == "POST" and path.endswith("/merge-requests/"):
             self.merge_count += 1
+            self.prod_graph_count += 1
+            merge_request = {
+                "id": f"merge-{self.merge_count}",
+                "title": json_body["title"],
+                "description": json_body["description"],
+                "status": "MERGED",
+                "createdBy": "creator@example.test",
+                "createdAt": "2026-07-15T09:01:00Z",
+                "approvals": [],
+                "mergedAt": "2026-07-15T09:01:00Z",
+            }
+            self.merge_requests.append(merge_request)
+            if self.fail_merge_after_mutation_once and not self.failed_merge:
+                self.failed_merge = True
+                raise _upstream_error(
+                    path,
+                    failed_step,
+                    status_code=503,
+                    detail="merge response was interrupted after commit",
+                )
             return {"id": f"merge-{self.merge_count}", "status": "PENDING"}
         if method == "GET" and "/merge-requests/" in path:
             return {
@@ -419,6 +446,46 @@ def test_retry_reconciles_a_native_dev_mutation_that_failed_before_response(
     assert result.dcr_id == "room-1"
     assert service.room_count == 1
     assert [call["body"]["userEmail"] for call in participant_calls].count("creator@example.test") == 1
+
+
+def test_retry_recovers_merge_when_commit_completed_before_response_was_lost(
+    settings_factory,
+    tmp_path,
+):
+    service = CreationService(fail_merge_after_mutation_once=True)
+    backend, settings, request = _creation_fixture(settings_factory, tmp_path, service)
+
+    with pytest.raises(DcrOperationError) as interrupted:
+        run(backend.create_live_room(request, {"email": "creator@example.test"}))
+    interrupted_state = OperationJournal(settings.aadcrv2_operation_journal).load("session-resume-123")
+
+    assert interrupted.value.failed_step == "create merge request"
+    assert interrupted_state.confirmed_steps == ("room_created",)
+    assert service.merge_count == 1
+    assert service.prod_graph_count == 1
+
+    result = run(backend.create_live_room(request, {"email": "creator@example.test"}))
+    create_calls = [
+        call
+        for call in service.calls
+        if call["method"] == "POST" and call["path"].endswith("/merge-requests/")
+    ]
+    reconcile_calls = [
+        call
+        for call in service.calls
+        if call["method"] == "GET" and call["path"].endswith("/merge-requests/")
+    ]
+    completed_state = OperationJournal(settings.aadcrv2_operation_journal).load("session-resume-123")
+
+    assert result.dcr_id == "room-1"
+    assert result.merge_request_id == "merge-1"
+    assert service.merge_count == 1
+    assert service.prod_graph_count == 1
+    assert len(service.merge_requests) == 1
+    assert len(create_calls) == 1
+    assert len(reconcile_calls) == 1
+    assert "merge_requested:merge-1" in completed_state.confirmed_steps
+    assert completed_state.confirmed_steps[-1] == "completed"
 
 
 def test_retry_after_confirmed_merge_resumes_at_prod_without_repeating_mutations(
