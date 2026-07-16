@@ -634,7 +634,7 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
   function DomainBtn({ d, active, onClick }: { d: string; active: boolean; onClick: () => void }) {
     const c = domainClr(d);
     return (
-      <label onClick={onClick} className="flex items-center gap-1 cursor-pointer border rounded truncate" style={{ backgroundColor: active ? c.fill : '#f8fafc', borderColor: active ? c.stroke : '#cbd5e1', color: active ? c.text : '#94a3b8', fontWeight: active ? 600 : 400, fontSize: 9, padding: '1px 4px', height: 20, minHeight: 20, opacity: active ? 1 : 0.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      <label onClick={onClick} className="flex items-center gap-1 cursor-pointer border rounded" style={{ backgroundColor: active ? c.fill : '#f8fafc', borderColor: active ? c.stroke : '#cbd5e1', color: active ? c.text : '#94a3b8', fontWeight: active ? 600 : 400, fontSize: 10, padding: '1px 6px', height: 22, minHeight: 22, opacity: active ? 1 : 0.5, whiteSpace: 'nowrap' }}>
         <input type="checkbox" checked={active} readOnly className="checkbox checkbox-xs" style={{ minHeight: 12, height: 12, width: 12 }} />
         <span>{d.replace(/_/g, ' ')}</span>
       </label>
@@ -660,23 +660,23 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
       )}
       {/* Domain + relation filters */}
       <div className="flex flex-wrap gap-12 mb-3 items-start">
-        <div className="flex-1 min-w-52">
+        <div>
           <div className="text-xs font-semibold mb-1 opacity-60 tracking-wide">Click to filter <strong>source</strong> variables by their OMOP domains</div>
           <div className="flex gap-3 mb-1">
             <button className="btn btn-xs btn-ghost text-xs" style={{ fontSize: 10, padding: '0 4px', height: 16, minHeight: 16 }} onClick={() => setActiveSrcDomains(srcDomains)}>select all</button>
             <button className="btn btn-xs btn-ghost text-xs" style={{ fontSize: 10, padding: '0 4px', height: 16, minHeight: 16 }} onClick={() => setActiveSrcDomains([])}>unselect all</button>
           </div>
-          <div className="grid grid-cols-2 gap-1 max-w-44">
+          <div className="grid grid-cols-2 gap-1">
             {srcDomains.map(d => <DomainBtn key={d} d={d} active={activeSrcDomains.includes(d)} onClick={() => toggle(activeSrcDomains, d, setActiveSrcDomains)} />)}
           </div>
         </div>
-        <div className="flex-1 min-w-52">
+        <div>
           <div className="text-xs font-semibold mb-1 opacity-60 tracking-wide">Click to filter <strong>target</strong> variables by their OMOP domains</div>
           <div className="flex gap-3 mb-1">
             <button className="btn btn-xs btn-ghost text-xs" style={{ fontSize: 10, padding: '0 4px', height: 16, minHeight: 16 }} onClick={() => setActiveTgtDomains(tgtDomains)}>select all</button>
             <button className="btn btn-xs btn-ghost text-xs" style={{ fontSize: 10, padding: '0 4px', height: 16, minHeight: 16 }} onClick={() => setActiveTgtDomains([])}>unselect all</button>
           </div>
-          <div className="grid grid-cols-2 gap-1 max-w-44">
+          <div className="grid grid-cols-2 gap-1">
             {tgtDomains.map(d => <DomainBtn key={d} d={d} active={activeTgtDomains.includes(d)} onClick={() => toggle(activeTgtDomains, d, setActiveTgtDomains)} />)}
           </div>
         </div>
@@ -697,7 +697,7 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
       </div>
       {/* Search box */}
       <div className="mb-3 flex justify-center">
-        <input type="text" className="input input-sm" style={{ width: '60%', borderColor: '#475569', borderWidth: 2 }} placeholder="Search variables by name, label, or OMOP code…" value={searchQ} onChange={e => setSearchQ(e.target.value)} />
+        <input type="text" className="input input-sm" style={{ width: '60%', borderColor: '#475569', borderWidth: 2 }} placeholder="Search variables by name, label, or OMOP ID…" value={searchQ} onChange={e => setSearchQ(e.target.value)} />
       </div>
       {/* Var filter — centred between columns */}
       <div className="flex justify-center mb-3">
@@ -715,13 +715,15 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
         </div>
       )}
       <div className="text-xs opacity-50 mb-2">
-        {searchedSrc.filter(n => !n.uncovered).length} src ({srcCoverage}% coverage) · {searchedTgt.filter(n => !n.uncovered).length} tgt ({tgtCoverage}% coverage) · {searchedEdges.length} edges
-        {varFilter !== 'mapped' && (() => {
-          const tS = srcNodes.length + uncovSrc.length; const tT = tgtNodes.length + uncovTgt.length;
-          const pS = tS ? Math.round(uncovSrc.length / tS * 100) : 0;
-          const pT = tT ? Math.round(uncovTgt.length / tT * 100) : 0;
-          return ` · ${uncovSrc.length} uncov src (${pS}%) · ${uncovTgt.length} uncov tgt (${pT}%)`;
-        })()}
+        {varFilter === 'mapped' ? (
+          <>
+            {searchedSrc.filter(n => !n.uncovered).length} source ({srcCoverage}% coverage) · {searchedTgt.filter(n => !n.uncovered).length} target ({tgtCoverage}% coverage) · {searchedEdges.length} edges
+          </>
+        ) : (
+          <>
+            {uncovSrc.length} uncovered source · {uncovTgt.length} uncovered target
+          </>
+        )}
         {hoveredId && ' · hover: showing connected edges'}
       </div>
       {/* SVG graph */}
@@ -957,7 +959,8 @@ export default function MappingPage() {
     cached_pairs: Array<{source: string, target: string, timestamp: number}>,
     uncached_pairs: Array<{source: string, target: string}>,
     outdated_pairs: Array<{source: string, target: string, timestamp: number, outdated_cohort: string}>,
-    dictionary_timestamps: Record<string, number>
+    dictionary_timestamps: Record<string, number>,
+    will_recreate_graph?: boolean
   } | null>(null);
   const [showCacheInfo, setShowCacheInfo] = useState(true);
 
@@ -1539,7 +1542,9 @@ export default function MappingPage() {
           >
 {loading 
               ? (cacheInfo && cacheInfo.uncached_pairs.length > 0 
-                  ? 'Finding concept mappings... (may take up to 30 minutes)' 
+                  ? (cacheInfo.will_recreate_graph
+                      ? 'Recreating graphs from updated dictionaries... (may take up to 30 minutes)'
+                      : 'Finding concept mappings... (may take 5-10 minutes)')
                   : 'Mapping...')
               : 'Map Concepts & Download File'
             }
@@ -1636,7 +1641,9 @@ export default function MappingPage() {
             {/* Summary message */}
             {(cacheInfo.uncached_pairs.length > 0 || (cacheInfo.outdated_pairs && cacheInfo.outdated_pairs.length > 0)) && (
               <div className="mt-3 p-2 bg-blue-100 rounded text-sm text-blue-800">
-                ⏳ Uncached and outdated mappings will be computed. This may take up to 30 minutes. If this page times out, please revisit later. The computed mappings will be cached.
+                {cacheInfo.will_recreate_graph
+                  ? '⏳ Graphs will be recreated from updated cohort dictionaries before computing mappings. This may take up to 30 minutes. If this page times out, please revisit later. The computed mappings will be cached.'
+                  : '⏳ Uncached and outdated mappings will be computed. This may take 5-10 minutes. If this page times out, please revisit later. The computed mappings will be cached.'}
               </div>
             )}
             

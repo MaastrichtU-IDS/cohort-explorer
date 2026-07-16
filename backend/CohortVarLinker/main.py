@@ -484,7 +484,7 @@ def combine_cross_mappings(
   
   
 
-def _write_mapping_meta(json_path: str, final_json: dict) -> None:
+def _write_mapping_meta(json_path: str, final_json: dict, graph_recreated: bool = False, mapping_time: str | None = None) -> None:
     """Compute stats from a mapping dict and write a sidecar .meta.json file."""
     total = 0
     harm_counts: dict[str, int] = {}
@@ -498,10 +498,13 @@ def _write_mapping_meta(json_path: str, final_json: dict) -> None:
             mr = str(m.get("mapping_relation") or "")
             harm_counts[hs] = harm_counts.get(hs, 0) + 1
             rel_counts[mr] = rel_counts.get(mr, 0) + 1
+    from datetime import datetime, timezone
     meta = {
         "total_mappings": total,
         "harmonization_status": harm_counts,
         "mapping_relation": rel_counts,
+        "graph_recreated": graph_recreated,
+        "mapping_time": mapping_time or datetime.now(timezone.utc).isoformat(),
     }
     meta_path = json_path + ".meta.json"
     with open(meta_path, "w", encoding="utf-8") as f:
@@ -528,7 +531,8 @@ def find_cached_csv(source_study, target_study, output_dir):
 
 
 def combine_all_mappings_to_json(source_study, target_studies, output_dir, json_path,
-                                model_name=None, llm_tag=None, mapping_mode=None):
+                                model_name=None, llm_tag=None, mapping_mode=None,
+                                graph_recreated: bool = False, mapping_time: str | None = None):
     mappings = {}
     for target in target_studies:
         csv_file = find_cached_csv(source_study, target, output_dir)
@@ -547,8 +551,37 @@ def combine_all_mappings_to_json(source_study, target_studies, output_dir, json_
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(final_json, f, indent=2, ensure_ascii=False, default=str)
     print(f"✅ saved {len(final_json)} source vars → {json_path}")
-    _write_mapping_meta(json_path, final_json)
+    _write_mapping_meta(json_path, final_json, graph_recreated=graph_recreated, mapping_time=mapping_time)
       
+def _check_graphs_need_recreate(cohort_ids, cohort_file_path) -> bool:
+    """Check if any cohort dictionaries are newer than their existing graph files.
+    
+    Returns True if any dictionary is newer than its graph file,
+    or if any graph file is missing.
+    """
+    base_path = os.path.dirname(os.path.abspath(__file__))
+    graphs_dir = os.path.join(base_path, "data", "graphs")
+    for cid in cohort_ids:
+        cohort_dir = os.path.join(cohort_file_path, cid)
+        if not os.path.isdir(cohort_dir):
+            continue
+        dict_candidates = [
+            f for f in glob.glob(os.path.join(cohort_dir, "*.csv"))
+            if ("datadictionary" in os.path.basename(f).lower()
+            and "noheader" not in os.path.basename(f).lower())
+        ]
+        if not dict_candidates:
+            continue
+        latest_dict_mtime = max(os.path.getmtime(f) for f in dict_candidates)
+        graph_file = os.path.join(graphs_dir, f"{cid}_metadata.trig")
+        if not os.path.exists(graph_file):
+            return True
+        graph_mtime = os.path.getmtime(graph_file)
+        if latest_dict_mtime > graph_mtime:
+            return True
+    return False
+
+
 def generate_mapping_csv(
     source_study,
     target_studies,
@@ -660,7 +693,8 @@ def generate_mapping_csv(
     
     cache_info = {
         'cached_pairs': cached_pairs,
-        'uncached_pairs': uncached_pairs
+        'uncached_pairs': uncached_pairs,
+        'graph_recreated': False
     }
     
     if all_exist:
@@ -669,6 +703,7 @@ def generate_mapping_csv(
                  ctx={"cached_count": len(cached_pairs)})
         print("All requested mappings already exist. Skipping all computation.")
         tstudy_str = "_".join(target_studies)
+        from datetime import datetime, timezone
         combine_all_mappings_to_json(
                 source_study=source_study,
                 target_studies=target_studies,
@@ -676,7 +711,9 @@ def generate_mapping_csv(
                 json_path=os.path.join(output_dir, f"{source_study}_{tstudy_str}_{model_name}+{llm_tag}_{mapping_mode}.json"),
                 model_name=model_name,
                 llm_tag=llm_tag,
-                mapping_mode=mapping_mode)
+                mapping_mode=mapping_mode,
+                graph_recreated=False,
+                mapping_time=datetime.now(timezone.utc).isoformat())
         
         return cache_info
             
@@ -685,10 +722,19 @@ def generate_mapping_csv(
              f"{len(uncached_pairs)} uncached pairs need computation",
              ctx={"uncached_pairs": uncached_pairs, "cached_pairs": cached_pairs})
 
+    # Check if any cohort dictionaries are newer than their existing graph files
+    all_cohort_ids = [source_study] + target_studies
+    need_recreate = _check_graphs_need_recreate(all_cohort_ids, cohort_file_path)
+    cache_info['graph_recreated'] = need_recreate
+    if need_recreate:
+        print("One or more cohort dictionaries are newer than their graph files (or graph missing), will recreate")
+    else:
+        print("All cohort dictionaries are older than their graph files, skipping graph recreation")
+
     log_detail(PROCESS_CVL, "graph_generation_started",
-              "Creating study metadata graph and cohort-specific metadata graphs")
-    create_study_metadata_graph(cohorts_metadata_file, recreate=True)
-    create_cohort_specific_metadata_graph(cohort_file_path, recreate=True)
+              f"Creating study metadata graph and cohort-specific metadata graphs (recreate={need_recreate})")
+    create_study_metadata_graph(cohorts_metadata_file, recreate=need_recreate)
+    create_cohort_specific_metadata_graph(cohort_file_path, recreate=need_recreate)
     log_detail(PROCESS_CVL, "graph_generation_completed",
               "Metadata graphs created successfully")
 
@@ -762,6 +808,7 @@ def generate_mapping_csv(
                           "elapsed_s": elapsed, "mappings_count": len(mapping_transformed)})
             
     tstudy_str = "_".join(target_studies)
+    from datetime import datetime, timezone
     combine_all_mappings_to_json(
         source_study=source_study,
         target_studies=target_studies,
@@ -769,7 +816,9 @@ def generate_mapping_csv(
         json_path=os.path.join(output_dir, f"{source_study}_{tstudy_str}_{model_name}+{llm_tag}_{mapping_mode}.json"),
         model_name=model_name,
         llm_tag=llm_tag,
-        mapping_mode=mapping_mode)
+        mapping_mode=mapping_mode,
+        graph_recreated=need_recreate,
+        mapping_time=datetime.now(timezone.utc).isoformat())
     
     return cache_info
 

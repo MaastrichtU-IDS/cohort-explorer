@@ -184,11 +184,16 @@ async def check_mapping_cache(
                 'target': tstudy
             })
     
+    # Check if any cohort dictionaries are newer than their existing graph files
+    from CohortVarLinker.main import _check_graphs_need_recreate
+    will_recreate_graph = _check_graphs_need_recreate(all_cohorts, cohort_linker_settings.cohort_folder)
+
     return JSONResponse(content={
         'cached_pairs': cached_pairs,
         'uncached_pairs': uncached_pairs,
         'outdated_pairs': outdated_pairs,
-        'dictionary_timestamps': dictionary_timestamps
+        'dictionary_timestamps': dictionary_timestamps,
+        'will_recreate_graph': will_recreate_graph
     })
 
 
