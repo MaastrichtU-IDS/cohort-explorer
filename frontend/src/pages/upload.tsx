@@ -27,7 +27,7 @@ const WizardSteps = ({currentStep}: {currentStep: number}) => {
 };
 
 export default function UploadPage() {
-  const {cohortsData, fetchCohortsData, calculateStatistics, userEmail, isLoading: isLoadingCohorts} = useCohorts();
+  const {cohortsData, fetchCohortsData, userEmail, isLoading: isLoadingCohorts} = useCohorts();
   const [cohortId, setCohortId] = useState('');
   const [uploadedCohort, setUploadedCohort]: any = useState(null);
   const [metadataFile, setMetadataFile]: any = useState(null);
@@ -217,10 +217,6 @@ export default function UploadPage() {
       
       setUploadedCohort(result);
       fetchCohortsData();
-      // Recalculate statistics after successful upload
-      if (calculateStatistics) {
-        setTimeout(() => calculateStatistics(), 1000); // Wait for cache to update
-      }
       setOperationMessage({text: result.message || 'Metadata uploaded successfully!', type: 'success'});
       clearMetadataFile();
       setStep(2);
