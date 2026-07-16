@@ -431,9 +431,10 @@ test('complete local AADCR journey preserves metadata and returns one aggregate 
   await timeCard.getByRole('button', {name: 'Variables List'}).click();
   await page.getByTestId('variable-graph-TIME-CHF-age').click();
   const ageDistribution = page.getByRole('img', {name: 'age distribution graph'});
+  const variableGraphModal = page.locator('.modal-box').filter({has: ageDistribution});
   await expect(ageDistribution).toBeVisible();
   await expect.poll(() => ageDistribution.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
-  await page.getByRole('button', {name: 'Close'}).click();
+  await variableGraphModal.getByRole('button', {name: 'Close', exact: true}).click();
   const ageConceptButton = page.getByTestId('concept-map-TIME-CHF-age');
   await ageConceptButton.click();
   const ageConceptDialog = page.locator('#autocomplete_concept_modal_TIME-CHF_age');
