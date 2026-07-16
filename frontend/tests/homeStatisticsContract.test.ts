@@ -26,4 +26,11 @@ describe('home statistics authority contract', () => {
       /useEffect\(\(\) => \{\s*metadataRequestGeneration\.current \+= 1;\s*statisticsGeneration\.current \+= 1;\s*setDataCleanRoom/
     );
   });
+
+  it('aborts aggregate-analysis checks when a calculation is replaced or the provider unmounts', () => {
+    expect(contextSource).toContain('statisticsAbortController');
+    expect(contextSource).toContain('signal: controller.signal');
+    expect(contextSource).toContain('statisticsAbortController.current?.abort()');
+    expect(contextSource).toContain('controller.signal.aborted || generation !== statisticsGeneration.current');
+  });
 });

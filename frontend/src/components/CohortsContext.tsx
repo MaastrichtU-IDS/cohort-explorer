@@ -28,6 +28,7 @@ export const CohortsProvider = ({children, useSparql = false}: {children: any, u
   const worker: MutableRefObject<Worker | null> = useRef(null);
   const metadataRequestGeneration = useRef(0);
   const statisticsGeneration = useRef(0);
+  const statisticsAbortController = useRef<AbortController | null>(null);
   
   // Add state for statistics
   const [cohortStatistics, setCohortStatistics] = useState<CohortStatistics>({
@@ -74,11 +75,14 @@ export const CohortsProvider = ({children, useSparql = false}: {children: any, u
 
   const calculateStatisticsFor = useCallback(async (snapshot: {[cohortId: string]: Cohort}) => {
     const generation = ++statisticsGeneration.current;
+    statisticsAbortController.current?.abort();
+    const controller = new AbortController();
+    statisticsAbortController.current = controller;
     setStatisticsStatus('loading');
 
     try {
       const statistics = await calculateCohortStatistics(snapshot, async cohortId => {
-        const response = await fetch(`/api/check-analysis-folder/${cohortId}`);
+        const response = await fetch(`/api/check-analysis-folder/${cohortId}`, {signal: controller.signal});
         if (!response.ok) throw new Error(`Aggregate-analysis check failed for ${cohortId}: ${response.status}`);
         const data = await response.json();
         return Boolean(data.exists);
@@ -88,8 +92,11 @@ export const CohortsProvider = ({children, useSparql = false}: {children: any, u
       setCohortStatistics(statistics);
       setStatisticsStatus('loaded');
     } catch (error) {
-      if (generation === statisticsGeneration.current) setStatisticsStatus('error');
+      if (controller.signal.aborted || generation !== statisticsGeneration.current) return;
+      setStatisticsStatus('error');
       throw error;
+    } finally {
+      if (statisticsAbortController.current === controller) statisticsAbortController.current = null;
     }
   }, []);
 
@@ -153,6 +160,7 @@ export const CohortsProvider = ({children, useSparql = false}: {children: any, u
           console.error('Error calculating cohort statistics:', error);
         });
       } else {
+        statisticsAbortController.current?.abort();
         statisticsGeneration.current += 1;
         setStatisticsStatus('error');
         setUserEmail(null);
@@ -167,6 +175,8 @@ export const CohortsProvider = ({children, useSparql = false}: {children: any, u
     // Initial fetch only - auto-refresh disabled
     fetchCohortsData();
     return () => {
+      statisticsGeneration.current += 1;
+      statisticsAbortController.current?.abort();
       worker.current?.terminate();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
