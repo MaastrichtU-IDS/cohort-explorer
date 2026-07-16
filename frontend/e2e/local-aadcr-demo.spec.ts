@@ -636,8 +636,17 @@ test('complete local AADCR journey preserves metadata and returns one aggregate 
     name: `${roomName} - created by ${adminEmail}`,
     cohorts: ['GISSI-HF', 'TIME-CHF']
   });
-  expect(definition.data_nodes).toHaveLength(9);
-  expect(definition.data_nodes.map((node: any) => node.name)).toContain('CrossStudyMappings');
+  const expectedDataNodeNames = [
+    'GISSI-HF',
+    'GISSI-HF_metadata_dictionary',
+    'GISSI-HF_shuffled_sample',
+    'TIME-CHF',
+    'TIME-CHF_metadata_dictionary',
+    'TIME-CHF_shuffled_sample',
+    'time-chf_gissi-hf_mapping',
+    'CrossStudyMappings'
+  ];
+  expect(definition.data_nodes.map((node: any) => node.name)).toEqual(expectedDataNodeNames);
   expect(definition.computation_nodes).toHaveLength(2);
   expect(definition.participants.map((participant: any) => participant.email)).toEqual([adminEmail, analystEmail]);
   const provenance = zipJson(previewPath as string, 'fixture-provenance.json');
@@ -707,7 +716,9 @@ test('complete local AADCR journey preserves metadata and returns one aggregate 
   expect(rooms.dcrs[0].id).toBe(created.dcr_id);
   expect(rooms.dcrs[0].title).toBe(created.dcr_title);
   expect(rooms.dcrs[0].participants).toHaveLength(2);
-  expect(rooms.dcrs[0].nodes).toHaveLength(11);
+  expect(rooms.dcrs[0].nodes.map((node: any) => node.name).sort()).toEqual(
+    [...expectedDataNodeNames, 'aggregate-summary-local-simulation', 'metadata-preview-local-simulation'].sort()
+  );
   await checkpoint(page, '09-my-dcrs.png');
 
   await roomCard.getByTestId('dcr-room-audit-fetch').click();
