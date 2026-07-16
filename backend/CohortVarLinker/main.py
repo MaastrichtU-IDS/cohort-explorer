@@ -513,14 +513,15 @@ def find_cached_csv(source_study, target_study, output_dir):
     """Find the most recent cached CSV file for a source→target pair.
 
     Normalizes both names to lowercase (preserving dashes) and searches
-    only in output_dir for any .csv file whose name starts with
-    {source}_{target}_.
+    only in output_dir for .csv files matching either:
+      - {source}_{target}.csv       (exact, no suffix)
+      - {source}_{target}_*.csv     (with suffix)
     Returns the path to the most recent match, or None if not found.
     """
     source = source_study.lower()
     target = target_study.lower()
-    pattern = f"{source}_{target}_*.csv"
-    matches = glob.glob(os.path.join(output_dir, pattern))
+    matches = glob.glob(os.path.join(output_dir, f"{source}_{target}.csv"))
+    matches += glob.glob(os.path.join(output_dir, f"{source}_{target}_*.csv"))
     if not matches:
         return None
     return max(matches, key=os.path.getmtime)

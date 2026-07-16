@@ -220,33 +220,21 @@ async def get_available_mapping_files(
     
     available_mappings = []
     
-    # Scan directory for _full.csv pairs files
+    # Scan directory for .csv mapping files
     if os.path.exists(output_dir):
         all_files = os.listdir(output_dir)
         logger.info(f"[DEBUG] get_available_mapping_files: all files in output_dir = {all_files}")
-        csv_files = [f for f in all_files if f.endswith('_full.csv')]
-        logger.info(f"[DEBUG] get_available_mapping_files: full csv files = {csv_files}")
-        for filename in all_files:
-            if not filename.endswith('_full.csv'):
-                continue
-            
+        csv_files = [f for f in all_files if f.endswith('.csv') and not f.endswith('.meta.csv')]
+        logger.info(f"[DEBUG] get_available_mapping_files: csv files = {csv_files}")
+        for filename in csv_files:
             # Parse cohort names from filename.
-            # New pattern: {cohorts}_{model}+{llm}_{mode}_full.csv
-            # Old pattern: {cohort1}_{cohort2}_full.csv
-            # Strip the _full.csv suffix, then use '+' to distinguish formats.
-            stem = filename[:-len('_full.csv')]
-            plus_idx = stem.find('+')
-            if plus_idx == -1:
-                # Old format: all underscore-separated parts are cohort names
-                file_cohorts = [p.lower() for p in stem.split('_')]
-            else:
-                # New format: everything before the last '_' before '+' is cohorts+model
-                before_plus = stem[:plus_idx]
-                parts_before = before_plus.rsplit('_', 1)
-                if len(parts_before) < 2:
-                    continue
-                cohort_part = parts_before[0]  # everything before model name
-                file_cohorts = [p.lower() for p in cohort_part.split('_')]
+            # Pattern: {source}_{target}_{...rest}.csv
+            # The first two underscore-separated parts are source and target cohorts.
+            stem = filename[:-len('.csv')]
+            parts = stem.split('_')
+            if len(parts) < 2:
+                continue
+            file_cohorts = [parts[0].lower(), parts[1].lower()]
             logger.info(f"[DEBUG] Parsed file '{filename}': cohorts = {file_cohorts}")
             
             if len(file_cohorts) < 2:
