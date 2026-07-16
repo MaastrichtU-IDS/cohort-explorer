@@ -1,11 +1,15 @@
 import fs from 'fs';
-import path from 'path';
+import {resolveEdaOutputPath} from '@/utils/safeDataPath';
 
 export default function handler(req, res) {
   const { cohortName } = req.query;
 
-  const dcrOutputDir = path.join('/data', `dcr_output_${cohortName}`);
-  const edaFilePath = path.join(dcrOutputDir, `eda_output_${cohortName}.json`);
+  let edaFilePath;
+  try {
+    edaFilePath = resolveEdaOutputPath(cohortName);
+  } catch {
+    return res.status(400).json({detail: 'Invalid cohortName'});
+  }
 
   // HEAD request — just check existence
   if (req.method === 'HEAD') {

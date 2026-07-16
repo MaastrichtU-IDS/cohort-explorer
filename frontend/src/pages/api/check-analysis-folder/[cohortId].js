@@ -1,11 +1,17 @@
 import fs from 'fs';
-import path from 'path';
+import {resolveCohortOutputDirectory} from '@/utils/safeDataPath';
 
 export default function handler(req, res) {
   const { cohortId } = req.query;
+
+  let folderPath;
+  try {
+    folderPath = resolveCohortOutputDirectory(cohortId);
+  } catch {
+    return res.status(400).json({exists: false, error: 'Invalid cohortId'});
+  }
   
   try {
-    const folderPath = path.join('/data', `dcr_output_${cohortId}`);
     const exists = fs.existsSync(folderPath);
     
     return res.status(200).json({ 
