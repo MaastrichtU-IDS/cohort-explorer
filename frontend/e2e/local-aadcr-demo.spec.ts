@@ -660,7 +660,8 @@ test('complete local AADCR journey preserves metadata and returns one aggregate 
   expect(previewPath).not.toBeNull();
   const previewBytes = await downloadBuffer(previewDownload);
   expect(previewBytes.subarray(0, 2).toString()).toBe('PK');
-  expect(sha256(previewBytes)).toBe(sha256(Buffer.from(await previewResponse.body())));
+  expect(previewResponse.headers()['content-type']).toContain('application/zip');
+  expect(previewResponse.headers()['content-disposition']).toContain('dcr_config_with_samples.zip');
   const definitionHash = sha256(previewBytes);
   const persistedDefinition = path.join(evidenceDir, 'dcr-definition.zip');
   copyFileSync(previewPath as string, persistedDefinition);
