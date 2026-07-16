@@ -1090,7 +1090,11 @@ export function Nav() {
                             else if (currentAirlock) currentSelection = 'airlock';
                             
                             return (
-                              <div key={cohortId} className="p-3 bg-base-200 rounded-lg">
+                              <div
+                                key={cohortId}
+                                className="p-3 bg-base-200 rounded-lg"
+                                data-testid={`dcr-sample-card-${cohortId}`}
+                              >
                                 <p className="font-medium mb-2">{cohortId}</p>
                                 <div className="flex flex-wrap gap-2">
                                   <button

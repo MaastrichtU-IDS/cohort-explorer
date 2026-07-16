@@ -15,6 +15,7 @@ export default defineConfig({
   reporter: [['list']],
   use: {
     baseURL,
+    actionTimeout: 15_000,
     headless: process.env.DEMO_BROWSER_HEADED !== 'true',
     acceptDownloads: true,
     trace: 'retain-on-failure',

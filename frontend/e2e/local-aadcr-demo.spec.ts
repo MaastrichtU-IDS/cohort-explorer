@@ -622,7 +622,8 @@ test('complete local AADCR journey preserves metadata and returns one aggregate 
   await expect(samplesPanel).toContainText('Synthetic Samples');
   await expect(samplesPanel.getByTestId('dcr-sample-airlock')).toHaveCount(0);
   for (const cohortId of ['GISSI-HF', 'TIME-CHF']) {
-    const sampleCard = samplesPanel.locator('.rounded-lg').filter({hasText: cohortId}).first();
+    const sampleCard = samplesPanel.getByTestId(`dcr-sample-card-${cohortId}`);
+    await expect(sampleCard).not.toContainText('No shuffled sample available');
     await sampleCard.getByTestId('dcr-sample-none').click();
     await sampleCard.getByTestId('dcr-sample-shuffled').click();
     await expect(sampleCard.getByTestId('dcr-sample-shuffled')).toHaveClass(/btn-primary/);
