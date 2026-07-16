@@ -524,18 +524,8 @@ class AadcrBackend:
                 }
                 results_path = f"/api/dcr/{safe_dcr_id}/computation-nodes/results"
                 run_path = f"/api/dcr/{safe_dcr_id}/computation-nodes/run"
-                initial_result: Any = _NO_COMPUTATION_RESULT
-                try:
-                    initial_result = await client.request_json(
-                        "POST",
-                        results_path,
-                        failed_step="read computation result",
-                        json_body=request_body,
-                    )
-                except AadcrUpstreamError as exc:
-                    no_execution = exc.status_code == 404 and "no execution found" in exc.detail.casefold()
-                    if not no_execution:
-                        raise
+
+                async def start_computation() -> None:
                     started = await client.request_json(
                         "POST",
                         run_path,
@@ -548,6 +538,24 @@ class AadcrBackend:
                             failed_step="start aggregate computation",
                             dcr_id=safe_dcr_id,
                         )
+
+                initial_result: Any = _NO_COMPUTATION_RESULT
+                try:
+                    initial_result = await client.request_json(
+                        "POST",
+                        results_path,
+                        failed_step="read computation result",
+                        json_body=request_body,
+                    )
+                except AadcrUpstreamError as exc:
+                    no_execution = exc.status_code == 404 and "no execution found" in exc.detail.casefold()
+                    if not no_execution:
+                        raise
+                    await start_computation()
+
+                if isinstance(initial_result, dict) and str(initial_result.get("status") or "").upper() == "FAILED":
+                    await start_computation()
+                    initial_result = _NO_COMPUTATION_RESULT
 
                 result_calls = 0
                 if initial_result is not _NO_COMPUTATION_RESULT:

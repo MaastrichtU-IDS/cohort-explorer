@@ -915,6 +915,32 @@ def test_completed_result_is_fetched_without_starting_a_duplicate_run(settings_f
     assert len(_result_calls(service, "/computation-nodes/results")) == 1
 
 
+def test_failed_latest_execution_starts_a_new_run_and_returns_its_completed_result(
+    settings_factory,
+    tmp_path,
+):
+    archive = _zip_bytes({"aggregate-summary.json": b'{"recovered":true}'})
+    service = ComputationService(
+        [
+            _result("FAILED", stdout="patient-secret-from-previous-execution"),
+            _result("RUNNING"),
+            _result("COMPLETED", results=base64.b64encode(archive).decode("ascii")),
+        ]
+    )
+    backend, _settings = _read_backend(
+        settings_factory,
+        tmp_path,
+        service,
+        result_poll_attempts=3,
+    )
+
+    response = run(backend.computation_output("room-read", {"email": "creator@example.test"}))
+
+    assert response.body == archive
+    assert len(_result_calls(service, "/computation-nodes/run")) == 1
+    assert len(_result_calls(service, "/computation-nodes/results")) == 3
+
+
 def test_null_result_response_fails_closed_without_starting_or_polling(settings_factory, tmp_path):
     service = ComputationService([None])
     backend, _settings = _read_backend(settings_factory, tmp_path, service)
