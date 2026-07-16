@@ -694,10 +694,11 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
         const srcVar = selectedEdge.sourceVar;
         const tgtVar = selectedEdge.targetVar;
         const tgtStudy = selectedEdge.targetStudy;
+        const canonicalTgtStudy = canonicalCohortId(tgtStudy, cohortsData);
         const handleCompareEda = async () => {
           if (!sourceCohort || !srcVar || !tgtStudy || !tgtVar) return;
           setEdaLoading(true); setEdaError(null); setEdaImage(null);
-          const imageUrl = `/api/compare-eda/${encodeURIComponent(sourceCohort)}/${encodeURIComponent(srcVar)}/${encodeURIComponent(tgtStudy)}/${encodeURIComponent(tgtVar)}`;
+          const imageUrl = `/api/compare-eda/${encodeURIComponent(canonicalSourceCohort)}/${encodeURIComponent(srcVar)}/${encodeURIComponent(canonicalTgtStudy)}/${encodeURIComponent(tgtVar)}`;
           try {
             const response = await fetch(imageUrl);
             if (!response.ok) {
