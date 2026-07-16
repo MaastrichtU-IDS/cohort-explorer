@@ -509,16 +509,30 @@ def _write_mapping_meta(json_path: str, final_json: dict) -> None:
     print(f"📊 Mapping stats saved to {meta_path}")
 
 
+def find_cached_csv(source_study, target_study, output_dir):
+    """Find the most recent cached CSV file for a source→target pair.
+
+    Normalizes both names to lowercase (preserving dashes) and searches
+    only in output_dir for any .csv file whose name starts with
+    {source}_{target}_.
+    Returns the path to the most recent match, or None if not found.
+    """
+    source = source_study.lower()
+    target = target_study.lower()
+    pattern = f"{source}_{target}_*.csv"
+    matches = glob.glob(os.path.join(output_dir, pattern))
+    if not matches:
+        return None
+    return max(matches, key=os.path.getmtime)
+
+
 def combine_all_mappings_to_json(source_study, target_studies, output_dir, json_path,
-                                model_name, llm_tag, mapping_mode):
+                                model_name=None, llm_tag=None, mapping_mode=None):
     mappings = {}
     for target in target_studies:
-        csv_file = os.path.join(
-            output_dir,
-            f"{source_study}_{target}_{model_name}+{llm_tag}_{mapping_mode}_full.csv",
-        )
-        if not os.path.exists(csv_file):
-            print(f"⚠️ Missing: {csv_file}")
+        csv_file = find_cached_csv(source_study, target, output_dir)
+        if not csv_file:
+            print(f"⚠️ Missing CSV for {source_study} → {target} in {output_dir}")
             continue
         df = pd.read_csv(csv_file)
         for _, row in df.iterrows():
@@ -626,13 +640,11 @@ def generate_mapping_csv(
     all_exist = True
     
     for tstudy in target_studies:
-        out_filename = f'{source_study}_{tstudy}_{model_name}+{llm_tag}_{mapping_mode}_full.csv'
-        out_path = os.path.join(output_dir, out_filename)
-        print(f"Checking if {out_path} exists")
+        cached_path = find_cached_csv(source_study, tstudy, output_dir)
+        print(f"Checking cache for {source_study} → {tstudy}: {'found ' + cached_path if cached_path else 'not found'}")
         
-        if os.path.exists(out_path):
-            # Get file modification time
-            mtime = os.path.getmtime(out_path)
+        if cached_path:
+            mtime = os.path.getmtime(cached_path)
             cached_pairs.append({
                 'source': source_study,
                 'target': tstudy,
@@ -711,14 +723,15 @@ def generate_mapping_csv(
     )
 
     for tstudy in target_studies:
-        out_filename = f'{source_study}_{tstudy}_{model_name}+{llm_tag}_{mapping_mode}_full.csv'
-        out_path = os.path.join(output_dir, out_filename)
-        if os.path.exists(out_path):
+        cached_path = find_cached_csv(source_study, tstudy, output_dir)
+        if cached_path:
             log_detail(PROCESS_CVL, "pair_cached",
                       f"Mapping {source_study} -> {tstudy} already exists, skipping",
                       ctx={"source": source_study, "target": tstudy}, depth=1)
             print(f"Mapping already exists for {source_study} to {tstudy}, skipping computation.")
             continue
+        out_filename = f'{source_study}_{tstudy}_{model_name}+{llm_tag}_{mapping_mode}_full.csv'
+        out_path = os.path.join(output_dir, out_filename)
         t0 = time.time()
         log_main(PROCESS_CVL, "pair_mapping_started",
                  f"Running pipeline: {source_study} -> {tstudy}",

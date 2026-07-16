@@ -118,6 +118,7 @@ async def check_mapping_cache(
     # Lazy import to avoid module-level import errors
     from CohortVarLinker.src.config import settings as cohort_linker_settings
     from CohortVarLinker.src.utils import get_member_studies
+    from CohortVarLinker.main_llm import find_cached_csv
     
     output_dir = cohort_linker_settings.output_dir
     
@@ -144,26 +145,13 @@ async def check_mapping_cache(
     cached_pairs = []
     uncached_pairs = []
     outdated_pairs = []
-    
-    # Replicate the same naming convention as generate_mapping_csv
-    model_name = "biolord"
-    mapping_mode = "OEH"
-    # LLM tag computation mirrors main.py logic
-    from CohortVarLinker.src.config import settings as _cvl_settings
-    from CohortVarLinker.src.data_model import MappingType as _MT
-    _llm_model = _cvl_settings.llm_model
-    if _llm_model and mapping_mode != _MT.OO.value:
-        llm_tag = _llm_model.split("/")[-1].replace(":nitro", "")
-    else:
-        llm_tag = "no_llm"
 
     for tstudy in target_studies_names:
-        out_filename = f'{source_study}_{tstudy}_{model_name}+{llm_tag}_{mapping_mode}_full.csv'
-        out_path = os.path.join(output_dir, out_filename)
+        cached_path = find_cached_csv(source_study, tstudy, output_dir)
         
-        if os.path.exists(out_path):
+        if cached_path:
             # Get file modification time
-            cache_timestamp = os.path.getmtime(out_path)
+            cache_timestamp = os.path.getmtime(cached_path)
             
             # Check if cache is outdated compared to dictionaries
             source_dict_time = dictionary_timestamps.get(source_study)
