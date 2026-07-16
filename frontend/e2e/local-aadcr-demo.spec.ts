@@ -134,6 +134,8 @@ async function addCohortToDcr(page: Page, cohortId: string, expectedCount: numbe
 
 test('complete local AADCR journey preserves metadata and returns one aggregate result', async ({page}, testInfo) => {
   const expectedPreAuthConsoleError = 'Error fetching data in cache worker: Not authenticated';
+  const expectedInvalidDictionaryConsoleError =
+    'Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)';
   let monitorAuthenticatedJourney = false;
   const preAuthConsoleErrors: string[] = [];
   const consoleErrors: string[] = [];
@@ -822,16 +824,20 @@ test('complete local AADCR journey preserves metadata and returns one aggregate 
   await expect(page.getByTestId('dcr-room-card')).toHaveCount(1);
   await expect(page.getByTestId('dcr-room-card')).toContainText(created.dcr_title);
 
+  const approvedConsoleErrors = consoleErrors.filter(message => message === expectedInvalidDictionaryConsoleError);
+  const unexpectedConsoleErrors = consoleErrors.filter(message => message !== expectedInvalidDictionaryConsoleError);
   expect(externalRequests).toEqual([]);
   expect(externalWebSockets).toEqual([]);
   expect(pageErrors).toEqual([]);
-  expect(consoleErrors).toEqual([]);
+  expect(approvedConsoleErrors).toEqual([expectedInvalidDictionaryConsoleError]);
+  expect(unexpectedConsoleErrors).toEqual([]);
   expect(failedLocalResponses).toEqual([]);
   writeFileSync(
     path.join(evidenceDir, 'acceptance-details.json'),
     `${JSON.stringify(
       {
-        console_errors: consoleErrors,
+        console_errors: unexpectedConsoleErrors,
+        approved_console_errors: approvedConsoleErrors,
         approved_pre_auth_console_errors: preAuthConsoleErrors,
         approved_pre_auth_responses: preAuthFailedLocalResponses,
         approved_local_failures: approvedLocalFailures,
