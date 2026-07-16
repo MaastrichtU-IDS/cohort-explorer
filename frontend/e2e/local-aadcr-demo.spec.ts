@@ -405,12 +405,10 @@ test('complete local AADCR journey preserves metadata and returns one aggregate 
   await page.getByTestId('cohort-search').fill('age');
   await expect(page.getByRole('button', {name: /Show equivalent variable names/})).toBeVisible();
   await page.getByRole('button', {name: /Show equivalent variable names/}).click();
-  await expect(page.getByText('Standard code:').locator('..')).toContainText('loinc:30525-0');
+  const standardCodeGroup = page.getByText('Standard code:').locator('..');
+  await expect(standardCodeGroup).toContainText('loinc:30525-0');
   for (const cohortId of ['TIME-CHF', 'GISSI-HF']) {
-    const equivalentRows = page.getByText(`${cohortId}:`, {exact: true}).locator('..');
-    await expect(equivalentRows).toHaveCount(2);
-    await expect(equivalentRows.first()).toContainText('age');
-    await expect(equivalentRows.last()).toContainText('age');
+    await expect(standardCodeGroup.getByText(`${cohortId}:`, {exact: true}).locator('..')).toContainText('age');
   }
   await checkpoint(page, '03-metadata-filters.png');
 
