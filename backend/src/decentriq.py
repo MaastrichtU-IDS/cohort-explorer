@@ -2543,20 +2543,17 @@ async def check_shuffled_samples(
                 cohorts_without_samples.append(cohort_id)
                 continue
 
-            roots = {Path(settings.data_folder).resolve(), asset_root(settings).resolve()}
-            has_sample = False
-            for root in roots:
-                try:
-                    sample_path = contained_asset_path(
-                        root,
-                        f"dcr_output_{safe_cohort_id}",
-                        "shuffled_sample.csv",
-                    )
-                except ValueError:
-                    continue
-                if sample_path.is_file():
-                    has_sample = True
-                    break
+            try:
+                sample_path = contained_asset_path(
+                    asset_root(settings),
+                    f"dcr_output_{safe_cohort_id}",
+                    "shuffled_sample.csv",
+                )
+            except ValueError:
+                cohorts_without_samples.append(cohort_id)
+                continue
+
+            has_sample = sample_path.is_file()
 
             if has_sample:
                 cohorts_with_samples.append(cohort_id)
