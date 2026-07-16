@@ -17,6 +17,34 @@ from src.utils import retrieve_cohorts_metadata
 router = APIRouter()
 
 
+def _normalize_categories(categories: Any) -> dict[str, Any]:
+    """Return cache categories keyed by a deterministic category identity."""
+    if isinstance(categories, dict):
+        return {str(category_id): value for category_id, value in categories.items()}
+    if not isinstance(categories, list):
+        return {}
+
+    normalized: dict[str, Any] = {}
+    identity_counts: dict[str, int] = {}
+    for index, category in enumerate(categories):
+        identity = None
+        if isinstance(category, dict):
+            for field in ("value", "concept_id", "mapped_id", "label"):
+                candidate = category.get(field)
+                if candidate is not None and str(candidate).strip():
+                    identity = str(candidate)
+                    break
+        if identity is None:
+            identity = f"index:{index}"
+
+        occurrence = identity_counts.get(identity, 0) + 1
+        identity_counts[identity] = occurrence
+        normalized_id = identity if occurrence == 1 else f"{identity}#{occurrence}"
+        normalized[normalized_id] = category
+
+    return normalized
+
+
 def compare_cache_objects(cache_a: Dict, cache_b: Dict) -> Dict[str, Any]:
     """
     Compare two cache objects and generate a detailed comparison report.
@@ -115,8 +143,8 @@ def compare_cache_objects(cache_a: Dict, cache_b: Dict) -> Dict[str, Any]:
                     }
             
             # Compare categories if present
-            cats_a = var_a.get("categories", {})
-            cats_b = var_b.get("categories", {})
+            cats_a = _normalize_categories(var_a.get("categories", {}))
+            cats_b = _normalize_categories(var_b.get("categories", {}))
             
             cat_ids_a = set(cats_a.keys())
             cat_ids_b = set(cats_b.keys())
