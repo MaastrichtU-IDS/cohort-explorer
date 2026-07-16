@@ -14,6 +14,7 @@ import {
   projectDcrProvider,
   projectDcrWizard
 } from '@/utils/dcrProvider';
+import {buildDcrWizardRequest, sortedEnabledKeys} from '@/utils/dcrWizardRequest';
 
 // Not used: Next Auth.js: https://authjs.dev/getting-started/providers/oauth-tutorial
 // Auth0: https://github.com/nextauthjs/next-auth/blob/main/packages/core/src/providers/auth0.ts
@@ -262,7 +263,7 @@ export function Nav() {
   // default into the dcrName field so the wizard always shows a meaningful
   // title; once they click the pencil and type their own, we stop touching it.
   const defaultDcrName = useMemo(() => {
-    const cohortIds = Object.keys(dataCleanRoom?.cohorts || {});
+    const cohortIds = Object.keys(dataCleanRoom?.cohorts || {}).sort();
     const now = new Date();
     const month = now.toLocaleString('en-US', { month: 'long' });
     const day = now.getDate();
@@ -283,6 +284,22 @@ export function Nav() {
       notificationRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
     }, 100);
   };
+
+  function buildCurrentDcrWizardRequest() {
+    return buildDcrWizardRequest({
+      dataCleanRoom,
+      shuffledSampleSettings,
+      additionalAnalysts,
+      excludedDataOwners,
+      airlockSettings: projectDcrAirlockSettings(dcrWizardUi, airlockSettings),
+      dcrName,
+      researchQuestion,
+      sessionId: sessionIdRef.current,
+      availableMappingFiles,
+      selectedMappingFiles,
+      includeMappingUploadSlot
+    });
+  }
   // const [cleanRoomData, setCleanRoomData]: any = useState(null);
   // const cleanRoomData = JSON.parse(sessionStorage.getItem('dataCleanRoom') || '{"cohorts": []}');
   // const cohortsCount = cleanRoomData.cohorts.length;
@@ -343,12 +360,7 @@ export function Nav() {
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          ...dataCleanRoom,
-          include_shuffled_samples: shuffledSampleSettings,
-          dcr_name: dcrName,
-          session_id: sessionIdRef.current
-        })
+        body: JSON.stringify(buildCurrentDcrWizardRequest())
       });
       
       // Check content type to determine if it's a ZIP file or JSON
@@ -437,20 +449,7 @@ export function Nav() {
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          ...dataCleanRoom,
-          include_shuffled_samples: shuffledSampleSettings,
-          additional_analysts: additionalAnalysts,
-          excluded_data_owners: excludedDataOwners,
-          airlock_settings: projectDcrAirlockSettings(dcrWizardUi, airlockSettings),
-          dcr_name: dcrName,
-          research_question: researchQuestion,
-          session_id: sessionIdRef.current,
-          selected_mapping_files: availableMappingFiles
-            .filter(m => selectedMappingFiles[m.filename] !== false)
-            .map(m => ({ filename: m.filename, filepath: m.filepath, display_name: m.display_name, cohorts: m.cohorts })),
-          include_mapping_upload_slot: includeMappingUploadSlot
-        })
+        body: JSON.stringify(buildCurrentDcrWizardRequest())
       });
       
       const result = await response.json();
@@ -1214,7 +1213,7 @@ export function Nav() {
                           <strong>DCR Name:</strong> {(dcrName || defaultDcrName)} - created by {userEmail}
                         </div>
                         <div className="p-3 bg-base-200 rounded-lg">
-                          <strong>Cohorts:</strong> {Object.keys(dataCleanRoom?.cohorts || {}).join(', ')}
+                          <strong>Cohorts:</strong> {Object.keys(dataCleanRoom?.cohorts || {}).sort().join(', ')}
                         </div>
                         <div className="p-3 bg-base-200 rounded-lg">
                           <strong>Additional Analysts:</strong> {additionalAnalysts.length > 0 ? additionalAnalysts.join(', ') : 'None'}
@@ -1226,11 +1225,11 @@ export function Nav() {
                         )}
                         {dcrWizardUi.supportsAirlock && (
                           <div className="p-3 bg-base-200 rounded-lg">
-                            <strong>Airlock Cohorts:</strong> {Object.entries(airlockSettings).filter(([_, v]) => v !== false).map(([k]) => k).join(', ') || 'None'}
+                            <strong>Airlock Cohorts:</strong> {sortedEnabledKeys(airlockSettings).join(', ') || 'None'}
                           </div>
                         )}
                         <div className="p-3 bg-base-200 rounded-lg">
-                          <strong>Shuffled Samples:</strong> {Object.entries(shuffledSampleSettings).filter(([_, v]) => v !== false).map(([k]) => k).join(', ') || 'None'}
+                          <strong>Shuffled Samples:</strong> {sortedEnabledKeys(shuffledSampleSettings).join(', ') || 'None'}
                         </div>
                         <div className="p-3 bg-base-200 rounded-lg">
                           <strong>Mapping Files:</strong> {availableMappingFiles.filter(m => selectedMappingFiles[m.filename] !== false).map(m => m.display_name).join(', ') || 'None'}

@@ -16,4 +16,9 @@ describe('navigation DCR provider contract', () => {
     expect(navSource).toContain('disabled={!dcrWizardUi.resolved}');
     expect(navSource).toContain('!dcrWizardUi.resolved || isLoading');
   });
+
+  it('uses one complete wizard request projection for preview and creation', () => {
+    expect(navSource.match(/JSON\.stringify\(buildCurrentDcrWizardRequest\(\)\)/g)).toHaveLength(2);
+    expect(navSource).toContain('buildDcrWizardRequest({');
+  });
 });

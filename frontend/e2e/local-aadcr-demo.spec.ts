@@ -472,7 +472,7 @@ test('complete local AADCR journey preserves metadata and returns one aggregate 
   await expect
     .poll(async () => (await currentMetadata(page))['TIME-CHF'].variables.gender.categories[0].mapped_id)
     .toBe('snomedct:248152002');
-  await genderDetails.locator('form.modal-backdrop button').click({position: {x: 5, y: 5}});
+  await genderDetails.getByTestId('variable-details-close-TIME-CHF-gender').click();
   await expect(genderDetails).not.toBeVisible();
 
   const originalTimeDictionary = readFileSync(dictionaryPath('TIME-CHF'), 'utf8');
@@ -543,25 +543,50 @@ test('complete local AADCR journey preserves metadata and returns one aggregate 
   await page.getByTestId('generate-mapping').click();
   expect((await mappingResponsePromise).status()).toBe(200);
   const mappingDownload = await mappingDownloadPromise;
-  expect(mappingDownload.suggestedFilename()).toMatch(/time-chf.*gissi-hf.*\.csv/i);
-  expect(sha256(await downloadBuffer(mappingDownload))).toBe(manifest.mapping_source.sha256);
+  expect(mappingDownload.suggestedFilename()).toBe('time-chf_gissi-hf_fixture.json');
+  const mappingDownloadBytes = await downloadBuffer(mappingDownload);
+  const generatedMapping = JSON.parse(mappingDownloadBytes.toString('utf8'));
+  const generatedMappingRows = Object.entries(generatedMapping).flatMap(([source, value]: [string, any]) =>
+    value.mappings.map((mapping: any) => ({
+      source,
+      target: mapping.target,
+      sourceStudy: mapping.source_study,
+      targetStudy: mapping.target_study,
+      relation: mapping.mapping_relation,
+      status: mapping.harmonization_status
+    }))
+  );
+  expect(generatedMappingRows).toHaveLength(1289);
+  expect(generatedMappingRows.every(row => row.sourceStudy === 'time-chf')).toBe(true);
+  expect(generatedMappingRows.every(row => row.targetStudy === 'gissi-hf')).toBe(true);
+  expect(generatedMappingRows.every(row => row.status === 'pending')).toBe(true);
+  const generatedMappingPairs = new Set(generatedMappingRows.map(row => `${row.source}->${row.target}`));
+  for (const row of manifest.selected_mapping_rows) {
+    expect(generatedMappingPairs.has(`${row.source}->${row.target}`)).toBe(true);
+  }
   const mappingPreview = page.getByTestId('mapping-preview');
   await expect(mappingPreview).toContainText('Mapping Preview', {timeout: 30_000});
-  await expect(mappingPreview).toContainText('Mappings per target: GISSI-HF (35)');
+  await expect(mappingPreview).toContainText('Mappings per target: gissi-hf (1289)');
   await page.getByTestId('mapping-view-table').click();
   await expect(mappingPreview.getByRole('columnheader', {name: 'source variable'})).toBeVisible();
   await checkpoint(page, '05-generated-mapping-table.png');
 
   const mappingActivity = await responseJson(await page.request.get(`${apiUrl}/api/mapping-activity-log`));
   expect(mappingActivity.entries.some((entry: any) => entry.event === 'run_completed')).toBe(true);
+  const fixtureActivity = mappingActivity.entries.find((entry: any) => entry.event === 'fixture_materialized');
+  expect(fixtureActivity).toBeDefined();
+  expect(fixtureActivity.ctx.total_mappings).toBe(1289);
+  expect(fixtureActivity.ctx.output_sha256[mappingDownload.suggestedFilename()]).toBe(
+    sha256(mappingDownloadBytes)
+  );
   await page.getByTestId('mapping-view-graph').click();
   await expect(mappingPreview.locator('svg')).toBeVisible();
-  await expect(mappingPreview).toContainText(/35 src · 35 tgt · 35 edges/);
+  await expect(mappingPreview).toContainText(/379 src · 397 tgt · 1289 edges/);
   await checkpoint(page, '06-generated-mapping-graph.png');
 
   await page.getByRole('button', {name: 'show cached pairs'}).click();
   await expect(page.getByText('time-chf → gissi-hf', {exact: true})).toBeVisible();
-  await page.getByRole('button', {name: '✕'}).click();
+  await page.getByTestId('mapping-cache-close').click();
 
   await page.goto(`${browserUrl}/cohorts`);
   await addCohortToDcr(page, 'TIME-CHF', 1);

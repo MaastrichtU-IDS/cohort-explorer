@@ -564,7 +564,7 @@ const VariablesList = ({
                         <div>
                           <h5 className="font-bold text-lg">{variable.var_name}</h5>
                         </div>
-                        <div className="ml-8">
+                        <div className="ml-8 flex items-center gap-2">
                           <AutocompleteConcept
                             query={variable.var_label}
                             value={variable.mapped_id || variable.concept_id}
@@ -575,6 +575,21 @@ const VariablesList = ({
                             onSelect={(concept: any) => handleConceptSelect(variable.var_name, concept)}
                             canEdit={cohortsData[cohortId].can_edit}
                           />
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-ghost"
+                            aria-label="Close variable details"
+                            data-testid={`variable-details-close-${cohortId}-${variable.var_name}`}
+                            onClick={() => {
+                              const dialog = document.getElementById(
+                                `source_modal_${cohortId}_${variable.var_name}`
+                              ) as HTMLDialogElement | null;
+                              dialog?.close();
+                              setOpenedModal('');
+                            }}
+                          >
+                            ✕
+                          </button>
                         </div>
                       </div>
                       <p className="py-2 lg:mr-32">{variable.var_label}</p>

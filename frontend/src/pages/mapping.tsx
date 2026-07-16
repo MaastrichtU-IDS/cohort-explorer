@@ -1261,6 +1261,8 @@ export default function MappingPage() {
               <span className="text-sm font-semibold">Cached Pairs</span>
               <button
                 className="btn btn-md btn-circle btn-ghost text-lg"
+                aria-label="Close cached pairs"
+                data-testid="mapping-cache-close"
                 onClick={() => setShowCachePanel(false)}
               >✕</button>
             </div>
