@@ -472,7 +472,8 @@ test('complete local AADCR journey preserves metadata and returns one aggregate 
   await expect
     .poll(async () => (await currentMetadata(page))['TIME-CHF'].variables.gender.categories[0].mapped_id)
     .toBe('snomedct:248152002');
-  await genderDetails.locator('form.modal-backdrop button').click();
+  await page.keyboard.press('Escape');
+  await expect(genderDetails).not.toBeVisible();
 
   const originalTimeDictionary = readFileSync(dictionaryPath('TIME-CHF'), 'utf8');
   const replacementTimeDictionary = originalTimeDictionary.replace(
