@@ -49,7 +49,7 @@ const normalizedDomain = (raw: unknown): string =>
     .split('||')[0]
     .trim()
     .toLowerCase()
-    .replace(/ /g, '_');
+    .replace(/ /g, '_') || 'uncategorized';
 
 const modeDomain = (domains: string[]): string => {
   const counts: Record<string, number> = {};

@@ -58,6 +58,25 @@ describe('mapping projections', () => {
     });
   });
 
+  it('keeps mappings without an OMOP domain visible as uncategorized', () => {
+    const graph = buildMappingGraph([
+      {
+        source_study: 'time-chf',
+        target_study: 'gissi-hf',
+        s_source: 'bmi',
+        target: 'bmi (derived)',
+        omop_domain: '',
+        harmonization_status: 'pending'
+      }
+    ]);
+
+    expect(graph.edges).toHaveLength(1);
+    expect(graph.sourceNodes[0].domain).toBe('uncategorized');
+    expect(graph.targetNodes[0].domain).toBe('uncategorized');
+    expect(graph.sourceDomains).toEqual(['uncategorized']);
+    expect(graph.targetDomains).toEqual(['uncategorized']);
+  });
+
   it('preserves old prefixed JSON mapping fields', () => {
     const rows = projectMappingJson({
       heart_rate: {
