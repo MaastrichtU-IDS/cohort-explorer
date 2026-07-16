@@ -7,6 +7,7 @@ import threading
 import zipfile
 import tempfile
 from importlib.metadata import version, PackageNotFoundError
+from pathlib import Path
 
 import decentriq_platform as dq
 from decentriq_platform.analytics import (
@@ -23,6 +24,7 @@ from fastapi.responses import FileResponse
 
 from src.auth import get_current_user
 from src.config import settings
+from src.demo.assets import asset_root, contained_asset_path, validate_asset_component
 from src.analysis_dcr_logging import log_dcr_event, read_events
 from src.eda_scripts import c1_data_dict_check, c2_save_to_json, c3_eda_data_profiling, shuffle_data
 from src.analysisDCR_scripts import data_fragment_script, visualization_script, exploration_script
@@ -2535,10 +2537,28 @@ async def check_shuffled_samples(
         cohorts_without_samples = []
         
         for cohort_id in cohorts_request.get("cohorts", {}).keys():
-            storage_dir = os.path.join(settings.data_folder, f"dcr_output_{cohort_id}")
-            shuffled_csv = os.path.join(storage_dir, "shuffled_sample.csv")
-            
-            if os.path.exists(shuffled_csv):
+            try:
+                safe_cohort_id = validate_asset_component(cohort_id)
+            except ValueError:
+                cohorts_without_samples.append(cohort_id)
+                continue
+
+            roots = {Path(settings.data_folder).resolve(), asset_root(settings).resolve()}
+            has_sample = False
+            for root in roots:
+                try:
+                    sample_path = contained_asset_path(
+                        root,
+                        f"dcr_output_{safe_cohort_id}",
+                        "shuffled_sample.csv",
+                    )
+                except ValueError:
+                    continue
+                if sample_path.is_file():
+                    has_sample = True
+                    break
+
+            if has_sample:
                 cohorts_with_samples.append(cohort_id)
             else:
                 cohorts_without_samples.append(cohort_id)
