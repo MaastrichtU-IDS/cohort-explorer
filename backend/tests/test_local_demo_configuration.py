@@ -123,9 +123,13 @@ def test_local_overlay_separates_immutable_pack_and_mutable_state(compose_config
     backend = compose_config["services"]["backend"]
     pack = _volume_for(backend, "/demo-pack")
     runtime = _volume_for(backend, "/demo-runtime")
+    frontend_pack = _volume_for(compose_config["services"]["frontend"], "/data")
 
     assert pack["type"] == "bind"
     assert pack["read_only"] is True
+    assert frontend_pack["type"] == "bind"
+    assert frontend_pack["source"] == pack["source"]
+    assert frontend_pack["read_only"] is True
     assert runtime["type"] == "volume"
     assert backend["environment"]["DEMO_PACK_DIR"] == "/demo-pack"
     assert backend["environment"]["DATA_FOLDER"] == "/demo-runtime"
@@ -254,7 +258,7 @@ def test_demo_common_requires_the_exact_clean_reviewed_aadcr_checkout():
     assert f'DEMO_AADCRV2_REQUIRED_COMMIT="{REQUIRED_AADCR_COMMIT}"' in script
     assert 'actual_head="$(git -C "${aadcr_repo}" rev-parse HEAD)"' in script
     assert '[[ "${actual_head}" == "${DEMO_AADCRV2_REQUIRED_COMMIT}" ]]' in script
-    assert 'status --porcelain --untracked-files=all' in script
+    assert "status --porcelain --untracked-files=all" in script
 
 
 def test_wait_script_names_the_probe_that_never_becomes_ready():
@@ -288,6 +292,8 @@ def test_makefile_exposes_stable_demo_commands():
         "demo-seed",
         "demo-smoke",
         "demo-browser-ready",
+        "demo-browser-install",
+        "demo-browser-test",
         "demo-down",
     ):
         assert f"{target}:" in makefile
@@ -300,9 +306,107 @@ def test_makefile_demo_entrypoints_are_executable():
         "demo-seed.sh",
         "demo-smoke.sh",
         "demo-browser-ready.sh",
+        "demo-browser-test.sh",
         "demo-down.sh",
     ):
         assert os.access(ROOT / "scripts" / script, os.X_OK), script
+
+
+def test_committed_browser_acceptance_covers_the_local_upload_to_result_journey():
+    package = json.loads((ROOT / "frontend" / "package.json").read_text())
+    config = (ROOT / "frontend" / "playwright.config.ts").read_text()
+    spec = (ROOT / "frontend" / "e2e" / "local-aadcr-demo.spec.ts").read_text()
+
+    assert "test:e2e:local" in package["scripts"]
+    assert "workers: 1" in config
+    assert "timeout: 900_000" in config
+    assert "webServer" not in config
+    assert "demo-browser-install" in (ROOT / "Makefile").read_text()
+    assert "npm ci && npm exec -- playwright install chromium" in (ROOT / "Makefile").read_text()
+    runner = (ROOT / "scripts" / "demo-browser-test.sh").read_text()
+    assert "run-summary.json" in runner
+    assert "acceptance-details.json" in runner
+    assert '"source_revisions"' in runner
+    assert '"source_tree_state": "clean"' in runner
+    assert "status --porcelain --untracked-files=all" in runner
+    assert "ce_start_revision=" in runner
+    assert "aadcr_start_revision=" in runner
+    assert "changed during browser acceptance" in runner
+    assert runner.index("npm run test:e2e:local") < runner.index("run-summary.json")
+    for selector in (
+        "upload-cohort-select",
+        "validate-dictionary",
+        "upload-dictionary",
+        "mapping-source",
+        "generate-mapping",
+        "dcr-launcher",
+        "dcr-create",
+        "dcr-room-card",
+        "dcr-result-run",
+        "dcr-result-ready",
+        "concept-map-TIME-CHF-age",
+        "concept-map-TIME-CHF-gender-category-0",
+        "mapping-view-table",
+        "mapping-view-graph",
+        "dcr-name-input",
+        "dcr-participants-open",
+        "dcr-research-question-input",
+        "dcr-sample-shuffled",
+        "dcr-mapping-toggle",
+        "dcr-mapping-upload-slot",
+        "my-dcrs-refresh",
+        "eda-cv-ranking",
+        "eda-original-graph",
+        "dcr-provisioning-row",
+        "metadata-filter-study_design",
+        "metadata-filter-institution",
+        "metadata-filter-${filterId}",
+        "source-tab-TIME-CHF-EHR",
+        "source-tab-TIME-CHF-all",
+    ):
+        assert selector in spec
+    for metadata_control in (
+        "OR Search",
+        "AND Search",
+        "Exact Phrase",
+        "measurement",
+        "4+ categories",
+        "follow-up 1 year",
+        "Show Outcome Variables",
+        "age at enrollment",
+        "TIME-CHF_invalid_datadictionary.csv",
+        "approvedLocalFailures",
+        "expectedDefinitionAssetHashes",
+        "zipMemberSha256",
+    ):
+        assert metadata_control in spec
+    for audit_label in (
+        "Create data clean room",
+        "Create merge request",
+        "Provision dataset",
+        "Run computation",
+    ):
+        assert audit_label in spec
+    assert "0b4a24cf910202d0dbaf7fc8ebc445d0bc6c2b731045df1d52f266497160cd32" in spec
+    for screenshot in (
+        "01-login-admin.png",
+        "02-dictionaries-uploaded.png",
+        "03-metadata-filters.png",
+        "04-manual-concept-mapping.png",
+        "05-generated-mapping-table.png",
+        "06-generated-mapping-graph.png",
+        "07-dcr-wizard-review.png",
+        "08-dcr-created.png",
+        "09-my-dcrs.png",
+        "10-audit-log.png",
+        "11-aggregate-result.png",
+    ):
+        assert screenshot in spec
+    assert "dcr-definition.zip" in spec
+    assert "dcr-definition.sha256" in spec
+    assert "acceptance-details.json" in spec
+    assert "page.context().on('request'" in spec
+    assert "page.on('websocket'" in spec
 
 
 def test_demo_up_validates_the_immutable_pack_before_starting_compose():
@@ -339,6 +443,9 @@ def test_browser_checkpoint_seeds_only_the_central_workbook():
 
     assert '"${script_dir}/demo-seed.sh" --central-only' in script
     assert "demo-seed.py" not in script
+    assert "down --remove-orphans --volumes" in script
+    assert "|| true" not in script
+    assert 'rm -rf -- "${evidence_dir}"' in script
 
 
 def test_readiness_does_not_publish_or_probe_oxigraph():

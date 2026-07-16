@@ -17,7 +17,7 @@ demo_validate_aadcr_checkout
 
 # This command intentionally creates a fresh browser checkpoint. Only volumes
 # belonging to its explicit Compose namespace are removed.
-demo_compose down --remove-orphans --volumes >/dev/null 2>&1 || true
+demo_compose down --remove-orphans --volumes
 
 DEMO_FORCE=true "${script_dir}/demo-generate.sh"
 "${script_dir}/demo-up.sh"
@@ -25,6 +25,7 @@ frontend_port="$(demo_gateway_host_port 3001)"
 "${script_dir}/demo-seed.sh" --central-only
 
 evidence_dir="${DEMO_STATE_DIR}/browser-evidence"
+rm -rf -- "${evidence_dir}"
 mkdir -p "${evidence_dir}"
 chmod 700 "${evidence_dir}"
 

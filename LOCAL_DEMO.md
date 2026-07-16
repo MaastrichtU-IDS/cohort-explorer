@@ -13,14 +13,16 @@ The demo provides:
 - fixture-backed concept search, validation, and mapping, so no external model or
   ontology service is required at runtime;
 - deterministic synthetic TIME-CHF and GISSI-HF rows derived from the repository's
-  metadata dictionaries and committed mapping semantics;
+  metadata dictionaries and committed mapping semantics, with generator 1.1's
+  parser-supported EHR/CRF/outcome-registry source metadata;
 - AADCR v2 room creation, DEV → MERGED → PROD state, asset provisioning, local
   aggregate computation, and result retrieval; and
-- an automated smoke lane plus a separate visible-browser checkpoint.
+- an automated smoke lane plus committed headless or visible browser acceptance.
 
 ## Pinned source boundary
 
-The launch scripts fail closed unless the AADCR checkout descends from both:
+The launch scripts fail closed unless the AADCR checkout descends from the baseline,
+matches the reviewed integration exactly, and has no tracked or untracked changes:
 
 - `davstur/aadcrv2` baseline `f13ef54fc3f0f56dae185d4aa35c6dff01ee8839`; and
 - exact clean reviewed integration `08993663db8084b145d70d369309e82f7080b0f7`.
@@ -40,10 +42,16 @@ file or smoke evidence.
 
 ## Prerequisites
 
-- Docker Desktop with Docker Compose v2
-- Git
-- Python 3.10+ and `uv` for host-side generation, seeding, and smoke checks
+- Docker Engine 24+ (or current Docker Desktop) with Docker Compose 2.24.4+
+- Git 2.39+
+- Python 3.11 and `uv` for host-side generation, seeding, and smoke checks
+- Node.js 20 or 22 LTS with npm 10+ for the committed browser acceptance lane
 - both repositories checked out at the source boundary above
+
+The current verified host used Docker Engine 29.4.0, Compose 5.1.2, Node
+22.22.2, npm 10.9.7, and the AADCR container's pinned Python 3.11 runtime. The
+first `make demo-browser-install` needs access to the npm registry and Playwright's
+Chromium download; all demo execution after installation is loopback-only.
 
 No Decentriq token, OAuth account, external LLM, embedding model, Athena service, or
 live SPARQL source is needed.
@@ -97,8 +105,9 @@ The smoke lane verifies, among other things:
 - login and guarded admin access;
 - central workbook and dictionary uploads;
 - stubbed mapping generation and canonical mapping discovery;
-- two byte-identical definition previews containing exactly five metadata assets,
-  configuration, and provenance—never row-level inputs;
+- two byte-identical definition previews containing exactly five fixture assets
+  (two dictionaries, two selected synthetic shuffled samples, and one mapping),
+  configuration, and provenance—never the full synthetic row-level inputs;
 - exactly one room, two cohorts, eight data nodes, two computation nodes, ten role
   permissions, seven provisioned datasets, and a MERGED request;
 - aggregate-only output whose row counts, per-column completeness, numeric counts,
@@ -141,6 +150,18 @@ and browser-evidence directory. It seeds only the API-only central workbook;
 runtime dictionaries, mappings, and rooms remain absent so the visible browser
 lane proves the dictionary upload, mapping, and DCR flows from a clean state.
 
+To execute that complete journey automatically in a one-worker browser while
+leaving the resulting stack running:
+
+```bash
+make demo-browser-install
+make demo-browser-test
+```
+
+Use `DEMO_BROWSER_HEADED=true make demo-browser-test` for a visible browser. See
+[`LOCAL_DEMO_BROWSER_CHECKLIST.md`](LOCAL_DEMO_BROWSER_CHECKLIST.md) for
+the exact assertions and evidence paths.
+
 ## Stop and clean up
 
 Stop containers while retaining generated secrets and mutable volumes:
@@ -169,8 +190,10 @@ network to a separate ingress bridge and binds the three exposed ports to
 session cookie before forwarding to the frontend or AADCR service, and does not
 publish Oxigraph. The ingress bridge itself is intentionally non-internal so host
 port publishing works; no application container joins it, and the smoke lane
-separately proves that AADCR cannot reach the public network. No container mounts
-the Docker socket.
+separately proves that AADCR cannot reach the public network. The immutable
+synthetic pack is mounted read-only at `/demo-pack` in the backend and at the
+frontend's established `/data` path so its EDA/image routes preserve current
+metadata behavior. No container mounts the Docker socket.
 
 Room links open the authenticated **My DCRs** page. Native AADCR API URLs are not
 rendered as browser links because native reads require the separate service JWT.
@@ -183,8 +206,8 @@ rendered as browser links because native reads require the separate service JWT.
   failed run cannot mask mapping-generation regressions.
 - A port is already in use: stop the other local demo/process. The AADCR host port is
   `18000`, not `8000`.
-- AADCR checkout validation fails: update `AADCRV2_REPO_DIR` to the intended checkout
-  and make sure its `HEAD` contains both pinned commits.
+- AADCR checkout validation fails: update `AADCRV2_REPO_DIR` to the intended checkout,
+  check out the exact reviewed commit, and leave that checkout clean.
 - A service never becomes ready: inspect it with the exact namespace and env file,
   for example `docker compose --project-name cohort-explorer-aadcr-demo --env-file
   .demo-state/cohort-explorer-aadcr-demo/runtime.env -f docker-compose.yml -f

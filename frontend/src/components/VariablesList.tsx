@@ -417,6 +417,7 @@ const VariablesList = ({
             <div className="flex items-end" style={{ position: 'relative' }}>
               {/* ALL tab — subtle/faded distinction */}
               <button
+                data-testid={`source-tab-${cohortId}-all`}
                 className="relative px-5 py-2 text-sm font-medium rounded-t-lg border border-b-0 transition-all duration-200"
                 style={{
                   zIndex: !activeSourceTab || activeSourceTab === '__all__' ? sourceTabs.length + 2 : 0,
@@ -443,6 +444,7 @@ const VariablesList = ({
                 return (
                   <button
                     key={source}
+                    data-testid={`source-tab-${cohortId}-${source}`}
                     className="relative px-5 py-2.5 text-sm font-semibold rounded-t-lg border border-b-0 transition-all duration-200"
                     style={{
                       zIndex: isActive ? sourceTabs.length + 1 : sourceTabs.length - idx,
@@ -505,6 +507,7 @@ const VariablesList = ({
                     {/* )} */}
                     <button
                       className="btn-sm hover:bg-base-300 rounded-lg"
+                      data-testid={`variable-details-${cohortId}-${variable.var_name}`}
                       onClick={() => {
                         setOpenedModal(variable.var_name);
                         setTimeout(() => {
@@ -518,6 +521,7 @@ const VariablesList = ({
                     {/* <div className="grow"></div> */}
                     <button
                       className="btn-sm hover:bg-base-300 rounded-lg"
+                      data-testid={`variable-graph-${cohortId}-${variable.var_name}`}
                       onClick={() => {
                         setOpenedGraphModal(variable.var_name);
                         setTimeout(() => {

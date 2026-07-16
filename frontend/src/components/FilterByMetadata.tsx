@@ -32,7 +32,7 @@ const FilterByMetadata = ({label, options, onFiltersChange, metadata_id, searchR
   };
 
   return (
-    <div className="mb-3 w-full space-y-1">
+    <div className="mb-3 w-full space-y-1" data-testid={`metadata-filter-${metadata_id}`}>
       <h3 className="text-sm font-bold">{label}</h3>
       {options.map((option: any, index: number) => (
         <div key={index} className={`form-control text-left ${index > 0 && index % 2 === 0 ? 'mt-3' : ''}`}>

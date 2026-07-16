@@ -144,7 +144,7 @@ const EdaVariableDetailModal: React.FC<Props> = ({ variable: v, onClose, cohortI
   const imageUrl = `/api/variable-graph/${encodeURIComponent(cohortId)}/${encodeURIComponent(v.name.toLowerCase())}`;
 
   return (
-    <div className="modal modal-open" onClick={onClose}>
+    <div className="modal modal-open" data-testid="eda-variable-detail" onClick={onClose}>
       <div className="modal-box max-w-5xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         {/* Header */}
         <div className="flex justify-between items-start mb-4">
@@ -195,6 +195,7 @@ const EdaVariableDetailModal: React.FC<Props> = ({ variable: v, onClose, cohortI
                 <img
                   src={imageUrl}
                   alt={`${v.name} EDA graph`}
+                  data-testid="eda-original-graph"
                   className={`max-w-full ${imageState === 'loaded' ? '' : 'hidden'}`}
                   onLoad={() => setImageState('loaded')}
                   onError={() => setImageState('error')}

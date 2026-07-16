@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: demo-generate demo-up demo-seed demo-smoke demo-browser-ready demo-down
+.PHONY: demo-generate demo-up demo-seed demo-smoke demo-browser-ready demo-browser-install demo-browser-test demo-down
 
 demo-generate:
 	./scripts/demo-generate.sh
@@ -16,6 +16,12 @@ demo-smoke:
 
 demo-browser-ready:
 	./scripts/demo-browser-ready.sh
+
+demo-browser-install:
+	cd frontend && npm ci && npm exec -- playwright install chromium
+
+demo-browser-test:
+	./scripts/demo-browser-test.sh
 
 demo-down:
 	./scripts/demo-down.sh

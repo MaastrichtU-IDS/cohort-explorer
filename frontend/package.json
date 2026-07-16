@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "test": "vitest",
+    "test:e2e:local": "playwright test --config playwright.config.ts",
     "fmt": "prettier --write --ignore-path .gitignore ."
   },
   "dependencies": {
@@ -21,6 +22,7 @@
     "react-feather": "^2.0.10"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@types/node": "^20.12.12",
     "@types/react": "^18.3.2",
     "@types/react-dom": "^18.3.0",

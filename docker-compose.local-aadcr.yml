@@ -71,7 +71,11 @@ services:
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:3000
       INTERNAL_API_URL: http://backend:80
-    volumes: !reset []
+    volumes: !override
+      - type: bind
+        source: ${DEMO_PACK_HOST_DIR:?demo-generate sets DEMO_PACK_HOST_DIR}
+        target: /data
+        read_only: true
     ports: !reset []
     healthcheck:
       test:

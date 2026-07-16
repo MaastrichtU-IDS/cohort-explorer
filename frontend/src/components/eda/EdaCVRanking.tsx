@@ -133,7 +133,7 @@ const EdaCVRanking: React.FC<Props> = ({ variables, onVariableClick }) => {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" data-testid="eda-cv-ranking">
       <div className="text-center">
         <h2 className="text-lg font-bold">Variables Ranked by Coefficient of Variation</h2>
         <p className="text-sm text-gray-500 mt-1">
@@ -179,7 +179,7 @@ const EdaCVRanking: React.FC<Props> = ({ variables, onVariableClick }) => {
               </thead>
               <tbody>
                 {ranked.map((d, i) => (
-                  <tr key={d.variable.name} className="cursor-pointer hover:bg-primary/5" onClick={() => onVariableClick(d.variable)}>
+                  <tr key={d.variable.name} className="cursor-pointer hover:bg-primary/5" data-testid="eda-variable-row" onClick={() => onVariableClick(d.variable)}>
                     <td className="text-center font-bold text-gray-400">{i + 1}</td>
                     <td className="font-medium text-xs max-w-[150px] truncate" title={d.variable.name}>{d.variable.name}</td>
                     <td className="text-xs max-w-[180px] truncate" title={d.variable.label}>{d.variable.label}</td>

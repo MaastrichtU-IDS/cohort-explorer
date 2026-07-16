@@ -647,6 +647,7 @@ export default function CohortsList() {
         <div className="mb-8 p-4 border border-base-300 rounded-lg bg-base-100 w-fit">
           <input
             type="text"
+            data-testid="cohort-search"
             placeholder={searchScope === 'all' ? "Search cohorts and variables..." : searchScope === 'cohorts' ? "Search cohort metadata..." : "Search variable information..."}
             className="input input-bordered w-full max-w-2xl"
             value={searchInput}
