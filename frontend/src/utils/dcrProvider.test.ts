@@ -1,7 +1,87 @@
 import {describe, expect, it} from 'vitest';
-import {projectDcrAirlockSettings, projectDcrProvider, projectDcrWizard} from '@/utils/dcrProvider';
+import {
+  projectConfiguredDcrProvider,
+  projectDcrAirlockSettings,
+  projectDcrProvider,
+  projectDcrUpload,
+  projectDcrWizard
+} from '@/utils/dcrProvider';
+import * as dcrProviderModule from '@/utils/dcrProvider';
 
 describe('DCR provider UI projection', () => {
+  it('exposes a provider-projected upload contract', () => {
+    const projectDcrUpload = (dcrProviderModule as Record<string, unknown>).projectDcrUpload;
+
+    expect(typeof projectDcrUpload).toBe('function');
+  });
+
+  it('describes AADCR provisioning as a non-confidential synthetic flow', () => {
+    const projection = projectDcrUpload(
+      projectDcrProvider('aadcrv2', {
+        local_simulation: true,
+        synthetic_data_only: true,
+        supports_provisioning: true
+      })
+    );
+    const renderedCopy = JSON.stringify(projection);
+
+    expect(projection).toMatchObject({
+      resolved: true,
+      localSimulation: true,
+      heading: 'Step 2: Create Local Synthetic AADCR Simulation',
+      warning:
+        'Local synthetic-data simulation only. This does not provide a confidential-computing or production security boundary. Do not use real or confidential data.'
+    });
+    expect(renderedCopy).toContain('generated synthetic CSV');
+    expect(renderedCopy).toContain('Cohort Explorer provisions');
+    expect(renderedCopy).not.toContain('external Decentriq platform');
+    expect(renderedCopy).not.toContain('secure confines');
+    expect(renderedCopy).not.toContain('separately upload the actual patient-level data');
+  });
+
+  it('preserves the existing Decentriq upload and external-provisioning copy', () => {
+    expect(projectDcrUpload(projectDcrProvider('decentriq'))).toEqual({
+      resolved: true,
+      localSimulation: false,
+      heading: 'Step 2: Initiate Data Clean Room (DCR) Creation',
+      metadataPurpose:
+        'Providing accurate metadata is crucial for enabling data scientists to understand and effectively utilize the data within the secure Decentriq platform later.',
+      creationIntro:
+        'The next step is to initiate the creation of its secure Data Clean Room (DCR) on the external Decentriq platform.',
+      provisioningIntro:
+        'This DCR will be configured based on the variables defined in your metadata. Once the DCR is provisioned on Decentriq:',
+      provisioningSteps: [
+        'You (or the designated data custodian) will need to separately upload the actual patient-level data directly and securely into the Decentriq DCR.',
+        'Patient data never passes through or is stored by this Cohort Explorer application.',
+        'Data scientists can then request access to perform analysis within the secure confines of the DCR.'
+      ],
+      warning: null
+    });
+  });
+
+  it('uses neutral copy until the configured provider is known', () => {
+    const projection = projectDcrUpload();
+    const renderedCopy = JSON.stringify(projection);
+
+    expect(projection.resolved).toBe(false);
+    expect(projection.heading).toBe('Step 2: Load Data Clean Room Provider');
+    expect(projection.warning).toContain('Provider details must load');
+    expect(renderedCopy).not.toContain('Decentriq');
+    expect(renderedCopy).not.toContain('confidential-computing');
+  });
+
+  it('surfaces a provider-load failure while keeping upload creation unresolved', () => {
+    const loadError =
+      'Unable to load the configured Data Clean Room provider. Room creation is disabled.';
+    const projection = projectDcrUpload(undefined, loadError);
+
+    expect(projection).toMatchObject({
+      resolved: false,
+      heading: 'Step 2: Data Clean Room Provider Unavailable',
+      warning: loadError
+    });
+  });
+
   it('uses local provider-neutral copy and capabilities for AADCR v2', () => {
     expect(
       projectDcrProvider('aadcrv2', {
@@ -21,6 +101,18 @@ describe('DCR provider UI projection', () => {
       localSimulation: true,
       syntheticDataOnly: true
     });
+  });
+
+  it('accepts only an explicitly supported provider for pre-creation security copy', () => {
+    expect(projectConfiguredDcrProvider('decentriq')).toMatchObject({provider: 'decentriq'});
+    expect(projectConfiguredDcrProvider('aadcrv2', {local_simulation: true})).toMatchObject({
+      provider: 'aadcrv2',
+      localSimulation: true
+    });
+    expect(() => projectConfiguredDcrProvider(undefined)).toThrow('did not identify a supported provider');
+    expect(() => projectConfiguredDcrProvider('unknown-provider')).toThrow(
+      'did not identify a supported provider'
+    );
   });
 
   it('preserves Decentriq copy and defaults for legacy responses', () => {
@@ -57,6 +149,28 @@ describe('DCR provider UI projection', () => {
       'Local synthetic-data simulation only. This does not provide a confidential-computing or production security boundary. Do not use real or confidential data.'
     );
     expect(wizard.steps.find(step => step.id === 'data-samples')?.title).toBe('Synthetic Samples');
+  });
+
+  it('keeps the wizard neutral and disabled until its provider is resolved', () => {
+    const wizard = projectDcrWizard();
+
+    expect(wizard).toMatchObject({
+      resolved: false,
+      supportsAirlock: false,
+      creationWarning: 'Loading the configured Data Clean Room provider...'
+    });
+  });
+
+  it('projects a visible fail-closed wizard error without Decentriq semantics', () => {
+    const providerError =
+      'Unable to load the configured Data Clean Room provider. Wizard creation is disabled.';
+    const wizard = projectDcrWizard(undefined, providerError);
+
+    expect(wizard).toMatchObject({
+      resolved: false,
+      supportsAirlock: false,
+      creationWarning: providerError
+    });
   });
 
   it('fails closed for AADCR v2 when a legacy capability response is incomplete', () => {

@@ -121,6 +121,19 @@ def test_creation_routes_delegate_unchanged_requests(route_client):
     ]
 
 
+def test_provider_route_exposes_configured_capabilities_without_listing_rooms(route_client):
+    client, backend, _user = route_client
+
+    response = client.get("/api/dcr/provider")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "provider": "aadcrv2",
+        "capabilities": capabilities().to_dict(),
+    }
+    assert backend.calls == []
+
+
 def test_audit_and_output_aliases_delegate_path_parameters(route_client):
     client, backend, user = route_client
 

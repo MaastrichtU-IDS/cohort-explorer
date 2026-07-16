@@ -23,6 +23,18 @@ def _serialize(payload: Any) -> Any:
     return to_dict() if callable(to_dict) else payload
 
 
+@router.get("/api/dcr/provider")
+async def provider_contract(
+    _user: dict[str, Any] = Depends(get_current_user),
+    backend: DcrBackend = Depends(get_backend),
+) -> dict[str, Any]:
+    """Return the configured provider before a user starts a creation flow."""
+    return {
+        "provider": backend.provider_name,
+        "capabilities": _serialize(backend.capabilities),
+    }
+
+
 @router.post("/create-provision-dcr")
 async def create_provision_room(
     cohort_id: str = Form(...),

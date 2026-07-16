@@ -7,7 +7,13 @@ import {LogIn, LogOut, Compass, Upload, HardDrive, Map, Box, FileText, Settings}
 import {useCohorts} from '@/components/CohortsContext';
 import {DarkThemeIcon, LightThemeIcon} from '@/components/Icons';
 import {apiUrl} from '@/utils';
-import {projectDcrAirlockSettings, projectDcrProvider, projectDcrWizard} from '@/utils/dcrProvider';
+import {
+  type DcrProviderProjection,
+  projectConfiguredDcrProvider,
+  projectDcrAirlockSettings,
+  projectDcrProvider,
+  projectDcrWizard
+} from '@/utils/dcrProvider';
 
 // Not used: Next Auth.js: https://authjs.dev/getting-started/providers/oauth-tutorial
 // Auth0: https://github.com/nextauthjs/next-auth/blob/main/packages/core/src/providers/auth0.ts
@@ -55,7 +61,10 @@ export function Nav() {
   const [showAddCohortModal, setShowAddCohortModal] = useState(false);
   const [cohortSearchQuery, setCohortSearchQuery] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
-  const [dcrProviderUi, setDcrProviderUi] = useState(() => projectDcrProvider());
+  const [dcrProviderUi, setDcrProviderUi] = useState<DcrProviderProjection | null>(() =>
+    apiUrl === 'mock' ? projectDcrProvider('decentriq') : null
+  );
+  const [dcrProviderError, setDcrProviderError] = useState<string | null>(null);
   const notificationRef = React.useRef<HTMLDivElement>(null);
 
   // Check admin status
@@ -68,18 +77,46 @@ export function Nav() {
   }, [userEmail]);
 
   useEffect(() => {
-    if (!userEmail) return;
-    fetch(`${apiUrl}/my-dcrs`, {credentials: 'include'})
-      .then(response => response.ok ? response.json() : null)
-      .then(data => {
-        if (data) setDcrProviderUi(projectDcrProvider(data.provider, data.capabilities));
+    if (apiUrl === 'mock') return;
+    if (!userEmail) {
+      setDcrProviderUi(null);
+      setDcrProviderError(null);
+      return;
+    }
+
+    const controller = new AbortController();
+    setDcrProviderUi(null);
+    setDcrProviderError(null);
+    fetch(`${apiUrl}/api/dcr/provider`, {
+      credentials: 'include',
+      signal: controller.signal
+    })
+      .then(async response => {
+        if (!response.ok) throw new Error(`Provider request failed: ${response.status}`);
+        return response.json();
       })
-      .catch(() => {});
+      .then(data => {
+        setDcrProviderUi(projectConfiguredDcrProvider(data?.provider, data?.capabilities));
+        setDcrProviderError(null);
+      })
+      .catch(error => {
+        if (error?.name !== 'AbortError') {
+          console.error('Error loading the configured DCR provider', error?.message || error);
+          setDcrProviderError(
+            'Unable to load the configured Data Clean Room provider. Wizard creation is disabled.'
+          );
+        }
+      });
+
+    return () => controller.abort();
   }, [userEmail]);
 
   // Provider-specific wizard capabilities are projected in one pure helper so
   // local simulations cannot accidentally inherit production security claims.
-  const dcrWizardUi = useMemo(() => projectDcrWizard(dcrProviderUi), [dcrProviderUi]);
+  const dcrWizardUi = useMemo(
+    () => projectDcrWizard(dcrProviderUi ?? undefined, dcrProviderError),
+    [dcrProviderError, dcrProviderUi]
+  );
   const wizardSteps = dcrWizardUi.steps;
 
   // --- DCR activity logging (wizard) -------------------------------------
@@ -286,6 +323,14 @@ export function Nav() {
   };
 
   const getDCRDefinitionFile = async () => {
+    if (!dcrWizardUi.resolved || !dcrProviderUi) {
+      setPublishedDCR(
+        <div className="alert alert-error" role="alert" data-testid="dcr-wizard-provider-error">
+          {dcrProviderError || 'Data Clean Room provider details are unavailable. Configuration is disabled.'}
+        </div>
+      );
+      return;
+    }
     setIsLoading(true);
     setLoadingAction('config');
     scrollToNotification();
@@ -374,6 +419,14 @@ export function Nav() {
   };
 
   const createLiveDCR = async () => {
+    if (!dcrWizardUi.resolved || !dcrProviderUi) {
+      setPublishedDCR(
+        <div className="alert alert-error" role="alert" data-testid="dcr-wizard-provider-error">
+          {dcrProviderError || 'Data Clean Room provider details are unavailable. Room creation is disabled.'}
+        </div>
+      );
+      return;
+    }
     setIsLoading(true);
     setLoadingAction('live');
     scrollToNotification();
@@ -746,9 +799,38 @@ export function Nav() {
         {/* Desktop */}
         <div className="menu menu-horizontal my-0 py-0 space-x-6 pr-6 items-center">
           {(pathname === '/' || pathname === '/cohorts' || pathname === '/mapping' || pathname === '/dcrs') && (
-            <button id="dcr-button" data-testid="dcr-launcher" onClick={() => { setShowModal(true); setWizardStep(0); }} className="btn bg-white border-2 border-gray-300 shadow-md hover:shadow-lg hover:bg-gray-50 transition-all duration-200 py-3 px-6" style={{ minWidth: '280px' }}>
-              Create a Data Clean Room <div className="badge badge-neutral badge-sm">{Object.keys(dataCleanRoom?.cohorts).length || 0}</div>
-            </button>
+            <div className="flex flex-col items-center gap-1">
+              <button
+                id="dcr-button"
+                data-testid="dcr-launcher"
+                onClick={() => {
+                  if (!dcrWizardUi.resolved) return;
+                  setShowModal(true);
+                  setWizardStep(0);
+                }}
+                className="btn bg-white border-2 border-gray-300 shadow-md hover:shadow-lg hover:bg-gray-50 transition-all duration-200 py-3 px-6"
+                style={{minWidth: '280px'}}
+                disabled={!dcrWizardUi.resolved}
+                aria-describedby={dcrProviderError ? 'dcr-provider-error' : undefined}
+              >
+                {dcrWizardUi.resolved
+                  ? 'Create a Data Clean Room'
+                  : dcrProviderError
+                    ? 'Data Clean Room provider unavailable'
+                    : 'Loading Data Clean Room provider...'}
+                <div className="badge badge-neutral badge-sm">{Object.keys(dataCleanRoom?.cohorts).length || 0}</div>
+              </button>
+              {dcrProviderError && (
+                <p
+                  id="dcr-provider-error"
+                  className="max-w-[280px] text-center text-xs text-error"
+                  role="alert"
+                  data-testid="dcr-provider-error"
+                >
+                  {dcrProviderError}
+                </p>
+              )}
+            </div>
           )}
 
           {userEmail ? (
@@ -806,8 +888,11 @@ export function Nav() {
                   {wizardSteps.map((step, idx) => (
                     <li 
                       key={step.id} 
-                      className={`step ${idx <= wizardStep ? 'step-primary' : ''} cursor-pointer`}
-                      onClick={() => setWizardStep(idx)}
+                      className={`step ${idx <= wizardStep ? 'step-primary' : ''} ${dcrWizardUi.resolved ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
+                      onClick={() => {
+                        if (dcrWizardUi.resolved) setWizardStep(idx);
+                      }}
+                      data-provider-resolved={dcrWizardUi.resolved}
                       data-testid={`dcr-wizard-step-${step.id}`}
                     >
                       {step.title}
@@ -816,7 +901,11 @@ export function Nav() {
                 </ul>
 
                 {dcrWizardUi.creationWarning && (
-                  <div className="alert alert-warning mb-6" role="alert" data-testid="dcr-local-simulation-warning">
+                  <div
+                    className={`alert ${dcrProviderError ? 'alert-error' : 'alert-warning'} mb-6`}
+                    role="alert"
+                    data-testid={dcrProviderError ? 'dcr-wizard-provider-error' : 'dcr-local-simulation-warning'}
+                  >
                     <span>⚠️ {dcrWizardUi.creationWarning}</span>
                   </div>
                 )}
@@ -1153,15 +1242,15 @@ export function Nav() {
                         <button 
                           className="btn btn-primary" 
                           onClick={createLiveDCR} 
-                          disabled={isLoading || dcrCreated || Object.keys(dataCleanRoom?.cohorts || {}).length === 0}
+                          disabled={!dcrWizardUi.resolved || isLoading || dcrCreated || Object.keys(dataCleanRoom?.cohorts || {}).length === 0}
                           data-testid="dcr-create"
                         >
-                          {dcrProviderUi.createLabel}
+                          {dcrProviderUi?.createLabel || 'Data Clean Room provider unavailable'}
                         </button>
                         <button 
                           className="btn btn-neutral h-auto min-h-0 py-2 px-4" 
                           onClick={getDCRDefinitionFile} 
-                          disabled={isLoading || configDownloaded || Object.keys(dataCleanRoom?.cohorts || {}).length === 0}
+                          disabled={!dcrWizardUi.resolved || isLoading || configDownloaded || Object.keys(dataCleanRoom?.cohorts || {}).length === 0}
                           data-testid="dcr-preview-download"
                         >
                           <span className="flex flex-col items-center">
@@ -1200,6 +1289,7 @@ export function Nav() {
                       <button 
                         className="btn btn-primary"
                         onClick={() => setWizardStep(wizardStep + 1)}
+                        disabled={!dcrWizardUi.resolved}
                         data-testid="dcr-wizard-next"
                       >
                         Next →
@@ -1214,7 +1304,7 @@ export function Nav() {
                     <span className="loading loading-spinner loading-lg mb-4"></span>
                     <p>
                       {loadingAction === 'live' 
-                        ? dcrProviderUi.loadingLabel
+                        ? dcrProviderUi?.loadingLabel || 'Loading the configured Data Clean Room provider...'
                         : 'Creating the file specification for a DCR draft...'}
                     </p>
                   </div>

@@ -5,7 +5,12 @@ import {ArrowLeft, Check, SkipForward, Upload, AlertTriangle, Info as InfoIcon, 
 import {useCohorts} from '@/components/CohortsContext';
 import {TrashIcon} from '@/components/Icons';
 import {apiUrl} from '@/utils';
-import {projectDcrProvider} from '@/utils/dcrProvider';
+import {
+  type DcrProviderProjection,
+  projectConfiguredDcrProvider,
+  projectDcrProvider,
+  projectDcrUpload
+} from '@/utils/dcrProvider';
 
 // Helper component for wizard steps
 const WizardSteps = ({currentStep}: {currentStep: number}) => {
@@ -31,6 +36,10 @@ export default function UploadPage() {
 
   const [dcrIsLoading, setDcrIsLoading] = useState(false);
   const [publishedDCR, setPublishedDCR]: any = useState(null);
+  const [dcrProviderUi, setDcrProviderUi] = useState<DcrProviderProjection | null>(() =>
+    apiUrl === 'mock' ? projectDcrProvider('decentriq') : null
+  );
+  const [dcrProviderError, setDcrProviderError] = useState<string | null>(null);
   
   const [operationMessage, setOperationMessage] = useState<{text: string, type: 'error' | 'success' | 'info' | 'warning'} | null>(null);
 
@@ -41,6 +50,7 @@ export default function UploadPage() {
 
   const [step, setStep] = useState(1);
   const [metadataExists, setMetadataExists] = useState(false);
+  const dcrUploadUi = projectDcrUpload(dcrProviderUi ?? undefined, dcrProviderError);
 
   const cohortsUserCanEdit = cohortsData ? Object.keys(cohortsData).filter(cohortId => cohortsData[cohortId]['can_edit']) : [];
 
@@ -66,6 +76,41 @@ export default function UploadPage() {
     setValidationErrors(null);
     setValidationStatusMessage(null);
   }, [metadataFile]);
+
+  useEffect(() => {
+    if (apiUrl === 'mock') return;
+    if (!userEmail) {
+      setDcrProviderUi(null);
+      setDcrProviderError(null);
+      return;
+    }
+
+    const controller = new AbortController();
+    setDcrProviderUi(null);
+    setDcrProviderError(null);
+    fetch(`${apiUrl}/api/dcr/provider`, {
+      credentials: 'include',
+      signal: controller.signal
+    })
+      .then(async response => {
+        if (!response.ok) throw new Error(`Provider request failed: ${response.status}`);
+        return response.json();
+      })
+      .then(data => {
+        setDcrProviderUi(projectConfiguredDcrProvider(data?.provider, data?.capabilities));
+        setDcrProviderError(null);
+      })
+      .catch(error => {
+        if (error?.name !== 'AbortError') {
+          console.error('Error loading the configured DCR provider', error?.message || error);
+          setDcrProviderError(
+            'Unable to load the configured Data Clean Room provider. Room creation is disabled.'
+          );
+        }
+      });
+
+    return () => controller.abort();
+  }, [userEmail]);
 
   const clearMetadataFile = () => {
     setMetadataFile(null);
@@ -191,6 +236,10 @@ export default function UploadPage() {
 
   const handleDcrSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!dcrUploadUi.resolved) {
+        setOperationMessage({text: dcrUploadUi.warning || 'Data Clean Room provider details are unavailable.', type: 'warning'});
+        return;
+    }
     if (!cohortId) {
         setOperationMessage({text: 'No cohort selected from Step 1.', type: 'error'});
         return;
@@ -246,6 +295,17 @@ export default function UploadPage() {
     <main className="flex flex-col items-center p-4 sm:p-8">
       <div className="w-full max-w-3xl">
         <WizardSteps currentStep={step} />
+
+        {dcrProviderError && step === 1 && (
+          <div
+            className="alert alert-error mb-4 shadow-md"
+            data-testid="upload-dcr-provider-load-error"
+            role="alert"
+          >
+            <AlertTriangle className="stroke-current shrink-0 h-6 w-6" />
+            <span>{dcrProviderError}</span>
+          </div>
+        )}
 
         {operationMessage && (
           <div role="alert" className={`alert alert-${operationMessage.type} mb-4 shadow-md`}>
@@ -323,10 +383,10 @@ export default function UploadPage() {
                 <p>
                   In this step, you upload or replace the <strong>metadata dictionary</strong> (a .csv file) for your cohort.
                   This file describes the variables (columns) in your dataset but contains <strong>no actual patient data</strong>.
-                </p>
-                <p>
-                  Providing accurate metadata is crucial for enabling data scientists to understand and effectively utilize the data within the secure Decentriq platform later.
-                </p>
+                 </p>
+                 <p data-testid="upload-dcr-metadata-purpose">
+                   {dcrUploadUi.metadataPurpose}
+                 </p>
                 
               </div>
 
@@ -442,21 +502,33 @@ export default function UploadPage() {
         {step === 2 && (
            <div className="card bg-base-100 shadow-xl">
              <div className="card-body">
-               <h2 className="card-title text-xl mb-4">Step 2: Initiate Data Clean Room (DCR) Creation</h2>
-                <div className="prose prose-sm max-w-none mb-6 text-base-content/80">
-                  <p>
-                     Your metadata dictionary structure for cohort <strong>{cohortsData?.[cohortId]?.label || cohortId}</strong> has been processed (or simulated).
-                     The next step is to initiate the creation of its secure <strong>Data Clean Room (DCR)</strong> on the external Decentriq platform.
-                  </p>
-                  <p>
-                     This DCR will be configured based on the variables defined in your metadata.
-                     Once the DCR is provisioned on Decentriq:
-                  </p>
-                  <ul className="list-disc pl-5">
-                    <li>You (or the designated data custodian) will need to <strong>separately upload the actual patient-level data</strong> directly and securely into the Decentriq DCR.</li>
-                    <li>Patient data <strong>never</strong> passes through or is stored by this Cohort Explorer application.</li>
-                    <li>Data scientists can then request access to perform analysis within the secure confines of the DCR.</li>
-                  </ul>
+                <h2 className="card-title text-xl mb-4" data-testid="upload-dcr-step-title">
+                  {dcrUploadUi.heading}
+                </h2>
+                 <div
+                   className="prose prose-sm max-w-none mb-6 text-base-content/80"
+                   data-provider={dcrProviderUi?.provider ?? 'loading'}
+                   data-testid="upload-dcr-provider-copy"
+                 >
+                   {dcrUploadUi.warning && (
+                     <div
+                       className={`alert ${dcrUploadUi.localSimulation ? 'alert-warning' : 'alert-info'} mb-4`}
+                       data-testid="upload-dcr-provider-warning"
+                       role="alert"
+                     >
+                       {dcrUploadUi.warning}
+                     </div>
+                   )}
+                   <p>
+                      Your metadata dictionary structure for cohort <strong>{cohortsData?.[cohortId]?.label || cohortId}</strong> has been processed (or simulated).
+                   </p>
+                   <p>{dcrUploadUi.creationIntro}</p>
+                   {dcrUploadUi.provisioningIntro && <p>{dcrUploadUi.provisioningIntro}</p>}
+                   {dcrUploadUi.provisioningSteps.length > 0 && (
+                     <ul className="list-disc pl-5">
+                       {dcrUploadUi.provisioningSteps.map(item => <li key={item}>{item}</li>)}
+                     </ul>
+                   )}
                </div>
 
                <form onSubmit={handleDcrSubmit} className="space-y-5">
@@ -474,10 +546,18 @@ export default function UploadPage() {
                       <ArrowLeft className="w-4 h-4" />
                       Back to Metadata
                     </button>
-                   <button type="submit" className="btn btn-warning" disabled={dcrIsLoading || !cohortId}>
-                     {dcrIsLoading ? <span className="loading loading-spinner loading-xs"></span> : <Upload className="w-4 h-4" /> }
-                     Create Data Clean Room for {cohortsData?.[cohortId]?.label || cohortId}
-                   </button>
+                    <button
+                      type="submit"
+                      className="btn btn-warning"
+                      disabled={dcrIsLoading || !cohortId || !dcrUploadUi.resolved}
+                    >
+                      {dcrIsLoading ? <span className="loading loading-spinner loading-xs"></span> : <Upload className="w-4 h-4" /> }
+                      {dcrUploadUi.resolved
+                        ? `Create Data Clean Room for ${cohortsData?.[cohortId]?.label || cohortId}`
+                        : dcrProviderError
+                          ? 'Data Clean Room provider unavailable'
+                          : 'Loading Data Clean Room provider...'}
+                    </button>
                  </div>
                </form>
              </div>
