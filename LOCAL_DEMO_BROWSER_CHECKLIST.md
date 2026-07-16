@@ -6,9 +6,11 @@ rooms, or cookies from an API seed. The runner refuses a dirty Cohort Explorer t
 and the AADCR launcher independently requires its exact clean reviewed revision, so
 the revisions in passing evidence identify the code that actually ran.
 
-Use Node.js 20 or 22 LTS with npm 10+. The first install needs access to the npm
-registry and Playwright's Chromium download; the acceptance run itself is
-loopback-only.
+Use Node.js 20 or 22 LTS with npm 10+. Initial setup and the first Docker image
+build need network access for npm and Playwright downloads, host-side `uv`
+dependency resolution, Docker base-image pulls, and image-build package installs
+(apt, uv/Python, spaCy, and npm). Once those dependencies and images are present,
+runtime application traffic during acceptance is loopback-only.
 
 Run from the repository root after stopping any other process on ports 3000, 3001,
 or 18000. If a prior browser lane is still open, first use the namespace printed by

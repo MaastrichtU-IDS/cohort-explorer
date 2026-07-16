@@ -49,9 +49,12 @@ file or smoke evidence.
 - both repositories checked out at the source boundary above
 
 The current verified host used Docker Engine 29.4.0, Compose 5.1.2, Node
-22.22.2, npm 10.9.7, and the AADCR container's pinned Python 3.11 runtime. The
-first `make demo-browser-install` needs access to the npm registry and Playwright's
-Chromium download; all demo execution after installation is loopback-only.
+22.22.2, npm 10.9.7, and the AADCR container's pinned Python 3.11 runtime. Initial
+setup needs network access for npm and Playwright downloads, host-side `uv`
+dependency resolution, Docker base-image pulls, and image-build package installs
+(apt, uv/Python, spaCy, and npm). Once those host dependencies and Docker images
+are present, runtime application traffic is loopback-only; the demo application
+does not call external model, metadata, or DCR services.
 
 No Decentriq token, OAuth account, external LLM, embedding model, Athena service, or
 live SPARQL source is needed.
