@@ -55,7 +55,7 @@ from src.config import settings
 from src.decentriq import metadatadict_cols_schema1
 from src.dictionary_validation import InvalidDictionary, validate_dictionary_upload
 from src.mapping_logger import PROCESS_SCM, MappingRun, log_detail, log_main
-from src.metadata_paths import STUDIES_METADATA_GRAPH_URI, canonical_dictionary_path
+from src.metadata_paths import STUDIES_METADATA_GRAPH_URI, canonical_dictionary_path, validate_cohort_id
 from src.metadata_providers.factory import get_concept_validation_provider
 from src.triplestore import (
     replace_metadata_transactionally,
@@ -1777,7 +1777,10 @@ async def refresh_cohort_cache(
     from src.cohort_cache import initialize_cache_from_source_files
 
     try:
-        initialize_cache_from_source_files(user_email)
+        refreshed = initialize_cache_from_source_files(user_email)
+        if refreshed is False:
+            excel_path = Path(settings.data_folder) / "iCARE4CVD_Cohorts.xlsx"
+            raise FileNotFoundError(f"Excel metadata file not found at {excel_path}")
 
         logging.info(f"Cache refreshed from source files by admin user {user_email}")
         return {
@@ -1805,13 +1808,21 @@ async def delete_cohort(
     user_email = user["email"]
     if user_email not in settings.admins_list:
         raise HTTPException(status_code=403, detail="You need to be admin to perform this action.")
+    try:
+        cohort_id = validate_cohort_id(cohort_id)
+        cohorts_root = Path(settings.cohort_folder).resolve()
+        cohort_folder_path = (cohorts_root / cohort_id).resolve()
+        if cohorts_root not in cohort_folder_path.parents:
+            raise ValueError(f"Cohort path escapes the cohorts root: {cohort_id!r}")
+    except (OSError, RuntimeError, ValueError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
     delete_existing_triples(
         get_cohort_mapping_uri(cohort_id), f"<{get_cohort_uri(cohort_id)!s}>", "icare:previewEnabled"
     )
     delete_existing_triples(get_cohort_graph_uri(cohort_id))
     # Delete folder
-    cohort_folder_path = os.path.join(settings.data_folder, "cohorts", cohort_id)
-    if os.path.exists(cohort_folder_path) and os.path.isdir(cohort_folder_path):
+    if cohort_folder_path.is_dir():
         shutil.rmtree(cohort_folder_path)
     
     # Remove the cohort from the cache

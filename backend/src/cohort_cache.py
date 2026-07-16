@@ -954,12 +954,14 @@ def initialize_cache_from_triplestore(admin_email: str | None = None, force_refr
                 logging.warning(f"Error cleaning up lock file: {e}")
 
 
-def initialize_cache_from_source_files(user_email: str | None = None) -> None:
+def initialize_cache_from_source_files(user_email: str | None = None) -> bool:
     """Build the cache directly from the source files (Excel + per-cohort CSV dictionaries).
 
     This is the canonical cache-building path: it does NOT involve the triplestore or any
     SPARQL queries. The Excel spreadsheet supplies cohort-level metadata, and each cohort's
     latest *_datadictionary.csv supplies the variables and categories verbatim.
+
+    Returns ``False`` when the source workbook is absent and ``True`` after a successful rebuild.
     """
     from src.config import settings as _settings
 
@@ -968,8 +970,9 @@ def initialize_cache_from_source_files(user_email: str | None = None) -> None:
         logging.error(
             f"Cannot initialize cache from source files: Excel metadata file not found at {excel_path}"
         )
-        return
+        return False
     initialize_cache_from_excel(excel_path, user_email)
+    return True
 
 
 def sort_cohorts_with_variables_first(cohorts: Dict[str, Cohort]) -> Dict[str, Cohort]:
