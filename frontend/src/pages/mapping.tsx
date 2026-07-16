@@ -358,7 +358,7 @@ function domainClr(raw: string) {
 const HARMONIZATION_COLORS: Record<string, string> = {
   'Identical Match':  '#166534',
   'Compatible Match': '#60a5fa',
-  'Partial Match':    '#86efac',
+  'Partial Match':    '#4ade80',
   'Not Applicable':   '#6b7280',
 };
 function edgeClr(status: string) { return HARMONIZATION_COLORS[status] || '#94a3b8'; }
@@ -616,6 +616,10 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
   }, [tgtDomains]);
 
   const toggle = (arr: string[], v: string, set: (a: string[]) => void) => set(arr.includes(v) ? arr.filter(x => x !== v) : [...arr, v]);
+  const toggleExclusive = (arr: string[], v: string, all: string[], set: (a: string[]) => void) => {
+    if (arr.length === all.length) { set([v]); return; }
+    set(arr.includes(v) ? arr.filter(x => x !== v) : [...arr, v]);
+  };
 
   function cycleVarFilter() {
     setFocusedId(null); setFocusedEdge(null); setActiveSrcDomains(srcDomains); setActiveTgtDomains(tgtDomains);
@@ -659,7 +663,7 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
         </div>
       )}
       {/* Domain + relation filters */}
-      <div className="flex flex-wrap gap-12 mb-3 items-start">
+      <div className="flex flex-wrap justify-between gap-12 mb-3 items-start">
         <div>
           <div className="text-xs font-semibold mb-1 opacity-60 tracking-wide">Click to filter <strong>source</strong> variables by their OMOP domains</div>
           <div className="flex gap-3 mb-1">
@@ -667,7 +671,7 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
             <button className="btn btn-xs btn-ghost text-xs" style={{ fontSize: 10, padding: '0 4px', height: 16, minHeight: 16 }} onClick={() => setActiveSrcDomains([])}>unselect all</button>
           </div>
           <div className="grid grid-cols-2 gap-1">
-            {srcDomains.map(d => <DomainBtn key={d} d={d} active={activeSrcDomains.includes(d)} onClick={() => toggle(activeSrcDomains, d, setActiveSrcDomains)} />)}
+            {srcDomains.map(d => <DomainBtn key={d} d={d} active={activeSrcDomains.includes(d)} onClick={() => toggleExclusive(activeSrcDomains, d, srcDomains, setActiveSrcDomains)} />)}
           </div>
         </div>
         <div>
@@ -677,7 +681,7 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
             <button className="btn btn-xs btn-ghost text-xs" style={{ fontSize: 10, padding: '0 4px', height: 16, minHeight: 16 }} onClick={() => setActiveTgtDomains([])}>unselect all</button>
           </div>
           <div className="grid grid-cols-2 gap-1">
-            {tgtDomains.map(d => <DomainBtn key={d} d={d} active={activeTgtDomains.includes(d)} onClick={() => toggle(activeTgtDomains, d, setActiveTgtDomains)} />)}
+            {tgtDomains.map(d => <DomainBtn key={d} d={d} active={activeTgtDomains.includes(d)} onClick={() => toggleExclusive(activeTgtDomains, d, tgtDomains, setActiveTgtDomains)} />)}
           </div>
         </div>
       </div>
@@ -688,9 +692,20 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
             <button className="btn btn-xs btn-ghost text-error" onClick={resetAll}>↺ Reset all filters</button>
           </div>
           <div className="flex flex-wrap gap-1">
-            {Object.entries(statusCounts).map(([s, count]) => (
-              <button key={s} className={`btn btn-xs ${activeStatuses.length === 0 || activeStatuses.includes(s) ? '' : 'btn-outline opacity-40'}`} style={activeStatuses.length === 0 || activeStatuses.includes(s) ? { backgroundColor: edgeClr(s), color: '#fff', borderColor: edgeClr(s) } : {}} onClick={() => toggle(activeStatuses, s, setActiveStatuses)}>{s} ({count as number})</button>
-            ))}
+            {['Identical Match', 'Partial Match', 'Compatible Match', 'Not Applicable'].filter(s => s in statusCounts).map(s => {
+              const count = statusCounts[s] as number;
+              const active = activeStatuses.length === 0 || activeStatuses.includes(s);
+              const c = edgeClr(s);
+              return (
+                <label key={s} onClick={() => {
+                  if (activeStatuses.length === 0) { setActiveStatuses([s]); return; }
+                  toggle(activeStatuses, s, setActiveStatuses);
+                }} className="flex items-center gap-1 cursor-pointer border rounded" style={{ backgroundColor: active ? c : '#f8fafc', borderColor: active ? c : '#cbd5e1', color: active ? '#fff' : '#94a3b8', fontWeight: active ? 600 : 400, fontSize: 10, padding: '1px 6px', height: 22, minHeight: 22, opacity: active ? 1 : 0.5, whiteSpace: 'nowrap' }}>
+                  <input type="checkbox" checked={activeStatuses.includes(s)} readOnly className="checkbox checkbox-xs" style={{ minHeight: 12, height: 12, width: 12 }} />
+                  <span>{s} ({count})</span>
+                </label>
+              );
+            })}
             {activeStatuses.length > 0 && <button className="btn btn-xs btn-ghost" onClick={() => setActiveStatuses([])}>clear</button>}
           </div>
         </div>
@@ -717,7 +732,7 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
       <div className="text-xs opacity-50 mb-2">
         {varFilter === 'mapped' ? (
           <>
-            {srcNodes.length} source ({srcCoverage}% coverage) · {tgtNodes.length} target ({tgtCoverage}% coverage) · {allEdges.length} edges
+            {srcNodes.length} source · {tgtNodes.length} target · {allEdges.length} edges
           </>
         ) : (
           <>
