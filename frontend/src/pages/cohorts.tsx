@@ -47,171 +47,162 @@ const matchesSearchTerms = (text: string | null | undefined, searchTerms: string
   }
 };
 
-// Component to count and display variable search results
-// Detailed search results component that shows matched names
-const SearchResultsDisplay = React.memo(({cohortsData, searchTerms, searchMode, searchScope}: {
+// Table-based search results component — one row per cohort, columns show matched elements
+const SearchResultsTable = React.memo(({cohortsData, searchTerms, searchMode, searchScope, onCohortClick}: {
   cohortsData: Record<string, Cohort>,
-  searchTerms: string[], 
+  searchTerms: string[],
   searchMode: 'or' | 'and' | 'exact',
-  searchScope: 'cohorts' | 'variables' | 'all'
+  searchScope: 'cohorts' | 'variables' | 'all',
+  onCohortClick: (cohortId: string) => void
 }) => {
   const results = useMemo(() => {
-    if (searchTerms.length === 0) return { 
-      matchedCohorts: [] as {cohortId: string; sections: string[]}[], 
-      variablesByCohort: {} as Record<string, string[]>,
-      totalVariables: 0 
-    };
-    
-    // Map field names to human-readable section names (lowercase)
+    if (searchTerms.length === 0) return [] as {cohortId: string; matchedSections: string[]; matchedVariables: string[]}[];
+
     const fieldToSection: Record<string, string> = {
-      'cohort_id': 'cohort name',
-      'institution': 'institution',
-      'study_type': 'study type',
-      'study_design': 'study design',
-      'study_objective': 'study objective',
-      'morbidity': 'morbidity',
-      'study_participants': 'study participants',
-      'study_population': 'study population',
-      'administrator': 'administrator',
-      'population_location': 'population location',
-      'primary_outcome_spec': 'primary outcome specification',
-      'secondary_outcome_spec': 'secondary outcome specification',
-      'interventions': 'interventions',
-      'comparator': 'comparator',
-      'race_ethnicity': 'race/ethnicity',
-      'part_of_study': 'part of study',
+      'cohort_id': 'Cohort Name',
+      'institution': 'Institution',
+      'study_type': 'Study Type',
+      'study_design': 'Study Design',
+      'study_objective': 'Study Objective',
+      'morbidity': 'Morbidity',
+      'study_participants': 'Study Participants',
+      'study_population': 'Study Population',
+      'population_location': 'Population Location',
+      'primary_outcome_spec': 'Primary Outcome Specification',
+      'secondary_outcome_spec': 'Secondary Outcome Specification',
+      'interventions': 'Interventions',
+      'comparator': 'Comparator',
+      'race_ethnicity': 'Race/Ethnicity',
+      'part_of_study': 'Part of Study',
     };
     const searchableCohortFields = Object.keys(fieldToSection);
     const searchableVarFields = ['var_name', 'var_label', 'concept_name', 'mapped_label', 'omop_domain', 'concept_code', 'omop_id'];
     const searchableCatFields = ['value', 'label', 'mapped_label'];
-    
-    const matchedCohorts: {cohortId: string; sections: string[]}[] = [];
-    const variablesByCohort: Record<string, string[]> = {};
-    let totalVariables = 0;
-    
+
+    const cohortResults: {cohortId: string; matchedSections: string[]; matchedVariables: string[]}[] = [];
+
     Object.entries(cohortsData).forEach(([cohortId, cohortData]) => {
-      // Check cohort metadata match (for 'cohorts' or 'all' scope)
+      const cohortWithId = { ...cohortData, cohort_id: cohortId };
+      const matchedSections: string[] = [];
+      const matchedVariables: string[] = [];
+
       if (searchScope === 'cohorts' || searchScope === 'all') {
-        const cohortWithId = { ...cohortData, cohort_id: cohortId };
-        const matchedSections: string[] = [];
         searchableCohortFields.forEach(field => {
           if (matchesSearchTerms((cohortWithId as any)[field], searchTerms, searchMode)) {
             matchedSections.push(fieldToSection[field]);
           }
         });
-        if (matchedSections.length > 0 && !matchedCohorts.some(c => c.cohortId === cohortId)) {
-          matchedCohorts.push({ cohortId, sections: matchedSections });
-        }
       }
-      
-      // Check variable matches (for 'variables' or 'all' scope)
+
       if (searchScope === 'variables' || searchScope === 'all') {
-        const matchingVars: string[] = [];
-        
         Object.entries(cohortData.variables || {}).forEach(([varName, varData]: any) => {
           const variableWithName = { ...varData, var_name: varName };
-          const varMatches = searchableVarFields.some(field => 
+          const varMatches = searchableVarFields.some(field =>
             matchesSearchTerms(variableWithName[field], searchTerms, searchMode)
           );
-          
           const catMatches = !varMatches && varData.categories?.some((cat: any) =>
             searchableCatFields.some(field => matchesSearchTerms(cat[field], searchTerms, searchMode))
           );
-          
           if (varMatches || catMatches) {
-            matchingVars.push(varName);
-            totalVariables++;
+            matchedVariables.push(varName);
           }
         });
-        
-        if (matchingVars.length > 0) {
-          variablesByCohort[cohortId] = matchingVars;
-        }
+      }
+
+      if (matchedSections.length > 0 || matchedVariables.length > 0) {
+        cohortResults.push({ cohortId, matchedSections, matchedVariables });
       }
     });
-    
-    return { matchedCohorts, variablesByCohort, totalVariables };
+
+    return cohortResults;
   }, [cohortsData, searchTerms, searchMode, searchScope]);
-  
-  const cohortsWithVarMatches = Object.keys(results.variablesByCohort).length;
-  
-  // Format cohort metadata results: "CohortA (study objective, morbidity), CohortB (institution)"
-  const formatCohortResults = () => {
+
+  if (results.length === 0) {
     return (
-      <span>
-        {results.matchedCohorts.map(({cohortId, sections}, idx) => (
-          <span key={cohortId}>
-            {cohortId} ({sections.map((s, i) => (
-              <span key={i}>
-                <em>{s}</em>
-                {i < sections.length - 1 && ', '}
-              </span>
-            ))})
-            {idx < results.matchedCohorts.length - 1 && ', '}
-          </span>
-        ))}
-      </span>
-    );
-  };
-  
-  // Format variable results: "var1, var2 (CohortA); var3 (CohortB)"
-  const formatVariableResults = () => {
-    return Object.entries(results.variablesByCohort)
-      .map(([cohortId, vars]) => `${vars.join(', ')} (${cohortId})`)
-      .join('; ');
-  };
-  
-  if (searchScope === 'cohorts') {
-    return (
-      <div>
-        <span>
-          Search matched <strong className="text-primary">{results.matchedCohorts.length}</strong> cohort{results.matchedCohorts.length !== 1 ? 's' : ''} metadata
-        </span>
-        {results.matchedCohorts.length > 0 && (
-          <div className="mt-1 text-gray-600 dark:text-gray-400">
-            <strong>Studies metadata:</strong> {formatCohortResults()}
-          </div>
-        )}
+      <div className="text-gray-500 py-2">
+        No matches found for &quot;{searchTerms.join(' ')}&quot;.
       </div>
     );
   }
-  
-  if (searchScope === 'variables') {
-    return (
-      <div>
-        <span>
-          Search matched <strong className="text-primary">{results.totalVariables}</strong> variable description{results.totalVariables !== 1 ? 's' : ''} in <strong className="text-primary">{cohortsWithVarMatches}</strong> cohort{cohortsWithVarMatches !== 1 ? 's' : ''}
-        </span>
-        {results.totalVariables > 0 && (
-          <div className="mt-1 text-gray-600 dark:text-gray-400 max-h-40 overflow-y-auto">
-            <strong>Variables:</strong> {formatVariableResults()}
-          </div>
-        )}
-      </div>
-    );
-  }
-  
-  // 'all' scope - show both
+
+  const totalMetadataMatches = results.reduce((sum, r) => sum + r.matchedSections.length, 0);
+  const totalVariableMatches = results.reduce((sum, r) => sum + r.matchedVariables.length, 0);
+
   return (
     <div>
-      <span>
-        Search matched <strong className="text-primary">{results.matchedCohorts.length}</strong> cohort{results.matchedCohorts.length !== 1 ? 's' : ''} metadata and <strong className="text-primary">{results.totalVariables}</strong> variable description{results.totalVariables !== 1 ? 's' : ''} in <strong className="text-primary">{cohortsWithVarMatches}</strong> cohort{cohortsWithVarMatches !== 1 ? 's' : ''}
-      </span>
-      {(results.matchedCohorts.length > 0 || results.totalVariables > 0) && (
-        <div className="mt-1 text-gray-600 dark:text-gray-400 max-h-48 overflow-y-auto">
-          {results.matchedCohorts.length > 0 && (
-            <div><strong>Studies metadata:</strong> {formatCohortResults()}</div>
-          )}
-          {results.totalVariables > 0 && (
-            <div><strong>Variables:</strong> {formatVariableResults()}</div>
-          )}
-        </div>
-      )}
+      <div className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+        Found <strong className="text-primary">{results.length}</strong> cohort{results.length !== 1 ? 's' : ''} with matches
+        {totalMetadataMatches > 0 && <> · <strong className="text-primary">{totalMetadataMatches}</strong> metadata section{totalMetadataMatches !== 1 ? 's' : ''}</>}
+        {totalVariableMatches > 0 && <> · <strong className="text-primary">{totalVariableMatches}</strong> variable{totalVariableMatches !== 1 ? 's' : ''}</>}
+      </div>
+      <div className="overflow-x-auto max-h-64 overflow-y-auto border border-base-300 rounded-lg">
+        <table className="table table-zebra table-sm">
+          <thead className="sticky top-0 z-10">
+            <tr>
+              <th>Cohort</th>
+              <th>Matched Metadata</th>
+              <th>Matched Variables</th>
+              <th className="text-right">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {results.map(({cohortId, matchedSections, matchedVariables}) => (
+              <tr
+                key={cohortId}
+                className="hover cursor-pointer transition-colors"
+                onClick={() => onCohortClick(cohortId)}
+                title={`Click to search within ${cohortId}`}
+              >
+                <td className="font-semibold whitespace-nowrap">
+                  <HighlightedText text={cohortId} searchTerms={searchTerms} searchMode={searchMode} />
+                </td>
+                <td>
+                  {matchedSections.length > 0 ? (
+                    <div className="flex flex-wrap gap-1">
+                      {matchedSections.map((section, idx) => (
+                        <span key={idx} className="badge badge-sm badge-ghost">
+                          {section}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="text-gray-400">—</span>
+                  )}
+                </td>
+                <td>
+                  {matchedVariables.length > 0 ? (
+                    <div className="flex flex-wrap gap-1 max-w-md">
+                      {matchedVariables.slice(0, 5).map((varName, idx) => (
+                        <span key={idx} className="badge badge-sm badge-outline">
+                          <HighlightedText text={varName} searchTerms={searchTerms} searchMode={searchMode} />
+                        </span>
+                      ))}
+                      {matchedVariables.length > 5 && (
+                        <span className="badge badge-sm badge-ghost">
+                          +{matchedVariables.length - 5} more
+                        </span>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="text-gray-400">—</span>
+                  )}
+                </td>
+                <td className="text-right font-semibold text-primary whitespace-nowrap">
+                  {matchedSections.length + matchedVariables.length}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="text-xs text-gray-500 mt-1">
+        Click any row to open that cohort and search within it
+      </div>
     </div>
   );
 });
 
-SearchResultsDisplay.displayName = 'SearchResultsDisplay';
+SearchResultsTable.displayName = 'SearchResultsTable';
 
 // Component to show equivalent variable names based on shared concept_codes
 const EquivalentVariableNames = React.memo(({cohortsData, searchTerms, searchMode, searchScope}: {
@@ -434,6 +425,154 @@ const formatParticipantsForTag = (value: string | number | null | undefined): st
   return strValue;
 };
 
+// Per-cohort search results component
+const CohortSearchResults = ({ cohortId, cohortData, searchTerms, searchMode }: {
+  cohortId: string;
+  cohortData: Cohort;
+  searchTerms: string[];
+  searchMode: 'or' | 'and' | 'exact';
+}) => {
+  if (searchTerms.length === 0) return null;
+
+  const metadataFields: { field: string; label: string }[] = [
+    { field: 'cohort_id', label: 'Cohort Name' },
+    { field: 'institution', label: 'Institution' },
+    { field: 'study_type', label: 'Study Type' },
+    { field: 'study_design', label: 'Study Design' },
+    { field: 'study_objective', label: 'Study Objective' },
+    { field: 'morbidity', label: 'Morbidity' },
+    { field: 'study_participants', label: 'Study Participants' },
+    { field: 'study_population', label: 'Study Population' },
+    { field: 'population_location', label: 'Population Location' },
+    { field: 'primary_outcome_spec', label: 'Primary Outcome Specification' },
+    { field: 'secondary_outcome_spec', label: 'Secondary Outcome Specification' },
+    { field: 'interventions', label: 'Interventions' },
+    { field: 'comparator', label: 'Comparator' },
+    { field: 'race_ethnicity', label: 'Race/Ethnicity' },
+    { field: 'part_of_study', label: 'Part of Study' },
+  ];
+
+  const cohortWithId = { ...cohortData, cohort_id: cohortId };
+
+  const matchedMetadata = metadataFields.filter(({ field }) =>
+    matchesSearchTerms((cohortWithId as any)[field], searchTerms, searchMode)
+  );
+
+  const searchableVarFields = ['var_name', 'var_label', 'concept_name', 'mapped_label', 'omop_domain', 'concept_code', 'omop_id'];
+  const searchableCatFields = ['value', 'label', 'mapped_label'];
+
+  const matchedVariables = Object.entries(cohortData.variables || {})
+    .filter(([varName, varData]: [string, any]) => {
+      const variableWithName = { ...varData, var_name: varName };
+      for (const field of searchableVarFields) {
+        if (matchesSearchTerms(variableWithName[field], searchTerms, searchMode)) return true;
+      }
+      if (varData.categories) {
+        for (const category of varData.categories) {
+          for (const field of searchableCatFields) {
+            if (matchesSearchTerms(category[field], searchTerms, searchMode)) return true;
+          }
+        }
+      }
+      return false;
+    })
+    .map(([varName, varData]: [string, any]) => ({ ...varData, var_name: varName }));
+
+  const hasResults = matchedMetadata.length > 0 || matchedVariables.length > 0;
+
+  if (!hasResults) {
+    return (
+      <div className="p-4 text-center text-gray-500">
+        No matches found in this cohort for &quot;{searchTerms.join(' ')}&quot;.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="p-2 bg-base-200 rounded-lg text-sm">
+        <span className="text-gray-600 dark:text-gray-400">🔍 </span>
+        Found <strong className="text-primary">{matchedMetadata.length}</strong> metadata section{matchedMetadata.length !== 1 ? 's' : ''} and{' '}
+        <strong className="text-primary">{matchedVariables.length}</strong> variable{matchedVariables.length !== 1 ? 's' : ''}
+      </div>
+
+      {matchedMetadata.length > 0 && (
+        <div className="space-y-2">
+          <h3 className="font-bold text-lg">Matching Metadata</h3>
+          {matchedMetadata.map(({ field, label }) => (
+            <div key={field} className="p-3 bg-base-200 rounded-lg">
+              <h4 className="font-semibold mb-1">{label}:</h4>
+              <p>
+                <HighlightedText text={String((cohortWithId as any)[field] || '')} searchTerms={searchTerms} searchMode={searchMode} />
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {matchedVariables.length > 0 && (
+        <div className="space-y-2">
+          <h3 className="font-bold text-lg">Matching Variables</h3>
+          {matchedVariables.map((variable: any) => (
+            <div key={variable.var_name} className="card card-compact card-bordered bg-base-100 shadow-xl">
+              <div className="card-body">
+                <div className="flex flex-wrap items-center space-x-3">
+                  <h2 className="font-bold text-lg">
+                    <HighlightedText text={variable.var_name} searchTerms={searchTerms} searchMode={searchMode} />
+                  </h2>
+                  <span className="badge badge-ghost">{variable.var_type}</span>
+                  {variable.units && <span className="badge badge-ghost">{variable.units}</span>}
+                  {variable.categories.length > 0 && (
+                    <span className="badge badge-ghost">🏷️ {variable.categories.length} categories</span>
+                  )}
+                  {variable.omop_domain && <span className="badge badge-default">{variable.omop_domain}</span>}
+                  {variable.concept_code && <span className="badge" style={{ backgroundColor: '#dbeafe', color: '#1e3a8a', border: '1px solid #bfdbfe' }}>{variable.concept_code}</span>}
+                  {variable.omop_id && <span className="badge" style={{ backgroundColor: '#dbeafe', color: '#1e3a8a', border: '1px solid #bfdbfe' }}>OMOP ID: {variable.omop_id}</span>}
+                </div>
+                <p>
+                  <HighlightedText text={variable.var_label || ''} searchTerms={searchTerms} searchMode={searchMode} />
+                </p>
+                {(variable.concept_name || variable.mapped_label) && (
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-600 dark:text-gray-400 mt-1">
+                    {variable.concept_name && (
+                      <span className="flex-shrink-0">
+                        <span className="font-semibold">Concept:</span>{' '}
+                        <HighlightedText text={variable.concept_name} searchTerms={searchTerms} searchMode={searchMode} />
+                      </span>
+                    )}
+                    {variable.mapped_label && (
+                      <span className="flex-shrink-0">
+                        <span className="font-semibold">Mapped:</span>{' '}
+                        <HighlightedText text={variable.mapped_label} searchTerms={searchTerms} searchMode={searchMode} />
+                      </span>
+                    )}
+                  </div>
+                )}
+                {variable.categories.length > 0 && (
+                  <div className="mt-2 space-y-1">
+                    {variable.categories.map((cat: any, idx: number) => {
+                      const catMatches = searchableCatFields.some(f => matchesSearchTerms(cat[f], searchTerms, searchMode));
+                      if (!catMatches) return null;
+                      return (
+                        <div key={idx} className="text-sm text-gray-600 dark:text-gray-400">
+                          <span className="badge badge-sm badge-ghost mr-2">
+                            <HighlightedText text={cat.value || ''} searchTerms={searchTerms} searchMode={searchMode} />
+                          </span>
+                          <HighlightedText text={cat.label || ''} searchTerms={searchTerms} searchMode={searchMode} />
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 export default function CohortsList() {
   const router = useRouter();
   const {cohortsData, userEmail, loadingMetrics, isLoading, fetchCohortsData, calculateStatistics, dataCleanRoom, setDataCleanRoom} = useCohorts();
@@ -447,6 +586,8 @@ export default function CohortsList() {
   const [analysisAvailability, setAnalysisAvailability] = useState<{[key: string]: boolean}>({});
   // State to track which cohorts are expanded
   const [expandedCohorts, setExpandedCohorts] = useState<{[key: string]: boolean}>({});
+  // State for per-cohort search queries
+  const [cohortSearchQueries, setCohortSearchQueries] = useState<{[key: string]: string}>({});
   // State to track which cohorts have collapsed metadata
   const [collapsedMetadata, setCollapsedMetadata] = useState<{[key: string]: boolean}>({});
   // State to track active sub-tab for each cohort ('metadata' | 'graphs' | 'list' | 'eda')
@@ -646,6 +787,31 @@ export default function CohortsList() {
       // When closing a cohort, reset its filters
       resetCohortFilters(cohortId);
     }
+  };
+
+  // Handle clicking a cohort in the search results table — expand it and activate per-cohort search
+  const handleSearchResultClick = (cohortId: string) => {
+    // Expand the cohort if not already expanded
+    if (!expandedCohorts[cohortId]) {
+      setExpandedCohorts(prev => ({ ...prev, [cohortId]: true }));
+      setActiveSubTab(prev => ({ ...prev, [cohortId]: 'metadata' }));
+      setShimmerActive(prev => ({ ...prev, [cohortId]: true }));
+      setTimeout(() => {
+        setShimmerActive(prev => ({ ...prev, [cohortId]: false }));
+      }, 1500);
+    }
+    // Set the per-cohort search query to the same terms as the main search
+    setCohortSearchQueries(prev => ({
+      ...prev,
+      [cohortId]: searchInput
+    }));
+    // Scroll to the cohort after a short delay to allow expansion
+    setTimeout(() => {
+      const el = document.getElementById(`cohort-card-${cohortId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 300);
   };
 
   // Function to toggle metadata collapse for a cohort
@@ -960,15 +1126,16 @@ export default function CohortsList() {
           
           {/* Search Results Display */}
           {searchInput.trim() && (
-            <div className="mt-2 p-2 bg-base-200 rounded-lg text-base">
+            <div className="mt-2 p-2 bg-base-200 rounded-lg text-base relative">
               <div className="flex items-start gap-3">
                 <span className="text-gray-600 dark:text-gray-400 mt-0.5">🔍</span>
-                <div className="flex-1">
-                  <SearchResultsDisplay 
+                <div className="flex-1 min-w-0">
+                  <SearchResultsTable
                     cohortsData={cohortsData as Record<string, Cohort>}
                     searchTerms={searchTerms}
                     searchMode={searchMode}
                     searchScope={searchScope}
+                    onCohortClick={handleSearchResultClick}
                   />
                   <EquivalentVariableNames
                     cohortsData={cohortsData as Record<string, Cohort>}
@@ -982,7 +1149,7 @@ export default function CohortsList() {
                     setSearchInput('');
                     setSearchQuery('');
                   }}
-                  className="btn btn-sm btn-outline btn-error hover:btn-error"
+                  className="btn btn-sm btn-outline btn-error hover:btn-error sticky top-2 z-50 shrink-0 shadow-lg"
                   title="Clear search and show all results"
                 >
                   ✕ Clear
@@ -1005,6 +1172,7 @@ export default function CohortsList() {
           {filteredCohorts.map((cohortData: Cohort) => (
             <div
               key={cohortData.cohort_id}
+              id={`cohort-card-${cohortData.cohort_id}`}
               className={`collapse card card-compact bg-base-100 shadow-xl ${!(Object.keys(cohortData.variables).length > 0) ? 'opacity-50' : ''}`}
             >
               <input 
@@ -1238,11 +1406,62 @@ export default function CohortsList() {
                         ✕ Close
                       </button>
                     </div>
+
+                    {/* Per-cohort search bar */}
+                    <div className="flex justify-center mb-4">
+                      <div className="flex items-center gap-2 w-full max-w-xl">
+                        <input
+                          type="text"
+                          placeholder={`Search within ${cohortData.cohort_id}...`}
+                          className="input input-bordered input-sm w-full"
+                          value={cohortSearchQueries[cohortData.cohort_id] || ''}
+                          onChange={(e) => {
+                            e.stopPropagation();
+                            setCohortSearchQueries(prev => ({
+                              ...prev,
+                              [cohortData.cohort_id]: e.target.value
+                            }));
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                        {cohortSearchQueries[cohortData.cohort_id] && (
+                          <button
+                            onClick={(e: React.MouseEvent) => {
+                              e.stopPropagation();
+                              setCohortSearchQueries(prev => {
+                                const next = { ...prev };
+                                delete next[cohortData.cohort_id];
+                                return next;
+                              });
+                            }}
+                            className="btn btn-sm btn-ghost btn-circle"
+                            title="Clear search"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   </>
                 )}
-                
-                {/* Study Metadata Tab Content */}
-                {(activeSubTab[cohortData.cohort_id] === 'metadata' || !activeSubTab[cohortData.cohort_id]) && (
+
+                {/* Per-cohort search results — shown above normal content when active */}
+                {(() => {
+                  const cohortSearchQ = cohortSearchQueries[cohortData.cohort_id] || '';
+                  const cohortSearchTerms = cohortSearchQ.trim().split(/\s+/).filter((t: string) => t.length > 0);
+                  if (cohortSearchTerms.length === 0) return null;
+                  return (
+                    <CohortSearchResults
+                      cohortId={cohortData.cohort_id}
+                      cohortData={cohortData}
+                      searchTerms={cohortSearchTerms}
+                      searchMode={searchMode}
+                    />
+                  );
+                })()}
+
+                {/* Study Metadata Tab Content — hidden when per-cohort search is active */}
+                {(!(cohortSearchQueries[cohortData.cohort_id] || '').trim()) && (activeSubTab[cohortData.cohort_id] === 'metadata' || !activeSubTab[cohortData.cohort_id]) && (
                   <>
                 {/* Display study objective section */}
                 {cohortData.study_objective && (
@@ -1611,8 +1830,8 @@ export default function CohortsList() {
                   </>
                 )}
                 
-                {/* Variables Graphs + List Tab Content */}
-                {activeSubTab[cohortData.cohort_id] === 'graphs' && (
+                {/* Variables Graphs + List Tab Content — hidden when per-cohort search is active */}
+                {!(cohortSearchQueries[cohortData.cohort_id] || '').trim() && activeSubTab[cohortData.cohort_id] === 'graphs' && (
                   <>
                     {/* Summary Graphs Section */}
                     <CohortSummaryGraphs 
@@ -1658,8 +1877,8 @@ export default function CohortsList() {
                   </>
                 )}
                 
-                {/* Variables List Only Tab Content */}
-                {activeSubTab[cohortData.cohort_id] === 'list' && (
+                {/* Variables List Only Tab Content — hidden when per-cohort search is active */}
+                {!(cohortSearchQueries[cohortData.cohort_id] || '').trim() && activeSubTab[cohortData.cohort_id] === 'list' && (
                   <VariablesList 
                     cohortId={cohortData.cohort_id} 
                     searchFilters={{
@@ -1684,8 +1903,8 @@ export default function CohortsList() {
                   />
                 )}
                 
-                {/* Analyses & Insights Tab Content */}
-                {activeSubTab[cohortData.cohort_id] === 'eda' && (
+                {/* Analyses & Insights Tab Content — hidden when per-cohort search is active */}
+                {!(cohortSearchQueries[cohortData.cohort_id] || '').trim() && activeSubTab[cohortData.cohort_id] === 'eda' && (
                   <EdaDashboard cohortId={cohortData.cohort_id} />
                 )}
               </div>
