@@ -987,45 +987,59 @@ function CohortMetadataComparison({ cohortsData, sourceCohort, selectedTargets }
   }, [cohortsData, sourceCohort, selectedTargets.join(',')]);
 
   const commonOmopIds = Object.keys(omopIdToVarNames);
-  const commonVarNames = cohortEntries.map((_, i) =>
-    commonOmopIds.map(omopId => omopIdToVarNames[omopId][i]).filter(v => v !== '')
-  );
 
-  // Compare Variable state
-  const [selectedOmopId, setSelectedOmopId] = React.useState<string>('');
-  const [edaData, setEdaData] = React.useState<Record<string, any>>({});
+  // Get variable label for a cohort+varName
+  function getVarLabel(cohortIdx: number, varName: string): string {
+    const data = cohortEntries[cohortIdx].data;
+    if (!data || !data.variables) return '';
+    const v = data.variables[varName];
+    return (v as any)?.var_label || (v as any)?.label || '';
+  }
+
+  // Compare Variable state — additive list
+  const [addedOmopIds, setAddedOmopIds] = React.useState<string[]>([]);
+  const [edaDataMap, setEdaDataMap] = React.useState<Record<string, any>>({});
   const [edaLoading, setEdaLoading] = React.useState(false);
-  const [edaError, setEdaError] = React.useState<string | null>(null);
+  const [dropdownOmopId, setDropdownOmopId] = React.useState<string>('');
 
-  // Fetch EDA for all cohorts when a variable is selected
+  // Fetch EDA for a cohort (cached in edaDataMap)
   React.useEffect(() => {
-    if (!selectedOmopId) { setEdaData({}); setEdaError(null); return; }
-    setEdaLoading(true); setEdaError(null); setEdaData({});
+    const cohortsToFetch = cohortEntries
+      .map(({ id }) => id)
+      .filter(id => !(id in edaDataMap));
+    if (cohortsToFetch.length === 0) return;
+    setEdaLoading(true);
     Promise.all(
-      cohortEntries.map(({ id }) =>
+      cohortsToFetch.map(id =>
         fetch(`/api/cohort-eda-output/${encodeURIComponent(id)}`, { credentials: 'include' })
           .then(r => r.ok ? r.json() : null)
           .catch(() => null)
           .then(data => [id, data] as [string, any])
       )
     ).then(results => {
-      const map: Record<string, any> = {};
-      for (const [id, data] of results) map[id] = data;
-      setEdaData(map);
+      setEdaDataMap(prev => {
+        const next = { ...prev };
+        for (const [id, data] of results) next[id] = data;
+        return next;
+      });
       setEdaLoading(false);
     });
-  }, [selectedOmopId, sourceCohort, selectedTargets.join(',')]);
+  }, [sourceCohort, selectedTargets.join(',')]);
 
   // Get EDA entry for a specific cohort + variable
-  function getEdaEntry(cohortIdx: number): any | null {
-    if (!selectedOmopId) return null;
+  function getEdaEntry(cohortIdx: number, varName: string): any | null {
+    if (!varName) return null;
     const cohortId = cohortEntries[cohortIdx].id;
-    const raw = edaData[cohortId];
+    const raw = edaDataMap[cohortId];
     if (!raw) return null;
-    const varName = omopIdToVarNames[selectedOmopId]?.[cohortIdx];
-    if (!varName || varName === '') return null;
-    // EDA JSON keys are lowercase variable names
     return raw[varName.toLowerCase()] || raw[varName] || null;
+  }
+
+  // Helper: parse participants number from string
+  function parseParticipants(d: any): number | null {
+    if (!d?.study_participants) return null;
+    const match = String(d.study_participants).replace(/[,\s]/g, '').match(/(\d+)/);
+    return match ? parseInt(match[1], 10) : null;
   }
 
   const baseRows: { label: string; render: (idx: number) => React.ReactNode }[] = [
@@ -1049,15 +1063,29 @@ function CohortMetadataComparison({ cohortsData, sourceCohort, selectedTargets }
     {
       label: 'Male %',
       render: (i) => {
-        const v = cohortEntries[i].data?.male_percentage;
-        return v != null ? `${v}%` : '—';
+        const d = cohortEntries[i].data;
+        const pct = d?.male_percentage;
+        if (pct == null) return '—';
+        const total = parseParticipants(d);
+        if (total != null) {
+          const raw = Math.round(total * pct / 100);
+          return `${pct}% (${raw.toLocaleString()})`;
+        }
+        return `${pct}%`;
       },
     },
     {
       label: 'Female %',
       render: (i) => {
-        const v = cohortEntries[i].data?.female_percentage;
-        return v != null ? `${v}%` : '—';
+        const d = cohortEntries[i].data;
+        const pct = d?.female_percentage;
+        if (pct == null) return '—';
+        const total = parseParticipants(d);
+        if (total != null) {
+          const raw = Math.round(total * pct / 100);
+          return `${pct}% (${raw.toLocaleString()})`;
+        }
+        return `${pct}%`;
       },
     },
     {
@@ -1077,94 +1105,121 @@ function CohortMetadataComparison({ cohortsData, sourceCohort, selectedTargets }
     },
     {
       label: 'Common OMOP IDs',
-      render: (i) => commonVarNames[i].length > 0 ? commonVarNames[i].join(', ') : '—',
+      render: (i) => {
+        if (commonOmopIds.length === 0) return '—';
+        return (
+          <div className="space-y-0.5">
+            {commonOmopIds.map(omopId => {
+              const varName = omopIdToVarNames[omopId][i];
+              const label = getVarLabel(i, varName);
+              return (
+                <div key={omopId}>
+                  <span className="font-medium">{varName}</span>
+                  {label && <span className="text-[10px] text-gray-500 ml-1">{label}</span>}
+                </div>
+              );
+            })}
+          </div>
+        );
+      },
     },
   ];
 
-  // EDA rows for selected variable
-  const edaRows: { label: string; render: (idx: number) => React.ReactNode }[] = selectedOmopId ? [
-    {
-      label: 'Variable Name',
-      render: (i) => {
-        const v = omopIdToVarNames[selectedOmopId]?.[i];
-        return v && v !== '' ? v : '—';
+  // Build EDA sub-rows for each added variable
+  const edaRowGroups: { omopId: string; rows: { label: string; render: (idx: number) => React.ReactNode }[] }[] = addedOmopIds.map(omopId => {
+    const varNames = omopIdToVarNames[omopId] || [];
+    const rows: { label: string; render: (idx: number) => React.ReactNode }[] = [
+      {
+        label: 'Variable Name',
+        render: (i) => {
+          const v = varNames[i];
+          if (!v) return '—';
+          const label = getVarLabel(i, v);
+          return (
+            <span>
+              <span className="font-medium">{v}</span>
+              {label && <span className="text-[10px] text-gray-500 ml-1">{label}</span>}
+            </span>
+          );
+        },
       },
-    },
-    {
-      label: 'Variable Type',
-      render: (i) => {
-        const e = getEdaEntry(i);
-        return e?.['type'] || '—';
+      {
+        label: 'Variable Type',
+        render: (i) => {
+          const e = getEdaEntry(i, varNames[i]);
+          return e?.['type'] || '—';
+        },
       },
-    },
-    {
-      label: 'Total Observations',
-      render: (i) => {
-        const e = getEdaEntry(i);
-        if (!e) return '—';
-        const obs = e['count of observations (ex. missing/empty)'];
-        return obs != null ? obs : '—';
+      {
+        label: 'Total Observations',
+        render: (i) => {
+          const e = getEdaEntry(i, varNames[i]);
+          if (!e) return '—';
+          const obs = e['count of observations (ex. missing/empty)'];
+          return obs != null ? obs : '—';
+        },
       },
-    },
-    {
-      label: 'Missing %',
-      render: (i) => {
-        const e = getEdaEntry(i);
-        if (!e) return '—';
-        const m = e['count missing'];
-        if (!m) return '—';
-        const match = String(m).match(/\((\d+\.?\d*)%\)/);
-        return match ? `${match[1]}%` : '—';
+      {
+        label: 'Missing %',
+        render: (i) => {
+          const e = getEdaEntry(i, varNames[i]);
+          if (!e) return '—';
+          const m = e['count missing'];
+          if (!m) return '—';
+          const match = String(m).match(/\((\d+\.?\d*)%\)/);
+          return match ? `${match[1]}%` : '—';
+        },
       },
-    },
-    {
-      label: 'Mean',
-      render: (i) => {
-        const e = getEdaEntry(i);
-        return e?.['mean'] != null ? Number(e['mean']).toFixed(2) : '—';
+      {
+        label: 'Mean',
+        render: (i) => {
+          const e = getEdaEntry(i, varNames[i]);
+          return e?.['mean'] != null ? Number(e['mean']).toFixed(2) : '—';
+        },
       },
-    },
-    {
-      label: 'Median',
-      render: (i) => {
-        const e = getEdaEntry(i);
-        return e?.['median'] != null ? e['median'] : '—';
+      {
+        label: 'Median',
+        render: (i) => {
+          const e = getEdaEntry(i, varNames[i]);
+          return e?.['median'] != null ? e['median'] : '—';
+        },
       },
-    },
-    {
-      label: 'Std Dev',
-      render: (i) => {
-        const e = getEdaEntry(i);
-        return e?.['std dev'] != null ? Number(e['std dev']).toFixed(2) : '—';
+      {
+        label: 'Std Dev',
+        render: (i) => {
+          const e = getEdaEntry(i, varNames[i]);
+          return e?.['std dev'] != null ? Number(e['std dev']).toFixed(2) : '—';
+        },
       },
-    },
-    {
-      label: 'Min',
-      render: (i) => {
-        const e = getEdaEntry(i);
-        return e?.['min'] != null ? e['min'] : '—';
+      {
+        label: 'Min',
+        render: (i) => {
+          const e = getEdaEntry(i, varNames[i]);
+          return e?.['min'] != null ? e['min'] : '—';
+        },
       },
-    },
-    {
-      label: 'Max',
-      render: (i) => {
-        const e = getEdaEntry(i);
-        return e?.['max'] != null ? e['max'] : '—';
+      {
+        label: 'Max',
+        render: (i) => {
+          const e = getEdaEntry(i, varNames[i]);
+          return e?.['max'] != null ? e['max'] : '—';
+        },
       },
-    },
-    {
-      label: 'Class Balance',
-      render: (i) => {
-        const e = getEdaEntry(i);
-        if (!e) return '—';
-        const cb = e['class balance'];
-        if (!cb) return '—';
-        return String(cb).split(/\n\t?/).map(s => s.trim()).filter(Boolean).join(', ');
+      {
+        label: 'Class Balance',
+        render: (i) => {
+          const e = getEdaEntry(i, varNames[i]);
+          if (!e) return '—';
+          const cb = e['class balance'];
+          if (!cb) return '—';
+          return String(cb).split(/\n\t?/).map(s => s.trim()).filter(Boolean).join(', ');
+        },
       },
-    },
-  ] : [];
+    ];
+    return { omopId, rows };
+  });
 
-  const allRows = [...baseRows, ...edaRows];
+  const availableOmopIds = commonOmopIds.filter(id => !addedOmopIds.includes(id));
 
   return (
     <div className="max-w-6xl mx-auto mt-6">
@@ -1172,21 +1227,52 @@ function CohortMetadataComparison({ cohortsData, sourceCohort, selectedTargets }
       <div className="overflow-x-auto border rounded-lg">
         <table className="table table-xs">
           <thead>
-            <tr>
-              <th className="sticky left-0 bg-base-100 z-10"></th>
+            <tr className="bg-base-300">
+              <th className="sticky left-0 z-10 bg-base-300"></th>
               {cohortEntries.map(({ id }) => (
-                <th key={id} className="text-center whitespace-nowrap">{id}</th>
+                <th key={id} className="text-center whitespace-nowrap bg-base-300">{id}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {allRows.map((row, ri) => (
-              <tr key={row.label} className={ri >= baseRows.length ? 'bg-base-200' : ''}>
-                <td className="font-medium sticky left-0 bg-base-100 z-10 whitespace-nowrap">{row.label}</td>
+            {/* Base cohort-level rows */}
+            {baseRows.map((row) => (
+              <tr key={row.label}>
+                <td className="font-medium sticky left-0 z-10 bg-base-100 whitespace-nowrap">{row.label}</td>
                 {cohortEntries.map((_, i) => (
                   <td key={i} className="text-xs align-top">{row.render(i)}</td>
                 ))}
               </tr>
+            ))}
+            {/* Variable sub-rows (indented, shaded) */}
+            {edaRowGroups.map((group, gi) => (
+              <React.Fragment key={group.omopId}>
+                {/* Separator row */}
+                <tr key={`sep-${group.omopId}`}>
+                  <td className="sticky left-0 z-10 bg-base-200" colSpan={cohortEntries.length + 1}>
+                    <div className="flex items-center gap-2 py-0.5">
+                      <span className="text-xs font-semibold text-gray-600">
+                        Variable: {omopIdToVarNames[group.omopId][0]}
+                      </span>
+                      <span className="text-[10px] text-gray-400">OMOP ID: {group.omopId}</span>
+                      <button
+                        className="btn btn-xs btn-ghost btn-circle text-xs"
+                        onClick={() => setAddedOmopIds(prev => prev.filter(id => id !== group.omopId))}
+                      >✕</button>
+                    </div>
+                  </td>
+                </tr>
+                {group.rows.map((row) => (
+                  <tr key={`${group.omopId}-${row.label}`} className="bg-base-200/50">
+                    <td className="sticky left-0 z-10 bg-base-200/50 whitespace-nowrap pl-4">
+                      <span className="text-xs text-gray-500">↳ {row.label}</span>
+                    </td>
+                    {cohortEntries.map((_, i) => (
+                      <td key={i} className="text-xs align-top">{row.render(i)}</td>
+                    ))}
+                  </tr>
+                ))}
+              </React.Fragment>
             ))}
           </tbody>
         </table>
@@ -1196,23 +1282,22 @@ function CohortMetadataComparison({ cohortsData, sourceCohort, selectedTargets }
         <span className="text-xs font-semibold opacity-60">Compare Variable:</span>
         <select
           className="select select-xs select-bordered max-w-xs"
-          value={selectedOmopId}
-          onChange={e => setSelectedOmopId(e.target.value)}
+          value={dropdownOmopId}
+          onChange={e => {
+            if (e.target.value) {
+              setAddedOmopIds(prev => [...prev, e.target.value]);
+              setDropdownOmopId('');
+            }
+          }}
         >
-          <option value="">— Select a common variable —</option>
-          {commonOmopIds.map(omopId => {
+          <option value="">— Select a common variable to add —</option>
+          {availableOmopIds.map(omopId => {
             const varNames = omopIdToVarNames[omopId];
             const label = varNames.map((v, i) => `${v} (${cohortEntries[i].id})`).join(' / ');
             return <option key={omopId} value={omopId}>{label}</option>;
           })}
         </select>
         {edaLoading && <span className="loading loading-spinner loading-xs"></span>}
-        {edaError && <span className="text-xs text-error">{edaError}</span>}
-        {selectedOmopId && !edaLoading && (() => {
-          const anyEda = cohortEntries.some((_, i) => getEdaEntry(i) !== null);
-          if (!anyEda) return <span className="text-xs text-gray-500">No EDA data available for selected cohorts</span>;
-          return null;
-        })()}
       </div>
     </div>
   );
@@ -1596,7 +1681,7 @@ export default function MappingPage() {
       )}
       <div className="w-full space-y-8">
         <div className="max-w-6xl mx-auto">
-          <h1 className="text-3xl font-bold text-center mb-8">Cohort Mapping</h1>
+          <h1 className="text-3xl font-bold text-center mb-4">Cohort Mapping</h1>
         </div>
 
         {/* Cohort selection - constrained width */}
@@ -1809,7 +1894,7 @@ export default function MappingPage() {
         )}
         </div>
 
-        <div className="text-center mt-8" ref={mapButtonRef}>
+        <div className="text-center mt-4" ref={mapButtonRef}>
           <button
             className="btn btn-primary"
             onClick={handleMapConcepts}
@@ -1826,11 +1911,6 @@ export default function MappingPage() {
           </button>
         </div>
         </div>
-
-        {/* Cohort Metadata Comparison Table — shown before and during mapping */}
-        {sourceCohort && selectedTargets.length > 0 && !mappingOutput && (
-          <CohortMetadataComparison cohortsData={cohortsData} sourceCohort={sourceCohort} selectedTargets={selectedTargets} />
-        )}
 
         {/* Success Message - only shown after mapping completes for uncached pairs */}
         <div className="max-w-6xl mx-auto">
@@ -1946,6 +2026,11 @@ export default function MappingPage() {
         {error && (
           <div className="mt-4 text-red-500 text-center">{error}</div>
         )}
+
+        {/* Cohort Metadata Comparison Table — shown before and during mapping */}
+        {sourceCohort && selectedTargets.length > 0 && !mappingOutput && (
+          <CohortMetadataComparison cohortsData={cohortsData} sourceCohort={sourceCohort} selectedTargets={selectedTargets} />
+        )}
         </div>
 
         {/* Mapping Preview - wider container, breaks out of max-w-6xl constraint */}
@@ -1955,12 +2040,14 @@ export default function MappingPage() {
             className="mt-4 p-4 border rounded-lg bg-base-100 w-[85vw] mx-auto animate-slide-up"
             style={{ animation: 'slideUp 0.4s ease-out' }}
           >
-            <h2 className="text-lg font-bold mb-3">Mapping Preview</h2>
+            <h2 className="text-lg font-bold mb-3">
+              {viewMode === 'metadata' ? 'Metadata Comparison' : viewMode === 'table' ? 'Mapping Preview (Table)' : 'Mapping Preview (Graph)'}
+            </h2>
 
             {/* View mode toggle */}
             <div className="flex items-center justify-center gap-2 mb-3 mt-1">
               <div className="join">
-                <button className={`join-item btn btn-lg ${viewMode === 'metadata' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setViewMode('metadata')}>📋 Metadata Table</button>
+                <button className={`join-item btn btn-lg ${viewMode === 'metadata' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setViewMode('metadata')}>Metadata</button>
                 <button className={`join-item btn btn-lg ${viewMode === 'table' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setViewMode('table')}>⊞ Table</button>
                 <button className={`join-item btn btn-lg ${viewMode === 'graph' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setViewMode('graph')}>⬡ Graph</button>
               </div>
