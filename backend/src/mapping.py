@@ -284,7 +284,7 @@ async def get_available_mapping_files(
     # Sort by timestamp descending so we encounter newest first
     available_mappings.sort(key=lambda x: x['timestamp'], reverse=True)
     for entry in available_mappings:
-        key = "_".join(sorted(entry['cohorts']))
+        key = "_".join(entry['cohorts'])
         if key not in seen:
             seen[key] = len(deduped)
             deduped.append(entry)

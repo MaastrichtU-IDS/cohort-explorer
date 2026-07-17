@@ -1245,11 +1245,18 @@ function CohortMetadataComparison({ cohortsData, sourceCohort, selectedTargets }
                 </tr>
                 {commonOmopExpanded && commonOmopIds.map(omopId => {
                   const varNames = omopIdToVarNames[omopId];
+                  const isExpanded = addedOmopIds.includes(omopId);
+                  const groupEdaRows = isExpanded ? edaRowGroups.find(g => g.omopId === omopId)?.rows : null;
                   return (
                     <React.Fragment key={omopId}>
-                      <tr className="bg-base-200/30">
+                      <tr
+                        className={`bg-base-200/30 cursor-pointer hover:bg-base-200/60 transition-colors`}
+                        onClick={() => setAddedOmopIds(prev => isExpanded ? prev.filter(id => id !== omopId) : [...prev, omopId])}
+                      >
                         <td className="sticky left-0 z-10 bg-base-200/30 whitespace-nowrap">
-                          <span className="text-xs font-mono text-gray-600">{omopId}</span>
+                          <span className="text-xs font-mono text-gray-600">
+                            {isExpanded ? '▼' : '▶'} {omopId}
+                          </span>
                         </td>
                         {cohortEntries.map((_, i) => {
                           const varName = varNames[i];
@@ -1262,6 +1269,17 @@ function CohortMetadataComparison({ cohortsData, sourceCohort, selectedTargets }
                           );
                         })}
                       </tr>
+                      {/* Inline EDA sub-rows when expanded */}
+                      {isExpanded && groupEdaRows && groupEdaRows.map((row) => (
+                        <tr key={`${omopId}-${row.label}`} className="bg-base-200/50">
+                          <td className="sticky left-0 z-10 bg-base-200/50 whitespace-nowrap pl-4">
+                            <span className="text-xs text-gray-500">↳ {row.label}</span>
+                          </td>
+                          {cohortEntries.map((_, i) => (
+                            <td key={i} className="text-xs align-top">{row.render(i)}</td>
+                          ))}
+                        </tr>
+                      ))}
                       {/* Blank separator row */}
                       <tr className="h-2">
                         <td className="sticky left-0 z-10 bg-base-100" colSpan={cohortEntries.length + 1}></td>
@@ -1271,36 +1289,6 @@ function CohortMetadataComparison({ cohortsData, sourceCohort, selectedTargets }
                 })}
               </>
             )}
-            {/* Variable sub-rows (indented, shaded) */}
-            {edaRowGroups.map((group, gi) => (
-              <React.Fragment key={group.omopId}>
-                {/* Separator row */}
-                <tr key={`sep-${group.omopId}`}>
-                  <td className="sticky left-0 z-10 bg-base-200" colSpan={cohortEntries.length + 1}>
-                    <div className="flex items-center gap-2 py-0.5">
-                      <span className="text-xs font-semibold text-gray-600">
-                        Variable: {omopIdToVarNames[group.omopId][0]}
-                      </span>
-                      <span className="text-[10px] text-gray-400">OMOP ID: {group.omopId}</span>
-                      <button
-                        className="btn btn-xs btn-ghost btn-circle text-xs"
-                        onClick={() => setAddedOmopIds(prev => prev.filter(id => id !== group.omopId))}
-                      >✕</button>
-                    </div>
-                  </td>
-                </tr>
-                {group.rows.map((row) => (
-                  <tr key={`${group.omopId}-${row.label}`} className="bg-base-200/50">
-                    <td className="sticky left-0 z-10 bg-base-200/50 whitespace-nowrap pl-4">
-                      <span className="text-xs text-gray-500">↳ {row.label}</span>
-                    </td>
-                    {cohortEntries.map((_, i) => (
-                      <td key={i} className="text-xs align-top">{row.render(i)}</td>
-                    ))}
-                  </tr>
-                ))}
-              </React.Fragment>
-            ))}
           </tbody>
         </table>
       </div>
