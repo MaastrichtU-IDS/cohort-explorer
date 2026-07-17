@@ -14,6 +14,9 @@ import {Users} from 'react-feather';
 import {parseSearchQuery, searchInObject, highlightSearchTerms} from '@/utils/search';
 import {apiUrl} from '@/utils';
 import EdaDashboard from '@/components/eda/EdaDashboard';
+import VariableGraphModal from '@/components/VariableGraphModal';
+import AutocompleteConcept from '@/components/AutocompleteConcept';
+import {InfoIcon} from '@/components/Icons';
 
 // Helper component to render highlighted text
 const HighlightedText = ({text, searchTerms, searchMode}: {text: string, searchTerms: string[], searchMode?: 'or' | 'and' | 'exact'}) => {
@@ -432,6 +435,35 @@ const CohortSearchResults = ({ cohortId, cohortData, searchTerms, searchMode }: 
   searchTerms: string[];
   searchMode: 'or' | 'and' | 'exact';
 }) => {
+  const {cohortsData, updateCohortData} = useCohorts();
+  const [openedModal, setOpenedModal] = useState('');
+  const [openedGraphModal, setOpenedGraphModal] = useState<string | null>(null);
+
+  // When concept is selected, insert the triples into the database
+  const handleConceptSelect = (varId: any, concept: any, categoryId: any = null) => {
+    const updatedCohortData = {...cohortsData[cohortId]};
+    const formData = new FormData();
+    formData.append('cohort_id', cohortId);
+    formData.append('var_id', varId);
+    formData.append('predicate', 'icare:mappedId');
+    formData.append('value', concept.id);
+    formData.append('label', concept.label);
+    if (categoryId !== null) {
+      formData.append('category_id', categoryId);
+      updatedCohortData.variables[varId]['categories'][categoryId]['mapped_id'] = concept.id;
+      updatedCohortData.variables[varId]['categories'][categoryId]['mapped_label'] = concept.label;
+    } else {
+      updatedCohortData.variables[varId]['mapped_id'] = concept.id;
+      updatedCohortData.variables[varId]['mapped_label'] = concept.label;
+    }
+    updateCohortData(cohortId, updatedCohortData);
+    fetch(`${apiUrl}/insert-triples`, {
+      method: 'POST',
+      body: formData,
+      credentials: 'include'
+    }).then(response => response.json()).then(() => {});
+  };
+
   if (searchTerms.length === 0) return null;
 
   const metadataFields: { field: string; label: string }[] = [
@@ -516,18 +548,49 @@ const CohortSearchResults = ({ cohortId, cohortData, searchTerms, searchMode }: 
           {matchedVariables.map((variable: any) => (
             <div key={variable.var_name} className="card card-compact card-bordered bg-base-100 shadow-xl">
               <div className="card-body">
-                <div className="flex flex-wrap items-center space-x-3">
-                  <h2 className="font-bold text-lg">
-                    <HighlightedText text={variable.var_name} searchTerms={searchTerms} searchMode={searchMode} />
-                  </h2>
-                  <span className="badge badge-ghost">{variable.var_type}</span>
-                  {variable.units && <span className="badge badge-ghost">{variable.units}</span>}
-                  {variable.categories.length > 0 && (
-                    <span className="badge badge-ghost">🏷️ {variable.categories.length} categories</span>
-                  )}
-                  {variable.omop_domain && <span className="badge badge-default">{variable.omop_domain}</span>}
-                  {variable.concept_code && <span className="badge" style={{ backgroundColor: '#dbeafe', color: '#1e3a8a', border: '1px solid #bfdbfe' }}>{variable.concept_code}</span>}
-                  {variable.omop_id && <span className="badge" style={{ backgroundColor: '#dbeafe', color: '#1e3a8a', border: '1px solid #bfdbfe' }}>OMOP ID: {variable.omop_id}</span>}
+                <div className="flex justify-between">
+                  <div className="flex flex-wrap items-center space-x-3">
+                    <h2 className="font-bold text-lg">
+                      <HighlightedText text={variable.var_name} searchTerms={searchTerms} searchMode={searchMode} />
+                    </h2>
+                    <span className="badge badge-ghost">{variable.var_type}</span>
+                    {variable.units && <span className="badge badge-ghost">{variable.units}</span>}
+                    {variable.categories.length > 0 && (
+                      <span className="badge badge-ghost">🏷️ {variable.categories.length} categories</span>
+                    )}
+                    {variable.omop_domain && <span className="badge badge-default">{variable.omop_domain}</span>}
+                    {variable.formula && <span className="badge badge-outline">🧪 {variable.formula}</span>}
+                    {variable.concept_code && <span className="badge" style={{ backgroundColor: '#dbeafe', color: '#1e3a8a', border: '1px solid #bfdbfe' }}>{variable.concept_code}</span>}
+                    {variable.omop_id && <span className="badge" style={{ backgroundColor: '#dbeafe', color: '#1e3a8a', border: '1px solid #bfdbfe' }}>OMOP ID: {variable.omop_id}</span>}
+                    <AutocompleteConcept
+                      query={variable.var_label}
+                      value={variable.mapped_id || variable.concept_id}
+                      domain={variable.omop_domain}
+                      index={`${cohortId}_${variable.var_name}_search`}
+                      tooltip={variable.mapped_label || variable.mapped_id || variable.concept_id}
+                      onSelect={(concept: any) => handleConceptSelect(variable.var_name, concept)}
+                      canEdit={cohortsData[cohortId]?.can_edit}
+                    />
+                    <button
+                      className="btn-sm hover:bg-base-300 rounded-lg"
+                      onClick={() => {
+                        setOpenedModal(variable.var_name);
+                        setTimeout(() => {
+                          (document.getElementById(`source_modal_search_${cohortId}_${variable.var_name}`) as HTMLDialogElement)?.showModal();
+                        }, 0);
+                      }}
+                    >
+                      <InfoIcon />
+                    </button>
+                    <button
+                      className="btn-sm hover:bg-base-300 rounded-lg"
+                      onClick={() => {
+                        setOpenedGraphModal(variable.var_name);
+                      }}
+                    >
+                      📊
+                    </button>
+                  </div>
                 </div>
                 <p>
                   <HighlightedText text={variable.var_label || ''} searchTerms={searchTerms} searchMode={searchMode} />
@@ -552,9 +615,8 @@ const CohortSearchResults = ({ cohortId, cohortData, searchTerms, searchMode }: 
                   <div className="mt-2 space-y-1">
                     {variable.categories.map((cat: any, idx: number) => {
                       const catMatches = searchableCatFields.some(f => matchesSearchTerms(cat[f], searchTerms, searchMode));
-                      if (!catMatches) return null;
                       return (
-                        <div key={idx} className="text-sm text-gray-600 dark:text-gray-400">
+                        <div key={idx} className={`text-sm text-gray-600 dark:text-gray-400 ${catMatches ? '' : 'opacity-60'}`}>
                           <span className="badge badge-sm badge-ghost mr-2">
                             <HighlightedText text={cat.value || ''} searchTerms={searchTerms} searchMode={searchMode} />
                           </span>
@@ -564,11 +626,118 @@ const CohortSearchResults = ({ cohortId, cohortData, searchTerms, searchMode }: 
                     })}
                   </div>
                 )}
+
+                {/* Source info modal */}
+                {openedModal === variable.var_name && (
+                  <dialog id={`source_modal_search_${cohortId}_${variable.var_name}`} className="modal">
+                    <div className="modal-box space-y-2 max-w-none w-fit">
+                      <div className="flex justify-between items-start items-center">
+                        <div>
+                          <h5 className="font-bold text-lg">{variable.var_name}</h5>
+                        </div>
+                        <div className="ml-8">
+                          <AutocompleteConcept
+                            query={variable.var_label}
+                            value={variable.mapped_id || variable.concept_id}
+                            domain={variable.omop_domain}
+                            index={`${cohortId}_${variable.var_name}_search_inside`}
+                            tooltip={variable.mapped_label || variable.mapped_id || variable.concept_id}
+                            onSelect={(concept: any) => handleConceptSelect(variable.var_name, concept)}
+                            canEdit={cohortsData[cohortId]?.can_edit}
+                          />
+                        </div>
+                      </div>
+                      <p className="py-2 lg:mr-32">{variable.var_label}</p>
+                      <p>
+                        Type: {variable.categorical ? 'Categorical ' : ''}
+                        {variable.var_type}
+                      </p>
+                      {variable.units && (
+                        <p>
+                          Unit: <span className="badge badge-ghost mx-2">{variable.units}</span>
+                        </p>
+                      )}
+                      {(variable.min || variable.max) && (
+                        <p>
+                          Min: {variable.min} {variable.units} | Max: {variable.max} {variable.units}
+                        </p>
+                      )}
+                      {variable.categories.length > 0 && (
+                        <table className="table w-full">
+                          <thead>
+                            <tr>
+                              <th>Category value</th>
+                              <th>Meaning</th>
+                              <th>Map to concept</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {variable.categories.map((option: any, index: number) => (
+                              <tr key={index}>
+                                <td>
+                                  <HighlightedText text={option.value || ''} searchTerms={searchTerms} searchMode={searchMode} />
+                                </td>
+                                <td>
+                                  <HighlightedText text={option.label || ''} searchTerms={searchTerms} searchMode={searchMode} />
+                                </td>
+                                <td>
+                                  <AutocompleteConcept
+                                    query={option.label}
+                                    index={`${cohortId}_${variable.var_name}_search_category_${index}`}
+                                    value={option.mapped_id || option.concept_id}
+                                    tooltip={option.mapped_label || option.mapped_id || option.concept_id}
+                                    onSelect={concept => handleConceptSelect(variable.var_name, concept, index)}
+                                    canEdit={cohortsData[cohortId]?.can_edit}
+                                  />
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                      {variable.formula && (
+                        <p>
+                          Formula: <code className="p-1 bg-base-300 rounded-md">{variable.formula}</code>
+                        </p>
+                      )}
+                      {variable.definition && <p>Definition: {variable.definition}</p>}
+                      {variable.visit_concept_name && <p>Visit concept name: {variable.visit_concept_name}</p>}
+                      {variable.visits && <p>Visit: {variable.visits}</p>}
+                      {variable.frequency && <p>Frequency: {variable.frequency}</p>}
+                      {variable.duration && <p>Duration: {variable.duration}</p>}
+                      {variable.omop_domain && (
+                        <p>
+                          OMOP Domain: <span className="badge badge-ghost">{variable.omop_domain}</span>
+                        </p>
+                      )}
+                    </div>
+                    <form method="dialog" className="modal-backdrop">
+                      <button>close</button>
+                    </form>
+                  </dialog>
+                )}
               </div>
             </div>
           ))}
         </div>
       )}
+
+      {/* Graph modal — rendered outside the card loop */}
+      {openedGraphModal && (() => {
+        const variable = matchedVariables.find((v: any) => v.var_name === openedGraphModal);
+        if (!variable) return null;
+        return (
+          <VariableGraphModal
+            isOpen={true}
+            cohortId={cohortId}
+            variableName={variable.var_name}
+            variableLabel={variable.var_label}
+            omopId={variable.omop_id}
+            conceptCode={variable.concept_code}
+            onClose={() => setOpenedGraphModal(null)}
+          />
+        );
+      })()}
     </div>
   );
 };
@@ -615,7 +784,22 @@ export default function CohortsList() {
 
   // Debounced search for better performance
   const [searchInput, setSearchInput] = useState('');
-  
+  // State to show back-to-top button when scrolled past search box
+  const [showBackToTop, setShowBackToTop] = useState(false);
+
+  // Scroll listener — show back-to-top when user scrolls past the search box
+  useEffect(() => {
+    const handleScroll = () => {
+      const searchBox = document.getElementById('search-box');
+      if (searchBox) {
+        const rect = searchBox.getBoundingClientRect();
+        setShowBackToTop(rect.bottom < 0);
+      }
+    };
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
   // Debounce the search query update
   useEffect(() => {
     const timeoutId = setTimeout(() => {
@@ -1050,7 +1234,7 @@ export default function CohortsList() {
       </aside>
 
       <div className="w-full">
-        <div className="mb-8 p-4 border border-base-300 rounded-lg bg-base-100 w-fit">
+        <div id="search-box" className="mb-8 p-4 border border-base-300 rounded-lg bg-base-100 w-fit">
           <input
             type="text"
             placeholder={searchScope === 'all' ? "Search cohorts and variables..." : searchScope === 'cohorts' ? "Search cohort metadata..." : "Search variable information..."}
@@ -1144,20 +1328,43 @@ export default function CohortsList() {
                     searchScope={searchScope}
                   />
                 </div>
-                <button
-                  onClick={() => {
-                    setSearchInput('');
-                    setSearchQuery('');
-                  }}
-                  className="btn btn-sm btn-outline btn-error hover:btn-error sticky top-2 z-50 shrink-0 shadow-lg"
-                  title="Clear search and show all results"
-                >
-                  ✕ Clear
-                </button>
               </div>
             </div>
           )}
         </div>
+
+        {/* Fixed clear search button — always visible */}
+        {searchInput.trim() && (
+          <button
+            onClick={() => {
+              setSearchInput('');
+              setSearchQuery('');
+              setExpandedCohorts({});
+              setActiveSubTab({});
+              setCohortSearchQueries({});
+            }}
+            className="fixed bottom-6 right-6 z-[9999] btn btn-sm btn-error shadow-lg"
+            title="Clear search and collapse all cohorts"
+          >
+            ✕ Clear Search
+          </button>
+        )}
+
+        {/* Fixed back-to-top button — appears when scrolled past search box */}
+        {showBackToTop && (
+          <button
+            onClick={() => {
+              setExpandedCohorts({});
+              setActiveSubTab({});
+              setCohortSearchQueries({});
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            className="fixed bottom-6 left-6 z-[9999] btn btn-sm btn-outline btn-neutral shadow-lg"
+            title="Back to top and collapse all cohorts"
+          >
+            ↑ Back to Top
+          </button>
+        )}
 
         <div className="space-y-2">
           {userEmail !== null && Object.keys(cohortsData).length === 0 && (

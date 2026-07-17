@@ -998,6 +998,8 @@ function CohortMetadataComparison({ cohortsData, sourceCohort, selectedTargets }
 
   // Compare Variable state — additive list
   const [addedOmopIds, setAddedOmopIds] = React.useState<string[]>([]);
+  // Common OMOP IDs collapsed by default
+  const [commonOmopExpanded, setCommonOmopExpanded] = React.useState(false);
   const [edaDataMap, setEdaDataMap] = React.useState<Record<string, any>>({});
   const [edaLoading, setEdaLoading] = React.useState(false);
   const [dropdownOmopId, setDropdownOmopId] = React.useState<string>('');
@@ -1102,26 +1104,6 @@ function CohortMetadataComparison({ cohortsData, sourceCohort, selectedTargets }
     {
       label: 'Study Objective',
       render: (i) => cohortEntries[i].data?.study_objective || '—',
-    },
-    {
-      label: 'Common OMOP IDs',
-      render: (i) => {
-        if (commonOmopIds.length === 0) return '—';
-        return (
-          <div className="space-y-0.5">
-            {commonOmopIds.map(omopId => {
-              const varName = omopIdToVarNames[omopId][i];
-              const label = getVarLabel(i, varName);
-              return (
-                <div key={omopId}>
-                  <span className="font-medium">{varName}</span>
-                  {label && <span className="text-[10px] text-gray-500 ml-1">{label}</span>}
-                </div>
-              );
-            })}
-          </div>
-        );
-      },
     },
   ];
 
@@ -1244,6 +1226,51 @@ function CohortMetadataComparison({ cohortsData, sourceCohort, selectedTargets }
                 ))}
               </tr>
             ))}
+            {/* Common OMOP IDs — collapsible section, only when 2+ cohorts */}
+            {allCohorts.length > 1 && (
+              <>
+                <tr>
+                  <td className="font-medium sticky left-0 z-10 bg-base-100 whitespace-nowrap">
+                    <button
+                      className="btn btn-xs btn-ghost gap-1 px-1"
+                      onClick={() => setCommonOmopExpanded(prev => !prev)}
+                    >
+                      {commonOmopExpanded ? '▼' : '▶'} Common OMOP IDs
+                    </button>
+                    <span className="text-xs text-gray-400 ml-1">({commonOmopIds.length})</span>
+                  </td>
+                  {cohortEntries.map((_, i) => (
+                    <td key={i} className="text-xs align-top bg-base-100"></td>
+                  ))}
+                </tr>
+                {commonOmopExpanded && commonOmopIds.map(omopId => {
+                  const varNames = omopIdToVarNames[omopId];
+                  return (
+                    <React.Fragment key={omopId}>
+                      <tr className="bg-base-200/30">
+                        <td className="sticky left-0 z-10 bg-base-200/30 whitespace-nowrap">
+                          <span className="text-xs font-mono text-gray-600">{omopId}</span>
+                        </td>
+                        {cohortEntries.map((_, i) => {
+                          const varName = varNames[i];
+                          const label = getVarLabel(i, varName);
+                          return (
+                            <td key={i} className="text-xs align-top">
+                              <span className="font-medium">{varName}</span>
+                              {label && <span className="text-[10px] text-gray-500 ml-1">{label}</span>}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                      {/* Blank separator row */}
+                      <tr className="h-2">
+                        <td className="sticky left-0 z-10 bg-base-100" colSpan={cohortEntries.length + 1}></td>
+                      </tr>
+                    </React.Fragment>
+                  );
+                })}
+              </>
+            )}
             {/* Variable sub-rows (indented, shaded) */}
             {edaRowGroups.map((group, gi) => (
               <React.Fragment key={group.omopId}>
@@ -1277,7 +1304,8 @@ function CohortMetadataComparison({ cohortsData, sourceCohort, selectedTargets }
           </tbody>
         </table>
       </div>
-      {/* Compare Variable dropdown */}
+      {/* Compare Variable dropdown — only when 2+ cohorts */}
+      {allCohorts.length > 1 && (
       <div className="flex items-center gap-2 mt-3">
         <span className="text-xs font-semibold opacity-60">Compare Variable:</span>
         <select
@@ -1299,6 +1327,7 @@ function CohortMetadataComparison({ cohortsData, sourceCohort, selectedTargets }
         </select>
         {edaLoading && <span className="loading loading-spinner loading-xs"></span>}
       </div>
+      )}
     </div>
   );
 }
