@@ -26,6 +26,7 @@ from CohortVarLinker.src.utils import (
         publish_graph_to_endpoint,
         OntologyNamespaces,
         get_member_studies,
+        graph_exists,
     )
 from typing import Any
 from CohortVarLinker.src.data_model import MappingType, EmbeddingType
@@ -554,14 +555,38 @@ def combine_all_mappings_to_json(source_study, target_studies, output_dir, json_
     _write_mapping_meta(json_path, final_json, graph_recreated=graph_recreated, mapping_time=mapping_time)
       
 def _check_graphs_need_recreate(cohort_ids, cohort_file_path) -> bool:
-    """Check if any cohort dictionaries are newer than their existing graph files.
+    """Check if any cohort dictionaries are newer than their existing graph files,
+    or if the graphs are missing from the triplestore.
     
-    Returns True if any dictionary is newer than its graph file,
-    or if any graph file is missing.
+    Returns True if:
+      - Any dictionary is newer than its graph file on disk, OR
+      - Any graph file is missing on disk, OR
+      - Any cohort graph is missing from the triplestore.
     """
     base_path = os.path.dirname(os.path.abspath(__file__))
     graphs_dir = os.path.join(base_path, "data", "graphs")
+
+    # Check the shared studies_metadata graph first
+    studies_graph_uri = OntologyNamespaces.CMEO.value["graph/studies_metadata"]
+    try:
+        if not graph_exists(studies_graph_uri):
+            print(f"Studies metadata graph missing in triplestore ({studies_graph_uri}), need recreate")
+            return True
+    except Exception as e:
+        print(f"Error checking triplestore for studies_metadata: {e}, assuming recreate needed")
+        return True
+
     for cid in cohort_ids:
+        # Check triplestore — if the graph isn't there, we must recreate
+        cohort_graph_uri = get_cohort_mapping_uri(cid)
+        try:
+            if not graph_exists(cohort_graph_uri):
+                print(f"Graph missing in triplestore for {cid} ({cohort_graph_uri}), need recreate")
+                return True
+        except Exception as e:
+            print(f"Error checking triplestore for {cid}: {e}, assuming recreate needed")
+            return True
+
         cohort_dir = os.path.join(cohort_file_path, cid)
         if not os.path.isdir(cohort_dir):
             continue
