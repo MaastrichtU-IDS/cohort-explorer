@@ -15,6 +15,7 @@ import {
   projectDcrWizard
 } from '@/utils/dcrProvider';
 import {buildDcrWizardRequest, sortedEnabledKeys} from '@/utils/dcrWizardRequest';
+import {abortOnPageExit} from '@/utils/pageExit';
 
 // Not used: Next Auth.js: https://authjs.dev/getting-started/providers/oauth-tutorial
 // Auth0: https://github.com/nextauthjs/next-auth/blob/main/packages/core/src/providers/auth0.ts
@@ -85,31 +86,44 @@ export function Nav() {
       return;
     }
 
-    const controller = new AbortController();
+    let controller: AbortController | null = null;
+    let stopAbortingOnPageExit = () => {};
     setDcrProviderUi(null);
     setDcrProviderError(null);
-    fetch(`${apiUrl}/api/dcr/provider`, {
-      credentials: 'include',
-      signal: controller.signal
-    })
-      .then(async response => {
-        if (!response.ok) throw new Error(`Provider request failed: ${response.status}`);
-        return response.json();
+    const loadDcrProvider = () => {
+      controller?.abort();
+      stopAbortingOnPageExit();
+      controller = new AbortController();
+      const requestController = controller;
+      stopAbortingOnPageExit = abortOnPageExit(controller, window, loadDcrProvider);
+      fetch(`${apiUrl}/api/dcr/provider`, {
+        credentials: 'include',
+        signal: requestController.signal
       })
-      .then(data => {
-        setDcrProviderUi(projectConfiguredDcrProvider(data?.provider, data?.capabilities));
-        setDcrProviderError(null);
-      })
-      .catch(error => {
-        if (error?.name !== 'AbortError') {
-          console.error('Error loading the configured DCR provider', error?.message || error);
-          setDcrProviderError(
-            'Unable to load the configured Data Clean Room provider. Wizard creation is disabled.'
-          );
-        }
-      });
+        .then(async response => {
+          if (!response.ok) throw new Error(`Provider request failed: ${response.status}`);
+          return response.json();
+        })
+        .then(data => {
+          if (requestController.signal.aborted) return;
+          setDcrProviderUi(projectConfiguredDcrProvider(data?.provider, data?.capabilities));
+          setDcrProviderError(null);
+        })
+        .catch(error => {
+          if (!requestController.signal.aborted && error?.name !== 'AbortError') {
+            console.error('Error loading the configured DCR provider', error?.message || error);
+            setDcrProviderError(
+              'Unable to load the configured Data Clean Room provider. Wizard creation is disabled.'
+            );
+          }
+        });
+    };
+    loadDcrProvider();
 
-    return () => controller.abort();
+    return () => {
+      stopAbortingOnPageExit();
+      controller?.abort();
+    };
   }, [userEmail]);
 
   // Provider-specific wizard capabilities are projected in one pure helper so

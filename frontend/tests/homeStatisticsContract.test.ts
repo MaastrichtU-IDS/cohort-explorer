@@ -33,4 +33,17 @@ describe('home statistics authority contract', () => {
     expect(contextSource).toContain('statisticsAbortController.current?.abort()');
     expect(contextSource).toContain('controller.signal.aborted || generation !== statisticsGeneration.current');
   });
+
+  it('stops worker callbacks and aggregate checks when the document starts exiting', () => {
+    expect(contextSource).toContain("window.addEventListener('pagehide', abortForPageExit)");
+    expect(contextSource).toContain("window.removeEventListener('pagehide', abortForPageExit)");
+    expect(contextSource).toContain('if (pageExiting.current) return');
+  });
+
+  it('restarts metadata and statistics after a persisted page is restored', () => {
+    expect(contextSource).toContain("window.addEventListener('pageshow', restartAfterPageRestore)");
+    expect(contextSource).toContain("window.removeEventListener('pageshow', restartAfterPageRestore)");
+    expect(contextSource).toContain('if (!event.persisted) return');
+    expect(contextSource).toContain('startWorkerFetch()');
+  });
 });

@@ -3,11 +3,13 @@ import pandas as pd
 # import pstats
 from SPARQLWrapper import SPARQLWrapper, JSON
 from collections import defaultdict
+import hashlib
 import os
 import glob
 import time
 import json
 import sys
+from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 try:
@@ -37,6 +39,8 @@ from CohortVarLinker.src.constraints import CategoryMapper
 from CohortVarLinker.src.embed_model import get_model
 from CohortVarLinker.src.omop_graph_nx import OmopGraphNX
 from CohortVarLinker.validate_cde import get_omop_graph
+from CohortVarLinker.cache import require_cached_mapping_csvs, select_cached_mapping_csv
+from src.mapping_artifacts import publish_mapping_json
 
 
 def clear_all_caches():
@@ -484,8 +488,16 @@ def combine_cross_mappings(
   
   
 
-def _write_mapping_meta(json_path: str, final_json: dict) -> None:
-    """Compute stats from a mapping dict and write a sidecar .meta.json file."""
+def _sha256_file(path: str) -> str:
+    hasher = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
+def _mapping_meta(final_json: dict, provenance: dict | None = None) -> dict:
+    """Compute mapping statistics and merge them into provenance."""
     total = 0
     harm_counts: dict[str, int] = {}
     rel_counts: dict[str, int] = {}
@@ -498,42 +510,45 @@ def _write_mapping_meta(json_path: str, final_json: dict) -> None:
             mr = str(m.get("mapping_relation") or "")
             harm_counts[hs] = harm_counts.get(hs, 0) + 1
             rel_counts[mr] = rel_counts.get(mr, 0) + 1
-    meta = {
+    meta = dict(provenance or {})
+    meta.update({
         "total_mappings": total,
         "harmonization_status": harm_counts,
         "mapping_relation": rel_counts,
-    }
-    meta_path = json_path + ".meta.json"
-    with open(meta_path, "w", encoding="utf-8") as f:
-        json.dump(meta, f, indent=2, ensure_ascii=False)
-    print(f"📊 Mapping stats saved to {meta_path}")
+    })
+    return meta
 
 
-def find_cached_csv(source_study, target_study, output_dir):
-    """Find the most recent cached CSV file for a source→target pair.
-
-    Normalizes both names to lowercase (preserving dashes) and searches
-    only in output_dir for any .csv file whose name starts with
-    {source}_{target}_.
-    Returns the path to the most recent match, or None if not found.
-    """
-    source = source_study.lower()
-    target = target_study.lower()
-    pattern = f"{source}_{target}_*.csv"
-    matches = glob.glob(os.path.join(output_dir, pattern))
-    if not matches:
-        return None
-    return max(matches, key=os.path.getmtime)
+def find_cached_csv(
+    source_study,
+    target_study,
+    output_dir,
+    cohort_file_path=None,
+):
+    """Find the newest fresh, provenance-safe normal-provider CSV."""
+    cohort_file_path = cohort_file_path or settings.cohort_folder
+    selected = select_cached_mapping_csv(
+        source_study,
+        target_study,
+        output_dir,
+        cohorts_root=cohort_file_path,
+    )
+    return str(selected) if selected is not None else None
 
 
 def combine_all_mappings_to_json(source_study, target_studies, output_dir, json_path,
-                                model_name=None, llm_tag=None, mapping_mode=None):
+                                model_name=None, llm_tag=None, mapping_mode=None,
+                                cohort_file_path=None):
+    cohort_file_path = cohort_file_path or settings.cohort_folder
+    selected_files = require_cached_mapping_csvs(
+        source_study,
+        target_studies,
+        output_dir,
+        cohorts_root=cohort_file_path,
+    )
     mappings = {}
     for target in target_studies:
-        csv_file = find_cached_csv(source_study, target, output_dir)
-        if not csv_file:
-            print(f"⚠️ Missing CSV for {source_study} → {target} in {output_dir}")
-            continue
+        csv_file = str(selected_files[target.strip().casefold()])
         df = pd.read_csv(csv_file)
         for _, row in df.iterrows():
             src_var = str(row["source"]).strip()
@@ -543,10 +558,30 @@ def combine_all_mappings_to_json(source_study, target_studies, output_dir, json_
             entry = {"target_study": target, **row_dict}
             mappings.setdefault(src_var, []).append(entry)
     final_json = {k: {"from": source_study, "mappings": v} for k, v in mappings.items()}
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(final_json, f, indent=2, ensure_ascii=False, default=str)
+    selected_names = [path.name for path in selected_files.values()]
+    output_hashes = {
+        path.name: _sha256_file(str(path))
+        for path in selected_files.values()
+    }
+    provenance = _mapping_meta(
+        final_json,
+        {
+            "provider": "cohortvarlinker",
+            "synthetic": False,
+            "parameters": {
+                "source_study": source_study,
+                "target_studies": list(target_studies),
+                "model_name": model_name,
+                "llm_tag": llm_tag,
+                "mapping_mode": mapping_mode,
+            },
+            "selected_sources": selected_names,
+            "output_sha256": output_hashes,
+        },
+    )
+    publish_mapping_json(Path(json_path), final_json, provenance)
     print(f"✅ saved {len(final_json)} source vars → {json_path}")
-    _write_mapping_meta(json_path, final_json)
+    print(f"📊 Mapping stats saved to {json_path}.meta.json")
       
 def generate_mapping_csv(
     source_study,
@@ -640,7 +675,12 @@ def generate_mapping_csv(
     all_exist = True
     
     for tstudy in target_studies:
-        cached_path = find_cached_csv(source_study, tstudy, output_dir)
+        cached_path = find_cached_csv(
+            source_study,
+            tstudy,
+            output_dir,
+            cohort_file_path=cohort_file_path,
+        )
         print(f"Checking cache for {source_study} → {tstudy}: {'found ' + cached_path if cached_path else 'not found'}")
         
         if cached_path:
@@ -675,7 +715,8 @@ def generate_mapping_csv(
                 json_path=os.path.join(output_dir, f"{source_study}_{tstudy_str}_{model_name}+{llm_tag}_{mapping_mode}.json"),
                 model_name=model_name,
                 llm_tag=llm_tag,
-                mapping_mode=mapping_mode)
+                mapping_mode=mapping_mode,
+                cohort_file_path=cohort_file_path)
         
         return cache_info
             
@@ -723,7 +764,12 @@ def generate_mapping_csv(
     )
 
     for tstudy in target_studies:
-        cached_path = find_cached_csv(source_study, tstudy, output_dir)
+        cached_path = find_cached_csv(
+            source_study,
+            tstudy,
+            output_dir,
+            cohort_file_path=cohort_file_path,
+        )
         if cached_path:
             log_detail(PROCESS_CVL, "pair_cached",
                       f"Mapping {source_study} -> {tstudy} already exists, skipping",
@@ -768,7 +814,8 @@ def generate_mapping_csv(
         json_path=os.path.join(output_dir, f"{source_study}_{tstudy_str}_{model_name}+{llm_tag}_{mapping_mode}.json"),
         model_name=model_name,
         llm_tag=llm_tag,
-        mapping_mode=mapping_mode)
+        mapping_mode=mapping_mode,
+        cohort_file_path=cohort_file_path)
     
     return cache_info
 

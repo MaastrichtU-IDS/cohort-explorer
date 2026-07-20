@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import fcntl
+import hashlib
 import json
 import os
 import tempfile
@@ -57,6 +58,33 @@ def atomic_write_bytes(path: Path, content: bytes) -> None:
         temporary.unlink(missing_ok=True)
 
 
+def publish_mapping_json(
+    path: Path,
+    value: object,
+    provenance: dict[str, Any],
+) -> dict[str, Any]:
+    """Atomically publish JSON, then its hash-attested completion sidecar."""
+    path = Path(path)
+    content = (
+        json.dumps(value, indent=2, ensure_ascii=False, default=str) + "\n"
+    ).encode("utf-8")
+    metadata = dict(provenance)
+    output_hashes = metadata.get("output_sha256", {})
+    metadata["output_sha256"] = {
+        **(output_hashes if isinstance(output_hashes, dict) else {}),
+        path.name: hashlib.sha256(content).hexdigest(),
+    }
+    sidecar_content = (
+        json.dumps(metadata, indent=2, ensure_ascii=False, default=str) + "\n"
+    ).encode("utf-8")
+
+    # The sidecar is the completion marker. A reader rejects the JSON until
+    # this second atomic replacement attests the exact bytes now at ``path``.
+    atomic_write_bytes(path, content)
+    atomic_write_bytes(path.with_name(f"{path.name}.meta.json"), sidecar_content)
+    return metadata
+
+
 class MappingArtifactStore:
     """List, validate, retrieve, and freshness-check one configured directory."""
 
@@ -102,6 +130,31 @@ class MappingArtifactStore:
         except (OSError, json.JSONDecodeError):
             return None
         return value if isinstance(value, dict) else None
+
+    def _verified_result_sidecar(self, path: Path) -> dict[str, Any] | None:
+        metadata = self._read_sidecar(path)
+        if metadata is None:
+            return None
+        provider = str(metadata.get("provider", "")).strip().casefold()
+        synthetic = metadata.get("synthetic")
+        if not (
+            (provider == "fixture" and synthetic is True)
+            or (provider == "cohortvarlinker" and synthetic is False)
+        ):
+            return None
+        output_hashes = metadata.get("output_sha256", {})
+        expected = output_hashes.get(path.name) if isinstance(output_hashes, dict) else None
+        if not isinstance(expected, str):
+            return None
+        try:
+            content = path.read_bytes()
+            parsed = json.loads(content)
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+            return None
+        if not isinstance(parsed, dict):
+            return None
+        actual = hashlib.sha256(content).hexdigest()
+        return metadata if actual == expected.casefold() else None
 
     @staticmethod
     def _normal_target(value: Any) -> str:
@@ -255,6 +308,8 @@ class MappingArtifactStore:
         matches: list[MappingArtifact] = []
         for path in self.output_dir.glob("*.json"):
             if path.name.casefold().endswith(".meta.json"):
+                continue
+            if self._verified_result_sidecar(path) is None:
                 continue
             artifact = self.artifact_for(path)
             if artifact is None or artifact.cohorts[0] != source:

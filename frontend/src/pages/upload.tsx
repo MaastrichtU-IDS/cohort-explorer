@@ -11,6 +11,7 @@ import {
   projectDcrProvider,
   projectDcrUpload
 } from '@/utils/dcrProvider';
+import {abortOnPageExit} from '@/utils/pageExit';
 
 // Helper component for wizard steps
 const WizardSteps = ({currentStep}: {currentStep: number}) => {
@@ -85,31 +86,44 @@ export default function UploadPage() {
       return;
     }
 
-    const controller = new AbortController();
+    let controller: AbortController | null = null;
+    let stopAbortingOnPageExit = () => {};
     setDcrProviderUi(null);
     setDcrProviderError(null);
-    fetch(`${apiUrl}/api/dcr/provider`, {
-      credentials: 'include',
-      signal: controller.signal
-    })
-      .then(async response => {
-        if (!response.ok) throw new Error(`Provider request failed: ${response.status}`);
-        return response.json();
+    const loadDcrProvider = () => {
+      controller?.abort();
+      stopAbortingOnPageExit();
+      controller = new AbortController();
+      const requestController = controller;
+      stopAbortingOnPageExit = abortOnPageExit(controller, window, loadDcrProvider);
+      fetch(`${apiUrl}/api/dcr/provider`, {
+        credentials: 'include',
+        signal: requestController.signal
       })
-      .then(data => {
-        setDcrProviderUi(projectConfiguredDcrProvider(data?.provider, data?.capabilities));
-        setDcrProviderError(null);
-      })
-      .catch(error => {
-        if (error?.name !== 'AbortError') {
-          console.error('Error loading the configured DCR provider', error?.message || error);
-          setDcrProviderError(
-            'Unable to load the configured Data Clean Room provider. Room creation is disabled.'
-          );
-        }
-      });
+        .then(async response => {
+          if (!response.ok) throw new Error(`Provider request failed: ${response.status}`);
+          return response.json();
+        })
+        .then(data => {
+          if (requestController.signal.aborted) return;
+          setDcrProviderUi(projectConfiguredDcrProvider(data?.provider, data?.capabilities));
+          setDcrProviderError(null);
+        })
+        .catch(error => {
+          if (!requestController.signal.aborted && error?.name !== 'AbortError') {
+            console.error('Error loading the configured DCR provider', error?.message || error);
+            setDcrProviderError(
+              'Unable to load the configured Data Clean Room provider. Room creation is disabled.'
+            );
+          }
+        });
+    };
+    loadDcrProvider();
 
-    return () => controller.abort();
+    return () => {
+      stopAbortingOnPageExit();
+      controller?.abort();
+    };
   }, [userEmail]);
 
   const clearMetadataFile = () => {

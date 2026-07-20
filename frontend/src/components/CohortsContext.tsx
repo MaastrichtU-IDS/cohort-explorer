@@ -29,6 +29,7 @@ export const CohortsProvider = ({children, useSparql = false}: {children: any, u
   const metadataRequestGeneration = useRef(0);
   const statisticsGeneration = useRef(0);
   const statisticsAbortController = useRef<AbortController | null>(null);
+  const pageExiting = useRef(false);
   
   // Add state for statistics
   const [cohortStatistics, setCohortStatistics] = useState<CohortStatistics>({
@@ -74,6 +75,7 @@ export const CohortsProvider = ({children, useSparql = false}: {children: any, u
   };
 
   const calculateStatisticsFor = useCallback(async (snapshot: {[cohortId: string]: Cohort}) => {
+    if (pageExiting.current) return;
     const generation = ++statisticsGeneration.current;
     statisticsAbortController.current?.abort();
     const controller = new AbortController();
@@ -104,6 +106,7 @@ export const CohortsProvider = ({children, useSparql = false}: {children: any, u
     metadataRequestGeneration.current += 1;
     statisticsGeneration.current += 1;
     setDataCleanRoom(JSON.parse(sessionStorage.getItem('dataCleanRoom') || '{"cohorts": {}}'));
+    pageExiting.current = false;
 
     // Reset loading metrics when switching data sources
     setLoadingMetrics({
@@ -114,17 +117,21 @@ export const CohortsProvider = ({children, useSparql = false}: {children: any, u
       categoryCount: 0
     });
 
-    // Update cohorts data with a web worker in the background for smoothness
-    // Use different worker based on useSparql flag
+    // Update cohorts data with a web worker in the background for smoothness.
+    // Use a different worker based on the selected data source.
     const workerFile = useSparql ? '/cohortsSparqlWorker.js' : '/cohortsWorker.js';
-    worker.current = new Worker(workerFile);
-    
-    // Track start time
-    const startTime = performance.now();
-    setIsLoading(true);
-    setStatisticsStatus('loading');
-    
-    worker.current.onmessage = event => {
+    let startTime = performance.now();
+
+    const abortForPageExit = () => {
+      pageExiting.current = true;
+      statisticsGeneration.current += 1;
+      statisticsAbortController.current?.abort();
+      worker.current?.terminate();
+      worker.current = null;
+    };
+
+    const handleWorkerMessage = (event: MessageEvent) => {
+      if (pageExiting.current) return;
       const endTime = performance.now();
       const loadTime = endTime - startTime;
       
@@ -172,19 +179,43 @@ export const CohortsProvider = ({children, useSparql = false}: {children: any, u
       }
     };
 
-    // Initial fetch only - auto-refresh disabled
-    fetchCohortsData();
+    const startWorkerFetch = () => {
+      pageExiting.current = false;
+      worker.current?.terminate();
+      worker.current = new Worker(workerFile);
+      worker.current.onmessage = handleWorkerMessage;
+      startTime = performance.now();
+      setIsLoading(true);
+      setStatisticsStatus('loading');
+      fetchCohortsData();
+    };
+
+    const restartAfterPageRestore = (event: PageTransitionEvent) => {
+      if (!event.persisted) return;
+      setDataCleanRoom(JSON.parse(sessionStorage.getItem('dataCleanRoom') || '{"cohorts": {}}'));
+      startWorkerFetch();
+    };
+
+    window.addEventListener('pagehide', abortForPageExit);
+    window.addEventListener('pageshow', restartAfterPageRestore);
+    // Initial fetch only - auto-refresh disabled. A persisted bfcache restore
+    // is treated as a new fetch because pagehide cancelled the old lifecycle.
+    startWorkerFetch();
     return () => {
+      window.removeEventListener('pagehide', abortForPageExit);
+      window.removeEventListener('pageshow', restartAfterPageRestore);
+      pageExiting.current = true;
       statisticsGeneration.current += 1;
       statisticsAbortController.current?.abort();
       worker.current?.terminate();
+      worker.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [useSparql]);
 
   // Fetch cohorts data from the API using the web worker
   const fetchCohortsData = () => {
-    if (!worker.current) return;
+    if (!worker.current || pageExiting.current) return;
     worker.current.postMessage({apiUrl, requestId: ++metadataRequestGeneration.current});
   };
 

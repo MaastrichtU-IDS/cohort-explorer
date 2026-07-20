@@ -21,4 +21,14 @@ describe('navigation DCR provider contract', () => {
     expect(navSource.match(/JSON\.stringify\(buildCurrentDcrWizardRequest\(\)\)/g)).toHaveLength(2);
     expect(navSource).toContain('buildDcrWizardRequest({');
   });
+
+  it('aborts provider discovery before a full-page navigation discards the document', () => {
+    expect(navSource).toContain('abortOnPageExit(controller');
+    expect(navSource).toContain('requestController.signal.aborted');
+  });
+
+  it('restarts provider discovery when a persisted page is restored', () => {
+    expect(navSource).toContain('abortOnPageExit(controller, window, loadDcrProvider)');
+    expect(navSource).toContain('const loadDcrProvider = () =>');
+  });
 });
