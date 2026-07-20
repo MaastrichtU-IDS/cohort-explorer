@@ -32,8 +32,20 @@ function MappingPreviewJsonTable({ data, sourceCohort, cohortsData }: MappingPre
     targetVar: string;
     targetCohort: string;
   } | null>(null);
-  
+  const [searchQ, setSearchQ] = useState('');
+
   if (!data || !Array.isArray(data) || data.length === 0) return <div className="italic text-slate-400">No mapping data to preview.</div>;
+
+  const searchFields = ['s_source', 's_label', 'target', 'target_label', 'target_study', 'harmonization_status', 'mapping_relation', 'source_categories_codes_labels', 'target_categories_codes_labels'];
+  const filteredData = searchQ
+    ? data.filter(row => {
+        const q = searchQ.toLowerCase();
+        return searchFields.some(f => {
+          const v = row[f];
+          return v != null && v.toString().toLowerCase().includes(q);
+        });
+      })
+    : data;
   
   // Define columns in a specific order for consistency
   const columns = ['s_source', 's_label', 'target_study', 'target', 'target_label', 'compare_eda', 'harmonization_status', 'source_categories_codes_labels', 'target_categories_codes_labels', 'mapping_relation'];
@@ -54,6 +66,10 @@ function MappingPreviewJsonTable({ data, sourceCohort, cohortsData }: MappingPre
 
   return (
     <>
+      <div className="mb-3 flex justify-center">
+        <input type="text" className="input input-sm" style={{ width: '60%', borderColor: '#475569', borderWidth: 2 }} placeholder="Search mappings by variable name, label, status, or relation…" value={searchQ} onChange={e => setSearchQ(e.target.value)} />
+      </div>
+      {searchQ && <div className="text-xs opacity-50 mb-2 text-center">{filteredData.length} of {data.length} rows match</div>}
       <table className="table table-zebra w-full text-xs">
         <thead>
           <tr>
@@ -63,7 +79,7 @@ function MappingPreviewJsonTable({ data, sourceCohort, cohortsData }: MappingPre
           </tr>
         </thead>
         <tbody>
-          {data.map((row, i) => (
+          {filteredData.map((row, i) => (
             <tr key={i}>
               {columns.map(col => {
                 // Special handling for compare_eda column
@@ -234,7 +250,7 @@ function domainClr(raw: string) {
 const HARMONIZATION_COLORS: Record<string, string> = {
   'Identical Match':  '#166534',
   'Compatible Match': '#60a5fa',
-  'Partial Match':    '#86efac',
+  'Partial Match':    '#4ade80',
   'Not Applicable':   '#6b7280',
 };
 function edgeClr(status: string) { return HARMONIZATION_COLORS[status] || '#94a3b8'; }
@@ -269,6 +285,7 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
   const [expandedIds, setExpandedIds] = React.useState<Set<string>>(new Set());
   const [hoveredEdge, setHoveredEdge] = React.useState<GEdge | null>(null);
   const [selectedEdge, setSelectedEdge] = React.useState<GEdge | null>(null);
+  const [focusedEdge, setFocusedEdge] = React.useState<GEdge | null>(null);
   const [selectedEdgeData, setSelectedEdgeData] = React.useState<RowData | null>(null);
   const [edaImage, setEdaImage] = React.useState<string | null>(null);
   const edgeDetailsRef = React.useRef<HTMLDivElement>(null);
@@ -347,7 +364,29 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
     return { uncovSrc, uncovTgt };
   }, [varFilter, cohortsData, sourceCohort, selectedTarget, allEdges]);
 
+  const { totalSrcVars, totalTgtVars } = React.useMemo(() => {
+    const srcKey = Object.keys(cohortsData).find(k => k.toLowerCase() === sourceCohort.toLowerCase());
+    const srcCohort = srcKey ? cohortsData[srcKey] : null;
+    const totalSrcVars = srcCohort ? Object.keys(srcCohort.variables || {}).length : srcNodes.length;
+    if (selectedTarget) {
+      const tgtKey = Object.keys(cohortsData).find(k => k.toLowerCase() === selectedTarget.toLowerCase());
+      const tgtCohort = tgtKey ? cohortsData[tgtKey] : null;
+      return { totalSrcVars, totalTgtVars: tgtCohort ? Object.keys(tgtCohort.variables || {}).length : tgtNodes.length };
+    }
+    return { totalSrcVars, totalTgtVars: tgtNodes.length };
+  }, [cohortsData, sourceCohort, selectedTarget, srcNodes.length, tgtNodes.length]);
+
+  const srcCoverage = totalSrcVars > 0 ? Math.round(srcNodes.length / totalSrcVars * 100) : 0;
+  const tgtCoverage = totalTgtVars > 0 ? Math.round(tgtNodes.length / totalTgtVars * 100) : 0;
+
   const { visSrc, visTgt, visEdges } = React.useMemo(() => {
+    if (focusedEdge) {
+      const statusFiltered = activeStatuses.length === 0 ? allEdges : allEdges.filter(e => activeStatuses.includes(e.status));
+      const fe = statusFiltered.filter(e => e.srcId === focusedEdge.srcId || e.tgtId === focusedEdge.tgtId);
+      const fSrcIds = new Set(fe.map(e => e.srcId));
+      const fTgtIds = new Set(fe.map(e => e.tgtId));
+      return { visSrc: srcNodes.filter(n => fSrcIds.has(n.id)), visTgt: tgtNodes.filter(n => fTgtIds.has(n.id)), visEdges: fe };
+    }
     if (focusedId) {
       const statusFiltered = activeStatuses.length === 0 ? allEdges : allEdges.filter(e => activeStatuses.includes(e.status));
       const fe = statusFiltered.filter(e => e.srcId === focusedId || e.tgtId === focusedId);
@@ -376,7 +415,7 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
     const ve = statusFiltered.filter(e => snSet.has(e.srcId) && tnSet.has(e.tgtId));
     if (varFilter === 'mapped') return { visSrc: sn, visTgt: tn, visEdges: ve };
     return { visSrc: [...sn, ...uncovSrc.filter(srcDomOk)], visTgt: [...tn, ...uncovTgt.filter(tgtDomOk)], visEdges: ve };
-  }, [focusedId, varFilter, allEdges, srcNodes, tgtNodes, uncovSrc, uncovTgt, activeSrcDomains, activeTgtDomains, activeStatuses]);
+  }, [focusedId, focusedEdge, varFilter, allEdges, srcNodes, tgtNodes, uncovSrc, uncovTgt, activeSrcDomains, activeTgtDomains, activeStatuses]);
 
   const sortNodes = (arr: GNode[], sort: string, counts: Map<string, number>) => {
     const cp = [...arr];
@@ -389,12 +428,12 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
   const searchedSrc = React.useMemo(() => {
     if (!searchQ) return sortedVisSrc;
     const q = searchQ.toLowerCase();
-    return sortedVisSrc.filter(n => n.varName.toLowerCase().includes(q) || (n.label||'').toLowerCase().includes(q));
+    return sortedVisSrc.filter(n => n.varName.toLowerCase().includes(q) || (n.label||'').toLowerCase().includes(q) || (n.omopCode||'').toLowerCase().includes(q));
   }, [sortedVisSrc, searchQ]);
   const searchedTgt = React.useMemo(() => {
     if (!searchQ) return sortedVisTgt;
     const q = searchQ.toLowerCase();
-    return sortedVisTgt.filter(n => n.varName.toLowerCase().includes(q) || (n.label||'').toLowerCase().includes(q));
+    return sortedVisTgt.filter(n => n.varName.toLowerCase().includes(q) || (n.label||'').toLowerCase().includes(q) || (n.omopCode||'').toLowerCase().includes(q));
   }, [sortedVisTgt, searchQ]);
   const searchedEdges = React.useMemo(() => {
     if (!searchQ) return visEdges;
@@ -447,13 +486,19 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
   }, [tgtDomains]);
 
   const toggle = (arr: string[], v: string, set: (a: string[]) => void) => set(arr.includes(v) ? arr.filter(x => x !== v) : [...arr, v]);
+  const toggleExclusive = (arr: string[], v: string, all: string[], set: (a: string[]) => void) => {
+    if (arr.length === all.length) { set([v]); return; }
+    set(arr.includes(v) ? arr.filter(x => x !== v) : [...arr, v]);
+  };
 
   function cycleVarFilter() {
-    setActiveSrcDomains(srcDomains); setActiveTgtDomains(tgtDomains);
+    setFocusedId(null); setFocusedEdge(null); setActiveSrcDomains(srcDomains); setActiveTgtDomains(tgtDomains);
+    setActiveStatuses([]); setSrcSort('default'); setTgtSort('default'); setSearchQ(''); setExpandedIds(new Set());
+    setHoveredId(null); setHoveredEdge(null); setSelectedEdge(null); setSelectedEdgeData(null); setEdaImage(null); setEdaError(null);
     setVarFilter(f => f === 'mapped' ? 'unmapped' : 'mapped');
   }
   function resetAll() {
-    setFocusedId(null); setActiveSrcDomains(srcDomains); setActiveTgtDomains(tgtDomains);
+    setFocusedId(null); setFocusedEdge(null); setActiveSrcDomains(srcDomains); setActiveTgtDomains(tgtDomains);
     setActiveStatuses([]); setVarFilter('mapped');
     setSrcSort('default'); setTgtSort('default'); setSearchQ(''); setExpandedIds(new Set()); setHoveredEdge(null); setSelectedEdge(null); setSelectedEdgeData(null); setEdaImage(null); setEdaError(null);
   }
@@ -463,7 +508,7 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
   function DomainBtn({ d, active, onClick }: { d: string; active: boolean; onClick: () => void }) {
     const c = domainClr(d);
     return (
-      <label onClick={onClick} className="flex items-center gap-1 cursor-pointer border rounded" style={{ backgroundColor: active ? c.fill : '#f8fafc', borderColor: active ? c.stroke : '#cbd5e1', color: active ? c.text : '#94a3b8', fontWeight: active ? 600 : 400, fontSize: 10, padding: '1px 6px', height: 20, minHeight: 20, opacity: active ? 1 : 0.5 }}>
+      <label onClick={onClick} className="flex items-center gap-1 cursor-pointer border rounded" style={{ backgroundColor: active ? c.fill : '#f8fafc', borderColor: active ? c.stroke : '#cbd5e1', color: active ? c.text : '#94a3b8', fontWeight: active ? 600 : 400, fontSize: 10, padding: '1px 6px', height: 22, minHeight: 22, opacity: active ? 1 : 0.5, whiteSpace: 'nowrap' }}>
         <input type="checkbox" checked={active} readOnly className="checkbox checkbox-xs" style={{ minHeight: 12, height: 12, width: 12 }} />
         <span>{d.replace(/_/g, ' ')}</span>
       </label>
@@ -488,25 +533,25 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
         </div>
       )}
       {/* Domain + relation filters */}
-      <div className="flex flex-wrap gap-6 mb-3 items-start">
-        <div className="flex-1 min-w-52">
-          <div className="text-xs font-semibold mb-1 opacity-60 tracking-wide">Click to filter source variables by their OMOP domains</div>
+      <div className="flex flex-wrap justify-between gap-12 mb-3 items-start">
+        <div>
+          <div className="text-xs font-semibold mb-1 opacity-60 tracking-wide">Click to filter <strong>source</strong> variables by their OMOP domains</div>
           <div className="flex gap-3 mb-1">
             <button className="btn btn-xs btn-ghost text-xs" style={{ fontSize: 10, padding: '0 4px', height: 16, minHeight: 16 }} onClick={() => setActiveSrcDomains(srcDomains)}>select all</button>
             <button className="btn btn-xs btn-ghost text-xs" style={{ fontSize: 10, padding: '0 4px', height: 16, minHeight: 16 }} onClick={() => setActiveSrcDomains([])}>unselect all</button>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-1">
-            {srcDomains.map(d => <DomainBtn key={d} d={d} active={activeSrcDomains.includes(d)} onClick={() => toggle(activeSrcDomains, d, setActiveSrcDomains)} />)}
+          <div className="grid grid-cols-2 gap-1">
+            {srcDomains.map(d => <DomainBtn key={d} d={d} active={activeSrcDomains.includes(d)} onClick={() => toggleExclusive(activeSrcDomains, d, srcDomains, setActiveSrcDomains)} />)}
           </div>
         </div>
-        <div className="flex-1 min-w-52">
-          <div className="text-xs font-semibold mb-1 opacity-60 tracking-wide">Click to filter target variables by their OMOP domains</div>
+        <div>
+          <div className="text-xs font-semibold mb-1 opacity-60 tracking-wide">Click to filter <strong>target</strong> variables by their OMOP domains</div>
           <div className="flex gap-3 mb-1">
             <button className="btn btn-xs btn-ghost text-xs" style={{ fontSize: 10, padding: '0 4px', height: 16, minHeight: 16 }} onClick={() => setActiveTgtDomains(tgtDomains)}>select all</button>
             <button className="btn btn-xs btn-ghost text-xs" style={{ fontSize: 10, padding: '0 4px', height: 16, minHeight: 16 }} onClick={() => setActiveTgtDomains([])}>unselect all</button>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-1">
-            {tgtDomains.map(d => <DomainBtn key={d} d={d} active={activeTgtDomains.includes(d)} onClick={() => toggle(activeTgtDomains, d, setActiveTgtDomains)} />)}
+          <div className="grid grid-cols-2 gap-1">
+            {tgtDomains.map(d => <DomainBtn key={d} d={d} active={activeTgtDomains.includes(d)} onClick={() => toggleExclusive(activeTgtDomains, d, tgtDomains, setActiveTgtDomains)} />)}
           </div>
         </div>
       </div>
@@ -517,36 +562,53 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
             <button className="btn btn-xs btn-ghost text-error" onClick={resetAll}>↺ Reset all filters</button>
           </div>
           <div className="flex flex-wrap gap-1">
-            {Object.entries(statusCounts).map(([s, count]) => (
-              <button key={s} className={`btn btn-xs ${activeStatuses.length === 0 || activeStatuses.includes(s) ? '' : 'btn-outline opacity-40'}`} style={activeStatuses.length === 0 || activeStatuses.includes(s) ? { backgroundColor: edgeClr(s), color: '#fff', borderColor: edgeClr(s) } : {}} onClick={() => toggle(activeStatuses, s, setActiveStatuses)}>{s} ({count as number})</button>
-            ))}
+            {['Identical Match', 'Partial Match', 'Compatible Match', 'Not Applicable'].filter(s => s in statusCounts).map(s => {
+              const count = statusCounts[s] as number;
+              const active = activeStatuses.length === 0 || activeStatuses.includes(s);
+              const c = edgeClr(s);
+              return (
+                <label key={s} onClick={() => {
+                  if (activeStatuses.length === 0) { setActiveStatuses([s]); return; }
+                  toggle(activeStatuses, s, setActiveStatuses);
+                }} className="flex items-center gap-1 cursor-pointer border rounded" style={{ backgroundColor: active ? c : '#f8fafc', borderColor: active ? c : '#cbd5e1', color: active ? '#fff' : '#94a3b8', fontWeight: active ? 600 : 400, fontSize: 10, padding: '1px 6px', height: 22, minHeight: 22, opacity: active ? 1 : 0.5, whiteSpace: 'nowrap' }}>
+                  <input type="checkbox" checked={activeStatuses.includes(s)} readOnly className="checkbox checkbox-xs" style={{ minHeight: 12, height: 12, width: 12 }} />
+                  <span>{s} ({count})</span>
+                </label>
+              );
+            })}
             {activeStatuses.length > 0 && <button className="btn btn-xs btn-ghost" onClick={() => setActiveStatuses([])}>clear</button>}
           </div>
         </div>
       </div>
       {/* Search box */}
-      <div className="mb-3">
-        <input type="text" className="input input-bordered input-sm w-full" placeholder="Search variables by name or description…" value={searchQ} onChange={e => setSearchQ(e.target.value)} />
+      <div className="mb-3 flex justify-center">
+        <input type="text" className="input input-sm" style={{ width: '60%', borderColor: '#475569', borderWidth: 2 }} placeholder="Search variables by name, label, or OMOP ID…" value={searchQ} onChange={e => setSearchQ(e.target.value)} />
       </div>
       {/* Var filter — centred between columns */}
       <div className="flex justify-center mb-3">
         <button className={`btn btn-sm ${varFilterCls}`} onClick={cycleVarFilter}>{varFilterLabel}</button>
       </div>
       {/* Focus mode banner — below var filter */}
-      {focusedId && (
+      {(focusedId || focusedEdge) && (
         <div className="flex items-center justify-center gap-4 bg-primary/10 border border-primary/40 rounded-lg px-4 py-2 mb-3">
-          <span className="text-sm">Focused on: <strong>{focusedId.replace(/^__u[st]_/, '')}</strong></span>
+          {focusedEdge ? (
+            <span className="text-sm">Focusing on {sourceCohort}:{focusedEdge.srcId} — {focusedEdge.tgtId.split('::')[0]}:{focusedEdge.tgtId.split('::')[1] || focusedEdge.tgtId} and all their mappings</span>
+          ) : (
+            <span className="text-sm">Focused on: <strong>{focusedId!.replace(/^__u[st]_/, '')}</strong></span>
+          )}
           <button className="btn btn-primary btn-sm" onClick={resetAll}>← Back to full graph</button>
         </div>
       )}
       <div className="text-xs opacity-50 mb-2">
-        {searchedSrc.filter(n => !n.uncovered).length} src · {searchedTgt.filter(n => !n.uncovered).length} tgt · {searchedEdges.length} edges
-        {varFilter !== 'mapped' && (() => {
-          const tS = srcNodes.length + uncovSrc.length; const tT = tgtNodes.length + uncovTgt.length;
-          const pS = tS ? Math.round(uncovSrc.length / tS * 100) : 0;
-          const pT = tT ? Math.round(uncovTgt.length / tT * 100) : 0;
-          return ` · ${uncovSrc.length} uncov src (${pS}%) · ${uncovTgt.length} uncov tgt (${pT}%)`;
-        })()}
+        {varFilter === 'mapped' ? (
+          <>
+            {srcNodes.length} source · {tgtNodes.length} target · {allEdges.length} edges
+          </>
+        ) : (
+          <>
+            {totalSrcVars - srcNodes.length} uncovered source · {totalTgtVars - tgtNodes.length} uncovered target
+          </>
+        )}
         {hoveredId && ' · hover: showing connected edges'}
       </div>
       {/* SVG graph */}
@@ -584,6 +646,8 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
                     const isDeselecting = selectedEdge?.srcId === e.srcId && selectedEdge?.tgtId === e.tgtId;
                     setSelectedEdge(isDeselecting ? null : e);
                     setEdaImage(null); setEdaError(null);
+                    setFocusedId(null);
+                    setFocusedEdge(isDeselecting ? null : e);
                     // Find and set full row data for this edge
                     if (!isDeselecting) {
                       const rowData = data.find(r => 
@@ -654,7 +718,7 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
             const nh = getNodeH(n, expanded);
             const cats = n.categories ? n.categories.split('||') : [];
             return (
-              <g key={n.id} style={{ cursor: 'pointer' }} onMouseEnter={() => setHoveredId(n.id)} onMouseLeave={() => setHoveredId(null)} onClick={() => { setHoveredId(null); setFocusedId(prev => prev === n.id ? null : n.id); }} opacity={faded ? 0.3 : 1}>
+              <g key={n.id} style={{ cursor: 'pointer' }} onMouseEnter={() => setHoveredId(n.id)} onMouseLeave={() => setHoveredId(null)} onClick={() => { setHoveredId(null); setFocusedEdge(null); setFocusedId(prev => prev === n.id ? null : n.id); }} opacity={faded ? 0.3 : 1}>
                 <rect x={LEFT_X} y={y} width={NODE_W} height={nh} rx={4} fill={c.fill} stroke={hoveredId === n.id ? c.text : c.stroke} strokeWidth={hoveredId === n.id ? 2 : 1} strokeDasharray={n.uncovered ? '4 3' : undefined} />
                 <text x={LEFT_X + 6} y={y + 14} fontSize={10} fontWeight={600} fill={c.text}>{n.varName.length > 20 ? n.varName.slice(0, 20) + '…' : n.varName}</text>
                 <text x={LEFT_X + 6} y={y + 28} fontSize={8.5} fill={c.text} opacity={0.85}>{(n.label || '').length > 32 ? (n.label || '').slice(0, 32) + '…' : n.label}</text>
@@ -675,7 +739,7 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
             const nh = getNodeH(n, expanded);
             const cats = n.categories ? n.categories.split('||') : [];
             return (
-              <g key={n.id} style={{ cursor: 'pointer' }} onMouseEnter={() => setHoveredId(n.id)} onMouseLeave={() => setHoveredId(null)} onClick={() => { setHoveredId(null); setFocusedId(prev => prev === n.id ? null : n.id); }} opacity={faded ? 0.3 : 1}>
+              <g key={n.id} style={{ cursor: 'pointer' }} onMouseEnter={() => setHoveredId(n.id)} onMouseLeave={() => setHoveredId(null)} onClick={() => { setHoveredId(null); setFocusedEdge(null); setFocusedId(prev => prev === n.id ? null : n.id); }} opacity={faded ? 0.3 : 1}>
                 <rect x={RIGHT_X} y={y} width={NODE_W} height={nh} rx={4} fill={c.fill} stroke={hoveredId === n.id ? c.text : c.stroke} strokeWidth={hoveredId === n.id ? 2 : 1} strokeDasharray={n.uncovered ? '4 3' : undefined} />
                 <text x={RIGHT_X + 6} y={y + 14} fontSize={10} fontWeight={600} fill={c.text}>{n.varName.length > 20 ? n.varName.slice(0, 20) + '…' : n.varName}</text>
                 <text x={RIGHT_X + 6} y={y + 28} fontSize={8.5} fill={c.text} opacity={0.85}>{(n.label || '').length > 32 ? (n.label || '').slice(0, 32) + '…' : n.label}</text>
@@ -766,6 +830,368 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
   );
 }
 
+function CohortMetadataComparison({ cohortsData, sourceCohort, selectedTargets }: { cohortsData: Record<string, any>; sourceCohort: string; selectedTargets: string[]; }) {
+  const allCohorts = [sourceCohort, ...selectedTargets];
+  const cohortEntries = allCohorts.map(id => {
+    const key = Object.keys(cohortsData).find(k => k.toLowerCase() === id.toLowerCase());
+    return { id, data: key ? cohortsData[key] : null };
+  });
+
+  // Build mapping: omopId → { cohortIdx → varName }
+  const omopIdToVarNames = React.useMemo(() => {
+    const map: Record<string, string[]> = {};
+    cohortEntries.forEach(({ data }, i) => {
+      if (!data || !data.variables) return;
+      for (const [varName, v] of Object.entries(data.variables)) {
+        const omopId = (v as any)?.omop_id;
+        if (omopId) {
+          if (!map[omopId]) map[omopId] = new Array(cohortEntries.length).fill('');
+          map[omopId][i] = varName;
+        }
+      }
+    });
+    // Keep only OMOP IDs present in all cohorts
+    const common: Record<string, string[]> = {};
+    for (const [omopId, arr] of Object.entries(map)) {
+      if (arr.every(v => v !== '')) common[omopId] = arr;
+    }
+    return common;
+  }, [cohortsData, sourceCohort, selectedTargets.join(',')]);
+
+  const commonOmopIds = Object.keys(omopIdToVarNames);
+
+  // Get variable label for a cohort+varName
+  function getVarLabel(cohortIdx: number, varName: string): string {
+    const data = cohortEntries[cohortIdx].data;
+    if (!data || !data.variables) return '';
+    const v = data.variables[varName];
+    return (v as any)?.var_label || (v as any)?.label || '';
+  }
+
+  // Compare Variable state — additive list
+  const [addedOmopIds, setAddedOmopIds] = React.useState<string[]>([]);
+  // Common OMOP IDs collapsed by default
+  const [commonOmopExpanded, setCommonOmopExpanded] = React.useState(false);
+  const [edaDataMap, setEdaDataMap] = React.useState<Record<string, any>>({});
+  const [edaLoading, setEdaLoading] = React.useState(false);
+  const [dropdownOmopId, setDropdownOmopId] = React.useState<string>('');
+
+  // Fetch EDA for a cohort (cached in edaDataMap)
+  React.useEffect(() => {
+    const cohortsToFetch = cohortEntries
+      .map(({ id }) => id)
+      .filter(id => !(id in edaDataMap));
+    if (cohortsToFetch.length === 0) return;
+    setEdaLoading(true);
+    Promise.all(
+      cohortsToFetch.map(id =>
+        fetch(`/api/cohort-eda-output/${encodeURIComponent(id)}`, { credentials: 'include' })
+          .then(r => r.ok ? r.json() : null)
+          .catch(() => null)
+          .then(data => [id, data] as [string, any])
+      )
+    ).then(results => {
+      setEdaDataMap(prev => {
+        const next = { ...prev };
+        for (const [id, data] of results) next[id] = data;
+        return next;
+      });
+      setEdaLoading(false);
+    });
+  }, [sourceCohort, selectedTargets.join(',')]);
+
+  // Get EDA entry for a specific cohort + variable
+  function getEdaEntry(cohortIdx: number, varName: string): any | null {
+    if (!varName) return null;
+    const cohortId = cohortEntries[cohortIdx].id;
+    const raw = edaDataMap[cohortId];
+    if (!raw) return null;
+    return raw[varName.toLowerCase()] || raw[varName] || null;
+  }
+
+  // Helper: parse participants number from string
+  function parseParticipants(d: any): number | null {
+    if (!d?.study_participants) return null;
+    const match = String(d.study_participants).replace(/[,\s]/g, '').match(/(\d+)/);
+    return match ? parseInt(match[1], 10) : null;
+  }
+
+  const baseRows: { label: string; render: (idx: number) => React.ReactNode }[] = [
+    {
+      label: 'Number of Participants',
+      render: (i) => cohortEntries[i].data?.study_participants || '—',
+    },
+    {
+      label: 'Age Range',
+      render: (i) => {
+        const d = cohortEntries[i].data;
+        if (!d) return '—';
+        const ageRaw = (d as any).age_group_inclusion as string | undefined;
+        if (ageRaw && ageRaw.trim() && ageRaw.trim().toLowerCase() !== 'not applicable') return ageRaw.trim();
+        if (d.age_distribution && Object.keys(d.age_distribution).length > 0) {
+          return Object.entries(d.age_distribution).map(([range, pct]) => `${range}: ${pct}%`).join('; ');
+        }
+        return '—';
+      },
+    },
+    {
+      label: 'Male %',
+      render: (i) => {
+        const d = cohortEntries[i].data;
+        const pct = d?.male_percentage;
+        if (pct == null) return '—';
+        const total = parseParticipants(d);
+        if (total != null) {
+          const raw = Math.round(total * pct / 100);
+          return `${pct}% (${raw.toLocaleString()})`;
+        }
+        return `${pct}%`;
+      },
+    },
+    {
+      label: 'Female %',
+      render: (i) => {
+        const d = cohortEntries[i].data;
+        const pct = d?.female_percentage;
+        if (pct == null) return '—';
+        const total = parseParticipants(d);
+        if (total != null) {
+          const raw = Math.round(total * pct / 100);
+          return `${pct}% (${raw.toLocaleString()})`;
+        }
+        return `${pct}%`;
+      },
+    },
+    {
+      label: 'Number of Variables',
+      render: (i) => {
+        const d = cohortEntries[i].data;
+        return d?.variables ? Object.keys(d.variables).length : '—';
+      },
+    },
+    {
+      label: 'Study Design',
+      render: (i) => cohortEntries[i].data?.study_design || '—',
+    },
+    {
+      label: 'Study Objective',
+      render: (i) => cohortEntries[i].data?.study_objective || '—',
+    },
+  ];
+
+  // Build EDA sub-rows for each added variable
+  const edaRowGroups: { omopId: string; rows: { label: string; render: (idx: number) => React.ReactNode }[] }[] = addedOmopIds.map(omopId => {
+    const varNames = omopIdToVarNames[omopId] || [];
+    const rows: { label: string; render: (idx: number) => React.ReactNode }[] = [
+      {
+        label: 'Variable Name',
+        render: (i) => {
+          const v = varNames[i];
+          if (!v) return '—';
+          const label = getVarLabel(i, v);
+          return (
+            <span>
+              <span className="font-medium">{v}</span>
+              {label && <span className="text-[10px] text-gray-500 ml-1">{label}</span>}
+            </span>
+          );
+        },
+      },
+      {
+        label: 'Variable Type',
+        render: (i) => {
+          const e = getEdaEntry(i, varNames[i]);
+          return e?.['type'] || '—';
+        },
+      },
+      {
+        label: 'Total Observations',
+        render: (i) => {
+          const e = getEdaEntry(i, varNames[i]);
+          if (!e) return '—';
+          const obs = e['count of observations (ex. missing/empty)'];
+          return obs != null ? obs : '—';
+        },
+      },
+      {
+        label: 'Missing %',
+        render: (i) => {
+          const e = getEdaEntry(i, varNames[i]);
+          if (!e) return '—';
+          const m = e['count missing'];
+          if (!m) return '—';
+          const match = String(m).match(/\((\d+\.?\d*)%\)/);
+          return match ? `${match[1]}%` : '—';
+        },
+      },
+      {
+        label: 'Mean',
+        render: (i) => {
+          const e = getEdaEntry(i, varNames[i]);
+          return e?.['mean'] != null ? Number(e['mean']).toFixed(2) : '—';
+        },
+      },
+      {
+        label: 'Median',
+        render: (i) => {
+          const e = getEdaEntry(i, varNames[i]);
+          return e?.['median'] != null ? e['median'] : '—';
+        },
+      },
+      {
+        label: 'Std Dev',
+        render: (i) => {
+          const e = getEdaEntry(i, varNames[i]);
+          return e?.['std dev'] != null ? Number(e['std dev']).toFixed(2) : '—';
+        },
+      },
+      {
+        label: 'Min',
+        render: (i) => {
+          const e = getEdaEntry(i, varNames[i]);
+          return e?.['min'] != null ? e['min'] : '—';
+        },
+      },
+      {
+        label: 'Max',
+        render: (i) => {
+          const e = getEdaEntry(i, varNames[i]);
+          return e?.['max'] != null ? e['max'] : '—';
+        },
+      },
+      {
+        label: 'Class Balance',
+        render: (i) => {
+          const e = getEdaEntry(i, varNames[i]);
+          if (!e) return '—';
+          const cb = e['class balance'];
+          if (!cb) return '—';
+          return String(cb).split(/\n\t?/).map(s => s.trim()).filter(Boolean).join(', ');
+        },
+      },
+    ];
+    return { omopId, rows };
+  });
+
+  const availableOmopIds = commonOmopIds.filter(id => !addedOmopIds.includes(id));
+
+  return (
+    <div className="max-w-6xl mx-auto mt-6">
+      <h3 className="text-sm font-semibold mb-2 opacity-70">Cohort Metadata Comparison</h3>
+      <div className="overflow-x-auto border rounded-lg">
+        <table className="table table-xs">
+          <thead>
+            <tr className="bg-base-300">
+              <th className="sticky left-0 z-10 bg-base-300"></th>
+              {cohortEntries.map(({ id }) => (
+                <th key={id} className="text-center whitespace-nowrap bg-base-300">{id}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {/* Base cohort-level rows */}
+            {baseRows.map((row) => (
+              <tr key={row.label}>
+                <td className="font-medium sticky left-0 z-10 bg-base-100 whitespace-nowrap">{row.label}</td>
+                {cohortEntries.map((_, i) => (
+                  <td key={i} className="text-xs align-top">{row.render(i)}</td>
+                ))}
+              </tr>
+            ))}
+            {/* Common OMOP IDs — collapsible section, only when 2+ cohorts */}
+            {allCohorts.length > 1 && (
+              <>
+                <tr>
+                  <td className="font-medium sticky left-0 z-10 bg-base-100 whitespace-nowrap">
+                    <button
+                      className="btn btn-xs btn-ghost gap-1 px-1"
+                      onClick={() => setCommonOmopExpanded(prev => !prev)}
+                    >
+                      {commonOmopExpanded ? '▼' : '▶'} Common OMOP IDs
+                    </button>
+                    <span className="text-xs text-gray-400 ml-1">({commonOmopIds.length})</span>
+                  </td>
+                  {cohortEntries.map((_, i) => (
+                    <td key={i} className="text-xs align-top bg-base-100"></td>
+                  ))}
+                </tr>
+                {commonOmopExpanded && commonOmopIds.map(omopId => {
+                  const varNames = omopIdToVarNames[omopId];
+                  const isExpanded = addedOmopIds.includes(omopId);
+                  const groupEdaRows = isExpanded ? edaRowGroups.find(g => g.omopId === omopId)?.rows : null;
+                  return (
+                    <React.Fragment key={omopId}>
+                      <tr
+                        className={`bg-base-200/30 cursor-pointer hover:bg-base-200/60 transition-colors`}
+                        onClick={() => setAddedOmopIds(prev => isExpanded ? prev.filter(id => id !== omopId) : [...prev, omopId])}
+                      >
+                        <td className="sticky left-0 z-10 bg-base-200/30 whitespace-nowrap">
+                          <span className="text-xs font-mono text-gray-600">
+                            {isExpanded ? '▼' : '▶'} {omopId}
+                          </span>
+                        </td>
+                        {cohortEntries.map((_, i) => {
+                          const varName = varNames[i];
+                          const label = getVarLabel(i, varName);
+                          return (
+                            <td key={i} className="text-xs align-top">
+                              <span className="font-medium">{varName}</span>
+                              {label && <span className="text-[10px] text-gray-500 ml-1">{label}</span>}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                      {/* Inline EDA sub-rows when expanded */}
+                      {isExpanded && groupEdaRows && groupEdaRows.map((row) => (
+                        <tr key={`${omopId}-${row.label}`} className="bg-base-200/50">
+                          <td className="sticky left-0 z-10 bg-base-200/50 whitespace-nowrap pl-4">
+                            <span className="text-xs text-gray-500">↳ {row.label}</span>
+                          </td>
+                          {cohortEntries.map((_, i) => (
+                            <td key={i} className="text-xs align-top">{row.render(i)}</td>
+                          ))}
+                        </tr>
+                      ))}
+                      {/* Blank separator row */}
+                      <tr className="h-2">
+                        <td className="sticky left-0 z-10 bg-base-100" colSpan={cohortEntries.length + 1}></td>
+                      </tr>
+                    </React.Fragment>
+                  );
+                })}
+              </>
+            )}
+          </tbody>
+        </table>
+      </div>
+      {/* Compare Variable dropdown — only when 2+ cohorts */}
+      {allCohorts.length > 1 && (
+      <div className="flex items-center gap-2 mt-3">
+        <span className="text-xs font-semibold opacity-60">Compare Variable:</span>
+        <select
+          className="select select-xs select-bordered max-w-xs"
+          value={dropdownOmopId}
+          onChange={e => {
+            if (e.target.value) {
+              setAddedOmopIds(prev => [...prev, e.target.value]);
+              setDropdownOmopId('');
+            }
+          }}
+        >
+          <option value="">— Select a common variable to add —</option>
+          {availableOmopIds.map(omopId => {
+            const varNames = omopIdToVarNames[omopId];
+            const label = varNames.map((v, i) => `${v} (${cohortEntries[i].id})`).join(' / ');
+            return <option key={omopId} value={omopId}>{label}</option>;
+          })}
+        </select>
+        {edaLoading && <span className="loading loading-spinner loading-xs"></span>}
+      </div>
+      )}
+    </div>
+  );
+}
+
 export default function MappingPage() {
   const { cohortsData, userEmail } = useCohorts();
   const [sourceCohort, setSourceCohort] = useState('');
@@ -777,12 +1203,13 @@ export default function MappingPage() {
   const [targetFilter, setTargetFilter] = useState('');
   const [sourceDropdownOpen, setSourceDropdownOpen] = useState(false);
   const [selectedHarmonizationStatuses, setSelectedHarmonizationStatuses] = useState<string[]>([]);
-  const [viewMode, setViewMode] = useState<'table' | 'graph'>('graph');
+  const [viewMode, setViewMode] = useState<'table' | 'graph' | 'metadata'>('graph');
   const [cacheInfo, setCacheInfo] = useState<{
     cached_pairs: Array<{source: string, target: string, timestamp: number}>,
     uncached_pairs: Array<{source: string, target: string}>,
     outdated_pairs: Array<{source: string, target: string, timestamp: number, outdated_cohort: string}>,
-    dictionary_timestamps: Record<string, number>
+    dictionary_timestamps: Record<string, number>,
+    will_recreate_graph?: boolean
   } | null>(null);
   const [showCacheInfo, setShowCacheInfo] = useState(true);
 
@@ -1143,7 +1570,7 @@ export default function MappingPage() {
       )}
       <div className="w-full space-y-8">
         <div className="max-w-6xl mx-auto">
-          <h1 className="text-3xl font-bold text-center mb-8">Cohort Mapping</h1>
+          <h1 className="text-3xl font-bold text-center mb-4">Cohort Mapping</h1>
         </div>
 
         {/* Cohort selection - constrained width */}
@@ -1362,7 +1789,7 @@ export default function MappingPage() {
         )}
         </div>
 
-        <div className="text-center mt-8" ref={mapButtonRef}>
+        <div className="text-center mt-4" ref={mapButtonRef}>
           <button
             id="generate-mapping"
             data-testid="generate-mapping"
@@ -1372,7 +1799,9 @@ export default function MappingPage() {
           >
 {loading 
               ? (cacheInfo && cacheInfo.uncached_pairs.length > 0 
-                  ? 'Finding concept mappings... (may take up to 30 minutes)' 
+                  ? (cacheInfo.will_recreate_graph
+                      ? 'Recreating graphs from updated dictionaries... (may take up to 30 minutes)'
+                      : 'Finding concept mappings... (may take 5-10 minutes)')
                   : 'Mapping...')
               : 'Map Concepts & Download File'
             }
@@ -1469,7 +1898,9 @@ export default function MappingPage() {
             {/* Summary message */}
             {(cacheInfo.uncached_pairs.length > 0 || (cacheInfo.outdated_pairs && cacheInfo.outdated_pairs.length > 0)) && (
               <div className="mt-3 p-2 bg-blue-100 rounded text-sm text-blue-800">
-                ⏳ Uncached and outdated mappings will be computed. This may take up to 30 minutes. If this page times out, please revisit later. The computed mappings will be cached.
+                {cacheInfo.will_recreate_graph
+                  ? '⏳ Graphs will be recreated from updated cohort dictionaries before computing mappings. This may take up to 30 minutes. If this page times out, please revisit later. The computed mappings will be cached.'
+                  : '⏳ Uncached and outdated mappings will be computed. This may take 5-10 minutes. If this page times out, please revisit later. The computed mappings will be cached.'}
               </div>
             )}
             
@@ -1492,6 +1923,11 @@ export default function MappingPage() {
         {error && (
           <div className="mt-4 text-red-500 text-center">{error}</div>
         )}
+
+        {/* Cohort Metadata Comparison Table — shown before and during mapping */}
+        {sourceCohort && selectedTargets.length > 0 && !mappingOutput && (
+          <CohortMetadataComparison cohortsData={cohortsData} sourceCohort={sourceCohort} selectedTargets={selectedTargets} />
+        )}
         </div>
 
         {/* Mapping Preview - wider container, breaks out of max-w-6xl constraint */}
@@ -1503,11 +1939,14 @@ export default function MappingPage() {
             className="mt-4 p-4 border rounded-lg bg-base-100 w-[85vw] mx-auto animate-slide-up"
             style={{ animation: 'slideUp 0.4s ease-out' }}
           >
-            <h2 className="text-lg font-bold mb-3">Mapping Preview</h2>
+            <h2 className="text-lg font-bold mb-3">
+              {viewMode === 'metadata' ? 'Metadata Comparison' : viewMode === 'table' ? 'Mapping Preview (Table)' : 'Mapping Preview (Graph)'}
+            </h2>
 
             {/* View mode toggle */}
             <div className="flex items-center justify-center gap-2 mb-3 mt-1">
               <div className="join">
+                <button id="mapping-view-metadata" data-testid="mapping-view-metadata" className={`join-item btn btn-lg ${viewMode === 'metadata' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setViewMode('metadata')}>Metadata</button>
                 <button id="mapping-view-table" data-testid="mapping-view-table" className={`join-item btn btn-lg ${viewMode === 'table' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setViewMode('table')}>⊞ Table</button>
                 <button id="mapping-view-graph" data-testid="mapping-view-graph" className={`join-item btn btn-lg ${viewMode === 'graph' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setViewMode('graph')}>⬡ Graph</button>
               </div>
@@ -1586,6 +2025,11 @@ export default function MappingPage() {
                 </div>
               );
             })()}
+
+            {/* Metadata comparison view */}
+            {viewMode === 'metadata' && (
+              <CohortMetadataComparison cohortsData={cohortsData} sourceCohort={sourceCohort} selectedTargets={selectedTargets} />
+            )}
 
             {/* Graph view */}
             {viewMode === 'graph' && (

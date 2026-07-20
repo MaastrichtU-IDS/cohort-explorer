@@ -93,13 +93,21 @@ def select_cached_mapping_csv(
 
     def is_normal_candidate(candidate: Path) -> bool:
         name = candidate.name.casefold()
-        if not candidate.is_file() or not name.startswith(prefix) or not name.endswith("_full.csv"):
+        exact_name = f"{source}_{target}.csv"
+        is_exact_name = name == exact_name
+        if (
+            not candidate.is_file()
+            or (not name.startswith(prefix) and not is_exact_name)
+            or (not name.endswith("_full.csv") and not is_exact_name)
+        ):
             return False
         if expected_name is not None and name != expected_name:
             return False
         provenance = attestation(candidate)
         if provenance == "synthetic":
             return False
+        if is_exact_name:
+            return provenance == "normal"
         tag = name[len(prefix) : -len("_full.csv")]
         model, separator, configuration = tag.partition("+")
         model_tagged = bool(model and separator and "_" in configuration)
@@ -107,7 +115,10 @@ def select_cached_mapping_csv(
 
     candidates = (
         candidate
-        for candidate in output.glob(f"{source}_{target}_*.csv")
+        for candidate in (
+            *output.glob(f"{source}_{target}_*.csv"),
+            output / f"{source}_{target}.csv",
+        )
         if is_normal_candidate(candidate)
     )
     fresh = [

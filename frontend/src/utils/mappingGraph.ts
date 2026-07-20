@@ -7,6 +7,7 @@ export interface MappingGraphNode {
   domain: string;
   cohortId: string;
   side: 'source' | 'target';
+  omopCode?: string;
   uncovered?: boolean;
   categories?: string;
 }
@@ -75,6 +76,8 @@ export const buildMappingGraph = (
   const targetDomainsById = new Map<string, string[]>();
   const sourceCategories = new Map<string, string>();
   const targetCategories = new Map<string, string>();
+  const sourceCodes = new Map<string, string>();
+  const targetCodes = new Map<string, string>();
   const sourceMetadata = new Map<string, {cohortId: string; variableName: string}>();
   const targetMetadata = new Map<string, {cohortId: string; variableName: string}>();
   const edges: MappingGraphEdge[] = [];
@@ -102,6 +105,10 @@ export const buildMappingGraph = (
     if (!targetCategories.has(targetId) && row.target_categories_labels) {
       targetCategories.set(targetId, String(row.target_categories_labels));
     }
+    const sourceCode = String(row.scode || '');
+    const targetCode = String(row.tcode || '');
+    if (!sourceCodes.has(sourceId) && sourceCode) sourceCodes.set(sourceId, sourceCode);
+    if (!targetCodes.has(targetId) && targetCode) targetCodes.set(targetId, targetCode);
     edges.push({
       srcId: sourceId,
       tgtId: targetId,
@@ -122,6 +129,7 @@ export const buildMappingGraph = (
     domain: modeDomain(sourceDomainsById.get(id) || []),
     cohortId: sourceMetadata.get(id)!.cohortId,
     side: 'source' as const,
+    omopCode: sourceCodes.get(id),
     categories: sourceCategories.get(id)
   }));
   const targetNodes = Array.from(targetLabels.keys()).map(id => ({
@@ -131,6 +139,7 @@ export const buildMappingGraph = (
     domain: modeDomain(targetDomainsById.get(id) || []),
     cohortId: targetMetadata.get(id)!.cohortId,
     side: 'target' as const,
+    omopCode: targetCodes.get(id),
     categories: targetCategories.get(id)
   }));
   const sourceEdgeCounts = new Map<string, number>();

@@ -135,6 +135,41 @@ def test_normal_cache_rejects_hash_attested_synthetic_model_tagged_output(tmp_pa
     ) is None
 
 
+def test_normal_cache_accepts_only_attested_exact_pair_filename(tmp_path: Path) -> None:
+    cohorts = tmp_path / "cohorts"
+    output = tmp_path / "mapping-output"
+    _dictionary(cohorts, "TIME-CHF", mtime_ns=200)
+    _dictionary(cohorts, "GISSI-HF", mtime_ns=200)
+    candidate = _mapping(output, "time-chf_gissi-hf.csv", mtime_ns=300)
+
+    selector = _selector()
+    assert selector(
+        "time-chf",
+        "gissi-hf",
+        output,
+        cohorts_root=cohorts,
+    ) is None
+
+    digest = hashlib.sha256(candidate.read_bytes()).hexdigest()
+    (output / "mapping.json.meta.json").write_text(
+        json.dumps(
+            {
+                "provider": "cohortvarlinker",
+                "synthetic": False,
+                "output_sha256": {candidate.name: digest},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert selector(
+        "time-chf",
+        "gissi-hf",
+        output,
+        cohorts_root=cohorts,
+    ) == candidate
+
+
 def test_synthetic_attestation_overrides_a_matching_normal_attestation(tmp_path: Path) -> None:
     cohorts = tmp_path / "cohorts"
     output = tmp_path / "mapping-output"

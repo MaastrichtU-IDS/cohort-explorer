@@ -9,6 +9,7 @@ import glob
 import time
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -28,6 +29,7 @@ from CohortVarLinker.src.utils import (
         publish_graph_to_endpoint,
         OntologyNamespaces,
         get_member_studies,
+        graph_exists,
     )
 from typing import Any
 from CohortVarLinker.src.data_model import MappingType, EmbeddingType
@@ -218,7 +220,7 @@ def create_pld_graph(file_path, cohort_name, output_dir=None, recreate=False) ->
 def check_if_data_exists(endpoint_url):
     sparql = SPARQLWrapper(endpoint_url)
     sparql.setReturnFormat(JSON)
-    
+
     query = """
     PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
     PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
@@ -496,7 +498,13 @@ def _sha256_file(path: str) -> str:
     return hasher.hexdigest()
 
 
-def _mapping_meta(final_json: dict, provenance: dict | None = None) -> dict:
+def _mapping_meta(
+    final_json: dict,
+    provenance: dict | None = None,
+    *,
+    graph_recreated: bool = False,
+    mapping_time: str | None = None,
+) -> dict:
     """Compute mapping statistics and merge them into provenance."""
     total = 0
     harm_counts: dict[str, int] = {}
@@ -515,6 +523,8 @@ def _mapping_meta(final_json: dict, provenance: dict | None = None) -> dict:
         "total_mappings": total,
         "harmonization_status": harm_counts,
         "mapping_relation": rel_counts,
+        "graph_recreated": graph_recreated,
+        "mapping_time": mapping_time or datetime.now(timezone.utc).isoformat(),
     })
     return meta
 
@@ -538,7 +548,8 @@ def find_cached_csv(
 
 def combine_all_mappings_to_json(source_study, target_studies, output_dir, json_path,
                                 model_name=None, llm_tag=None, mapping_mode=None,
-                                cohort_file_path=None):
+                                cohort_file_path=None, graph_recreated: bool = False,
+                                mapping_time: str | None = None):
     cohort_file_path = cohort_file_path or settings.cohort_folder
     selected_files = require_cached_mapping_csvs(
         source_study,
@@ -578,11 +589,66 @@ def combine_all_mappings_to_json(source_study, target_studies, output_dir, json_
             "selected_sources": selected_names,
             "output_sha256": output_hashes,
         },
+        graph_recreated=graph_recreated,
+        mapping_time=mapping_time,
     )
     publish_mapping_json(Path(json_path), final_json, provenance)
     print(f"✅ saved {len(final_json)} source vars → {json_path}")
     print(f"📊 Mapping stats saved to {json_path}.meta.json")
       
+def _check_graphs_need_recreate(cohort_ids, cohort_file_path) -> bool:
+    """Check if any cohort dictionaries are newer than their existing graph files,
+    or if the graphs are missing from the triplestore.
+
+    Returns True if:
+      - Any dictionary is newer than its graph file on disk, OR
+      - Any graph file is missing on disk, OR
+      - Any cohort graph is missing from the triplestore.
+    """
+    base_path = os.path.dirname(os.path.abspath(__file__))
+    graphs_dir = os.path.join(base_path, "data", "graphs")
+
+    # Check the shared studies_metadata graph first
+    studies_graph_uri = OntologyNamespaces.CMEO.value["graph/studies_metadata"]
+    try:
+        if not graph_exists(studies_graph_uri):
+            print(f"Studies metadata graph missing in triplestore ({studies_graph_uri}), need recreate")
+            return True
+    except Exception as e:
+        print(f"Error checking triplestore for studies_metadata: {e}, assuming recreate needed")
+        return True
+
+    for cid in cohort_ids:
+        # Check triplestore — if the graph isn't there, we must recreate
+        cohort_graph_uri = get_cohort_mapping_uri(cid)
+        try:
+            if not graph_exists(cohort_graph_uri):
+                print(f"Graph missing in triplestore for {cid} ({cohort_graph_uri}), need recreate")
+                return True
+        except Exception as e:
+            print(f"Error checking triplestore for {cid}: {e}, assuming recreate needed")
+            return True
+
+        cohort_dir = os.path.join(cohort_file_path, cid)
+        if not os.path.isdir(cohort_dir):
+            continue
+        dict_candidates = [
+            f for f in glob.glob(os.path.join(cohort_dir, "*.csv"))
+            if ("datadictionary" in os.path.basename(f).lower()
+            and "noheader" not in os.path.basename(f).lower())
+        ]
+        if not dict_candidates:
+            continue
+        latest_dict_mtime = max(os.path.getmtime(f) for f in dict_candidates)
+        graph_file = os.path.join(graphs_dir, f"{cid}_metadata.trig")
+        if not os.path.exists(graph_file):
+            return True
+        graph_mtime = os.path.getmtime(graph_file)
+        if latest_dict_mtime > graph_mtime:
+            return True
+    return False
+
+
 def generate_mapping_csv(
     source_study,
     target_studies,
@@ -699,7 +765,8 @@ def generate_mapping_csv(
     
     cache_info = {
         'cached_pairs': cached_pairs,
-        'uncached_pairs': uncached_pairs
+        'uncached_pairs': uncached_pairs,
+        'graph_recreated': False
     }
     
     if all_exist:
@@ -716,7 +783,9 @@ def generate_mapping_csv(
                 model_name=model_name,
                 llm_tag=llm_tag,
                 mapping_mode=mapping_mode,
-                cohort_file_path=cohort_file_path)
+                cohort_file_path=cohort_file_path,
+                graph_recreated=False,
+                mapping_time=datetime.now(timezone.utc).isoformat())
         
         return cache_info
             
@@ -725,10 +794,19 @@ def generate_mapping_csv(
              f"{len(uncached_pairs)} uncached pairs need computation",
              ctx={"uncached_pairs": uncached_pairs, "cached_pairs": cached_pairs})
 
+    # Check if any cohort dictionaries are newer than their existing graph files
+    all_cohort_ids = [source_study] + target_studies
+    need_recreate = _check_graphs_need_recreate(all_cohort_ids, cohort_file_path)
+    cache_info['graph_recreated'] = need_recreate
+    if need_recreate:
+        print("One or more cohort dictionaries are newer than their graph files (or graph missing), will recreate")
+    else:
+        print("All cohort dictionaries are older than their graph files, skipping graph recreation")
+
     log_detail(PROCESS_CVL, "graph_generation_started",
-              "Creating study metadata graph and cohort-specific metadata graphs")
-    create_study_metadata_graph(cohorts_metadata_file, recreate=True)
-    create_cohort_specific_metadata_graph(cohort_file_path, recreate=True)
+              f"Creating study metadata graph and cohort-specific metadata graphs (recreate={need_recreate})")
+    create_study_metadata_graph(cohorts_metadata_file, recreate=need_recreate)
+    create_cohort_specific_metadata_graph(cohort_file_path, recreate=need_recreate)
     log_detail(PROCESS_CVL, "graph_generation_completed",
               "Metadata graphs created successfully")
 
@@ -815,7 +893,9 @@ def generate_mapping_csv(
         model_name=model_name,
         llm_tag=llm_tag,
         mapping_mode=mapping_mode,
-        cohort_file_path=cohort_file_path)
+        cohort_file_path=cohort_file_path,
+        graph_recreated=need_recreate,
+        mapping_time=datetime.now(timezone.utc).isoformat())
     
     return cache_info
 
@@ -903,5 +983,6 @@ if __name__ == '__main__':
         model_name=model_name,
         mapping_mode=mapping_mode,
         llm_tag=llm_tag,
+        cohort_file_path=cohort_file_path,
     )
     print(f"Total time taken: {time.time() - start_time:.2f} seconds")
