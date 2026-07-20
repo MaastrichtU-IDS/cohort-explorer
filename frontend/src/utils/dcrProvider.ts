@@ -33,6 +33,7 @@ export interface DcrWizardProjection {
   resolved: boolean;
   steps: DcrWizardStep[];
   supportsAirlock: boolean;
+  metadataHandoff: boolean;
   creationWarning: string | null;
 }
 
@@ -56,15 +57,19 @@ const DCR_WIZARD_STEPS: DcrWizardStep[] = [
   {id: 'review', title: 'Review & Create'}
 ];
 
-export function projectDcrWizard(
-  provider?: DcrProviderProjection,
-  loadError?: string | null
-): DcrWizardProjection {
+const AADCR_HANDOFF_STEPS: DcrWizardStep[] = [
+  {id: 'name', title: 'DCR Name & Cohorts'},
+  {id: 'mapping', title: 'Mapping Files'},
+  {id: 'review', title: 'Review & Handoff'}
+];
+
+export function projectDcrWizard(provider?: DcrProviderProjection, loadError?: string | null): DcrWizardProjection {
   if (!provider) {
     return {
       resolved: false,
       steps: DCR_WIZARD_STEPS.map(step => ({...step})),
       supportsAirlock: false,
+      metadataHandoff: false,
       creationWarning: loadError || 'Loading the configured Data Clean Room provider...'
     };
   }
@@ -73,10 +78,9 @@ export function projectDcrWizard(
 
   return {
     resolved: true,
-    steps: DCR_WIZARD_STEPS.map(step =>
-      isLocalSimulation && step.id === 'data-samples' ? {...step, title: 'Synthetic Samples'} : {...step}
-    ),
+    steps: (isLocalSimulation ? AADCR_HANDOFF_STEPS : DCR_WIZARD_STEPS).map(step => ({...step})),
     supportsAirlock: !isLocalSimulation,
+    metadataHandoff: isLocalSimulation,
     creationWarning: isLocalSimulation
       ? 'Local synthetic-data simulation only. This does not provide a confidential-computing or production security boundary. Do not use real or confidential data.'
       : null
@@ -92,18 +96,12 @@ export function projectDcrAirlockSettings(
   return Object.fromEntries(Object.entries(selections).map(([cohortId, isEnabled]) => [cohortId, isEnabled ? 20 : 0]));
 }
 
-
-export function projectDcrUpload(
-  provider?: DcrProviderProjection,
-  loadError?: string | null
-): DcrUploadProjection {
+export function projectDcrUpload(provider?: DcrProviderProjection, loadError?: string | null): DcrUploadProjection {
   if (!provider) {
     return {
       resolved: false,
       localSimulation: false,
-      heading: loadError
-        ? 'Step 2: Data Clean Room Provider Unavailable'
-        : 'Step 2: Load Data Clean Room Provider',
+      heading: loadError ? 'Step 2: Data Clean Room Provider Unavailable' : 'Step 2: Load Data Clean Room Provider',
       metadataPurpose: 'Providing accurate metadata enables the configured Data Clean Room workflow.',
       creationIntro: 'Loading the configured Data Clean Room provider details...',
       provisioningIntro: '',
@@ -117,14 +115,15 @@ export function projectDcrUpload(
     return {
       resolved: true,
       localSimulation: true,
-      heading: 'Step 2: Create Local Synthetic AADCR Simulation',
+      heading: 'Step 2: Create Advanced Analytics DCR Handoff',
       metadataPurpose:
-        'In the local AADCR v2 demo, this metadata is used only to configure a synthetic-data simulation. It is not a confidential-computing or production security boundary.',
-      creationIntro:
-        'The next step creates a local AADCR v2 Data Clean Room simulation for the generated synthetic cohort.',
-      provisioningIntro: 'Cohort Explorer creates and provisions this local demo automatically:',
+        'In the local AADCR v2 demo, Cohort Explorer uses this metadata to define the room data slots. It is not a confidential-computing or production security boundary.',
+      creationIntro: 'The next step creates a local AADCR v2 room and opens the real Advanced Analytics interface.',
+      provisioningIntro: 'The handoff keeps responsibilities explicit:',
       provisioningSteps: [
-        'Cohort Explorer provisions the generated synthetic CSV from the immutable demo pack into AADCR v2 for aggregate computation.',
+        'Cohort Explorer creates metadata-derived data-node slots as unmerged Development changes.',
+        'Upload and provision the generated synthetic CSV in the Advanced Analytics DCR interface.',
+        'Create computations, review and merge changes, run analyses, inspect results, and review the audit log there.',
         'Do not use or upload real, patient-level, or confidential data in this local simulation.',
         'This flow demonstrates local integration behavior only; it does not provide production Data Clean Room security.'
       ],
@@ -151,11 +150,7 @@ export function projectDcrUpload(
   };
 }
 
-
-export function projectConfiguredDcrProvider(
-  provider: unknown,
-  capabilities?: unknown
-): DcrProviderProjection {
+export function projectConfiguredDcrProvider(provider: unknown, capabilities?: unknown): DcrProviderProjection {
   const normalizedProvider = typeof provider === 'string' ? provider.trim().toLowerCase() : '';
   if (normalizedProvider !== 'decentriq' && normalizedProvider !== 'aadcrv2') {
     throw new Error('Provider response did not identify a supported provider');
@@ -168,24 +163,17 @@ export function projectConfiguredDcrProvider(
     throw new Error('Provider response contained invalid capabilities');
   }
 
-  return projectDcrProvider(
-    normalizedProvider,
-    (capabilities ?? undefined) as DcrCapabilities | undefined
-  );
+  return projectDcrProvider(normalizedProvider, (capabilities ?? undefined) as DcrCapabilities | undefined);
 }
 
-
-export function projectDcrProvider(
-  provider?: string,
-  capabilities?: DcrCapabilities
-): DcrProviderProjection {
+export function projectDcrProvider(provider?: string, capabilities?: DcrCapabilities): DcrProviderProjection {
   const normalizedProvider = provider?.trim().toLowerCase() || 'decentriq';
   const isLocal = normalizedProvider === 'aadcrv2';
 
   return {
     provider: normalizedProvider,
     createLabel: 'Create Data Clean Room',
-    openLabel: isLocal ? 'Open in My DCRs' : 'Open on Decentriq',
+    openLabel: isLocal ? 'Open Advanced Analytics DCR' : 'Open on Decentriq',
     refreshLabel: isLocal ? 'Refresh rooms' : 'Refresh from Decentriq',
     loadingLabel: isLocal
       ? 'Creating the local Data Clean Room. This may take a few seconds...'

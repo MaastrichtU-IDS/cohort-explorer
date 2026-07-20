@@ -41,8 +41,11 @@ export default function UploadPage() {
     apiUrl === 'mock' ? projectDcrProvider('decentriq') : null
   );
   const [dcrProviderError, setDcrProviderError] = useState<string | null>(null);
-  
-  const [operationMessage, setOperationMessage] = useState<{text: string, type: 'error' | 'success' | 'info' | 'warning'} | null>(null);
+
+  const [operationMessage, setOperationMessage] = useState<{
+    text: string;
+    type: 'error' | 'success' | 'info' | 'warning';
+  } | null>(null);
 
   const [validationErrors, setValidationErrors] = useState<string[] | null>(null);
   const [validationStatusMessage, setValidationStatusMessage] = useState<string | null>(null);
@@ -53,7 +56,9 @@ export default function UploadPage() {
   const [metadataExists, setMetadataExists] = useState(false);
   const dcrUploadUi = projectDcrUpload(dcrProviderUi ?? undefined, dcrProviderError);
 
-  const cohortsUserCanEdit = cohortsData ? Object.keys(cohortsData).filter(cohortId => cohortsData[cohortId]['can_edit']) : [];
+  const cohortsUserCanEdit = cohortsData
+    ? Object.keys(cohortsData).filter(cohortId => cohortsData[cohortId]['can_edit'])
+    : [];
 
   useEffect(() => {
     if (cohortId && cohortsData?.[cohortId]?.variables && Object.keys(cohortsData[cohortId].variables).length > 0) {
@@ -112,9 +117,7 @@ export default function UploadPage() {
         .catch(error => {
           if (!requestController.signal.aborted && error?.name !== 'AbortError') {
             console.error('Error loading the configured DCR provider', error?.message || error);
-            setDcrProviderError(
-              'Unable to load the configured Data Clean Room provider. Room creation is disabled.'
-            );
+            setDcrProviderError('Unable to load the configured Data Clean Room provider. Room creation is disabled.');
           }
         });
     };
@@ -140,7 +143,7 @@ export default function UploadPage() {
 
   const handleValidateDictionary = async () => {
     if (!cohortId || !metadataFile) {
-      setOperationMessage({ text: "Please select a cohort and a metadata dictionary file first.", type: 'info' });
+      setOperationMessage({text: 'Please select a cohort and a metadata dictionary file first.', type: 'info'});
       return;
     }
 
@@ -164,30 +167,33 @@ export default function UploadPage() {
 
       if (!response.ok) {
         if (response.status === 422 && result.detail) {
-          const errors = result.detail.split('\n\n').map((e: string) => e.trim()).filter((e: string) => e);
-          const criticalErrorMsg = "Critical columns are missing. Further detailed validation of rows cannot proceed.";
-          
+          const errors = result.detail
+            .split('\n\n')
+            .map((e: string) => e.trim())
+            .filter((e: string) => e);
+          const criticalErrorMsg = 'Critical columns are missing. Further detailed validation of rows cannot proceed.';
+
           if (result.detail.includes(criticalErrorMsg)) {
             setValidationStatusMessage(criticalErrorMsg);
-            setValidationErrors(errors.filter((err: string) => err !== criticalErrorMsg)); 
+            setValidationErrors(errors.filter((err: string) => err !== criticalErrorMsg));
           } else {
-            setValidationStatusMessage("Please review the validation issues found in your file:");
+            setValidationStatusMessage('Please review the validation issues found in your file:');
             setValidationErrors(errors);
           }
         } else {
-          setValidationStatusMessage("An unexpected error occurred during validation.");
+          setValidationStatusMessage('An unexpected error occurred during validation.');
           setValidationErrors([result.detail || result.message || 'Unknown error from server']);
         }
         setIsValidated(false);
       } else {
-        setValidationStatusMessage("Validation successful! Your dictionary is ready for upload.");
+        setValidationStatusMessage('Validation successful! Your dictionary is ready for upload.');
         setValidationErrors(null);
         setIsValidated(true);
       }
       setIsValidationPaneOpen(true);
     } catch (error: any) {
       console.error('Error during dictionary validation:', error);
-      setValidationStatusMessage("A client-side error occurred during validation attempt.");
+      setValidationStatusMessage('A client-side error occurred during validation attempt.');
       setValidationErrors([error.message || 'Failed to connect to the server or parse response.']);
       setIsValidated(false);
       setIsValidationPaneOpen(true);
@@ -199,8 +205,11 @@ export default function UploadPage() {
   const handleMetadataSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!isValidated || !metadataFile) {
-        setOperationMessage({text: "Please validate the metadata dictionary file first, or re-select a file if changed.", type: 'error'});
-        return;
+      setOperationMessage({
+        text: 'Please validate the metadata dictionary file first, or re-select a file if changed.',
+        type: 'error'
+      });
+      return;
     }
     setUploadedCohort(null);
     setPublishedDCR(null);
@@ -209,7 +218,7 @@ export default function UploadPage() {
     const formData = new FormData();
     formData.append('cohort_id', cohortId);
     if (metadataFile) {
-        formData.append('cohort_dictionary', metadataFile);
+      formData.append('cohort_dictionary', metadataFile);
     }
 
     try {
@@ -227,7 +236,7 @@ export default function UploadPage() {
         }
         throw new Error(errorMsg);
       }
-      
+
       setUploadedCohort(result);
       fetchCohortsData();
       setOperationMessage({text: result.message || 'Metadata uploaded successfully!', type: 'success'});
@@ -246,12 +255,15 @@ export default function UploadPage() {
   const handleDcrSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!dcrUploadUi.resolved) {
-        setOperationMessage({text: dcrUploadUi.warning || 'Data Clean Room provider details are unavailable.', type: 'warning'});
-        return;
+      setOperationMessage({
+        text: dcrUploadUi.warning || 'Data Clean Room provider details are unavailable.',
+        type: 'warning'
+      });
+      return;
     }
     if (!cohortId) {
-        setOperationMessage({text: 'No cohort selected from Step 1.', type: 'error'});
-        return;
+      setOperationMessage({text: 'No cohort selected from Step 1.', type: 'error'});
+      return;
     }
     setPublishedDCR(null);
     setDcrIsLoading(true);
@@ -275,13 +287,13 @@ export default function UploadPage() {
       }
       const dcrMessage = result.message.replace(result.dcr_url, '').replace('provisioned at', 'provisioned.').trim();
       const providerUi = projectDcrProvider(result.provider, result.capabilities);
-      setPublishedDCR({ 
-        ...result, 
+      setPublishedDCR({
+        ...result,
         message: dcrMessage,
         openLabel: providerUi.openLabel
-      }); 
+      });
       setOperationMessage({
-        text: `${dcrMessage} ${providerUi.localSimulation ? 'Open it in My DCRs.' : 'You can view it on Decentriq.'}`,
+        text: `${dcrMessage} ${providerUi.localSimulation ? 'Continue in the Advanced Analytics DCR interface.' : 'You can view it on Decentriq.'}`,
         type: 'success'
       });
     } catch (error: any) {
@@ -295,7 +307,9 @@ export default function UploadPage() {
   if (userEmail === null && apiUrl !== 'mock') {
     return (
       <main className="flex flex-col items-center justify-center p-4">
-         <p className="text-red-500 text-center mt-[20%]" role="alert">Authenticate to access the explorer</p>
+        <p className="text-red-500 text-center mt-[20%]" role="alert">
+          Authenticate to access the explorer
+        </p>
       </main>
     );
   }
@@ -306,11 +320,7 @@ export default function UploadPage() {
         <WizardSteps currentStep={step} />
 
         {dcrProviderError && step === 1 && (
-          <div
-            className="alert alert-error mb-4 shadow-md"
-            data-testid="upload-dcr-provider-load-error"
-            role="alert"
-          >
+          <div className="alert alert-error mb-4 shadow-md" data-testid="upload-dcr-provider-load-error" role="alert">
             <AlertTriangle className="stroke-current shrink-0 h-6 w-6" />
             <span>{dcrProviderError}</span>
           </div>
@@ -327,7 +337,10 @@ export default function UploadPage() {
         )}
 
         {isValidationPaneOpen && (
-          <div id="validation-results" className="fixed top-0 right-0 w-full md:w-1/3 lg:w-1/4 h-full bg-base-200 shadow-xl p-6 overflow-y-auto z-50 flex flex-col">
+          <div
+            id="validation-results"
+            className="fixed top-0 right-0 w-full md:w-1/3 lg:w-1/4 h-full bg-base-200 shadow-xl p-6 overflow-y-auto z-50 flex flex-col"
+          >
             <div className="flex-grow">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-xl font-semibold">Validation Results</h3>
@@ -337,16 +350,21 @@ export default function UploadPage() {
               </div>
 
               {validationStatusMessage && (
-                <div 
-                  role="alert" 
+                <div
+                  role="alert"
                   className={`p-4 mb-4 rounded-lg shadow {
                     validationStatusMessage.includes("Critical") ? 'alert alert-error' : 
                     (isValidated ? 'alert alert-success' : 'alert alert-info')
-                  }`}>
+                  }`}
+                >
                   <div className="flex items-center">
-                    {validationStatusMessage.includes("Critical") && <AlertTriangle size={20} className="mr-2 shrink-0" />}
+                    {validationStatusMessage.includes('Critical') && (
+                      <AlertTriangle size={20} className="mr-2 shrink-0" />
+                    )}
                     {isValidated && <Check size={20} className="mr-2 shrink-0" />}
-                    {!isValidated && !validationStatusMessage.includes("Critical") && <InfoIcon size={20} className="mr-2 shrink-0" />}
+                    {!isValidated && !validationStatusMessage.includes('Critical') && (
+                      <InfoIcon size={20} className="mr-2 shrink-0" />
+                    )}
                     <p className="font-semibold">{validationStatusMessage}</p>
                   </div>
                 </div>
@@ -355,9 +373,9 @@ export default function UploadPage() {
               {validationErrors && validationErrors.length > 0 && (
                 <div className="mt-2">
                   <p className="text-sm text-base-content/80 mb-2">
-                    {validationStatusMessage && validationStatusMessage.includes("Critical") 
-                      ? "The following critical issues were found:"
-                      : "Details:"}
+                    {validationStatusMessage && validationStatusMessage.includes('Critical')
+                      ? 'The following critical issues were found:'
+                      : 'Details:'}
                   </p>
                   <ul className="list-disc list-inside pl-1 space-y-2 bg-base-100 p-3 rounded-md shadow">
                     {validationErrors.map((err, idx) => (
@@ -372,7 +390,9 @@ export default function UploadPage() {
               {!validationStatusMessage && (!validationErrors || validationErrors.length === 0) && (
                 <div className="alert alert-info mt-4">
                   <InfoIcon size={20} className="mr-2 shrink-0" />
-                  <span>Validation has not been performed for the current file, or no issues were found previously.</span>
+                  <span>
+                    Validation has not been performed for the current file, or no issues were found previously.
+                  </span>
                 </div>
               )}
             </div>
@@ -390,13 +410,11 @@ export default function UploadPage() {
               <h2 className="card-title text-xl mb-4">Step 1: Add or Replace Metadata Dictionary</h2>
               <div className="prose prose-sm max-w-none mb-6 text-base-content/80">
                 <p>
-                  In this step, you upload or replace the <strong>metadata dictionary</strong> (a .csv file) for your cohort.
-                  This file describes the variables (columns) in your dataset but contains <strong>no actual patient data</strong>.
-                 </p>
-                 <p data-testid="upload-dcr-metadata-purpose">
-                   {dcrUploadUi.metadataPurpose}
-                 </p>
-                
+                  In this step, you upload or replace the <strong>metadata dictionary</strong> (a .csv file) for your
+                  cohort. This file describes the variables (columns) in your dataset but contains{' '}
+                  <strong>no actual patient data</strong>.
+                </p>
+                <p data-testid="upload-dcr-metadata-purpose">{dcrUploadUi.metadataPurpose}</p>
               </div>
 
               <form onSubmit={handleMetadataSubmit} className="space-y-5">
@@ -408,11 +426,13 @@ export default function UploadPage() {
                     id="upload-cohort-select"
                     className="select select-bordered w-full"
                     value={cohortId}
-                    onChange={(event) => setCohortId(event.target.value)}
+                    onChange={event => setCohortId(event.target.value)}
                     required
                     disabled={isLoading || isValdating}
                   >
-                    <option value="" disabled>Select the cohort to upload metadata for</option>
+                    <option value="" disabled>
+                      Select the cohort to upload metadata for
+                    </option>
                     {cohortsUserCanEdit.map((id: string) => (
                       <option key={id} value={id}>
                         {cohortsData?.[id]?.label || id} ({id})
@@ -420,7 +440,7 @@ export default function UploadPage() {
                     ))}
                     {cohortsUserCanEdit.length === 0 && (
                       <option value="" disabled>
-                        {isLoadingCohorts ? "Retrieving list of cohorts..." : "No editable cohorts available"}
+                        {isLoadingCohorts ? 'Retrieving list of cohorts...' : 'No editable cohorts available'}
                       </option>
                     )}
                   </select>
@@ -428,8 +448,24 @@ export default function UploadPage() {
                     <div className="mt-2">
                       {metadataExists ? (
                         <div role="alert" className="alert alert-info">
-                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" className="stroke-current shrink-0 w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                          <span>Metadata already exists for cohort <strong>{cohortsData?.[cohortId]?.label || cohortId}</strong>. You can proceed directly to Step 2 or upload a new file to replace the existing metadata. You may view the current metadata dictionary{' '}
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            className="stroke-current shrink-0 w-6 h-6"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth="2"
+                              d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                            ></path>
+                          </svg>
+                          <span>
+                            Metadata already exists for cohort{' '}
+                            <strong>{cohortsData?.[cohortId]?.label || cohortId}</strong>. You can proceed directly to
+                            Step 2 or upload a new file to replace the existing metadata. You may view the current
+                            metadata dictionary{' '}
                             <a
                               href={`${apiUrl}/cohort-spreadsheet/${cohortId}`}
                               className="link font-medium underline"
@@ -437,12 +473,14 @@ export default function UploadPage() {
                               rel="noopener noreferrer"
                             >
                               here
-                            </a>.
+                            </a>
+                            .
                           </span>
                         </div>
                       ) : (
                         <p className="text-sm text-base-content/70">
-                          This cohort does not yet have a metadata dictionary in the explorer. Please upload the dictionary as a CSV file using the button below.
+                          This cohort does not yet have a metadata dictionary in the explorer. Please upload the
+                          dictionary as a CSV file using the button below.
                         </p>
                       )}
                     </div>
@@ -450,58 +488,87 @@ export default function UploadPage() {
                 </div>
 
                 <div className="form-control">
-                   <label htmlFor="metadata-file" className="label">
-                     <span className="label-text font-semibold">Metadata Dictionary File (.csv)</span>
-                      {metadataExists && <span className="label-text-alt">(Optional: only needed to replace existing)</span>}
-                   </label>
-                   <div className="flex items-center gap-2">
-                      <input
-                        type="file"
-                        id="metadata-file"
-                        className={`file-input file-input-bordered file-input-info w-full max-w-xs ${!metadataExists ? 'file-input-required' : ''}`}
-                        accept=".csv"
-                        onChange={(event) => {if (event.target.files) setMetadataFile(event.target.files[0])}}
-                        required={!metadataExists}
+                  <label htmlFor="metadata-file" className="label">
+                    <span className="label-text font-semibold">Metadata Dictionary File (.csv)</span>
+                    {metadataExists && (
+                      <span className="label-text-alt">(Optional: only needed to replace existing)</span>
+                    )}
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="file"
+                      id="metadata-file"
+                      className={`file-input file-input-bordered file-input-info w-full max-w-xs ${!metadataExists ? 'file-input-required' : ''}`}
+                      accept=".csv"
+                      onChange={event => {
+                        if (event.target.files) setMetadataFile(event.target.files[0]);
+                      }}
+                      required={!metadataExists}
+                      disabled={isLoading || isValdating}
+                    />
+                    {metadataFile && (
+                      <button
+                        type="button"
+                        onClick={clearMetadataFile}
+                        className="btn btn-ghost btn-sm"
+                        title="Clear file"
                         disabled={isLoading || isValdating}
-                      />
-                      {metadataFile && (
-                         <button type="button" onClick={clearMetadataFile} className="btn btn-ghost btn-sm" title="Clear file" disabled={isLoading || isValdating}>
-                           <TrashIcon />
-                         </button>
-                      )}
-                   </div>
-                   <div className="label">
-                     <span className="label-text-alt">Must be a CSV file containing variable descriptions.</span>
-                   </div>
+                      >
+                        <TrashIcon />
+                      </button>
+                    )}
+                  </div>
+                  <div className="label">
+                    <span className="label-text-alt">Must be a CSV file containing variable descriptions.</span>
+                  </div>
                 </div>
 
                 <div className="card-actions justify-end items-center gap-2">
-                   {metadataExists && (
-                     <button type="button" className="btn btn-ghost" onClick={() => setStep(2)} disabled={isLoading || isValdating}>
-                       <SkipForward className="w-4 h-4" />
-                       Skip to Step 2
-                     </button>
-                   )}
-                  <button 
+                  {metadataExists && (
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      onClick={() => setStep(2)}
+                      disabled={isLoading || isValdating}
+                    >
+                      <SkipForward className="w-4 h-4" />
+                      Skip to Step 2
+                    </button>
+                  )}
+                  <button
                     id="validate-dictionary"
-                    type="button" 
-                    className="btn btn-outline btn-accent" 
+                    type="button"
+                    className="btn btn-outline btn-accent"
                     onClick={handleValidateDictionary}
                     disabled={isLoading || isValdating || !cohortId || !metadataFile}
                   >
-                    {isValdating ? <span className="loading loading-spinner loading-xs"></span> : <Check className="w-4 h-4" />}
-                    {metadataExists ? "Re-validate Selected File" : "Validate Dictionary"}
+                    {isValdating ? (
+                      <span className="loading loading-spinner loading-xs"></span>
+                    ) : (
+                      <Check className="w-4 h-4" />
+                    )}
+                    {metadataExists ? 'Re-validate Selected File' : 'Validate Dictionary'}
                   </button>
 
-                   <button 
-                     id="upload-dictionary"
-                     type="submit" 
-                     className="btn btn-info" 
-                     disabled={isLoading || isValdating || !cohortId || !isValidated || !metadataFile}
-                   >
-                     {isLoading ? <span className="loading loading-spinner loading-xs"></span> : <Upload className="w-4 h-4" />}
-                     {metadataExists && isValidated ? 'Replace & Proceed' : (isValidated ? 'Upload & Proceed' : (metadataExists ? 'Replace Metadata' : 'Upload Metadata'))}
-                   </button>
+                  <button
+                    id="upload-dictionary"
+                    type="submit"
+                    className="btn btn-info"
+                    disabled={isLoading || isValdating || !cohortId || !isValidated || !metadataFile}
+                  >
+                    {isLoading ? (
+                      <span className="loading loading-spinner loading-xs"></span>
+                    ) : (
+                      <Upload className="w-4 h-4" />
+                    )}
+                    {metadataExists && isValidated
+                      ? 'Replace & Proceed'
+                      : isValidated
+                        ? 'Upload & Proceed'
+                        : metadataExists
+                          ? 'Replace Metadata'
+                          : 'Upload Metadata'}
+                  </button>
                 </div>
               </form>
             </div>
@@ -509,72 +576,79 @@ export default function UploadPage() {
         )}
 
         {step === 2 && (
-           <div className="card bg-base-100 shadow-xl">
-             <div className="card-body">
-                <h2 className="card-title text-xl mb-4" data-testid="upload-dcr-step-title">
-                  {dcrUploadUi.heading}
-                </h2>
-                 <div
-                   className="prose prose-sm max-w-none mb-6 text-base-content/80"
-                   data-provider={dcrProviderUi?.provider ?? 'loading'}
-                   data-testid="upload-dcr-provider-copy"
-                 >
-                   {dcrUploadUi.warning && (
-                     <div
-                       className={`alert ${dcrUploadUi.localSimulation ? 'alert-warning' : 'alert-info'} mb-4`}
-                       data-testid="upload-dcr-provider-warning"
-                       role="alert"
-                     >
-                       {dcrUploadUi.warning}
-                     </div>
-                   )}
-                   <p>
-                      Your metadata dictionary structure for cohort <strong>{cohortsData?.[cohortId]?.label || cohortId}</strong> has been processed (or simulated).
-                   </p>
-                   <p>{dcrUploadUi.creationIntro}</p>
-                   {dcrUploadUi.provisioningIntro && <p>{dcrUploadUi.provisioningIntro}</p>}
-                   {dcrUploadUi.provisioningSteps.length > 0 && (
-                     <ul className="list-disc pl-5">
-                       {dcrUploadUi.provisioningSteps.map(item => <li key={item}>{item}</li>)}
-                     </ul>
-                   )}
-               </div>
+          <div className="card bg-base-100 shadow-xl">
+            <div className="card-body">
+              <h2 className="card-title text-xl mb-4" data-testid="upload-dcr-step-title">
+                {dcrUploadUi.heading}
+              </h2>
+              <div
+                className="prose prose-sm max-w-none mb-6 text-base-content/80"
+                data-provider={dcrProviderUi?.provider ?? 'loading'}
+                data-testid="upload-dcr-provider-copy"
+              >
+                {dcrUploadUi.warning && (
+                  <div
+                    className={`alert ${dcrUploadUi.localSimulation ? 'alert-warning' : 'alert-info'} mb-4`}
+                    data-testid="upload-dcr-provider-warning"
+                    role="alert"
+                  >
+                    {dcrUploadUi.warning}
+                  </div>
+                )}
+                <p>
+                  Your metadata dictionary structure for cohort{' '}
+                  <strong>{cohortsData?.[cohortId]?.label || cohortId}</strong> has been processed (or simulated).
+                </p>
+                <p>{dcrUploadUi.creationIntro}</p>
+                {dcrUploadUi.provisioningIntro && <p>{dcrUploadUi.provisioningIntro}</p>}
+                {dcrUploadUi.provisioningSteps.length > 0 && (
+                  <ul className="list-disc pl-5">
+                    {dcrUploadUi.provisioningSteps.map(item => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
 
-               <form onSubmit={handleDcrSubmit} className="space-y-5">
-                 <div className="form-control">
-                    <label className="label">
-                     <span className="label-text font-semibold">Cohort for DCR Creation</span>
-                   </label>
-                   <div className="input input-bordered flex items-center h-12">
-                     {cohortsData?.[cohortId]?.label || cohortId || '(No cohort selected in Step 1)'}
-                   </div>
-                 </div>
+              <form onSubmit={handleDcrSubmit} className="space-y-5">
+                <div className="form-control">
+                  <label className="label">
+                    <span className="label-text font-semibold">Cohort for DCR Creation</span>
+                  </label>
+                  <div className="input input-bordered flex items-center h-12">
+                    {cohortsData?.[cohortId]?.label || cohortId || '(No cohort selected in Step 1)'}
+                  </div>
+                </div>
 
-                 <div className="card-actions justify-between items-center">
-                    <button type="button" className="btn btn-ghost" onClick={() => setStep(1)} disabled={dcrIsLoading}>
-                      <ArrowLeft className="w-4 h-4" />
-                      Back to Metadata
-                    </button>
-                    <button
-                      type="submit"
-                      className="btn btn-warning"
-                      disabled={dcrIsLoading || !cohortId || !dcrUploadUi.resolved}
-                    >
-                      {dcrIsLoading ? <span className="loading loading-spinner loading-xs"></span> : <Upload className="w-4 h-4" /> }
-                      {dcrUploadUi.resolved
-                        ? `Create Data Clean Room for ${cohortsData?.[cohortId]?.label || cohortId}`
-                        : dcrProviderError
-                          ? 'Data Clean Room provider unavailable'
-                          : 'Loading Data Clean Room provider...'}
-                    </button>
-                 </div>
-               </form>
-             </div>
-           </div>
+                <div className="card-actions justify-between items-center">
+                  <button type="button" className="btn btn-ghost" onClick={() => setStep(1)} disabled={dcrIsLoading}>
+                    <ArrowLeft className="w-4 h-4" />
+                    Back to Metadata
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn btn-warning"
+                    disabled={dcrIsLoading || !cohortId || !dcrUploadUi.resolved}
+                  >
+                    {dcrIsLoading ? (
+                      <span className="loading loading-spinner loading-xs"></span>
+                    ) : (
+                      <Upload className="w-4 h-4" />
+                    )}
+                    {dcrUploadUi.resolved
+                      ? `Create Data Clean Room for ${cohortsData?.[cohortId]?.label || cohortId}`
+                      : dcrProviderError
+                        ? 'Data Clean Room provider unavailable'
+                        : 'Loading Data Clean Room provider...'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
         )}
 
         {/* Display publishedDCR information - this block is specifically for DCR success */}
-        {publishedDCR && !operationMessage?.text.includes("Failed to create DCR") && (
+        {publishedDCR && !operationMessage?.text.includes('Failed to create DCR') && (
           <div role="alert" className="alert alert-success mb-4 shadow-md">
             <div className="flex items-start">
               <Check className="w-6 h-6 mr-2 shrink-0" />
@@ -582,7 +656,12 @@ export default function UploadPage() {
                 <span className="font-semibold">{publishedDCR.message}</span>
                 {publishedDCR.dcr_url && (
                   <p className="text-sm mt-1">
-                    <a href={publishedDCR.dcr_url} className="link link-neutral hover:link-primary" target="_blank" rel="noopener noreferrer">
+                    <a
+                      href={publishedDCR.dcr_url}
+                      className="link link-neutral hover:link-primary"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
                       {publishedDCR.openLabel || 'Open room'}: <span className="break-all">{publishedDCR.dcr_url}</span>
                     </a>
                   </p>

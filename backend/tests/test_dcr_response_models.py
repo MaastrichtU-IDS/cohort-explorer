@@ -59,6 +59,8 @@ def test_live_create_result_preserves_existing_wizard_fields():
         "shuffled_uploads_successful": 2,
         "mapping_upload_results": {"time-chf_gissi-hf_full.csv": "success"},
         "mapping_uploads_successful": 1,
+        "row_upload_results": {},
+        "row_uploads_successful": 0,
         "participants": {
             "nikolas.molyndris@decentriq.ch": {
                 "data_owner_of": [],

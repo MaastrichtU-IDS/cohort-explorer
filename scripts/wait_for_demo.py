@@ -15,6 +15,7 @@ DEFAULT_PROBES = (
     "frontend=http://127.0.0.1:3001/api/health",
     "backend=http://127.0.0.1:3000/health",
     "aadcrv2=http://127.0.0.1:18000/health",
+    "aadcrv2-ui=http://127.0.0.1:3002/healthz",
 )
 LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
 

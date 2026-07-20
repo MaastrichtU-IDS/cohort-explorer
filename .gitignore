@@ -12,6 +12,7 @@ __pycache__
 backend/variables.db
 .coverage
 backend/.coverage
+backend/*.log
 .demo-state/
 artifacts/browser-demo/
 

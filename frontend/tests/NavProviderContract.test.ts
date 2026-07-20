@@ -14,7 +14,7 @@ describe('navigation DCR provider contract', () => {
   it('renders a visible provider failure and gates wizard interactions', () => {
     expect(navSource).toContain('data-testid="dcr-provider-error"');
     expect(navSource).toContain('disabled={!dcrWizardUi.resolved}');
-    expect(navSource).toContain('!dcrWizardUi.resolved || isLoading');
+    expect(navSource).toMatch(/!dcrWizardUi\.resolved\s*\|\|\s*isLoading/);
   });
 
   it('uses one complete wizard request projection for preview and creation', () => {

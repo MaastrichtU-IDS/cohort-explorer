@@ -75,6 +75,13 @@ class LiveCreateResult(DcrResponseModel):
     shuffled_uploads_successful: int = 0
     mapping_upload_results: dict[str, str] = Field(default_factory=dict)
     mapping_uploads_successful: int = 0
+    row_upload_results: dict[str, str] = Field(default_factory=dict)
+    row_uploads_successful: int = 0
     participants: dict[str, dict[str, list[str]]] = Field(default_factory=dict)
     provider: str
     capabilities: DcrCapabilities
+    handoff_mode: str | None = None
+    environment: str | None = None
+    data_node_ids: dict[str, str] | None = None
+    merge_request_id: str | None = None
+    aggregate_computation_node_id: str | None = None

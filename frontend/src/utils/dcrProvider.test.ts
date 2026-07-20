@@ -28,12 +28,13 @@ describe('DCR provider UI projection', () => {
     expect(projection).toMatchObject({
       resolved: true,
       localSimulation: true,
-      heading: 'Step 2: Create Local Synthetic AADCR Simulation',
+      heading: 'Step 2: Create Advanced Analytics DCR Handoff',
       warning:
         'Local synthetic-data simulation only. This does not provide a confidential-computing or production security boundary. Do not use real or confidential data.'
     });
     expect(renderedCopy).toContain('generated synthetic CSV');
-    expect(renderedCopy).toContain('Cohort Explorer provisions');
+    expect(renderedCopy).toContain('Cohort Explorer creates metadata-derived data-node slots');
+    expect(renderedCopy).toContain('Advanced Analytics DCR interface');
     expect(renderedCopy).not.toContain('external Decentriq platform');
     expect(renderedCopy).not.toContain('secure confines');
     expect(renderedCopy).not.toContain('separately upload the actual patient-level data');
@@ -71,8 +72,7 @@ describe('DCR provider UI projection', () => {
   });
 
   it('surfaces a provider-load failure while keeping upload creation unresolved', () => {
-    const loadError =
-      'Unable to load the configured Data Clean Room provider. Room creation is disabled.';
+    const loadError = 'Unable to load the configured Data Clean Room provider. Room creation is disabled.';
     const projection = projectDcrUpload(undefined, loadError);
 
     expect(projection).toMatchObject({
@@ -93,7 +93,7 @@ describe('DCR provider UI projection', () => {
     ).toEqual({
       provider: 'aadcrv2',
       createLabel: 'Create Data Clean Room',
-      openLabel: 'Open in My DCRs',
+      openLabel: 'Open Advanced Analytics DCR',
       refreshLabel: 'Refresh rooms',
       loadingLabel: 'Creating the local Data Clean Room. This may take a few seconds...',
       canRunResult: true,
@@ -110,9 +110,7 @@ describe('DCR provider UI projection', () => {
       localSimulation: true
     });
     expect(() => projectConfiguredDcrProvider(undefined)).toThrow('did not identify a supported provider');
-    expect(() => projectConfiguredDcrProvider('unknown-provider')).toThrow(
-      'did not identify a supported provider'
-    );
+    expect(() => projectConfiguredDcrProvider('unknown-provider')).toThrow('did not identify a supported provider');
   });
 
   it('preserves Decentriq copy and defaults for legacy responses', () => {
@@ -136,7 +134,7 @@ describe('DCR provider UI projection', () => {
     expect(projection.canRunResult).toBe(true);
   });
 
-  it('removes Airlock promises and warns before creating a local simulation', () => {
+  it('keeps the local AADCR wizard to metadata handoff responsibilities', () => {
     const wizard = projectDcrWizard(
       projectDcrProvider('aadcrv2', {
         local_simulation: true,
@@ -145,10 +143,11 @@ describe('DCR provider UI projection', () => {
     );
 
     expect(wizard.supportsAirlock).toBe(false);
+    expect(wizard.metadataHandoff).toBe(true);
     expect(wizard.creationWarning).toBe(
       'Local synthetic-data simulation only. This does not provide a confidential-computing or production security boundary. Do not use real or confidential data.'
     );
-    expect(wizard.steps.find(step => step.id === 'data-samples')?.title).toBe('Synthetic Samples');
+    expect(wizard.steps.map(step => step.id)).toEqual(['name', 'mapping', 'review']);
   });
 
   it('keeps the wizard neutral and disabled until its provider is resolved', () => {
@@ -157,13 +156,13 @@ describe('DCR provider UI projection', () => {
     expect(wizard).toMatchObject({
       resolved: false,
       supportsAirlock: false,
+      metadataHandoff: false,
       creationWarning: 'Loading the configured Data Clean Room provider...'
     });
   });
 
   it('projects a visible fail-closed wizard error without Decentriq semantics', () => {
-    const providerError =
-      'Unable to load the configured Data Clean Room provider. Wizard creation is disabled.';
+    const providerError = 'Unable to load the configured Data Clean Room provider. Wizard creation is disabled.';
     const wizard = projectDcrWizard(undefined, providerError);
 
     expect(wizard).toMatchObject({
@@ -177,6 +176,7 @@ describe('DCR provider UI projection', () => {
     const wizard = projectDcrWizard(projectDcrProvider('aadcrv2'));
 
     expect(wizard.supportsAirlock).toBe(false);
+    expect(wizard.metadataHandoff).toBe(true);
     expect(wizard.creationWarning).not.toBeNull();
   });
 
@@ -184,6 +184,7 @@ describe('DCR provider UI projection', () => {
     const wizard = projectDcrWizard(projectDcrProvider('decentriq'));
 
     expect(wizard.supportsAirlock).toBe(true);
+    expect(wizard.metadataHandoff).toBe(false);
     expect(wizard.creationWarning).toBeNull();
     expect(wizard.steps.find(step => step.id === 'data-samples')?.title).toBe('Data Samples');
   });

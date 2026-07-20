@@ -63,9 +63,7 @@ class Settings:
     aadcrv2_jwt_audience: str = field(
         default_factory=lambda: os.getenv("AADCRV2_JWT_AUDIENCE", "aadcrv2-local").strip()
     )
-    aadcrv2_timeout_seconds: float = field(
-        default_factory=lambda: float(os.getenv("AADCRV2_TIMEOUT_SECONDS", "10"))
-    )
+    aadcrv2_timeout_seconds: float = field(default_factory=lambda: float(os.getenv("AADCRV2_TIMEOUT_SECONDS", "10")))
     aadcrv2_room_url_template: str = field(
         default_factory=lambda: os.getenv(
             "AADCRV2_ROOM_URL_TEMPLATE",
@@ -76,6 +74,9 @@ class Settings:
         default_factory=lambda: os.getenv("AADCRV2_OPERATION_JOURNAL", "../data/aadcrv2-operations.jsonl").strip()
     )
     aadcrv2_synthetic_demo: bool = field(default_factory=lambda: env_bool("AADCRV2_SYNTHETIC_DEMO", False))
+    aadcrv2_handoff_mode: str = field(
+        default_factory=lambda: os.getenv("AADCRV2_HANDOFF_MODE", "provision").strip().lower()
+    )
 
     def validate_runtime(self) -> None:
         dcr_backend = self.dcr_backend.strip().lower()
@@ -99,6 +100,8 @@ class Settings:
                 raise ValueError("AADCRV2_TIMEOUT_SECONDS must be greater than zero")
             if "{dcr_id}" not in self.aadcrv2_room_url_template:
                 raise ValueError("AADCRV2_ROOM_URL_TEMPLATE must contain {dcr_id}")
+            if self.aadcrv2_handoff_mode not in {"bootstrap", "provision"}:
+                raise ValueError("AADCRV2_HANDOFF_MODE must be bootstrap or provision")
 
     @property
     def redirect_uri(self) -> str:

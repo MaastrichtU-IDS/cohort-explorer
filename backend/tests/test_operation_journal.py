@@ -83,6 +83,9 @@ def test_atomic_append_and_deterministic_completed_replay_omit_sensitive_content
         },
         "provider": "aadcrv2",
         "capabilities": {"local_simulation": True},
+        "handoff_mode": "bootstrap",
+        "environment": "DEV",
+        "data_node_ids": {"TIME-CHF": "node-time"},
         "merge_request_id": "merge-1",
         "aggregate_computation_node_id": "prod-aggregate",
         "authorization": "Bearer journal-secret",
@@ -103,6 +106,9 @@ def test_atomic_append_and_deterministic_completed_replay_omit_sensitive_content
     assert replayed == completed
     assert replayed.final_response["dcr_id"] == "room-123"
     assert replayed.final_response["participants"] == completed_response["participants"]
+    assert replayed.final_response["handoff_mode"] == "bootstrap"
+    assert replayed.final_response["environment"] == "DEV"
+    assert replayed.final_response["data_node_ids"] == {"TIME-CHF": "node-time"}
     raw = journal_path.read_text(encoding="utf-8")
     assert raw.count("\n") == 2
     assert "must-not-be-persisted" not in raw

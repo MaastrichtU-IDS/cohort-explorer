@@ -4,8 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import base64
-import binascii
 import contextlib
 import csv
 import hashlib
@@ -67,17 +65,14 @@ FORBIDDEN_EVIDENCE_TERMS = {
 }
 ALLOWED_EVIDENCE_KEYS = {
     "adversarial_check_count",
-    "aggregate_computation_node_id",
     "audit_count",
     "cohort_count",
-    "computation_status",
-    "dataset_count",
+    "data_node_count",
     "definition_member_count",
+    "environment",
+    "handoff_mode",
     "idempotent",
-    "merge_request_id",
     "preview_sha256",
-    "result_member_count",
-    "result_sha256",
     "room_count",
     "room_id",
     "schema_version",
@@ -758,6 +753,66 @@ def _inspect_live_creation(
     return room_id, merge_id, computation_id
 
 
+def _inspect_bootstrap_creation(
+    payload: Any,
+    *,
+    aadcr_ui_url: str,
+) -> tuple[str, dict[str, str]]:
+    """Validate that Cohort Explorer stops at the explicit AADCR UI handoff."""
+    if not isinstance(payload, dict):
+        raise SmokeError("live room creation returned an invalid object")
+    room_id = _require_string(payload, "dcr_id", step="live room creation")
+    raw_node_ids = payload.get("data_node_ids")
+    if not isinstance(raw_node_ids, dict) or set(raw_node_ids) != EXPECTED_DATA_NODES:
+        raise SmokeError("live room creation returned unexpected DEV data slots")
+    node_ids = {
+        name: _require_string(raw_node_ids, name, step="live room creation")
+        for name in sorted(EXPECTED_DATA_NODES)
+    }
+    if len(set(node_ids.values())) != len(node_ids):
+        raise SmokeError("live room creation returned duplicate DEV data slot IDs")
+
+    handoff = urlsplit(str(payload.get("dcr_url") or ""))
+    expected_origin = urlsplit(aadcr_ui_url)
+    empty_results = (
+        "metadata_upload_results",
+        "row_upload_results",
+        "shuffled_upload_results",
+        "mapping_upload_results",
+    )
+    zero_counts = (
+        "metadata_uploads_successful",
+        "row_uploads_successful",
+        "shuffled_uploads_successful",
+        "mapping_uploads_successful",
+    )
+    if (
+        payload.get("provider") != "aadcrv2"
+        or payload.get("handoff_mode") != "bootstrap"
+        or payload.get("environment") != "DEV"
+        or set(payload.get("cohort_ids") or []) != set(COHORTS)
+        or payload.get("num_cohorts") != len(COHORTS)
+        or payload.get("participants") != {}
+        or payload.get("merge_request_id") is not None
+        or payload.get("aggregate_computation_node_id") is not None
+        or any(payload.get(key) != {} for key in empty_results)
+        or any(payload.get(key) != 0 for key in zero_counts)
+        or handoff.scheme != "http"
+        or handoff.hostname not in LOOPBACK_HOSTS
+        or handoff.port != expected_origin.port
+        or handoff.path != f"/aadcrv2/dcr/{room_id}"
+        or handoff.query
+        or handoff.fragment
+        or handoff.username is not None
+        or handoff.password is not None
+        or not isinstance(payload.get("capabilities"), dict)
+        or payload["capabilities"].get("local_simulation") is not True
+        or payload["capabilities"].get("synthetic_data_only") is not True
+    ):
+        raise SmokeError("live room creation returned an unexpected bootstrap contract")
+    return room_id, node_ids
+
+
 def _bearer_headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
@@ -784,6 +839,100 @@ def _native_room_count(
     ):
         raise SmokeError(f"{step} returned an invalid room list")
     return len(rooms)
+
+
+def _inspect_native_bootstrap(
+    client: SmokeHttp,
+    *,
+    headers: Mapping[str, str],
+    room_id: str,
+    expected_node_ids: Mapping[str, str],
+) -> int:
+    """Prove the native room contains only CE-created DEV data-slot changes."""
+    room = client.json(
+        "GET",
+        f"/api/dcr/{room_id}",
+        step="native room read",
+        expected_status={200},
+        required={"id": str, "name": str},
+        headers=headers,
+    )
+    if room["id"] != room_id:
+        raise SmokeError("native room read returned the wrong room")
+
+    dev = client.json(
+        "GET",
+        f"/api/dcr/{room_id}/dev/view",
+        step="native DEV read",
+        expected_status={200},
+        headers=headers,
+    )
+    if not isinstance(dev, dict):
+        raise SmokeError("native DEV read returned an invalid object")
+    data_nodes = dev.get("data_nodes")
+    actual_node_ids = {
+        node.get("name"): node.get("id")
+        for node in data_nodes or []
+        if isinstance(node, dict)
+        and isinstance(node.get("name"), str)
+        and isinstance(node.get("id"), str)
+    }
+    if (
+        not isinstance(data_nodes, list)
+        or len(data_nodes) != len(EXPECTED_DATA_NODES)
+        or actual_node_ids != dict(expected_node_ids)
+        or dev.get("participants") != []
+        or dev.get("computation_nodes") != []
+        or dev.get("permissions") != []
+    ):
+        raise SmokeError("native DEV graph crossed the metadata-only handoff boundary")
+
+    prod = client.json(
+        "GET",
+        f"/api/dcr/{room_id}/prod/view",
+        step="native PROD read",
+        expected_status={200},
+        headers=headers,
+    )
+    if not isinstance(prod, dict) or any(
+        prod.get(collection) != []
+        for collection in ("participants", "data_nodes", "computation_nodes", "permissions")
+    ):
+        raise SmokeError("native PROD graph was unexpectedly populated before handoff")
+
+    provisions = client.json(
+        "GET",
+        f"/api/dcr/{room_id}/provisioned-datasets",
+        step="native provisioning read",
+        expected_status={200},
+        required={"provisioned_datasets": list},
+        headers=headers,
+    )
+    if provisions["provisioned_datasets"]:
+        raise SmokeError("native room was unexpectedly provisioned before handoff")
+
+    merge_requests = client.json(
+        "GET",
+        f"/api/dcr/{room_id}/merge-requests/",
+        step="native merge-request read",
+        expected_status={200},
+        required={"mergeRequests": list},
+        headers=headers,
+    )
+    if merge_requests["mergeRequests"]:
+        raise SmokeError("native room had a merge request before handoff")
+
+    audit = client.json(
+        "GET",
+        f"/api/dcr/{room_id}/audit-logs",
+        step="native audit read",
+        expected_status={200},
+        required={"audit_logs": list},
+        headers=headers,
+    )["audit_logs"]
+    if not audit:
+        raise SmokeError("native audit read returned no entries")
+    return len(audit)
 
 
 def _inspect_native_room(
@@ -1182,6 +1331,48 @@ def _run_adversarial_checks(
     return 4
 
 
+def _run_bootstrap_adversarial_checks(
+    native: SmokeHttp,
+    *,
+    headers: Mapping[str, str],
+    token: str,
+    secret: str,
+    room_id: str,
+    upload_limit_bytes: int,
+) -> int:
+    """Exercise auth and upload limits without mutating the bootstrapped room."""
+    native.request(
+        "GET",
+        "/api/dcr/",
+        step="tampered token rejection",
+        expected_status={401},
+        headers=_bearer_headers(_tamper_token_signature(token)),
+    )
+    outsider = _mint_aadcr_token("outsider@example.test", secret)
+    native.request(
+        "GET",
+        f"/api/dcr/{room_id}",
+        step="outsider room rejection",
+        expected_status={403},
+        headers=_bearer_headers(outsider),
+    )
+    with tempfile.TemporaryFile() as oversized:
+        oversized.write(b"value\n1\n")
+        oversized.seek(upload_limit_bytes)
+        oversized.write(b"x")
+        oversized.seek(0)
+        native.request(
+            "POST",
+            "/api/upload",
+            step="oversized upload rejection",
+            expected_status={413},
+            headers=headers,
+            data={"dataset_name": "oversized-adversarial-check"},
+            files={"file": ("oversized.csv", oversized, "text/csv")},
+        )
+    return 3
+
+
 def _tamper_token_signature(token: str) -> str:
     """Change signed bytes, avoiding no-op base64url padding-bit mutations."""
     parts = token.split(".")
@@ -1211,8 +1402,9 @@ def _assert_requested_origins_match_gateway(
     *,
     base_url: str,
     aadcr_url: str,
+    aadcr_ui_url: str,
 ) -> dict[str, str]:
-    expected_ports = {"18000/tcp", "3000/tcp", "3001/tcp"}
+    expected_ports = {"18000/tcp", "3000/tcp", "3001/tcp", "3002/tcp"}
     if set(bindings) != expected_ports:
         raise SmokeError("selected gateway has unexpected published ports")
     published: dict[str, int] = {}
@@ -1256,9 +1448,15 @@ def _assert_requested_origins_match_gateway(
         expected_port=published["18000/tcp"],
         label="AADCR",
     )
+    aadcr_ui, _aadcr_ui_host = canonical(
+        aadcr_ui_url,
+        expected_port=published["3002/tcp"],
+        label="AADCR UI",
+    )
     frontend_host = f"[{backend_host}]" if ":" in backend_host else backend_host
     return {
         "aadcr": aadcr,
+        "aadcr_ui": aadcr_ui,
         "backend": backend,
         "frontend": f"http://{frontend_host}:{published['3001/tcp']}",
     }
@@ -1271,6 +1469,7 @@ def _assert_internal_network_and_no_public_egress(
     compose_files: Sequence[Path],
     base_url: str,
     aadcr_url: str,
+    aadcr_ui_url: str,
 ) -> dict[str, str]:
     compose = [
         "docker",
@@ -1283,7 +1482,7 @@ def _assert_internal_network_and_no_public_egress(
     for compose_file in compose_files:
         compose.extend(("-f", str(compose_file)))
     container_ids: dict[str, str] = {}
-    for service in ("backend", "frontend", "db", "aadcrv2", "gateway"):
+    for service in ("backend", "frontend", "db", "aadcrv2", "aadcrv2-ui", "gateway"):
         lookup = _run_command(
             [*compose, "ps", "-q", service],
             step=f"{service} container lookup",
@@ -1380,9 +1579,11 @@ def _assert_internal_network_and_no_public_egress(
         gateway_bindings,
         base_url=base_url,
         aadcr_url=aadcr_url,
+        aadcr_ui_url=aadcr_ui_url,
     )
     for label, path in {
         "aadcr": "/health",
+        "aadcr_ui": "/healthz",
         "backend": "/health",
         "frontend": "/api/health",
     }.items():
@@ -1437,6 +1638,7 @@ def run_smoke(args: argparse.Namespace) -> dict[str, Any]:
         compose_files=args.compose_file,
         base_url=args.base_url,
         aadcr_url=args.aadcr_url,
+        aadcr_ui_url=args.aadcr_ui_url,
     )
     token = _mint_aadcr_token(email, runtime["AADCRV2_JWT_SECRET"])
     headers = _bearer_headers(token)
@@ -1488,76 +1690,17 @@ def run_smoke(args: argparse.Namespace) -> dict[str, Any]:
             expected_status={200},
             json=room_request,
         )
-        room_id, merge_id, computation_id = _inspect_live_creation(
+        room_id, data_node_ids = _inspect_bootstrap_creation(
             created,
-            owner_email=email,
-            frontend_url=origins["frontend"],
+            aadcr_ui_url=origins["aadcr_ui"],
         )
 
         with SmokeHttp(origins["aadcr"], timeout=args.timeout) as native:
-            dataset_id, dataset_count, native_audit_count, native_provisions = _inspect_native_room(
+            native_audit_count = _inspect_native_bootstrap(
                 native,
                 headers=headers,
                 room_id=room_id,
-                merge_id=merge_id,
-                computation_id=computation_id,
-                owner_email=email,
-            )
-            prod = native.json(
-                "GET",
-                f"/api/dcr/{room_id}/prod/view",
-                step="native PROD containment read",
-                expected_status={200},
-                headers=headers,
-            )
-            data_nodes = prod.get("data_nodes") if isinstance(prod, dict) else None
-            if not isinstance(data_nodes, list) or not data_nodes:
-                raise SmokeError("native PROD containment read omitted data nodes")
-            main_data_node_id = _require_string(
-                data_nodes[0],
-                "id",
-                step="native PROD containment read",
-            )
-
-            result = cohort_explorer.request(
-                "GET",
-                f"/compute-get-output/{room_id}",
-                step="aggregate computation",
-                expected_status={200},
-            )
-            result_sha256, result_member_count = _inspect_result(
-                result.content,
-                manifest=manifest,
-            )
-            native_result = native.json(
-                "POST",
-                f"/api/dcr/{room_id}/computation-nodes/results",
-                step="native computation result read",
-                expected_status={200},
-                required={"status": str},
-                headers=headers,
-                json={
-                    "computationNodeId": computation_id,
-                    "environment": "PROD",
-                },
-            )
-            if str(native_result["status"]).upper() != "COMPLETED":
-                raise SmokeError("native computation did not reach COMPLETED")
-            encoded_result = native_result.get("results")
-            try:
-                native_result_bytes = base64.b64decode(encoded_result, validate=True)
-            except (binascii.Error, TypeError, ValueError) as error:
-                raise SmokeError("native computation returned invalid result bytes") from error
-            if native_result.get("files") != ["aggregate-summary.json"] or native_result_bytes != result.content:
-                raise SmokeError("Cohort Explorer changed the native aggregate result")
-
-            room_count, ce_audit_count = _inspect_ce_reads(
-                cohort_explorer,
-                room_id=room_id,
-                owner_email=email,
-                native_provisions=native_provisions,
-                expected_room_count=1,
-                frontend_url=origins["frontend"],
+                expected_node_ids=data_node_ids,
             )
             replay = cohort_explorer.json(
                 "POST",
@@ -1566,47 +1709,40 @@ def run_smoke(args: argparse.Namespace) -> dict[str, Any]:
                 expected_status={200},
                 json=room_request,
             )
-            replay_room_id, replay_merge_id, replay_computation_id = _inspect_live_creation(
+            replay_room_id, replay_data_node_ids = _inspect_bootstrap_creation(
                 replay,
-                owner_email=email,
-                frontend_url=origins["frontend"],
+                aadcr_ui_url=origins["aadcr_ui"],
             )
-            if _native_room_count(
+            room_count = _native_room_count(
                 native,
                 headers=headers,
                 step="idempotent room count",
-            ) != room_count or (replay_room_id, replay_merge_id, replay_computation_id) != (
+            )
+            if room_count != 1 or (replay_room_id, replay_data_node_ids) != (
                 room_id,
-                merge_id,
-                computation_id,
+                data_node_ids,
             ):
                 raise SmokeError("idempotent room replay duplicated or changed the room")
-            adversarial_check_count = 1 + _run_adversarial_checks(
+            adversarial_check_count = 1 + _run_bootstrap_adversarial_checks(
                 native,
                 headers=headers,
                 token=token,
                 secret=runtime["AADCRV2_JWT_SECRET"],
                 room_id=room_id,
-                dataset_id=dataset_id,
-                main_data_node_id=main_data_node_id,
                 upload_limit_bytes=args.upload_limit_bytes,
-                expected_room_count=room_count,
             )
 
     evidence = {
         "schema_version": 1,
         "room_id": room_id,
-        "merge_request_id": merge_id,
-        "aggregate_computation_node_id": computation_id,
         "preview_sha256": preview_sha256,
-        "result_sha256": result_sha256,
         "cohort_count": len(COHORTS),
-        "dataset_count": dataset_count,
+        "data_node_count": len(data_node_ids),
         "room_count": room_count,
-        "audit_count": max(native_audit_count, ce_audit_count),
+        "audit_count": native_audit_count,
         "definition_member_count": definition_member_count,
-        "result_member_count": result_member_count,
-        "computation_status": "COMPLETED",
+        "handoff_mode": "bootstrap",
+        "environment": "DEV",
         "idempotent": True,
         "adversarial_check_count": adversarial_check_count,
     }
@@ -1619,6 +1755,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-url", default="http://127.0.0.1:3000")
     parser.add_argument("--aadcr-url", default="http://127.0.0.1:18000")
+    parser.add_argument("--aadcr-ui-url", default="http://127.0.0.1:3002")
     parser.add_argument("--pack", type=Path, required=True)
     parser.add_argument("--runtime-env", type=Path, required=True)
     parser.add_argument("--project-name", required=True)

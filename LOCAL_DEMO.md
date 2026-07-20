@@ -1,217 +1,145 @@
 # Local Cohort Explorer ↔ AADCR v2 demo
 
-This lane runs the current Cohort Explorer metadata workflow and a local AADCR v2
-backend together. It is intended for deterministic product demonstrations and
-integration development. It is a local simulation: it is **not** a confidential
-computing environment or a production Data Clean Room security boundary.
+This lane connects Cohort Explorer to the real Advanced Analytics Data Clean Room
+v2 interface from Delta. It is for deterministic local demonstrations and
+integration development. It is **not** a confidential-computing environment or a
+production Data Clean Room security boundary.
 
-The demo provides:
+The product boundary is deliberate:
 
-- local admin access as `nikolas.molyndris@decentriq.ch`;
-- Cohort Explorer upload, exploration, concept validation, mapping generation,
-  DCR definition, creation, provisioning, My DCRs, audit, and result endpoints;
-- fixture-backed concept search, validation, and mapping, so no external model or
-  ontology service is required at runtime;
-- deterministic synthetic TIME-CHF and GISSI-HF rows derived from the repository's
-  metadata dictionaries and committed mapping semantics, with generator 1.1's
-  parser-supported EHR/CRF/outcome-registry source metadata;
-- AADCR v2 room creation, DEV → MERGED → PROD state, asset provisioning, local
-  aggregate computation, and result retrieval; and
-- an automated smoke lane plus committed headless or visible browser acceptance.
+1. Cohort Explorer owns metadata workbook and dictionary upload, exploration,
+   validation, concept mapping, cross-study mapping selection, and room planning.
+2. Cohort Explorer creates one AADCR v2 room plus metadata-derived data-node slots
+   as unmerged DEV changes.
+3. The browser follows the returned room link into the real AADCR v2 UI.
+4. Synthetic CSV upload/provisioning, participants, permissions, computation nodes,
+   merge requests, execution, results, and audit happen in AADCR v2.
+
+The two products keep their own visual identity: Cohort Explorer owns the metadata
+experience on port 3001, and the handoff on port 3002 uses Delta's unchanged
+Decentriq `StylesWrapper` and production themes.
+
+No Cohort Explorer-local “My DCRs” page is part of this lane. External concept and
+mapping services are fixture-backed, so no model, ontology service, Decentriq token,
+OAuth account, external LLM, embedding service, Athena service, or live SPARQL source
+is required.
+
+The deterministic synthetic pack contains plausible cardiovascular TIME-CHF and
+GISSI-HF rows derived from the repository’s metadata dictionaries and mapping
+semantics. It is synthetic-only and must never be presented as real cohort data.
 
 ## Pinned source boundary
 
-The launch scripts fail closed unless the AADCR checkout descends from the baseline,
-matches the reviewed integration exactly, and has no tracked or untracked changes:
+Launch scripts fail closed unless the adjacent Delta checkout exactly matches this
+clean reviewed integration:
 
-- `davstur/aadcrv2` baseline `f13ef54fc3f0f56dae185d4aa35c6dff01ee8839`; and
-- exact clean reviewed integration `08993663db8084b145d70d369309e82f7080b0f7`.
+- `davstur/aadcrv2` baseline `f13ef54fc3f0f56dae185d4aa35c6dff01ee8839`;
+- local integration `349adecf26d3af058b9c1650eabf7c5593bc8f38`.
 
-The default adjacent checkouts are:
+Default adjacent checkouts:
 
 ```text
 $HOME/projects/cohort-explorer-aadcrv2
 $HOME/projects/delta-aadcrv2
 ```
 
-Set `AADCRV2_REPO_DIR` before the first command to use another Delta checkout.
-Each Compose namespace receives its own generated 256-bit session secret,
-inter-service JWT secret, and mutable volumes. Secrets are stored with mode `0600`
-under `.demo-state/<namespace>/runtime.env` and are never written to the example env
-file or smoke evidence.
+Set `AADCRV2_REPO_DIR` before the first command to use another Delta checkout. Each
+Compose namespace gets independent 256-bit session and service-JWT secrets under
+`.demo-state/<namespace>/runtime.env` with mode `0600`.
 
 ## Prerequisites
 
-- Docker Engine 24+ (or current Docker Desktop) with Docker Compose 2.24.4+
+- current Docker Desktop with Docker Compose
 - Git 2.39+
-- Python 3.11 and `uv` for host-side generation, seeding, and smoke checks
-- Node.js 20 or 22 LTS with npm 10+ for the committed browser acceptance lane
-- both repositories checked out at the source boundary above
+- Python 3.11 and `uv`
+- Node.js 20 or 22 LTS with npm 10+
+- both repositories at the pinned source boundary
 
-The current verified host used Docker Engine 29.4.0, Compose 5.1.2, Node
-22.22.2, npm 10.9.7, and the AADCR container's pinned Python 3.11 runtime. Initial
-setup needs network access for npm and Playwright downloads, host-side `uv`
-dependency resolution, Docker base-image pulls, and image-build package installs
-(apt, uv/Python, spaCy, and npm). Once those host dependencies and Docker images
-are present, runtime application traffic is loopback-only; the demo application
-does not call external model, metadata, or DCR services.
+Initial setup may need network access for package and image downloads. Runtime
+application traffic is loopback-only and the application containers have no public
+egress.
 
-No Decentriq token, OAuth account, external LLM, embedding model, Athena service, or
-live SPARQL source is needed.
-
-## Start a fresh demo
+## Start and verify
 
 From the Cohort Explorer repository:
 
 ```bash
 make demo-generate
 make demo-up
+make demo-seed
+make demo-smoke
 ```
 
-The first command creates or validates `data/synthetic-demo-pack`. Generation is
-deterministic and refuses to overwrite an unmarked directory. To replace a pack
-that was previously generated by this repository:
+`demo-generate` creates or validates `data/synthetic-demo-pack`. Generation is
+deterministic and refuses to overwrite an unmarked directory. Regenerate a pack
+created by this repository with:
 
 ```bash
 DEMO_FORCE=true make demo-generate
 ```
 
-The services are then available only on the host loopback interface:
+Services bind only to loopback:
 
 | Service | URL |
 |---|---|
 | Cohort Explorer UI | `http://localhost:3001` |
+| AADCR v2 UI | `http://localhost:3002` |
 | Cohort Explorer API | `http://127.0.0.1:3000` |
 | AADCR v2 API | `http://127.0.0.1:18000` |
 
-Port `18000` is deliberately used for AADCR on the host; the container API remains
-on port `8000`. Oxigraph is reachable only by containers on the internal demo
-network; it has no host-published debug endpoint in this lane.
+Local login uses `nikolas.molyndris@decentriq.ch`. The AADCR UI obtains a short-lived
+local-only token through its reverse proxy; the token is kept in memory and the
+endpoint is disabled by default outside this explicit local configuration.
 
-## Seed metadata or run the full API flow
+The API smoke verifies an empty baseline, guarded login, metadata/dictionary upload,
+fixture mapping, deterministic definition archives, one room, exactly eight
+metadata-derived DEV data nodes, and **zero** participants, permissions, computation
+nodes, merge requests, PROD nodes, or provisioned datasets before handoff. It also
+checks replay idempotency, invalid/unauthorized tokens, upload limits, gateway origin
+pinning, Host allowlisting, loopback publication, internal networking, and blocked
+AADCR public egress.
 
-To seed only the central workbook and two cohort dictionaries:
+Safe evidence is written to
+`.demo-state/cohort-explorer-aadcr-demo/smoke-evidence.json`.
 
-```bash
-make demo-seed
-```
+## Browser acceptance
 
-To exercise the complete fresh-volume integration:
-
-```bash
-make demo-smoke
-```
-
-The smoke lane verifies, among other things:
-
-- an empty AADCR and mapping baseline;
-- login and guarded admin access;
-- central workbook and dictionary uploads;
-- stubbed mapping generation and canonical mapping discovery;
-- two byte-identical definition previews containing exactly five fixture assets
-  (two dictionaries, two selected synthetic shuffled samples, and one mapping),
-  configuration, and provenance—never the full synthetic row-level inputs;
-- exactly one room, two cohorts, eight data nodes, two computation nodes, ten role
-  permissions, seven provisioned datasets, and a MERGED request;
-- aggregate-only output whose row counts, per-column completeness, numeric counts,
-  minima, maxima, and means exactly match the hash-validated synthetic CSVs, with
-  no extra result files;
-- byte equality between native AADCR output and the Cohort Explorer result proxy;
-- My DCRs normalization and audit-payload redaction;
-- same-session idempotent replay;
-- invalid JWT, unauthorized user, upload-size, cross-room containment, cleanup,
-  selected-stack origin matching, loopback binding, local Host allowlisting, and
-  AADCR no-egress checks.
-
-Safe evidence is written to:
-
-```text
-.demo-state/cohort-explorer-aadcr-demo/smoke-evidence.json
-```
-
-The smoke lane intentionally requires fresh mutable volumes. Reset and repeat it
-with:
-
-```bash
-DEMO_PURGE=true make demo-down
-make demo-up
-make demo-smoke
-```
-
-## Visible browser checkpoint
-
-For a dedicated browser namespace and freshly generated pack, first stop any demo
-using the fixed local ports, then run:
+For the full user-owned journey from Cohort Explorer into the real AADCR v2 UI:
 
 ```bash
 make demo-down
-make demo-browser-ready
-```
-
-The command prints a JSON handoff containing the URL, namespace, pack, admin email,
-and browser-evidence directory. It seeds only the API-only central workbook;
-runtime dictionaries, mappings, and rooms remain absent so the visible browser
-lane proves the dictionary upload, mapping, and DCR flows from a clean state.
-
-To execute that complete journey automatically in a one-worker browser while
-leaving the resulting stack running:
-
-```bash
 make demo-browser-install
 make demo-browser-test
 ```
 
-Use `DEMO_BROWSER_HEADED=true make demo-browser-test` for a visible browser. See
-[`LOCAL_DEMO_BROWSER_CHECKLIST.md`](LOCAL_DEMO_BROWSER_CHECKLIST.md) for
-the exact assertions and evidence paths.
+Set `DEMO_BROWSER_HEADED=true` for visible Chromium. The test leaves the stack
+running for inspection. See [LOCAL_DEMO_BROWSER_CHECKLIST.md](LOCAL_DEMO_BROWSER_CHECKLIST.md).
 
-## Stop and clean up
+`make demo-browser-ready` is a useful manual checkpoint: it creates a fresh
+namespace, seeds only the central workbook, and prints both UI URLs, the admin email,
+pack path, namespace, and evidence directory.
 
-Stop containers while retaining generated secrets and mutable volumes:
+## Isolation and cleanup
+
+The CE backend/frontend, Oxigraph, AADCR API, and AADCR UI join one internal Docker
+network and publish no direct host ports. A read-only unprivileged nginx gateway
+binds four loopback ports, rejects non-local Host headers, and strips CE cookies
+before forwarding cross-service traffic. The immutable synthetic pack is mounted
+read-only; mutable data and secrets live in namespace-specific state/volumes. No
+container mounts the Docker socket.
+
+Stop while retaining volumes:
 
 ```bash
 make demo-down
 ```
 
-Remove only this namespace's containers and mutable volumes:
+Remove the namespace’s containers and mutable volumes:
 
 ```bash
 DEMO_PURGE=true make demo-down
 ```
 
-The immutable synthetic pack remains on disk. A different `COMPOSE_PROJECT_NAME`
-creates separate secrets and volumes; fixed loopback ports mean only one demo
-namespace can run at a time.
-
-## Runtime isolation
-
-The backend, frontend, Oxigraph, and AADCR containers share an internal Docker
-network with no default route. They publish no host ports directly. A read-only,
-unprivileged nginx gateway with no secrets or data volumes bridges that internal
-network to a separate ingress bridge and binds the three exposed ports to
-`127.0.0.1`. The gateway rejects non-local Host headers, strips the Cohort Explorer
-session cookie before forwarding to the frontend or AADCR service, and does not
-publish Oxigraph. The ingress bridge itself is intentionally non-internal so host
-port publishing works; no application container joins it, and the smoke lane
-separately proves that AADCR cannot reach the public network. The immutable
-synthetic pack is mounted read-only at `/demo-pack` in the backend and at the
-frontend's established `/data` path so its EDA/image routes preserve current
-metadata behavior. No container mounts the Docker socket.
-
-Room links open the authenticated **My DCRs** page. Native AADCR API URLs are not
-rendered as browser links because native reads require the separate service JWT.
-
-## Troubleshooting
-
-- `local smoke requires fresh mutable runtime volumes`: run the purge/reset sequence
-  above; smoke acceptance is deliberately not run against old rooms.
-- `local smoke requires a fresh mapping runtime`: purge the namespace so a prior
-  failed run cannot mask mapping-generation regressions.
-- A port is already in use: stop the other local demo/process. The AADCR host port is
-  `18000`, not `8000`.
-- AADCR checkout validation fails: update `AADCRV2_REPO_DIR` to the intended checkout,
-  check out the exact reviewed commit, and leave that checkout clean.
-- A service never becomes ready: inspect it with the exact namespace and env file,
-  for example `docker compose --project-name cohort-explorer-aadcr-demo --env-file
-  .demo-state/cohort-explorer-aadcr-demo/runtime.env -f docker-compose.yml -f
-  docker-compose.local-aadcr.yml logs <service>`.
+If smoke reports a non-fresh room or mapping baseline, purge and restart. If checkout
+validation fails, select the pinned clean Delta revision. Inspect service failures
+with the exact namespace and env file printed by the launch command.

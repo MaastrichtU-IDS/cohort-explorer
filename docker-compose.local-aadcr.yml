@@ -18,7 +18,8 @@ services:
       AADCRV2_JWT_SECRET: ${AADCRV2_JWT_SECRET:?demo-up generates AADCRV2_JWT_SECRET}
       AADCRV2_JWT_ISSUER: cohort-explorer-local
       AADCRV2_JWT_AUDIENCE: aadcrv2-local
-      AADCRV2_ROOM_URL_TEMPLATE: http://localhost:${DEMO_FRONTEND_PORT:-3001}/dcrs?room={dcr_id}
+      AADCRV2_ROOM_URL_TEMPLATE: http://localhost:${DEMO_AADCRV2_UI_PORT:-3002}/aadcrv2/dcr/{dcr_id}
+      AADCRV2_HANDOFF_MODE: bootstrap
       AADCRV2_OPERATION_JOURNAL: /demo-runtime/aadcrv2-operations.jsonl
       AADCRV2_SYNTHETIC_DEMO: "true"
       CONCEPT_SEARCH_BACKEND: fixture
@@ -113,13 +114,15 @@ services:
     environment:
       DATABASE_URL: sqlite:////aadcr-data/aadcrv2.sqlite
       RESULTS_DIR: /aadcr-data/results
-      CORS_ORIGINS: http://localhost:3001
+      CORS_ORIGINS: http://localhost:${DEMO_AADCRV2_UI_PORT:-3002}
       JWT_SECRET: ${AADCRV2_JWT_SECRET:?demo-up generates AADCRV2_JWT_SECRET}
       JWT_ISSUER: cohort-explorer-local
       JWT_AUDIENCE: aadcrv2-local
       UPLOAD_MAX_BYTES: "26214400"
       SEED_SAMPLE_DATA: "false"
       SEED_OWNER_EMAIL: ${LOCAL_AUTH_EMAIL:-nikolas.molyndris@decentriq.ch}
+      LOCAL_DEMO_AUTH_ENABLED: "true"
+      LOCAL_DEMO_TOKEN_TTL_SECONDS: "600"
       ENABLE_TEST_ROUTES: "false"
       COMPUTATION_TIMEOUT_SECONDS: "30"
     volumes:
@@ -140,10 +143,33 @@ services:
     networks:
       - demo_internal
 
+  aadcrv2-ui:
+    build:
+      context: ${AADCRV2_REPO_DIR:?demo-up records AADCRV2_REPO_DIR}
+      dockerfile: avato-backend/frontend/decentriq-platform/Dockerfile.aadcr-local
+    depends_on:
+      aadcrv2:
+        condition: service_healthy
+    ports: !reset []
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - -qO-
+        - http://127.0.0.1:8080/healthz
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    networks:
+      - demo_internal
+
   gateway:
     image: nginx:1.27.5-alpine
     depends_on:
       aadcrv2:
+        condition: service_healthy
+      aadcrv2-ui:
         condition: service_healthy
       backend:
         condition: service_healthy
@@ -171,6 +197,7 @@ services:
     ports:
       - "127.0.0.1:${DEMO_BACKEND_PORT:-3000}:3000"
       - "127.0.0.1:${DEMO_FRONTEND_PORT:-3001}:3001"
+      - "127.0.0.1:${DEMO_AADCRV2_UI_PORT:-3002}:3002"
       - "127.0.0.1:${DEMO_AADCRV2_PORT:-18000}:18000"
     healthcheck:
       test:

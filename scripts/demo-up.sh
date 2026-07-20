@@ -17,12 +17,15 @@ demo_compose up --detach --build
 backend_port="$(demo_gateway_host_port 3000)"
 frontend_port="$(demo_gateway_host_port 3001)"
 aadcr_port="$(demo_gateway_host_port 18000)"
+aadcr_ui_port="$(demo_gateway_host_port 3002)"
 python3 "${DEMO_ROOT}/scripts/wait_for_demo.py" \
   --timeout "${DEMO_WAIT_TIMEOUT:-180}" \
   --probe "frontend=http://127.0.0.1:${frontend_port}/api/health" \
   --probe "backend=http://127.0.0.1:${backend_port}/health" \
-  --probe "aadcrv2=http://127.0.0.1:${aadcr_port}/health"
+  --probe "aadcrv2=http://127.0.0.1:${aadcr_port}/health" \
+  --probe "aadcrv2-ui=http://127.0.0.1:${aadcr_ui_port}/healthz"
 
 printf 'Local demo ready at http://localhost:%s\n' "${frontend_port}"
+printf 'Advanced Analytics DCR UI at http://localhost:%s\n' "${aadcr_ui_port}"
 printf 'Admin: %s\n' "$(demo_runtime_value LOCAL_AUTH_EMAIL)"
 printf 'Namespace: %s\n' "${DEMO_NAMESPACE}"

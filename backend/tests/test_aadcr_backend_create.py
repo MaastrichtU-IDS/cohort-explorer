@@ -191,6 +191,7 @@ def _fixture(
     synthetic: bool = True,
     fail_upload: bool = False,
     merge_poll_attempts: int = 3,
+    handoff_mode: str = "provision",
 ):
     runtime = tmp_path / "runtime"
     pack = tmp_path / "pack"
@@ -229,6 +230,7 @@ def _fixture(
         aadcrv2_url="http://aadcr.test",
         aadcrv2_jwt_secret=TEST_AADCR_SECRET,
         aadcrv2_synthetic_demo=synthetic,
+        aadcrv2_handoff_mode=handoff_mode,
         aadcrv2_room_url_template="http://rooms.test/dcr/{dcr_id}",
         data_folder=str(runtime),
         demo_pack_dir=str(pack),
@@ -245,6 +247,52 @@ def _fixture(
         merge_poll_interval=0,
     )
     return backend, client, request
+
+
+def test_bootstrap_handoff_stops_after_metadata_derived_dev_data_nodes(
+    settings_factory,
+    tmp_path,
+):
+    backend, client, request = _fixture(
+        settings_factory,
+        tmp_path,
+        handoff_mode="bootstrap",
+    )
+
+    result = run(backend.create_live_room(request, {"email": "creator@example.test"}))
+    calls_after_first = list(client.calls)
+
+    data_calls = [call for call in client.calls if call["path"].endswith("/dev/data-nodes")]
+    assert [call["body"] for call in data_calls] == [
+        {"name": "GISSI-HF", "type": "FILE"},
+        {"name": "GISSI-HF_metadata_dictionary", "type": "FILE"},
+        {"name": "TIME-CHF", "type": "FILE"},
+        {"name": "TIME-CHF_metadata_dictionary", "type": "FILE"},
+        {"name": "TIME-CHF_shuffled_sample", "type": "FILE"},
+        {"name": "GISSI-HF_TIME-CHF_mapping", "type": "FILE"},
+        {"name": "CrossStudyMappings", "type": "FILE"},
+    ]
+    assert all(not call["path"].endswith("/dev/participants") for call in client.calls)
+    assert all(not call["path"].endswith("/dev/computation-nodes") for call in client.calls)
+    assert all(not call["path"].endswith("/dev/permissions") for call in client.calls)
+    assert all("/merge-requests" not in call["path"] for call in client.calls)
+    assert all(call["kind"] != "upload" for call in client.calls)
+    assert all(not call["path"].endswith("/provision-dataset") for call in client.calls)
+    assert result.handoff_mode == "bootstrap"
+    assert result.environment == "DEV"
+    assert result.merge_request_id is None
+    assert result.aggregate_computation_node_id is None
+    assert result.row_upload_results == {}
+    assert result.row_uploads_successful == 0
+    assert result.data_node_ids == {
+        node["name"]: node["id"] for node in sorted(client.data_nodes, key=lambda item: item["name"])
+    }
+    assert result.dcr_url == "http://rooms.test/dcr/room-123"
+
+    replayed = run(backend.create_live_room(request, {"email": "creator@example.test"}))
+
+    assert replayed.to_dict() == result.to_dict()
+    assert client.calls == calls_after_first
 
 
 def test_explicit_zero_merge_poll_budget_is_not_silently_replaced(settings_factory, tmp_path):

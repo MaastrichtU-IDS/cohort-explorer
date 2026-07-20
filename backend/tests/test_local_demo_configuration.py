@@ -19,7 +19,7 @@ DELTA_ROOT = Path(
 DOCKER = shutil.which("docker") or "/usr/local/bin/docker"
 GIT = shutil.which("git") or "/usr/bin/git"
 DELTA_BACKEND = "avato-backend/frontend/decentriq-platform/src/features/aadcrv2/backend"
-REQUIRED_AADCR_COMMIT = "08993663db8084b145d70d369309e82f7080b0f7"
+REQUIRED_AADCR_COMMIT = "349adecf26d3af058b9c1650eabf7c5593bc8f38"
 
 
 def _load_demo_seed_module():
@@ -78,12 +78,16 @@ def _volume_for(service: dict, target: str) -> dict:
 def test_local_overlay_pins_services_ports_and_local_build(compose_config):
     services = compose_config["services"]
 
-    assert set(services) == {"backend", "frontend", "db", "aadcrv2", "gateway"}
-    for name in ("backend", "frontend", "db", "aadcrv2"):
+    assert set(services) == {"backend", "frontend", "db", "aadcrv2", "aadcrv2-ui", "gateway"}
+    for name in ("backend", "frontend", "db", "aadcrv2", "aadcrv2-ui"):
         assert services[name].get("ports", []) == []
-    assert _published_ports(services["gateway"]) == {3000, 3001, 18000}
+    assert _published_ports(services["gateway"]) == {3000, 3001, 3002, 18000}
     assert _published_host_ips(services["gateway"]) == {"127.0.0.1"}
     assert services["aadcrv2"]["build"]["context"] == str(DELTA_ROOT / DELTA_BACKEND)
+    assert services["aadcrv2-ui"]["build"]["context"] == str(DELTA_ROOT)
+    assert services["aadcrv2-ui"]["build"]["dockerfile"] == (
+        "avato-backend/frontend/decentriq-platform/Dockerfile.aadcr-local"
+    )
     assert services["db"]["image"] == "ghcr.io/oxigraph/oxigraph:0.5.9"
 
 
@@ -96,11 +100,18 @@ def test_local_overlay_selects_offline_metadata_and_guarded_admin(compose_config
     assert environment["MAPPING_GENERATION_BACKEND"] == "fixture"
     assert environment["OFFLINE_DEMO"] == "true"
     assert environment["AADCRV2_SYNTHETIC_DEMO"] == "true"
+    assert environment["AADCRV2_HANDOFF_MODE"] == "bootstrap"
     assert environment["DEV_MODE"] == "true"
     assert environment["LOCAL_AUTH_ENABLED"] == "true"
     assert environment["LOCAL_AUTH_EMAIL"] == "nikolas.molyndris@decentriq.ch"
     assert environment["SESSION_COOKIE_SECURE"] == "false"
-    assert environment["AADCRV2_ROOM_URL_TEMPLATE"] == ("http://localhost:3001/dcrs?room={dcr_id}")
+    assert environment["AADCRV2_ROOM_URL_TEMPLATE"] == (
+        "http://localhost:3002/aadcrv2/dcr/{dcr_id}"
+    )
+    assert compose_config["services"]["aadcrv2"]["environment"]["LOCAL_DEMO_AUTH_ENABLED"] == "true"
+    assert compose_config["services"]["aadcrv2"]["environment"]["SEED_OWNER_EMAIL"] == (
+        "nikolas.molyndris@decentriq.ch"
+    )
     assert compose_config["services"]["frontend"]["environment"]["INTERNAL_API_URL"] == "http://backend:80"
 
 
@@ -108,9 +119,10 @@ def test_gateway_rejects_unknown_hosts_and_strips_cross_service_cookies():
     config = (ROOT / "config" / "local-demo-gateway.conf").read_text(encoding="utf-8")
 
     assert "listen 7878" not in config
-    assert config.count("default_server") == 3
-    assert config.count("return 444") == 3
-    assert config.count('proxy_set_header Cookie "";') >= 2
+    assert config.count("default_server") == 4
+    assert config.count("return 444") == 4
+    assert config.count('proxy_set_header Cookie "";') >= 3
+    assert "proxy_pass http://aadcrv2-ui:8080" in config
 
 
 def test_local_backend_never_attempts_an_online_uv_sync(compose_config):
@@ -150,7 +162,7 @@ def test_local_overlay_separates_immutable_pack_and_mutable_state(compose_config
 def test_local_overlay_is_internal_and_never_mounts_docker_socket(compose_config):
     assert compose_config["networks"]["demo_internal"]["internal"] is True
     assert compose_config["networks"]["demo_ingress"].get("internal", False) is False
-    for name in ("backend", "frontend", "db", "aadcrv2"):
+    for name in ("backend", "frontend", "db", "aadcrv2", "aadcrv2-ui"):
         assert set(compose_config["services"][name]["networks"]) == {"demo_internal"}
     assert set(compose_config["services"]["gateway"]["networks"]) == {
         "demo_ingress",
@@ -323,7 +335,7 @@ def test_makefile_demo_entrypoints_are_executable():
         assert os.access(ROOT / "scripts" / script, os.X_OK), script
 
 
-def test_committed_browser_acceptance_covers_the_local_upload_to_result_journey():
+def test_committed_browser_acceptance_covers_metadata_handoff_and_real_aadcr_ui():
     package = json.loads((ROOT / "frontend" / "package.json").read_text())
     config = (ROOT / "frontend" / "playwright.config.ts").read_text()
     spec = (ROOT / "frontend" / "e2e" / "local-aadcr-demo.spec.ts").read_text()
@@ -352,23 +364,17 @@ def test_committed_browser_acceptance_covers_the_local_upload_to_result_journey(
         "generate-mapping",
         "dcr-launcher",
         "dcr-create",
-        "dcr-room-card",
-        "dcr-result-run",
-        "dcr-result-ready",
+        "dcr-handoff-boundary",
+        "dcr-bootstrap-next-steps",
         "concept-map-TIME-CHF-age",
         "concept-map-TIME-CHF-gender-category-0",
         "mapping-view-table",
         "mapping-view-graph",
         "dcr-name-input",
-        "dcr-participants-open",
-        "dcr-research-question-input",
-        "dcr-sample-shuffled",
         "dcr-mapping-toggle",
         "dcr-mapping-upload-slot",
-        "my-dcrs-refresh",
         "eda-cv-ranking",
         "eda-original-graph",
-        "dcr-provisioning-row",
         "metadata-filter-study_design",
         "metadata-filter-institution",
         "metadata-filter-${filterId}",
@@ -387,18 +393,15 @@ def test_committed_browser_acceptance_covers_the_local_upload_to_result_journey(
         "age at enrollment",
         "TIME-CHF_invalid_datadictionary.csv",
         "approvedLocalFailures",
-        "expectedDefinitionAssetHashes",
-        "zipMemberSha256",
+        "Open Advanced Analytics DCR",
+        "Add dataset",
+        "Add computation node",
+        "Add participant node",
+        "Create change request",
     ):
         assert metadata_control in spec
-    for audit_label in (
-        "Create data clean room",
-        "Create merge request",
-        "Provision dataset",
-        "Run computation",
-    ):
+    for audit_label in ("Create merge request", "Provision dataset"):
         assert audit_label in spec
-    assert "0b4a24cf910202d0dbaf7fc8ebc445d0bc6c2b731045df1d52f266497160cd32" in spec
     for screenshot in (
         "01-login-admin.png",
         "02-dictionaries-uploaded.png",
@@ -406,15 +409,20 @@ def test_committed_browser_acceptance_covers_the_local_upload_to_result_journey(
         "04-manual-concept-mapping.png",
         "05-generated-mapping-table.png",
         "06-generated-mapping-graph.png",
-        "07-dcr-wizard-review.png",
-        "08-dcr-created.png",
-        "09-my-dcrs.png",
-        "10-audit-log.png",
-        "11-aggregate-result.png",
+        "07-dcr-handoff-review.png",
+        "08-dcr-handoff-created.png",
+        "09-aadcr-original-production.png",
+        "10-aadcr-synthetic-upload.png",
+        "11-aadcr-computation-editor.png",
+        "12-aadcr-change-request.png",
+        "13-aadcr-audit-log.png",
     ):
         assert screenshot in spec
-    assert "dcr-definition.zip" in spec
-    assert "dcr-definition.sha256" in spec
+    assert "DEMO_AADCR_UI_URL" in spec
+    assert "aadcr-data-node-${nodeId}" in spec
+    assert "handoff_mode: 'bootstrap'" in spec
+    assert "not.toHaveProperty('merge_request_id')" in spec
+    assert "not.toHaveProperty('aggregate_computation_node_id')" in spec
     assert "acceptance-details.json" in spec
     assert "page.context().on('request'" in spec
     assert "page.on('websocket'" in spec

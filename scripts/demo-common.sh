@@ -7,8 +7,9 @@ DEMO_STATE_DIR="${DEMO_STATE_ROOT}/${DEMO_NAMESPACE}"
 DEMO_RUNTIME_ENV="${DEMO_STATE_DIR}/runtime.env"
 DEMO_DEFAULT_AADCRV2_REPO="$(cd "${DEMO_ROOT}/.." && pwd)/delta-aadcrv2"
 DEMO_AADCRV2_BASE_COMMIT="f13ef54fc3f0f56dae185d4aa35c6dff01ee8839"
-DEMO_AADCRV2_REQUIRED_COMMIT="08993663db8084b145d70d369309e82f7080b0f7"
+DEMO_AADCRV2_REQUIRED_COMMIT="349adecf26d3af058b9c1650eabf7c5593bc8f38"
 DEMO_AADCRV2_BACKEND_RELATIVE="avato-backend/frontend/decentriq-platform/src/features/aadcrv2/backend"
+DEMO_AADCRV2_UI_DOCKERFILE_RELATIVE="avato-backend/frontend/decentriq-platform/Dockerfile.aadcr-local"
 
 demo_die() {
   printf 'demo error: %s\n' "$*" >&2
@@ -70,6 +71,8 @@ demo_validate_aadcr_checkout() {
   [[ -e "${aadcr_repo}/.git" ]] || demo_die "AADCRV2_REPO_DIR is not a Git checkout: ${aadcr_repo}" || return 1
   [[ -f "${aadcr_repo}/${DEMO_AADCRV2_BACKEND_RELATIVE}/pyproject.toml" ]] || \
     demo_die "AADCR v2 backend was not found below ${aadcr_repo}" || return 1
+  [[ -f "${aadcr_repo}/${DEMO_AADCRV2_UI_DOCKERFILE_RELATIVE}" ]] || \
+    demo_die "AADCR v2 local UI Dockerfile was not found below ${aadcr_repo}" || return 1
   git -C "${aadcr_repo}" cat-file -e "${DEMO_AADCRV2_BASE_COMMIT}^{commit}" 2>/dev/null || \
     demo_die "required davstur/aadcrv2 base commit ${DEMO_AADCRV2_BASE_COMMIT} is missing" || return 1
   git -C "${aadcr_repo}" merge-base --is-ancestor "${DEMO_AADCRV2_BASE_COMMIT}" HEAD || \

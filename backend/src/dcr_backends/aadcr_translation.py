@@ -170,6 +170,14 @@ class CreationOutcome:
     row_upload_results: dict[str, str] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class BootstrapOutcome:
+    """A room whose metadata-derived data slots remain as unmerged DEV changes."""
+
+    dcr_id: str
+    data_node_ids: dict[str, str]
+
+
 def _normalize_email(value: object) -> str:
     return str(value or "").strip().lower()
 
@@ -872,6 +880,146 @@ async def _confirm_step(
         await callback(step, dcr_id)
 
 
+async def bootstrap_aadcr_room(
+    client: Any,
+    plan: RoomPlan,
+    *,
+    resume_dcr_id: str | None = None,
+    on_confirm: ConfirmationCallback | None = None,
+    creation_key: str | None = None,
+    expected_creator_email: str | None = None,
+) -> BootstrapOutcome:
+    """Create a room and metadata-derived DEV data nodes, then stop for UI handoff."""
+    dcr_id = _safe_api_identifier(resume_dcr_id, failed_step="resume operation") if resume_dcr_id is not None else None
+    try:
+        if dcr_id is None:
+            pending_name = plan.title
+            room = None
+            if creation_key is not None:
+                marker = f" [ce-operation:{creation_key}]"
+                pending_name = f"{plan.title[: 255 - len(marker)]}{marker}"
+                rooms = await client.request_json(
+                    "GET",
+                    "/api/dcr/",
+                    failed_step="reconcile DCR creation",
+                )
+                if not isinstance(rooms, list):
+                    raise DcrOperationError(
+                        detail="AADCR room list was not an array",
+                        failed_step="reconcile DCR creation",
+                    )
+                creator = _normalize_email(expected_creator_email)
+                matches = [
+                    candidate
+                    for candidate in rooms
+                    if isinstance(candidate, dict)
+                    and candidate.get("name") == pending_name
+                    and _normalize_email(candidate.get("creatorEmail")) == creator
+                ]
+                if len(matches) > 1:
+                    raise DcrOperationError(
+                        detail="AADCR returned multiple rooms for the same creation operation",
+                        failed_step="reconcile DCR creation",
+                        status_code=409,
+                    )
+                room = matches[0] if matches else None
+            if room is None:
+                room = await client.request_json(
+                    "POST",
+                    "/api/dcr/",
+                    failed_step="create DCR",
+                    json_body={"name": pending_name},
+                )
+            dcr_id = _required_api_identifier(room, "id", failed_step="create DCR")
+            await _confirm_step(on_confirm, "room_created", dcr_id)
+
+        if creation_key is not None:
+            await client.request_json(
+                "PATCH",
+                f"/api/dcr/{dcr_id}",
+                failed_step="finalize DCR name",
+                json_body={"name": plan.title},
+            )
+
+        dev_root = f"/api/dcr/{dcr_id}/dev"
+        dev_view = await client.request_json(
+            "GET",
+            f"{dev_root}/view",
+            failed_step="resume DEV data nodes",
+        )
+        if not isinstance(dev_view, dict):
+            raise DcrOperationError(
+                detail="AADCR DEV view was not an object",
+                failed_step="resume DEV data nodes",
+                dcr_id=dcr_id,
+            )
+        data_node_ids = _index_dev_items(
+            dev_view.get("data_nodes"),
+            collection_name="data nodes",
+            identity_key="name",
+            failed_step="resume DEV data nodes",
+            dcr_id=dcr_id,
+        )
+
+        for node in plan.data_nodes:
+            if node.name in data_node_ids:
+                continue
+            response = await client.request_json(
+                "POST",
+                f"{dev_root}/data-nodes",
+                failed_step="add metadata-derived DEV data node",
+                json_body={"name": node.name, "type": node.type},
+            )
+            data_node_ids[node.name] = _required_api_identifier(
+                response,
+                "id",
+                failed_step="add metadata-derived DEV data node",
+                dcr_id=dcr_id,
+            )
+
+        final_view = await client.request_json(
+            "GET",
+            f"{dev_root}/view",
+            failed_step="verify DEV data nodes",
+        )
+        if not isinstance(final_view, dict):
+            raise DcrOperationError(
+                detail="AADCR DEV view was not an object",
+                failed_step="verify DEV data nodes",
+                dcr_id=dcr_id,
+            )
+        verified_ids = _index_dev_items(
+            final_view.get("data_nodes"),
+            collection_name="data nodes",
+            identity_key="name",
+            failed_step="verify DEV data nodes",
+            dcr_id=dcr_id,
+        )
+        expected_names = {node.name for node in plan.data_nodes}
+        missing = sorted(expected_names - verified_ids.keys())
+        if missing:
+            raise DcrOperationError(
+                detail=f"AADCR DEV view is missing expected data nodes: {', '.join(missing)}",
+                failed_step="verify DEV data nodes",
+                dcr_id=dcr_id,
+            )
+        await _confirm_step(on_confirm, "bootstrap_completed", dcr_id)
+        return BootstrapOutcome(
+            dcr_id=dcr_id,
+            data_node_ids={name: verified_ids[name] for name in sorted(expected_names)},
+        )
+    except DcrOperationError:
+        raise
+    except AadcrUpstreamError as exc:
+        raise DcrOperationError(
+            detail=exc.detail,
+            failed_step=exc.failed_step,
+            dcr_id=dcr_id,
+            retryable=exc.retryable,
+            status_code=exc.status_code,
+        ) from None
+
+
 async def create_aadcr_room(
     client: Any,
     plan: RoomPlan,
@@ -956,9 +1104,7 @@ async def create_aadcr_room(
                 failed_step="reconcile merge request creation",
             )
             merge_requests = (
-                merge_requests_payload.get("mergeRequests")
-                if isinstance(merge_requests_payload, dict)
-                else None
+                merge_requests_payload.get("mergeRequests") if isinstance(merge_requests_payload, dict) else None
             )
             if not isinstance(merge_requests, list):
                 raise DcrOperationError(

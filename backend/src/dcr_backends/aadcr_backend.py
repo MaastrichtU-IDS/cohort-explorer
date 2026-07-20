@@ -16,6 +16,7 @@ from src.dcr_backends.aadcr_client import AadcrClient, AadcrUpstreamError
 from src.dcr_backends.aadcr_translation import (
     AGGREGATE_NODE_NAME,
     DcrOperationError,
+    bootstrap_aadcr_room,
     build_room_plan,
     create_aadcr_room,
     decode_result_archive,
@@ -163,6 +164,25 @@ class AadcrBackend:
             aggregate_computation_node_id=outcome.prod_node_ids.computation_nodes[AGGREGATE_NODE_NAME],
         )
 
+    def _bootstrap_result(self, plan: Any, outcome: Any) -> LiveCreateResult:
+        return LiveCreateResult(
+            message=(
+                "AADCR v2 room and metadata-derived data slots created. "
+                "Continue data upload, development, merge, and computation in AADCR v2."
+            ),
+            dcr_id=outcome.dcr_id,
+            dcr_url=self.settings.aadcrv2_room_url_template.format(dcr_id=outcome.dcr_id),
+            dcr_title=plan.title,
+            cohort_ids=plan.cohort_ids,
+            num_cohorts=len(plan.cohort_ids),
+            participants={},
+            provider=self.provider_name,
+            capabilities=self.capabilities,
+            handoff_mode="bootstrap",
+            environment="DEV",
+            data_node_ids=outcome.data_node_ids,
+        )
+
     def _journal_metadata(
         self,
         request: dict[str, Any],
@@ -255,13 +275,16 @@ class AadcrBackend:
         raw_session_id = request.get("session_id")
         if raw_session_id is None:
             async with self._client_factory(self.settings, user) as client:
+                if self.settings.aadcrv2_handoff_mode == "bootstrap":
+                    outcome = await bootstrap_aadcr_room(client, plan)
+                    return self._bootstrap_result(plan, outcome)
                 outcome = await create_aadcr_room(
                     client,
                     plan,
                     merge_poll_attempts=self._merge_poll_attempts,
                     merge_poll_interval=self._merge_poll_interval,
                 )
-            return self._live_result(plan, outcome)
+                return self._live_result(plan, outcome)
 
         try:
             session_id = validate_session_id(raw_session_id)
@@ -274,7 +297,9 @@ class AadcrBackend:
         fingerprint = request_fingerprint(
             metadata,
             plan.cohort_ids,
-            asset_fingerprints=self._asset_fingerprints(plan),
+            asset_fingerprints=(
+                [] if self.settings.aadcrv2_handoff_mode == "bootstrap" else self._asset_fingerprints(plan)
+            ),
         )
 
         async with self._journal.session_lock(session_id):
@@ -344,18 +369,30 @@ class AadcrBackend:
                     ) from None
 
             async with self._client_factory(self.settings, user) as client:
-                outcome = await create_aadcr_room(
-                    client,
-                    plan,
-                    merge_poll_attempts=self._merge_poll_attempts,
-                    merge_poll_interval=self._merge_poll_interval,
-                    resume_dcr_id=state.dcr_id,
-                    confirmed_steps=set(state.confirmed_steps),
-                    on_confirm=confirm_step,
-                    creation_key=hashlib.sha256(f"{session_id}\0{fingerprint}".encode()).hexdigest(),
-                    expected_creator_email=self._require_email(user),
-                )
-            result = self._live_result(plan, outcome)
+                creation_key = hashlib.sha256(f"{session_id}\0{fingerprint}".encode()).hexdigest()
+                if self.settings.aadcrv2_handoff_mode == "bootstrap":
+                    outcome = await bootstrap_aadcr_room(
+                        client,
+                        plan,
+                        resume_dcr_id=state.dcr_id,
+                        on_confirm=confirm_step,
+                        creation_key=creation_key,
+                        expected_creator_email=self._require_email(user),
+                    )
+                    result = self._bootstrap_result(plan, outcome)
+                else:
+                    outcome = await create_aadcr_room(
+                        client,
+                        plan,
+                        merge_poll_attempts=self._merge_poll_attempts,
+                        merge_poll_interval=self._merge_poll_interval,
+                        resume_dcr_id=state.dcr_id,
+                        confirmed_steps=set(state.confirmed_steps),
+                        on_confirm=confirm_step,
+                        creation_key=creation_key,
+                        expected_creator_email=self._require_email(user),
+                    )
+                    result = self._live_result(plan, outcome)
             completed_steps = [*state.confirmed_steps]
             if "completed" not in completed_steps:
                 completed_steps.append("completed")

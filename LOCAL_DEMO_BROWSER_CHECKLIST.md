@@ -1,59 +1,54 @@
 # Local browser acceptance
 
-The browser lane starts from a fresh namespace containing only the central cohort
-workbook. It proves the user-owned path without inheriting dictionaries, mappings,
-rooms, or cookies from an API seed. The runner refuses a dirty Cohort Explorer tree,
-and the AADCR launcher independently requires its exact clean reviewed revision, so
-the revisions in passing evidence identify the code that actually ran.
+The browser lane begins with only the central metadata workbook seeded. It proves
+the user-owned handoff from Cohort Explorer into the real AADCR v2 interface without
+inheriting dictionaries, mappings, rooms, or cookies from an API-only full flow.
 
-Use Node.js 20 or 22 LTS with npm 10+. Initial setup and the first Docker image
-build need network access for npm and Playwright downloads, host-side `uv`
-dependency resolution, Docker base-image pulls, and image-build package installs
-(apt, uv/Python, spaCy, and npm). Once those dependencies and images are present,
-runtime application traffic during acceptance is loopback-only.
-
-Run from the repository root after stopping any other process on ports 3000, 3001,
-or 18000. If a prior browser lane is still open, first use the namespace printed by
-that run and saved in its `run-summary.json`:
+Run from the Cohort Explorer repository after stopping anything using ports 3000,
+3001, 3002, or 18000:
 
 ```bash
-COMPOSE_PROJECT_NAME=<previous-namespace> DEMO_PURGE=true make demo-down
 make demo-browser-install
 make demo-browser-test
 ```
 
-Set `DEMO_BROWSER_HEADED=true` for a visible Chromium run:
+For visible Chromium:
 
 ```bash
 DEMO_BROWSER_HEADED=true make demo-browser-test
 ```
 
-The one-worker test verifies:
+The runner requires clean pinned source revisions and one Playwright worker. It
+verifies:
 
-- guarded local login as `nikolas.molyndris@decentriq.ch` and administrator access;
-- zero runtime dictionaries, mappings, and rooms before browser actions;
-- real cohort cards, counts, EDA JSON, variable images, and metadata download;
+- guarded local login as `nikolas.molyndris@decentriq.ch`;
+- real cohort cards, metadata counts, EDA, downloads, and variable imagery;
 - validation, upload, and replacement of both synthetic dictionaries;
-- OR, AND, and exact search; study/institute, OMOP-domain, data-type,
-  category-count, visit, outcome, and source filters; equivalent-variable grouping;
-  and persistent variable and category concept mappings across a changed-label
-  dictionary replacement plus rejected malformed replacement;
-- fixture-backed mapping generation, cache activity, table, graph, and download;
-- all six wizard steps, explicit participants/research/samples/mapping/upload-slot
-  choices, deterministic definition inspection with every archived asset hash
-  checked against its source, and provider-accurate security copy;
-- one matching AADCR room, participants, nodes, seven provisioned datasets, refresh,
-  persistence after reload, audit events, and the exact aggregate-result SHA-256;
-- named screenshots at every material checkpoint; and
-- no page errors, unapproved console errors, unexpected failed local responses,
-  HTTP(S) requests, or WebSocket connections to a non-loopback host.
+- search/filter modes and persistent variable/category concept mappings;
+- fixture-backed cross-study mapping generation, table, graph, and download;
+- the three ownership-specific handoff steps: room/cohorts, mapping slots, and
+  review/handoff;
+- CE creates exactly one AADCR room with eight unmerged metadata-derived DEV data
+  slots and does not add participants, permissions, computations, merges, or data;
+- the CE success action opens `/aadcrv2/dcr/<room-id>` on the separate AADCR v2 UI;
+- the AADCR surface retains Delta's original Decentriq theme and does not inherit
+  Cohort Explorer colours or layout;
+- in AADCR v2, the local admin uploads and provisions a synthetic CSV in DEV, opens
+  the Python computation editor, adds a participant, creates a change request, and
+  verifies the corresponding audit trail;
+- no page errors, unapproved console errors, failed local responses, or network
+  requests/WebSockets to non-loopback hosts.
 
-The stack is deliberately left running. Named evidence is written below the selected
-namespace at `.demo-state/<namespace>/browser-evidence/`; Playwright traces and
-failure screenshots are ignored under `artifacts/browser-demo/`.
+Passing evidence lives under
+`.demo-state/<namespace>/browser-evidence/`. It contains named screenshots,
+a sanitized `run-summary.json`; it must contain no cookies, tokens, secrets, or
+synthetic row contents. Playwright traces and failure screenshots remain under
+ignored `artifacts/browser-demo/`.
 
-The passing evidence package contains `01-login-admin.png` through
-`11-aggregate-result.png`, `dcr-definition.zip`, `dcr-definition.sha256`, and a
-sanitized `run-summary.json`. It contains no cookies, tokens, secrets, real
-participant or patient rows, or live-service URLs. The definition ZIP intentionally
-includes the selected synthetic fixture samples.
+The stack stays running after acceptance so the final browser can remain on the real
+AADCR UI for manual inspection. Tear it down with the namespace recorded in the run
+summary:
+
+```bash
+COMPOSE_PROJECT_NAME=<namespace> DEMO_PURGE=true make demo-down
+```

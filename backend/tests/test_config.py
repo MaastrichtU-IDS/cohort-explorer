@@ -28,6 +28,17 @@ def test_runtime_requires_explicit_jwt_secret(settings_factory):
         settings.validate_runtime()
 
 
+def test_aadcr_runtime_rejects_unknown_handoff_mode(settings_factory):
+    settings = settings_factory(
+        dcr_backend="aadcrv2",
+        aadcrv2_jwt_secret="test-secret",  # noqa: S106 - synthetic test value
+        aadcrv2_handoff_mode="automatic-ish",
+    )
+
+    with pytest.raises(ValueError, match="AADCRV2_HANDOFF_MODE"):
+        settings.validate_runtime()
+
+
 def test_guarded_local_admin_is_added_to_admins(settings_factory):
     settings = settings_factory(
         admins="existing@example.test",

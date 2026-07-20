@@ -28,9 +28,11 @@ printf 'Teardown after review: COMPOSE_PROJECT_NAME=%s DEMO_PURGE=true make demo
 
 frontend_port="$(demo_gateway_host_port 3001)"
 backend_port="$(demo_gateway_host_port 3000)"
+aadcr_ui_port="$(demo_gateway_host_port 3002)"
 cd "${root}/frontend"
 DEMO_BROWSER_URL="http://localhost:${frontend_port}" \
 DEMO_API_URL="http://localhost:${backend_port}" \
+DEMO_AADCR_UI_URL="http://localhost:${aadcr_ui_port}" \
 DEMO_BROWSER_PACK="$(demo_runtime_value DEMO_PACK_HOST_DIR)" \
 DEMO_BROWSER_EVIDENCE="${DEMO_STATE_DIR}/browser-evidence" \
 npm run test:e2e:local -- "$@"
@@ -83,11 +85,13 @@ required_evidence = [f"{index:02d}-{name}.png" for index, name in enumerate((
     "manual-concept-mapping",
     "generated-mapping-table",
     "generated-mapping-graph",
-    "dcr-wizard-review",
-    "dcr-created",
-    "my-dcrs",
-    "audit-log",
-    "aggregate-result",
+    "dcr-handoff-review",
+    "dcr-handoff-created",
+    "aadcr-original-production",
+    "aadcr-synthetic-upload",
+    "aadcr-computation-editor",
+    "aadcr-change-request",
+    "aadcr-audit-log",
 ), start=1)]
 if evidence != required_evidence:
     raise SystemExit(f"Browser evidence mismatch: {evidence!r}")

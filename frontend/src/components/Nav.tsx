@@ -24,7 +24,7 @@ import {abortOnPageExit} from '@/utils/pageExit';
 
 export function Nav() {
   const router = useRouter();
-  const { pathname } = router;
+  const {pathname} = router;
   const {dataCleanRoom, setDataCleanRoom, cohortsData, setCohortsData, userEmail, setUserEmail} = useCohorts();
   const [theme, setTheme] = useState('light');
   const [showModal, setShowModal] = useState(false);
@@ -73,8 +73,10 @@ export function Nav() {
   useEffect(() => {
     if (!userEmail) return;
     fetch(`${apiUrl}/admin/check`, {credentials: 'include'})
-      .then(res => res.ok ? res.json() : null)
-      .then(data => { if (data) setIsAdmin(data.is_admin); })
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => {
+        if (data) setIsAdmin(data.is_admin);
+      })
       .catch(() => {});
   }, [userEmail]);
 
@@ -112,9 +114,7 @@ export function Nav() {
         .catch(error => {
           if (!requestController.signal.aborted && error?.name !== 'AbortError') {
             console.error('Error loading the configured DCR provider', error?.message || error);
-            setDcrProviderError(
-              'Unable to load the configured Data Clean Room provider. Wizard creation is disabled.'
-            );
+            setDcrProviderError('Unable to load the configured Data Clean Room provider. Wizard creation is disabled.');
           }
         });
     };
@@ -150,17 +150,17 @@ export function Nav() {
   const wizardCompletedRef = useRef<boolean>(false);
 
   const logWizardEvent = useCallback(
-    (event: string, extra: Record<string, any> = {}, opts?: { beacon?: boolean }) => {
+    (event: string, extra: Record<string, any> = {}, opts?: {beacon?: boolean}) => {
       if (!userEmail || !sessionIdRef.current) return;
       const payload = {
         event,
         session_id: sessionIdRef.current,
-        ...extra,
+        ...extra
       };
       const url = `${apiUrl}/dcr-wizard-event`;
       try {
         if (opts?.beacon && typeof navigator !== 'undefined' && navigator.sendBeacon) {
-          const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+          const blob = new Blob([JSON.stringify(payload)], {type: 'application/json'});
           navigator.sendBeacon(url, blob);
           return;
         }
@@ -168,9 +168,9 @@ export function Nav() {
         fetch(url, {
           method: 'POST',
           credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {'Content-Type': 'application/json'},
           body: JSON.stringify(payload),
-          keepalive: true,
+          keepalive: true
         }).catch(() => {});
       } catch {
         // Logging must never throw into the UI.
@@ -195,8 +195,8 @@ export function Nav() {
         step: wizardStep,
         step_name: wizardSteps[wizardStep]?.id,
         details: {
-          cohorts: Object.keys(dataCleanRoom?.cohorts || {}),
-        },
+          cohorts: Object.keys(dataCleanRoom?.cohorts || {})
+        }
       });
     }
     // Intentionally excluding wizardStep/wizardSteps/dataCleanRoom from deps;
@@ -215,12 +215,12 @@ export function Nav() {
       logWizardEvent('wizard_step_left', {
         step: prevStep,
         step_name: wizardSteps[prevStep]?.id,
-        time_on_step_seconds: seconds,
+        time_on_step_seconds: seconds
       });
       logWizardEvent('wizard_step_advanced', {
         step: wizardStep,
         step_name: wizardSteps[wizardStep]?.id,
-        details: { from_step: prevStep },
+        details: {from_step: prevStep}
       });
       currentStepRef.current = wizardStep;
       stepEnteredAtRef.current = Date.now();
@@ -241,9 +241,9 @@ export function Nav() {
           step: currentStepRef.current,
           step_name: wizardSteps[currentStepRef.current]?.id,
           time_on_step_seconds: seconds,
-          details: { via: 'unload' },
+          details: {via: 'unload'}
         },
-        { beacon: true }
+        {beacon: true}
       );
     };
     window.addEventListener('beforeunload', handler);
@@ -255,15 +255,12 @@ export function Nav() {
   const closeWizard = useCallback(() => {
     if (sessionIdRef.current && userEmail) {
       const seconds = Math.round((Date.now() - stepEnteredAtRef.current) / 1000);
-      logWizardEvent(
-        wizardCompletedRef.current ? 'wizard_closed' : 'wizard_abandoned',
-        {
-          step: currentStepRef.current,
-          step_name: wizardSteps[currentStepRef.current]?.id,
-          time_on_step_seconds: seconds,
-          details: { via: 'close_button' },
-        }
-      );
+      logWizardEvent(wizardCompletedRef.current ? 'wizard_closed' : 'wizard_abandoned', {
+        step: currentStepRef.current,
+        step_name: wizardSteps[currentStepRef.current]?.id,
+        time_on_step_seconds: seconds,
+        details: {via: 'close_button'}
+      });
     }
     sessionIdRef.current = null;
     setShowModal(false);
@@ -279,7 +276,7 @@ export function Nav() {
   const defaultDcrName = useMemo(() => {
     const cohortIds = Object.keys(dataCleanRoom?.cohorts || {}).sort();
     const now = new Date();
-    const month = now.toLocaleString('en-US', { month: 'long' });
+    const month = now.toLocaleString('en-US', {month: 'long'});
     const day = now.getDate();
     const dateSuffix = `${month}${day}`;
     return cohortIds.length > 0 ? `${cohortIds.join('-')}-${dateSuffix}` : dateSuffix;
@@ -291,11 +288,10 @@ export function Nav() {
     }
   }, [defaultDcrName, dcrNameCustomized]);
 
-  
   // Helper function to scroll to notification box
   const scrollToNotification = () => {
     setTimeout(() => {
-      notificationRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      notificationRef.current?.scrollIntoView({behavior: 'smooth', block: 'end'});
     }, 100);
   };
 
@@ -376,10 +372,10 @@ export function Nav() {
         },
         body: JSON.stringify(buildCurrentDcrWizardRequest())
       });
-      
+
       // Check content type to determine if it's a ZIP file or JSON
       const contentType = response.headers.get('content-type');
-      
+
       if (contentType && contentType.includes('application/zip')) {
         // Handle ZIP file response (with shuffled samples)
         const blob = await response.blob();
@@ -396,19 +392,33 @@ export function Nav() {
         logWizardEvent('dcr_download_config_clicked', {
           step: currentStepRef.current,
           step_name: wizardSteps[currentStepRef.current]?.id,
-          details: { variant: 'zip_with_samples' },
+          details: {variant: 'zip_with_samples'}
         });
-        setPublishedDCR((
-          <p data-testid="dcr-wizard-success">✅ Data Clean Room configuration package (with shuffled samples) has been downloaded. <br />
-          {dcrProviderUi.provider === 'decentriq'
-            ? <>Please go to <a href="https://platform.decentriq.com/" target="_blank" className="underline text-blue-600 hover:text-blue-800">https://platform.decentriq.com</a> to create a new DCR from the configuration file.</>
-            : <>You can now create the local room from this wizard.</>}</p>
-        ));
+        setPublishedDCR(
+          <p data-testid="dcr-wizard-success">
+            ✅ Data Clean Room configuration package (with shuffled samples) has been downloaded. <br />
+            {dcrProviderUi.provider === 'decentriq' ? (
+              <>
+                Please go to{' '}
+                <a
+                  href="https://platform.decentriq.com/"
+                  target="_blank"
+                  className="underline text-blue-600 hover:text-blue-800"
+                >
+                  https://platform.decentriq.com
+                </a>{' '}
+                to create a new DCR from the configuration file.
+              </>
+            ) : (
+              <>You can now create the local room from this wizard.</>
+            )}
+          </p>
+        );
         scrollToNotification();
       } else {
         // Handle JSON response (no shuffled samples)
         const res = await response.json();
-        const blob = new Blob([JSON.stringify(res, null, 2)], { type: 'application/json' });
+        const blob = new Blob([JSON.stringify(res, null, 2)], {type: 'application/json'});
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -422,17 +432,31 @@ export function Nav() {
         logWizardEvent('dcr_download_config_clicked', {
           step: currentStepRef.current,
           step_name: wizardSteps[currentStepRef.current]?.id,
-          details: { variant: 'json_only' },
+          details: {variant: 'json_only'}
         });
-        setPublishedDCR((
-          <p data-testid="dcr-wizard-success">✅ Data Clean Room configuration file has been downloaded. <br />
-          {dcrProviderUi.provider === 'decentriq'
-            ? <>Please go to <a href="https://platform.decentriq.com/" target="_blank" className="underline text-blue-600 hover:text-blue-800">https://platform.decentriq.com</a> to create a new DCR from the configuration file.</>
-            : <>You can now create the local room from this wizard.</>}</p>
-        ));
+        setPublishedDCR(
+          <p data-testid="dcr-wizard-success">
+            ✅ Data Clean Room configuration file has been downloaded. <br />
+            {dcrProviderUi.provider === 'decentriq' ? (
+              <>
+                Please go to{' '}
+                <a
+                  href="https://platform.decentriq.com/"
+                  target="_blank"
+                  className="underline text-blue-600 hover:text-blue-800"
+                >
+                  https://platform.decentriq.com
+                </a>{' '}
+                to create a new DCR from the configuration file.
+              </>
+            ) : (
+              <>You can now create the local room from this wizard.</>
+            )}
+          </p>
+        );
         scrollToNotification();
       }
-      
+
       setIsLoading(false);
       setLoadingAction(null);
       // Handle response
@@ -465,16 +489,16 @@ export function Nav() {
         },
         body: JSON.stringify(buildCurrentDcrWizardRequest())
       });
-      
+
       const result = await response.json();
-      
+
       if (response.ok) {
         const resultProviderUi = projectDcrProvider(result.provider, result.capabilities);
         setDcrProviderUi(resultProviderUi);
         // Categorize cohorts by shuffled sample availability
         const cohortsWithSamples: string[] = [];
         const cohortsWithoutSamples: string[] = [];
-        
+
         result.cohort_ids.forEach((cohortId: string) => {
           const status = result.shuffled_upload_results[cohortId];
           if (status === 'success') {
@@ -483,66 +507,102 @@ export function Nav() {
             cohortsWithoutSamples.push(cohortId);
           }
         });
-        
+
         setDcrCreated(true);
         wizardCompletedRef.current = true;
-        setPublishedDCR((
+        setPublishedDCR(
           <div className="bg-success text-slate-900 p-4 rounded-lg" data-testid="dcr-wizard-success">
             <p className="font-bold mb-4 text-lg">✅ {result.message}</p>
             <div className="flex justify-center mb-4">
-              <a 
-                href={result.dcr_url} 
-                target="_blank" 
+              <a
+                href={result.dcr_url}
+                target="_blank"
                 rel="noopener noreferrer"
                 className="btn btn-lg gap-2 bg-blue-100 text-blue-900 hover:bg-blue-200 border-blue-300 font-semibold"
                 data-testid="dcr-created-room-link"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-6 w-6"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                  />
                 </svg>
                 {resultProviderUi.openLabel}
               </a>
             </div>
-            <p className="mb-2" data-testid="dcr-created-room-id">Room ID: {result.dcr_id}</p>
+            <p className="mb-2" data-testid="dcr-created-room-id">
+              Room ID: {result.dcr_id}
+            </p>
             <p className="mb-2">Title: {result.dcr_title}</p>
             <p className="mb-2">Cohorts: {result.num_cohorts}</p>
-            <p className="mb-2">Metadata uploads: {result.metadata_uploads_successful}/{result.num_cohorts}</p>
-            <p className="mb-2">Shuffled samples: {result.shuffled_uploads_successful}/{result.num_cohorts}</p>
-            
-            {cohortsWithSamples.length > 0 && (
+            {result.handoff_mode === 'bootstrap' ? (
+              <div className="text-sm space-y-1" data-testid="dcr-bootstrap-next-steps">
+                <p>
+                  {Object.keys(result.data_node_ids || {}).length} metadata-derived data slots are ready as Development
+                  changes.
+                </p>
+                <p>
+                  Continue in AADCR v2 to upload synthetic CSV data, add computations and permissions, create and merge
+                  a change request, run analyses, and inspect results and audit history.
+                </p>
+              </div>
+            ) : (
+              <>
+                <p className="mb-2">
+                  Metadata uploads: {result.metadata_uploads_successful}/{result.num_cohorts}
+                </p>
+                <p className="mb-2">
+                  Shuffled samples: {result.shuffled_uploads_successful}/{result.num_cohorts}
+                </p>
+              </>
+            )}
+
+            {result.handoff_mode !== 'bootstrap' && cohortsWithSamples.length > 0 && (
               <p className="mb-2 text-sm">
-                <span className="font-semibold">Cohorts with shuffled samples available:</span> {cohortsWithSamples.join(', ')}
+                <span className="font-semibold">Cohorts with shuffled samples available:</span>{' '}
+                {cohortsWithSamples.join(', ')}
               </p>
             )}
-            {cohortsWithoutSamples.length > 0 && (
+            {result.handoff_mode !== 'bootstrap' && cohortsWithoutSamples.length > 0 && (
               <p className="mb-2 text-sm">
-                <span className="font-semibold">Cohorts with no shuffled samples:</span> {cohortsWithoutSamples.join(', ')}
+                <span className="font-semibold">Cohorts with no shuffled samples:</span>{' '}
+                {cohortsWithoutSamples.join(', ')}
               </p>
             )}
           </div>
-        ));
+        );
         scrollToNotification();
       } else {
         console.error('DCR creation failed', response.status, response.statusText);
-        setPublishedDCR((
+        setPublishedDCR(
           <div className="bg-error text-error-content p-4 rounded-lg space-y-2" data-testid="dcr-wizard-error">
             <p className="font-bold text-lg">❌ Error: Failed to create live DCR</p>
             <div className="bg-black bg-opacity-20 p-3 rounded text-xs font-mono overflow-auto max-h-96">
               <p className="font-bold mb-2">Error Details:</p>
-              <p className="mb-2">Status: {response.status} {response.statusText}</p>
+              <p className="mb-2">
+                Status: {response.status} {response.statusText}
+              </p>
               <p className="mb-2">Message: {String(result.detail || 'No error message provided')}</p>
             </div>
           </div>
-        ));
+        );
         scrollToNotification();
       }
-      
+
       setIsLoading(false);
       setLoadingAction(null);
     } catch (error: any) {
       console.error('Error creating live DCR', error?.name, error?.message);
-      
-      setPublishedDCR((
+
+      setPublishedDCR(
         <div className="bg-error text-error-content p-4 rounded-lg space-y-2" data-testid="dcr-wizard-error">
           <p className="font-bold text-lg">❌ Error: Failed to create live DCR</p>
           <div className="bg-black bg-opacity-20 p-3 rounded text-xs font-mono overflow-auto max-h-96">
@@ -551,7 +611,7 @@ export function Nav() {
             <p className="mb-2">Message: {error?.message || 'No error message'}</p>
           </div>
         </div>
-      ));
+      );
       scrollToNotification();
       setIsLoading(false);
       setLoadingAction(null);
@@ -592,8 +652,11 @@ export function Nav() {
   }, []);
 
   // Track cohort IDs as a string for dependency comparison
-  const cohortIdsKey = useMemo(() => 
-    Object.keys(dataCleanRoom?.cohorts || {}).sort().join(','), 
+  const cohortIdsKey = useMemo(
+    () =>
+      Object.keys(dataCleanRoom?.cohorts || {})
+        .sort()
+        .join(','),
     [dataCleanRoom?.cohorts]
   );
 
@@ -613,7 +676,7 @@ export function Nav() {
               cohorts: dataCleanRoom.cohorts
             })
           });
-          
+
           if (response.ok) {
             const result = await response.json();
             setCohortsWithShuffledSamples(result.cohorts_with_samples);
@@ -631,7 +694,7 @@ export function Nav() {
           setLoadingShuffledSamples(false);
         }
       };
-      
+
       fetchShuffledSamples();
     }
   }, [showModal, cohortIdsKey]);
@@ -651,7 +714,7 @@ export function Nav() {
             },
             body: JSON.stringify(cohortIds)
           });
-          
+
           if (response.ok) {
             const result = await response.json();
             setAvailableMappingFiles(result.available_mappings);
@@ -668,7 +731,7 @@ export function Nav() {
           setLoadingMappingFiles(false);
         }
       };
-      
+
       fetchMappingFiles();
     }
   }, [showModal, cohortIdsKey]);
@@ -690,7 +753,7 @@ export function Nav() {
               additional_analysts: additionalAnalysts
             })
           });
-          
+
           if (response.ok) {
             const result = await response.json();
             setParticipantsPreview(result.participants);
@@ -701,30 +764,30 @@ export function Nav() {
           setLoadingParticipants(false);
         }
       };
-      
+
       fetchParticipants();
     }
   }, [showParticipantsModal, cohortIdsKey, additionalAnalysts]);
 
   // Memoize cohort IDs to prevent unnecessary recalculations
-  const dcrCohortIds = useMemo(() => 
-    dataCleanRoom?.cohorts ? Object.keys(dataCleanRoom.cohorts) : [],
+  const dcrCohortIds = useMemo(
+    () => (dataCleanRoom?.cohorts ? Object.keys(dataCleanRoom.cohorts) : []),
     [dataCleanRoom?.cohorts]
   );
 
   // Use participants preview from backend when available
-  const dataOwners = useMemo((): { email: string; cohorts: string[] }[] => {
+  const dataOwners = useMemo((): {email: string; cohorts: string[]}[] => {
     if (participantsPreview) {
       // Create an object to deduplicate owners by email
       const ownersMap: Record<string, Set<string>> = {};
-      
+
       Object.entries(participantsPreview).forEach(([email, roles]: [string, any]) => {
         if (roles.data_owner_of && roles.data_owner_of.length > 0) {
           // Extract cohort names from node IDs (remove suffixes like _metadata_dictionary, _shuffled_sample)
           if (!ownersMap[email]) {
             ownersMap[email] = new Set();
           }
-          
+
           roles.data_owner_of.forEach((nodeId: string) => {
             // Remove common suffixes to get the base cohort name
             const cohortName = nodeId
@@ -735,7 +798,7 @@ export function Nav() {
           });
         }
       });
-      
+
       // Convert object to array format
       return Object.entries(ownersMap).map(([email, cohortSet]) => ({
         email,
@@ -775,12 +838,14 @@ export function Nav() {
               <span className="text-base">Mapping</span>
             </Link>
           </li>
-          <li>
-            <Link href="/dcrs" className={pathname === '/dcrs' ? 'active' : ''}>
-              <Box size={24} />
-              <span className="text-base">My DCRs</span>
-            </Link>
-          </li>
+          {dcrProviderUi?.provider !== 'aadcrv2' && (
+            <li>
+              <Link href="/dcrs" className={pathname === '/dcrs' ? 'active' : ''}>
+                <Box size={24} />
+                <span className="text-base">My DCRs</span>
+              </Link>
+            </li>
+          )}
           <li>
             <Link href="/docs_store" className={pathname === '/docs_store' ? 'active' : ''}>
               <FileText size={24} />
@@ -790,14 +855,34 @@ export function Nav() {
         </ul>
         <div className="dropdown lg:hidden">
           <div tabIndex={0} role="button" className="btn btn-ghost lg:hidden">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h8m-8 6h16" /></svg>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="h-5 w-5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h8m-8 6h16" />
+            </svg>
           </div>
           <ul tabIndex={0} className="menu menu-sm dropdown-content mt-3 z-[1] p-2 shadow bg-base-100 rounded-box w-52">
-            <li><Link href="/upload">Upload</Link></li>
-            <li><Link href="/cohorts">Explore</Link></li>
-            <li><Link href="/mapping">Mapping</Link></li>
-            <li><Link href="/dcrs">My DCRs</Link></li>
-            <li><Link href="/docs_store">Documents</Link></li>
+            <li>
+              <Link href="/upload">Upload</Link>
+            </li>
+            <li>
+              <Link href="/cohorts">Explore</Link>
+            </li>
+            <li>
+              <Link href="/mapping">Mapping</Link>
+            </li>
+            {dcrProviderUi?.provider !== 'aadcrv2' && (
+              <li>
+                <Link href="/dcrs">My DCRs</Link>
+              </li>
+            )}
+            <li>
+              <Link href="/docs_store">Documents</Link>
+            </li>
           </ul>
         </div>
       </div>
@@ -886,7 +971,9 @@ export function Nav() {
               /* ========== NOT LOGGED IN ========== */
               <>
                 <div className="flex justify-end mb-2">
-                  <button className="btn btn-sm btn-ghost" onClick={closeWizard}>✕</button>
+                  <button className="btn btn-sm btn-ghost" onClick={closeWizard}>
+                    ✕
+                  </button>
                 </div>
                 <div className="min-h-[200px] flex items-center justify-center">
                   <p className="text-red-500 text-center">Authenticate to access the explorer</p>
@@ -894,468 +981,541 @@ export function Nav() {
               </>
             ) : (
               <>
-              {/* ========== WIZARD VIEW ========== */}
-              <>
-                {/* Step indicator */}
-                <ul className="steps steps-horizontal w-full mb-6 text-xs">
-                  {wizardSteps.map((step, idx) => (
-                    <li 
-                      key={step.id} 
-                      className={`step ${idx <= wizardStep ? 'step-primary' : ''} ${dcrWizardUi.resolved ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
-                      onClick={() => {
-                        if (dcrWizardUi.resolved) setWizardStep(idx);
-                      }}
-                      data-provider-resolved={dcrWizardUi.resolved}
-                      data-testid={`dcr-wizard-step-${step.id}`}
-                    >
-                      {step.title}
-                    </li>
-                  ))}
-                </ul>
+                {/* ========== WIZARD VIEW ========== */}
+                <>
+                  {/* Step indicator */}
+                  <ul className="steps steps-horizontal w-full mb-6 text-xs">
+                    {wizardSteps.map((step, idx) => (
+                      <li
+                        key={step.id}
+                        className={`step ${idx <= wizardStep ? 'step-primary' : ''} ${dcrWizardUi.resolved ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
+                        onClick={() => {
+                          if (dcrWizardUi.resolved) setWizardStep(idx);
+                        }}
+                        data-provider-resolved={dcrWizardUi.resolved}
+                        data-testid={`dcr-wizard-step-${step.id}`}
+                      >
+                        {step.title}
+                      </li>
+                    ))}
+                  </ul>
 
-                {dcrWizardUi.creationWarning && (
-                  <div
-                    className={`alert ${dcrProviderError ? 'alert-error' : 'alert-warning'} mb-6`}
-                    role="alert"
-                    data-testid={dcrProviderError ? 'dcr-wizard-provider-error' : 'dcr-local-simulation-warning'}
-                  >
-                    <span>⚠️ {dcrWizardUi.creationWarning}</span>
-                  </div>
-                )}
-                
-                {/* Step content */}
-                <div className="min-h-[300px]" data-testid={`dcr-wizard-panel-${wizardSteps[wizardStep].id}`}>
-                  {/* Step 0: DCR Name & Cohorts */}
-                  {wizardStep === 0 && (
-                    <>
-                      <h3 className="font-bold text-lg mb-4">Step 1: DCR Name & Cohorts</h3>
-                      <div className="form-control mb-4">
-                        <label className="label">
-                          <span className="label-text font-semibold">DCR Name</span>
-                        </label>
-                        {!isEditingDcrName ? (
-                          <div className="flex items-center gap-2">
-                            <div className="flex-1 input input-bordered flex items-center bg-base-200 cursor-default" data-testid="dcr-name-display">
-                              <span className="truncate">{dcrName || defaultDcrName}</span>
-                            </div>
-                            <button
-                              type="button"
-                              className="btn btn-outline btn-sm"
-                              title="Edit DCR name"
-                              onClick={() => setIsEditingDcrName(true)}
-                              data-testid="dcr-name-edit"
-                            >
-                              ✏️ Edit
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="text"
-                              placeholder={defaultDcrName}
-                              className="input input-bordered w-full"
-                              value={dcrName}
-                              data-testid="dcr-name-input"
-                              autoFocus
-                              onChange={(e) => {
-                                setDcrName(e.target.value);
-                                setDcrNameCustomized(true);
-                              }}
-                              onBlur={() => setIsEditingDcrName(false)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter' || e.key === 'Escape') {
-                                  setIsEditingDcrName(false);
-                                }
-                              }}
-                            />
-                            {dcrNameCustomized && (
+                  {dcrWizardUi.creationWarning && (
+                    <div
+                      className={`alert ${dcrProviderError ? 'alert-error' : 'alert-warning'} mb-6`}
+                      role="alert"
+                      data-testid={dcrProviderError ? 'dcr-wizard-provider-error' : 'dcr-local-simulation-warning'}
+                    >
+                      <span>⚠️ {dcrWizardUi.creationWarning}</span>
+                    </div>
+                  )}
+
+                  {/* Step content */}
+                  <div className="min-h-[300px]" data-testid={`dcr-wizard-panel-${wizardSteps[wizardStep].id}`}>
+                    {/* Step 0: DCR Name & Cohorts */}
+                    {wizardSteps[wizardStep].id === 'name' && (
+                      <>
+                        <h3 className="font-bold text-lg mb-4">Step {wizardStep + 1}: DCR Name & Cohorts</h3>
+                        <div className="form-control mb-4">
+                          <label className="label">
+                            <span className="label-text font-semibold">DCR Name</span>
+                          </label>
+                          {!isEditingDcrName ? (
+                            <div className="flex items-center gap-2">
+                              <div
+                                className="flex-1 input input-bordered flex items-center bg-base-200 cursor-default"
+                                data-testid="dcr-name-display"
+                              >
+                                <span className="truncate">{dcrName || defaultDcrName}</span>
+                              </div>
                               <button
                                 type="button"
-                                className="btn btn-ghost btn-sm"
-                                title="Reset to default"
-                                onClick={() => {
-                                  setDcrNameCustomized(false);
-                                  setDcrName(defaultDcrName);
-                                  setIsEditingDcrName(false);
-                                }}
+                                className="btn btn-outline btn-sm"
+                                title="Edit DCR name"
+                                onClick={() => setIsEditingDcrName(true)}
+                                data-testid="dcr-name-edit"
                               >
-                                Reset
+                                ✏️ Edit
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="text"
+                                placeholder={defaultDcrName}
+                                className="input input-bordered w-full"
+                                value={dcrName}
+                                data-testid="dcr-name-input"
+                                autoFocus
+                                onChange={e => {
+                                  setDcrName(e.target.value);
+                                  setDcrNameCustomized(true);
+                                }}
+                                onBlur={() => setIsEditingDcrName(false)}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter' || e.key === 'Escape') {
+                                    setIsEditingDcrName(false);
+                                  }
+                                }}
+                              />
+                              {dcrNameCustomized && (
+                                <button
+                                  type="button"
+                                  className="btn btn-ghost btn-sm"
+                                  title="Reset to default"
+                                  onClick={() => {
+                                    setDcrNameCustomized(false);
+                                    setDcrName(defaultDcrName);
+                                    setIsEditingDcrName(false);
+                                  }}
+                                >
+                                  Reset
+                                </button>
+                              )}
+                            </div>
+                          )}
+                          <span className="text-xs text-base-content/60 mt-1">
+                            A default name is generated from your selected cohorts and today&apos;s date. Click Edit to
+                            customize. Your email ({userEmail || 'not logged in'}) will be appended to the title for
+                            clarity.
+                          </span>
+                        </div>
+                        <div className="mt-4">
+                          <label className="label">
+                            <span className="label-text font-semibold">Selected Cohorts</span>
+                          </label>
+                          <div
+                            className="bg-base-200 p-3 rounded-lg cursor-pointer hover:bg-base-300 transition-colors"
+                            onClick={() => setShowAddCohortModal(true)}
+                          >
+                            {Object.keys(dataCleanRoom?.cohorts || {}).length === 0 ? (
+                              <span className="text-base-content/60">No cohorts selected — click to add</span>
+                            ) : (
+                              Object.entries(dataCleanRoom?.cohorts || {}).map(([cohortId, variables]: any) => (
+                                <div key={cohortId} className="badge badge-outline mr-2 mb-1">
+                                  {cohortId} ({variables.length} vars)
+                                </div>
+                              ))
+                            )}
+                          </div>
+                          <div className="flex gap-2 mt-3">
+                            <button onClick={() => setShowAddCohortModal(true)} className="btn btn-outline btn-sm">
+                              Add/Remove Cohorts
+                            </button>
+                            {Object.keys(dataCleanRoom?.cohorts || {}).length > 0 && (
+                              <button className="btn btn-outline btn-sm btn-error" onClick={clearCohortsList}>
+                                Clear Cohorts
                               </button>
                             )}
                           </div>
+                        </div>
+                      </>
+                    )}
+
+                    {/* Step 1: Participants */}
+                    {wizardSteps[wizardStep].id === 'participants' && (
+                      <>
+                        <h3 className="font-bold text-lg mb-4">Step {wizardStep + 1}: Manage Participants</h3>
+                        <p className="text-sm text-base-content/70 mb-4">Invite additional analysts to the DCR.</p>
+                        <button
+                          className="btn btn-outline"
+                          onClick={() => setShowParticipantsModal(true)}
+                          data-testid="dcr-participants-open"
+                        >
+                          Edit Participants List
+                        </button>
+                        {(additionalAnalysts.length > 0 || excludedDataOwners.length > 0) && (
+                          <div className="mt-4 p-3 bg-base-200 rounded-lg">
+                            {additionalAnalysts.length > 0 && (
+                              <p className="text-sm">
+                                <strong>Additional analysts:</strong> {additionalAnalysts.join(', ')}
+                              </p>
+                            )}
+                            {excludedDataOwners.length > 0 && (
+                              <p className="text-sm mt-1">
+                                <strong>Excluded data owners:</strong> {excludedDataOwners.join(', ')}
+                              </p>
+                            )}
+                          </div>
                         )}
-                        <span className="text-xs text-base-content/60 mt-1">
-                          A default name is generated from your selected cohorts and today&apos;s date. Click Edit to customize. Your email ({userEmail || 'not logged in'}) will be appended to the title for clarity.
-                        </span>
-                      </div>
-                      <div className="mt-4">
-                        <label className="label">
-                          <span className="label-text font-semibold">Selected Cohorts</span>
-                        </label>
-                        <div className="bg-base-200 p-3 rounded-lg cursor-pointer hover:bg-base-300 transition-colors" onClick={() => setShowAddCohortModal(true)}>
-                          {Object.keys(dataCleanRoom?.cohorts || {}).length === 0 ? (
-                            <span className="text-base-content/60">No cohorts selected — click to add</span>
-                          ) : (
-                            Object.entries(dataCleanRoom?.cohorts || {}).map(([cohortId, variables]: any) => (
-                              <div key={cohortId} className="badge badge-outline mr-2 mb-1">
-                                {cohortId} ({variables.length} vars)
-                              </div>
-                            ))
+                      </>
+                    )}
+
+                    {/* Step 2: Research Goals */}
+                    {wizardSteps[wizardStep].id === 'research-goals' && (
+                      <>
+                        <h3 className="font-bold text-lg mb-4">
+                          Step {wizardStep + 1}: Information about Research Goals
+                        </h3>
+                        <div className="form-control">
+                          <label className="label">
+                            <span className="label-text font-semibold">Please describe your research question</span>
+                          </label>
+                          <textarea
+                            placeholder="Describe the research question you aim to answer with this DCR..."
+                            className="textarea textarea-bordered w-full h-32"
+                            value={researchQuestion}
+                            onChange={e => setResearchQuestion(e.target.value.slice(0, 1000))}
+                            maxLength={1000}
+                            data-testid="dcr-research-question-input"
+                          />
+                          <span className="text-xs text-base-content/60 mt-1 self-end">
+                            {researchQuestion.length}/1000
+                          </span>
+                        </div>
+                      </>
+                    )}
+
+                    {/* Step 3: Provider-supported sample settings */}
+                    {wizardSteps[wizardStep].id === 'data-samples' && (
+                      <>
+                        <h3 className="font-bold text-lg mb-4">
+                          Step {wizardStep + 1}: {wizardSteps[wizardStep].title}
+                        </h3>
+                        <div className="text-sm text-base-content/70 mb-4 space-y-2">
+                          <p>
+                            <strong>Shuffled Sample:</strong> A shuffled sample contains a maximum of 500 rows from
+                            dataset without the patient id column. Each column in the sample is shuffled independently
+                            of the other columns. The sample can be downloaded for code testing and validation outside
+                            this platform.
+                          </p>
+                          {dcrWizardUi.supportsAirlock && (
+                            <p>
+                              <strong>Airlock:</strong> The airlock allows 20% of the real data to be available to
+                              analysts inside the DCR for code testing and validation purposes. Note that the patient id
+                              column and the rows with outlier values (|z-score - mean| &gt; 2) are excluded from the
+                              airlock sample.
+                            </p>
                           )}
                         </div>
-                        <div className="flex gap-2 mt-3">
-                          <button onClick={() => setShowAddCohortModal(true)} className="btn btn-outline btn-sm">
-                            Add/Remove Cohorts
+
+                        {loadingShuffledSamples ? (
+                          <p className="text-sm text-base-content/70">Checking data availability...</p>
+                        ) : (
+                          <div className="space-y-4">
+                            {dataCleanRoom?.cohorts &&
+                              Object.keys(dataCleanRoom.cohorts)
+                                .sort()
+                                .map(cohortId => {
+                                  const hasShuffledSample = cohortsWithShuffledSamples.includes(cohortId);
+                                  // Production rooms can fall back to Airlock; local
+                                  // simulations only expose the samples they implement.
+                                  const defaultAirlock = dcrWizardUi.supportsAirlock && !hasShuffledSample;
+                                  const defaultShuffled = hasShuffledSample;
+                                  const currentAirlock = airlockSettings[cohortId] ?? defaultAirlock;
+                                  const currentShuffled = shuffledSampleSettings[cohortId] ?? defaultShuffled;
+
+                                  // Determine current selection
+                                  let currentSelection = 'none';
+                                  if (currentAirlock && currentShuffled && hasShuffledSample) currentSelection = 'both';
+                                  else if (currentAirlock && !currentShuffled) currentSelection = 'airlock';
+                                  else if (!currentAirlock && currentShuffled && hasShuffledSample)
+                                    currentSelection = 'shuffled';
+                                  else if (currentAirlock) currentSelection = 'airlock';
+
+                                  return (
+                                    <div
+                                      key={cohortId}
+                                      className="p-3 bg-base-200 rounded-lg"
+                                      data-testid={`dcr-sample-card-${cohortId}`}
+                                    >
+                                      <p className="font-medium mb-2">{cohortId}</p>
+                                      <div className="flex flex-wrap gap-2">
+                                        <button
+                                          className={`btn btn-sm ${currentSelection === 'none' ? 'btn-primary' : 'btn-outline'}`}
+                                          onClick={() => {
+                                            setAirlockSettings({...airlockSettings, [cohortId]: false});
+                                            setShuffledSampleSettings({...shuffledSampleSettings, [cohortId]: false});
+                                          }}
+                                          data-testid="dcr-sample-none"
+                                        >
+                                          None
+                                        </button>
+                                        {hasShuffledSample && (
+                                          <button
+                                            className={`btn btn-sm ${currentSelection === 'shuffled' ? 'btn-primary' : 'btn-outline'}`}
+                                            onClick={() => {
+                                              setAirlockSettings({...airlockSettings, [cohortId]: false});
+                                              setShuffledSampleSettings({...shuffledSampleSettings, [cohortId]: true});
+                                            }}
+                                            data-testid="dcr-sample-shuffled"
+                                          >
+                                            Shuffled Sample
+                                          </button>
+                                        )}
+                                        {dcrWizardUi.supportsAirlock && (
+                                          <button
+                                            className={`btn btn-sm ${currentSelection === 'airlock' ? 'btn-primary' : 'btn-outline'}`}
+                                            onClick={() => {
+                                              setAirlockSettings({...airlockSettings, [cohortId]: true});
+                                              setShuffledSampleSettings({...shuffledSampleSettings, [cohortId]: false});
+                                            }}
+                                            data-testid="dcr-sample-airlock"
+                                          >
+                                            Airlocked Sample
+                                          </button>
+                                        )}
+                                        {dcrWizardUi.supportsAirlock && hasShuffledSample && (
+                                          <button
+                                            className={`btn btn-sm ${currentSelection === 'both' ? 'btn-primary' : 'btn-outline'}`}
+                                            onClick={() => {
+                                              setAirlockSettings({...airlockSettings, [cohortId]: true});
+                                              setShuffledSampleSettings({...shuffledSampleSettings, [cohortId]: true});
+                                            }}
+                                            data-testid="dcr-sample-both"
+                                          >
+                                            Both
+                                          </button>
+                                        )}
+                                      </div>
+                                      {!hasShuffledSample && (
+                                        <p className="text-xs text-base-content/50 mt-2 italic">
+                                          No shuffled sample available for this cohort
+                                        </p>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                          </div>
+                        )}
+                      </>
+                    )}
+
+                    {/* Step 4: Mapping Files */}
+                    {wizardSteps[wizardStep].id === 'mapping' && (
+                      <>
+                        <h3 className="font-bold text-lg mb-4">Step {wizardStep + 1}: Mapping Files (Optional)</h3>
+                        {loadingMappingFiles ? (
+                          <p className="text-sm text-base-content/70">Checking for available mapping files...</p>
+                        ) : availableMappingFiles.length > 0 ? (
+                          <>
+                            <p className="text-sm text-base-content/70 mb-4">
+                              Select which mapping files to include in the DCR (optional):
+                            </p>
+                            <div className="space-y-2">
+                              {availableMappingFiles.map(mapping => (
+                                <div key={mapping.filename} className="form-control">
+                                  <label className="label cursor-pointer justify-start gap-3">
+                                    <input
+                                      type="checkbox"
+                                      checked={selectedMappingFiles[mapping.filename] ?? true}
+                                      onChange={e => {
+                                        setSelectedMappingFiles({
+                                          ...selectedMappingFiles,
+                                          [mapping.filename]: e.target.checked
+                                        });
+                                      }}
+                                      className="checkbox checkbox-primary"
+                                      data-testid="dcr-mapping-toggle"
+                                    />
+                                    <span className="label-text text-base">{mapping.display_name}</span>
+                                  </label>
+                                </div>
+                              ))}
+                            </div>
+                          </>
+                        ) : Object.keys(dataCleanRoom?.cohorts || {}).length < 2 ? (
+                          <p className="text-sm text-base-content/50 italic">
+                            Select at least 2 cohorts to see available mapping files.
+                          </p>
+                        ) : (
+                          <p className="text-sm text-base-content/50 italic">
+                            No mapping files available for the selected cohorts.
+                          </p>
+                        )}
+
+                        <div className="form-control mt-6">
+                          <label className="label cursor-pointer justify-start gap-3">
+                            <input
+                              type="checkbox"
+                              checked={includeMappingUploadSlot}
+                              onChange={e => setIncludeMappingUploadSlot(e.target.checked)}
+                              className="checkbox checkbox-primary"
+                              data-testid="dcr-mapping-upload-slot"
+                            />
+                            <span className="label-text text-base">
+                              Include a file upload slot for cross-study mapping
+                            </span>
+                          </label>
+                        </div>
+
+                        <p className="text-xs text-base-content/50 mt-4 italic">
+                          Missing a mapping file? Generate it from the{' '}
+                          <Link href="/mapping" className="underline hover:text-primary">
+                            Mapping page
+                          </Link>
+                          .
+                        </p>
+                      </>
+                    )}
+
+                    {/* Step 5: Review & Create */}
+                    {wizardSteps[wizardStep].id === 'review' && (
+                      <>
+                        <h3 className="font-bold text-lg mb-4">
+                          Step {wizardStep + 1}: {dcrWizardUi.metadataHandoff ? 'Review & Handoff' : 'Review & Create'}
+                        </h3>
+                        <div className="space-y-3 text-sm">
+                          <div className="p-3 bg-base-200 rounded-lg">
+                            <strong>DCR Name:</strong> {dcrName || defaultDcrName} - created by {userEmail}
+                          </div>
+                          <div className="p-3 bg-base-200 rounded-lg">
+                            <strong>Cohorts:</strong>{' '}
+                            {Object.keys(dataCleanRoom?.cohorts || {})
+                              .sort()
+                              .join(', ')}
+                          </div>
+                          {!dcrWizardUi.metadataHandoff && (
+                            <div className="p-3 bg-base-200 rounded-lg">
+                              <strong>Additional Analysts:</strong>{' '}
+                              {additionalAnalysts.length > 0 ? additionalAnalysts.join(', ') : 'None'}
+                            </div>
+                          )}
+                          {!dcrWizardUi.metadataHandoff && researchQuestion && (
+                            <div className="p-3 bg-base-200 rounded-lg">
+                              <strong>Research Question:</strong> {researchQuestion}
+                            </div>
+                          )}
+                          {dcrWizardUi.supportsAirlock && (
+                            <div className="p-3 bg-base-200 rounded-lg">
+                              <strong>Airlock Cohorts:</strong>{' '}
+                              {sortedEnabledKeys(airlockSettings).join(', ') || 'None'}
+                            </div>
+                          )}
+                          {!dcrWizardUi.metadataHandoff && (
+                            <div className="p-3 bg-base-200 rounded-lg">
+                              <strong>Shuffled Samples:</strong>{' '}
+                              {sortedEnabledKeys(shuffledSampleSettings).join(', ') || 'None'}
+                            </div>
+                          )}
+                          <div className="p-3 bg-base-200 rounded-lg">
+                            <strong>Mapping Files:</strong>{' '}
+                            {availableMappingFiles
+                              .filter(m => selectedMappingFiles[m.filename] !== false)
+                              .map(m => m.display_name)
+                              .join(', ') || 'None'}
+                            {includeMappingUploadSlot && ' + Upload slot'}
+                          </div>
+                          {dcrWizardUi.metadataHandoff && (
+                            <div className="alert alert-info" data-testid="dcr-handoff-boundary" role="status">
+                              Cohort Explorer creates only the room and metadata-derived Development data slots.
+                              Participants, synthetic dataset upload and provisioning, permissions, computations, change
+                              requests, results, and audit history remain in the Advanced Analytics DCR.
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex flex-wrap gap-2 mt-6">
+                          <button
+                            className="btn btn-primary"
+                            onClick={createLiveDCR}
+                            disabled={
+                              !dcrWizardUi.resolved ||
+                              isLoading ||
+                              dcrCreated ||
+                              Object.keys(dataCleanRoom?.cohorts || {}).length === 0
+                            }
+                            data-testid="dcr-create"
+                          >
+                            {dcrProviderUi?.createLabel || 'Data Clean Room provider unavailable'}
                           </button>
+                          {!dcrWizardUi.metadataHandoff && (
+                            <button
+                              className="btn btn-neutral h-auto min-h-0 py-2 px-4"
+                              onClick={getDCRDefinitionFile}
+                              disabled={
+                                !dcrWizardUi.resolved ||
+                                isLoading ||
+                                configDownloaded ||
+                                Object.keys(dataCleanRoom?.cohorts || {}).length === 0
+                              }
+                              data-testid="dcr-preview-download"
+                            >
+                              <span className="flex flex-col items-center">
+                                <span>Download DCR Config</span>
+                                <span className="text-xs opacity-70 font-normal">+ ancillary files</span>
+                              </span>
+                            </button>
+                          )}
                           {Object.keys(dataCleanRoom?.cohorts || {}).length > 0 && (
-                            <button className="btn btn-outline btn-sm btn-error" onClick={clearCohortsList}>
+                            <button className="btn btn-outline btn-error" onClick={clearCohortsList}>
                               Clear Cohorts
                             </button>
                           )}
                         </div>
-                      </div>
-                    </>
-                  )}
-                  
-                  {/* Step 1: Participants */}
-                  {wizardStep === 1 && (
-                    <>
-                      <h3 className="font-bold text-lg mb-4">Step 2: Manage Participants</h3>
-                      <p className="text-sm text-base-content/70 mb-4">
-                        Invite additional analysts to the DCR.
-                      </p>
-                      <button 
-                        className="btn btn-outline"
-                        onClick={() => setShowParticipantsModal(true)}
-                        data-testid="dcr-participants-open"
-                      >
-                        Edit Participants List
-                      </button>
-                      {(additionalAnalysts.length > 0 || excludedDataOwners.length > 0) && (
-                        <div className="mt-4 p-3 bg-base-200 rounded-lg">
-                          {additionalAnalysts.length > 0 && (
-                            <p className="text-sm">
-                              <strong>Additional analysts:</strong> {additionalAnalysts.join(', ')}
-                            </p>
-                          )}
-                          {excludedDataOwners.length > 0 && (
-                            <p className="text-sm mt-1">
-                              <strong>Excluded data owners:</strong> {excludedDataOwners.join(', ')}
-                            </p>
-                          )}
-                        </div>
-                      )}
-                      
-                    </>
-                  )}
-                  
-                  {/* Step 2: Research Goals */}
-                  {wizardStep === 2 && (
-                    <>
-                      <h3 className="font-bold text-lg mb-4">Step 3: Information about Research Goals</h3>
-                      <div className="form-control">
-                        <label className="label">
-                          <span className="label-text font-semibold">Please describe your research question</span>
-                        </label>
-                        <textarea
-                          placeholder="Describe the research question you aim to answer with this DCR..."
-                          className="textarea textarea-bordered w-full h-32"
-                          value={researchQuestion}
-                          onChange={(e) => setResearchQuestion(e.target.value.slice(0, 1000))}
-                          maxLength={1000}
-                          data-testid="dcr-research-question-input"
-                        />
-                        <span className="text-xs text-base-content/60 mt-1 self-end">
-                          {researchQuestion.length}/1000
-                        </span>
-                      </div>
-                    </>
-                  )}
-                  
-                  {/* Step 3: Provider-supported sample settings */}
-                  {wizardStep === 3 && (
-                    <>
-                      <h3 className="font-bold text-lg mb-4">Step 4: {wizardSteps[3].title}</h3>
-                      <div className="text-sm text-base-content/70 mb-4 space-y-2">
-                        <p><strong>Shuffled Sample:</strong> A shuffled sample contains a maximum of 500 rows from dataset without the patient id column. Each column in the sample is shuffled independently of the other columns. The sample can be downloaded for code testing and validation outside this platform.</p>
-                        {dcrWizardUi.supportsAirlock && (
-                          <p><strong>Airlock:</strong> The airlock allows 20% of the real data to be available to analysts inside the DCR for code testing and validation purposes. Note that the patient id column and the rows with outlier values (|z-score - mean| &gt; 2) are excluded from the airlock sample.</p>
-                        )}
-                      </div>
-                      
-                      {loadingShuffledSamples ? (
-                        <p className="text-sm text-base-content/70">Checking data availability...</p>
-                      ) : (
-                        <div className="space-y-4">
-                          {dataCleanRoom?.cohorts && Object.keys(dataCleanRoom.cohorts).sort().map((cohortId) => {
-                            const hasShuffledSample = cohortsWithShuffledSamples.includes(cohortId);
-                            // Production rooms can fall back to Airlock; local
-                            // simulations only expose the samples they implement.
-                            const defaultAirlock = dcrWizardUi.supportsAirlock && !hasShuffledSample;
-                            const defaultShuffled = hasShuffledSample;
-                            const currentAirlock = airlockSettings[cohortId] ?? defaultAirlock;
-                            const currentShuffled = shuffledSampleSettings[cohortId] ?? defaultShuffled;
-                            
-                            // Determine current selection
-                            let currentSelection = 'none';
-                            if (currentAirlock && currentShuffled && hasShuffledSample) currentSelection = 'both';
-                            else if (currentAirlock && !currentShuffled) currentSelection = 'airlock';
-                            else if (!currentAirlock && currentShuffled && hasShuffledSample) currentSelection = 'shuffled';
-                            else if (currentAirlock) currentSelection = 'airlock';
-                            
-                            return (
-                              <div
-                                key={cohortId}
-                                className="p-3 bg-base-200 rounded-lg"
-                                data-testid={`dcr-sample-card-${cohortId}`}
-                              >
-                                <p className="font-medium mb-2">{cohortId}</p>
-                                <div className="flex flex-wrap gap-2">
-                                  <button
-                                    className={`btn btn-sm ${currentSelection === 'none' ? 'btn-primary' : 'btn-outline'}`}
-                                    onClick={() => {
-                                      setAirlockSettings({...airlockSettings, [cohortId]: false});
-                                      setShuffledSampleSettings({...shuffledSampleSettings, [cohortId]: false});
-                                    }}
-                                    data-testid="dcr-sample-none"
-                                  >
-                                    None
-                                  </button>
-                                  {hasShuffledSample && (
-                                    <button
-                                      className={`btn btn-sm ${currentSelection === 'shuffled' ? 'btn-primary' : 'btn-outline'}`}
-                                      onClick={() => {
-                                        setAirlockSettings({...airlockSettings, [cohortId]: false});
-                                        setShuffledSampleSettings({...shuffledSampleSettings, [cohortId]: true});
-                                      }}
-                                      data-testid="dcr-sample-shuffled"
-                                    >
-                                      Shuffled Sample
-                                    </button>
-                                  )}
-                                  {dcrWizardUi.supportsAirlock && (
-                                    <button
-                                      className={`btn btn-sm ${currentSelection === 'airlock' ? 'btn-primary' : 'btn-outline'}`}
-                                      onClick={() => {
-                                        setAirlockSettings({...airlockSettings, [cohortId]: true});
-                                        setShuffledSampleSettings({...shuffledSampleSettings, [cohortId]: false});
-                                      }}
-                                      data-testid="dcr-sample-airlock"
-                                    >
-                                      Airlocked Sample
-                                    </button>
-                                  )}
-                                  {dcrWizardUi.supportsAirlock && hasShuffledSample && (
-                                    <button
-                                      className={`btn btn-sm ${currentSelection === 'both' ? 'btn-primary' : 'btn-outline'}`}
-                                      onClick={() => {
-                                        setAirlockSettings({...airlockSettings, [cohortId]: true});
-                                        setShuffledSampleSettings({...shuffledSampleSettings, [cohortId]: true});
-                                      }}
-                                      data-testid="dcr-sample-both"
-                                    >
-                                      Both
-                                    </button>
-                                  )}
-                                </div>
-                                {!hasShuffledSample && (
-                                  <p className="text-xs text-base-content/50 mt-2 italic">No shuffled sample available for this cohort</p>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </>
-                  )}
-                  
-                  {/* Step 4: Mapping Files */}
-                  {wizardStep === 4 && (
-                    <>
-                      <h3 className="font-bold text-lg mb-4">Step 5: Mapping Files (Optional)</h3>
-                      {loadingMappingFiles ? (
-                        <p className="text-sm text-base-content/70">Checking for available mapping files...</p>
-                      ) : availableMappingFiles.length > 0 ? (
-                        <>
-                          <p className="text-sm text-base-content/70 mb-4">Select which mapping files to include in the DCR (optional):</p>
-                          <div className="space-y-2">
-                            {availableMappingFiles.map((mapping) => (
-                              <div key={mapping.filename} className="form-control">
-                                <label className="label cursor-pointer justify-start gap-3">
-                                  <input 
-                                    type="checkbox"
-                                    checked={selectedMappingFiles[mapping.filename] ?? true}
-                                    onChange={(e) => {
-                                      setSelectedMappingFiles({...selectedMappingFiles, [mapping.filename]: e.target.checked});
-                                    }}
-                                    className="checkbox checkbox-primary"
-                                    data-testid="dcr-mapping-toggle"
-                                  />
-                                  <span className="label-text text-base">{mapping.display_name}</span>
-                                </label>
-                              </div>
-                            ))}
-                          </div>
-                        </>
-                      ) : Object.keys(dataCleanRoom?.cohorts || {}).length < 2 ? (
-                        <p className="text-sm text-base-content/50 italic">Select at least 2 cohorts to see available mapping files.</p>
-                      ) : (
-                        <p className="text-sm text-base-content/50 italic">No mapping files available for the selected cohorts.</p>
-                      )}
-                      
-                      <div className="form-control mt-6">
-                        <label className="label cursor-pointer justify-start gap-3">
-                          <input 
-                            type="checkbox"
-                            checked={includeMappingUploadSlot}
-                            onChange={(e) => setIncludeMappingUploadSlot(e.target.checked)}
-                            className="checkbox checkbox-primary"
-                            data-testid="dcr-mapping-upload-slot"
-                          />
-                          <span className="label-text text-base">Include a file upload slot for cross-study mapping</span>
-                        </label>
-                      </div>
-                      
-                      <p className="text-xs text-base-content/50 mt-4 italic">
-                        Missing a mapping file? Generate it from the <Link href="/mapping" className="underline hover:text-primary">Mapping page</Link>.
-                      </p>
-                    </>
-                  )}
-                  
-                  {/* Step 5: Review & Create */}
-                  {wizardStep === 5 && (
-                    <>
-                      <h3 className="font-bold text-lg mb-4">Step 6: Review & Create</h3>
-                      <div className="space-y-3 text-sm">
-                        <div className="p-3 bg-base-200 rounded-lg">
-                          <strong>DCR Name:</strong> {(dcrName || defaultDcrName)} - created by {userEmail}
-                        </div>
-                        <div className="p-3 bg-base-200 rounded-lg">
-                          <strong>Cohorts:</strong> {Object.keys(dataCleanRoom?.cohorts || {}).sort().join(', ')}
-                        </div>
-                        <div className="p-3 bg-base-200 rounded-lg">
-                          <strong>Additional Analysts:</strong> {additionalAnalysts.length > 0 ? additionalAnalysts.join(', ') : 'None'}
-                        </div>
-                        {researchQuestion && (
-                          <div className="p-3 bg-base-200 rounded-lg">
-                            <strong>Research Question:</strong> {researchQuestion}
-                          </div>
-                        )}
-                        {dcrWizardUi.supportsAirlock && (
-                          <div className="p-3 bg-base-200 rounded-lg">
-                            <strong>Airlock Cohorts:</strong> {sortedEnabledKeys(airlockSettings).join(', ') || 'None'}
-                          </div>
-                        )}
-                        <div className="p-3 bg-base-200 rounded-lg">
-                          <strong>Shuffled Samples:</strong> {sortedEnabledKeys(shuffledSampleSettings).join(', ') || 'None'}
-                        </div>
-                        <div className="p-3 bg-base-200 rounded-lg">
-                          <strong>Mapping Files:</strong> {availableMappingFiles.filter(m => selectedMappingFiles[m.filename] !== false).map(m => m.display_name).join(', ') || 'None'}
-                          {includeMappingUploadSlot && ' + Upload slot'}
-                        </div>
-                      </div>
-                      
-                      <div className="flex flex-wrap gap-2 mt-6">
-                        <button 
-                          className="btn btn-primary" 
-                          onClick={createLiveDCR} 
-                          disabled={!dcrWizardUi.resolved || isLoading || dcrCreated || Object.keys(dataCleanRoom?.cohorts || {}).length === 0}
-                          data-testid="dcr-create"
-                        >
-                          {dcrProviderUi?.createLabel || 'Data Clean Room provider unavailable'}
-                        </button>
-                        <button 
-                          className="btn btn-neutral h-auto min-h-0 py-2 px-4" 
-                          onClick={getDCRDefinitionFile} 
-                          disabled={!dcrWizardUi.resolved || isLoading || configDownloaded || Object.keys(dataCleanRoom?.cohorts || {}).length === 0}
-                          data-testid="dcr-preview-download"
-                        >
-                          <span className="flex flex-col items-center">
-                            <span>Download DCR Config</span>
-                            <span className="text-xs opacity-70 font-normal">+ ancillary files</span>
-                          </span>
-                        </button>
-                        {Object.keys(dataCleanRoom?.cohorts || {}).length > 0 && (
-                          <button className="btn btn-outline btn-error" onClick={clearCohortsList}>
-                            Clear Cohorts
-                          </button>
-                        )}
-                      </div>
-                    </>
-                  )}
-                </div>
-                
-                {/* Wizard navigation buttons */}
-                <div className="flex justify-between mt-6 pt-4 border-t">
-                  <div>
-                    {wizardStep > 0 && (
-                      <button 
-                        className="btn btn-outline"
-                        onClick={() => setWizardStep(wizardStep - 1)}
-                        data-testid="dcr-wizard-previous"
-                      >
-                        ← Previous
-                      </button>
+                      </>
                     )}
                   </div>
-                  <div className="flex gap-2">
-                    <button className="btn" onClick={closeWizard} data-testid="dcr-wizard-close">
-                      Close
-                    </button>
-                    {wizardStep < wizardSteps.length - 1 && (
-                      <button 
-                        className="btn btn-primary"
-                        onClick={() => setWizardStep(wizardStep + 1)}
-                        disabled={!dcrWizardUi.resolved}
-                        data-testid="dcr-wizard-next"
-                      >
-                        Next →
+
+                  {/* Wizard navigation buttons */}
+                  <div className="flex justify-between mt-6 pt-4 border-t">
+                    <div>
+                      {wizardStep > 0 && (
+                        <button
+                          className="btn btn-outline"
+                          onClick={() => setWizardStep(wizardStep - 1)}
+                          data-testid="dcr-wizard-previous"
+                        >
+                          ← Previous
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      <button className="btn" onClick={closeWizard} data-testid="dcr-wizard-close">
+                        Close
                       </button>
-                    )}
+                      {wizardStep < wizardSteps.length - 1 && (
+                        <button
+                          className="btn btn-primary"
+                          onClick={() => setWizardStep(wizardStep + 1)}
+                          disabled={!dcrWizardUi.resolved}
+                          data-testid="dcr-wizard-next"
+                        >
+                          Next →
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
-                
-                {/* Loading and notification for wizard */}
-                {isLoading && (
-                  <div className="flex flex-col items-center opacity-70 text-slate-500 mt-5 mb-5">
-                    <span className="loading loading-spinner loading-lg mb-4"></span>
-                    <p>
-                      {loadingAction === 'live' 
-                        ? dcrProviderUi?.loadingLabel || 'Loading the configured Data Clean Room provider...'
-                        : 'Creating the file specification for a DCR draft...'}
-                    </p>
-                  </div>
-                )}
-                <div ref={wizardStep === 5 ? notificationRef : undefined}>
-                  {publishedDCR && wizardStep === 5 && (
-                    <div className="card card-compact">
-                      <div className="card-body mt-5">
-                        {publishedDCR}
-                      </div>
+
+                  {/* Loading and notification for wizard */}
+                  {isLoading && (
+                    <div className="flex flex-col items-center opacity-70 text-slate-500 mt-5 mb-5">
+                      <span className="loading loading-spinner loading-lg mb-4"></span>
+                      <p>
+                        {loadingAction === 'live'
+                          ? dcrProviderUi?.loadingLabel || 'Loading the configured Data Clean Room provider...'
+                          : 'Creating the file specification for a DCR draft...'}
+                      </p>
                     </div>
                   )}
-                </div>
-                
-                {/* Feedback link at bottom of final step */}
-                {wizardStep === 5 && (
-                  <div className="mt-6 text-center text-sm text-base-content/60">
-                    <a
-                      href="https://docs.google.com/forms/d/e/1FAIpQLSd7EmQJgfNJJej8cuKN_eOv5ROYcjVVE-aM_sruNW6P0wySOQ/viewform?hl=en%2Fedit&hl=en"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="hover:underline hover:text-primary"
-                    >
-                    Feedback? Here is the form →
-                    </a>
+                  <div ref={wizardSteps[wizardStep].id === 'review' ? notificationRef : undefined}>
+                    {publishedDCR && wizardSteps[wizardStep].id === 'review' && (
+                      <div className="card card-compact">
+                        <div className="card-body mt-5">{publishedDCR}</div>
+                      </div>
+                    )}
                   </div>
-                )}
+
+                  {/* Feedback link at bottom of final step */}
+                  {wizardSteps[wizardStep].id === 'review' && (
+                    <div className="mt-6 text-center text-sm text-base-content/60">
+                      <a
+                        href="https://docs.google.com/forms/d/e/1FAIpQLSd7EmQJgfNJJej8cuKN_eOv5ROYcjVVE-aM_sruNW6P0wySOQ/viewform?hl=en%2Fedit&hl=en"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="hover:underline hover:text-primary"
+                      >
+                        Feedback? Here is the form →
+                      </a>
+                    </div>
+                  )}
+                </>
               </>
-            </>
             )}
           </div>
         </div>
       )}
-      
+
       {/* Participants Management Modal */}
       {showParticipantsModal && (
         <ParticipantsModal
@@ -1379,27 +1539,37 @@ export function Nav() {
           <div className="modal-box max-w-2xl">
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-bold text-lg">Add/Remove Cohorts</h3>
-              <button className="btn btn-sm btn-ghost" onClick={() => { setShowAddCohortModal(false); setCohortSearchQuery(''); }}>✕</button>
+              <button
+                className="btn btn-sm btn-ghost"
+                onClick={() => {
+                  setShowAddCohortModal(false);
+                  setCohortSearchQuery('');
+                }}
+              >
+                ✕
+              </button>
             </div>
-            
-            <input 
+
+            <input
               type="text"
               placeholder="Search cohorts by name..."
               className="input input-bordered w-full mb-4"
               value={cohortSearchQuery}
-              onChange={(e) => setCohortSearchQuery(e.target.value)}
+              onChange={e => setCohortSearchQuery(e.target.value)}
               autoFocus
             />
-            
-            <p className="text-xs text-base-content/60 mb-3 italic">Only cohorts with uploaded metadata can be added to the DCR.</p>
-            
+
+            <p className="text-xs text-base-content/60 mb-3 italic">
+              Only cohorts with uploaded metadata can be added to the DCR.
+            </p>
+
             <div className="max-h-[400px] overflow-y-auto space-y-2">
               {Object.entries(cohortsData || {})
                 .filter(([cohortId, cohortInfo]: [string, any]) => {
                   // Only show cohorts with uploaded metadata (i.e., those with variables)
                   const hasMetadata = cohortInfo?.variables && Object.keys(cohortInfo.variables).length > 0;
-                  const matchesSearch = cohortSearchQuery === '' || 
-                    cohortId.toLowerCase().includes(cohortSearchQuery.toLowerCase());
+                  const matchesSearch =
+                    cohortSearchQuery === '' || cohortId.toLowerCase().includes(cohortSearchQuery.toLowerCase());
                   return hasMetadata && matchesSearch;
                 })
                 .sort(([a], [b]) => a.localeCompare(b))
@@ -1407,7 +1577,7 @@ export function Nav() {
                   const isSelected = !!dataCleanRoom?.cohorts?.[cohortId];
                   const variableCount = Object.keys(cohortInfo.variables).length;
                   return (
-                    <div 
+                    <div
                       key={cohortId}
                       className={`p-3 rounded-lg cursor-pointer flex justify-between items-center ${isSelected ? 'bg-primary/20 border border-primary' : 'bg-base-200 hover:bg-base-300'}`}
                       onClick={() => {
@@ -1442,15 +1612,24 @@ export function Nav() {
                     </div>
                   );
                 })}
-              {Object.entries(cohortsData || {}).filter(([_, cohortInfo]: [string, any]) => 
-                cohortInfo?.variables && Object.keys(cohortInfo.variables).length > 0
+              {Object.entries(cohortsData || {}).filter(
+                ([_, cohortInfo]: [string, any]) =>
+                  cohortInfo?.variables && Object.keys(cohortInfo.variables).length > 0
               ).length === 0 && (
                 <p className="text-center text-base-content/60 py-4">No cohorts with uploaded metadata available</p>
               )}
             </div>
-            
+
             <div className="modal-action">
-              <button className="btn" onClick={() => { setShowAddCohortModal(false); setCohortSearchQuery(''); }}>Done</button>
+              <button
+                className="btn"
+                onClick={() => {
+                  setShowAddCohortModal(false);
+                  setCohortSearchQuery('');
+                }}
+              >
+                Done
+              </button>
             </div>
           </div>
         </div>
@@ -1460,149 +1639,148 @@ export function Nav() {
 }
 
 // Memoized Participants Modal to prevent re-renders on every keystroke
-const ParticipantsModal = React.memo(({
-  dataOwners,
-  userEmail,
-  additionalAnalysts,
-  newAnalystEmail,
-  setNewAnalystEmail,
-  addAnalyst,
-  removeAnalyst,
-  manuallyIncludedOwners,
-  setManuallyIncludedOwners,
-  onClose,
-  isLoading
-}: {
-  dataOwners: { email: string; cohorts: string[] }[];
-  userEmail: string | null;
-  additionalAnalysts: string[];
-  newAnalystEmail: string;
-  setNewAnalystEmail: (email: string) => void;
-  addAnalyst: () => void;
-  removeAnalyst: (email: string) => void;
-  manuallyIncludedOwners: string[];
-  setManuallyIncludedOwners: (emails: string[]) => void;
-  onClose: () => void;
-  isLoading: boolean;
-}) => {
-  // By default a data owner is EXCLUDED. They are only included when the
-  // user explicitly opts them in (checks the box).
-  const isExcluded = (email: string) => !manuallyIncludedOwners.includes(email);
-  const toggleDataOwner = (email: string) => {
-    if (manuallyIncludedOwners.includes(email)) {
-      setManuallyIncludedOwners(manuallyIncludedOwners.filter(e => e !== email));
-    } else {
-      setManuallyIncludedOwners([...manuallyIncludedOwners, email]);
-    }
-  };
-  return (
-    <div className="modal modal-open" data-testid="dcr-participants-modal">
-      <div className="modal-box">
-        <h3 className="font-bold text-lg mb-4">DCR Participants</h3>
-        
-        <div className="space-y-4">
-          {/* Data owners */}
-          <div>
-            <h4 className="font-semibold mb-2">Data Owners</h4>
-            {isLoading ? (
-              <div className="bg-base-200 p-3 rounded-lg mb-2">
-                <p className="text-sm text-gray-500">
-                  Retrieving list of data owners for the selected cohorts...
-                </p>
-              </div>
-            ) : dataOwners.length === 0 ? (
-              <div className="bg-base-200 p-3 rounded-lg mb-2">
-                <p className="text-sm text-base-content/60">
-                  No cohorts have been selected.
-                </p>
-              </div>
-            ) : (
-              dataOwners.map((owner) => (
-                <div key={owner.email} className={`p-3 rounded-lg mb-2 flex items-start gap-3 ${isExcluded(owner.email) ? 'bg-base-200 opacity-50' : 'bg-base-200'}`}>
-                  <input
-                    type="checkbox"
-                    checked={!isExcluded(owner.email)}
-                    onChange={() => toggleDataOwner(owner.email)}
-                    className="checkbox checkbox-primary mt-1"
-                    data-testid="dcr-participant-owner-toggle"
-                  />
-                  <div className="flex-1">
-                    <p className={`font-semibold ${isExcluded(owner.email) ? 'line-through' : ''}`}>
-                      {owner.email}
-                      {owner.email === userEmail && <span className="ml-2 text-xs badge badge-primary">You</span>}
-                    </p>
-                    <p className="text-sm text-gray-500">
-                      Data Owner for: {owner.cohorts.join(', ')}
-                    </p>
+const ParticipantsModal = React.memo(
+  ({
+    dataOwners,
+    userEmail,
+    additionalAnalysts,
+    newAnalystEmail,
+    setNewAnalystEmail,
+    addAnalyst,
+    removeAnalyst,
+    manuallyIncludedOwners,
+    setManuallyIncludedOwners,
+    onClose,
+    isLoading
+  }: {
+    dataOwners: {email: string; cohorts: string[]}[];
+    userEmail: string | null;
+    additionalAnalysts: string[];
+    newAnalystEmail: string;
+    setNewAnalystEmail: (email: string) => void;
+    addAnalyst: () => void;
+    removeAnalyst: (email: string) => void;
+    manuallyIncludedOwners: string[];
+    setManuallyIncludedOwners: (emails: string[]) => void;
+    onClose: () => void;
+    isLoading: boolean;
+  }) => {
+    // By default a data owner is EXCLUDED. They are only included when the
+    // user explicitly opts them in (checks the box).
+    const isExcluded = (email: string) => !manuallyIncludedOwners.includes(email);
+    const toggleDataOwner = (email: string) => {
+      if (manuallyIncludedOwners.includes(email)) {
+        setManuallyIncludedOwners(manuallyIncludedOwners.filter(e => e !== email));
+      } else {
+        setManuallyIncludedOwners([...manuallyIncludedOwners, email]);
+      }
+    };
+    return (
+      <div className="modal modal-open" data-testid="dcr-participants-modal">
+        <div className="modal-box">
+          <h3 className="font-bold text-lg mb-4">DCR Participants</h3>
+
+          <div className="space-y-4">
+            {/* Data owners */}
+            <div>
+              <h4 className="font-semibold mb-2">Data Owners</h4>
+              {isLoading ? (
+                <div className="bg-base-200 p-3 rounded-lg mb-2">
+                  <p className="text-sm text-gray-500">Retrieving list of data owners for the selected cohorts...</p>
+                </div>
+              ) : dataOwners.length === 0 ? (
+                <div className="bg-base-200 p-3 rounded-lg mb-2">
+                  <p className="text-sm text-base-content/60">No cohorts have been selected.</p>
+                </div>
+              ) : (
+                dataOwners.map(owner => (
+                  <div
+                    key={owner.email}
+                    className={`p-3 rounded-lg mb-2 flex items-start gap-3 ${isExcluded(owner.email) ? 'bg-base-200 opacity-50' : 'bg-base-200'}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={!isExcluded(owner.email)}
+                      onChange={() => toggleDataOwner(owner.email)}
+                      className="checkbox checkbox-primary mt-1"
+                      data-testid="dcr-participant-owner-toggle"
+                    />
+                    <div className="flex-1">
+                      <p className={`font-semibold ${isExcluded(owner.email) ? 'line-through' : ''}`}>
+                        {owner.email}
+                        {owner.email === userEmail && <span className="ml-2 text-xs badge badge-primary">You</span>}
+                      </p>
+                      <p className="text-sm text-gray-500">Data Owner for: {owner.cohorts.join(', ')}</p>
+                    </div>
                   </div>
-                </div>
-              ))
-            )}
-          </div>
-          
-          {/* Analysts */}
-          <div>
-            <h4 className="font-semibold mb-2">Analysts</h4>
-            {/* Current user */}
-            <div className="bg-base-200 p-3 rounded-lg mb-2">
-              <div>
-                <p className="font-semibold">{userEmail}</p>
-                <p className="text-sm text-gray-500">
-                  Analyst (You)
-                  {dataOwners.some(owner => owner.email === userEmail) && ' • Also Data Owner'}
-                </p>
-              </div>
+                ))
+              )}
             </div>
-            
-            {/* Additional analysts */}
-            {additionalAnalysts.map((email) => (
-              <div key={email} className="bg-base-200 p-3 rounded-lg mb-2 flex justify-between items-center">
+
+            {/* Analysts */}
+            <div>
+              <h4 className="font-semibold mb-2">Analysts</h4>
+              {/* Current user */}
+              <div className="bg-base-200 p-3 rounded-lg mb-2">
                 <div>
-                  <p className="font-semibold">{email}</p>
-                  <p className="text-sm text-gray-500">Analyst</p>
+                  <p className="font-semibold">{userEmail}</p>
+                  <p className="text-sm text-gray-500">
+                    Analyst (You)
+                    {dataOwners.some(owner => owner.email === userEmail) && ' • Also Data Owner'}
+                  </p>
                 </div>
-                <button 
-                  className="btn btn-sm btn-error btn-outline"
-                  onClick={() => removeAnalyst(email)}
-                  data-testid="dcr-participant-analyst-remove"
-                >
-                  Remove
-                </button>
               </div>
-            ))}
+
+              {/* Additional analysts */}
+              {additionalAnalysts.map(email => (
+                <div key={email} className="bg-base-200 p-3 rounded-lg mb-2 flex justify-between items-center">
+                  <div>
+                    <p className="font-semibold">{email}</p>
+                    <p className="text-sm text-gray-500">Analyst</p>
+                  </div>
+                  <button
+                    className="btn btn-sm btn-error btn-outline"
+                    onClick={() => removeAnalyst(email)}
+                    data-testid="dcr-participant-analyst-remove"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {/* Add new analyst */}
+            <div className="divider">Add Analyst</div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="Enter email address"
+                className="input input-bordered flex-1"
+                value={newAnalystEmail}
+                onChange={e => setNewAnalystEmail(e.target.value)}
+                onKeyPress={e => e.key === 'Enter' && addAnalyst()}
+                data-testid="dcr-participant-analyst-input"
+              />
+              <button
+                className="btn btn-primary"
+                onClick={addAnalyst}
+                disabled={!newAnalystEmail.trim()}
+                data-testid="dcr-participant-analyst-add"
+              >
+                Add Analyst
+              </button>
+            </div>
           </div>
-          
-          {/* Add new analyst */}
-          <div className="divider">Add Analyst</div>
-          <div className="flex gap-2">
-            <input 
-              type="text"
-              placeholder="Enter email address"
-              className="input input-bordered flex-1"
-              value={newAnalystEmail}
-              onChange={(e) => setNewAnalystEmail(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && addAnalyst()}
-              data-testid="dcr-participant-analyst-input"
-            />
-            <button 
-              className="btn btn-primary"
-              onClick={addAnalyst}
-              disabled={!newAnalystEmail.trim()}
-              data-testid="dcr-participant-analyst-add"
-            >
-              Add Analyst
+
+          <div className="modal-action">
+            <button className="btn" onClick={onClose}>
+              Done
             </button>
           </div>
         </div>
-        
-        <div className="modal-action">
-          <button className="btn" onClick={onClose}>
-            Done
-          </button>
-        </div>
       </div>
-    </div>
-  );
-});
+    );
+  }
+);
 
 ParticipantsModal.displayName = 'ParticipantsModal';
