@@ -15,6 +15,7 @@ from decentriq_platform.analytics import (
     FormatType,
     PreviewComputeNodeDefinition,
     PythonComputeNodeDefinition,
+    PythonEnvironmentComputeNodeDefinition,
     TableDataNodeDefinition,
     RawDataNodeDefinition
 )
@@ -25,7 +26,7 @@ from src.auth import get_current_user
 from src.config import settings
 from src.analysis_dcr_logging import log_dcr_event, read_events
 from src.eda_scripts import c1_data_dict_check, c2_save_to_json, c3_eda_data_profiling, shuffle_data
-from src.analysisDCR_scripts import data_fragment_script, visualization_script, exploration_script
+from src.analysisDCR_scripts import data_fragment_script, visualization_script, exploration_script, merge_datasets_script
 from src.models import Cohort
 from src.utils import retrieve_cohorts_metadata
 from datetime import datetime
@@ -37,6 +38,14 @@ try:
     logger.info("decentriq-platform version: %s", version("decentriq-platform"))
 except PackageNotFoundError:
     logger.warning("decentriq-platform is not installed")
+
+# Custom Python environment for the "merge-datasets" node.
+# The environment installs the `cohortpool` package directly from GitHub so it is
+# available inside the enclave. Pin to a branch/commit/tag by appending e.g. "@main".
+MERGE_ENV_NAME = "cohortpool_env"
+COHORTPOOL_GITHUB_URL = "git+https://github.com/komi786/cohortpool.git"
+MERGE_ENV_REQUIREMENTS = f"{COHORTPOOL_GITHUB_URL}\n"
+MERGE_NODE_NAME = "merge-datasets"
 
 
 def get_cohort_schema(cohort_dict: Cohort) -> list[Column]:
@@ -924,6 +933,74 @@ async def get_compute_dcr_definition(
         for email, roles in participants.items():
             roles["data_owner_of"].add("CrossStudyMappings")
     
+    # Add the "merge-datasets" node (single node regardless of the number of cohorts).
+    # It comes after all per-cohort data/visualization nodes and pools every cohort
+    # together using the `cohortpool` package installed from GitHub via a custom
+    # Python environment.
+    studies_info = []
+    for cohort_id in selected_cohorts.keys():
+        data_node_id = cohort_id.replace(" ", "-")
+        metadata_node_id = f"{cohort_id.replace(' ', '-')}_metadata_dictionary"
+        studies_info.append({
+            "study_name": cohort_id,
+            "data_node": data_node_id,
+            "dict_node": metadata_node_id,
+        })
+
+    # Resolve mapping cohort tokens back to the EXACT study names used as keys in the
+    # `studies` dict. The mapping `cohorts` come from the mapping filename and are
+    # lowercased (see get_available_mapping_files), so we match them case-insensitively
+    # against the real cohort ids to guarantee study_a/study_b reference the studies
+    # by their exact names.
+    study_name_by_lower = {cid.lower(): cid for cid in selected_cohorts.keys()}
+    merge_mappings_info = []
+    for mapping in mapping_nodes:
+        cohorts = mapping.get("cohorts", [])
+        if len(cohorts) < 2:
+            continue
+        study_a = study_name_by_lower.get(str(cohorts[0]).lower())
+        study_b = study_name_by_lower.get(str(cohorts[1]).lower())
+        if not study_a or not study_b:
+            logging.warning(
+                f"Skipping mapping node '{mapping['node_name']}': could not match "
+                f"cohorts {cohorts[:2]} to selected studies {list(selected_cohorts.keys())}"
+            )
+            continue
+        merge_mappings_info.append({
+            "node_name": mapping["node_name"],
+            "study_a": study_a,
+            "study_b": study_b,
+        })
+
+    # Define the custom Python environment that installs cohortpool from GitHub.
+    builder.add_node_definition(
+        PythonEnvironmentComputeNodeDefinition(
+            name=MERGE_ENV_NAME,
+            requirements_txt=MERGE_ENV_REQUIREMENTS,
+        )
+    )
+
+    # The merge node depends on every cohort data node, metadata dictionary node,
+    # and cross-study mapping node so all inputs are mounted under /input.
+    merge_dependencies = list(data_nodes) + list(metadata_nodes) + [m["node_name"] for m in mapping_nodes]
+    builder.add_node_definition(
+        PythonComputeNodeDefinition(
+            name=MERGE_NODE_NAME,
+            script=merge_datasets_script(studies_info, merge_mappings_info),
+            dependencies=merge_dependencies,
+            custom_environment=MERGE_ENV_NAME,
+        )
+    )
+
+    # All participants can run the merge node and its custom environment.
+    for p_email in participants:
+        participants[p_email]["analyst_of"].add(MERGE_NODE_NAME)
+        participants[p_email]["analyst_of"].add(MERGE_ENV_NAME)
+    logging.info(
+        f"Added '{MERGE_NODE_NAME}' node using custom env '{MERGE_ENV_NAME}' "
+        f"with {len(studies_info)} studies and {len(merge_mappings_info)} mapping(s)"
+    )
+
     # Add users permissions for previews
     # for prev_node in preview_nodes:
     #     participants[user["email"]]["analyst_of"].add(prev_node)

@@ -647,6 +647,103 @@ with open(log_file, "a") as log:
 """
 
 
+def merge_datasets_script(
+    studies_info: list[dict],
+    mappings_info: list[dict] = None,
+) -> str:
+    """Generate the merge/pool script that combines all cohorts using the cohortpool package.
+
+    This produces a single "merge-datasets" node script that:
+    - Builds the `studies` dict expected by `cohortpool.pool`, pointing each study to its
+      cohort data node and metadata dictionary node inside the DCR (`/input/<node_name>`).
+    - Builds the `mappings` list from the cross-study mapping nodes available in the DCR.
+    - Calls `cohortpool.pool(...)` and writes the pooled dataframe to `/output`.
+
+    Args:
+        studies_info: List of dicts, one per cohort, each with:
+            - 'study_name': the cohort identifier used as the study key
+            - 'data_node':  the DCR data node name (mounted at /input/<data_node>)
+            - 'dict_node':  the DCR metadata dictionary node name (mounted at /input/<dict_node>)
+        mappings_info: Optional list of dicts, one per cross-study mapping, each with:
+            - 'node_name': the DCR mapping node name (mounted at /input/<node_name>)
+            - 'study_a':   the first study name referenced by the mapping
+            - 'study_b':   the second study name referenced by the mapping
+
+    Returns:
+        The Python script as a string.
+    """
+    mappings_info = mappings_info or []
+
+    # Build the `studies` dict literal.
+    # Each study points to its data file and dictionary file mounted under /input.
+    studies_lines = []
+    for study in studies_info:
+        study_name = study["study_name"]
+        data_node = study["data_node"]
+        dict_node = study["dict_node"]
+        studies_lines.append(
+            '        "{name}": {{"data": "/input/{data}", "dictionary": "/input/{dic}"}},'.format(
+                name=study_name, data=data_node, dic=dict_node
+            )
+        )
+    studies_block = "\n".join(studies_lines) if studies_lines else ""
+
+    # Build the `mappings` list literal (only mappings with two identifiable studies).
+    mappings_lines = []
+    for mapping in mappings_info:
+        node_name = mapping.get("node_name")
+        study_a = mapping.get("study_a")
+        study_b = mapping.get("study_b")
+        if not node_name or not study_a or not study_b:
+            continue
+        mappings_lines.append(
+            '        {{"path": "/input/{path}", "study_a": "{a}", "study_b": "{b}"}},'.format(
+                path=node_name, a=study_a, b=study_b
+            )
+        )
+    mappings_block = "\n".join(mappings_lines) if mappings_lines else ""
+
+    return f"""import os
+from cohortpool import pool
+
+# Output directory (always exists in the Decentriq environment)
+output_dir = "/output"
+log_file = os.path.join(output_dir, "merge_datasets_log.txt")
+
+# Studies to pool. Each study points to its cohort data node and metadata dictionary
+# node, mounted read-only under /input inside the enclave.
+studies = {{
+{studies_block}
+}}
+
+# Cross-study mapping files available in this DCR (variable mappings between studies).
+mappings = [
+{mappings_block}
+]
+
+with open(log_file, "w") as log:
+    log.write("Pooling {{}} studies with {{}} mapping file(s)\\n".format(len(studies), len(mappings)))
+    log.write("Studies: {{}}\\n".format(list(studies.keys())))
+
+# Pool the datasets together using the cohortpool package.
+result = pool(
+    studies=studies,
+    mappings=mappings,
+)
+
+pooled_df = result["pooled_dataframe"]
+
+# Persist the pooled dataset so it can be used by downstream nodes / retrieved as a result.
+output_file = os.path.join(output_dir, "pooled_dataset.csv")
+pooled_df.to_csv(output_file, index=False)
+
+with open(log_file, "a") as log:
+    log.write("Pooled dataset saved: {{}}\\n".format(output_file))
+    log.write("Pooled dataset shape: {{}} rows, {{}} columns\\n".format(len(pooled_df), len(pooled_df.columns)))
+    log.write("Columns: {{}}\\n".format(list(pooled_df.columns)))
+"""
+
+
 def exploration_script() -> str:
     """Generate the basic data exploration script.
     
