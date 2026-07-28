@@ -1,6 +1,228 @@
 """Exploratory Data Analysis (EDA) module."""
 
 
+# Shared helper code injected into both c2 and c3 via the {shared_helpers}
+# placeholder, so the two nodes always agree on how data is loaded and how
+# each cell is classified.
+#
+# Cell-state model (mutually exclusive, must sum to the number of rows):
+#   valid          - parsed successfully to the variable's inferred type
+#   empty          - blank / whitespace-only cell, nothing was recorded
+#   coded_missing  - matches a missing code declared in the data dictionary
+#   invalid        - a value is present but does not fit the expected type
+_SHARED_HELPERS = '''
+import math as _math
+import re as _re
+
+def _norm_token(v):
+    # Normalise a raw cell/dictionary token so that "999", "999.0" and 999.0
+    # all compare equal. Non-numeric tokens compare case-insensitively.
+    if v is None:
+        return ''
+    try:
+        if pd.isna(v):
+            return ''
+    except Exception:
+        pass
+    s = str(v).strip()
+    if s == '':
+        return ''
+    try:
+        f = float(s)
+        if _math.isnan(f) or _math.isinf(f):
+            return s.upper()
+        if f == int(f):
+            return str(int(f))
+        return '%.10g' % f
+    except Exception:
+        return s.upper()
+
+def _canon_value_token(v):
+    # Categorical codes are often written as "1.0" by exporters. The dictionary
+    # declares them as "1", so canonicalise numeric-looking tokens; leave text
+    # values untouched.
+    s = str(v).strip()
+    if s == '':
+        return s
+    try:
+        f = float(s)
+        if _math.isnan(f) or _math.isinf(f):
+            return s
+        if f == int(f):
+            return str(int(f))
+        return '%.10g' % f
+    except Exception:
+        return s
+
+def _parse_missing_codes(raw_value):
+    # The dictionary MISSING column may declare several codes separated by "|".
+    if raw_value is None:
+        return []
+    try:
+        if pd.isna(raw_value):
+            return []
+    except Exception:
+        pass
+    s = str(raw_value).strip()
+    if s == '' or s.lower() == 'nan':
+        return []
+    out = []
+    for part in s.split('|'):
+        p = part.strip()
+        if p != '' and p not in out:
+            out.append(p)
+    return out
+
+def _read_csv_as_text(path):
+    # dtype=str + keep_default_na=False + na_values=[] means pandas performs no
+    # NA conversion at all: an empty cell arrives as '' and strings such as
+    # "NA" or "NaN" stay literal. We decide what counts as missing, not pandas.
+    return pd.read_csv(path, dtype=str, keep_default_na=False, na_values=[], low_memory=False)
+
+def _spss_as_text(path, notes):
+    # Prefer pyreadstat so that SPSS *user-defined* missing values survive as
+    # their declared codes; only SPSS system-missing becomes a blank cell.
+    try:
+        import pyreadstat
+        df, meta = pyreadstat.read_sav(path, user_missing=True)
+        notes.append("SPSS file read with user-defined missing values preserved (pyreadstat).")
+    except Exception as e:
+        df = pd.read_spss(path)
+        notes.append(
+            "SPSS file read via pandas fallback (%s). User-defined missing values may already "
+            "have been converted to blanks, so 'coded missing' counts could be understated." % str(e)
+        )
+    out = pd.DataFrame(index=df.index)
+    for c in df.columns:
+        col = df[c]
+        out[c] = col.map(lambda x: '' if (x is None or (isinstance(x, float) and _math.isnan(x))) else str(x))
+    return out
+
+def load_data_as_text(file_path, notes=None):
+    # Returns a DataFrame where every cell is a string and blank cells are ''.
+    if notes is None:
+        notes = []
+    try:
+        return _read_csv_as_text(file_path), notes
+    except Exception as csv_error:
+        try:
+            return _spss_as_text(file_path, notes), notes
+        except Exception as spss_error:
+            try:
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    with zipfile.ZipFile(file_path, 'r') as zip_ref:
+                        zip_ref.extractall(tmpdir)
+                    data_files = []
+                    for root, dirs, files in os.walk(tmpdir):
+                        for fn in files:
+                            if fn.endswith(('.csv', '.sav', '.CSV', '.SAV')):
+                                data_files.append(os.path.join(root, fn))
+                    if not data_files:
+                        raise ValueError("No CSV or SPSS files found in the zip archive")
+                    data_files = sorted(data_files)
+                    frames = []
+                    headers = None
+                    for data_file in data_files:
+                        if data_file.lower().endswith('.csv'):
+                            d = _read_csv_as_text(data_file)
+                        else:
+                            d = _spss_as_text(data_file, notes)
+                        cols = [str(c).strip().lower() for c in d.columns]
+                        if headers is None:
+                            headers = cols
+                            first_file = os.path.basename(data_file)
+                        elif set(cols) != set(headers):
+                            only_first = sorted(set(headers) - set(cols))
+                            only_this = sorted(set(cols) - set(headers))
+                            raise ValueError(
+                                "Header mismatch between files in the archive; refusing to continue. "
+                                "'%s' vs '%s'. Columns only in the first file: %s. "
+                                "Columns only in this file: %s."
+                                % (first_file, os.path.basename(data_file), only_first, only_this)
+                            )
+                        frames.append(d)
+                    if not frames:
+                        raise ValueError("Could not read any files from the zip archive")
+                    return pd.concat(frames, ignore_index=True), notes
+            except Exception as zip_error:
+                raise ValueError(
+                    "Could not read file as CSV, SPSS, or ZIP. CSV error: %s, SPSS error: %s, ZIP error: %s"
+                    % (csv_error, spss_error, zip_error)
+                )
+
+def candidate_tokens(raw, missing_codes):
+    # Tokens that are neither blank nor a declared missing code, i.e. the values
+    # that should be used when inferring a variable's type.
+    txt = raw.astype('string').str.strip()
+    empty_mask = txt.isna() | (txt == '')
+    if missing_codes:
+        norm_codes = set(_norm_token(c) for c in missing_codes)
+        coded_mask = (~empty_mask) & txt.map(_norm_token).isin(norm_codes)
+    else:
+        coded_mask = pd.Series(False, index=raw.index)
+    return txt[(~empty_mask) & (~coded_mask)]
+
+def classify_series(raw, missing_codes, typ):
+    # Partition a raw (string) column into valid / empty / coded_missing / invalid.
+    n_rows = int(len(raw))
+    txt = raw.astype('string').str.strip()
+    empty_mask = txt.isna() | (txt == '')
+    norm = txt.map(_norm_token)
+
+    by_code = {}
+    norm_to_code = {}
+    for c in (missing_codes or []):
+        norm_to_code[_norm_token(c)] = c
+    if norm_to_code:
+        coded_mask = (~empty_mask) & norm.isin(list(norm_to_code.keys()))
+        for nc, orig in norm_to_code.items():
+            by_code[str(orig)] = int(((~empty_mask) & (norm == nc)).sum())
+    else:
+        coded_mask = pd.Series(False, index=raw.index)
+
+    rest_mask = (~empty_mask) & (~coded_mask)
+    candidate = txt[rest_mask]
+
+    if typ in ('int', 'float'):
+        parsed = pd.to_numeric(candidate, errors='coerce')
+        valid = parsed.dropna()
+        if typ == 'int':
+            try:
+                valid = valid.astype('Int64')
+            except Exception:
+                pass
+    elif typ == 'date':
+        parsed = pd.to_datetime(candidate, errors='coerce')
+        valid = parsed.dropna()
+    else:
+        valid = candidate.map(_canon_value_token).astype(object)
+
+    n_empty = int(empty_mask.sum())
+    n_coded = int(coded_mask.sum())
+    n_valid = int(len(valid))
+    n_invalid = int(rest_mask.sum()) - n_valid
+
+    completeness = {
+        'n_rows': n_rows,
+        'n_valid': n_valid,
+        'n_empty': n_empty,
+        'n_coded_missing': n_coded,
+        'n_invalid': n_invalid,
+        'n_missing_total': n_empty + n_coded,
+        'pct_empty': round(n_empty / n_rows * 100, 4) if n_rows else 0.0,
+        'pct_coded_missing': round(n_coded / n_rows * 100, 4) if n_rows else 0.0,
+        'pct_missing_total': round((n_empty + n_coded) / n_rows * 100, 4) if n_rows else 0.0,
+        'pct_invalid': round(n_invalid / n_rows * 100, 4) if n_rows else 0.0,
+        'missing_codes_declared': [str(c) for c in (missing_codes or [])],
+        'coded_missing_by_code': by_code,
+    }
+    completeness['partition_check_ok'] = bool(
+        n_valid + n_empty + n_coded + n_invalid == n_rows
+    )
+    return completeness, valid
+'''
+
+
 def c1_data_dict_check(cohort_id: str) -> str:
     raw_script = """
 import pandas as pd
@@ -92,51 +314,7 @@ import json
 from pprint import pprint
 import zipfile
 import tempfile
-
-# Helper function to load data from CSV, SPSS, or zipped files
-def load_data(file_path):
-    # Try CSV first
-    try:
-        return pd.read_csv(file_path, na_values=[''], keep_default_na=False)
-    except Exception as csv_error:
-        # Try SPSS
-        try:
-            return pd.read_spss(file_path)
-        except Exception as spss_error:
-            # Try as zip file
-            try:
-                with tempfile.TemporaryDirectory() as tmpdir:
-                    with zipfile.ZipFile(file_path, 'r') as zip_ref:
-                        zip_ref.extractall(tmpdir)
-                    
-                    # Find all CSV and SPSS files in the extracted directory
-                    data_files = []
-                    for root, dirs, files in os.walk(tmpdir):
-                        for file in files:
-                            if file.endswith(('.csv', '.sav', '.CSV', '.SAV')):
-                                data_files.append(os.path.join(root, file))
-                    
-                    if not data_files:
-                        raise ValueError("No CSV or SPSS files found in the zip archive")
-                    
-                    # Read and concatenate all files
-                    dfs = []
-                    for data_file in data_files:
-                        try:
-                            if data_file.lower().endswith('.csv'):
-                                dfs.append(pd.read_csv(data_file, na_values=[''], keep_default_na=False))
-                            else:
-                                dfs.append(pd.read_spss(data_file))
-                        except Exception as e:
-                            print(f"Warning: Could not read {data_file}: {e}")
-                    
-                    if not dfs:
-                        raise ValueError("Could not read any files from the zip archive")
-                    
-                    # Concatenate all dataframes
-                    return pd.concat(dfs, ignore_index=True)
-            except Exception as zip_error:
-                raise ValueError(f"Could not read file as CSV, SPSS, or ZIP. CSV error: {csv_error}, SPSS error: {spss_error}, ZIP error: {zip_error}")
+{shared_helpers}
 
 def _column_is_date(series):
     try:
@@ -154,12 +332,14 @@ def _column_is_float(series):
         return False
 
 def _column_is_numeric(series):
-    #meaning integers
+    #meaning integers (handles negatives and trailing .0)
+    import re
+    _int_re = re.compile(r'^[+-]?\\d+(\\.0+)?$')
     try:
-        if series.dropna().apply(lambda x: str(x).isdigit() or str(x).endswith('.0')).all():
-            return True
-        else:
+        non_na = series.dropna()
+        if len(non_na) == 0:
             return False
+        return non_na.apply(lambda x: bool(_int_re.match(str(x).strip()))).all()
     except:
         return False
         
@@ -192,14 +372,13 @@ varlabel_col = [x for x in ['VARIABLE LABEL', 'VARIABLELABEL', 'VAR LABEL'] if x
 dictionary[varname_col] = dictionary[varname_col].str.strip().str.lower()
 dictionary[vartype_col] = dictionary[vartype_col].str.strip().str.lower()
 
-# Load data using helper function
-data = load_data("/input/{cohort_id}")
+# Load the data as raw text. Nothing is auto-converted: a blank cell arrives
+# as '' and literal strings such as "NA" stay literal, so we - not pandas -
+# decide what counts as missing.
+load_notes = []
+data, load_notes = load_data_as_text("/input/{cohort_id}", load_notes)
 
-#Convert whitespace-only strings to NaN
-for col in data.select_dtypes(include=['object']):
-    data[col] = data[col].apply(lambda x: pd.NA if isinstance(x, str) and x.isspace() else x)
-
-data.columns = [c.lower().strip() for c in data.columns]
+data.columns = [str(c).lower().strip() for c in data.columns]
 
 #for col in data.columns:
 #    try:
@@ -209,7 +388,7 @@ data.columns = [c.lower().strip() for c in data.columns]
 #        continue
 
 # Define the pattern for entries to exclude non-categorical variables
-#include_pattern = r'\||='   # Look for strings containing either a | or =.
+#include_pattern = r'\\||='   # Look for strings containing either a | or =.
 # Exclude rows in the dictionary where the 'CATEGORICAL' column contains the defined pattern
 # categorical_dict = dictionary[dictionary['CATEGORICAL'].astype(str).str.contains(include_pattern, regex=True)]
 
@@ -218,103 +397,105 @@ vars_to_process = {}
 vars_details = {}
 mismatched_types = {}
 
+for _i, _note in enumerate(load_notes):
+    mismatched_types['data-loading-note-%d' % _i] = _note
+
 for index, row in dictionary.iterrows():
     variable_name = row[varname_col]
     var_type = row[vartype_col]
-    categories_info = row['CATEGORICAL']
+    categories_info = row['CATEGORICAL'] if 'CATEGORICAL' in dictionary.columns else None
 
     if variable_name.lower() in ['patientid', 'pat.id', 'patiëntnummer']:
         continue
-        
+
     if variable_name.lower() not in data.columns:
         continue
 
-    if (pd.notna(categories_info) and isinstance(categories_info, str) and categories_info.strip() != ""):
-        vars_to_process[variable_name] = 'categorical'
-    elif _column_is_numeric(data[variable_name]):
-        if data[variable_name].nunique()>9:
-            vars_to_process[variable_name] = 'int'
-        else:
-            vars_to_process[variable_name] = 'categorical'
-    elif _column_is_float(data[variable_name]):
-        vars_to_process[variable_name] = 'float'
-    elif _column_is_date(data[variable_name]):
-        vars_to_process[variable_name] = 'date'
-    elif data[variable_name].nunique()>20:
+    is_categorical_by_dict = (pd.notna(categories_info)
+                              and isinstance(categories_info, str)
+                              and categories_info.strip() != "")
+
+    # A variable may declare several missing codes, e.g. "999|-1".
+    missing_codes = _parse_missing_codes(row['MISSING']) if 'MISSING' in dictionary.columns else []
+
+    class_names = {}
+    if is_categorical_by_dict:
+        for category in [item.strip() for item in categories_info.split('|')]:
+            key_value = category.lower().split('=')
+            if len(key_value) == 2:
+                class_names[key_value[0].strip()] = key_value[1].upper().strip()
+            elif len(key_value) == 1:
+                #category does not have "="
+                class_names[key_value[0].strip().upper()] = key_value[0].strip().upper()
+            else:
+                msg = f"Encountered a possible parsing error. Check category info for variable {variable_name}, {key_value}, Full category info: {categories_info}"
+                mismatched_types[variable_name + "-categories"] = msg
+                print(msg)
+        # A category whose label is MISSING also declares a missing code.
+        for _k, _v in class_names.items():
+            if _v == 'MISSING' and _k not in missing_codes:
+                missing_codes.append(_k)
+                print("MISSING value exists among categories: ", variable_name, _k)
+
+    if missing_codes:
+        print(f"Missing code(s) {missing_codes} declared for variable: ", variable_name)
+    else:
+        print("No 'missing' value for variable ", variable_name)
+
+    # Infer the type from values that are neither blank nor a declared missing
+    # code, so that codes like 999 cannot distort the inference.
+    cands = candidate_tokens(data[variable_name], missing_codes)
+
+    if is_categorical_by_dict:
+        t = 'categorical'
+    elif len(cands) == 0:
+        t = 'categorical'
+    elif _column_is_numeric(cands):
+        t = 'int' if cands.nunique() > 9 else 'categorical'
+    elif _column_is_float(cands):
+        t = 'float'
+    elif _column_is_date(cands):
+        t = 'date'
+    elif cands.nunique() > 20:
         #assume float:
-        vars_to_process[variable_name] = 'float'
+        t = 'float'
     else: #fewer than 20 unique
         #assume categorical:
         print("The following variable deemed categorical by process of elimination: ", variable_name)
-        vars_to_process[variable_name] = 'categorical'
+        t = 'categorical'
 
-    if ((var_type.lower() == "datetime" and vars_to_process[variable_name] != "date") or 
-        var_type.lower() == "str" and vars_to_process[variable_name] != "categorical"):
-        mismatched_types[variable_name] = {"declared": var_type, "inferred": vars_to_process[variable_name]}
+    vars_to_process[variable_name] = t
 
-#find the mismatches between declared types (in data dictionary) and inferred types:
+    #find the mismatches between declared types (in data dictionary) and inferred types:
+    if ((var_type.lower() == "datetime" and t != "date") or
+        (var_type.lower() == "str" and t != "categorical")):
+        mismatched_types[variable_name] = {"declared": var_type, "inferred": t}
 
-for index, row in dictionary.iterrows():
-    variable_name = row[varname_col]
-    var_type = row[vartype_col]
-    if variable_name not in vars_to_process:
-        continue
-    else:
-        t = vars_to_process[variable_name]
-    categories_info = row['CATEGORICAL']
-
-    if t == 'categorical':
-        #categories = [item for sublist in categories_info.split('|') for item in sublist.split(',')]
-        categories = [item.strip() for item in categories_info.split('|')]
-        class_names = {}
-
-        for category in categories:
-                key_value = category.lower().split('=')
-                if len(key_value) == 2:
-                    #print("inside if statement: ", variable_name, key_value)
-                    key = key_value[0].strip()
-                    value = key_value[1].upper().strip()
-                    class_names[key] = value
-                elif len(key_value) == 1:  
-                    #category does not have "="
-                    class_names[key_value[0].strip().upper()] = key_value[0].strip().upper()
-                else:
-                    msg = f"Encountered a possible parsing error. Check category info for variable {variable_name}, {key_value}, Full category info: {categories_info}"
-                    mismatched_types[variable_name + "-categories"] =  msg
-                    print(msg)
-
-        # Check if there is a value that corresponds to  'missing'
-        if 'MISSING' in class_names.values():
-            missing_key = [x[0] for x in class_names.items() if x[1] == 'MISSING'][0]
-            print("MISSING value exists among categories: ", variable_name, missing_key)
-        elif 'MISSING' in dictionary.columns and row['MISSING'].strip() != "":
-            missing_key = str(row['MISSING']).strip()
-            print(f"MISSING value {missing_key} declared for variable: ", variable_name)
-        else:
-            print("No 'missing' value for variable ", variable_name)
-            #needed the line below, otherwise the "missing_key" will still store the value for the previous var
-            missing_key = None
-
-    else: #ints or floats or dates:
-        missing_key = str(row['MISSING']).strip() if 'MISSING' in dictionary.columns and row['MISSING'].strip() != "" else None
-
-    if missing_key == None:
-        count_missing = 0
-    else:
-        count_missing = (data[variable_name].astype(str).str.strip().str.upper() == str(missing_key).strip().upper()).sum()
-
-    na_count = data[variable_name].isna().sum()
+    completeness, _valid_values = classify_series(data[variable_name], missing_codes, t)
 
     vars_details[variable_name] = {
             'var_label': row[varlabel_col],
-            'missing': missing_key,
+            'missing_codes': [str(c) for c in missing_codes],
+            # kept for backwards compatibility with earlier consumers
+            'missing': (str(missing_codes[0]) if missing_codes else None),
             'declared_type': var_type,
             'inferred_type': t,
-            'count_missing': int(count_missing),
-            'count_na': int(na_count)
+            'completeness': completeness,
+            'count_missing': completeness['n_coded_missing'],
+            'count_na': completeness['n_empty']
     }
     if t == 'categorical':
         vars_details[variable_name]['categories'] = class_names
+
+    if not completeness['partition_check_ok']:
+        mismatched_types[variable_name + "-partition"] = (
+            "Cell-state counts (valid/empty/coded missing/invalid) do not sum to the row count."
+        )
+    if completeness['n_invalid'] > 0:
+        mismatched_types[variable_name + "-invalid"] = (
+            "%d value(s) are present but could not be read as %s."
+            % (completeness['n_invalid'], t)
+        )
 
 json_dir = '/output/'
 
@@ -334,7 +515,7 @@ with open(data_issues_json_path, 'w') as json_file:
     json.dump(all_data_issues, json_file, indent=4)
 pprint(all_data_issues)
 """
-    return raw_script.replace("{cohort_id}", cohort_id)
+    return raw_script.replace("{shared_helpers}", _SHARED_HELPERS).replace("{cohort_id}", cohort_id)
 
 
 
@@ -345,7 +526,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import seaborn as sns
-from scipy.stats import shapiro, skew, kurtosis, zscore
+from scipy.stats import shapiro, skew, kurtosis, zscore, normaltest, median_abs_deviation, trim_mean, entropy
 import warnings
 import decentriq_util
 import re
@@ -357,51 +538,7 @@ import zipfile
 import tempfile
 import os
 warnings.filterwarnings('ignore')
-
-# Helper function to load data from CSV, SPSS, or zipped files
-def load_data(file_path):
-    # Try CSV first
-    try:
-        return pd.read_csv(file_path, na_values=[''], keep_default_na=False)
-    except Exception as csv_error:
-        # Try SPSS
-        try:
-            return pd.read_spss(file_path)
-        except Exception as spss_error:
-            # Try as zip file
-            try:
-                with tempfile.TemporaryDirectory() as tmpdir:
-                    with zipfile.ZipFile(file_path, 'r') as zip_ref:
-                        zip_ref.extractall(tmpdir)
-                    
-                    # Find all CSV and SPSS files in the extracted directory
-                    data_files = []
-                    for root, dirs, files in os.walk(tmpdir):
-                        for file in files:
-                            if file.endswith(('.csv', '.sav', '.CSV', '.SAV')):
-                                data_files.append(os.path.join(root, file))
-                    
-                    if not data_files:
-                        raise ValueError("No CSV or SPSS files found in the zip archive")
-                    
-                    # Read and concatenate all files
-                    dfs = []
-                    for data_file in data_files:
-                        try:
-                            if data_file.lower().endswith('.csv'):
-                                dfs.append(pd.read_csv(data_file, na_values=[''], keep_default_na=False))
-                            else:
-                                dfs.append(pd.read_spss(data_file))
-                        except Exception as e:
-                            print(f"Warning: Could not read {data_file}: {e}")
-                    
-                    if not dfs:
-                        raise ValueError("Could not read any files from the zip archive")
-                    
-                    # Concatenate all dataframes
-                    return pd.concat(dfs, ignore_index=True)
-            except Exception as zip_error:
-                raise ValueError(f"Could not read file as CSV, SPSS, or ZIP. CSV error: {csv_error}, SPSS error: {spss_error}, ZIP error: {zip_error}")
+{shared_helpers}
 
 # Load the dataset with corrected missing values replaced with NA from previous step
 # data_correct_missing = pd.read_csv("/input/C3_map_missing_do_not_run/data_correct.csv", low_memory=False)
@@ -412,49 +549,60 @@ vars_details = pd.read_json("/input/c2_save_to_json/variable_details.json")
 with open("/input/c2_save_to_json/data_issues.json") as f:
     data_issues = json.load(f)
 
-# Load data using helper function
-data = load_data("/input/{cohort_id}")
+# Load the data as raw text (pandas performs no NA conversion), then rebuild a
+# clean frame holding ONLY the valid values. Empty, coded-missing and invalid
+# cells all become NaN here; their counts are preserved in completeness_by_var
+# so the two kinds of missing are never conflated.
+load_notes = []
+raw_data, load_notes = load_data_as_text("/input/{cohort_id}", load_notes)
+raw_data.columns = [str(c).lower().strip() for c in raw_data.columns]
+for _note in load_notes:
+    data_issues.append(_note)
 
-for col in data.select_dtypes(include=['object']):
-    data[col] = data[col].apply(lambda x: pd.NA if isinstance(x, str) and x.isspace() else x)
+n_rows_total = int(len(raw_data))
+completeness_by_var = {}
+data = pd.DataFrame(index=raw_data.index)
 
-data.columns = [c.lower().strip() for c in data.columns]
-
-
-def _cast_col(series, typ):
-    if typ == 'date':
-        ns = pd.to_datetime(series, errors='coerce').dt.date
-    elif typ == 'int':
-        ns = pd.to_numeric(series, errors='coerce').astype('Int64')
-    elif typ == 'float':
-        ns = pd.to_numeric(series, errors='coerce')
-    elif typ == 'categorical':
-        try:
-            ns = series.astype('Int64').astype(str)
-        except:
-            ns = series.astype(str)
-    else:
-        print("unrecognized type")
-        return series, []
-    invalid_cells = []
-    for i, (c1, c2) in enumerate(zip(series, ns)):
-        if pd.notna(c1) and pd.isna(c2):
-            invalid_cells.append(i)
-    return ns, invalid_cells
-
-
-#type casting the data:
-for v, d in vars_details.items():
+def _missing_codes_of(d):
     try:
-        cast_col, inv_cells = _cast_col(data[v], d['inferred_type'])
+        codes = d.get('missing_codes')
+    except Exception:
+        codes = None
+    if codes is None:
+        return []
+    # read_json may hand this back as a list, a numpy array or a bare scalar.
+    if isinstance(codes, (list, tuple, set, np.ndarray, pd.Series)):
+        return [str(c) for c in list(codes) if str(c).strip() != '']
+    try:
+        if pd.isna(codes):
+            return []
+    except Exception:
+        pass
+    s = str(codes).strip()
+    return _parse_missing_codes(s) if s else []
+
+for v in list(vars_details.columns):
+    if v not in raw_data.columns:
+        continue
+    d = vars_details[v]
+    typ = d['inferred_type']
+    try:
+        comp, valid = classify_series(raw_data[v], _missing_codes_of(d), typ)
     except Exception as e:
-        msg = f"Error while attempting to cast {v} to {d['inferred_type']}: {e}"
+        msg = f"Failed to classify column {v} as {typ}: {e}"
         print(msg)
         data_issues.append(msg)
         continue
-    data[v] = cast_col
-    if len(inv_cells)>0:
-        data_issues.append(f"Column {v} the following cells appears to be invalid: {str(inv_cells)}")
+    completeness_by_var[v] = comp
+    data[v] = valid.reindex(raw_data.index)
+    if comp['n_invalid'] > 0:
+        data_issues.append(
+            f"Column {v}: {comp['n_invalid']} value(s) are present but could not be read as {typ}."
+        )
+    if not comp['partition_check_ok']:
+        data_issues.append(
+            f"Column {v}: cell-state counts do not sum to the row count ({comp['n_rows']})."
+        )
 
 
 
@@ -472,8 +620,216 @@ def _lowercase_if_string(x):
         return x.lower()
     return x
 
+import math
+
+def _to_native(x):
+    # Convert numpy/pandas scalars to JSON-native values; NaN/inf -> None
+    if x is None:
+        return None
+    try:
+        if isinstance(x, (np.integer,)):
+            return int(x)
+        if isinstance(x, (np.floating, float)):
+            xf = float(x)
+            if math.isnan(xf) or math.isinf(xf):
+                return None
+            return round(xf, 6)
+        if isinstance(x, (np.bool_, bool)):
+            return bool(x)
+    except Exception:
+        pass
+    try:
+        if pd.isna(x):
+            return None
+    except Exception:
+        pass
+    return x
+
+def _int0(v):
+    try:
+        if v is None:
+            return 0
+        if isinstance(v, float) and math.isnan(v):
+            return 0
+        return int(v)
+    except Exception:
+        return 0
+
+def _numeric_structured(series, comp):
+    # All measures are aggregate (no per-row data points leave the enclave).
+    # `series` holds only the valid values; every other cell state is
+    # accounted for in `comp`.
+    out = {}
+    vals = pd.to_numeric(series, errors='coerce').dropna().astype(float)
+    n = int(vals.shape[0])
+    out['n'] = n
+    out['completeness'] = comp
+    out['n_unique'] = int(vals.nunique())
+    if n == 0:
+        return out
+    q = vals.quantile([0.01, 0.05, 0.10, 0.25, 0.5, 0.75, 0.90, 0.95, 0.99])
+    mean = float(vals.mean())
+    std = float(vals.std())
+    out['mean'] = _to_native(mean)
+    out['std'] = _to_native(std)
+    out['variance'] = _to_native(std ** 2)
+    out['cv'] = _to_native(std / mean) if mean != 0 else None
+    out['sem'] = _to_native(std / np.sqrt(n))
+    out['min'] = _to_native(float(vals.min()))
+    out['max'] = _to_native(float(vals.max()))
+    out['range'] = _to_native(float(vals.max()) - float(vals.min()))
+    out['p1'] = _to_native(q.loc[0.01])
+    out['p5'] = _to_native(q.loc[0.05])
+    out['p10'] = _to_native(q.loc[0.10])
+    out['q1'] = _to_native(q.loc[0.25])
+    out['median'] = _to_native(q.loc[0.5])
+    out['q3'] = _to_native(q.loc[0.75])
+    out['p90'] = _to_native(q.loc[0.90])
+    out['p95'] = _to_native(q.loc[0.95])
+    out['p99'] = _to_native(q.loc[0.99])
+    iqr_val = float(q.loc[0.75]) - float(q.loc[0.25])
+    out['iqr'] = _to_native(iqr_val)
+    med = float(vals.median())
+    mad = float(median_abs_deviation(vals, scale=1.0))
+    out['mad'] = _to_native(mad)
+    try:
+        out['trimmed_mean_10'] = _to_native(float(trim_mean(vals, 0.1)))
+    except Exception:
+        out['trimmed_mean_10'] = None
+    out['skewness'] = _to_native(skew(vals, bias=False)) if n > 2 else None
+    out['kurtosis'] = _to_native(kurtosis(vals, bias=False)) if n > 3 else None
+    out['zero_fraction'] = _to_native(float((vals == 0).mean()))
+    lb = float(q.loc[0.25]) - 1.5 * iqr_val
+    ub = float(q.loc[0.75]) + 1.5 * iqr_val
+    oi = int(((vals < lb) | (vals > ub)).sum())
+    out['outliers_iqr'] = {'count': oi, 'pct': _to_native(oi / n * 100), 'lower_bound': _to_native(lb), 'upper_bound': _to_native(ub)}
+    if mad > 0:
+        mz = 0.6745 * (vals - med) / mad
+        om = int((mz.abs() > 3.5).sum())
+    else:
+        om = 0
+    out['outliers_mad'] = {'count': om, 'pct': _to_native(om / n * 100), 'threshold': 3.5}
+    norm = {}
+    if n >= 8:
+        try:
+            _k2, pv = normaltest(vals)
+            norm['dagostino_p'] = _to_native(float(pv))
+        except Exception:
+            pass
+    if n >= 3:
+        try:
+            sub = vals.sample(5000, random_state=42) if n > 5000 else vals
+            _w, pw = shapiro(sub)
+            norm['shapiro_p'] = _to_native(float(pw))
+            norm['shapiro_n'] = int(len(sub))
+        except Exception:
+            pass
+    _pv = norm.get('dagostino_p', norm.get('shapiro_p'))
+    norm['is_normal'] = bool(_pv > 0.05) if _pv is not None else None
+    out['normality'] = norm
+    try:
+        nb = int(min(50, max(10, int(np.sqrt(n)))))
+        counts, edges = np.histogram(vals, bins=nb)
+        out['histogram'] = {'counts': [int(c) for c in counts], 'bin_edges': [_to_native(float(e)) for e in edges]}
+    except Exception:
+        pass
+    return out
+
+def _categorical_structured(series, comp, categories_mapping):
+    out = {}
+    categories_mapping = categories_mapping or {}
+    out['completeness'] = comp
+    out['n_unique'] = int(series.nunique(dropna=True))
+    s_norm = series.apply(_lowercase_if_string)
+    # Only valid observations form the category distribution; empty and
+    # coded-missing cells are reported in `completeness` instead.
+    vc_valid = s_norm.value_counts(dropna=True)
+    total = int(vc_valid.sum())
+    out['n'] = total
+    dist = []
+    for k, c in vc_valid.items():
+        label = categories_mapping.get(str(k), str(k))
+        dist.append({'value': str(k), 'label': label, 'count': int(c), 'pct': _to_native(c / total * 100) if total else None})
+    out['distribution'] = dist
+    tot_valid = total
+    if tot_valid > 0 and len(vc_valid) > 0:
+        probs = (vc_valid / tot_valid).values
+        ent = float(entropy(probs, base=2))
+        out['entropy_bits'] = _to_native(ent)
+        out['normalized_entropy'] = _to_native(ent / np.log2(len(probs))) if len(probs) > 1 else _to_native(0.0)
+        out['gini_impurity'] = _to_native(float(1 - np.sum(probs ** 2)))
+        out['effective_n_categories'] = _to_native(float(2 ** ent))
+        out['imbalance_ratio'] = _to_native(float(vc_valid.max() / vc_valid.min())) if vc_valid.min() > 0 else None
+        top = vc_valid.idxmax()
+        out['most_frequent'] = {'value': str(top), 'label': categories_mapping.get(str(top), str(top)), 'pct': _to_native(float(vc_valid.max()) / total * 100) if total else None}
+    return out
+
+def _date_structured(series, comp):
+    out = {}
+    d = pd.to_datetime(series, errors='coerce').dropna()
+    out['n'] = int(len(d))
+    out['n_unique'] = int(d.nunique())
+    out['completeness'] = comp
+    if len(d) == 0:
+        return out
+    out['min'] = str(d.min().date())
+    out['max'] = str(d.max().date())
+    out['range_days'] = int((d.max() - d.min()).days)
+    try:
+        q = d.quantile([0.25, 0.5, 0.75])
+        out['q1'] = str(q.loc[0.25].date())
+        out['median'] = str(q.loc[0.5].date())
+        out['q3'] = str(q.loc[0.75].date())
+    except Exception:
+        pass
+    out['future_dates'] = int((d > pd.Timestamp.now()).sum())
+    return out
+
+def write_structured_v2(structured_stats):
+    # Writes a typed, aggregate-only EDA output to a NEW file (v2), never
+    # overwriting the legacy eda_output_{cohort_id}.json.
+    try:
+        meta = decentriq_util.read_tabular_data("/input/{cohort_id}-metadata")
+        varname_col = [x for x in ['VARIABLE NAME', 'VARIABLENAME', 'VAR NAME'] if x in meta.columns][0]
+        meta_lookup = {}
+        for _, r in meta.iterrows():
+            vn = str(r[varname_col]).lower().strip()
+            meta_lookup[vn] = {c.strip().lower(): (None if pd.isna(r[c]) else r[c]) for c in meta.columns}
+    except Exception as e:
+        print("v2: could not read metadata for enrichment:", e)
+        meta_lookup = {}
+    variables = {}
+    for vname, st in structured_stats.items():
+        entry = dict(st)
+        m = meta_lookup.get(vname, {})
+        entry['metadata'] = {
+            'label': m.get('variable label') or m.get('variablelabel') or m.get('var label'),
+            'var_type': m.get('var type') or m.get('vartype'),
+            'units': m.get('units'),
+            'concept_code': m.get('variable concept code'),
+            'concept_name': m.get('variable concept name'),
+            'omop_id': m.get('variable omop id'),
+            'domain': m.get('domain'),
+            'visits': m.get('visits'),
+        }
+        entry['graph_url'] = f"https://explorer.icare4cvd.eu/api/variable-graph/{cohort_id}/{vname}"
+        variables[vname] = entry
+    output = {
+        'schema_version': '2.0',
+        'cohort_id': '{cohort_id}',
+        'generated_at': datetime.now().isoformat(),
+        'n_rows': int(n_rows_total),
+        'n_variables': int(len(variables)),
+        'variables': variables,
+        'data_issues': data_issues,
+    }
+    with open("/output/eda_output_v2_{cohort_id}.json", 'w', encoding='utf-8') as f:
+        json.dump(output, f, indent=4, default=str)
+    print("v2 structured EDA output written:", len(variables), "variables")
+
 def variable_eda(df, vars_details):
     vars_stats = {}
+    structured = {}
     graph_tick_data = {}
     df.columns = df.columns.str.lower().str.strip()
     for column in df.columns.tolist():
@@ -481,16 +837,17 @@ def variable_eda(df, vars_details):
             continue
         # Continuous variables
         try:
-            if 'missing' in vars_details[column] and vars_details[column]['missing']:
-                if vars_details[column]['inferred_type'] in ['int']:
-                    df[column].replace(int(vars_details[column]['missing']), pd.NA, inplace=True)
-                elif vars_details[column]['inferred_type'] in ['float']:
-                    df[column].replace(float(vars_details[column]['missing']), pd.NA, inplace=True)
-                elif vars_details[column]['inferred_type'] in ['date']:
-                    df[column].replace(vars_details[column]['missing'], pd.NA, inplace=True)
-                else: #categorical
-                    df[column].replace(vars_details[column]['missing'], '<missing>', inplace=True)
-        
+            # `df` already holds only the valid values: blank, coded-missing and
+            # invalid cells were separated out when the frame was built, and the
+            # counts for each of those states live in `comp`.
+            comp = completeness_by_var.get(column, {})
+            count_nonnull = comp.get('n_valid', int(df[column].notna().sum()))
+            count_na = comp.get('n_empty', 0)
+            count_missing = comp.get('n_coded_missing', 0)
+            count_invalid = comp.get('n_invalid', 0)
+            count_missing_total = count_na + count_missing
+            missing_codes_txt = ', '.join(comp.get('missing_codes_declared', [])) or 'none'
+
             if vars_details[column]['inferred_type'] in ['int', 'float']:
 
                 #if not pd.api.types.is_numeric_dtype(df[column]):
@@ -502,9 +859,6 @@ def variable_eda(df, vars_details):
                 stats = df[column].describe()
                 mode_value = df[column].mode()[0] if not df[column].mode().empty else np.nan
                 value_counts = df[column].value_counts(dropna=False)
-                count_missing = vars_details[column]['count_missing']
-                missing_percent = count_missing / len(df) * 100
-                count_na = vars_details[column]['count_na']
                 #try:
                 #    empty = df[column].isnull().sum() + df[column].str.strip().eq('').sum()
                 #except:
@@ -527,9 +881,12 @@ def variable_eda(df, vars_details):
                     skewness = np.nan
                     kurt = np.nan
 
-                # Normality Test
+                # Normality Test (Shapiro capped: unreliable/invalid for very large n)
                 if len(df[column].dropna()) > 3:  # Shapiro requires at least 3 values
-                    w_test_stat, p = shapiro(df[column].dropna())
+                    _shapiro_input = df[column].dropna()
+                    if len(_shapiro_input) > 5000:
+                        _shapiro_input = _shapiro_input.sample(5000, random_state=42)
+                    w_test_stat, p = shapiro(_shapiro_input)
                     normality = "Normal" if p > 0.05 else "Non-Normal"
                     p_value_str = f"{p:.4f}"
                 else:
@@ -550,17 +907,18 @@ def variable_eda(df, vars_details):
 
                 # Range Calculation
                 range_value = stats['max'] - stats['min']
-                count_nonnull = int(stats['count'])-int(count_missing)
 
                 # Stats Text
                 stats_text = (
                     f"Column: {column}",
                     f"Label: {vars_details[column]['var_label']}",
                     f"Type: Numeric (encoded as {df[column].dtype})",
-                    f"Count of observations (ex. missing/empty): {count_nonnull}",
-                    f"Count empty:         {count_na} ({(count_na/len(df[column])) * 100:.2f}%)",
-                    f"Count missing:       {count_missing} ({(count_missing/len(df[column])) * 100:.2f}%)",
-                    f"Code for missing value: {vars_details[column]['missing']}",
+                    f"Count of valid observations: {count_nonnull}",
+                    f"Count empty (blank cells): {count_na} ({comp.get('pct_empty', 0):.2f}%)",
+                    f"Count coded missing: {count_missing} ({comp.get('pct_coded_missing', 0):.2f}%)",
+                    f"Count missing total: {count_missing_total} ({comp.get('pct_missing_total', 0):.2f}%)",
+                    f"Count invalid: {count_invalid} ({comp.get('pct_invalid', 0):.2f}%)",
+                    f"Missing code(s) declared: {missing_codes_txt}",
                     f"Number of Unique Values/Categories: {df[column].nunique()}",
                     f"Mean:                {stats['mean']:.2f}",
                     f"Median:              {stats['50%']:.2f}",
@@ -581,6 +939,13 @@ def variable_eda(df, vars_details):
                     f"Normality Test: p-value={p_value_str} => {normality}"
                 )
 
+                try:
+                    structured[column] = _numeric_structured(df[column], comp)
+                    structured[column]['type'] = 'numeric'
+                    structured[column]['label'] = vars_details[column]['var_label']
+                except Exception as e:
+                    data_issues.append(f"Failed to compute structured numeric stats for {column}: {str(e)}")
+
                 if column in vars_to_graph:
                     try:
                         graph_tick_data[column] = create_save_graph(df, column, stats_text, 'numerical')
@@ -591,12 +956,15 @@ def variable_eda(df, vars_details):
             # Categorical variables
             elif vars_details[column]['inferred_type'] == 'categorical':
                 stats = df[column].describe()
-                value_counts = df[column].apply(_lowercase_if_string).value_counts(dropna=False)
-                total = len(df)
-                
+                # Only valid observations: blanks and coded-missing values are
+                # reported separately rather than shown as categories.
+                value_counts = df[column].apply(_lowercase_if_string).value_counts(dropna=True)
+                total = int(value_counts.sum())
 
                 # Get the categories mapping and normalize keys
-                categories_mapping = vars_details[column].get("categories", [])
+                categories_mapping = vars_details[column].get("categories", None)
+                if not isinstance(categories_mapping, dict):
+                    categories_mapping = {}
                 categories_mapping = {str(k): v for (k, v) in categories_mapping.items()}
                 #print("variable: ", column, "categories:", categories_mapping, value_counts )
 
@@ -612,9 +980,6 @@ def variable_eda(df, vars_details):
                     # Chi-square test
                     expected = total / len(value_counts)
                     chi_square_stat = ((value_counts - expected) ** 2 / expected).sum()
-                    count_missing = vars_details[column]["count_missing"]
-                    count_na = vars_details[column]["count_na"]
-                    count_nonnull = int(stats['count'])-int(count_missing)
 
                     # Class balance with corrected mapping
                     class_balance_text = "\\n\\t"
@@ -630,13 +995,22 @@ def variable_eda(df, vars_details):
                         f"Type: Categorical (encoded as {df[column].dtype})",
                         f"Number of unique values/categories: {len(value_counts)}",
                         f"Most frequent category: {categories_mapping.get(str(value_counts.idxmax()), 'Unknown')} ",
-                        f"Count of observations (ex. missing/empty): {count_nonnull}",
-                        f"Count empty: {count_na} ({(count_na/len(df[column])) * 100:.2f}%)",
-                        f"Count missing: {count_missing} ({(count_missing/len(df[column])) * 100:.2f}%)",
-                        f"Code for missing value: {vars_details[column]['missing']}",
+                        f"Count of valid observations: {count_nonnull}",
+                        f"Count empty (blank cells): {count_na} ({comp.get('pct_empty', 0):.2f}%)",
+                        f"Count coded missing: {count_missing} ({comp.get('pct_coded_missing', 0):.2f}%)",
+                        f"Count missing total: {count_missing_total} ({comp.get('pct_missing_total', 0):.2f}%)",
+                        f"Count invalid: {count_invalid} ({comp.get('pct_invalid', 0):.2f}%)",
+                        f"Missing code(s) declared: {missing_codes_txt}",
                         f"Class balance: {class_balance_text}",
                         f"Chi-Square Test Statistic: {chi_square_stat:.2f}"
                     )
+
+                try:
+                    structured[column] = _categorical_structured(df[column], comp, categories_mapping)
+                    structured[column]['type'] = 'categorical'
+                    structured[column]['label'] = vars_details[column]['var_label']
+                except Exception as e:
+                    data_issues.append(f"Failed to compute structured categorical stats for {column}: {str(e)}")
 
                 if column in vars_to_graph:
                     try:
@@ -648,23 +1022,23 @@ def variable_eda(df, vars_details):
             
             elif vars_details[column]['inferred_type'] == 'date':
                 try:
-                    stats = pd.to_datetime(df[column], format='mixed').describe()
+                    stats = pd.to_datetime(df[column], errors='coerce').describe()
                 except:
                     continue
-                value_counts = df[column].value_counts(dropna=False)
-                total = len(df)
-                count_missing = vars_details[column]["count_missing"]
-                count_na = vars_details[column]["count_na"]
-                count_nonnull = int(stats['count'])-int(count_missing)
+                value_counts = df[column].value_counts(dropna=True)
+                total = int(value_counts.sum())
                 stats_text = [
                         f"Column: {column}",
                         f"Label: {vars_details[column]['var_label']}",
                         f"Type: Date (encoded as {df[column].dtype})",
                         f"Number of unique values: {len(value_counts)}",
                         f"Most frequent value: {str(value_counts.idxmax()).split('.')[0]}",
-                        f"Count of observations (ex. missing/empty): {count_nonnull}",
-                        f"Count missing: {count_missing} ({(count_missing/len(df[column])) * 100:.2f}%)",
-                        f"Count empty: {count_na} ({(count_na/len(df[column])) * 100:.2f}%)",
+                        f"Count of valid observations: {count_nonnull}",
+                        f"Count empty (blank cells): {count_na} ({comp.get('pct_empty', 0):.2f}%)",
+                        f"Count coded missing: {count_missing} ({comp.get('pct_coded_missing', 0):.2f}%)",
+                        f"Count missing total: {count_missing_total} ({comp.get('pct_missing_total', 0):.2f}%)",
+                        f"Count invalid: {count_invalid} ({comp.get('pct_invalid', 0):.2f}%)",
+                        f"Missing code(s) declared: {missing_codes_txt}",
                         f"Mean:                {stats['mean'].date()}",
                         f"Median:              {stats['50%'].date()}",
                         f"Max:                 {stats['max'].date()}",
@@ -675,6 +1049,13 @@ def variable_eda(df, vars_details):
                         f"IQR:                 {stats['75%'] - stats['25%']}",
                 ]
                 #stats_text.extend([f"{k.capitalize()}: {v}" for k,v in stats.items()])
+                try:
+                    structured[column] = _date_structured(df[column], comp)
+                    structured[column]['type'] = 'date'
+                    structured[column]['label'] = vars_details[column]['var_label']
+                except Exception as e:
+                    data_issues.append(f"Failed to compute structured date stats for {column}: {str(e)}")
+
                 if column in vars_to_graph:
                     try:
                         graph_tick_data[column] = create_save_graph(df, column, stats_text, 'datetime')
@@ -694,7 +1075,7 @@ def variable_eda(df, vars_details):
             
     for col, ticks  in graph_tick_data.items():
         vars_stats[col].update(ticks)
-    return vars_stats
+    return vars_stats, structured
 
 
 
@@ -740,6 +1121,7 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
             date_vals =  pd.to_datetime(df[varname].dropna(), format='mixed')
         except:
             print("supposed date column could not be parsed: ", varname)
+            plt.close('all')
             return {}
     
         date_nums = mdates.date2num(date_vals)
@@ -852,6 +1234,7 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
     #y_tick_labels = axes[1].get_yticklabels()
     x_ticks = axes[1].get_xticklabels()
     y_ticks =  axes[1].get_yticklabels()
+    plt.close('all')
     return {"x-ticks": " - ".join([str(_) for _ in x_ticks]),
     # "x-labels": " - ".join([str(_) for _ in x_tick_labels]),
             "y-ticks": " - ".join([str(_) for _ in y_ticks]), 
@@ -897,7 +1280,9 @@ def dataframe_to_json_dicts(df):
                     valu = row[col]
                 var_dict[col.lower()] = _convert_numeric(valu)
         json_dicts[variable_name] = var_dict
-    with open("/output/eda_output_{cohort_id}.json", 'w', encoding='utf-8') as f:
+    # NOTE: written under a v2 name so that previously generated
+    # eda_output_{cohort_id}.json files are never overwritten on re-runs.
+    with open("/output/eda_output_flat_v2_{cohort_id}.json", 'w', encoding='utf-8') as f:
         json.dump(json_dicts, f, indent=4)
 
 
@@ -910,14 +1295,20 @@ def _convert_numeric(val):
         except (ValueError, TypeError):
             return val
 
-vars_to_stats = variable_eda(data, vars_details)
+vars_to_stats, structured_stats = variable_eda(data, vars_details)
 meta_data_enriched = integrate_eda_with_metadata(vars_to_stats)
 json_dicts = dataframe_to_json_dicts(meta_data_enriched)
+
+try:
+    write_structured_v2(structured_stats)
+except Exception as e:
+    print("Failed to write v2 structured EDA output:", e)
+    data_issues.append(f"Failed to write v2 structured EDA output: {str(e)}")
 
 with open('/output/data_issues.json', 'w') as json_file:
     json.dump(data_issues, json_file, indent=4)
 """
-    return raw_script.replace("{cohort_id}", cohort_id)
+    return raw_script.replace("{shared_helpers}", _SHARED_HELPERS).replace("{cohort_id}", cohort_id)
 
 
 def shuffle_data(cohort_id: str) -> str:
