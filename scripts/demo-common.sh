@@ -7,7 +7,7 @@ DEMO_STATE_DIR="${DEMO_STATE_ROOT}/${DEMO_NAMESPACE}"
 DEMO_RUNTIME_ENV="${DEMO_STATE_DIR}/runtime.env"
 DEMO_DEFAULT_AADCRV2_REPO="$(cd "${DEMO_ROOT}/.." && pwd)/delta-aadcrv2"
 DEMO_AADCRV2_BASE_COMMIT="f13ef54fc3f0f56dae185d4aa35c6dff01ee8839"
-DEMO_AADCRV2_REQUIRED_COMMIT="10985611ae45ff1a8abd23063deebf4381afe25a"
+DEMO_AADCRV2_REQUIRED_COMMIT="fe08321fab0cdf06563aeeef8f68b7a82fcd977b"
 DEMO_AADCRV2_BACKEND_RELATIVE="avato-backend/frontend/decentriq-platform/src/features/aadcrv2/backend"
 DEMO_AADCRV2_UI_DOCKERFILE_RELATIVE="avato-backend/frontend/decentriq-platform/Dockerfile.aadcr-local"
 

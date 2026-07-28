@@ -34,7 +34,7 @@ Launch scripts fail closed unless the adjacent Delta checkout exactly matches th
 clean reviewed integration:
 
 - `davstur/aadcrv2` baseline `f13ef54fc3f0f56dae185d4aa35c6dff01ee8839`;
-- local integration `10985611ae45ff1a8abd23063deebf4381afe25a`.
+- local integration `fe08321fab0cdf06563aeeef8f68b7a82fcd977b`.
 
 Default adjacent checkouts:
 
