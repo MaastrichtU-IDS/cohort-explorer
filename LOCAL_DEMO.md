@@ -34,7 +34,24 @@ Launch scripts fail closed unless the adjacent Delta checkout exactly matches th
 clean reviewed integration:
 
 - `davstur/aadcrv2` baseline `f13ef54fc3f0f56dae185d4aa35c6dff01ee8839`;
-- local integration `fe08321fab0cdf06563aeeef8f68b7a82fcd977b`.
+- local integration `0ebd0b94366c38bab442bcd69db568feede040f8`.
+
+That integration commit moved forward on 28 Jul 2026 to carry the work behind the
+WP7/WP8 report figures. Nothing in this lane's contract changed, but three things are
+worth knowing:
+
+- The AI explanation and merge-request assessment no longer invent content. The merge
+  view is a change set, and it used to be handed to the model labelled as a complete
+  state, so an assessment would report that a request adding one computation removed
+  every participant, dataset and permission in the room.
+- The explanation provider is chosen by whichever API key is configured
+  (`OPENAI_API_KEY` or `GOOGLE_AI_API_KEY`). With neither, the endpoints keep the
+  existing 503 "provider is disabled" contract, which is what this lane relies on.
+- There are now two opt-in demo rooms in Delta, both off by default, so this lane
+  still creates its own room from cohort metadata. `ensure_sample_room` seeds the
+  single-owner "Cohort analysis (local sample)"; `ensure_demo_clean_room` seeds a
+  two-owner "Cohort analysis" whose second dataset forces a real approval instead of
+  self-approving.
 
 Default adjacent checkouts:
 
