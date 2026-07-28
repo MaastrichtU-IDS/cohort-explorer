@@ -32,7 +32,7 @@ contract DUOConsentToken is
     bytes32 public constant RELAYER_ROLE = keccak256("RELAYER_ROLE");
 
     bytes32 public constant MINT_CONSENT_TYPEHASH = keccak256(
-        "MintConsent(bytes32 cohortHash,bytes4 permission,uint256 modifiers,bytes32 diseaseCode,bytes32 countriesMerkle,bytes32 institutionsMerkle,uint64 validUntil,uint256 nonce)"
+        "MintConsent(bytes32 cohortHash,bytes4 permission,uint256 modifiers,bytes32[] diseaseCodes,bytes32 countriesMerkle,bytes32 institutionsMerkle,uint64 validUntil,uint256 nonce)"
     );
 
     bytes32 public constant BURN_CONSENT_TYPEHASH = keccak256(
@@ -46,7 +46,7 @@ contract DUOConsentToken is
         bytes32 cohortHash;
         bytes4 permission;
         uint256 modifiers;
-        bytes32 diseaseCode;
+        bytes32[] diseaseCodes;
         bytes32 countriesMerkle;
         bytes32 institutionsMerkle;
         uint64 validFrom;
@@ -175,7 +175,7 @@ contract DUOConsentToken is
         bytes32 cohortHash,
         bytes4 permission,
         uint256 modifiers,
-        bytes32 diseaseCode,
+        bytes32[] calldata diseaseCodes,
         bytes32 countriesMerkle,
         bytes32 institutionsMerkle,
         uint256 validDays,
@@ -186,7 +186,7 @@ contract DUOConsentToken is
             cohortHash,
             permission,
             modifiers,
-            diseaseCode,
+            diseaseCodes,
             countriesMerkle,
             institutionsMerkle,
             validDays,
@@ -200,7 +200,7 @@ contract DUOConsentToken is
         bytes32 cohortHash,
         bytes4 permission,
         uint256 modifiers,
-        bytes32 diseaseCode,
+        bytes32[] calldata diseaseCodes,
         bytes32 countriesMerkle,
         bytes32 institutionsMerkle,
         uint256 validDays,
@@ -217,7 +217,7 @@ contract DUOConsentToken is
             cohortHash,
             permission,
             modifiers,
-            diseaseCode,
+            keccak256(abi.encodePacked(diseaseCodes)),
             countriesMerkle,
             institutionsMerkle,
             validUntil,
@@ -237,7 +237,7 @@ contract DUOConsentToken is
             cohortHash,
             permission,
             modifiers,
-            diseaseCode,
+            diseaseCodes,
             countriesMerkle,
             institutionsMerkle,
             validDays,
@@ -251,7 +251,7 @@ contract DUOConsentToken is
         bytes32 cohortHash,
         bytes4 permission,
         uint256 modifiers,
-        bytes32 diseaseCode,
+        bytes32[] calldata diseaseCodes,
         bytes32 countriesMerkle,
         bytes32 institutionsMerkle,
         uint256 validDays,
@@ -272,8 +272,9 @@ contract DUOConsentToken is
         if ((modifiers & uint256(ontology.MOD_IS())) != 0) {
             require(institutionsMerkle != bytes32(0), "IS requires institutions merkle root");
         }
+        require(diseaseCodes.length <= ontology.MAX_DISEASE_CODES(), "too many disease codes");
         if (permission == ontology.DS()) {
-            require(diseaseCode != bytes32(0), "DS requires disease code");
+            require(diseaseCodes.length > 0, "DS requires disease code");
         }
 
         uint64 validFrom = uint64(block.timestamp);
@@ -285,7 +286,7 @@ contract DUOConsentToken is
             cohortHash: cohortHash,
             permission: permission,
             modifiers: modifiers,
-            diseaseCode: diseaseCode,
+            diseaseCodes: diseaseCodes,
             countriesMerkle: countriesMerkle,
             institutionsMerkle: institutionsMerkle,
             validFrom: validFrom,
@@ -322,7 +323,7 @@ contract DUOConsentToken is
         uint256 tokenId,
         bytes4 newPermission,
         uint256 newModifiers,
-        bytes32 newDiseaseCode,
+        bytes32[] calldata newDiseaseCodes,
         bytes32 newCountriesMerkle,
         bytes32 newInstitutionsMerkle
     ) external {
@@ -337,13 +338,14 @@ contract DUOConsentToken is
         if ((newModifiers & uint256(ontology.MOD_IS())) != 0) {
             require(newInstitutionsMerkle != bytes32(0), "IS requires institutions merkle root");
         }
+        require(newDiseaseCodes.length <= ontology.MAX_DISEASE_CODES(), "too many disease codes");
         if (newPermission == ontology.DS()) {
-            require(newDiseaseCode != bytes32(0), "DS requires disease code");
+            require(newDiseaseCodes.length > 0, "DS requires disease code");
         }
 
         consent.permission = newPermission;
         consent.modifiers = newModifiers;
-        consent.diseaseCode = newDiseaseCode;
+        consent.diseaseCodes = newDiseaseCodes;
         consent.countriesMerkle = newCountriesMerkle;
         consent.institutionsMerkle = newInstitutionsMerkle;
 
@@ -424,8 +426,7 @@ contract DUOConsentToken is
 
         score.permissionScore = _calculatePermissionScore(
             consent.permission,
-            intendedUse,
-            consent.diseaseCode
+            intendedUse
         );
 
         score.modifierScore = _calculateModifierScore(
@@ -467,8 +468,7 @@ contract DUOConsentToken is
 
     function _calculatePermissionScore(
         bytes4 consentPerm,
-        bytes4 requestPerm,
-        bytes32
+        bytes4 requestPerm
     ) internal view returns (uint16) {
 
         if (consentPerm == requestPerm) {
@@ -515,24 +515,14 @@ contract DUOConsentToken is
             }
         }
 
-        if ((modifiers & uint256(ontology.MOD_IRB())) != 0) {
-            totalWeight += 10;
-            (bool hasIRB, ) = attestationRegistry.hasValidAttestation(
-                requester,
-                attestationRegistry.ATT_IRB(),
-                consents[tokenId].cohortHash
-            );
-            if (hasIRB) {
-                achievedWeight += 10;
-            }
-        }
-
         if ((modifiers & uint256(ontology.MOD_COL())) != 0) {
             totalWeight += 9;
-            if (attestationRegistry.hasCollaboration(
-                consents[tokenId].cohortHash,
-                requester
-            )) {
+            (bool hasCol, ) = attestationRegistry.hasValidAttestation(
+                requester,
+                attestationRegistry.ATT_COL(),
+                consents[tokenId].cohortHash
+            );
+            if (hasCol) {
                 achievedWeight += 9;
             }
         }
@@ -573,19 +563,13 @@ contract DUOConsentToken is
         uint16 score = 0;
         bytes32 cohortHash = consents[tokenId].cohortHash;
 
-        if ((modifiers & uint256(ontology.MOD_IRB())) != 0) {
-            (bool hasIRB, ) = attestationRegistry.hasValidAttestation(
+        if ((modifiers & uint256(ontology.MOD_COL())) != 0) {
+            (bool hasCol, ) = attestationRegistry.hasValidAttestation(
                 requester,
-                attestationRegistry.ATT_IRB(),
+                attestationRegistry.ATT_COL(),
                 cohortHash
             );
-            if (hasIRB) {
-                score += 70;
-            }
-        }
-
-        if ((modifiers & uint256(ontology.MOD_COL())) != 0) {
-            if (attestationRegistry.hasCollaboration(cohortHash, requester)) {
+            if (hasCol) {
                 score += 50;
             }
         }
@@ -602,8 +586,7 @@ contract DUOConsentToken is
         }
 
         if (modifiers == 0 ||
-            ((modifiers & uint256(ontology.MOD_IRB())) == 0 &&
-             (modifiers & uint256(ontology.MOD_COL())) == 0 &&
+            ((modifiers & uint256(ontology.MOD_COL())) == 0 &&
              (modifiers & uint256(ontology.MOD_PUB())) == 0)) {
             score = 200;
         }

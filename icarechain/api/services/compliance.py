@@ -61,7 +61,7 @@ class ComplianceService:
         intended_use: str,
         requester_type: str | None = None,
         research_purpose: str = "general",
-        disease_code: str | None = None,
+        disease_codes: list[str] | None = None,
         institution_id: str | None = None
     ) -> ComplianceResult:
         result = ComplianceResult()
@@ -126,21 +126,23 @@ class ComplianceService:
         else:
             result.add_pass(f"Research purpose '{research_purpose}' satisfies constraints")
 
-        consent_disease = consent.get("disease_code")
+        consent_diseases = consent.get("disease_codes") or (
+            [consent["disease_code"]] if consent.get("disease_code") else []
+        )
         if consent_permission == "DS" or intended_upper == "DS":
-            if consent_disease and disease_code:
+            if consent_diseases and disease_codes:
 
-                if not icd10.is_compatible(consent_disease, disease_code):
+                if not icd10.covers_all(consent_diseases, disease_codes):
                     result.add_fail(
-                        f"Disease code mismatch: consent is for {consent_disease}, "
-                        f"requested {disease_code}"
+                        f"Disease code mismatch: consent covers {sorted(consent_diseases)}, "
+                        f"requested {sorted(disease_codes)}"
                     )
                 else:
-                    result.add_pass("Disease code matches consent (exact or descendant)")
-            elif consent_disease and not disease_code:
+                    result.add_pass("Disease codes covered by consent (exact or descendant)")
+            elif consent_diseases and not disease_codes:
                 result.add_fail(
-                    f"Disease code required: consent is for {consent_disease}",
-                    "Specify disease_code in your request"
+                    f"Disease codes required: consent covers {sorted(consent_diseases)}",
+                    "Specify disease_codes in your request"
                 )
 
         if "GS" in modifiers:
@@ -174,21 +176,13 @@ class ComplianceService:
             else:
                 result.add_pass("Institution restriction: no institutions specified")
 
-        if "IRB" in modifiers:
-            has_irb = await self.cache.has_valid_attestation(
-                requester_address, "IRB_APPROVAL", cohort_hash
-            )
-            if not has_irb:
-                result.add_fail("IRB approval required but not found")
-                result.add_missing("IRB_APPROVAL", "Submit IRB approval via POST /api/attestation/irb")
-            else:
-                result.add_pass("IRB approval verified")
-
         if "COL" in modifiers:
-            has_col = await self.cache.has_collaboration(cohort_hash, requester_address)
+            has_col = await self.cache.has_valid_attestation(
+                requester_address, "COLLABORATION", cohort_hash
+            )
             if not has_col:
-                result.add_fail("Collaboration agreement required but not established")
-                result.add_missing("COLLABORATION", "Contact data owner to establish collaboration")
+                result.add_fail("Collaboration commitment required but not declared")
+                result.add_missing("COLLABORATION", "Declare collaboration willingness in your request")
             else:
                 result.add_pass("Collaboration agreement verified")
 

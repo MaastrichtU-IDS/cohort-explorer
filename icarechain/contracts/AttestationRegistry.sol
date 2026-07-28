@@ -409,7 +409,7 @@ contract AttestationRegistry is AccessControl, EIP712 {
         string calldata details
     ) external returns (bytes32 attestationId) {
         require(
-            commitmentType == ATT_PUB || commitmentType == ATT_RTN,
+            commitmentType == ATT_PUB || commitmentType == ATT_RTN || commitmentType == ATT_COL,
             "Invalid commitment type"
         );
 
@@ -449,7 +449,7 @@ contract AttestationRegistry is AccessControl, EIP712 {
         bytes calldata signature
     ) external returns (bytes32 attestationId) {
         require(
-            commitmentType == ATT_PUB || commitmentType == ATT_RTN,
+            commitmentType == ATT_PUB || commitmentType == ATT_RTN || commitmentType == ATT_COL,
             "Invalid commitment type"
         );
         require(address(roleGroupRegistry) != address(0), "registry not set");

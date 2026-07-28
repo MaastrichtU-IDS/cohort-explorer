@@ -3,7 +3,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, EmailStr, field_validator
 
 VALID_PERMISSIONS = {"NRES", "GRU", "HMB", "DS", "POA"}
-VALID_MODIFIERS = {"NPU", "NCU", "GSO", "NPOA", "PUB", "IRB", "COL", "GS", "IS", "PS", "MOR", "TS", "US", "CC", "RTN"}
+VALID_MODIFIERS = {"NPU", "NCU", "GSO", "NPOA", "PUB", "COL", "GS", "IS", "PS", "MOR", "TS", "US", "CC", "RTN", "NMDS"}
 
 def _validate_duo_permission(v: str) -> str:
     upper = v.upper()
@@ -29,7 +29,7 @@ class ConsentPrepareRequest(BaseModel):
     cohort_id: str = Field(..., description="Unique cohort identifier")
     duo_permission: str = Field(..., description="Primary DUO permission code (NRES, GRU, HMB, DS, POA)")
     duo_modifiers: list[str] = Field(default_factory=list, description="List of DUO modifier codes")
-    disease_code: str | None = Field(None, description="ICD-10 disease code (required if DS)")
+    disease_codes: list[str] = Field(default_factory=list, description="ICD-10 disease codes (at least one required if DS)")
     allowed_countries: list[str] = Field(default_factory=list, description="ISO country codes (if GS)")
     allowed_institutions: list[str] = Field(default_factory=list, description="Institution IDs (if IS)")
     expiration_days: int = Field(0, description="Days until expiration (0 = no expiration)")
@@ -63,7 +63,7 @@ class ConsentRecordRequest(BaseModel):
     cohort_id: str = Field(..., description="Unique cohort identifier")
     duo_permission: str = Field(..., description="Primary DUO permission code (NRES, GRU, HMB, DS, POA)")
     duo_modifiers: list[str] = Field(default_factory=list, description="List of DUO modifier codes")
-    disease_code: str | None = Field(None, description="ICD-10 disease code (required if DS)")
+    disease_codes: list[str] = Field(default_factory=list, description="ICD-10 disease codes (at least one required if DS)")
     allowed_countries: list[str] = Field(default_factory=list, description="ISO country codes (if GS)")
     allowed_institutions: list[str] = Field(default_factory=list, description="Institution IDs (if IS)")
     expiration_days: int = Field(0, description="Days until expiration (0 = no expiration)")
@@ -102,7 +102,7 @@ class ConsentStatusResponse(BaseModel):
     duo_permission_label: str
     duo_modifiers: list[str]
     modifier_details: list[dict]
-    disease_code: str | None
+    disease_codes: list[str]
     expires_at: datetime | None
     recorded_at: datetime
 
@@ -120,7 +120,7 @@ class ConsentUpdateRequest(BaseModel):
     cohort_id: str
     duo_permission: str
     duo_modifiers: list[str]
-    disease_code: str | None = None
+    disease_codes: list[str] = Field(default_factory=list)
 
     @field_validator("duo_permission")
     @classmethod
@@ -159,7 +159,7 @@ class AccessRequestInput(BaseModel):
     intended_use: str = Field(..., description="DUO permission code for intended use (NRES, GRU, HMB, DS, POA)")
     requester_type: str | None = Field(None, description="Override for requester type")
     research_purpose: str = Field("general", description="Research purpose type")
-    disease_code: str | None = None
+    disease_codes: list[str] = Field(default_factory=list)
     institution_id: str | None = Field(None, description="Optional institution ID override")
     commitments: dict = Field(default_factory=dict, description="Commitments (publication, irb_hash, etc.)")
 
@@ -196,7 +196,7 @@ class CompliancePreviewRequest(BaseModel):
     intended_use: str
     requester_type: str | None = None
     research_purpose: str = "general"
-    disease_code: str | None = None
+    disease_codes: list[str] = Field(default_factory=list)
     institution_id: str | None = None
 
     @field_validator("intended_use")

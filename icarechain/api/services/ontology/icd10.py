@@ -34,6 +34,20 @@ def normalize(code: str) -> str:
     return (code or "").strip().upper()
 
 
+def split_codes(values) -> list:
+    out: list = []
+    for v in values or []:
+        if isinstance(v, str):
+            out.extend(p.strip() for p in v.split(",") if p.strip())
+        elif v is not None:
+            out.append(v)
+    return out
+
+
+def all_known_codes() -> frozenset[str]:
+    return frozenset(_data()["all_codes"])
+
+
 def is_roman_chapter(code: str) -> bool:
     c = normalize(code)
     return bool(c) and bool(_ROMAN_RE.match(c))
@@ -50,6 +64,23 @@ def is_known_code(code: str) -> bool:
 
 def is_requester_leaf(code: str) -> bool:
     return normalize(code) in _data()["leaves"]
+
+
+def children(code: str) -> list[str]:
+    c = normalize(code)
+    return sorted(k for k, v in _data()["parents"].items() if v == c)
+
+
+def rollup_to_known(code: str) -> str | None:
+    c = normalize(code)
+    if not _LEAF_RE.match(c):
+        return None
+    known = _data()["all_codes"]
+    while c not in known:
+        if "." not in c:
+            return None
+        c = c[:-1].rstrip(".")
+    return c
 
 
 def label(code: str) -> str | None:
@@ -85,6 +116,21 @@ def is_compatible(consent_code: str | None, requested_code: str | None) -> bool:
     if consent == requested:
         return True
     return consent in ancestors(requested)
+
+
+def prune_redundant(codes: list[str]) -> list[str]:
+    s = {normalize(c) for c in codes if normalize(c)}
+    return sorted(c for c in s if not any(a in s for a in ancestors(c)))
+
+
+def covers_all(consented: list[str] | None, requested: list[str] | None) -> bool:
+    cons = {normalize(c) for c in (consented or []) if c and normalize(c)}
+    if not cons:
+        return True
+    reqs = {normalize(r) for r in (requested or []) if r and normalize(r)}
+    if not reqs:
+        return False
+    return all(r in cons or any(a in cons for a in ancestors(r)) for r in reqs)
 
 
 def describe(code: str) -> dict:

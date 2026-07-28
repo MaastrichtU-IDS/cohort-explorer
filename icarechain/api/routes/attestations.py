@@ -18,8 +18,8 @@ from api.services.wallet import derive_address_from_email, get_cohort_hash
 router = APIRouter(prefix="/attestations", tags=["attestations"])
 
 VALID_TYPES = {
-    "IRB_APPROVAL", "PUBLICATION", "RETURN_DATA", "DATA_DESTRUCTION",
-    "COLLABORATION", "GEOGRAPHIC", "INSTITUTIONAL",
+    "PUBLICATION", "RETURN_DATA", "DATA_DESTRUCTION",
+    "GEOGRAPHIC", "INSTITUTIONAL",
 }
 
 class AttestationCreate(BaseModel):
@@ -52,7 +52,7 @@ class AttestationRecord(BaseModel):
     metadata: dict = Field(default_factory=dict)
     easUid: Optional[str] = None
 
-@router.post("", response_model=AttestationResponse, summary="Submit an attestation (IRB, COLLABORATION, etc.) for a subject + cohort")
+@router.post("", response_model=AttestationResponse, summary="Submit an attestation (PUBLICATION, RETURN_DATA, etc.) for a subject + cohort")
 async def create_attestation(req: AttestationCreate, user: AuthenticatedUser = Depends(get_current_user)):
     require_email_match(user, req.email, "email")
     att_type = req.type.upper()
@@ -67,24 +67,14 @@ async def create_attestation(req: AttestationCreate, user: AuthenticatedUser = D
     submitted_at = datetime.utcnow()
     valid_until = (submitted_at + timedelta(days=req.validDays)) if req.validDays else None
 
-    if att_type == "COLLABORATION":
-        if not req.counterpartyEmail:
-            raise HTTPException(400, "counterpartyEmail required for COLLABORATION")
-        result = await service.establish_collaboration(
-            owner_email=req.email,
-            cohort_id=req.cohortId,
-            requester_email=req.counterpartyEmail,
-            valid_days=req.validDays,
-        )
-    else:
-        result = await service.submit_attestation(
-            subject_email=req.email,
-            attestation_type=att_type,
-            scope=cohort_hash,
-            data_hash=req.documentHash,
-            valid_days=req.validDays,
-            metadata=req.metadata,
-        )
+    result = await service.submit_attestation(
+        subject_email=req.email,
+        attestation_type=att_type,
+        scope=cohort_hash,
+        data_hash=req.documentHash,
+        valid_days=req.validDays,
+        metadata=req.metadata,
+    )
     if not result.get("success"):
         raise HTTPException(500, result.get("error", "submit failed"))
 
@@ -95,8 +85,6 @@ async def create_attestation(req: AttestationCreate, user: AuthenticatedUser = D
         "submitted_at": submitted_at.isoformat(),
         "ea_uid": result.get("eas_uid"),
     }
-    if att_type == "COLLABORATION":
-        cache_record["counterparty_address"] = derive_address_from_email(req.counterpartyEmail)
     await cache.set_attestation(subject_address, att_type, cohort_hash, cache_record)
 
     return AttestationResponse(
@@ -150,16 +138,9 @@ async def revoke_attestation(
     service = get_blockchain_service()
     cohort_hash = get_cohort_hash(cohort_id).hex()
 
-    if att_type == "COLLABORATION":
-        if not counterparty_email:
-            raise HTTPException(400, "counterparty_email required for COLLABORATION")
-        result = await service.revoke_collaboration(
-            owner_email=email, cohort_id=cohort_id, requester_email=counterparty_email,
-        )
-    else:
-        result = await service.revoke_attestation(
-            subject_email=email, attestation_type=att_type, scope=cohort_hash,
-        )
+    result = await service.revoke_attestation(
+        subject_email=email, attestation_type=att_type, scope=cohort_hash,
+    )
     if not result.get("success"):
         raise HTTPException(500, result.get("error", "revoke failed"))
     return {"success": True, "type": att_type, "cohortId": cohort_id, "txHash": result.get("tx_hash")}

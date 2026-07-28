@@ -18,11 +18,13 @@ router = APIRouter(prefix="/cohorts", tags=["cohorts"])
 _REQUIRES = {
     "GS": "requiresZk",
     "IS": "requiresZk",
-    "IRB": "requiresIrb",
     "COL": "requiresCollaboration",
     "PUB": "requiresPublication",
     "RTN": "requiresReturnData",
+    "PS": "requiresProject",
 }
+
+_PURPOSE_MODIFIERS = {"GSO", "NPOA", "NMDS"}
 
 class CohortDetail(BaseModel):
     cohortId: str
@@ -33,7 +35,7 @@ class CohortDetail(BaseModel):
     permissionLabel: str
     modifiers: list[str]
     modifierDetails: list[dict]
-    diseaseCode: Optional[str] = None
+    diseaseCodes: list[str] = Field(default_factory=list)
     additionalRestrictions: Optional[str] = None
     allowedCountries: list[str] = Field(default_factory=list)
     allowedInstitutions: list[str] = Field(default_factory=list)
@@ -42,10 +44,11 @@ class CohortDetail(BaseModel):
     validUntil: Optional[str] = None
     recordedAt: Optional[str] = None
     requiresZk: bool = False
-    requiresIrb: bool = False
     requiresCollaboration: bool = False
     requiresPublication: bool = False
     requiresReturnData: bool = False
+    requiresProject: bool = False
+    requiresResearchPurpose: bool = False
     consentTokenId: Optional[str] = None
     consentNftActive: Optional[bool] = None
 
@@ -73,7 +76,7 @@ async def _read(cohort_id: str) -> dict:
         "owners": chain.get("owners", []),
         "permission": chain.get("duo_permission", ""),
         "modifiers": chain.get("duo_modifiers", []),
-        "disease_code": chain.get("disease_code"),
+        "disease_codes": chain.get("disease_codes") or [],
         "active": chain.get("active", False),
         "valid_until": chain.get("valid_until"),
     }
@@ -84,11 +87,13 @@ async def get_cohort(cohort_id: str):
     perm = record.get("permission", "")
     modifiers = record.get("modifiers") or []
 
+    upper_mods = {m.upper() for m in modifiers}
     flags = {flag: False for flag in _REQUIRES.values()}
-    for m in modifiers:
-        flag = _REQUIRES.get(m.upper())
+    for m in upper_mods:
+        flag = _REQUIRES.get(m)
         if flag:
             flags[flag] = True
+    flags["requiresResearchPurpose"] = bool(_PURPOSE_MODIFIERS & upper_mods)
 
     detail = CohortDetail(
         cohortId=record.get("cohort_id", cohort_id),
@@ -99,7 +104,7 @@ async def get_cohort(cohort_id: str):
         permissionLabel=PERMISSION_LABELS.get(perm, perm),
         modifiers=modifiers,
         modifierDetails=get_modifier_details(modifiers) if modifiers else [],
-        diseaseCode=record.get("disease_code"),
+        diseaseCodes=record.get("disease_codes") or ([record["disease_code"]] if record.get("disease_code") else []),
         additionalRestrictions=record.get("additional_restrictions"),
         allowedCountries=record.get("allowed_countries") or [],
         allowedInstitutions=record.get("allowed_institutions") or [],

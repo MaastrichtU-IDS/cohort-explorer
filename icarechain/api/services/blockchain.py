@@ -27,8 +27,9 @@ _REVERT_TO_CODE = {
     "NPU: requester not non-profit": "NPU_NOT_NONPROFIT",
     "NCU: commercial use not allowed": "NCU_BLOCKED",
     "NPUNCU": "NPUNCU_NOT_NONPROFIT",
-    "missing IRB attestation": "MISSING_IRB_ATTESTATION",
-    "missing COL attestation": "MISSING_COL_ATTESTATION",
+    "unknown cohort": "COHORT_NOT_FOUND",
+    "too many disease codes": "TOO_MANY_DISEASE_CODES",
+    "DS needs disease": "DISEASE_CODE_REQUIRED",
     "Already minted": "ALREADY_MINTED",
     "Already granted": "ALREADY_GRANTED",
     "not owner": "NOT_OWNER",
@@ -37,6 +38,31 @@ _REVERT_TO_CODE = {
     "Invalid signature": "INVALID_SIGNATURE",
     "args.requester != role account": "REQUESTER_PRINCIPAL_MISMATCH",
 }
+
+
+ACCESS_DECISION_REASONS = {
+    0: ("OK", "approved"),
+    1: ("CONSENT_INACTIVE", "Consent is not active (revoked or never activated)"),
+    2: ("CONSENT_EXPIRED", "Consent has expired"),
+    3: ("PERMISSION_INCOMPATIBLE", "intendedUse is not compatible with the consent permission"),
+    4: ("DISEASE_NOT_COMPATIBLE", "requested disease codes are not covered by the consent's ICD-10 scope"),
+    5: ("NPOA_BLOCKED", "population/ancestry research prohibited by NPOA modifier"),
+    6: ("GSO_NOT_GENETIC", "GSO modifier requires researchPurpose=genetics"),
+    7: ("NMDS_BLOCKED", "methods research prohibited by NMDS modifier"),
+    8: ("GS_COUNTRY_NOT_ALLOWED", "requester country is not in the allowed list"),
+    9: ("IS_INSTITUTION_NOT_ALLOWED", "requester institution is not in the allowed list"),
+    10: ("PS_PROJECT_NOT_ALLOWED", "projectId is not in the allowed list"),
+    11: ("US_USER_NOT_ALLOWED", "requester is not in the allowed users list"),
+    12: ("NPU_NOT_NONPROFIT", "NPU/NPUNCU requires an academic, non-profit or government requester"),
+    13: ("NCU_BLOCKED", "NCU modifier blocks commercial requesters"),
+    14: ("PUB_REQUIRED", "publication commitment required but not on chain"),
+    15: ("RTN_REQUIRED", "return-data commitment required but not on chain"),
+    16: ("COL_REQUIRED", "collaboration commitment required but not on chain"),
+}
+
+
+def _decode_decision_reason(reason: int) -> tuple[str, str]:
+    return ACCESS_DECISION_REASONS.get(int(reason), ("CHAIN_REVERTED", f"unknown reason code {reason}"))
 
 
 def _extract_revert_reason(exc: Any) -> str:
@@ -73,8 +99,24 @@ from api.models.duo import (
     bitmask_to_modifiers,
     get_modifier_details,
 )
+from api.services.ontology import icd10
 
 logger = logging.getLogger(__name__)
+
+_DISEASE_HASH_TO_CODE: dict[str, str] | None = None
+
+def _resolve_disease_hashes(hashes) -> list[str]:
+    global _DISEASE_HASH_TO_CODE
+    if _DISEASE_HASH_TO_CODE is None:
+        _DISEASE_HASH_TO_CODE = {
+            Web3.keccak(text=c).hex().removeprefix("0x").lower(): c
+            for c in icd10.all_known_codes()
+        }
+    out = []
+    for h in hashes or []:
+        hx = (h.hex() if isinstance(h, (bytes, bytearray)) else str(h)).removeprefix("0x").lower()
+        out.append(_DISEASE_HASH_TO_CODE.get(hx, "0x" + hx))
+    return out
 
 class BlockchainService:
 
@@ -215,66 +257,6 @@ class BlockchainService:
             "chainId": self.settings.chain_id,
             "verifyingContract": self.settings.duo_consent_vault_v2_address
         }
-
-    def prepare_consent_typed_data(
-        self,
-        cohort_hash: bytes,
-        permission: int,
-        modifiers: int,
-        disease_code: bytes,
-        valid_until: int,
-        nonce: int
-    ) -> dict:
-        domain = self.get_eip712_domain()
-
-        types = {
-            "EIP712Domain": [
-                {"name": "name", "type": "string"},
-                {"name": "version", "type": "string"},
-                {"name": "chainId", "type": "uint256"},
-                {"name": "verifyingContract", "type": "address"},
-            ],
-            "RecordConsent": [
-                {"name": "cohortHash", "type": "bytes32"},
-                {"name": "permission", "type": "bytes4"},
-                {"name": "modifiers", "type": "uint16"},
-                {"name": "diseaseCode", "type": "bytes32"},
-                {"name": "validUntil", "type": "uint256"},
-                {"name": "nonce", "type": "uint256"},
-            ]
-        }
-
-        message = {
-            "cohortHash": cohort_hash.hex() if isinstance(cohort_hash, bytes) else cohort_hash,
-            "permission": f"0x{permission:08x}",
-            "modifiers": modifiers,
-            "diseaseCode": disease_code.hex() if isinstance(disease_code, bytes) else disease_code,
-            "validUntil": valid_until,
-            "nonce": nonce,
-        }
-
-        typed_data = {
-            "types": types,
-            "primaryType": "RecordConsent",
-            "domain": domain,
-            "message": message
-        }
-
-        message_hash = self._hash_typed_data(typed_data)
-
-        return {
-            "typed_data": typed_data,
-            "message_hash": message_hash
-        }
-
-    def _hash_typed_data(self, typed_data: dict) -> str:
-        try:
-            signable = encode_typed_data(full_message=typed_data)
-            return signable.body.hex()
-        except Exception as e:
-            logger.error(f"Failed to hash typed data: {e}")
-            return ""
-
     async def get_nonce(self, owner_email: str) -> int:
         if not self.consent_vault:
             return 0
@@ -292,7 +274,7 @@ class BlockchainService:
         cohort_id: str,
         permission: str,
         modifiers: list[str],
-        disease_code: str | None = None,
+        disease_codes: list[str] | None = None,
         allowed_countries: list[str] | None = None,
         allowed_institutions: list[str] | None = None,
         allowed_projects: list[str] | None = None,
@@ -322,7 +304,7 @@ class BlockchainService:
             cohort_hash = get_cohort_hash(cohort_id)
             perm_bytes4 = PERMISSION_VALUES.get(permission.upper(), DUOPermission.GRU)
             mod_bitmask = int(get_modifiers_bitmask(modifiers))
-            disease_bytes = self.w3.keccak(text=disease_code) if disease_code else bytes(32)
+            disease_hashes = [self.w3.keccak(text=c) for c in (disease_codes or []) if c]
 
             metadata_json = json.dumps(metadata or {}, sort_keys=True, separators=(",", ":")).encode()
             metadata_hash = self.w3.keccak(metadata_json) if metadata else bytes(32)
@@ -340,7 +322,7 @@ class BlockchainService:
                 cohort_hash,
                 perm_bytes4.to_bytes(4, "big"),
                 mod_bitmask,
-                disease_bytes,
+                disease_hashes,
                 metadata_hash,
                 bitset,
                 int(expiration_days),
@@ -368,7 +350,7 @@ class BlockchainService:
                         {"name": "cohortHash", "type": "bytes32"},
                         {"name": "permission", "type": "bytes4"},
                         {"name": "modifiers", "type": "uint256"},
-                        {"name": "diseaseCode", "type": "bytes32"},
+                        {"name": "diseaseCodes", "type": "bytes32[]"},
                         {"name": "metadataHash", "type": "bytes32"},
                         {"name": "countryBitset", "type": "uint256"},
                         {"name": "validDays", "type": "uint256"},
@@ -392,7 +374,7 @@ class BlockchainService:
                     "cohortHash": cohort_hash,
                     "permission": perm_bytes4.to_bytes(4, "big"),
                     "modifiers": mod_bitmask,
-                    "diseaseCode": disease_bytes,
+                    "diseaseCodes": disease_hashes,
                     "metadataHash": metadata_hash,
                     "countryBitset": bitset,
                     "validDays": int(expiration_days),
@@ -501,64 +483,6 @@ class BlockchainService:
         except Exception as e:
             logger.error(f"Failed to revoke consent: {e}")
             return {"success": False, "error": str(e)}
-
-    async def update_consent(
-        self,
-        owner_email: str,
-        cohort_id: str,
-        permission: str,
-        modifiers: list[str],
-        disease_code: str | None = None
-    ) -> dict[str, Any]:
-        if not self.consent_vault:
-            return {"success": False, "error": "Contract not initialized"}
-
-        if not self.relayer_account:
-            return {"success": False, "error": "Relayer not configured"}
-
-        try:
-            cohort_hash = get_cohort_hash(cohort_id)
-
-            perm_bytes4 = PERMISSION_VALUES.get(permission.upper(), DUOPermission.GRU)
-
-            mod_bitmask = int(get_modifiers_bitmask(modifiers))
-            disease_bytes = self.w3.keccak(text=disease_code) if disease_code else bytes(32)
-
-            tx = self.consent_vault.functions.updateConsent(
-                cohort_hash,
-                perm_bytes4.to_bytes(4, 'big'),
-                mod_bitmask,
-                disease_bytes
-            ).build_transaction({
-                "from": self.relayer_account.address,
-                "nonce": self.w3.eth.get_transaction_count(self.relayer_account.address),
-                "gas": 400000,
-                "gasPrice": self.w3.eth.gas_price
-            })
-
-            signed_tx = self.relayer_account.sign_transaction(tx)
-            tx_hash = self.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
-            receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash)
-
-            revoked = []
-            for log in receipt.get("logs", []):
-                if len(log.get("topics", [])) >= 3:
-
-                    revoked.append(log["topics"][2].hex())
-
-            return {
-                "success": True,
-                "tx_hash": receipt["transactionHash"].hex(),
-                "revalidation": {
-                    "revoked": len(revoked),
-                    "revoked_requesters": revoked
-                }
-            }
-
-        except Exception as e:
-            logger.error(f"Failed to update consent: {e}")
-            return {"success": False, "error": str(e)}
-
     async def add_owner(
         self,
         owner_email: str,
@@ -629,13 +553,33 @@ class BlockchainService:
             logger.error(f"Failed to set requester type: {e}")
             return {"success": False, "error": str(e)}
 
+    async def ensure_requester_type_onchain(
+        self,
+        user_email: str,
+        requester_type: str | None,
+        country_code: str | None = None,
+    ) -> dict[str, Any]:
+        if not self.institution_registry or not self.relayer_account:
+            return {"success": False, "error": "registry/relayer not initialized"}
+        target = self._REQ_TYPES.get((requester_type or "").upper(), 0)
+        if target == 0:
+            return {"success": False, "error": f"unknown requesterType {requester_type}"}
+        try:
+            eoa = Web3.to_checksum_address(derive_address_from_email(user_email))
+            current = self.institution_registry.functions.getRequesterType(eoa).call()
+            if int(current) == target:
+                return {"success": True, "unchanged": True, "requester_type": target}
+        except Exception as e:
+            logger.warning(f"getRequesterType read failed, will write: {e}")
+        return await self.set_requester_type(user_email, requester_type, country_code)
+
     async def request_access(
         self,
         requester_email: str,
         cohort_id: str,
         intended_use: str,
         purpose: int = 0,
-        disease_code: str | None = None,
+        disease_codes: list[str] | None = None,
         project_id: str | None = None,
         country_code: str | None = None,
         institution_id: str | None = None,
@@ -658,7 +602,7 @@ class BlockchainService:
             requester_address = requester_info["account"]
 
             use_bytes4 = PERMISSION_VALUES.get(intended_use.upper(), DUOPermission.HMB)
-            disease_bytes = self.w3.keccak(text=disease_code) if disease_code else bytes(32)
+            disease_hashes = [self.w3.keccak(text=c) for c in (disease_codes or []) if c]
             project_bytes = self.w3.keccak(text=project_id) if project_id else bytes(32)
             inst_bytes = self.w3.keccak(text=institution_id) if institution_id else bytes(32)
             c_idx = country_index(country_code) if country_code else 0
@@ -668,7 +612,7 @@ class BlockchainService:
                 requester_address,
                 use_bytes4.to_bytes(4, "big"),
                 int(purpose) & 0xFF,
-                disease_bytes,
+                disease_hashes,
                 project_bytes,
                 c_idx & 0xFF,
                 inst_bytes,
@@ -688,7 +632,7 @@ class BlockchainService:
                         {"name": "requester", "type": "address"},
                         {"name": "intendedUse", "type": "bytes4"},
                         {"name": "purpose", "type": "uint8"},
-                        {"name": "diseaseCode", "type": "bytes32"},
+                        {"name": "diseaseCodes", "type": "bytes32[]"},
                         {"name": "projectId", "type": "bytes32"},
                         {"name": "countryIndex", "type": "uint8"},
                         {"name": "institutionId", "type": "bytes32"},
@@ -707,7 +651,7 @@ class BlockchainService:
                     "requester": requester_address,
                     "intendedUse": use_bytes4.to_bytes(4, "big"),
                     "purpose": int(purpose) & 0xFF,
-                    "diseaseCode": disease_bytes,
+                    "diseaseCodes": disease_hashes,
                     "projectId": project_bytes,
                     "countryIndex": c_idx & 0xFF,
                     "institutionId": inst_bytes,
@@ -732,16 +676,33 @@ class BlockchainService:
             tx_hash = self.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
             receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash)
 
-            request_id = None
-            for log in receipt.get("logs", []):
-                if len(log.get("topics", [])) >= 3:
-                    request_id = log["topics"][1].hex()
+            if receipt["status"] != 1:
+                return {
+                    "success": False,
+                    "reason": "CHAIN_REVERTED",
+                    "reason_detail": "transaction reverted",
+                    "tx_hash": receipt["transactionHash"].hex(),
+                }
+
+            grant = self.consent_vault.functions.getAccessGrant(cohort_hash, requester_address).call()
+            status = grant[3]
+            reason_code = grant[5] if len(grant) > 5 else 0
+            approved = status == 1
+            code, detail = _decode_decision_reason(reason_code)
+            request_id = "0x" + self.w3.keccak(
+                cohort_hash + bytes.fromhex(requester_address[2:])
+            ).hex().removeprefix("0x")
 
             return {
-                "success": receipt["status"] == 1,
+                "success": True,
+                "matched": approved,
+                "auto_approved": approved,
+                "decision": "approved" if approved else "rejected",
+                "reason": None if approved else code,
+                "reason_detail": None if approved else detail,
+                "reason_code": reason_code,
                 "tx_hash": receipt["transactionHash"].hex(),
                 "request_id": request_id,
-                "auto_approved": receipt["status"] == 1,
                 "requester_address": requester_address,
                 "requester_eoa": requester_eoa,
                 "via_signature": True,
@@ -989,11 +950,12 @@ class BlockchainService:
                 primary_owner,
                 permission,
                 modifiers_bitmask,
-                disease_code,
+                disease_code_hashes,
                 valid_from,
                 valid_until,
                 active,
-                metadata_uri
+                countries_root,
+                institutions_root
             ) = result
 
             owners = self.consent_vault.functions.getOwners(cohort_hash).call()
@@ -1010,10 +972,10 @@ class BlockchainService:
                 "duo_permission_label": PERMISSION_LABELS.get(perm_code, perm_code),
                 "duo_modifiers": mod_list,
                 "modifier_details": get_modifier_details(mod_list),
-                "disease_code": disease_code.hex() if disease_code != bytes(32) else None,
+                "disease_codes": _resolve_disease_hashes(disease_code_hashes),
+                "disease_code_hashes": [d.hex() for d in disease_code_hashes],
                 "valid_from": datetime.fromtimestamp(valid_from) if valid_from > 0 else None,
                 "valid_until": datetime.fromtimestamp(valid_until) if valid_until > 0 else None,
-                "metadata_uri": metadata_uri,
                 "cohort_hash": cohort_hash.hex()
             }
 
@@ -1271,98 +1233,6 @@ class BlockchainService:
         except Exception as e:
             logger.error(f"Failed to revoke collaboration: {e}")
             return {"success": False, "error": str(e)}
-
-    async def record_consent_v2(
-        self,
-        owner_email: str,
-        cohort_id: str,
-        permission: str,
-        modifiers: list[str],
-        disease_code: str | None = None,
-        countries_merkle_root: str | None = None,
-        institutions_merkle_root: str | None = None,
-        expiration_days: int = 0,
-        metadata_uri: str = "",
-        signature: str | None = None
-    ) -> dict[str, Any]:
-        if not self.consent_vault_v2:
-            return {"success": False, "error": "ConsentVaultV2 not initialized"}
-
-        if not self.relayer_account:
-            return {"success": False, "error": "Relayer not configured"}
-
-        try:
-            owner_address = derive_address_from_email(owner_email)
-            cohort_hash = get_cohort_hash(cohort_id)
-
-            perm_bytes4 = PERMISSION_VALUES.get(permission.upper(), DUOPermission.GRU)
-            mod_bitmask = int(get_modifiers_bitmask(modifiers))
-            disease_bytes = self.w3.keccak(text=disease_code) if disease_code else bytes(32)
-
-            countries_root = bytes.fromhex(countries_merkle_root.replace("0x", "")) if countries_merkle_root else bytes(32)
-            institutions_root = bytes.fromhex(institutions_merkle_root.replace("0x", "")) if institutions_merkle_root else bytes(32)
-
-            if signature:
-
-                tx = self.consent_vault_v2.functions.recordConsentWithSignature(
-                    cohort_hash,
-                    perm_bytes4.to_bytes(4, 'big'),
-                    mod_bitmask,
-                    disease_bytes,
-                    countries_root,
-                    institutions_root,
-                    expiration_days,
-                    metadata_uri,
-                    bytes.fromhex(signature.replace("0x", ""))
-                ).build_transaction({
-                    "from": self.relayer_account.address,
-                    "nonce": self.w3.eth.get_transaction_count(self.relayer_account.address),
-                    "gas": 500000,
-                    "gasPrice": self.w3.eth.gas_price
-                })
-                via_sig = True
-            else:
-
-                tx = self.consent_vault_v2.functions.recordConsent(
-                    cohort_hash,
-                    perm_bytes4.to_bytes(4, 'big'),
-                    mod_bitmask,
-                    disease_bytes,
-                    countries_root,
-                    institutions_root,
-                    expiration_days,
-                    metadata_uri
-                ).build_transaction({
-                    "from": self.relayer_account.address,
-                    "nonce": self.w3.eth.get_transaction_count(self.relayer_account.address),
-                    "gas": 500000,
-                    "gasPrice": self.w3.eth.gas_price
-                })
-                via_sig = False
-
-            signed_tx = self.relayer_account.sign_transaction(tx)
-            tx_hash = self.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
-            receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash)
-
-            return {
-                "success": True,
-                "tx_hash": receipt["transactionHash"].hex(),
-                "cohort_hash": cohort_hash.hex(),
-                "owner_address": owner_address,
-                "permission": permission.upper(),
-                "permission_label": PERMISSION_LABELS.get(permission.upper(), permission),
-                "modifiers": modifiers,
-                "modifier_details": get_modifier_details(modifiers),
-                "countries_merkle_root": countries_merkle_root,
-                "institutions_merkle_root": institutions_merkle_root,
-                "contract_version": "v2",
-                "via_signature": via_sig
-            }
-
-        except Exception as e:
-            logger.error(f"Failed to record consent V2: {e}")
-            return {"success": False, "error": str(e)}
-
     async def update_merkle_roots(
         self,
         owner_email: str,
@@ -1406,122 +1276,6 @@ class BlockchainService:
         except Exception as e:
             logger.error(f"Failed to update Merkle roots: {e}")
             return {"success": False, "error": str(e)}
-
-    async def request_access_with_proofs(
-        self,
-        requester_email: str,
-        cohort_id: str,
-        intended_use: str,
-        purpose: int = 0,
-        disease_code: str | None = None,
-        country_proof: list[str] | None = None,
-        country_leaf_hash: str | None = None,
-        institution_proof: list[str] | None = None,
-        institution_leaf_hash: str | None = None
-    ) -> dict[str, Any]:
-        if not self.consent_vault_v2:
-            return {"success": False, "error": "ConsentVaultV2 not initialized"}
-
-        if not self.relayer_account:
-            return {"success": False, "error": "Relayer not configured"}
-
-        try:
-            cohort_hash = get_cohort_hash(cohort_id)
-            requester_address = derive_address_from_email(requester_email)
-
-            use_bytes4 = PERMISSION_VALUES.get(intended_use.upper(), DUOPermission.HMB)
-            disease_bytes = self.w3.keccak(text=disease_code) if disease_code else bytes(32)
-
-            country_proof_bytes = [bytes.fromhex(p.replace("0x", "")) for p in (country_proof or [])]
-            country_leaf_bytes = bytes.fromhex(country_leaf_hash.replace("0x", "")) if country_leaf_hash else bytes(32)
-            institution_proof_bytes = [bytes.fromhex(p.replace("0x", "")) for p in (institution_proof or [])]
-            institution_leaf_bytes = bytes.fromhex(institution_leaf_hash.replace("0x", "")) if institution_leaf_hash else bytes(32)
-
-            tx = self.consent_vault_v2.functions.requestAccessWithProofs(
-                cohort_hash,
-                use_bytes4.to_bytes(4, 'big'),
-                purpose,
-                disease_bytes,
-                country_proof_bytes,
-                country_leaf_bytes,
-                institution_proof_bytes,
-                institution_leaf_bytes
-            ).build_transaction({
-                "from": self.relayer_account.address,
-                "nonce": self.w3.eth.get_transaction_count(self.relayer_account.address),
-                "gas": 500000,
-                "gasPrice": self.w3.eth.gas_price
-            })
-
-            signed_tx = self.relayer_account.sign_transaction(tx)
-            tx_hash = self.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
-            receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash)
-
-            approved = False
-            for log in receipt.get("logs", []):
-                if len(log.get("topics", [])) >= 2:
-                    approved = True
-                    break
-
-            return {
-                "success": True,
-                "tx_hash": receipt["transactionHash"].hex(),
-                "requester_address": requester_address,
-                "approved": approved,
-                "contract_version": "v2"
-            }
-
-        except Exception as e:
-            logger.error(f"Failed to request access with proofs: {e}")
-            return {"success": False, "error": str(e)}
-
-    async def get_consent_status_v2(self, cohort_id: str) -> dict[str, Any]:
-        if not self.consent_vault_v2:
-            return {"active": False, "error": "ConsentVaultV2 not initialized"}
-
-        try:
-            cohort_hash = get_cohort_hash(cohort_id)
-
-            result = self.consent_vault_v2.functions.getConsent(cohort_hash).call()
-            (
-                primary_owner,
-                permission,
-                modifiers_bitmask,
-                disease_code,
-                valid_from,
-                valid_until,
-                active,
-                countries_root,
-                institutions_root
-            ) = result
-
-            owners = self.consent_vault_v2.functions.getOwners(cohort_hash).call()
-
-            perm_int = int.from_bytes(permission, 'big') if isinstance(permission, bytes) else permission
-            perm_code = PERMISSION_CODES.get(perm_int, "UNKNOWN")
-
-            mod_list = bitmask_to_modifiers(modifiers_bitmask)
-
-            return {
-                "active": active,
-                "owners": owners,
-                "duo_permission": perm_code,
-                "duo_permission_label": PERMISSION_LABELS.get(perm_code, perm_code),
-                "duo_modifiers": mod_list,
-                "modifier_details": get_modifier_details(mod_list),
-                "disease_code": disease_code.hex() if disease_code != bytes(32) else None,
-                "valid_from": valid_from if valid_from > 0 else None,
-                "valid_until": valid_until if valid_until > 0 else None,
-                "countries_merkle_root": countries_root.hex() if countries_root != bytes(32) else None,
-                "institutions_merkle_root": institutions_root.hex() if institutions_root != bytes(32) else None,
-                "cohort_hash": cohort_hash.hex(),
-                "contract_version": "v2"
-            }
-
-        except Exception as e:
-            logger.error(f"Failed to get consent status V2: {e}")
-            return {"active": False, "error": str(e)}
-
     async def verify_country_on_chain(
         self,
         cohort_id: str,
@@ -1757,14 +1511,17 @@ class BlockchainService:
             cohort_hash = get_cohort_hash(cohort_id)
 
             type_const = att_type.upper()
-            if type_const == "PUBLICATION_PROMISE":
-                type_hash = self.attestation_registry.functions.ATT_PUB().call()
-            elif type_const == "RETURN_DATA_PROMISE":
-                type_hash = self.attestation_registry.functions.ATT_RTN().call()
-            else:
+            _promise_map = {
+                "PUBLICATION_PROMISE": ("ATT_PUB", "PUB"),
+                "RETURN_DATA_PROMISE": ("ATT_RTN", "RTN"),
+                "COLLABORATION_PROMISE": ("ATT_COL", "COL"),
+            }
+            if type_const not in _promise_map:
                 return {"success": False, "error": f"Unsupported promise type: {att_type}"}
+            att_getter, source_mod = _promise_map[type_const]
+            type_hash = getattr(self.attestation_registry.functions, att_getter)().call()
 
-            details = json.dumps({"source_modifier": "PUB" if type_const == "PUBLICATION_PROMISE" else "RTN", "auto": True})
+            details = json.dumps({"source_modifier": source_mod, "auto": True})
             nonce = self.attestation_registry.functions.commitmentNonces(requester.address).call()
 
             typed_data = {
@@ -2207,111 +1964,6 @@ class BlockchainService:
         except Exception as e:
             logger.error(f"Failed to execute meta-transaction: {e}")
             return {"success": False, "error": str(e)}
-
-    async def prepare_gasless_consent_record(
-        self,
-        owner_email: str,
-        cohort_id: str,
-        permission: str,
-        modifiers: list[str],
-        disease_code: str | None = None,
-        expiration_days: int = 0
-    ) -> dict[str, Any]:
-        if not self.consent_vault:
-            return {"error": "ConsentVault not initialized"}
-
-        try:
-            cohort_hash = get_cohort_hash(cohort_id)
-            perm_bytes4 = PERMISSION_VALUES.get(permission.upper(), DUOPermission.GRU)
-            mod_bitmask = int(get_modifiers_bitmask(modifiers))
-            disease_bytes = self.w3.keccak(text=disease_code) if disease_code else bytes(32)
-
-            function_data = self.consent_vault.encode_abi(
-                abi_element_identifier="recordConsent",
-                args=[
-                    cohort_hash,
-                    perm_bytes4.to_bytes(4, 'big'),
-                    mod_bitmask,
-                    disease_bytes,
-                    [],
-                    [],
-                    expiration_days,
-                    ""
-                ]
-            )
-
-            result = await self.prepare_meta_transaction(
-                user_email=owner_email,
-                target_contract=self.consent_vault.address,
-                function_data=bytes.fromhex(function_data[2:]),
-                gas_limit=500000
-            )
-
-            if "error" in result:
-                return result
-
-            return {
-                **result,
-                "consent_details": {
-                    "cohort_id": cohort_id,
-                    "cohort_hash": cohort_hash.hex(),
-                    "permission": permission.upper(),
-                    "modifiers": modifiers
-                }
-            }
-
-        except Exception as e:
-            logger.error(f"Failed to prepare gasless consent: {e}")
-            return {"error": str(e)}
-
-    async def prepare_gasless_access_request(
-        self,
-        requester_email: str,
-        cohort_id: str,
-        intended_use: str,
-        purpose: int = 0
-    ) -> dict[str, Any]:
-        if not self.consent_vault:
-            return {"error": "ConsentVault not initialized"}
-
-        try:
-            cohort_hash = get_cohort_hash(cohort_id)
-            use_bytes4 = PERMISSION_VALUES.get(intended_use.upper(), DUOPermission.HMB)
-
-            function_data = self.consent_vault.encode_abi(
-                abi_element_identifier="requestAccess",
-                args=[
-                    cohort_hash,
-                    use_bytes4.to_bytes(4, 'big'),
-                    purpose,
-                    bytes(32),
-                    bytes(32),
-                ]
-            )
-
-            result = await self.prepare_meta_transaction(
-                user_email=requester_email,
-                target_contract=self.consent_vault.address,
-                function_data=bytes.fromhex(function_data[2:]),
-                gas_limit=300000
-            )
-
-            if "error" in result:
-                return result
-
-            return {
-                **result,
-                "access_details": {
-                    "cohort_id": cohort_id,
-                    "cohort_hash": cohort_hash.hex(),
-                    "intended_use": intended_use.upper()
-                }
-            }
-
-        except Exception as e:
-            logger.error(f"Failed to prepare gasless access request: {e}")
-            return {"error": str(e)}
-
     def verify_meta_transaction_signature(
         self,
         forward_request: dict,
@@ -2361,7 +2013,7 @@ class BlockchainService:
         cohort_id: str,
         permission: str,
         modifiers: list[str],
-        disease_code: str | None = None,
+        disease_codes: list[str] | None = None,
         countries_merkle_root: str | None = None,
         institutions_merkle_root: str | None = None,
         valid_days: int = 0,
@@ -2378,7 +2030,7 @@ class BlockchainService:
             cohort_hash = get_cohort_hash(cohort_id)
             perm_bytes4 = PERMISSION_VALUES.get(permission.upper(), DUOPermission.GRU)
             mod_bitmask = int(get_modifiers_bitmask(modifiers))
-            disease_bytes = self.w3.keccak(text=disease_code) if disease_code else bytes(32)
+            disease_hashes = [self.w3.keccak(text=c) for c in (disease_codes or []) if c]
             countries_root = bytes.fromhex(countries_merkle_root.replace("0x", "")) if countries_merkle_root else bytes(32)
             institutions_root = bytes.fromhex(institutions_merkle_root.replace("0x", "")) if institutions_merkle_root else bytes(32)
 
@@ -2387,7 +2039,7 @@ class BlockchainService:
                 cohort_hash,
                 perm_bytes4.to_bytes(4, 'big'),
                 mod_bitmask,
-                disease_bytes,
+                disease_hashes,
                 countries_root,
                 institutions_root,
                 valid_days,
@@ -2452,7 +2104,8 @@ class BlockchainService:
                 "permission_label": PERMISSION_LABELS.get(perm_code, perm_code),
                 "modifiers": mod_list,
                 "modifier_details": get_modifier_details(mod_list),
-                "disease_code": consent[3].hex() if consent[3] != bytes(32) else None,
+                "disease_codes": _resolve_disease_hashes(consent[3]),
+                "disease_code_hashes": [d.hex() for d in consent[3]],
                 "countries_merkle_root": consent[4].hex() if consent[4] != bytes(32) else None,
                 "institutions_merkle_root": consent[5].hex() if consent[5] != bytes(32) else None,
                 "valid_from": consent[6],

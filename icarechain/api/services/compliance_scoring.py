@@ -87,14 +87,6 @@ MODIFIER_IMPACTS = {
         "check_type": "requester_type",
         "allowed_types": ["academic", "nonprofit", "government"],
     },
-    "IRB": {
-        "weight": 10,
-        "critical": True,
-        "bonus_possible": True,
-        "description": "Ethics committee approval required",
-        "check_type": "attestation",
-        "attestation_type": "IRB_APPROVAL",
-    },
     "COL": {
         "weight": 9,
         "critical": True,
@@ -172,8 +164,8 @@ class ComplianceScoringEngine:
         perm_result = self._score_permission(
             consent.get("permission", ""),
             request.get("intended_use", ""),
-            consent.get("disease_code"),
-            request.get("disease_code")
+            consent.get("disease_codes") or ([consent["disease_code"]] if consent.get("disease_code") else []),
+            request.get("disease_codes") or ([request["disease_code"]] if request.get("disease_code") else [])
         )
 
         mod_result = self._score_modifiers(
@@ -250,8 +242,8 @@ class ComplianceScoringEngine:
         self,
         consent_perm: str,
         request_perm: str,
-        consent_disease: Optional[str] = None,
-        request_disease: Optional[str] = None
+        consent_diseases: Optional[list[str]] = None,
+        request_diseases: Optional[list[str]] = None
     ) -> dict:
         result = {
             "score": 0,
@@ -275,13 +267,13 @@ class ComplianceScoringEngine:
             result["score"] = 300
             result["passed"].append(f"Exact permission match: {consent_perm}")
 
-            if consent_perm == "DS" and consent_disease and request_disease:
-                if icd10.is_compatible(consent_disease, request_disease):
-                    result["passed"].append(f"Disease match: {request_disease} within {consent_disease}")
+            if consent_perm == "DS" and consent_diseases and request_diseases:
+                if icd10.covers_all(consent_diseases, request_diseases):
+                    result["passed"].append(f"Disease match: {sorted(request_diseases)} within {sorted(consent_diseases)}")
                 else:
 
                     result["partial"].append(
-                        (f"Disease mismatch: {consent_disease} vs {request_disease}", 80)
+                        (f"Disease mismatch: {sorted(consent_diseases)} vs {sorted(request_diseases)}", 80)
                     )
                     result["score"] = 240
             return result
@@ -601,13 +593,9 @@ class ComplianceScoringEngine:
                 )
 
         for cond in conditions:
-            if cond.attestation_type == "IRB_APPROVAL":
+            if cond.attestation_type == "COLLABORATION":
                 recs.append(
-                    "Submit IRB approval document to satisfy ethics requirement (+~100 points)"
-                )
-            elif cond.attestation_type == "COLLABORATION":
-                recs.append(
-                    "Contact data owner to establish collaboration agreement"
+                    "Declare collaboration willingness in your request"
                 )
             elif cond.attestation_type == "PUBLICATION":
                 recs.append(

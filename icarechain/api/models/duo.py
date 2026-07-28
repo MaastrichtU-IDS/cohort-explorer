@@ -77,7 +77,6 @@ MODIFIER_VALUES = {
     "NPUNCU": DUOModifier.NPUNCU,
     "PUB": DUOModifier.PUB,
     "COL": DUOModifier.COL,
-    "IRB": DUOModifier.IRB,
     "GS": DUOModifier.GS,
     "MOR": DUOModifier.MOR,
     "TS": DUOModifier.TS,
@@ -88,7 +87,6 @@ MODIFIER_VALUES = {
     "CC": DUOModifier.CC,
     "NPOA": DUOModifier.NPOA,
     "GSO": DUOModifier.GSO,
-    "RS": DUOModifier.RS,
     "NMDS": DUOModifier.NMDS,
 }
 
@@ -98,7 +96,6 @@ MODIFIER_LABELS = {
     "NPUNCU": "Not-for-profit, non-commercial only (DUO:0000018)",
     "PUB": "Publication required (DUO:0000019)",
     "COL": "Collaboration required (DUO:0000020)",
-    "IRB": "Ethics approval required (DUO:0000021)",
     "GS": "Geographic restriction (DUO:0000022)",
     "MOR": "Publication moratorium (DUO:0000024)",
     "TS": "Time limit on use (DUO:0000025)",
@@ -109,7 +106,6 @@ MODIFIER_LABELS = {
     "CC": "Clinical care use (DUO:0000043)",
     "NPOA": "Population origins/ancestry research prohibited (DUO:0000044)",
     "GSO": "Genetic studies only (DUO:0000016)",
-    "RS": "Research-specific restrictions (DUO:0000012)",
     "NMDS": "No general methods research (DUO:0000015)",
 }
 
@@ -210,7 +206,7 @@ class ConsentData(TypedDict, total=False):
     owners: list[str]
     permission: str
     modifiers: list[str]
-    disease_code: str | None
+    disease_codes: list[str]
     allowed_countries: list[str]
     allowed_institutions: list[str]
     valid_from: int
@@ -224,7 +220,7 @@ class AccessRequestData(TypedDict, total=False):
     requester: str
     intended_use: str
     purpose: str
-    disease_code: str | None
+    disease_codes: list[str]
     project_id: str | None
     requested_at: int
     decided: bool

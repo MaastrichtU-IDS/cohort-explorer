@@ -6,6 +6,8 @@ import "@openzeppelin/contracts/access/AccessControl.sol";
 contract DUOOntology is AccessControl {
     bytes32 public constant ONTOLOGY_ADMIN = keccak256("ONTOLOGY_ADMIN");
 
+    uint8 public constant MAX_DISEASE_CODES = 16;
+
     bytes4 public constant NRES = 0x00000004;
     bytes4 public constant GRU  = 0x00000042;
     bytes4 public constant HMB  = 0x00000006;
@@ -122,6 +124,41 @@ contract DUOOntology is AccessControl {
         return false;
     }
 
+    function areDiseasesCompatible(
+        bytes32[] calldata consentedDiseases,
+        bytes32[] calldata requestedDiseases
+    ) external view returns (bool) {
+
+        if (consentedDiseases.length == 0) return true;
+
+        if (requestedDiseases.length == 0) return false;
+
+        for (uint256 i = 0; i < requestedDiseases.length; i++) {
+            if (!_coveredByAny(consentedDiseases, requestedDiseases[i])) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    function _coveredByAny(
+        bytes32[] calldata consentedDiseases,
+        bytes32 requestedDisease
+    ) internal view returns (bool) {
+        bytes32 current = requestedDisease;
+
+        for (uint8 depth = 0; depth <= 15; depth++) {
+            if (current == bytes32(0)) return false;
+            for (uint256 j = 0; j < consentedDiseases.length; j++) {
+                if (consentedDiseases[j] == current) return true;
+            }
+            current = diseaseParent[current];
+        }
+
+        return false;
+    }
+
     function checkRequesterTypeConstraints(
         uint16 modifiers,
         uint8 requesterType
@@ -173,7 +210,6 @@ contract DUOOntology is AccessControl {
     ) public pure returns (bytes32[] memory attestationTypes) {
 
         uint8 count = 0;
-        if ((modifiers & MOD_IRB) != 0) count++;
         if ((modifiers & MOD_COL) != 0) count++;
         if ((modifiers & MOD_GS) != 0) count++;
         if ((modifiers & MOD_IS) != 0) count++;
@@ -185,7 +221,6 @@ contract DUOOntology is AccessControl {
         attestationTypes = new bytes32[](count);
         uint8 idx = 0;
 
-        if ((modifiers & MOD_IRB) != 0) attestationTypes[idx++] = keccak256("IRB_APPROVAL");
         if ((modifiers & MOD_COL) != 0) attestationTypes[idx++] = keccak256("COLLABORATION");
         if ((modifiers & MOD_GS) != 0) attestationTypes[idx++] = keccak256("GEOGRAPHIC");
         if ((modifiers & MOD_IS) != 0) attestationTypes[idx++] = keccak256("INSTITUTION");
