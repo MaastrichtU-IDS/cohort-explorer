@@ -135,8 +135,21 @@ def identify_cohort_meta_schema(cohort):
         return metadatadict_cols_schema1
 
 # https://docs.decentriq.com/sdk/python-getting-started
-def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
-    """Initialize a Data Clean Room in Decentriq when a new cohort is uploaded"""
+def create_provision_dcr(
+    user: Any,
+    cohort: Cohort,
+    additional_analysts: list[str] = None,
+    excluded_data_owners: list[str] = None
+) -> dict[str, Any]:
+    """Initialize a Data Clean Room in Decentriq when a new cohort is uploaded.
+
+    Args:
+        additional_analysts: Extra analyst emails. They become data owners of
+            all nodes EXCEPT the raw cohort data node (i.e. metadata + compute nodes).
+        excluded_data_owners: Data owner emails to exclude from the DCR entirely.
+    """
+    additional_analysts = additional_analysts or []
+    excluded_data_owners = excluded_data_owners or []
     import time
     start_time = time.time()
     logging.info(f"[TIMING] Starting DCR provisioning for {cohort.cohort_id}")
@@ -218,6 +231,10 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
     #Adding the user whose email & secret were used to create the client above
     # too broad!: all_participants.add(settings.decentriq_email)
     all_participants.add(user["email"])
+
+    # Remove excluded data owners
+    all_participants = {p for p in all_participants if p not in excluded_data_owners}
+
     for participant in all_participants:
         print(f"Adding {participant} as data owner and analyst")
         builder.add_participant(
@@ -226,6 +243,18 @@ def create_provision_dcr(user: Any, cohort: Cohort) -> dict[str, Any]:
             # Permission to run scripts:
             analyst_of=["c1_data_dict_check", "c2_save_to_json", "c3_eda_data_profiling", "shuffle_data"],
         )
+
+    # Add additional analysts as data owners of metadata + compute nodes,
+    # but NOT the raw cohort data node.
+    analyst_node_ids = [metadata_node_id]
+    for analyst_email in additional_analysts:
+        if analyst_email and analyst_email != user["email"] and analyst_email not in excluded_data_owners:
+            print(f"Adding {analyst_email} as additional analyst (data owner of metadata only)")
+            builder.add_participant(
+                analyst_email,
+                data_owner_of=analyst_node_ids,
+                analyst_of=["c1_data_dict_check", "c2_save_to_json", "c3_eda_data_profiling", "shuffle_data"],
+            )
 
     if settings.decentriq_email not in all_participants:
         builder.add_participant(settings.decentriq_email, 

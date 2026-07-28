@@ -1897,6 +1897,53 @@ def generate_mappings(cohort_id: str, metadata_path: str, g: Graph) -> None:
 
 
 @router.post(
+    "/preview-provision-participants",
+    name="Preview provision DCR participants",
+    response_description="Participants that would be configured for the provision DCR",
+)
+async def api_preview_provision_participants(
+    request: dict[str, Any],
+    user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Preview what participants would be configured for a provision DCR without creating it."""
+    import json as _json
+    from src.cohort_cache import get_cohorts_from_cache
+    from src.decentriq import build_dcr_participants
+
+    cohort_id = request.get("cohort_id")
+    if not cohort_id:
+        raise HTTPException(status_code=400, detail="cohort_id is required")
+
+    all_cohorts = get_cohorts_from_cache(user["email"])
+    cohort_info = all_cohorts.get(cohort_id)
+    if not cohort_info:
+        raise HTTPException(status_code=403, detail=f"Cohort ID {cohort_id} does not exist")
+
+    additional_analysts = request.get("additional_analysts", [])
+    excluded_data_owners = request.get("excluded_data_owners", [])
+
+    # Build a single-cohort request dict compatible with build_dcr_participants
+    cohorts_request = {"cohorts": {cohort_id: True}}
+    participants = build_dcr_participants(
+        cohorts_request,
+        user["email"],
+        all_cohorts,
+        additional_analysts,
+        excluded_data_owners,
+    )
+
+    # Convert sets to lists for JSON serialization
+    serialized = {}
+    for email, roles in participants.items():
+        serialized[email] = {
+            "data_owner_of": list(roles.get("data_owner_of", set())),
+            "analyst_of": list(roles.get("analyst_of", set())),
+        }
+
+    return {"participants": serialized}
+
+
+@router.post(
     "/create-provision-dcr",
     name="Create Data Clean Room to provision the dataset",
     response_description="Creation result",
@@ -1905,6 +1952,8 @@ async def post_create_provision_dcr(
     user: Any = Depends(get_current_user),
     # cohort_id: str = Form(..., pattern="^[a-zA-Z0-9-_\w]+$"),
     cohort_id: str = Form(...),
+    additional_analysts: str = Form("[]"),
+    excluded_data_owners: str = Form("[]"),
 ) -> dict[str, Any]:
     import time
     t0 = time.time()
@@ -1925,7 +1974,14 @@ async def post_create_provision_dcr(
             detail=f"User {user['email']} cannot publish cohort {cohort_id}",
         )
     try:
-        dcr_data = create_provision_dcr(user, cohort_info)
+        import json as _json
+        parsed_additional_analysts = _json.loads(additional_analysts) if isinstance(additional_analysts, str) else (additional_analysts or [])
+        parsed_excluded_data_owners = _json.loads(excluded_data_owners) if isinstance(excluded_data_owners, str) else (excluded_data_owners or [])
+        dcr_data = create_provision_dcr(
+            user, cohort_info,
+            additional_analysts=parsed_additional_analysts,
+            excluded_data_owners=parsed_excluded_data_owners,
+        )
     except Exception as e:
         raise HTTPException(
             status_code=422,

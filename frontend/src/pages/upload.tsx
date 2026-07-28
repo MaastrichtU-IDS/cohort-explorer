@@ -1,10 +1,11 @@
 'use client';
 
-import React, {useEffect, useState} from 'react';
+import React, {useEffect, useState, useMemo, useCallback} from 'react';
 import {ArrowLeft, Check, SkipForward, Upload, AlertTriangle, Info as InfoIcon, XCircle} from 'react-feather';
 import {useCohorts} from '@/components/CohortsContext';
 import {TrashIcon} from '@/components/Icons';
 import {apiUrl} from '@/utils';
+import {ParticipantsModal} from '@/components/ParticipantsModal';
 
 // Helper component for wizard steps
 const WizardSteps = ({currentStep}: {currentStep: number}) => {
@@ -30,6 +31,14 @@ export default function UploadPage() {
 
   const [dcrIsLoading, setDcrIsLoading] = useState(false);
   const [publishedDCR, setPublishedDCR]: any = useState(null);
+
+  // Participant management state
+  const [showParticipantsModal, setShowParticipantsModal] = useState(false);
+  const [additionalAnalysts, setAdditionalAnalysts] = useState<string[]>([]);
+  const [newAnalystEmail, setNewAnalystEmail] = useState('');
+  const [manuallyIncludedOwners, setManuallyIncludedOwners] = useState<string[]>([]);
+  const [participantsPreview, setParticipantsPreview] = useState<any>(null);
+  const [loadingParticipants, setLoadingParticipants] = useState(false);
   
   const [operationMessage, setOperationMessage] = useState<{text: string, type: 'error' | 'success' | 'info' | 'warning'} | null>(null);
 
@@ -65,6 +74,83 @@ export default function UploadPage() {
     setValidationErrors(null);
     setValidationStatusMessage(null);
   }, [metadataFile]);
+
+  // Reset participant state when cohort changes
+  useEffect(() => {
+    setAdditionalAnalysts([]);
+    setManuallyIncludedOwners([]);
+    setParticipantsPreview(null);
+    setNewAnalystEmail('');
+  }, [cohortId]);
+
+  // Fetch participants preview when modal opens
+  useEffect(() => {
+    if (showParticipantsModal && cohortId) {
+      const fetchParticipants = async () => {
+        setLoadingParticipants(true);
+        try {
+          const response = await fetch(`${apiUrl}/preview-provision-participants`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              cohort_id: cohortId,
+              additional_analysts: additionalAnalysts
+            })
+          });
+          if (response.ok) {
+            const result = await response.json();
+            setParticipantsPreview(result.participants);
+          }
+        } catch (error) {
+          console.error('Failed to fetch participants preview:', error);
+        } finally {
+          setLoadingParticipants(false);
+        }
+      };
+      fetchParticipants();
+    }
+  }, [showParticipantsModal, cohortId, additionalAnalysts]);
+
+  // Derive data owners from participants preview
+  const dataOwners = useMemo((): { email: string; cohorts: string[] }[] => {
+    if (participantsPreview) {
+      const ownersMap: Record<string, Set<string>> = {};
+      Object.entries(participantsPreview).forEach(([email, roles]: [string, any]) => {
+        if (roles.data_owner_of && roles.data_owner_of.length > 0) {
+          if (!ownersMap[email]) ownersMap[email] = new Set();
+          roles.data_owner_of.forEach((nodeId: string) => {
+            const cohortName = nodeId
+              .replace(/-metadata$/, '')
+              .replace(/-/g, ' ');
+            ownersMap[email].add(cohortName);
+          });
+        }
+      });
+      return Object.entries(ownersMap).map(([email, cohortSet]) => ({
+        email,
+        cohorts: Array.from(cohortSet).sort()
+      }));
+    }
+    return [];
+  }, [participantsPreview]);
+
+  const excludedDataOwners = useMemo(
+    () => dataOwners.map(o => o.email).filter(e => !manuallyIncludedOwners.includes(e)),
+    [dataOwners, manuallyIncludedOwners]
+  );
+
+  const addAnalyst = useCallback(() => {
+    const email = newAnalystEmail.trim();
+    if (email && !additionalAnalysts.includes(email) && email !== userEmail) {
+      setAdditionalAnalysts([...additionalAnalysts, email]);
+      setNewAnalystEmail('');
+    }
+  }, [newAnalystEmail, additionalAnalysts, userEmail]);
+
+  const removeAnalyst = useCallback((email: string) => {
+    setAdditionalAnalysts(prev => prev.filter(e => e !== email));
+  }, []);
 
   const clearMetadataFile = () => {
     setMetadataFile(null);
@@ -199,6 +285,8 @@ export default function UploadPage() {
     setOperationMessage(null);
     const formData = new FormData();
     formData.append('cohort_id', cohortId);
+    formData.append('additional_analysts', JSON.stringify(additionalAnalysts));
+    formData.append('excluded_data_owners', JSON.stringify(excludedDataOwners));
     try {
       const response = await fetch(`${apiUrl}/create-provision-dcr`, {
         method: 'POST',
@@ -461,6 +549,37 @@ export default function UploadPage() {
                    </div>
                  </div>
 
+                 {/* Participant management */}
+                 <div className="form-control">
+                   <label className="label">
+                     <span className="label-text font-semibold">Participants</span>
+                   </label>
+                   <p className="text-sm text-base-content/70 mb-3">
+                     Manage who will have access to this DCR. Analysts get access to all files except the actual cohort data. Data owners can be excluded.
+                   </p>
+                   <button
+                     type="button"
+                     className="btn btn-outline"
+                     onClick={() => setShowParticipantsModal(true)}
+                   >
+                     Edit Participants List
+                   </button>
+                   {(additionalAnalysts.length > 0 || excludedDataOwners.length > 0) && (
+                     <div className="mt-3 p-3 bg-base-200 rounded-lg">
+                       {additionalAnalysts.length > 0 && (
+                         <p className="text-sm">
+                           <strong>Additional analysts:</strong> {additionalAnalysts.join(', ')}
+                         </p>
+                       )}
+                       {excludedDataOwners.length > 0 && (
+                         <p className="text-sm mt-1">
+                           <strong>Excluded data owners:</strong> {excludedDataOwners.join(', ')}
+                         </p>
+                       )}
+                     </div>
+                   )}
+                 </div>
+
                  <div className="card-actions justify-between items-center">
                     <button type="button" className="btn btn-ghost" onClick={() => setStep(1)} disabled={dcrIsLoading}>
                       <ArrowLeft className="w-4 h-4" />
@@ -495,6 +614,23 @@ export default function UploadPage() {
           </div>
         )}
       </div>
+
+      {/* Participants Management Modal */}
+      {showParticipantsModal && (
+        <ParticipantsModal
+          dataOwners={dataOwners}
+          userEmail={userEmail}
+          additionalAnalysts={additionalAnalysts}
+          newAnalystEmail={newAnalystEmail}
+          setNewAnalystEmail={setNewAnalystEmail}
+          addAnalyst={addAnalyst}
+          removeAnalyst={removeAnalyst}
+          manuallyIncludedOwners={manuallyIncludedOwners}
+          setManuallyIncludedOwners={setManuallyIncludedOwners}
+          onClose={() => setShowParticipantsModal(false)}
+          isLoading={loadingParticipants}
+        />
+      )}
     </main>
   );
 }
