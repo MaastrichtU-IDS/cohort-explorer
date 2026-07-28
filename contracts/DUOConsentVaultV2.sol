@@ -43,11 +43,11 @@ contract DUOConsentVaultV2 is AccessControl, ReentrancyGuard, EIP712 {
     bytes32 public constant RELAYER_ROLE = keccak256("RELAYER_ROLE");
 
     bytes32 public constant CONSENT_TYPEHASH = keccak256(
-        "RecordConsent(bytes32 cohortHash,bytes4 permission,uint256 modifiers,bytes32 diseaseCode,bytes32 metadataHash,uint256 countryBitset,uint256 validDays,uint256 moratoriumMonths,uint256 publicationDeadlineDays,bytes32 institutionsRoot,bytes32 institutionIdsHash,bytes32 projectIdsHash,bytes32 userAddressesHash,uint256 nonce)"
+        "RecordConsent(bytes32 cohortHash,bytes4 permission,uint256 modifiers,bytes32[] diseaseCodes,bytes32 metadataHash,uint256 countryBitset,uint256 validDays,uint256 moratoriumMonths,uint256 publicationDeadlineDays,bytes32 institutionsRoot,bytes32 institutionIdsHash,bytes32 projectIdsHash,bytes32 userAddressesHash,uint256 nonce)"
     );
 
     bytes32 public constant ACCESS_TYPEHASH = keccak256(
-        "RequestAccess(bytes32 cohortHash,address requester,bytes4 intendedUse,uint8 purpose,bytes32 diseaseCode,bytes32 projectId,uint8 countryIndex,bytes32 institutionId,uint256 nonce)"
+        "RequestAccess(bytes32 cohortHash,address requester,bytes4 intendedUse,uint8 purpose,bytes32[] diseaseCodes,bytes32 projectId,uint8 countryIndex,bytes32 institutionId,uint256 nonce)"
     );
 
     bytes32 public constant REVOKE_TYPEHASH = keccak256(
@@ -60,8 +60,6 @@ contract DUOConsentVaultV2 is AccessControl, ReentrancyGuard, EIP712 {
     struct ConsentCore {
 
         bytes32 cohortHash;
-
-        bytes32 diseaseCode;
 
         bytes4 permission;
         uint32 modifiersLow;
@@ -91,9 +89,12 @@ contract DUOConsentVaultV2 is AccessControl, ReentrancyGuard, EIP712 {
         bytes4 grantedUse;
         uint8 status;
         uint8 flags;
+        uint8 reason;
     }
 
     mapping(bytes32 => ConsentCore) public consents;
+
+    mapping(bytes32 => bytes32[]) internal _consentDiseases;
 
     mapping(bytes32 => MerkleRoots) public merkleRoots;
 
@@ -120,6 +121,25 @@ contract DUOConsentVaultV2 is AccessControl, ReentrancyGuard, EIP712 {
     uint8 public constant STATUS_PENDING = 0;
     uint8 public constant STATUS_APPROVED = 1;
     uint8 public constant STATUS_REVOKED = 2;
+    uint8 public constant STATUS_REJECTED = 3;
+
+    uint8 public constant R_OK = 0;
+    uint8 public constant R_CONSENT_INACTIVE = 1;
+    uint8 public constant R_CONSENT_EXPIRED = 2;
+    uint8 public constant R_PERM = 3;
+    uint8 public constant R_DISEASE = 4;
+    uint8 public constant R_NPOA = 5;
+    uint8 public constant R_GSO = 6;
+    uint8 public constant R_NMDS = 7;
+    uint8 public constant R_GS = 8;
+    uint8 public constant R_IS = 9;
+    uint8 public constant R_PS = 10;
+    uint8 public constant R_US = 11;
+    uint8 public constant R_NPU = 12;
+    uint8 public constant R_NCU = 13;
+    uint8 public constant R_PUB = 14;
+    uint8 public constant R_RTN = 15;
+    uint8 public constant R_COL = 16;
 
     event ConsentRecorded(
         bytes32 indexed cohortHash,
@@ -151,6 +171,14 @@ contract DUOConsentVaultV2 is AccessControl, ReentrancyGuard, EIP712 {
         bytes32 indexed cohortHash,
         address indexed requester,
         bytes4 grantedUse,
+        uint64 expiresAt
+    );
+
+    event AccessDecision(
+        bytes32 indexed cohortHash,
+        address indexed requester,
+        bool approved,
+        uint8 reason,
         uint64 expiresAt
     );
 
@@ -224,7 +252,7 @@ contract DUOConsentVaultV2 is AccessControl, ReentrancyGuard, EIP712 {
         bytes32 cohortHash;
         bytes4 permission;
         uint32 modifiers;
-        bytes32 diseaseCode;
+        bytes32[] diseaseCodes;
         bytes32 metadataHash;
         uint256 countryBitset;
         uint256 validDays;
@@ -255,7 +283,7 @@ contract DUOConsentVaultV2 is AccessControl, ReentrancyGuard, EIP712 {
             args.cohortHash,
             args.permission,
             uint256(args.modifiers),
-            args.diseaseCode,
+            keccak256(abi.encodePacked(args.diseaseCodes)),
             args.metadataHash,
             args.countryBitset,
             args.validDays,
@@ -313,8 +341,12 @@ contract DUOConsentVaultV2 is AccessControl, ReentrancyGuard, EIP712 {
         if ((mods & ontology.MOD_TS()) != 0) {
             require(args.validDays > 0, "TS needs validDays");
         }
+        require(args.diseaseCodes.length <= ontology.MAX_DISEASE_CODES(), "too many disease codes");
+        for (uint256 i = 0; i < args.diseaseCodes.length; i++) {
+            require(args.diseaseCodes[i] != bytes32(0), "zero disease code");
+        }
         if (args.permission == ontology.DS()) {
-            require(args.diseaseCode != bytes32(0), "DS needs disease");
+            require(args.diseaseCodes.length > 0, "DS needs disease");
         }
 
         bool isNew = consents[args.cohortHash].validFrom == 0;
@@ -327,9 +359,13 @@ contract DUOConsentVaultV2 is AccessControl, ReentrancyGuard, EIP712 {
             ? uint64(block.timestamp + (args.validDays * 1 days))
             : 0;
 
+        delete _consentDiseases[args.cohortHash];
+        for (uint256 i = 0; i < args.diseaseCodes.length; i++) {
+            _consentDiseases[args.cohortHash].push(args.diseaseCodes[i]);
+        }
+
         consents[args.cohortHash] = ConsentCore({
             cohortHash: args.cohortHash,
-            diseaseCode: args.diseaseCode,
             permission: args.permission,
             modifiersLow: args.modifiers,
             validFrom: validFrom,
@@ -453,7 +489,7 @@ contract DUOConsentVaultV2 is AccessControl, ReentrancyGuard, EIP712 {
         address requester;
         bytes4 intendedUse;
         uint8 purpose;
-        bytes32 diseaseCode;
+        bytes32[] diseaseCodes;
         bytes32 projectId;
         uint8 countryIndex;
         bytes32 institutionId;
@@ -475,7 +511,7 @@ contract DUOConsentVaultV2 is AccessControl, ReentrancyGuard, EIP712 {
             args.requester,
             args.intendedUse,
             args.purpose,
-            args.diseaseCode,
+            keccak256(abi.encodePacked(args.diseaseCodes)),
             args.projectId,
             args.countryIndex,
             args.institutionId,
@@ -499,39 +535,50 @@ contract DUOConsentVaultV2 is AccessControl, ReentrancyGuard, EIP712 {
 
     function _requestAccessInternal(AccessArgs calldata args) internal returns (bool) {
         ConsentCore storage consent = consents[args.cohortHash];
-        require(consent.active, "Consent not active");
-        require(_isConsentValid(consent), "Consent expired");
+        require(consent.validFrom != 0, "unknown cohort");
+        require(args.diseaseCodes.length <= ontology.MAX_DISEASE_CODES(), "too many disease codes");
 
-        require(
-            ontology.isPermissionCompatible(consent.permission, args.intendedUse),
-            "Permission not compatible"
-        );
-
-        if (consent.permission == ontology.DS() || args.intendedUse == ontology.DS()) {
-            require(
-                ontology.isDiseaseCompatible(consent.diseaseCode, args.diseaseCode),
-                "Disease not compatible"
-            );
-        }
-
-        _checkAccessConstraints(consent.modifiersLow, args);
-        _checkAttestationRequirements(args.cohortHash, args.requester, consent.modifiersLow);
+        uint8 reason = _evaluate(consent, args);
+        bool approved = (reason == R_OK);
+        uint64 expiresAt = approved ? consent.validUntil : 0;
 
         accessGrants[args.cohortHash][args.requester] = AccessGrant({
             grantedAt: uint64(block.timestamp),
-            expiresAt: consent.validUntil,
+            expiresAt: expiresAt,
             grantedUse: args.intendedUse,
-            status: STATUS_APPROVED,
-            flags: 0
+            status: approved ? STATUS_APPROVED : STATUS_REJECTED,
+            flags: 0,
+            reason: reason
         });
 
-        emit AccessGranted(args.cohortHash, args.requester, args.intendedUse, consent.validUntil);
-        return true;
+        if (approved) {
+            emit AccessGranted(args.cohortHash, args.requester, args.intendedUse, expiresAt);
+        }
+        emit AccessDecision(args.cohortHash, args.requester, approved, reason, expiresAt);
+        return approved;
     }
 
-    function _checkAccessConstraints(uint32 mods, AccessArgs calldata args) internal view {
+    function _evaluate(ConsentCore storage consent, AccessArgs calldata args) internal view returns (uint8) {
+        if (!consent.active) return R_CONSENT_INACTIVE;
+        if (!_isConsentValid(consent)) return R_CONSENT_EXPIRED;
+        if (!ontology.isPermissionCompatible(consent.permission, args.intendedUse)) return R_PERM;
+
+        if (consent.permission == ontology.DS() || args.intendedUse == ontology.DS()) {
+            if (!ontology.areDiseasesCompatible(_consentDiseases[args.cohortHash], args.diseaseCodes)) {
+                return R_DISEASE;
+            }
+        }
+
+        uint8 cr = _evaluateConstraints(consent.modifiersLow, args);
+        if (cr != R_OK) return cr;
+
+        return _evaluateAttestations(args.cohortHash, args.requester, consent.modifiersLow);
+    }
+
+    function _evaluateConstraints(uint32 mods, AccessArgs calldata args) internal view returns (uint8) {
         bytes4 useCode = args.intendedUse;
         bytes32 c = args.cohortHash;
+        uint8 purpose = args.purpose;
 
         address requesterEOA = args.requester;
         if (address(roleGroupRegistry) != address(0) && args.requester.code.length > 0) {
@@ -548,73 +595,54 @@ contract DUOConsentVaultV2 is AccessControl, ReentrancyGuard, EIP712 {
         }
 
         if ((mods & ontology.MOD_NPOA()) != 0) {
-            require(useCode != ontology.POA(), "NPOA: POA not allowed");
+            if (useCode == ontology.POA() || purpose == ontology.PURPOSE_POPULATION()) return R_NPOA;
         }
         if ((mods & ontology.MOD_GSO()) != 0) {
-            require(
-                useCode == ontology.DS() || useCode == ontology.POA() || args.diseaseCode != bytes32(0),
-                "GSO: genetic studies only"
-            );
+            if (purpose != ontology.PURPOSE_GENETICS()) return R_GSO;
         }
         if ((mods & ontology.MOD_NMDS()) != 0) {
-            require(args.purpose != ontology.PURPOSE_METHODS(), "NMDS: methods research not allowed");
+            if (purpose == ontology.PURPOSE_METHODS()) return R_NMDS;
         }
         if ((mods & ontology.MOD_GS()) != 0) {
-            require(
-                ((countryBitset[c] >> args.countryIndex) & 1) == 1,
-                "GS: country not allowed"
-            );
+            if (((countryBitset[c] >> args.countryIndex) & 1) != 1) return R_GS;
         }
         if ((mods & ontology.MOD_IS()) != 0) {
-            require(allowedInstitutions[c][args.institutionId], "IS: institution not allowed");
+            if (!allowedInstitutions[c][args.institutionId]) return R_IS;
         }
         if ((mods & ontology.MOD_PS()) != 0) {
-            require(allowedProjects[c][args.projectId], "PS: project not allowed");
+            if (!allowedProjects[c][args.projectId]) return R_PS;
         }
         if ((mods & ontology.MOD_US()) != 0) {
-            require(allowedUsers[c][requesterEOA] || allowedUsers[c][args.requester], "US: user not allowed");
+            if (!(allowedUsers[c][requesterEOA] || allowedUsers[c][args.requester])) return R_US;
         }
         if ((mods & ontology.MOD_NPU()) != 0) {
             uint8 t = institutionRegistry.getRequesterType(requesterEOA);
-            require(
-                t == ontology.REQ_ACADEMIC() || t == ontology.REQ_NONPROFIT() || t == ontology.REQ_GOVERNMENT(),
-                "NPU: requester not non-profit"
-            );
+            if (!(t == ontology.REQ_ACADEMIC() || t == ontology.REQ_NONPROFIT() || t == ontology.REQ_GOVERNMENT())) return R_NPU;
         }
         if ((mods & ontology.MOD_NCU()) != 0) {
             uint8 t = institutionRegistry.getRequesterType(requesterEOA);
-            require(t != ontology.REQ_COMMERCIAL(), "NCU: commercial use not allowed");
+            if (t == ontology.REQ_COMMERCIAL()) return R_NCU;
         }
         if ((mods & ontology.MOD_NPUNCU()) != 0) {
             uint8 t = institutionRegistry.getRequesterType(requesterEOA);
-            require(
-                (t == ontology.REQ_ACADEMIC() || t == ontology.REQ_NONPROFIT() || t == ontology.REQ_GOVERNMENT()) &&
-                t != ontology.REQ_COMMERCIAL(),
-                "NPUNCU"
-            );
+            if (!(t == ontology.REQ_ACADEMIC() || t == ontology.REQ_NONPROFIT() || t == ontology.REQ_GOVERNMENT())) return R_NPU;
         }
+        return R_OK;
     }
 
-    function _checkAttestationRequirements(
+    function _evaluateAttestations(
         bytes32 cohortHash,
         address requester,
         uint32 modifiers
-    ) internal view {
-
-        if ((modifiers & uint32(ontology.MOD_IRB())) != 0) {
-            (bool hasIRB, ) = attestationRegistry.hasValidAttestation(
-                requester,
-                attestationRegistry.ATT_IRB(),
-                cohortHash
-            );
-            require(hasIRB, "IRB approval required");
-        }
+    ) internal view returns (uint8) {
 
         if ((modifiers & uint32(ontology.MOD_COL())) != 0) {
-            require(
-                attestationRegistry.hasCollaboration(cohortHash, requester),
-                "Collaboration required"
+            (bool hasCol, ) = attestationRegistry.hasValidAttestation(
+                requester,
+                attestationRegistry.ATT_COL(),
+                cohortHash
             );
+            if (!hasCol) return R_COL;
         }
 
         if ((modifiers & uint32(ontology.MOD_PUB())) != 0) {
@@ -623,7 +651,7 @@ contract DUOConsentVaultV2 is AccessControl, ReentrancyGuard, EIP712 {
                 attestationRegistry.ATT_PUB(),
                 cohortHash
             );
-            require(hasPub, "Publication commitment required");
+            if (!hasPub) return R_PUB;
         }
 
         if ((modifiers & uint32(ontology.MOD_RTN())) != 0) {
@@ -632,8 +660,10 @@ contract DUOConsentVaultV2 is AccessControl, ReentrancyGuard, EIP712 {
                 attestationRegistry.ATT_RTN(),
                 cohortHash
             );
-            require(hasRtn, "Return data commitment required");
+            if (!hasRtn) return R_RTN;
         }
+
+        return R_OK;
     }
 
     function hasAccess(bytes32 cohortHash, address requester) external view returns (bool) {
@@ -652,7 +682,7 @@ contract DUOConsentVaultV2 is AccessControl, ReentrancyGuard, EIP712 {
         address primaryOwner,
         bytes4 permission,
         uint32 modifiers,
-        bytes32 diseaseCode,
+        bytes32[] memory diseaseCodes,
         uint64 validFrom,
         uint64 validUntil,
         bool active,
@@ -667,13 +697,17 @@ contract DUOConsentVaultV2 is AccessControl, ReentrancyGuard, EIP712 {
             owner,
             c.permission,
             c.modifiersLow,
-            c.diseaseCode,
+            _consentDiseases[cohortHash],
             c.validFrom,
             c.validUntil,
             c.active,
             m.countriesRoot,
             m.institutionsRoot
         );
+    }
+
+    function getConsentDiseases(bytes32 cohortHash) external view returns (bytes32[] memory) {
+        return _consentDiseases[cohortHash];
     }
 
     function getOwners(bytes32 cohortHash) external view returns (address[] memory) {

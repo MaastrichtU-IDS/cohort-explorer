@@ -40,13 +40,13 @@ class ConsentDeclaration(BaseModel):
     permission: str = Field(..., description="Primary DUO permission: NRES | GRU | HMB | DS | POA")
     modifiers: list[str] = Field(default_factory=list, description="DUO modifier codes")
 
-    diseaseCode: Optional[str] = Field(None, description="ICD-10 code at any level: category (I50), block (I30-I52) or chapter (I00-I99 / IX); required when permission == DS")
+    diseaseCode: Optional[str] = Field(None, description="Single ICD-10 code; legacy alias merged into diseaseCodes")
+    diseaseCodes: list[str] = Field(default_factory=list, description="ICD-10 codes at any level: category (I50), block (I30-I52) or chapter (I00-I99 / IX); at least one required when permission == DS")
     allowedCountries: list[str] = Field(default_factory=list, description="ISO-3166 codes; required when GS modifier set")
     allowedInstitutions: list[str] = Field(default_factory=list, description="ROR IDs; required when IS modifier set")
     allowedProjects: list[str] = Field(default_factory=list, description="Project IDs; required when PS modifier set")
     allowedUsers: list[str] = Field(default_factory=list, description="User addresses or email hashes; required when US modifier set")
     moratoriumMonths: Optional[int] = Field(None, ge=1, description="Months of publication moratorium; required when MOR modifier set")
-    researchScope: Optional[str] = Field(None, description="Free-text research scope; required when RS modifier set")
     returnTargetUri: Optional[str] = Field(None, description="Target URI to return derived data; required when RTN modifier set")
     publicationDeadlineDays: Optional[int] = Field(None, ge=1, description="Days for PUB obligation; optional when PUB modifier set")
 
@@ -75,8 +75,8 @@ class ConsentDeclaration(BaseModel):
             mods.add("NPUNCU")
             self.modifiers = sorted(mods)
 
-        if perm == "DS" and not self.diseaseCode:
-            raise ValueError("DS permission requires diseaseCode (an ICD-10 code, e.g. I50, I30-I52 or IX)")
+        if perm == "DS" and not (self.diseaseCodes or self.diseaseCode):
+            raise ValueError("DS permission requires diseaseCodes (ICD-10 codes, e.g. I50, I30-I52 or IX)")
         if "GS" in mods and not self.allowedCountries:
             raise ValueError("GS modifier requires allowedCountries (ISO-3166)")
         if "IS" in mods and not self.allowedInstitutions:
@@ -89,22 +89,31 @@ class ConsentDeclaration(BaseModel):
             raise ValueError("MOR modifier requires moratoriumMonths")
         if "TS" in mods and self.expirationDays <= 0:
             raise ValueError("TS modifier requires expirationDays > 0")
-        if "RS" in mods and not (self.researchScope and self.researchScope.strip()):
-            raise ValueError("RS modifier requires researchScope (free text describing allowed scope)")
         if "RTN" in mods and not self.returnTargetUri:
             raise ValueError("RTN modifier requires returnTargetUri")
 
-        if self.diseaseCode is not None:
-            code = icd10.normalize(self.diseaseCode)
+        raw_inputs = list(self.diseaseCodes)
+        if self.diseaseCode:
+            raw_inputs.append(self.diseaseCode)
+        raw_codes = icd10.split_codes(raw_inputs)
+        normalized_codes = []
+        for raw in raw_codes:
+            if not isinstance(raw, str):
+                raise ValueError(f"diseaseCodes: expected string, got {type(raw).__name__}")
+            code = icd10.normalize(raw)
             if not icd10.is_well_formed(code):
                 raise ValueError(
-                    f"diseaseCode must be an ICD-10 code: a category (I50), block (I30-I52) or chapter (I00-I99 / IX) (got {self.diseaseCode!r})"
+                    f"diseaseCodes: must be an ICD-10 code: a category (I50), block (I30-I52) or chapter (I00-I99 / IX) (got {raw!r})"
                 )
             if not icd10.is_known_code(code):
                 raise ValueError(
-                    f"diseaseCode {self.diseaseCode!r} is not a supported ICD-10 code"
+                    f"diseaseCodes: {raw!r} is not a supported ICD-10 code"
                 )
-            self.diseaseCode = code
+            normalized_codes.append(code)
+        self.diseaseCodes = icd10.prune_redundant(normalized_codes)
+        if len(self.diseaseCodes) > 16:
+            raise ValueError("diseaseCodes: at most 16 non-redundant codes allowed")
+        self.diseaseCode = self.diseaseCodes[0] if self.diseaseCodes else None
 
         if self.allowedCountries:
             normalized = []
@@ -179,7 +188,7 @@ class CohortSummary(BaseModel):
     cohortHash: str
     permission: str
     modifiers: list[str]
-    diseaseCode: Optional[str] = None
+    diseaseCodes: list[str] = []
     allowedCountries: list[str] = []
     allowedInstitutions: list[str] = []
     allowedProjects: list[str] = []
@@ -201,7 +210,7 @@ class AccessRequestSummary(BaseModel):
     cohortId: str
     requesterAddress: str
     intendedUse: Optional[str] = None
-    diseaseCode: Optional[str] = None
+    diseaseCodes: list[str] = []
     projectId: Optional[str] = None
     abstract: Optional[str] = None
     status: str
@@ -230,6 +239,13 @@ async def _load_cohort(cache, cohort_id: str) -> dict:
     h = get_cohort_hash(cohort_id).hex()
     return await cache.get_consent(h) or await cache.get_consent("0x" + h)
 
+def _cohort_disease_codes(c: dict) -> list[str]:
+    codes = c.get("disease_codes")
+    if codes:
+        return list(codes)
+    single = c.get("disease_code")
+    return [single] if single else []
+
 def _maybe_int(v):
     if v in (None, "", "None"):
         return None
@@ -244,7 +260,7 @@ def _to_summary(c: dict, fallback_id: str = "") -> CohortSummary:
         cohortHash=c.get("cohort_hash", ""),
         permission=c.get("permission", ""),
         modifiers=c.get("modifiers", []),
-        diseaseCode=c.get("disease_code") or None,
+        diseaseCodes=_cohort_disease_codes(c),
         allowedCountries=c.get("allowed_countries") or [],
         allowedInstitutions=c.get("allowed_institutions") or [],
         allowedProjects=c.get("allowed_projects") or [],
@@ -269,7 +285,6 @@ async def create_consent(req: CreateCohortRequest, user: AuthenticatedUser = Dep
     metadata_blob = {
         "dataUseDescription": consent.dataUseDescription,
         "additionalRestrictions": consent.additionalRestrictions,
-        "researchScope": consent.researchScope,
         "returnTargetUri": consent.returnTargetUri,
         "consentDate": consent.consentDate.isoformat() if consent.consentDate else None,
         "consentFormUri": consent.consentFormUri,
@@ -280,7 +295,7 @@ async def create_consent(req: CreateCohortRequest, user: AuthenticatedUser = Dep
         cohort_id=req.cohortId,
         permission=consent.permission,
         modifiers=consent.modifiers,
-        disease_code=consent.diseaseCode or "",
+        disease_codes=consent.diseaseCodes,
         allowed_countries=consent.allowedCountries,
         allowed_institutions=consent.allowedInstitutions,
         allowed_projects=consent.allowedProjects,
@@ -303,13 +318,13 @@ async def create_consent(req: CreateCohortRequest, user: AuthenticatedUser = Dep
         "owners": [result["owner_address"]],
         "permission": consent.permission,
         "modifiers": consent.modifiers,
+        "disease_codes": consent.diseaseCodes,
         "disease_code": consent.diseaseCode,
         "allowed_countries": consent.allowedCountries,
         "allowed_institutions": consent.allowedInstitutions,
         "allowed_projects": consent.allowedProjects,
         "allowed_users": consent.allowedUsers,
         "moratorium_months": consent.moratoriumMonths,
-        "research_scope": consent.researchScope,
         "return_target_uri": consent.returnTargetUri,
         "publication_deadline_days": consent.publicationDeadlineDays,
         "data_use_description": consent.dataUseDescription,
@@ -341,7 +356,7 @@ async def create_consent(req: CreateCohortRequest, user: AuthenticatedUser = Dep
             cohort_id=req.cohortId,
             permission=consent.permission,
             modifiers=consent.modifiers,
-            disease_code=consent.diseaseCode or "",
+            disease_codes=consent.diseaseCodes,
             valid_days=consent.expirationDays,
             metadata_uri=consent.metadataUri,
         )
@@ -405,7 +420,6 @@ async def update_consent(cohort_id: str, req: CreateCohortRequest, user: Authent
     metadata_blob = {
         "dataUseDescription": consent.dataUseDescription,
         "additionalRestrictions": consent.additionalRestrictions,
-        "researchScope": consent.researchScope,
         "returnTargetUri": consent.returnTargetUri,
         "consentDate": consent.consentDate.isoformat() if consent.consentDate else None,
         "consentFormUri": consent.consentFormUri,
@@ -416,7 +430,7 @@ async def update_consent(cohort_id: str, req: CreateCohortRequest, user: Authent
         cohort_id=req.cohortId,
         permission=consent.permission,
         modifiers=consent.modifiers,
-        disease_code=consent.diseaseCode or "",
+        disease_codes=consent.diseaseCodes,
         allowed_countries=consent.allowedCountries,
         allowed_institutions=consent.allowedInstitutions,
         allowed_projects=consent.allowedProjects,
@@ -443,13 +457,13 @@ async def update_consent(cohort_id: str, req: CreateCohortRequest, user: Authent
         "owners": existing_owners,
         "permission": consent.permission,
         "modifiers": consent.modifiers,
+        "disease_codes": consent.diseaseCodes,
         "disease_code": consent.diseaseCode,
         "allowed_countries": consent.allowedCountries,
         "allowed_institutions": consent.allowedInstitutions,
         "allowed_projects": consent.allowedProjects,
         "allowed_users": consent.allowedUsers,
         "moratorium_months": consent.moratoriumMonths,
-        "research_scope": consent.researchScope,
         "return_target_uri": consent.returnTargetUri,
         "publication_deadline_days": consent.publicationDeadlineDays,
         "data_use_description": consent.dataUseDescription,
@@ -549,7 +563,7 @@ async def list_access_requests(cohort_id: str, user: AuthenticatedUser = Depends
             cohortId=cohort_id,
             requesterAddress=g.get("requester_address") or g.get("requester", ""),
             intendedUse=g.get("intended_use"),
-            diseaseCode=g.get("disease_code"),
+            diseaseCodes=g.get("disease_codes") or ([g["disease_code"]] if g.get("disease_code") else []),
             projectId=g.get("project_id"),
             abstract=g.get("abstract"),
             status=g.get("status", "approved" if g.get("approved") else "pending"),

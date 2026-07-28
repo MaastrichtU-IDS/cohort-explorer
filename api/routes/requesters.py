@@ -5,10 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr, Field
 
-from api.models.duo import (
-    PERMISSION_VALUES,
-    is_permission_compatible,
-)
+from api.models.duo import PERMISSION_VALUES
 from api.services.auth import (
     AuthenticatedUser,
     fire_ibis_lifecycle,
@@ -25,13 +22,29 @@ router = APIRouter(prefix="/requesters", tags=["requesters"])
 REQUESTER_TYPES = {"PROFIT", "NONPROFIT", "ACADEMIC", "GOVERNMENT", "INDIVIDUAL"}
 
 _PROJECT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._\-]{1,63}$")
-_NONPROFIT_TYPES = {"ACADEMIC", "NONPROFIT", "GOVERNMENT"}
-_COMMERCIAL_TYPES = {"PROFIT", "COMMERCIAL"}
+
+_RESEARCH_PURPOSES = {
+    "general": 1,
+    "health": 2,
+    "disease": 3,
+    "population": 4,
+    "methods": 5,
+    "genetics": 6,
+    "clinical": 7,
+}
+_PURPOSE_MODIFIERS = {"GSO", "NPOA", "NMDS"}
 
 _OBLIGATION_MAP = {
     "PUB": ("PUBLICATION", "PUBLICATION", 730),
     "RTN": ("DATA_RETURN", "RETURN_DATA", 365),
+    "COL": ("COLLABORATION", "COLLABORATION", 365),
     "MOR": ("MORATORIUM", None, 180),
+}
+
+_PROMISE_TYPES = {
+    "PUBLICATION": "PUBLICATION_PROMISE",
+    "RETURN_DATA": "RETURN_DATA_PROMISE",
+    "COLLABORATION": "COLLABORATION_PROMISE",
 }
 
 def _validate_request_format(req):
@@ -45,15 +58,42 @@ def _validate_request_format(req):
         )
     req.intendedUse = use
 
-    if req.diseaseCode is not None:
-        d = icd10.normalize(req.diseaseCode)
-        if not icd10.is_requester_leaf(d):
+    raw_inputs = list(req.diseaseCodes or [])
+    if req.diseaseCode:
+        raw_inputs.append(req.diseaseCode)
+    raw_codes = icd10.split_codes(raw_inputs)
+    canonical: list[str] = []
+    for raw in raw_codes:
+        if not isinstance(raw, str):
+            return ("INVALID_DISEASE_CODE", f"diseaseCodes entries must be strings; got {type(raw).__name__}")
+        d = icd10.normalize(raw)
+        if not icd10.is_well_formed(d) or icd10.level(d) != "leaf":
             return (
                 "INVALID_DISEASE_CODE",
-                f"diseaseCode must be a specific bottom-level ICD-10 code (e.g. I50, E11, O24.4); "
-                f"blocks/chapters are not allowed for requests (got {req.diseaseCode!r})",
+                f"diseaseCodes must be specific ICD-10 disease codes (e.g. I50, I21.9, O24.4); "
+                f"blocks/chapters are not allowed for requests (got {raw!r})",
             )
-        req.diseaseCode = d
+        if icd10.is_known_code(d):
+            if not icd10.is_requester_leaf(d):
+                kids = ", ".join(icd10.children(d))
+                return (
+                    "INVALID_DISEASE_CODE",
+                    f"diseaseCode {raw!r} is not terminal in the supported hierarchy; "
+                    f"use a more specific code ({kids})",
+                )
+            canonical.append(d)
+        else:
+            rolled = icd10.rollup_to_known(d)
+            if rolled is None:
+                return (
+                    "INVALID_DISEASE_CODE",
+                    f"diseaseCode {raw!r} is not in the supported ICD-10 hierarchy",
+                )
+            canonical.append(rolled)
+    req.diseaseCodes = icd10.prune_redundant(canonical)
+    if len(req.diseaseCodes) > 16:
+        return ("INVALID_DISEASE_CODE", "at most 16 non-redundant disease codes allowed per request")
+    req.diseaseCode = req.diseaseCodes[0] if req.diseaseCodes else None
 
     if req.projectId is not None:
         p = req.projectId.strip()
@@ -64,98 +104,17 @@ def _validate_request_format(req):
             )
         req.projectId = p
 
-    if use == "DS" and not req.diseaseCode:
-        return ("DISEASE_CODE_REQUIRED", "DS intent requires a diseaseCode")
+    if use == "DS" and not req.diseaseCodes:
+        return ("DISEASE_CODE_REQUIRED", "DS intent requires at least one diseaseCode")
 
-    return None
-
-
-def _match_or_reject(req, cohort: dict, profile: dict, requester_eoa: str, requester_sca: Optional[str]):
-    if not cohort.get("active", False):
-        return ("CONSENT_INACTIVE", "Consent is not active (revoked or never activated)")
-    vu = cohort.get("valid_until")
-    if vu:
-        try:
-            t = datetime.fromisoformat(vu.rstrip("Z"))
-            if t <= datetime.utcnow():
-                return ("CONSENT_EXPIRED", f"Consent expired at {vu}")
-        except ValueError:
-            pass
-
-    cons_perm = (cohort.get("permission") or "").upper()
-    if not is_permission_compatible(cons_perm, req.intendedUse):
-        return (
-            "PERMISSION_INCOMPATIBLE",
-            f"intendedUse {req.intendedUse!r} not compatible with consent permission {cons_perm!r}",
-        )
-
-    if req.intendedUse == "DS":
-        cd = cohort.get("disease_code")
-        if cd and req.diseaseCode and not icd10.is_compatible(cd, req.diseaseCode):
+    if req.researchPurpose is not None:
+        p = req.researchPurpose.strip().lower()
+        if p not in _RESEARCH_PURPOSES:
             return (
-                "DISEASE_NOT_COMPATIBLE",
-                f"requested {req.diseaseCode!r} is not {cd!r} nor one of its ICD-10 descendants",
+                "INVALID_RESEARCH_PURPOSE",
+                f"researchPurpose must be one of {sorted(_RESEARCH_PURPOSES)}; got {req.researchPurpose!r}",
             )
-
-    mods = {m.upper() for m in (cohort.get("modifiers") or [])}
-
-    if "NPOA" in mods and req.intendedUse == "POA":
-        return ("NPOA_BLOCKED", "POA intent blocked by NPOA modifier")
-
-    if "GSO" in mods and req.intendedUse not in ("DS", "POA") and not req.diseaseCode:
-        return ("GSO_REQUIRES_GENETIC", "GSO modifier requires DS/POA intent or a diseaseCode")
-
-    if "GS" in mods:
-        allowed = [c.upper() for c in (cohort.get("allowed_countries") or [])]
-        country = (profile.get("country_code") or "").upper()
-        if not country:
-            return ("GS_COUNTRY_REQUIRED", "GS modifier: requester profile must include countryCode")
-        if country not in allowed:
-            return (
-                "GS_COUNTRY_NOT_ALLOWED",
-                f"requester country {country!r} not in allowed {allowed}",
-            )
-
-    if "IS" in mods:
-        allowed = list(cohort.get("allowed_institutions") or [])
-        inst = profile.get("institution_id") or ""
-        if not inst:
-            return ("IS_INSTITUTION_REQUIRED", "IS modifier: requester profile must include institutionId")
-        if inst not in allowed:
-            return (
-                "IS_INSTITUTION_NOT_ALLOWED",
-                f"requester institution {inst!r} not in allowed {allowed}",
-            )
-
-    if "PS" in mods:
-        allowed = list(cohort.get("allowed_projects") or [])
-        if not req.projectId:
-            return ("PS_PROJECT_REQUIRED", "PS modifier: request must include projectId")
-        if req.projectId not in allowed:
-            return (
-                "PS_PROJECT_NOT_ALLOWED",
-                f"projectId {req.projectId!r} not in allowed {allowed}",
-            )
-
-    if "US" in mods:
-        allowed = {(u or "").lower().removeprefix("0x") for u in (cohort.get("allowed_users") or [])}
-        candidates = {a.lower().removeprefix("0x") for a in (requester_eoa, requester_sca) if a}
-        if not (allowed & candidates):
-            return ("US_USER_NOT_ALLOWED", "requester not in allowed users list")
-
-    req_type = (profile.get("requester_type") or "").upper()
-    if "NPU" in mods and req_type not in _NONPROFIT_TYPES:
-        return (
-            "NPU_NOT_NONPROFIT",
-            f"NPU requires ACADEMIC/NONPROFIT/GOVERNMENT; got {req_type or 'unset'}",
-        )
-    if "NCU" in mods and req_type in _COMMERCIAL_TYPES:
-        return ("NCU_BLOCKED", "NCU blocks commercial requesters")
-    if "NPUNCU" in mods and req_type not in _NONPROFIT_TYPES:
-        return (
-            "NPUNCU_NOT_NONPROFIT",
-            f"NPUNCU requires ACADEMIC/NONPROFIT/GOVERNMENT; got {req_type or 'unset'}",
-        )
+        req.researchPurpose = p
 
     return None
 
@@ -199,15 +158,19 @@ class CohortListing(BaseModel):
     cohortHash: str
     permission: str
     modifiers: list[str]
-    diseaseCode: Optional[str] = None
+    diseaseCodes: list[str] = []
     additionalRestrictions: Optional[str] = None
     active: bool
+    requiresProject: bool = False
+    requiresResearchPurpose: bool = False
 
 class AccessRequestCreate(BaseModel):
     email: EmailStr
     cohortId: str
     intendedUse: str
     diseaseCode: Optional[str] = None
+    diseaseCodes: Optional[list[str]] = None
+    researchPurpose: Optional[str] = None
     projectId: Optional[str] = None
     abstract: Optional[str] = None
 
@@ -218,6 +181,7 @@ class AccessRequestStatus(BaseModel):
     autoApproved: bool = False
     complianceScore: Optional[int] = None
     decision: Optional[str] = None
+    reason: Optional[str] = None
     requestedAt: Optional[str] = None
     decidedAt: Optional[str] = None
     obligationsCreated: list[dict] = Field(default_factory=list)
@@ -299,9 +263,11 @@ async def list_cohorts(user: AuthenticatedUser = Depends(get_current_user)):
             cohortHash=c.get("cohort_hash", ""),
             permission=c.get("permission", ""),
             modifiers=c.get("modifiers", []),
-            diseaseCode=c.get("disease_code"),
+            diseaseCodes=c.get("disease_codes") or ([c["disease_code"]] if c.get("disease_code") else []),
             additionalRestrictions=c.get("additional_restrictions"),
             active=c.get("active", False),
+            requiresProject="PS" in {m.upper() for m in (c.get("modifiers") or [])},
+            requiresResearchPurpose=bool(_PURPOSE_MODIFIERS & {m.upper() for m in (c.get("modifiers") or [])}),
         )
         for c in consents
         if c.get("active", False)
@@ -321,6 +287,11 @@ async def create_access_request(req: AccessRequestCreate, user: AuthenticatedUse
     if not cohort:
         raise HTTPException(404, "Cohort not found")
 
+    requested_codes = sorted({
+        icd10.normalize(c)
+        for c in icd10.split_codes([*(req.diseaseCodes or []), *([req.diseaseCode] if req.diseaseCode else [])])
+        if isinstance(c, str) and icd10.normalize(c)
+    })
     format_error = _validate_request_format(req)
     if format_error is not None:
         code, detail = format_error
@@ -329,28 +300,38 @@ async def create_access_request(req: AccessRequestCreate, user: AuthenticatedUse
             detail={"matched": False, "reason": code, "detail": detail, "cohortId": req.cohortId},
         )
 
-    if "RS" in set(cohort.get("modifiers") or []) and not (req.abstract and req.abstract.strip()):
+    mods = {m.upper() for m in (cohort.get("modifiers") or [])}
+
+    if (_PURPOSE_MODIFIERS & mods) and not req.researchPurpose:
         raise HTTPException(
             status_code=422,
             detail={
                 "matched": False,
-                "reason": "ABSTRACT_REQUIRED",
-                "detail": "RS modifier on cohort: abstract is required from requester",
+                "reason": "RESEARCH_PURPOSE_REQUIRED",
+                "detail": f"cohort modifiers {sorted(_PURPOSE_MODIFIERS & mods)} require a researchPurpose "
+                          f"(one of {sorted(_RESEARCH_PURPOSES)})",
+                "cohortId": req.cohortId,
+            },
+        )
+
+    if "PS" in mods and not req.projectId:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "matched": False,
+                "reason": "PROJECT_REQUIRED",
+                "detail": "PS modifier on cohort: projectId is required from requester",
                 "cohortId": req.cohortId,
             },
         )
 
     service = get_blockchain_service()
-    requester_info = service.get_role_account_if_attached(user.address, "REQUESTER")
-    requester_sca = requester_info["account"] if requester_info else None
 
-    rejection = _match_or_reject(req, cohort, profile, user.address, requester_sca)
-    if rejection is not None:
-        code, detail = rejection
-        raise HTTPException(
-            status_code=403,
-            detail={"matched": False, "reason": code, "detail": detail, "cohortId": req.cohortId},
-        )
+    await service.ensure_requester_type_onchain(
+        req.email,
+        profile.get("requester_type"),
+        profile.get("country_code"),
+    )
 
     await fire_ibis_lifecycle(req.email, OperationType.AUTHENTICATE)
 
@@ -359,8 +340,8 @@ async def create_access_request(req: AccessRequestCreate, user: AuthenticatedUse
     submitted_attestations: list[dict] = []
     pending_obligations: list[dict] = []
     for ob in obligations:
-        if ob["attestation_type"] in {"PUBLICATION", "RETURN_DATA"}:
-            promise_type = "PUBLICATION_PROMISE" if ob["attestation_type"] == "PUBLICATION" else "RETURN_DATA_PROMISE"
+        promise_type = _PROMISE_TYPES.get(ob["attestation_type"] or "")
+        if promise_type:
             ar = await service.record_commitment_promise(
                 requester_email=req.email,
                 cohort_id=req.cohortId,
@@ -394,11 +375,14 @@ async def create_access_request(req: AccessRequestCreate, user: AuthenticatedUse
         else:
             pending_obligations.append({**ob, "commitment_error": cr.get("error")})
 
+    purpose_int = _RESEARCH_PURPOSES.get(req.researchPurpose or "general", 1)
+
     result = await service.request_access(
         requester_email=req.email,
         cohort_id=req.cohortId,
         intended_use=req.intendedUse,
-        disease_code=req.diseaseCode or "",
+        purpose=purpose_int,
+        disease_codes=req.diseaseCodes,
         project_id=req.projectId or "",
         country_code=profile.get("country_code"),
         institution_id=profile.get("institution_id"),
@@ -420,14 +404,19 @@ async def create_access_request(req: AccessRequestCreate, user: AuthenticatedUse
 
     from api.services.wallet import get_cohort_hash
     cohort_hash = get_cohort_hash(req.cohortId).hex()
-    approved = bool(result.get("auto_approved"))
+    approved = bool(result.get("matched"))
+    decision = result.get("decision") or ("approved" if approved else "rejected")
+    reason = result.get("reason")
     now = datetime.utcnow().isoformat() + "Z"
     principal = result.get("requester_address") or user.address
 
     await cache.set_access(cohort_hash, principal, {
         "approved": approved,
         "intended_use": req.intendedUse,
+        "research_purpose": req.researchPurpose or "general",
+        "disease_codes": req.diseaseCodes,
         "disease_code": req.diseaseCode,
+        "disease_codes_requested": requested_codes,
         "project_id": req.projectId,
         "abstract": req.abstract,
         "requester_address": principal,
@@ -435,14 +424,19 @@ async def create_access_request(req: AccessRequestCreate, user: AuthenticatedUse
         "requester_hash": user.email_hash,
         "requested_at": now,
         "granted_at": now if approved else None,
+        "decided_at": now,
         "request_id": result.get("request_id"),
         "tx_hash": result.get("tx_hash"),
-        "status": "approved" if approved else "pending",
+        "status": decision,
+        "decision": decision,
+        "reason": reason,
+        "reason_detail": result.get("reason_detail"),
         "obligations_created": created_commitments,
         "pending_obligations": pending_obligations,
     })
 
-    result["matched"] = True
+    result["matched"] = approved
+    result["cohortId"] = req.cohortId
     result["obligations"] = created_commitments
     result["attestations"] = submitted_attestations
     result["pendingObligations"] = pending_obligations
@@ -474,6 +468,7 @@ async def list_access_requests(user: AuthenticatedUser = Depends(get_current_use
             autoApproved=bool(grant.get("approved")),
             complianceScore=grant.get("compliance_score"),
             decision=grant.get("decision"),
+            reason=grant.get("reason"),
             requestedAt=grant.get("requested_at"),
             decidedAt=grant.get("granted_at") or grant.get("decided_at"),
             obligationsCreated=grant.get("obligations_created") or [],
