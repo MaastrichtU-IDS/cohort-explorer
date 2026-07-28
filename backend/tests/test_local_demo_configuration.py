@@ -19,7 +19,7 @@ DELTA_ROOT = Path(
 DOCKER = shutil.which("docker") or "/usr/local/bin/docker"
 GIT = shutil.which("git") or "/usr/bin/git"
 DELTA_BACKEND = "avato-backend/frontend/decentriq-platform/src/features/aadcrv2/backend"
-REQUIRED_AADCR_COMMIT = "349adecf26d3af058b9c1650eabf7c5593bc8f38"
+REQUIRED_AADCR_COMMIT = "10985611ae45ff1a8abd23063deebf4381afe25a"
 
 
 def _load_demo_seed_module():
