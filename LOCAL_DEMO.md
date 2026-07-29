@@ -34,7 +34,7 @@ Launch scripts fail closed unless the adjacent Delta checkout exactly matches th
 clean reviewed integration:
 
 - `davstur/aadcrv2` baseline `f13ef54fc3f0f56dae185d4aa35c6dff01ee8839`;
-- local integration `0ebd0b94366c38bab442bcd69db568feede040f8`.
+- local integration `03cefacf1a70cbe67189821d5739a7abd581d48e`.
 
 That integration commit moved forward on 28 Jul 2026 to carry the work behind the
 WP7/WP8 report figures. Nothing in this lane's contract changed, but three things are
