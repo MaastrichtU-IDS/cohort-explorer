@@ -555,7 +555,7 @@ export default function UploadPage() {
                      <span className="label-text font-semibold">Participants</span>
                    </label>
                    <p className="text-sm text-base-content/70 mb-3">
-                     Manage who will have access to this DCR. Analysts get access to all files except the actual cohort data. Data owners can be excluded.
+                     Manage who will have access to this DCR. Analysts get access to only the dictionary files and the compute results. All non-excluded participants will receive an email notification.
                    </p>
                    <button
                      type="button"
