@@ -223,17 +223,16 @@ def create_provision_dcr(
     )
     logging.info(f"[TIMING] Adding 5 EDA script nodes took {time.time() - t0:.2f}s")
 
-    # Add permissions for data owners
-    all_participants = set(cohort.cohort_email)
-    # Also include administrator_email if it exists
+    # Determine the formal data owners from the cohort metadata
+    formal_owners = set(cohort.cohort_email) if cohort.cohort_email else set()
     if cohort.administrator_email:
-        all_participants.add(cohort.administrator_email)
+        formal_owners.add(cohort.administrator_email)
+
+    # Add permissions for data owners
+    all_participants = set(formal_owners)
     if settings.dev_mode:
         all_participants = set()
         print(f"Dev mode, only adding {user['email']} as data owner")
-    #Adding the user whose email & secret were used to create the client above
-    # too broad!: all_participants.add(settings.decentriq_email)
-    all_participants.add(user["email"])
 
     # Remove excluded data owners
     all_participants = {p for p in all_participants if p not in excluded_data_owners}
@@ -247,9 +246,22 @@ def create_provision_dcr(
             analyst_of=["c1_data_dict_check", "c2_save_to_json", "c3_eda_data_profiling", "c4_longitudinal_analysis", "shuffle_data"],
         )
 
+    # The creator is added as an analyst. If they are a formal data owner
+    # (and not excluded), they were already added above as a full data owner.
+    # If not, they get analyst-only privileges (data owner of metadata only).
+    analyst_node_ids = [metadata_node_id]
+    creator_is_formal_owner = user["email"] in formal_owners and user["email"] not in excluded_data_owners
+
+    if not creator_is_formal_owner and user["email"] not in excluded_data_owners:
+        print(f"Creator {user['email']} is not a formal data owner — adding as analyst only")
+        builder.add_participant(
+            user["email"],
+            data_owner_of=analyst_node_ids,
+            analyst_of=["c1_data_dict_check", "c2_save_to_json", "c3_eda_data_profiling", "c4_longitudinal_analysis", "shuffle_data"],
+        )
+
     # Add additional analysts as data owners of metadata + compute nodes,
     # but NOT the raw cohort data node.
-    analyst_node_ids = [metadata_node_id]
     for analyst_email in additional_analysts:
         if analyst_email and analyst_email != user["email"] and analyst_email not in excluded_data_owners:
             print(f"Adding {analyst_email} as additional analyst (data owner of metadata only)")
