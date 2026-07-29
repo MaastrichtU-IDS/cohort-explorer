@@ -39,10 +39,10 @@ export const ParticipantsModal = React.memo(({
   };
   return (
     <div className="modal modal-open">
-      <div className="modal-box">
-        <h3 className="font-bold text-lg mb-4">DCR Participants</h3>
+      <div className="modal-box flex flex-col max-h-[90vh]">
+        <h3 className="font-bold text-lg mb-4 shrink-0">DCR Participants</h3>
 
-        <div className="space-y-4">
+        <div className="space-y-4 overflow-y-auto flex-1">
           {/* Data owners */}
           <div>
             <h4 className="font-semibold mb-2">Data Owners</h4>
@@ -133,7 +133,7 @@ export const ParticipantsModal = React.memo(({
           </div>
         </div>
 
-        <div className="modal-action">
+        <div className="modal-action shrink-0">
           <button className="btn" onClick={onClose}>
             Done
           </button>

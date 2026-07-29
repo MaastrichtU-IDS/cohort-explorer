@@ -228,6 +228,9 @@ def create_provision_dcr(
     if cohort.administrator_email:
         formal_owners.add(cohort.administrator_email)
 
+    # Track all participants already added to the builder to avoid duplicates
+    added_participants: set[str] = set()
+
     # Add permissions for data owners
     all_participants = set(formal_owners)
     if settings.dev_mode:
@@ -245,6 +248,7 @@ def create_provision_dcr(
             # Permission to run scripts:
             analyst_of=["c1_data_dict_check", "c2_save_to_json", "c3_eda_data_profiling", "c4_longitudinal_analysis", "shuffle_data"],
         )
+        added_participants.add(participant)
 
     # The creator is added as an analyst. If they are a formal data owner
     # (and not excluded), they were already added above as a full data owner.
@@ -252,29 +256,32 @@ def create_provision_dcr(
     analyst_node_ids = [metadata_node_id]
     creator_is_formal_owner = user["email"] in formal_owners and user["email"] not in excluded_data_owners
 
-    if not creator_is_formal_owner and user["email"] not in excluded_data_owners:
+    if not creator_is_formal_owner and user["email"] not in excluded_data_owners and user["email"] not in added_participants:
         print(f"Creator {user['email']} is not a formal data owner — adding as analyst only")
         builder.add_participant(
             user["email"],
             data_owner_of=analyst_node_ids,
             analyst_of=["c1_data_dict_check", "c2_save_to_json", "c3_eda_data_profiling", "c4_longitudinal_analysis", "shuffle_data"],
         )
+        added_participants.add(user["email"])
 
     # Add additional analysts as data owners of metadata + compute nodes,
     # but NOT the raw cohort data node.
     for analyst_email in additional_analysts:
-        if analyst_email and analyst_email != user["email"] and analyst_email not in excluded_data_owners:
+        if analyst_email and analyst_email not in excluded_data_owners and analyst_email not in added_participants:
             print(f"Adding {analyst_email} as additional analyst (data owner of metadata only)")
             builder.add_participant(
                 analyst_email,
                 data_owner_of=analyst_node_ids,
                 analyst_of=["c1_data_dict_check", "c2_save_to_json", "c3_eda_data_profiling", "c4_longitudinal_analysis", "shuffle_data"],
             )
+            added_participants.add(analyst_email)
 
-    if settings.decentriq_email not in all_participants:
+    if settings.decentriq_email not in added_participants:
         builder.add_participant(settings.decentriq_email, 
                                 analyst_of=["c1_data_dict_check", "c2_save_to_json", "c3_eda_data_profiling", "c4_longitudinal_analysis", "shuffle_data"],
                                 data_owner_of=[metadata_node_id])
+        added_participants.add(settings.decentriq_email)
 
     # Build and publish DCR
     t0 = time.time()
