@@ -25,7 +25,7 @@ from fastapi.responses import FileResponse
 from src.auth import get_current_user
 from src.config import settings
 from src.analysis_dcr_logging import log_dcr_event, read_events
-from src.eda_scripts import c1_data_dict_check, c2_save_to_json, c3_eda_data_profiling, shuffle_data
+from src.eda_scripts import c1_data_dict_check, c2_save_to_json, c3_eda_data_profiling, c4_longitudinal_analysis, shuffle_data
 from src.analysisDCR_scripts import data_fragment_script, visualization_script, exploration_script, merge_datasets_script
 from src.models import Cohort
 from src.utils import retrieve_cohorts_metadata
@@ -216,9 +216,12 @@ def create_provision_dcr(
         PythonComputeNodeDefinition(name="c3_eda_data_profiling", script=c3_eda_data_profiling(cohort.cohort_id), dependencies=["c1_data_dict_check", "c2_save_to_json", metadata_node_id, data_node_id])
     )
     builder.add_node_definition(
+        PythonComputeNodeDefinition(name="c4_longitudinal_analysis", script=c4_longitudinal_analysis(cohort.cohort_id), dependencies=["c1_data_dict_check", "c2_save_to_json", metadata_node_id, data_node_id])
+    )
+    builder.add_node_definition(
         PythonComputeNodeDefinition(name="shuffle_data", script=shuffle_data(cohort.cohort_id), dependencies=[metadata_node_id, data_node_id])
     )
-    logging.info(f"[TIMING] Adding 4 EDA script nodes took {time.time() - t0:.2f}s")
+    logging.info(f"[TIMING] Adding 5 EDA script nodes took {time.time() - t0:.2f}s")
 
     # Add permissions for data owners
     all_participants = set(cohort.cohort_email)
@@ -241,7 +244,7 @@ def create_provision_dcr(
             participant,
             data_owner_of=[data_node_id, metadata_node_id],
             # Permission to run scripts:
-            analyst_of=["c1_data_dict_check", "c2_save_to_json", "c3_eda_data_profiling", "shuffle_data"],
+            analyst_of=["c1_data_dict_check", "c2_save_to_json", "c3_eda_data_profiling", "c4_longitudinal_analysis", "shuffle_data"],
         )
 
     # Add additional analysts as data owners of metadata + compute nodes,
@@ -253,12 +256,12 @@ def create_provision_dcr(
             builder.add_participant(
                 analyst_email,
                 data_owner_of=analyst_node_ids,
-                analyst_of=["c1_data_dict_check", "c2_save_to_json", "c3_eda_data_profiling", "shuffle_data"],
+                analyst_of=["c1_data_dict_check", "c2_save_to_json", "c3_eda_data_profiling", "c4_longitudinal_analysis", "shuffle_data"],
             )
 
     if settings.decentriq_email not in all_participants:
         builder.add_participant(settings.decentriq_email, 
-                                analyst_of=["c1_data_dict_check", "c2_save_to_json", "c3_eda_data_profiling", "shuffle_data"],
+                                analyst_of=["c1_data_dict_check", "c2_save_to_json", "c3_eda_data_profiling", "c4_longitudinal_analysis", "shuffle_data"],
                                 data_owner_of=[metadata_node_id])
 
     # Build and publish DCR

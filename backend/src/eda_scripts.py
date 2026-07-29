@@ -220,6 +220,80 @@ def classify_series(raw, missing_codes, typ):
         n_valid + n_empty + n_coded + n_invalid == n_rows
     )
     return completeness, valid
+
+def _missing_codes_of(d):
+    try:
+        codes = d.get('missing_codes')
+    except Exception:
+        codes = None
+    if codes is None:
+        return []
+    # read_json may hand this back as a list, a numpy array or a bare scalar.
+    if isinstance(codes, (list, tuple, set, np.ndarray, pd.Series)):
+        return [str(c) for c in list(codes) if str(c).strip() != '']
+    try:
+        if pd.isna(codes):
+            return []
+    except Exception:
+        pass
+    s = str(codes).strip()
+    return _parse_missing_codes(s) if s else []
+'''
+
+
+# Chart-styling helpers shared between c3 (per-variable EDA plots) and
+# c4 (longitudinal plots). Kept separate from _SHARED_HELPERS because c2
+# never imports matplotlib.
+_CHART_STYLE_HELPERS = '''
+_ACCENT = "#6366F1"
+_ACCENT_DARK = "#4338CA"
+_TEXT_DARK = "#1E293B"
+_TEXT_MUTED = "#64748B"
+_GRID = "#E2E8F0"
+_PANEL_BG = "#F8FAFC"
+_PANEL_EDGE = "#E2E8F0"
+_CATEGORY_PALETTE = ["#6366F1", "#14B8A6", "#F59E0B", "#F43F5E", "#8B5CF6", "#0EA5E9", "#84CC16", "#EC4899"]
+
+plt.rcParams.update({
+    'font.family': 'sans-serif',
+    'font.sans-serif': ['DejaVu Sans', 'Arial', 'Helvetica'],
+    'axes.edgecolor': _GRID,
+    'axes.labelcolor': _TEXT_MUTED,
+    'axes.titlesize': 13,
+    'axes.labelsize': 10.5,
+    'axes.linewidth': 1.0,
+    'xtick.color': _TEXT_MUTED,
+    'ytick.color': _TEXT_MUTED,
+    'xtick.labelsize': 9.5,
+    'ytick.labelsize': 9.5,
+    'text.color': _TEXT_DARK,
+    'figure.facecolor': 'white',
+    'axes.facecolor': 'white',
+    'savefig.facecolor': 'white',
+})
+
+def _clean_axis(ax, grid_axis='y'):
+    for spine in ('top', 'right', 'left'):
+        ax.spines[spine].set_visible(False)
+    ax.spines['bottom'].set_color(_GRID)
+    if grid_axis:
+        ax.grid(axis=grid_axis, color=_GRID, linewidth=0.9, alpha=0.9, zorder=0)
+    ax.set_axisbelow(True)
+    ax.tick_params(length=0)
+
+def _panel_title(ax, title):
+    ax.set_title(title, fontsize=13, fontweight='bold', color=_TEXT_DARK, loc='left', pad=12)
+
+def _render_stats_panel(ax, title, stats_text):
+    ax.axis('off')
+    _panel_title(ax, title)
+    props = dict(boxstyle='round,pad=0.8', facecolor=_PANEL_BG, edgecolor=_PANEL_EDGE, linewidth=1.2)
+    text_obj = ax.text(0.0, 0.93, '\\n'.join(stats_text), transform=ax.transAxes, fontsize=10.5,
+                        va='top', ha='left', color=_TEXT_DARK, bbox=props, linespacing=1.9,
+                        family='sans-serif', wrap=True)
+    if hasattr(text_obj, '_get_wrap_line_width'):
+        text_obj._get_wrap_line_width = lambda: 420
+    return text_obj
 '''
 
 
@@ -473,6 +547,15 @@ for index, row in dictionary.iterrows():
 
     completeness, _valid_values = classify_series(data[variable_name], missing_codes, t)
 
+    def _dict_val(col):
+        if col not in dictionary.columns:
+            return None
+        v = row[col]
+        if pd.isna(v):
+            return None
+        v = str(v).strip()
+        return v if v and v.lower() != 'na' else None
+
     vars_details[variable_name] = {
             'var_label': row[varlabel_col],
             'missing_codes': [str(c) for c in missing_codes],
@@ -482,7 +565,14 @@ for index, row in dictionary.iterrows():
             'inferred_type': t,
             'completeness': completeness,
             'count_missing': completeness['n_coded_missing'],
-            'count_na': completeness['n_empty']
+            'count_na': completeness['n_empty'],
+            # Used by c4_longitudinal_analysis to identify longitudinal
+            # families (same concept measured at different visits) and to
+            # detect the patient-id column.
+            'omop_id': _dict_val('VARIABLE OMOP ID'),
+            'concept_code': _dict_val('VARIABLE CONCEPT CODE'),
+            'visits': _dict_val('VISITS'),
+            'visit_concept_name': _dict_val('VISIT CONCEPT NAME'),
     }
     if t == 'categorical':
         vars_details[variable_name]['categories'] = class_names
@@ -539,6 +629,7 @@ import tempfile
 import os
 warnings.filterwarnings('ignore')
 {shared_helpers}
+{chart_style}
 
 # Load the dataset with corrected missing values replaced with NA from previous step
 # data_correct_missing = pd.read_csv("/input/C3_map_missing_do_not_run/data_correct.csv", low_memory=False)
@@ -562,24 +653,6 @@ for _note in load_notes:
 n_rows_total = int(len(raw_data))
 completeness_by_var = {}
 data = pd.DataFrame(index=raw_data.index)
-
-def _missing_codes_of(d):
-    try:
-        codes = d.get('missing_codes')
-    except Exception:
-        codes = None
-    if codes is None:
-        return []
-    # read_json may hand this back as a list, a numpy array or a bare scalar.
-    if isinstance(codes, (list, tuple, set, np.ndarray, pd.Series)):
-        return [str(c) for c in list(codes) if str(c).strip() != '']
-    try:
-        if pd.isna(codes):
-            return []
-    except Exception:
-        pass
-    s = str(codes).strip()
-    return _parse_missing_codes(s) if s else []
 
 for v in list(vars_details.columns):
     if v not in raw_data.columns:
@@ -1081,42 +1154,36 @@ def variable_eda(df, vars_details):
 
 def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
     if vartype == 'numerical':
-        fig, axes = plt.subplots(1, 2, figsize=(12, 6))
+        fig, axes = plt.subplots(1, 2, figsize=(12, 5.5))
 
-        # Left: Display Summary Stats
+        # Left: Summary stats card
+        _render_stats_panel(axes[0], f"Summary Stats · {varname.upper()}", stats_text)
 
-        props = dict(boxstyle="round,pad=0.5", facecolor="whitesmoke", alpha=0.8, edgecolor="lightgray")
-        text_obj = axes[0].text(0.05, 0.95, '\\n'.join(stats_text), transform=axes[0].transAxes, fontsize=11, va='top', ha='left', 
-        family='monospace',  bbox=props, wrap=True, linespacing=1.5)
-        if hasattr(text_obj, "_get_wrap_line_width"):
-            text_obj._get_wrap_line_width = lambda: 420
-        #axes[0].text(0.05, 0.9, , fontsize=10, va='top', ha='left', linespacing=1.2, family='monospace', wrap=True)
-        axes[0].axis("off")
-
-        # Right: Plot histogram
-        sns.histplot(df[varname].dropna(), kde=True, ax=axes[1])
-        axes[0].set_title(f"Summary Stats for {varname.upper()}", fontsize=12)
-        axes[1].set_title(f"Distribution of {varname.upper()}", fontsize=12)
-        axes[1].tick_params(axis='x')
+        # Right: Histogram + KDE overlay
+        col_vals = df[varname].dropna()
+        sns.histplot(col_vals, kde=False, ax=axes[1], color=_ACCENT,
+                     edgecolor='white', linewidth=0.6, alpha=0.9, zorder=2)
+        if col_vals.nunique() > 1:
+            kde_ax = axes[1].twinx()
+            sns.kdeplot(col_vals, ax=kde_ax, color=_ACCENT_DARK, linewidth=2, zorder=3)
+            kde_ax.set_yticks([])
+            kde_ax.set_ylabel('')
+            for spine in ('top', 'right', 'left'):
+                kde_ax.spines[spine].set_visible(False)
+        _panel_title(axes[1], f"Distribution · {varname.upper()}")
+        _clean_axis(axes[1])
         axes[1].set_xlabel("Value")
         axes[1].set_ylabel("Count")
 
         # Save the figure for the current feature
         plt.tight_layout()
-        plt.savefig(f"/output/{varname.lower()}.png")
+        plt.savefig(f"/output/{varname.lower()}.png", dpi=160, bbox_inches='tight')
         #print(f"figure for {varname} saved!! ")
        #plt.close()
     elif vartype == 'datetime':
-        fig, axes = plt.subplots(1, 2, figsize=(12, 6))
+        fig, axes = plt.subplots(1, 2, figsize=(12, 5.5))
 
-        props = dict(boxstyle="round,pad=0.5", facecolor="whitesmoke", alpha=0.8, edgecolor="lightgray")
-        text_obj = axes[0].text(0.05, 0.95, '\\n'.join(stats_text), transform=axes[0].transAxes, fontsize=11, va='top', ha='left', 
-        family='monospace',  bbox=props, wrap=True, linespacing=1.5)
-        if hasattr(text_obj, "_get_wrap_line_width"):
-            text_obj._get_wrap_line_width = lambda: 420
-        #axes[0].text(0.05, 0.9, , fontsize=10, va='top', ha='left', linespacing=1.2, family='monospace', wrap=True)
-        axes[0].axis("off")
-        axes[0].set_title(f"Summary Stats for {varname.upper()}", fontsize=12)
+        _render_stats_panel(axes[0], f"Summary Stats · {varname.upper()}", stats_text)
         try:
             date_vals =  pd.to_datetime(df[varname].dropna(), format='mixed')
         except:
@@ -1152,8 +1219,9 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
         
         bins = mdates.date2num(pd.date_range(min_date, max_date, freq=bin_freq))
         
-        axes[1].hist(date_nums, bins=bins, alpha=0.7)
-        axes[1].set_title(f"Distribution of {varname.upper()}", fontsize=12)
+        axes[1].hist(date_nums, bins=bins, color=_ACCENT, edgecolor='white', linewidth=0.6, alpha=0.9, zorder=2)
+        _panel_title(axes[1], f"Distribution · {varname.upper()}")
+        _clean_axis(axes[1])
 
         
         if date_range.days <= 90:
@@ -1167,7 +1235,7 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
         axes[1].tick_params(axis='x', which='minor', bottom=False)
         
         plt.tight_layout()
-        plt.savefig(f"/output/{varname.lower()}.png")
+        plt.savefig(f"/output/{varname.lower()}.png", dpi=160, bbox_inches='tight')
         #print(f"figure for {varname} saved!! ")
 
 
@@ -1178,25 +1246,16 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
         else:
             value_counts = df[varname].value_counts(dropna=True)
         total = len(df)
-        fig, axes = plt.subplots(1, 2, figsize=(12, 6))
-        
+        fig, axes = plt.subplots(1, 2, figsize=(12, 5.5))
 
-        # Summary stats text
-        props = dict(boxstyle="round,pad=0.5", facecolor="whitesmoke", alpha=0.8, edgecolor="lightgray")
-        text_obj = axes[0].text(0.05, 0.95, '\\n'.join(stats_text), transform=axes[0].transAxes, fontsize=11, va='top', ha='left', 
-        family='monospace', bbox=props, wrap=True, linespacing=1.5)
-        if hasattr(text_obj, "_get_wrap_line_width"):
-            text_obj._get_wrap_line_width = lambda: 400
-        #axes[0].text(0.1, 0.5, stats_text, fontsize=10, va='center', ha='left', family='monospace', wrap=True)
-        
-        axes[0].axis("off")
+        _render_stats_panel(axes[0], f"Summary Stats · {varname.upper()}", stats_text)
 
         # Bar chart
         if not value_counts.empty:
-            colors = sns.color_palette("husl", len(value_counts))
-            ax = value_counts.plot(kind='bar', color=colors, edgecolor='black', ax=axes[1])
-            axes[0].set_title(f"Summary Stats for {varname.upper()}", fontsize=12)
-            axes[1].set_title(f"Distribution of {varname.upper()}", fontsize=12)
+            colors = [_CATEGORY_PALETTE[i % len(_CATEGORY_PALETTE)] for i in range(len(value_counts))]
+            ax = value_counts.plot(kind='bar', color=colors, edgecolor='white', linewidth=0.8, width=0.65, ax=axes[1], zorder=2)
+            _panel_title(axes[1], f"Distribution · {varname.upper()}")
+            _clean_axis(axes[1])
             ax.set_xlabel("Categories")
             ax.set_ylabel("Count")
 
@@ -1207,8 +1266,8 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
                 rot = 0
             for idx, value in enumerate(value_counts):
                 percentage = (value / total) * 100
-                ax.text(idx, value + total * 0.02, f"{value}({percentage:.1f}%)",
-                        ha='center', fontsize=10, rotation = rot)
+                ax.text(idx, value + total * 0.02, f"{value} ({percentage:.1f}%)",
+                        ha='center', fontsize=9.5, color=_TEXT_MUTED, rotation = rot)
 
             # Adjust x-axis labels to be horizontal
             xticks = []
@@ -1219,14 +1278,14 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
                     xticks.append(v)
 
             if len(xticks)>4:
-                ax.set_xticklabels(xticks, rotation=90, fontsize=10)
+                ax.set_xticklabels(xticks, rotation=90, fontsize=9.5)
             else:
-                ax.set_xticklabels(xticks, rotation=0, fontsize=10)
+                ax.set_xticklabels(xticks, rotation=0, fontsize=9.5)
 
         
         plt.ylim(0, max(value_counts.values) * 1.4)
         plt.tight_layout()
-        plt.savefig(f"/output/{varname.lower()}.png")
+        plt.savefig(f"/output/{varname.lower()}.png", dpi=160, bbox_inches='tight')
 
     #x_ticks = [_.get_text() for _ in axes[1].get_xticklabels()]
     #x_tick_labels = axes[1].get_xticklables()
@@ -1308,7 +1367,412 @@ except Exception as e:
 with open('/output/data_issues.json', 'w') as json_file:
     json.dump(data_issues, json_file, indent=4)
 """
-    return raw_script.replace("{shared_helpers}", _SHARED_HELPERS).replace("{cohort_id}", cohort_id)
+    return (raw_script.replace("{shared_helpers}", _SHARED_HELPERS)
+            .replace("{chart_style}", _CHART_STYLE_HELPERS)
+            .replace("{cohort_id}", cohort_id))
+
+
+def c4_longitudinal_analysis(cohort_id: str) -> str:
+    raw_script = """
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+from matplotlib.path import Path as MplPath
+import re
+import json
+import decentriq_util
+import zipfile
+import tempfile
+import os
+import warnings
+from scipy.cluster.hierarchy import linkage, fcluster
+from scipy.spatial.distance import squareform
+warnings.filterwarnings('ignore')
+{shared_helpers}
+{chart_style}
+
+# ---------------------------------------------------------------------------
+# c4_longitudinal_analysis
+#
+# Identifies "longitudinal families": sets of variables in the cohort that
+# measure the same standardised concept (same VARIABLE OMOP ID, or VARIABLE
+# CONCEPT CODE when no OMOP ID is available) at different visits/timepoints
+# (distinct VISIT CONCEPT NAME / VISITS values). For each family it charts
+# every patient's trajectory without ever displaying patient identifiers:
+#   - numeric families: patients are grouped into a small number of "bands"
+#     by the *shape* of their trajectory (baseline-relative, so patients with
+#     very different absolute ranges can still land in the same band), then
+#     each band is drawn as a median line + IQR ribbon. Every patient
+#     contributes to exactly one band.
+#   - categorical families: an alluvial (flow) diagram shows how patients
+#     move between categories across consecutive visits.
+# ---------------------------------------------------------------------------
+
+data_issues = []
+try:
+    with open("/input/c2_save_to_json/data_issues.json") as f:
+        data_issues = json.load(f)
+except Exception:
+    pass
+
+vars_details = pd.read_json("/input/c2_save_to_json/variable_details.json")
+
+load_notes = []
+raw_data, load_notes = load_data_as_text("/input/{cohort_id}", load_notes)
+raw_data.columns = [str(c).lower().strip() for c in raw_data.columns]
+for _note in load_notes:
+    data_issues.append(_note)
+
+data = pd.DataFrame(index=raw_data.index)
+var_meta = {}
+for v in list(vars_details.columns):
+    if v not in raw_data.columns:
+        continue
+    d = vars_details[v]
+    typ = d['inferred_type']
+    try:
+        comp, valid = classify_series(raw_data[v], _missing_codes_of(d), typ)
+    except Exception as e:
+        data_issues.append(f"c4: failed to classify column {v}: {e}")
+        continue
+    data[v] = valid.reindex(raw_data.index)
+
+    def _dget(key):
+        try:
+            val = d.get(key)
+        except Exception:
+            val = None
+        if val is None:
+            return None
+        try:
+            if pd.isna(val):
+                return None
+        except Exception:
+            pass
+        s = str(val).strip()
+        return s if s else None
+
+    var_meta[v] = {
+        'var_type': typ,
+        'var_label': _dget('var_label') or v,
+        'omop_id': _dget('omop_id'),
+        'concept_code': _dget('concept_code'),
+        'visits': _dget('visits'),
+        'visit_concept_name': _dget('visit_concept_name'),
+        'categories': (d.get('categories') if typ == 'categorical' else None),
+    }
+
+# ---- Identify the patient-id column (never charted/shown) -----------------
+_PATIENT_OMOP_ID = '4086934'
+_PATIENT_CONCEPT_CODE = 'snomed:184107009'
+patient_id_col = None
+for v, m in var_meta.items():
+    if (m['omop_id'] == _PATIENT_OMOP_ID or
+            (m['concept_code'] and m['concept_code'].lower() == _PATIENT_CONCEPT_CODE)):
+        patient_id_col = v
+        break
+
+# ---- Identify longitudinal families ----------------------------------------
+def _visit_label(m):
+    return m['visit_concept_name'] or m['visits']
+
+_BASELINE_RE = re.compile(r'(baseline|screening|enrol{1,2}ment|day\\s*0\\b|week\\s*0\\b|visit\\s*0\\b)', re.I)
+_END_RE = re.compile(r'(end\\s*of\\s*(study|trial)|\\bfinal\\b|\\blast\\b|\\beos\\b|study\\s*end|follow[- ]?up\\s*end)', re.I)
+_NUM_RE = re.compile(r'(\\d+(?:\\.\\d+)?)')
+
+def _visit_sort_key(label):
+    if not label:
+        return (1.5, 0.0, '')
+    s = str(label).strip().lower()
+    if _BASELINE_RE.search(s):
+        return (0, 0.0, s)
+    if _END_RE.search(s):
+        return (2, 0.0, s)
+    m = _NUM_RE.search(s)
+    if m:
+        return (1, float(m.group(1)), s)
+    return (1.5, 0.0, s)
+
+groups = {}
+for v, m in var_meta.items():
+    if v == patient_id_col:
+        continue
+    key = m['omop_id'] or m['concept_code']
+    if not key or not _visit_label(m):
+        continue
+    groups.setdefault(key, []).append(v)
+
+families = []
+for key, members in groups.items():
+    if len(members) < 2:
+        continue
+    labels = set(_visit_label(var_meta[v]) for v in members)
+    if len(labels) < 2:
+        continue
+    type_counts = {}
+    for v in members:
+        t = var_meta[v]['var_type']
+        type_counts[t] = type_counts.get(t, 0) + 1
+    fam_type = max(type_counts, key=type_counts.get)
+    if len(type_counts) > 1:
+        data_issues.append(
+            f"Longitudinal family {key}: member variables disagree on inferred type "
+            f"({type_counts}); treating the whole family as '{fam_type}' and skipping "
+            f"members of a different type."
+        )
+    members = [v for v in members if var_meta[v]['var_type'] == fam_type]
+    members = sorted(members, key=lambda v: _visit_sort_key(_visit_label(var_meta[v])))
+    families.append({
+        'key': str(key),
+        'var_type': fam_type,
+        'var_label': var_meta[members[0]]['var_label'],
+        'members': members,
+        'visit_labels': [_visit_label(var_meta[v]) for v in members],
+    })
+
+# ---- Numeric family: baseline-relative trajectory banding -----------------
+def _process_numeric_family(fam):
+    fam_df = data[fam['members']].apply(pd.to_numeric, errors='coerce')
+    fam_df.columns = fam['visit_labels']
+    n_visits = fam_df.shape[1]
+    if n_visits < 2:
+        return None
+    baseline = fam_df.iloc[:, 0]
+    usable = baseline.notna() & (fam_df.notna().sum(axis=1) >= 2)
+    sub = fam_df[usable].reset_index(drop=True)
+    n_patients = int(len(sub))
+    if n_patients < 5:
+        data_issues.append(f"Longitudinal family {fam['key']}: fewer than 5 usable patient trajectories, skipping chart.")
+        return None
+
+    baseline_vals = sub.iloc[:, 0]
+    denom = baseline_vals.abs().replace(0, np.nan)
+    norm = sub.sub(baseline_vals, axis=0)
+    norm_pct = norm.div(denom, axis=0)
+    norm_pct = norm_pct.where(~norm_pct.isna(), norm)
+    mat = norm_pct.to_numpy(dtype=float)
+
+    MAX_FIT = 600
+    if n_patients > MAX_FIT:
+        rng = np.random.RandomState(42)
+        fit_idx = rng.choice(n_patients, MAX_FIT, replace=False)
+    else:
+        fit_idx = np.arange(n_patients)
+    fit_mat = mat[fit_idx]
+    nf = len(fit_idx)
+
+    def _nan_rmse(a, b):
+        mask = ~np.isnan(a) & ~np.isnan(b)
+        if not mask.any():
+            return 1.0
+        return float(np.sqrt(np.nanmean((a[mask] - b[mask]) ** 2)))
+
+    if nf < 4:
+        fit_labels = np.ones(nf, dtype=int)
+    else:
+        dist = np.zeros((nf, nf))
+        for i in range(nf):
+            for j in range(i + 1, nf):
+                dd = _nan_rmse(fit_mat[i], fit_mat[j])
+                dist[i, j] = dist[j, i] = dd
+        k = max(2, min(6, round((nf / 2) ** 0.5)))
+        k = min(k, max(1, nf - 1))
+        condensed = squareform(dist, checks=False)
+        Z = linkage(condensed, method='average')
+        fit_labels = fcluster(Z, k, criterion='maxclust')
+
+    centroids = {b: np.nanmean(fit_mat[fit_labels == b], axis=0) for b in set(fit_labels)}
+    labels = np.array([min(centroids, key=lambda b: _nan_rmse(mat[i], centroids[b])) for i in range(n_patients)])
+
+    bands = []
+    for b in sorted(set(labels)):
+        band_mask = labels == b
+        band_df = sub[band_mask]
+        band_norm = norm_pct[band_mask]
+        end_col = band_norm.iloc[:, -1]
+        end_shift = float(end_col.mean(skipna=True)) if end_col.notna().any() else 0.0
+        if end_shift > 0.05:
+            trend_label = 'rising'
+        elif end_shift < -0.05:
+            trend_label = 'declining'
+        else:
+            trend_label = 'stable'
+        bands.append({
+            'band_label': trend_label,
+            'n_patients': int(band_mask.sum()),
+            'median': [None if pd.isna(v) else float(v) for v in band_df.median(axis=0, skipna=True)],
+            'q1': [None if pd.isna(v) else float(v) for v in band_df.quantile(0.25, axis=0)],
+            'q3': [None if pd.isna(v) else float(v) for v in band_df.quantile(0.75, axis=0)],
+        })
+    return {'n_patients': n_patients, 'visit_labels': fam['visit_labels'], 'bands': bands}
+
+def _plot_numeric_family(ax, result, var_label):
+    x = np.arange(len(result['visit_labels']))
+    trend_order = {'declining': 0, 'stable': 1, 'rising': 2}
+    bands_sorted = sorted(result['bands'], key=lambda b: trend_order.get(b['band_label'], 1))
+    for i, band in enumerate(bands_sorted):
+        color = _CATEGORY_PALETTE[i % len(_CATEGORY_PALETTE)]
+        median = np.array([np.nan if v is None else v for v in band['median']], dtype=float)
+        q1 = np.array([np.nan if v is None else v for v in band['q1']], dtype=float)
+        q3 = np.array([np.nan if v is None else v for v in band['q3']], dtype=float)
+        ax.plot(x, median, color=color, linewidth=2.2, marker='o', markersize=4,
+                label=f"{band['band_label'].capitalize()} (n={band['n_patients']})", zorder=3)
+        ax.fill_between(x, q1, q3, color=color, alpha=0.18, linewidth=0, zorder=2)
+    ax.set_xticks(x)
+    ax.set_xticklabels(result['visit_labels'], rotation=45 if len(x) > 4 else 0,
+                        ha='right' if len(x) > 4 else 'center')
+    _panel_title(ax, f"Longitudinal Trend \\u00b7 {var_label.upper()}")
+    _clean_axis(ax)
+    ax.set_xlabel("Visit")
+    ax.set_ylabel("Value")
+    ax.legend(frameon=False, fontsize=9, loc='best')
+
+# ---- Categorical family: alluvial (flow) diagram ---------------------------
+def _draw_ribbon(ax, x0, x1, y0s, y1s, y0t, y1t, color):
+    xm = (x0 + x1) / 2.0
+    verts = [
+        (x0, y0s),
+        (x0, y1s),
+        (xm, y1s), (xm, y1t), (x1, y1t),
+        (x1, y0t),
+        (xm, y0t), (xm, y0s), (x0, y0s),
+    ]
+    codes = [MplPath.MOVETO, MplPath.LINETO,
+             MplPath.CURVE4, MplPath.CURVE4, MplPath.CURVE4,
+             MplPath.LINETO,
+             MplPath.CURVE4, MplPath.CURVE4, MplPath.CURVE4]
+    patch = mpatches.PathPatch(MplPath(verts, codes), facecolor=color, edgecolor='none', alpha=0.45, zorder=2)
+    ax.add_patch(patch)
+
+def _process_categorical_family(fam):
+    fam_df = data[fam['members']].copy()
+    fam_df.columns = fam['visit_labels']
+    n_patients = int(len(fam_df))
+    if n_patients < 5:
+        data_issues.append(f"Longitudinal family {fam['key']}: fewer than 5 patients, skipping chart.")
+        return None
+    label_maps = [var_meta[v]['categories'] or {} for v in fam['members']]
+    return {'fam_df': fam_df, 'n_patients': n_patients, 'label_maps': label_maps}
+
+def _plot_categorical_family(ax, processed, var_label):
+    fam_df = processed['fam_df']
+    label_maps = processed['label_maps']
+    visits = list(fam_df.columns)
+    n_v = len(visits)
+    n_patients = processed['n_patients']
+
+    def _lab(vi, val):
+        if pd.isna(val):
+            return 'N/A'
+        return label_maps[vi].get(str(val), str(val))
+
+    cols = [fam_df.iloc[:, vi].map(lambda val, vi=vi: _lab(vi, val)) for vi in range(n_v)]
+    all_cats = []
+    for c in cols:
+        for cat in c.unique():
+            if cat not in all_cats:
+                all_cats.append(cat)
+    all_cats = sorted(set(all_cats), key=lambda c: (c == 'N/A', c))
+    non_na = [c for c in all_cats if c != 'N/A']
+    color_map = {cat: _CATEGORY_PALETTE[i % len(_CATEGORY_PALETTE)] for i, cat in enumerate(non_na)}
+    color_map['N/A'] = '#CBD5E1'
+
+    node_gap = max(1.0, 0.02 * n_patients)
+    x_pos = np.linspace(0, 1, n_v) if n_v > 1 else np.array([0.5])
+    node_rects = {}
+    max_height = 0.0
+    for vi, c in enumerate(cols):
+        counts = c.value_counts()
+        counts = counts.reindex([cat for cat in all_cats if cat in counts.index])
+        y = 0.0
+        for cat, cnt in counts.items():
+            y0, y1 = y, y + cnt
+            node_rects[(vi, cat)] = (y0, y1)
+            ax.add_patch(mpatches.Rectangle((x_pos[vi] - 0.012, y0), 0.024, y1 - y0,
+                                             facecolor=color_map[cat], edgecolor='white',
+                                             linewidth=0.5, zorder=3))
+            if n_patients and cnt / n_patients > 0.03:
+                ax.text(x_pos[vi], (y0 + y1) / 2, f"{cat}\\n{int(cnt)}", ha='center', va='center',
+                        fontsize=8, color=_TEXT_DARK, zorder=4)
+            y = y1 + node_gap
+        max_height = max(max_height, y)
+
+    for vi in range(n_v - 1):
+        trans = pd.crosstab(cols[vi], cols[vi + 1])
+        y_off_src = {cat: node_rects[(vi, cat)][0] for cat in all_cats if (vi, cat) in node_rects}
+        y_off_tgt = {cat: node_rects[(vi + 1, cat)][0] for cat in all_cats if (vi + 1, cat) in node_rects}
+        for src in trans.index:
+            for tgt in trans.columns:
+                cnt = trans.loc[src, tgt]
+                if cnt <= 0:
+                    continue
+                y0s = y_off_src[src]; y1s = y0s + cnt; y_off_src[src] = y1s
+                y0t = y_off_tgt[tgt]; y1t = y0t + cnt; y_off_tgt[tgt] = y1t
+                _draw_ribbon(ax, x_pos[vi] + 0.012, x_pos[vi + 1] - 0.012, y0s, y1s, y0t, y1t, color_map[src])
+
+    ax.set_xlim(-0.05, 1.05)
+    ax.set_ylim(-max_height * 0.02, max_height * 1.05)
+    ax.set_xticks(x_pos)
+    ax.set_xticklabels(visits, rotation=45 if n_v > 4 else 0, ha='right' if n_v > 4 else 'center')
+    ax.set_yticks([])
+    for spine in ('top', 'right', 'left'):
+        ax.spines[spine].set_visible(False)
+    ax.spines['bottom'].set_color(_GRID)
+    _panel_title(ax, f"Category Flow \\u00b7 {var_label.upper()}")
+
+# ---- Run over every identified family --------------------------------------
+longitudinal_json = {}
+for fam in families:
+    slug = re.sub(r'[^a-z0-9]+', '_', str(fam['key']).lower()).strip('_')
+    fig, ax = plt.subplots(figsize=(10, 6))
+    try:
+        if fam['var_type'] in ('int', 'float'):
+            result = _process_numeric_family(fam)
+            if result is None:
+                plt.close(fig)
+                continue
+            _plot_numeric_family(ax, result, fam['var_label'])
+            longitudinal_json[fam['key']] = {
+                'var_type': fam['var_type'],
+                'var_label': fam['var_label'],
+                'member_variables': fam['members'],
+                'chart_type': 'trajectory_bands',
+                **result,
+            }
+        elif fam['var_type'] == 'categorical':
+            processed = _process_categorical_family(fam)
+            if processed is None:
+                plt.close(fig)
+                continue
+            _plot_categorical_family(ax, processed, fam['var_label'])
+            longitudinal_json[fam['key']] = {
+                'var_type': fam['var_type'],
+                'var_label': fam['var_label'],
+                'member_variables': fam['members'],
+                'visit_labels': fam['visit_labels'],
+                'chart_type': 'alluvial',
+                'n_patients': processed['n_patients'],
+            }
+        else:
+            plt.close(fig)
+            continue
+        plt.tight_layout()
+        plt.savefig(f"/output/longitudinal_{slug}.png", dpi=160, bbox_inches='tight')
+    except Exception as e:
+        data_issues.append(f"Longitudinal family {fam['key']}: failed to build chart: {e}")
+    finally:
+        plt.close('all')
+
+with open('/output/eda_longitudinal_v1_{cohort_id}.json', 'w') as f:
+    json.dump(longitudinal_json, f, indent=4)
+
+with open('/output/data_issues.json', 'w') as f:
+    json.dump(data_issues, f, indent=4)
+"""
+    return (raw_script.replace("{shared_helpers}", _SHARED_HELPERS)
+            .replace("{chart_style}", _CHART_STYLE_HELPERS)
+            .replace("{cohort_id}", cohort_id))
 
 
 def shuffle_data(cohort_id: str) -> str:
