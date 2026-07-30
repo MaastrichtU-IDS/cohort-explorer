@@ -11,6 +11,7 @@ from starlette.middleware.cors import CORSMiddleware
 from src.auth import router as auth_router
 from src.config import settings
 from src.data_analysis import router as data_analysis_router
+from src.data_analysis import bare_router as data_analysis_bare_router
 from src.decentriq import router as decentriq_router
 from src.decentriq import refresh_all_dcrs_via_decentriq_api
 from src.explore import router as explore_router
@@ -74,6 +75,7 @@ app = FastAPI(
 app.include_router(explore_router, tags=["explore"])
 app.include_router(mapping_router, prefix="/api", tags=["mapping"])
 app.include_router(data_analysis_router, prefix="/api", tags=["data-analysis"])
+app.include_router(data_analysis_bare_router, tags=["data-analysis"])
 app.include_router(upload_router, tags=["upload"])
 app.include_router(decentriq_router, tags=["upload"])
 app.include_router(auth_router, tags=["authentication"])

@@ -8,13 +8,16 @@ from datetime import datetime
 from typing import Any, Dict, List, Set
 
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 
 from src.auth import get_current_user
 from src.cohort_cache import get_cohorts_from_cache, is_cache_initialized, cohort_to_dict
 from src.utils import retrieve_cohorts_metadata
 
 router = APIRouter()
+# Routes that should NOT be under the /api prefix (e.g. HTML pages served
+# directly to the browser) live on this separate router.
+bare_router = APIRouter()
 
 
 def compare_cache_objects(cache_a: Dict, cache_b: Dict) -> Dict[str, Any]:
@@ -305,3 +308,16 @@ async def compare_cohorts_cache(
     except Exception as e:
         logging.error(f"Error comparing cache files: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error comparing cache files: {str(e)}")
+
+
+# ------------------------------------------------------------------
+# GET /longitudinal-audit — HTML report of longitudinal variable
+# identification, common-name extraction, and visit ordering for all
+# cohorts in the cache.
+# ------------------------------------------------------------------
+@bare_router.get("/longitudinal-audit", response_class=HTMLResponse)
+def longitudinal_audit(user: Any = Depends(get_current_user)) -> HTMLResponse:
+    from src.longitudinal_audit import audit_all_cohorts, render_audit_html
+
+    results = audit_all_cohorts()
+    return HTMLResponse(content=render_audit_html(results))

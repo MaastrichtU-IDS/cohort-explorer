@@ -245,55 +245,133 @@ def _missing_codes_of(d):
 # c4 (longitudinal plots). Kept separate from _SHARED_HELPERS because c2
 # never imports matplotlib.
 _CHART_STYLE_HELPERS = '''
-_ACCENT = "#6366F1"
-_ACCENT_DARK = "#4338CA"
-_TEXT_DARK = "#1E293B"
-_TEXT_MUTED = "#64748B"
-_GRID = "#E2E8F0"
-_PANEL_BG = "#F8FAFC"
-_PANEL_EDGE = "#E2E8F0"
-_CATEGORY_PALETTE = ["#6366F1", "#14B8A6", "#F59E0B", "#F43F5E", "#8B5CF6", "#0EA5E9", "#84CC16", "#EC4899"]
+import textwrap as _textwrap
 
-plt.rcParams.update({
-    'font.family': 'sans-serif',
-    'font.sans-serif': ['DejaVu Sans', 'Arial', 'Helvetica'],
-    'axes.edgecolor': _GRID,
-    'axes.labelcolor': _TEXT_MUTED,
-    'axes.titlesize': 13,
-    'axes.labelsize': 10.5,
-    'axes.linewidth': 1.0,
-    'xtick.color': _TEXT_MUTED,
-    'ytick.color': _TEXT_MUTED,
-    'xtick.labelsize': 9.5,
-    'ytick.labelsize': 9.5,
-    'text.color': _TEXT_DARK,
-    'figure.facecolor': 'white',
-    'axes.facecolor': 'white',
-    'savefig.facecolor': 'white',
-})
+# Classic matplotlib/seaborn defaults are kept deliberately: the only shared
+# styling is the summary-stats panel and a light grid.
+_CATEGORY_PALETTE = list(plt.rcParams['axes.prop_cycle'].by_key()['color'])
+_ACCENT = _CATEGORY_PALETTE[0]
+_ACCENT_DARK = _CATEGORY_PALETTE[0]
+_GRID = '#CCCCCC'
+_TEXT_MUTED = 'black'
+_STATS_FONTSIZE = 10
+_STATS_LINESPACING = 1.5
+_STATS_MAX_CHARS = 62
+# Sentinel entry that separates groups of related stats with a blank line.
+_GROUP_BREAK = ''
+# Shown on the chart title and in the stats panel whenever full calendar dates
+# are rolled up before charting.
+_MONTH_AGG_NOTE = 'values aggregated to month+year'
+
+def _has_day_granularity(dates):
+    # True when the values are full calendar dates rather than already
+    # month- or year-level values (in which case every value shares one day).
+    try:
+        present = dates.dropna()
+        if present.empty:
+            return False
+        return int(present.dt.day.nunique()) > 1
+    except (AttributeError, TypeError, ValueError):
+        return False
 
 def _clean_axis(ax, grid_axis='y'):
-    for spine in ('top', 'right', 'left'):
-        ax.spines[spine].set_visible(False)
-    ax.spines['bottom'].set_color(_GRID)
+    # Keep the default frame; add a faint grid only.
     if grid_axis:
-        ax.grid(axis=grid_axis, color=_GRID, linewidth=0.9, alpha=0.9, zorder=0)
+        ax.grid(axis=grid_axis, color=_GRID, linewidth=0.7, alpha=0.5)
     ax.set_axisbelow(True)
-    ax.tick_params(length=0)
 
 def _panel_title(ax, title):
-    ax.set_title(title, fontsize=13, fontweight='bold', color=_TEXT_DARK, loc='left', pad=12)
+    ax.set_title(title, fontsize=12)
 
-def _render_stats_panel(ax, title, stats_text):
+def _fmt_stat(value, decimals=2, suffix=''):
+    # Panel-safe rendering of a v2 structured measure, which may be None when
+    # the sample was too small to compute it.
+    if value is None:
+        return 'N/A'
+    if isinstance(value, bool):
+        return 'yes' if value else 'no'
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if num != num:
+        return 'N/A'
+    return f"{num:,.{decimals}f}{suffix}"
+
+def _fmt_count(count, pct=None, small_pct_cutoff=5.0):
+    # A zero count needs no "(0%)" suffix. Otherwise the share is rounded to a
+    # whole number, except for small shares where the decimals carry the
+    # information (0.36% and 4% should not both collapse to the same digit).
+    if count is None:
+        return 'N/A'
+    try:
+        n = int(count)
+    except (TypeError, ValueError):
+        return str(count)
+    if n == 0 or pct is None:
+        return str(n)
+    try:
+        share = float(pct)
+    except (TypeError, ValueError):
+        return str(n)
+    if share != share:
+        return str(n)
+    if abs(share) < small_pct_cutoff:
+        return f"{n} ({share:.2f}%)"
+    return f"{n} ({round(share):.0f}%)"
+
+def _format_stats_lines(stats_text, max_chars=_STATS_MAX_CHARS, label_pad_cap=20):
+    # Split every entry on its first colon, then pad labels to a common width so
+    # that all values start in the same column. Values that are too long are
+    # wrapped and hanging-indented instead of breaking mid-entry.
+    rows = []
+    for raw in stats_text:
+        line = str(raw)
+        if not line.strip():
+            rows.append((None, None))
+        elif ':' in line:
+            label, value = line.split(':', 1)
+            rows.append((' '.join(label.split()), ' '.join(value.split())))
+        else:
+            rows.append((' '.join(line.split()), None))
+    if not rows:
+        return []
+    label_width = min(max((len(lbl) for lbl, _ in rows if lbl), default=0), label_pad_cap)
+    out = []
+    for label, value in rows:
+        if label is None:
+            # Group separator: never leading, never doubled.
+            if out and out[-1] != '':
+                out.append('')
+            continue
+        if value is None:
+            out.extend(_textwrap.wrap(label, max_chars) or [''])
+            continue
+        head = (label + ':').ljust(label_width + 2)
+        if not head.endswith(' '):
+            # Label is longer than the common gutter; keep at least one space.
+            head = head + ' '
+        indent = ' ' * len(head)
+        avail = max(12, max_chars - len(head))
+        chunks = _textwrap.wrap(value, avail) or ['']
+        out.append(head + chunks[0])
+        for extra in chunks[1:]:
+            out.append(indent + extra)
+    return out
+
+def _stats_figure_height(stats_lines, minimum=6.0):
+    # Size the canvas to the panel content so the chart is never left floating
+    # in a mostly empty figure.
+    line_in = (_STATS_FONTSIZE * _STATS_LINESPACING) / 72.0
+    return max(minimum, len(stats_lines) * line_in + 1.3)
+
+def _render_stats_panel(ax, title, stats_lines):
     ax.axis('off')
     _panel_title(ax, title)
-    props = dict(boxstyle='round,pad=0.8', facecolor=_PANEL_BG, edgecolor=_PANEL_EDGE, linewidth=1.2)
-    text_obj = ax.text(0.0, 0.93, '\\n'.join(stats_text), transform=ax.transAxes, fontsize=10.5,
-                        va='top', ha='left', color=_TEXT_DARK, bbox=props, linespacing=1.9,
-                        family='sans-serif', wrap=True)
-    if hasattr(text_obj, '_get_wrap_line_width'):
-        text_obj._get_wrap_line_width = lambda: 420
-    return text_obj
+    props = dict(boxstyle='round,pad=0.5', facecolor='whitesmoke', alpha=0.8, edgecolor='lightgray')
+    return ax.text(0.02, 0.98, '\\n'.join(stats_lines), transform=ax.transAxes,
+                    fontsize=_STATS_FONTSIZE, va='top', ha='left', family='monospace',
+                    bbox=props, linespacing=_STATS_LINESPACING, wrap=False)
 '''
 
 
@@ -566,13 +644,20 @@ for index, row in dictionary.iterrows():
             'completeness': completeness,
             'count_missing': completeness['n_coded_missing'],
             'count_na': completeness['n_empty'],
-            # Used by c4_longitudinal_analysis to identify longitudinal
+            # Used by longitudinal_analysis to identify longitudinal
             # families (same concept measured at different visits) and to
             # detect the patient-id column.
             'omop_id': _dict_val('VARIABLE OMOP ID'),
             'concept_code': _dict_val('VARIABLE CONCEPT CODE'),
+            # Two variables only belong to the same longitudinal family if they
+            # share the concept *and* the additional context, so the context is
+            # part of the grouping key rather than decoration.
+            'additional_context': _dict_val('ADDITIONAL CONTEXT CONCEPT NAME'),
+            'units': _dict_val('UNITS'),
             'visits': _dict_val('VISITS'),
             'visit_concept_name': _dict_val('VISIT CONCEPT NAME'),
+            'visit_concept_code': _dict_val('VISIT CONCEPT CODE'),
+            'visit_omop_id': _dict_val('VISIT OMOP ID'),
     }
     if t == 'categorical':
         vars_details[variable_name]['categories'] = class_names
@@ -631,6 +716,47 @@ warnings.filterwarnings('ignore')
 {shared_helpers}
 {chart_style}
 
+# Study/cohort this DCR belongs to; shown on every panel and chart title.
+COHORT_ID = "{cohort_id}"
+
+def _meta_value(details, key):
+    # Read an optional metadata-dictionary field, treating NaN and the various
+    # spellings of "not applicable" as absent.
+    try:
+        value = details.get(key)
+    except Exception:
+        return ''
+    if value is None:
+        return ''
+    try:
+        if pd.isna(value):
+            return ''
+    except (TypeError, ValueError):
+        pass
+    text = str(value).strip()
+    if text.lower() in ('', 'na', 'n/a', 'nan', 'none', 'null', '-', '--', 'not applicable'):
+        return ''
+    return text
+
+def _identity_lines(column, details):
+    # Study / column / label, plus the visit type and code when the metadata
+    # dictionary declares them.
+    lines = [
+        f"Study: {COHORT_ID}",
+        f"Column: {column}",
+        f"Label: {_meta_value(details, 'var_label') or column}",
+    ]
+    visit_type = _meta_value(details, 'visits')
+    visit_code = _meta_value(details, 'visit_concept_code')
+    visit_name = _meta_value(details, 'visit_concept_name')
+    if visit_type:
+        lines.append(f"Visit type: {visit_type}")
+    if visit_name:
+        lines.append(f"Visit concept: {visit_name}")
+    if visit_code:
+        lines.append(f"Visit code: {visit_code}")
+    return lines
+
 # Load the dataset with corrected missing values replaced with NA from previous step
 # data_correct_missing = pd.read_csv("/input/C3_map_missing_do_not_run/data_correct.csv", low_memory=False)
 
@@ -685,8 +811,32 @@ for v in list(vars_details.columns):
 #vars_to_graph = ['age', 'ALCOOL', 'DATAECG', 'DATALAB']
 #vars_to_graph = [x.lower() for x in vars_to_graph]
 #vars_to_graph = ['age', 'ALCOOL', 'DATAECG', 'DATALAB', 'AATHORAX', 'AATHORAXDIM', 'ACE_AT_V1']
+# Patient/subject identifiers hold no analytical signal and must never be
+# profiled or charted. Every cohort names that column differently, so they are
+# recognised by their standardised concept instead of by name.
+_PATIENT_OMOP_ID = '4086934'
+_PATIENT_CONCEPT_CODE = '184107009'
+
+def _is_patient_id(details):
+    omop_id = _meta_value(details, 'omop_id')
+    if omop_id.endswith('.0'):
+        omop_id = omop_id[:-2]
+    if omop_id == _PATIENT_OMOP_ID:
+        return True
+    return _PATIENT_CONCEPT_CODE in _meta_value(details, 'concept_code')
+
+patient_id_cols = set()
+for _v in list(vars_details.columns):
+    if _is_patient_id(vars_details[_v]):
+        patient_id_cols.add(str(_v).strip().lower())
+        data_issues.append(
+            f"Variable {_v} is a patient identifier (SNOMED:{_PATIENT_CONCEPT_CODE} / "
+            f"OMOP {_PATIENT_OMOP_ID}); excluded from profiling."
+        )
+
 vars_to_graph = list(vars_details.columns)
 vars_to_graph = [x.strip().lower() for x in vars_to_graph]
+vars_to_graph = [x for x in vars_to_graph if x not in patient_id_cols]
 
 def _lowercase_if_string(x):
     if isinstance(x, str):
@@ -908,6 +1058,9 @@ def variable_eda(df, vars_details):
     for column in df.columns.tolist():
         if column not in vars_details.columns:
             continue
+        if column in patient_id_cols:
+            # No stats, no chart, no structured entry for identifiers.
+            continue
         # Continuous variables
         try:
             # `df` already holds only the valid values: blank, coded-missing and
@@ -981,43 +1134,61 @@ def variable_eda(df, vars_details):
                 # Range Calculation
                 range_value = stats['max'] - stats['min']
 
-                # Stats Text
-                stats_text = (
-                    f"Column: {column}",
-                    f"Label: {vars_details[column]['var_label']}",
-                    f"Type: Numeric (encoded as {df[column].dtype})",
-                    f"Count of valid observations: {count_nonnull}",
-                    f"Count empty (blank cells): {count_na} ({comp.get('pct_empty', 0):.2f}%)",
-                    f"Count coded missing: {count_missing} ({comp.get('pct_coded_missing', 0):.2f}%)",
-                    f"Count missing total: {count_missing_total} ({comp.get('pct_missing_total', 0):.2f}%)",
-                    f"Count invalid: {count_invalid} ({comp.get('pct_invalid', 0):.2f}%)",
-                    f"Missing code(s) declared: {missing_codes_txt}",
-                    f"Number of Unique Values/Categories: {df[column].nunique()}",
-                    f"Mean:                {stats['mean']:.2f}",
-                    f"Median:              {stats['50%']:.2f}",
-                    f"Mode:                {mode_value:.2f}",
-                    f"Std Dev:             {stats['std']:.2f}",
-                    f"Variance:            {stats['std']**2:.2f}",
-                    f"Max:                 {stats['max']:.2f}",
-                    f"Min:                 {stats['min']:.2f}",
-                    f"Range:               {range_value:.2f}", 
-                    f"Q1:                  {Q1:.2f}",
-                    f"Q3:                  {Q3:.2f}",
-                    f"IQR:                 {IQR:.2f}",
-                    f"Outliers (IQR):      {outliers} ({(outliers / len(df)) * 100:.2f}%)",
-                    f"Outliers (Z):        {z_outliers}",
-                    f"Skewness:            {skewness:.2f}",
-                    f"Kurtosis:            {kurt:.2f}",
-                    f"W_Test:              {w_test_stat:.2f}",
-                    f"Normality Test: p-value={p_value_str} => {normality}"
-                )
-
+                # Structured v2 measures are computed first so the panel can
+                # reuse them instead of recomputing.
                 try:
                     structured[column] = _numeric_structured(df[column], comp)
                     structured[column]['type'] = 'numeric'
                     structured[column]['label'] = vars_details[column]['var_label']
                 except Exception as e:
                     data_issues.append(f"Failed to compute structured numeric stats for {column}: {str(e)}")
+                _sv = structured.get(column, {})
+                _out_mad = _sv.get('outliers_mad') or {}
+                _norm = _sv.get('normality') or {}
+                _zero_frac = _sv.get('zero_fraction')
+
+                # Stats Text. _GROUP_BREAK entries render as blank lines so the
+                # panel reads as labelled blocks rather than one long list.
+                stats_text = tuple(_identity_lines(column, vars_details[column])) + (
+                    f"Type: Numeric (encoded as {df[column].dtype})",
+                    _GROUP_BREAK,
+                    f"Count of valid observations: {count_nonnull}",
+                    f"Count empty (blank cells): {_fmt_count(count_na, comp.get('pct_empty', 0))}",
+                    f"Count coded missing: {_fmt_count(count_missing, comp.get('pct_coded_missing', 0))}",
+                    f"Count missing total: {_fmt_count(count_missing_total, comp.get('pct_missing_total', 0))}",
+                    f"Count invalid: {_fmt_count(count_invalid, comp.get('pct_invalid', 0))}",
+                    f"Missing code(s) declared: {missing_codes_txt}",
+                    f"Number of Unique Values/Categories: {df[column].nunique()}",
+                    _GROUP_BREAK,
+                    f"Mean: {stats['mean']:.2f}",
+                    f"Median: {stats['50%']:.2f}",
+                    f"Mode: {mode_value:.2f}",
+                    f"Trimmed mean (10%): {_fmt_stat(_sv.get('trimmed_mean_10'))}",
+                    _GROUP_BREAK,
+                    f"Std Dev: {stats['std']:.2f}",
+                    f"Variance: {stats['std']**2:.2f}",
+                    f"CV: {_fmt_stat(_sv.get('cv'), 3)}",
+                    f"MAD: {_fmt_stat(_sv.get('mad'))}",
+                    f"Min: {stats['min']:.2f}",
+                    f"Max: {stats['max']:.2f}",
+                    f"Range: {range_value:.2f}", 
+                    _GROUP_BREAK,
+                    f"Q1: {Q1:.2f}",
+                    f"Q3: {Q3:.2f}",
+                    f"IQR: {IQR:.2f}",
+                    f"P5 / P95: {_fmt_stat(_sv.get('p5'))} / {_fmt_stat(_sv.get('p95'))}",
+                    _GROUP_BREAK,
+                    f"Zero fraction: {_fmt_stat(None if _zero_frac is None else _zero_frac * 100, 2, '%')}",
+                    f"Outliers (IQR): {_fmt_count(outliers, (outliers / len(df)) * 100 if len(df) else None)}",
+                    f"Outliers (MAD): {_fmt_count(_out_mad.get('count'), _out_mad.get('pct'))}",
+                    f"Outliers (Z): {_fmt_count(z_outliers)}",
+                    _GROUP_BREAK,
+                    f"Skewness: {skewness:.2f}",
+                    f"Kurtosis: {kurt:.2f}",
+                    f"W_Test: {w_test_stat:.2f}",
+                    f"Normality Test: p-value={p_value_str} => {normality}",
+                    f"Normality (D'Agostino) p-value: {_fmt_stat(_norm.get('dagostino_p'), 4)}"
+                )
 
                 if column in vars_to_graph:
                     try:
@@ -1041,13 +1212,22 @@ def variable_eda(df, vars_details):
                 categories_mapping = {str(k): v for (k, v) in categories_mapping.items()}
                 #print("variable: ", column, "categories:", categories_mapping, value_counts )
 
+                # Structured v2 measures are computed first so the panel can
+                # reuse them instead of recomputing.
+                try:
+                    structured[column] = _categorical_structured(df[column], comp, categories_mapping)
+                    structured[column]['type'] = 'categorical'
+                    structured[column]['label'] = vars_details[column]['var_label']
+                except Exception as e:
+                    data_issues.append(f"Failed to compute structured categorical stats for {column}: {str(e)}")
+                _sv = structured.get(column, {})
+
                 if value_counts.empty:
-                    stats_text = (
-                        f"Column: {column}",
-                        f"Label: {vars_details[column]['var_label']}",
+                    stats_text = tuple(_identity_lines(column, vars_details[column])) + (
                         f"Type: Categorical (encoded as {df[column].dtype})",
+                        _GROUP_BREAK,
                         f"Number of Unique Categories: 0",
-                        f"Missing Values: {df[column].isnull().sum()} ({df[column].isnull().mean() * 100:.2f}%)"
+                        f"Missing Values: {_fmt_count(df[column].isnull().sum(), df[column].isnull().mean() * 100)}"
                     )
                 else:
                     # Chi-square test
@@ -1062,28 +1242,27 @@ def variable_eda(df, vars_details):
                         else:
                             class_balance_text += f"{key} -> {round(count / total * 100, 2)}%\\n	"
 
-                    stats_text = (
-                        f"Column: {column}",
-                        f"Label: {vars_details[column]['var_label']}",
+                    stats_text = tuple(_identity_lines(column, vars_details[column])) + (
                         f"Type: Categorical (encoded as {df[column].dtype})",
+                        _GROUP_BREAK,
                         f"Number of unique values/categories: {len(value_counts)}",
                         f"Most frequent category: {categories_mapping.get(str(value_counts.idxmax()), 'Unknown')} ",
+                        _GROUP_BREAK,
                         f"Count of valid observations: {count_nonnull}",
-                        f"Count empty (blank cells): {count_na} ({comp.get('pct_empty', 0):.2f}%)",
-                        f"Count coded missing: {count_missing} ({comp.get('pct_coded_missing', 0):.2f}%)",
-                        f"Count missing total: {count_missing_total} ({comp.get('pct_missing_total', 0):.2f}%)",
-                        f"Count invalid: {count_invalid} ({comp.get('pct_invalid', 0):.2f}%)",
+                        f"Count empty (blank cells): {_fmt_count(count_na, comp.get('pct_empty', 0))}",
+                        f"Count coded missing: {_fmt_count(count_missing, comp.get('pct_coded_missing', 0))}",
+                        f"Count missing total: {_fmt_count(count_missing_total, comp.get('pct_missing_total', 0))}",
+                        f"Count invalid: {_fmt_count(count_invalid, comp.get('pct_invalid', 0))}",
                         f"Missing code(s) declared: {missing_codes_txt}",
-                        f"Class balance: {class_balance_text}",
-                        f"Chi-Square Test Statistic: {chi_square_stat:.2f}"
+                        _GROUP_BREAK,
+                        f"Entropy (bits): {_fmt_stat(_sv.get('entropy_bits'), 3)}",
+                        f"Normalized entropy: {_fmt_stat(_sv.get('normalized_entropy'), 3)}",
+                        f"Gini impurity: {_fmt_stat(_sv.get('gini_impurity'), 3)}",
+                        f"Imbalance ratio: {_fmt_stat(_sv.get('imbalance_ratio'))}",
+                        f"Chi-Square Test Statistic: {chi_square_stat:.2f}",
+                        _GROUP_BREAK,
+                        f"Class balance: {class_balance_text}"
                     )
-
-                try:
-                    structured[column] = _categorical_structured(df[column], comp, categories_mapping)
-                    structured[column]['type'] = 'categorical'
-                    structured[column]['label'] = vars_details[column]['var_label']
-                except Exception as e:
-                    data_issues.append(f"Failed to compute structured categorical stats for {column}: {str(e)}")
 
                 if column in vars_to_graph:
                     try:
@@ -1100,34 +1279,52 @@ def variable_eda(df, vars_details):
                     continue
                 value_counts = df[column].value_counts(dropna=True)
                 total = int(value_counts.sum())
-                stats_text = [
-                        f"Column: {column}",
-                        f"Label: {vars_details[column]['var_label']}",
-                        f"Type: Date (encoded as {df[column].dtype})",
-                        f"Number of unique values: {len(value_counts)}",
-                        f"Most frequent value: {str(value_counts.idxmax()).split('.')[0]}",
-                        f"Count of valid observations: {count_nonnull}",
-                        f"Count empty (blank cells): {count_na} ({comp.get('pct_empty', 0):.2f}%)",
-                        f"Count coded missing: {count_missing} ({comp.get('pct_coded_missing', 0):.2f}%)",
-                        f"Count missing total: {count_missing_total} ({comp.get('pct_missing_total', 0):.2f}%)",
-                        f"Count invalid: {count_invalid} ({comp.get('pct_invalid', 0):.2f}%)",
-                        f"Missing code(s) declared: {missing_codes_txt}",
-                        f"Mean:                {stats['mean'].date()}",
-                        f"Median:              {stats['50%'].date()}",
-                        f"Max:                 {stats['max'].date()}",
-                        f"Min:                 {stats['min'].date()}",
-                        f"Range:               {stats['max'] - stats['min']}", 
-                        f"Q1:                  {stats['25%'].date()}",
-                        f"Q3:                  {stats['75%'].date()}",
-                        f"IQR:                 {stats['75%'] - stats['25%']}",
-                ]
-                #stats_text.extend([f"{k.capitalize()}: {v}" for k,v in stats.items()])
+                # Structured v2 measures are computed first so the panel can
+                # reuse them instead of recomputing.
                 try:
                     structured[column] = _date_structured(df[column], comp)
                     structured[column]['type'] = 'date'
                     structured[column]['label'] = vars_details[column]['var_label']
                 except Exception as e:
                     data_issues.append(f"Failed to compute structured date stats for {column}: {str(e)}")
+                _sv = structured.get(column, {})
+                # Full calendar dates are charted at month+year resolution, so
+                # the panel says so rather than leaving the chart to explain it.
+                if _has_day_granularity(pd.to_datetime(df[column], errors='coerce')):
+                    _granularity_lines = [
+                        f"Value granularity: full date (year, month, day)",
+                        f"Chart note: {_MONTH_AGG_NOTE}",
+                    ]
+                else:
+                    _granularity_lines = []
+                stats_text = _identity_lines(column, vars_details[column]) + [
+                        f"Type: Date (encoded as {df[column].dtype})",
+                ] + _granularity_lines + [
+                        _GROUP_BREAK,
+                        f"Number of unique values: {len(value_counts)}",
+                        f"Most frequent value: {str(value_counts.idxmax()).split('.')[0]}",
+                        _GROUP_BREAK,
+                        f"Count of valid observations: {count_nonnull}",
+                        f"Count empty (blank cells): {_fmt_count(count_na, comp.get('pct_empty', 0))}",
+                        f"Count coded missing: {_fmt_count(count_missing, comp.get('pct_coded_missing', 0))}",
+                        f"Count missing total: {_fmt_count(count_missing_total, comp.get('pct_missing_total', 0))}",
+                        f"Count invalid: {_fmt_count(count_invalid, comp.get('pct_invalid', 0))}",
+                        f"Missing code(s) declared: {missing_codes_txt}",
+                        _GROUP_BREAK,
+                        f"Mean: {stats['mean'].date()}",
+                        f"Median: {stats['50%'].date()}",
+                        f"Min: {stats['min'].date()}",
+                        f"Max: {stats['max'].date()}",
+                        f"Range: {stats['max'] - stats['min']}", 
+                        f"Range (days): {_sv.get('range_days', 'N/A')}",
+                        _GROUP_BREAK,
+                        f"Q1: {stats['25%'].date()}",
+                        f"Q3: {stats['75%'].date()}",
+                        f"IQR: {stats['75%'] - stats['25%']}",
+                        _GROUP_BREAK,
+                        f"Dates in the future: {_sv.get('future_dates', 'N/A')}",
+                ]
+                #stats_text.extend([f"{k.capitalize()}: {v}" for k,v in stats.items()])
 
                 if column in vars_to_graph:
                     try:
@@ -1138,7 +1335,8 @@ def variable_eda(df, vars_details):
                 print("ELSE case: variable name ", column, "inferred type: ", vars_details[column]['inferred_type'])
                 stats_text = []
             stats_text_dict = OrderedDict()
-            stats_text_dict.update({i.split(":")[0].strip():i.split(":")[1].strip() for i in stats_text})
+            # Group separators carry no key/value pair, so skip them here.
+            stats_text_dict.update({i.split(":")[0].strip():i.split(":")[1].strip() for i in stats_text if ":" in i})
             if 'Class balance' in stats_text_dict:
                 stats_text_dict['Class balance'].replace(" ->", ":")
             stats_text_dict['url'] = f"https://explorer.icare4cvd.eu/api/variable-graph/{cohort_id}/{column}"
@@ -1153,37 +1351,61 @@ def variable_eda(df, vars_details):
 
 
 def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
+    # Drop any figure orphaned by an exception in a previous call: the caller
+    # swallows plotting errors, so the close at the end of this function can be
+    # skipped. With hundreds of variables those orphans would accumulate.
+    plt.close('all')
+    stats_lines = _format_stats_lines(stats_text)
+    fig_height = _stats_figure_height(stats_lines)
+    chart_title = f"Distribution of {varname.upper()} ({COHORT_ID})"
     if vartype == 'numerical':
-        fig, axes = plt.subplots(1, 2, figsize=(12, 5.5))
+        fig, axes = plt.subplots(1, 2, figsize=(12, fig_height))
 
         # Left: Summary stats card
-        _render_stats_panel(axes[0], f"Summary Stats · {varname.upper()}", stats_text)
+        _render_stats_panel(axes[0], f"Summary Stats for {varname.upper()}", stats_lines)
 
-        # Right: Histogram + KDE overlay
-        col_vals = df[varname].dropna()
-        sns.histplot(col_vals, kde=False, ax=axes[1], color=_ACCENT,
-                     edgecolor='white', linewidth=0.6, alpha=0.9, zorder=2)
-        if col_vals.nunique() > 1:
-            kde_ax = axes[1].twinx()
-            sns.kdeplot(col_vals, ax=kde_ax, color=_ACCENT_DARK, linewidth=2, zorder=3)
-            kde_ax.set_yticks([])
-            kde_ax.set_ylabel('')
-            for spine in ('top', 'right', 'left'):
-                kde_ax.spines[spine].set_visible(False)
-        _panel_title(axes[1], f"Distribution · {varname.upper()}")
+        # Right: Histogram with a count-scaled KDE on the same axis, so the
+        # curve height is comparable to the bars.
+        col_vals = pd.to_numeric(df[varname], errors='coerce').dropna()
+        n_unique = col_vals.nunique()
+        hist_kwargs = {}
+        discrete = False
+        if n_unique > 1 and len(col_vals) and float((col_vals % 1 != 0).sum()) == 0 and n_unique <= 30:
+            # Integer-valued with few distinct values: one bar per value instead
+            # of arbitrary auto-bins that split integers unevenly.
+            hist_kwargs['discrete'] = True
+            discrete = True
+        if n_unique > 1:
+            # cut=0 stops the gaussian tails from stretching the x-axis past the
+            # observed data range.
+            hist_kwargs['kde'] = True
+            hist_kwargs['kde_kws'] = {'cut': 0}
+        sns.histplot(col_vals, ax=axes[1], **hist_kwargs)
+        _panel_title(axes[1], chart_title)
         _clean_axis(axes[1])
         axes[1].set_xlabel("Value")
         axes[1].set_ylabel("Count")
+
+        if n_unique > 1:
+            low, high = float(col_vals.min()), float(col_vals.max())
+            pad = max(0.02 * (high - low), 0.6 if discrete else 0.0)
+            axes[1].set_xlim(low - pad, high + pad)
+        if len(col_vals):
+            mean_val, median_val = float(col_vals.mean()), float(col_vals.median())
+            axes[1].axvline(mean_val, color='firebrick', linestyle='--', linewidth=1.4,
+                            label=f"Mean = {mean_val:,.2f}")
+            axes[1].axvline(median_val, color='darkslategray', linestyle=':', linewidth=1.6,
+                            label=f"Median = {median_val:,.2f}")
+            axes[1].legend(fontsize=9, frameon=False)
 
         # Save the figure for the current feature
         plt.tight_layout()
         plt.savefig(f"/output/{varname.lower()}.png", dpi=160, bbox_inches='tight')
         #print(f"figure for {varname} saved!! ")
-       #plt.close()
     elif vartype == 'datetime':
-        fig, axes = plt.subplots(1, 2, figsize=(12, 5.5))
+        fig, axes = plt.subplots(1, 2, figsize=(12, fig_height))
 
-        _render_stats_panel(axes[0], f"Summary Stats · {varname.upper()}", stats_text)
+        _render_stats_panel(axes[0], f"Summary Stats for {varname.upper()}", stats_lines)
         try:
             date_vals =  pd.to_datetime(df[varname].dropna(), format='mixed')
         except:
@@ -1191,41 +1413,66 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
             plt.close('all')
             return {}
     
+        # Full calendar dates are never charted at day resolution: they are
+        # truncated to the first of their month so a bar can only ever say
+        # "month + year".
+        month_aggregated = _has_day_granularity(date_vals)
+        if month_aggregated:
+            date_vals = date_vals.dt.to_period('M').dt.to_timestamp()
+
+        if date_vals.empty:
+            print("date column has no parseable values: ", varname)
+            plt.close('all')
+            return {}
+
         date_nums = mdates.date2num(date_vals)
-    
+
         min_date = date_vals.min()
         max_date = date_vals.max()
         date_range = max_date - min_date
-    
-        
-        if date_range.days > 365 * 10:  
-            bin_freq = 'YS'  # Yearly start
-            axes[1].xaxis.set_major_locator(mdates.YearLocator(base=2))
-        elif date_range.days > 365 * 5: 
-            bin_freq = 'YS'  # Yearly
-            axes[1].xaxis.set_major_locator(mdates.YearLocator())
-        if date_range.days > 365 :
-            bin_freq = 'Q'  # Quarterly
-            axes[1].xaxis.set_major_locator(mdates.MonthLocator(interval=3))
-        elif date_range.days > 90 :
-            bin_freq = 'M'  
-            axes[1].xaxis.set_major_locator(mdates.MonthLocator())  # Monthly
-        elif date_range.days > 30:
-            bin_freq = 'W'  # Weekly bins
-            axes[1].xaxis.set_major_locator(mdates.WeekdayLocator(interval=1))  # Weekly
-        else:
-            bin_freq = 'D'  # Daily
-            axes[1].xaxis.set_major_locator(mdates.DayLocator(interval=2))
-        
-        bins = mdates.date2num(pd.date_range(min_date, max_date, freq=bin_freq))
-        
-        axes[1].hist(date_nums, bins=bins, color=_ACCENT, edgecolor='white', linewidth=0.6, alpha=0.9, zorder=2)
-        _panel_title(axes[1], f"Distribution · {varname.upper()}")
-        _clean_axis(axes[1])
 
-        
-        if date_range.days <= 90:
-            axes[1].xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d')) 
+        if date_range.days > 365 * 10:
+            bin_period = 'Y'  # Yearly
+            axes[1].xaxis.set_major_locator(mdates.YearLocator(base=2))
+        elif date_range.days > 365 * 5:
+            bin_period = 'Y'  # Yearly
+            axes[1].xaxis.set_major_locator(mdates.YearLocator())
+        elif date_range.days > 365:
+            bin_period = 'Q'  # Quarterly
+            axes[1].xaxis.set_major_locator(mdates.MonthLocator(interval=3))
+        elif date_range.days > 90:
+            bin_period = 'M'
+            axes[1].xaxis.set_major_locator(mdates.MonthLocator())  # Monthly
+        elif date_range.days > 30 and not month_aggregated:
+            bin_period = 'W'  # Weekly bins
+            axes[1].xaxis.set_major_locator(mdates.WeekdayLocator(interval=1))  # Weekly
+        elif month_aggregated:
+            # One bar per month, never per day.
+            bin_period = 'M'
+            axes[1].xaxis.set_major_locator(mdates.MonthLocator())
+        else:
+            bin_period = 'D'  # Daily
+            axes[1].xaxis.set_major_locator(mdates.DayLocator(interval=2))
+
+        # Bin on period boundaries: a plain date_range anchored on min_date rolls
+        # *forward* to the next year/quarter/week start, which silently drops
+        # every observation before that first edge. The trailing edge is needed
+        # too, since histogram bins are half-open and the last period would
+        # otherwise be counted inside the previous bar.
+        bin_periods = pd.period_range(min_date, max_date, freq=bin_period)
+        bin_edges = bin_periods.to_timestamp().append(
+            pd.DatetimeIndex([(bin_periods[-1] + 1).to_timestamp()])
+        )
+        bins = mdates.date2num(bin_edges)
+
+        axes[1].hist(date_nums, bins=bins, alpha=0.7)
+        _panel_title(axes[1], f"{chart_title} ({_MONTH_AGG_NOTE})" if month_aggregated else chart_title)
+        _clean_axis(axes[1])
+        axes[1].set_xlabel("Month" if month_aggregated else "Date")
+        axes[1].set_ylabel("Count")
+
+        if date_range.days <= 90 and not month_aggregated:
+            axes[1].xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
         elif date_range.days <= 365 * 2:
             axes[1].xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))  # "2020-01" format
         else:
@@ -1246,15 +1493,15 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
         else:
             value_counts = df[varname].value_counts(dropna=True)
         total = len(df)
-        fig, axes = plt.subplots(1, 2, figsize=(12, 5.5))
+        fig, axes = plt.subplots(1, 2, figsize=(12, fig_height))
 
-        _render_stats_panel(axes[0], f"Summary Stats · {varname.upper()}", stats_text)
+        _render_stats_panel(axes[0], f"Summary Stats for {varname.upper()}", stats_lines)
 
         # Bar chart
         if not value_counts.empty:
-            colors = [_CATEGORY_PALETTE[i % len(_CATEGORY_PALETTE)] for i in range(len(value_counts))]
-            ax = value_counts.plot(kind='bar', color=colors, edgecolor='white', linewidth=0.8, width=0.65, ax=axes[1], zorder=2)
-            _panel_title(axes[1], f"Distribution · {varname.upper()}")
+            colors = sns.color_palette("husl", len(value_counts))
+            ax = value_counts.plot(kind='bar', color=colors, edgecolor='black', ax=axes[1])
+            _panel_title(axes[1], chart_title)
             _clean_axis(axes[1])
             ax.set_xlabel("Categories")
             ax.set_ylabel("Count")
@@ -1267,7 +1514,7 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
             for idx, value in enumerate(value_counts):
                 percentage = (value / total) * 100
                 ax.text(idx, value + total * 0.02, f"{value} ({percentage:.1f}%)",
-                        ha='center', fontsize=9.5, color=_TEXT_MUTED, rotation = rot)
+                        ha='center', fontsize=10, rotation = rot)
 
             # Adjust x-axis labels to be horizontal
             xticks = []
@@ -1278,12 +1525,13 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
                     xticks.append(v)
 
             if len(xticks)>4:
-                ax.set_xticklabels(xticks, rotation=90, fontsize=9.5)
+                ax.set_xticklabels(xticks, rotation=90, fontsize=10)
             else:
-                ax.set_xticklabels(xticks, rotation=0, fontsize=9.5)
+                ax.set_xticklabels(xticks, rotation=0, fontsize=10)
 
         
-        plt.ylim(0, max(value_counts.values) * 1.4)
+        if not value_counts.empty:
+            axes[1].set_ylim(0, max(value_counts.values) * 1.4)
         plt.tight_layout()
         plt.savefig(f"/output/{varname.lower()}.png", dpi=160, bbox_inches='tight')
 
@@ -1372,7 +1620,7 @@ with open('/output/data_issues.json', 'w') as json_file:
             .replace("{cohort_id}", cohort_id))
 
 
-def c4_longitudinal_analysis(cohort_id: str) -> str:
+def longitudinal_analysis(cohort_id: str) -> str:
     raw_script = """
 import pandas as pd
 import numpy as np
@@ -1390,10 +1638,9 @@ from scipy.cluster.hierarchy import linkage, fcluster
 from scipy.spatial.distance import squareform
 warnings.filterwarnings('ignore')
 {shared_helpers}
-{chart_style}
 
 # ---------------------------------------------------------------------------
-# c4_longitudinal_analysis
+# longitudinal_analysis
 #
 # Identifies "longitudinal families": sets of variables in the cohort that
 # measure the same standardised concept (same VARIABLE OMOP ID, or VARIABLE
@@ -1458,6 +1705,8 @@ for v in list(vars_details.columns):
         'var_label': _dget('var_label') or v,
         'omop_id': _dget('omop_id'),
         'concept_code': _dget('concept_code'),
+        'additional_context': _dget('additional_context'),
+        'units': _dget('units'),
         'visits': _dget('visits'),
         'visit_concept_name': _dget('visit_concept_name'),
         'categories': (d.get('categories') if typ == 'categorical' else None),
@@ -1479,32 +1728,128 @@ def _visit_label(m):
 
 _BASELINE_RE = re.compile(r'(baseline|screening|enrol{1,2}ment|day\\s*0\\b|week\\s*0\\b|visit\\s*0\\b)', re.I)
 _END_RE = re.compile(r'(end\\s*of\\s*(study|trial)|\\bfinal\\b|\\blast\\b|\\beos\\b|study\\s*end|follow[- ]?up\\s*end)', re.I)
-_NUM_RE = re.compile(r'(\\d+(?:\\.\\d+)?)')
+_TOKEN_RE = re.compile(r'[a-z]+|\\d+(?:\\.\\d+)?')
+
+# Days per time unit, so "1 year" can be compared against "3 months" instead of
+# comparing the bare numbers 1 and 3.
+_VISIT_UNIT_DAYS = {
+    'd': 1.0, 'day': 1.0, 'days': 1.0,
+    'w': 7.0, 'wk': 7.0, 'wks': 7.0, 'week': 7.0, 'weeks': 7.0,
+    'm': 30.44, 'mo': 30.44, 'mos': 30.44, 'mon': 30.44, 'month': 30.44, 'months': 30.44,
+    'y': 365.25, 'yr': 365.25, 'yrs': 365.25, 'year': 365.25, 'years': 365.25,
+}
+
+def _visit_offset_days(text):
+    # Returns the visit offset in days, or None when the label carries no
+    # number/unit pair. The unit may sit on either side of the number
+    # ("3 months", "month 3").
+    tokens = _TOKEN_RE.findall(text)
+    for i, tok in enumerate(tokens):
+        if not tok[0].isdigit():
+            continue
+        for neighbour in (i + 1, i - 1):
+            if 0 <= neighbour < len(tokens) and tokens[neighbour] in _VISIT_UNIT_DAYS:
+                return float(tok) * _VISIT_UNIT_DAYS[tokens[neighbour]]
+    return None
+
+def _visit_ordinal(text):
+    # "visit 2" / "v3" style labels have an order but no duration.
+    tokens = _TOKEN_RE.findall(text)
+    for tok in tokens:
+        if tok[0].isdigit():
+            return float(tok)
+    return None
 
 def _visit_sort_key(label):
+    # Tiers keep unlike labelling schemes from interleaving: baseline first,
+    # then real durations, then bare ordinals, then unrecognised, then end-of-study.
     if not label:
-        return (1.5, 0.0, '')
+        return (3.0, 0.0, '')
     s = str(label).strip().lower()
     if _BASELINE_RE.search(s):
-        return (0, 0.0, s)
+        return (0.0, 0.0, s)
     if _END_RE.search(s):
-        return (2, 0.0, s)
-    m = _NUM_RE.search(s)
-    if m:
-        return (1, float(m.group(1)), s)
-    return (1.5, 0.0, s)
+        return (4.0, 0.0, s)
+    offset = _visit_offset_days(s)
+    if offset is not None:
+        return (1.0, offset, s)
+    ordinal = _visit_ordinal(s)
+    if ordinal is not None:
+        return (2.0, ordinal, s)
+    return (3.0, 0.0, s)
+
+# Visit boilerplate and time words: what is left after removing these from the
+# member variable names is the concept the family measures.
+_LABEL_STOPWORDS = {
+    'visit', 'visits', 'at', 'on', 'in', 'of', 'the', 'for', 'to', 'from', 'by',
+    'baseline', 'base', 'screening', 'enrolment', 'enrollment', 'entry',
+    'follow', 'followup', 'fup', 'fu', 'up', 'end', 'study', 'trial', 'final',
+    'last', 'first', 'time', 'timepoint', 'point', 'v', 'val', 'value',
+    'day', 'days', 'week', 'weeks', 'month', 'months', 'year', 'years',
+    'd', 'w', 'wk', 'wks', 'mo', 'mos', 'mon', 'y', 'yr', 'yrs',
+}
+
+def _concept_tokens(name):
+    tokens = []
+    for raw in re.split(r'[^a-z0-9]+', str(name).lower()):
+        if not raw or raw[0].isdigit():
+            continue
+        # weight1 / weight2 are one concept at two visits, so a trailing visit
+        # index is not part of the name. Kept when stripping would leave almost
+        # nothing behind, so that names like "o2" survive intact.
+        stripped = raw.rstrip('0123456789')
+        token = stripped if len(stripped) >= 2 else raw
+        if token not in _LABEL_STOPWORDS:
+            tokens.append(token)
+    return tokens
+
+def _family_label(members, fallback):
+    # Members of a family are named to a pattern (blood_pressure_on_visit_1,
+    # blood_pressure_at_end_of_study), so the tokens they share name the
+    # concept. A common prefix is the usual case; otherwise fall back to the
+    # tokens common to every member, in the order the first member uses them.
+    token_lists = [_concept_tokens(v) for v in members]
+    token_lists = [t for t in token_lists if t]
+    if not token_lists:
+        return fallback
+    shared = []
+    for group in zip(*token_lists):
+        if len(set(group)) == 1:
+            shared.append(group[0])
+        else:
+            break
+    if not shared:
+        common = set(token_lists[0])
+        for tokens in token_lists[1:]:
+            common &= set(tokens)
+        for tok in token_lists[0]:
+            if tok in common and tok not in shared:
+                shared.append(tok)
+    label = ' '.join(shared).strip()
+    return label or fallback
+
+def _context_key(m):
+    # Same concept measured with a different additional context is a different
+    # thing (e.g. "systolic" vs "diastolic" context on one BP concept), so the
+    # context joins the grouping key. Order within a pipe-list is not meaningful.
+    context = m['additional_context']
+    if not context:
+        return 'no-additional-context'
+    parts = sorted(p.strip().lower() for p in str(context).split('|') if p.strip())
+    return '|'.join(parts) or 'no-additional-context'
 
 groups = {}
 for v, m in var_meta.items():
     if v == patient_id_col:
         continue
-    key = m['omop_id'] or m['concept_code']
-    if not key or not _visit_label(m):
+    concept = m['omop_id'] or m['concept_code']
+    if not concept or not _visit_label(m):
         continue
-    groups.setdefault(key, []).append(v)
+    groups.setdefault((str(concept), _context_key(m)), []).append(v)
 
 families = []
-for key, members in groups.items():
+for (concept, context), members in groups.items():
+    key = f"{concept} / {context}"
     if len(members) < 2:
         continue
     labels = set(_visit_label(var_meta[v]) for v in members)
@@ -1523,10 +1868,14 @@ for key, members in groups.items():
         )
     members = [v for v in members if var_meta[v]['var_type'] == fam_type]
     members = sorted(members, key=lambda v: _visit_sort_key(_visit_label(var_meta[v])))
+    units = next((var_meta[v]['units'] for v in members if var_meta[v]['units']), None)
     families.append({
-        'key': str(key),
+        'key': key,
+        'concept': str(concept),
+        'context': context,
         'var_type': fam_type,
-        'var_label': var_meta[members[0]]['var_label'],
+        'var_label': _family_label(members, var_meta[members[0]]['var_label']),
+        'units': units,
         'members': members,
         'visit_labels': [_visit_label(var_meta[v]) for v in members],
     })
@@ -1600,6 +1949,7 @@ def _process_numeric_family(fam):
             trend_label = 'stable'
         bands.append({
             'band_label': trend_label,
+            'end_shift': None if pd.isna(end_shift) else float(end_shift),
             'n_patients': int(band_mask.sum()),
             'median': [None if pd.isna(v) else float(v) for v in band_df.median(axis=0, skipna=True)],
             'q1': [None if pd.isna(v) else float(v) for v in band_df.quantile(0.25, axis=0)],
@@ -1607,26 +1957,56 @@ def _process_numeric_family(fam):
         })
     return {'n_patients': n_patients, 'visit_labels': fam['visit_labels'], 'bands': bands}
 
-def _plot_numeric_family(ax, result, var_label):
+# Trend direction is carried by colour, so a legend entry can be read without
+# matching it back to an arbitrary palette index.
+_TREND_COLORS = {'declining': 'tab:blue', 'stable': 'tab:gray', 'rising': 'tab:red'}
+_TREND_ORDER = {'declining': 0, 'stable': 1, 'rising': 2}
+# Bands this small are individual or near-individual trajectories: they are the
+# outliers we want to see, so they are drawn on top and named as such.
+_OUTLIER_BAND_MAX = 3
+
+def _plot_numeric_family(ax, result, var_label, units=None):
     x = np.arange(len(result['visit_labels']))
-    trend_order = {'declining': 0, 'stable': 1, 'rising': 2}
-    bands_sorted = sorted(result['bands'], key=lambda b: trend_order.get(b['band_label'], 1))
-    for i, band in enumerate(bands_sorted):
-        color = _CATEGORY_PALETTE[i % len(_CATEGORY_PALETTE)]
+    bands_sorted = sorted(
+        result['bands'],
+        key=lambda b: (_TREND_ORDER.get(b['band_label'], 1),
+                       -abs(b.get('end_shift') or 0.0)),
+    )
+    # Several bands can share a trend; a dash pattern plus the magnitude in the
+    # label keeps them apart.
+    styles = ['-', '--', ':', '-.']
+    seen_trend = {}
+    for band in bands_sorted:
+        trend = band['band_label']
+        rank = seen_trend.get(trend, 0)
+        seen_trend[trend] = rank + 1
+        color = _TREND_COLORS.get(trend, 'tab:purple')
         median = np.array([np.nan if v is None else v for v in band['median']], dtype=float)
         q1 = np.array([np.nan if v is None else v for v in band['q1']], dtype=float)
         q3 = np.array([np.nan if v is None else v for v in band['q3']], dtype=float)
-        ax.plot(x, median, color=color, linewidth=2.2, marker='o', markersize=4,
-                label=f"{band['band_label'].capitalize()} (n={band['n_patients']})", zorder=3)
-        ax.fill_between(x, q1, q3, color=color, alpha=0.18, linewidth=0, zorder=2)
+        n = band['n_patients']
+        shift = band.get('end_shift')
+        parts = [trend.capitalize()]
+        if shift is not None:
+            parts.append(f"{shift * 100:+.0f}%")
+        parts.append(f"(n={n}" + (", outlier)" if n <= _OUTLIER_BAND_MAX else ")"))
+        outlier = n <= _OUTLIER_BAND_MAX
+        ax.plot(x, median, color=color, linestyle=styles[rank % len(styles)],
+                linewidth=1.6 if outlier else 2.2,
+                marker='D' if outlier else 'o', markersize=5 if outlier else 4,
+                label=' '.join(parts), zorder=5 if outlier else 3)
+        # An interquartile ribbon needs a distribution behind it; for a handful
+        # of patients q1 and q3 collapse onto the median and only add clutter.
+        if not outlier:
+            ax.fill_between(x, q1, q3, color=color, alpha=0.18, linewidth=0, zorder=2)
     ax.set_xticks(x)
     ax.set_xticklabels(result['visit_labels'], rotation=45 if len(x) > 4 else 0,
                         ha='right' if len(x) > 4 else 'center')
-    _panel_title(ax, f"Longitudinal Trend \\u00b7 {var_label.upper()}")
-    _clean_axis(ax)
+    ax.set_title(f"Longitudinal Trend - {var_label.upper()}")
     ax.set_xlabel("Visit")
-    ax.set_ylabel("Value")
-    ax.legend(frameon=False, fontsize=9, loc='best')
+    ax.set_ylabel(f"Value ({units})" if units else "Value")
+    ax.legend(frameon=False, fontsize=8, loc='best',
+              title=f"n={result['n_patients']} patients", title_fontsize=8)
 
 # ---- Categorical family: alluvial (flow) diagram ---------------------------
 def _draw_ribbon(ax, x0, x1, y0s, y1s, y0t, y1t, color):
@@ -1673,30 +2053,51 @@ def _plot_categorical_family(ax, processed, var_label):
         for cat in c.unique():
             if cat not in all_cats:
                 all_cats.append(cat)
-    all_cats = sorted(set(all_cats), key=lambda c: (c == 'N/A', c))
+    # N/A sits at the bottom of every column so that loss to follow-up reads as
+    # a floor rather than sweeping its ribbons across the whole diagram.
+    all_cats = sorted(set(all_cats), key=lambda c: (c != 'N/A', c))
     non_na = [c for c in all_cats if c != 'N/A']
-    color_map = {cat: _CATEGORY_PALETTE[i % len(_CATEGORY_PALETTE)] for i, cat in enumerate(non_na)}
+    _default_colors = list(plt.rcParams['axes.prop_cycle'].by_key()['color'])
+    color_map = {cat: _default_colors[i % len(_default_colors)] for i, cat in enumerate(non_na)}
     color_map['N/A'] = '#CBD5E1'
 
     node_gap = max(1.0, 0.02 * n_patients)
     x_pos = np.linspace(0, 1, n_v) if n_v > 1 else np.array([0.5])
+
+    # Lay every column out first: the height of the tallest column decides
+    # which nodes are too thin to hold their label inline.
     node_rects = {}
+    column_counts = []
     max_height = 0.0
     for vi, c in enumerate(cols):
         counts = c.value_counts()
         counts = counts.reindex([cat for cat in all_cats if cat in counts.index])
+        column_counts.append(counts)
         y = 0.0
         for cat, cnt in counts.items():
-            y0, y1 = y, y + cnt
-            node_rects[(vi, cat)] = (y0, y1)
+            node_rects[(vi, cat)] = (y, y + cnt)
+            y = y + cnt + node_gap
+        max_height = max(max_height, y)
+
+    for vi, counts in enumerate(column_counts):
+        for cat, cnt in counts.items():
+            y0, y1 = node_rects[(vi, cat)]
             ax.add_patch(mpatches.Rectangle((x_pos[vi] - 0.012, y0), 0.024, y1 - y0,
                                              facecolor=color_map[cat], edgecolor='white',
                                              linewidth=0.5, zorder=3))
-            if n_patients and cnt / n_patients > 0.03:
+            # Small categories are often the interesting ones, so they keep
+            # their label; it just moves beside the node when it cannot fit.
+            if (y1 - y0) >= max_height * 0.045:
                 ax.text(x_pos[vi], (y0 + y1) / 2, f"{cat}\\n{int(cnt)}", ha='center', va='center',
-                        fontsize=8, color=_TEXT_DARK, zorder=4)
-            y = y1 + node_gap
-        max_height = max(max_height, y)
+                        fontsize=8, zorder=4)
+            else:
+                to_left = vi == n_v - 1
+                ax.annotate(f"{cat} {int(cnt)}", xy=(x_pos[vi], (y0 + y1) / 2),
+                            xytext=(-7 if to_left else 7, 0), textcoords='offset points',
+                            ha='right' if to_left else 'left', va='center',
+                            fontsize=7, zorder=6,
+                            bbox=dict(boxstyle='square,pad=0.15', facecolor='white',
+                                      edgecolor='none', alpha=0.75))
 
     for vi in range(n_v - 1):
         trans = pd.crosstab(cols[vi], cols[vi + 1])
@@ -1711,20 +2112,24 @@ def _plot_categorical_family(ax, processed, var_label):
                 y0t = y_off_tgt[tgt]; y1t = y0t + cnt; y_off_tgt[tgt] = y1t
                 _draw_ribbon(ax, x_pos[vi] + 0.012, x_pos[vi + 1] - 0.012, y0s, y1s, y0t, y1t, color_map[src])
 
-    ax.set_xlim(-0.05, 1.05)
+    # Room for the labels on the first and last columns, which are centred on
+    # the node and would otherwise be cut off at the axes edge.
+    ax.set_xlim(-0.12, 1.12)
     ax.set_ylim(-max_height * 0.02, max_height * 1.05)
     ax.set_xticks(x_pos)
     ax.set_xticklabels(visits, rotation=45 if n_v > 4 else 0, ha='right' if n_v > 4 else 'center')
     ax.set_yticks([])
     for spine in ('top', 'right', 'left'):
         ax.spines[spine].set_visible(False)
-    ax.spines['bottom'].set_color(_GRID)
-    _panel_title(ax, f"Category Flow \\u00b7 {var_label.upper()}")
+    ax.set_xlabel(
+        f"n={n_patients} patients - N/A = no recorded value at that visit "
+        f"(missed visit or withdrawal)", fontsize=8)
+    ax.set_title(f"Category Flow - {var_label.upper()}")
 
 # ---- Run over every identified family --------------------------------------
 longitudinal_json = {}
 for fam in families:
-    slug = re.sub(r'[^a-z0-9]+', '_', str(fam['key']).lower()).strip('_')
+    name_slug = re.sub(r'[^a-z0-9]+', '_', str(fam['var_label']).lower()).strip('_')
     fig, ax = plt.subplots(figsize=(10, 6))
     try:
         if fam['var_type'] in ('int', 'float'):
@@ -1732,10 +2137,14 @@ for fam in families:
             if result is None:
                 plt.close(fig)
                 continue
-            _plot_numeric_family(ax, result, fam['var_label'])
+            _plot_numeric_family(ax, result, fam['var_label'], fam['units'])
+            chart_suffix = 'longitudinal-trend'
             longitudinal_json[fam['key']] = {
                 'var_type': fam['var_type'],
                 'var_label': fam['var_label'],
+                'concept': fam['concept'],
+                'additional_context': fam['context'],
+                'units': fam['units'],
                 'member_variables': fam['members'],
                 'chart_type': 'trajectory_bands',
                 **result,
@@ -1746,9 +2155,12 @@ for fam in families:
                 plt.close(fig)
                 continue
             _plot_categorical_family(ax, processed, fam['var_label'])
+            chart_suffix = 'category_flow'
             longitudinal_json[fam['key']] = {
                 'var_type': fam['var_type'],
                 'var_label': fam['var_label'],
+                'concept': fam['concept'],
+                'additional_context': fam['context'],
                 'member_variables': fam['members'],
                 'visit_labels': fam['visit_labels'],
                 'chart_type': 'alluvial',
@@ -1758,7 +2170,7 @@ for fam in families:
             plt.close(fig)
             continue
         plt.tight_layout()
-        plt.savefig(f"/output/longitudinal_{slug}.png", dpi=160, bbox_inches='tight')
+        plt.savefig(f"/output/{name_slug}_{chart_suffix}.png", dpi=160, bbox_inches='tight')
     except Exception as e:
         data_issues.append(f"Longitudinal family {fam['key']}: failed to build chart: {e}")
     finally:
@@ -1771,7 +2183,6 @@ with open('/output/data_issues.json', 'w') as f:
     json.dump(data_issues, f, indent=4)
 """
     return (raw_script.replace("{shared_helpers}", _SHARED_HELPERS)
-            .replace("{chart_style}", _CHART_STYLE_HELPERS)
             .replace("{cohort_id}", cohort_id))
 
 
