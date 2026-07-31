@@ -320,6 +320,30 @@ def _fmt_count(count, pct=None, small_pct_cutoff=5.0):
         return f"{n} ({share:.2f}%)"
     return f"{n} ({round(share):.0f}%)"
 
+def _fmt_pct(pct, small_pct_cutoff=5.0):
+    # Same rounding rule as _fmt_count: shares of 5% and above carry no useful
+    # decimals, while below that the decimals are the information.
+    if pct is None:
+        return 'N/A'
+    try:
+        share = float(pct)
+    except (TypeError, ValueError):
+        return str(pct)
+    if share != share:
+        return 'N/A'
+    if abs(share) < small_pct_cutoff:
+        return f"{share:.2f}%"
+    return f"{round(share):.0f}%"
+
+def _fmt_pct_dual(pct_valid, pct_all, small_pct_cutoff=5.0):
+    # "% of valid / % of all rows". When missingness is zero (or too small to
+    # survive rounding) the two are identical, so only one is shown.
+    left = _fmt_pct(pct_valid, small_pct_cutoff)
+    right = _fmt_pct(pct_all, small_pct_cutoff)
+    if left == right:
+        return left
+    return f"{left} / {right}"
+
 def _format_stats_lines(stats_text, max_chars=_STATS_MAX_CHARS, label_pad_cap=20):
     # Split every entry on its first colon, then pad labels to a common width so
     # that all values start in the same column. Values that are too long are
@@ -359,11 +383,12 @@ def _format_stats_lines(stats_text, max_chars=_STATS_MAX_CHARS, label_pad_cap=20
             out.append(indent + extra)
     return out
 
-def _stats_figure_height(stats_lines, minimum=6.0):
+def _stats_figure_height(stats_lines, minimum=6.0, maximum=18.0):
     # Size the canvas to the panel content so the chart is never left floating
-    # in a mostly empty figure.
+    # in a mostly empty figure. Capped: an uncapped panel with one line per
+    # category can otherwise ask for a canvas hundreds of inches tall.
     line_in = (_STATS_FONTSIZE * _STATS_LINESPACING) / 72.0
-    return max(minimum, len(stats_lines) * line_in + 1.3)
+    return min(maximum, max(minimum, len(stats_lines) * line_in + 1.3))
 
 def _render_stats_panel(ax, title, stats_lines):
     ax.axis('off')
@@ -778,7 +803,9 @@ for _note in load_notes:
 
 n_rows_total = int(len(raw_data))
 completeness_by_var = {}
-data = pd.DataFrame(index=raw_data.index)
+# Columns are collected first and concatenated once: assigning 1400 columns one
+# at a time fragments the pandas block manager and gets progressively slower.
+_data_cols = {}
 
 for v in list(vars_details.columns):
     if v not in raw_data.columns:
@@ -789,11 +816,11 @@ for v in list(vars_details.columns):
         comp, valid = classify_series(raw_data[v], _missing_codes_of(d), typ)
     except Exception as e:
         msg = f"Failed to classify column {v} as {typ}: {e}"
-        print(msg)
+        print(msg, flush=True)
         data_issues.append(msg)
         continue
     completeness_by_var[v] = comp
-    data[v] = valid.reindex(raw_data.index)
+    _data_cols[v] = valid.reindex(raw_data.index)
     if comp['n_invalid'] > 0:
         data_issues.append(
             f"Column {v}: {comp['n_invalid']} value(s) are present but could not be read as {typ}."
@@ -802,6 +829,12 @@ for v in list(vars_details.columns):
         data_issues.append(
             f"Column {v}: cell-state counts do not sum to the row count ({comp['n_rows']})."
         )
+
+if _data_cols:
+    data = pd.concat(_data_cols, axis=1)
+    data = data[list(_data_cols.keys())]
+else:
+    data = pd.DataFrame(index=raw_data.index)
 
 
 
@@ -969,10 +1002,20 @@ def _categorical_structured(series, comp, categories_mapping):
     vc_valid = s_norm.value_counts(dropna=True)
     total = int(vc_valid.sum())
     out['n'] = total
+    # `pct` is a share of the valid observations; `pct_of_total` is a share of
+    # every row in the cohort. They differ by the variable's missingness, so
+    # both are stated rather than left to the consumer to reconstruct.
+    n_rows = comp.get('n_rows') if isinstance(comp, dict) else None
     dist = []
     for k, c in vc_valid.items():
         label = categories_mapping.get(str(k), str(k))
-        dist.append({'value': str(k), 'label': label, 'count': int(c), 'pct': _to_native(c / total * 100) if total else None})
+        dist.append({
+            'value': str(k),
+            'label': label,
+            'count': int(c),
+            'pct': _to_native(c / total * 100) if total else None,
+            'pct_of_total': _to_native(c / n_rows * 100) if n_rows else None,
+        })
     out['distribution'] = dist
     tot_valid = total
     if tot_valid > 0 and len(vc_valid) > 0:
@@ -1055,7 +1098,11 @@ def variable_eda(df, vars_details):
     structured = {}
     graph_tick_data = {}
     df.columns = df.columns.str.lower().str.strip()
-    for column in df.columns.tolist():
+    import time as _time
+    _t0 = _time.time()
+    _all_cols = df.columns.tolist()
+    _done = 0
+    for column in _all_cols:
         if column not in vars_details.columns:
             continue
         if column in patient_id_cols:
@@ -1073,6 +1120,9 @@ def variable_eda(df, vars_details):
             count_invalid = comp.get('n_invalid', 0)
             count_missing_total = count_na + count_missing
             missing_codes_txt = ', '.join(comp.get('missing_codes_declared', [])) or 'none'
+            # Set by the categorical branch only; re-injected into the flat
+            # output below because the per-category panel lines carry no colon.
+            class_balance_flat = None
 
             if vars_details[column]['inferred_type'] in ['int', 'float']:
 
@@ -1084,7 +1134,6 @@ def variable_eda(df, vars_details):
                 # Descriptive Stats
                 stats = df[column].describe()
                 mode_value = df[column].mode()[0] if not df[column].mode().empty else np.nan
-                value_counts = df[column].value_counts(dropna=False)
                 #try:
                 #    empty = df[column].isnull().sum() + df[column].str.strip().eq('').sum()
                 #except:
@@ -1125,7 +1174,8 @@ def variable_eda(df, vars_details):
                 IQR = Q3 - Q1
                 lower_bound = Q1 - 1.5 * IQR
                 upper_bound = Q3 + 1.5 * IQR
-                outliers = df[(df[column] < lower_bound) | (df[column] > upper_bound)][column].count()
+                _col_vals = df[column]
+                outliers = int(((_col_vals < lower_bound) | (_col_vals > upper_bound)).sum())
 
                 # Z-Scores for Outliers
                 z_scores = zscore([_ for _ in df[column].dropna()]) if len(df[column].dropna()) > 0 else np.array([])
@@ -1152,11 +1202,11 @@ def variable_eda(df, vars_details):
                 stats_text = tuple(_identity_lines(column, vars_details[column])) + (
                     f"Type: Numeric (encoded as {df[column].dtype})",
                     _GROUP_BREAK,
-                    f"Count of valid observations: {count_nonnull}",
-                    f"Count empty (blank cells): {_fmt_count(count_na, comp.get('pct_empty', 0))}",
-                    f"Count coded missing: {_fmt_count(count_missing, comp.get('pct_coded_missing', 0))}",
-                    f"Count missing total: {_fmt_count(count_missing_total, comp.get('pct_missing_total', 0))}",
-                    f"Count invalid: {_fmt_count(count_invalid, comp.get('pct_invalid', 0))}",
+                    f"Count of valid observations: {count_nonnull} of {n_rows_total} rows",
+                    f"Count empty (blank cells, % of all rows): {_fmt_count(count_na, comp.get('pct_empty', 0))}",
+                    f"Count coded missing (% of all rows): {_fmt_count(count_missing, comp.get('pct_coded_missing', 0))}",
+                    f"Count missing total (% of all rows): {_fmt_count(count_missing_total, comp.get('pct_missing_total', 0))}",
+                    f"Count invalid (% of all rows): {_fmt_count(count_invalid, comp.get('pct_invalid', 0))}",
                     f"Missing code(s) declared: {missing_codes_txt}",
                     f"Number of Unique Values/Categories: {df[column].nunique()}",
                     _GROUP_BREAK,
@@ -1178,10 +1228,10 @@ def variable_eda(df, vars_details):
                     f"IQR: {IQR:.2f}",
                     f"P5 / P95: {_fmt_stat(_sv.get('p5'))} / {_fmt_stat(_sv.get('p95'))}",
                     _GROUP_BREAK,
-                    f"Zero fraction: {_fmt_stat(None if _zero_frac is None else _zero_frac * 100, 2, '%')}",
-                    f"Outliers (IQR): {_fmt_count(outliers, (outliers / len(df)) * 100 if len(df) else None)}",
-                    f"Outliers (MAD): {_fmt_count(_out_mad.get('count'), _out_mad.get('pct'))}",
-                    f"Outliers (Z): {_fmt_count(z_outliers)}",
+                    f"Zero fraction (% of valid): {_fmt_pct(None if _zero_frac is None else _zero_frac * 100)}",
+                    f"Outliers (IQR, % of valid): {_fmt_count(outliers, (outliers / count_nonnull) * 100 if count_nonnull else None)}",
+                    f"Outliers (MAD, % of valid): {_fmt_count(_out_mad.get('count'), _out_mad.get('pct'))}",
+                    f"Outliers (Z): {_fmt_count(z_outliers, (z_outliers / count_nonnull) * 100 if count_nonnull else None)}",
                     _GROUP_BREAK,
                     f"Skewness: {skewness:.2f}",
                     f"Kurtosis: {kurt:.2f}",
@@ -1227,20 +1277,43 @@ def variable_eda(df, vars_details):
                         f"Type: Categorical (encoded as {df[column].dtype})",
                         _GROUP_BREAK,
                         f"Number of Unique Categories: 0",
-                        f"Missing Values: {_fmt_count(df[column].isnull().sum(), df[column].isnull().mean() * 100)}"
+                        f"Missing Values (% of all rows): {_fmt_count(df[column].isnull().sum(), df[column].isnull().mean() * 100)}"
                     )
                 else:
                     # Chi-square test
                     expected = total / len(value_counts)
                     chi_square_stat = ((value_counts - expected) ** 2 / expected).sum()
 
-                    # Class balance with corrected mapping
-                    class_balance_text = "\\n\\t"
-                    for key, count in value_counts.items():
-                        if str(key) in categories_mapping and str(key) != categories_mapping[str(key)]:
-                            class_balance_text += f"{(key, categories_mapping[str(key)])} -> {round(count / total * 100, 2)}%\\n	"
+                    # Class balance, one panel entry per category: a single
+                    # entry with embedded newlines is reflowed into one blob by
+                    # _format_stats_lines. Percentages are given against the
+                    # valid total and against all rows, because for a variable
+                    # with heavy missingness those are very different claims.
+                    # Only the first N categories are listed; the full
+                    # distribution always goes to the structured JSON output.
+                    _MAX_CLASS_BALANCE_LINES = 30
+                    _cb_items = list(value_counts.items())
+                    _cb_hidden = max(0, len(_cb_items) - _MAX_CLASS_BALANCE_LINES)
+                    class_balance_lines = []
+                    _cb_flat = []
+                    for key, count in _cb_items[:_MAX_CLASS_BALANCE_LINES]:
+                        _mapped = categories_mapping.get(str(key))
+                        if _mapped and str(key) != str(_mapped):
+                            _cat_label = f"{key} ({_mapped})"
                         else:
-                            class_balance_text += f"{key} -> {round(count / total * 100, 2)}%\\n	"
+                            _cat_label = f"{key}"
+                        _pct_valid = (count / total * 100) if total else None
+                        _pct_all = (count / n_rows_total * 100) if n_rows_total else None
+                        _cb_entry = f"{_cat_label} -> {int(count)} ({_fmt_pct_dual(_pct_valid, _pct_all)})"
+                        class_balance_lines.append(f"- {_cb_entry}")
+                        _cb_flat.append(_cb_entry)
+                    if _cb_hidden:
+                        _cb_more = f"... and {_cb_hidden} more categories (see JSON output)"
+                        class_balance_lines.append(f"- {_cb_more}")
+                        _cb_flat.append(_cb_more)
+                    # No colon anywhere in this value: the flat-JSON builder
+                    # keeps only the text between the first and second colon.
+                    class_balance_flat = "; ".join(_cb_flat)
 
                     stats_text = tuple(_identity_lines(column, vars_details[column])) + (
                         f"Type: Categorical (encoded as {df[column].dtype})",
@@ -1248,11 +1321,11 @@ def variable_eda(df, vars_details):
                         f"Number of unique values/categories: {len(value_counts)}",
                         f"Most frequent category: {categories_mapping.get(str(value_counts.idxmax()), 'Unknown')} ",
                         _GROUP_BREAK,
-                        f"Count of valid observations: {count_nonnull}",
-                        f"Count empty (blank cells): {_fmt_count(count_na, comp.get('pct_empty', 0))}",
-                        f"Count coded missing: {_fmt_count(count_missing, comp.get('pct_coded_missing', 0))}",
-                        f"Count missing total: {_fmt_count(count_missing_total, comp.get('pct_missing_total', 0))}",
-                        f"Count invalid: {_fmt_count(count_invalid, comp.get('pct_invalid', 0))}",
+                        f"Count of valid observations: {count_nonnull} of {n_rows_total} rows",
+                        f"Count empty (blank cells, % of all rows): {_fmt_count(count_na, comp.get('pct_empty', 0))}",
+                        f"Count coded missing (% of all rows): {_fmt_count(count_missing, comp.get('pct_coded_missing', 0))}",
+                        f"Count missing total (% of all rows): {_fmt_count(count_missing_total, comp.get('pct_missing_total', 0))}",
+                        f"Count invalid (% of all rows): {_fmt_count(count_invalid, comp.get('pct_invalid', 0))}",
                         f"Missing code(s) declared: {missing_codes_txt}",
                         _GROUP_BREAK,
                         f"Entropy (bits): {_fmt_stat(_sv.get('entropy_bits'), 3)}",
@@ -1261,10 +1334,19 @@ def variable_eda(df, vars_details):
                         f"Imbalance ratio: {_fmt_stat(_sv.get('imbalance_ratio'))}",
                         f"Chi-Square Test Statistic: {chi_square_stat:.2f}",
                         _GROUP_BREAK,
-                        f"Class balance: {class_balance_text}"
-                    )
+                        "Class balance (n, % of valid / % of all rows)",
+                    ) + tuple(class_balance_lines)
 
-                if column in vars_to_graph:
+                # A bar chart with hundreds of categories draws one bar, one
+                # rotated tick label and one annotation per category, and is
+                # unreadable regardless of how long it takes to render.
+                _MAX_CHARTED_CATEGORIES = 60
+                if column in vars_to_graph and len(value_counts) > _MAX_CHARTED_CATEGORIES:
+                    data_issues.append(
+                        f"Column {column}: {len(value_counts)} distinct categories exceeds the "
+                        f"charting limit of {_MAX_CHARTED_CATEGORIES}; chart skipped."
+                    )
+                elif column in vars_to_graph:
                     try:
                         graph_tick_data[column] = create_save_graph(df, column, stats_text, 'categorical', category_mapping = categories_mapping)
                     except Exception as e:
@@ -1304,11 +1386,11 @@ def variable_eda(df, vars_details):
                         f"Number of unique values: {len(value_counts)}",
                         f"Most frequent value: {str(value_counts.idxmax()).split('.')[0]}",
                         _GROUP_BREAK,
-                        f"Count of valid observations: {count_nonnull}",
-                        f"Count empty (blank cells): {_fmt_count(count_na, comp.get('pct_empty', 0))}",
-                        f"Count coded missing: {_fmt_count(count_missing, comp.get('pct_coded_missing', 0))}",
-                        f"Count missing total: {_fmt_count(count_missing_total, comp.get('pct_missing_total', 0))}",
-                        f"Count invalid: {_fmt_count(count_invalid, comp.get('pct_invalid', 0))}",
+                        f"Count of valid observations: {count_nonnull} of {n_rows_total} rows",
+                        f"Count empty (blank cells, % of all rows): {_fmt_count(count_na, comp.get('pct_empty', 0))}",
+                        f"Count coded missing (% of all rows): {_fmt_count(count_missing, comp.get('pct_coded_missing', 0))}",
+                        f"Count missing total (% of all rows): {_fmt_count(count_missing_total, comp.get('pct_missing_total', 0))}",
+                        f"Count invalid (% of all rows): {_fmt_count(count_invalid, comp.get('pct_invalid', 0))}",
                         f"Missing code(s) declared: {missing_codes_txt}",
                         _GROUP_BREAK,
                         f"Mean: {stats['mean'].date()}",
@@ -1337,13 +1419,17 @@ def variable_eda(df, vars_details):
             stats_text_dict = OrderedDict()
             # Group separators carry no key/value pair, so skip them here.
             stats_text_dict.update({i.split(":")[0].strip():i.split(":")[1].strip() for i in stats_text if ":" in i})
-            if 'Class balance' in stats_text_dict:
-                stats_text_dict['Class balance'].replace(" ->", ":")
+            if class_balance_flat:
+                stats_text_dict['Class balance (n, % of valid / % of all rows)'] = class_balance_flat
             stats_text_dict['url'] = f"https://explorer.icare4cvd.eu/api/variable-graph/{cohort_id}/{column}"
             vars_stats[column] = stats_text_dict
         except Exception as e:
             data_issues.append(f"Failed to perform EDA on column {column}. Exception msg: {str(e)}")
-            
+        # Enclave stdout is buffered, so this must be flushed to be visible.
+        _done += 1
+        if _done % 25 == 0:
+            print(f"[{_time.time() - _t0:7.1f}s] {_done}/{len(_all_cols)} processed (last: {column})", flush=True)
+
     for col, ticks  in graph_tick_data.items():
         vars_stats[col].update(ticks)
     return vars_stats, structured
@@ -1400,14 +1486,14 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
 
         # Save the figure for the current feature
         plt.tight_layout()
-        plt.savefig(f"/output/{varname.lower()}.png", dpi=160, bbox_inches='tight')
+        plt.savefig(f"/output/{varname.lower()}.png", dpi=100)
         #print(f"figure for {varname} saved!! ")
     elif vartype == 'datetime':
         fig, axes = plt.subplots(1, 2, figsize=(12, fig_height))
 
         _render_stats_panel(axes[0], f"Summary Stats for {varname.upper()}", stats_lines)
         try:
-            date_vals =  pd.to_datetime(df[varname].dropna(), format='mixed')
+            date_vals = pd.to_datetime(df[varname].dropna(), errors='coerce').dropna()
         except:
             print("supposed date column could not be parsed: ", varname)
             plt.close('all')
@@ -1482,17 +1568,17 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
         axes[1].tick_params(axis='x', which='minor', bottom=False)
         
         plt.tight_layout()
-        plt.savefig(f"/output/{varname.lower()}.png", dpi=160, bbox_inches='tight')
+        plt.savefig(f"/output/{varname.lower()}.png", dpi=100)
         #print(f"figure for {varname} saved!! ")
 
 
     elif vartype == 'categorical':
 
-        if df[varname].isna().sum() > 0:
-            value_counts = df[varname].value_counts(dropna=False)
-        else:
-            value_counts = df[varname].value_counts(dropna=True)
-        total = len(df)
+        # Valid observations only, matching the stats panel: blanks and
+        # coded-missing values are reported there as counts rather than drawn
+        # as a category, so the percentages below share the panel's denominator.
+        value_counts = df[varname].apply(_lowercase_if_string).value_counts(dropna=True)
+        total = int(value_counts.sum())
         fig, axes = plt.subplots(1, 2, figsize=(12, fig_height))
 
         _render_stats_panel(axes[0], f"Summary Stats for {varname.upper()}", stats_lines)
@@ -1503,7 +1589,7 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
             ax = value_counts.plot(kind='bar', color=colors, edgecolor='black', ax=axes[1])
             _panel_title(axes[1], chart_title)
             _clean_axis(axes[1])
-            ax.set_xlabel("Categories")
+            ax.set_xlabel(f"Categories (n={total} valid; percentages are of valid)")
             ax.set_ylabel("Count")
 
             # Add labels to the bars
@@ -1512,8 +1598,8 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
             else:
                 rot = 0
             for idx, value in enumerate(value_counts):
-                percentage = (value / total) * 100
-                ax.text(idx, value + total * 0.02, f"{value} ({percentage:.1f}%)",
+                percentage = (value / total) * 100 if total else None
+                ax.text(idx, value + total * 0.02, f"{value} ({_fmt_pct(percentage)})",
                         ha='center', fontsize=10, rotation = rot)
 
             # Adjust x-axis labels to be horizontal
@@ -1533,7 +1619,7 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
         if not value_counts.empty:
             axes[1].set_ylim(0, max(value_counts.values) * 1.4)
         plt.tight_layout()
-        plt.savefig(f"/output/{varname.lower()}.png", dpi=160, bbox_inches='tight')
+        plt.savefig(f"/output/{varname.lower()}.png", dpi=100)
 
     #x_ticks = [_.get_text() for _ in axes[1].get_xticklabels()]
     #x_tick_labels = axes[1].get_xticklables()
