@@ -113,12 +113,23 @@ def _concept_tokens(name: str) -> list[str]:
     return tokens
 
 
-def _family_label(members: list[str], fallback: str) -> str:
-    token_lists = [_concept_tokens(v) for v in members]
+def _strip_visit_words(text: str) -> str:
+    """Drop visit/time boilerplate from a single human-readable label, so that
+    "Weight at baseline" names a family as "weight" rather than claiming the
+    whole family was measured at baseline. Returns '' if nothing else is left.
+    """
+    return " ".join(_concept_tokens(text)).strip()
+
+
+def _shared_tokens(names: list[str]) -> str:
+    """The tokens a set of names has in common: a shared prefix if there is one,
+    otherwise the tokens present in every name, in first-name order.
+    """
+    token_lists = [_concept_tokens(n) for n in names]
     token_lists = [t for t in token_lists if t]
     if not token_lists:
-        return fallback
-    shared = []
+        return ""
+    shared: list[str] = []
     for group in zip(*token_lists):
         if len(set(group)) == 1:
             shared.append(group[0])
@@ -131,8 +142,23 @@ def _family_label(members: list[str], fallback: str) -> str:
         for tok in token_lists[0]:
             if tok in common and tok not in shared:
                 shared.append(tok)
-    label = " ".join(shared).strip()
-    return label or fallback
+    return " ".join(shared).strip()
+
+
+def _family_label(members: list[str], member_labels: list[str], fallback: str) -> str:
+    """Preference order: what the member column names share, then what their
+    human-readable labels share, then the first label with its visit words
+    stripped. Every step goes through _concept_tokens, so no step can leak
+    visit boilerplate into the family name.
+    """
+    for candidate in (
+        _shared_tokens(members),
+        _shared_tokens(member_labels),
+        _strip_visit_words(member_labels[0] if member_labels else ""),
+    ):
+        if candidate:
+            return candidate
+    return fallback
 
 
 def _context_key(m: dict) -> str:
@@ -186,6 +212,7 @@ def _read_var_meta(csv_path: str) -> dict[str, dict[str, Any]]:
             "var_label": var_label,
             "omop_id": _dict_val(row, "VARIABLE OMOP ID", columns),
             "concept_code": _dict_val(row, "VARIABLE CONCEPT CODE", columns),
+            "concept_name": _dict_val(row, "VARIABLE CONCEPT NAME", columns),
             "additional_context": _dict_val(row, "ADDITIONAL CONTEXT CONCEPT NAME", columns),
             "units": _dict_val(row, "UNITS", columns),
             "visits": _dict_val(row, "VISITS", columns),
@@ -255,15 +282,31 @@ def _identify_families(var_meta: dict[str, dict[str, Any]]) -> list[dict[str, An
         sort_keys = [p[2] for p in sorted_pairs]
 
         units = next((var_meta[v]["units"] for v in members if var_meta[v]["units"]), None)
+        # In visit order, because `members` is already sorted.
+        member_labels = [var_meta[v]["var_label"] for v in members]
+        concept_name = next(
+            (var_meta[v]["concept_name"] for v in members if var_meta[v]["concept_name"]), None
+        )
+        context_name = next(
+            (var_meta[v]["additional_context"] for v in members if var_meta[v]["additional_context"]),
+            None,
+        )
+        # Last resort for the family name. The raw member label is deliberately
+        # not used: when every name and label is pure visit boilerplate
+        # ("baseline", "end of study") it would name the family after one visit.
+        fam_fallback = concept_name or f"concept {concept}"
 
         families.append({
             "key": key,
             "concept": str(concept),
             "context": context,
             "var_type": fam_type,
-            "var_label": _family_label(members, var_meta[members[0]]["var_label"]),
+            "var_label": _family_label(members, member_labels, fam_fallback),
+            "concept_name": concept_name,
+            "context_name": context_name,
             "units": units,
             "members": members,
+            "member_labels": member_labels,
             "visit_labels": visit_labels,
             "visit_sort_keys": [list(sk) for sk in sort_keys],
         })
@@ -400,6 +443,14 @@ def render_audit_html(results: list[dict[str, Any]]) -> str:
                 vtype = fam["var_type"]
                 type_class = "type-num" if vtype in ("int", "float") else "type-cat"
                 members = ", ".join(html_mod.escape(m) for m in fam["members"])
+                member_labels = " &rarr; ".join(
+                    html_mod.escape(str(l)) for l in fam.get("member_labels") or []
+                )
+                if member_labels:
+                    members += (
+                        f"<div style='font-size:.75rem;color:#6c757d;margin-top:.25rem;'>"
+                        f"{member_labels}</div>"
+                    )
                 context = html_mod.escape(fam["context"]) if fam["context"] != "no-additional-context" else "<span class='context'>none</span>"
                 units = f"<span class='units'>{html_mod.escape(fam['units'])}</span>" if fam["units"] else ""
 
@@ -417,7 +468,13 @@ def render_audit_html(results: list[dict[str, Any]]) -> str:
                 parts.append("<tr>")
                 parts.append(f"<td class='label'>{html_mod.escape(fam['var_label'])}</td>")
                 parts.append(f"<td class='{type_class}'>{html_mod.escape(vtype)}</td>")
-                parts.append(f"<td><code>{html_mod.escape(fam['concept'])}</code></td>")
+                concept_html = f"<code>{html_mod.escape(fam['concept'])}</code>"
+                if fam.get("concept_name"):
+                    concept_html += (
+                        f"<div style='font-size:.75rem;color:#6c757d;margin-top:.25rem;'>"
+                        f"{html_mod.escape(str(fam['concept_name']))}</div>"
+                    )
+                parts.append(f"<td>{concept_html}</td>")
                 parts.append(f"<td>{context}</td>")
                 parts.append(f"<td>{units}</td>")
                 parts.append(f"<td>{members}</td>")

@@ -674,6 +674,7 @@ for index, row in dictionary.iterrows():
             # detect the patient-id column.
             'omop_id': _dict_val('VARIABLE OMOP ID'),
             'concept_code': _dict_val('VARIABLE CONCEPT CODE'),
+            'concept_name': _dict_val('VARIABLE CONCEPT NAME'),
             # Two variables only belong to the same longitudinal family if they
             # share the concept *and* the additional context, so the context is
             # part of the grouping key rather than decoration.
@@ -1720,6 +1721,7 @@ import zipfile
 import tempfile
 import os
 import warnings
+import textwrap as _textwrap
 from scipy.cluster.hierarchy import linkage, fcluster
 from scipy.spatial.distance import squareform
 warnings.filterwarnings('ignore')
@@ -1791,6 +1793,7 @@ for v in list(vars_details.columns):
         'var_label': _dget('var_label') or v,
         'omop_id': _dget('omop_id'),
         'concept_code': _dget('concept_code'),
+        'concept_name': _dget('concept_name'),
         'additional_context': _dget('additional_context'),
         'units': _dget('units'),
         'visits': _dget('visits'),
@@ -1889,15 +1892,21 @@ def _concept_tokens(name):
             tokens.append(token)
     return tokens
 
-def _family_label(members, fallback):
-    # Members of a family are named to a pattern (blood_pressure_on_visit_1,
-    # blood_pressure_at_end_of_study), so the tokens they share name the
-    # concept. A common prefix is the usual case; otherwise fall back to the
-    # tokens common to every member, in the order the first member uses them.
-    token_lists = [_concept_tokens(v) for v in members]
+def _strip_visit_words(text):
+    # Removes the visit/time boilerplate from a single human-readable label, so
+    # that "Weight at baseline" names the family as "Weight" rather than
+    # claiming the whole family was measured at baseline. Returns '' when
+    # nothing but boilerplate is left, so the caller can try something else.
+    return ' '.join(_concept_tokens(text)).strip()
+
+def _shared_tokens(names):
+    # The tokens a set of names has in common. A shared prefix is the usual
+    # case (blood_pressure_visit_1, blood_pressure_end_of_study); otherwise the
+    # tokens present in every name, in the order the first name uses them.
+    token_lists = [_concept_tokens(n) for n in names]
     token_lists = [t for t in token_lists if t]
     if not token_lists:
-        return fallback
+        return ''
     shared = []
     for group in zip(*token_lists):
         if len(set(group)) == 1:
@@ -1911,8 +1920,19 @@ def _family_label(members, fallback):
         for tok in token_lists[0]:
             if tok in common and tok not in shared:
                 shared.append(tok)
-    label = ' '.join(shared).strip()
-    return label or fallback
+    return ' '.join(shared).strip()
+
+def _family_label(members, member_labels, fallback):
+    # Preference order: what the member *column names* share, then what their
+    # human-readable *labels* share, then the first label with its visit words
+    # stripped. Every step goes through _concept_tokens, so no step can leak
+    # visit boilerplate into the family name.
+    for candidate in (_shared_tokens(members),
+                      _shared_tokens(member_labels),
+                      _strip_visit_words(member_labels[0] if member_labels else '')):
+        if candidate:
+            return candidate
+    return fallback
 
 def _context_key(m):
     # Same concept measured with a different additional context is a different
@@ -1955,16 +1975,62 @@ for (concept, context), members in groups.items():
     members = [v for v in members if var_meta[v]['var_type'] == fam_type]
     members = sorted(members, key=lambda v: _visit_sort_key(_visit_label(var_meta[v])))
     units = next((var_meta[v]['units'] for v in members if var_meta[v]['units']), None)
+    # Member labels are in visit order, because `members` is already sorted.
+    member_labels = [var_meta[v]['var_label'] for v in members]
+    # The standardised names as the metadata dictionary spells them, shown
+    # verbatim on the chart. `context` above is the normalised grouping key.
+    concept_name = next((var_meta[v]['concept_name'] for v in members if var_meta[v]['concept_name']), None)
+    context_name = next((var_meta[v]['additional_context'] for v in members if var_meta[v]['additional_context']), None)
+    # Last resort for the family name. The raw member label is deliberately not
+    # used: when every name and label is pure visit boilerplate ("baseline",
+    # "end of study") it would name the family after a single visit.
+    fam_fallback = concept_name or f"concept {concept}"
     families.append({
         'key': key,
         'concept': str(concept),
         'context': context,
         'var_type': fam_type,
-        'var_label': _family_label(members, var_meta[members[0]]['var_label']),
+        'var_label': _family_label(members, member_labels, fam_fallback),
+        'concept_name': concept_name,
+        'context_name': context_name,
         'units': units,
         'members': members,
+        'member_labels': member_labels,
         'visit_labels': [_visit_label(var_meta[v]) for v in members],
     })
+
+# ---- Chart titling ---------------------------------------------------------
+def _family_subtitle(fam):
+    # The standardised concept the family measures, plus the additional context
+    # that distinguishes it from other families on the same concept.
+    concept = fam.get('concept_name') or fam.get('concept') or 'unknown concept'
+    context = fam.get('context_name') or 'none'
+    return f"Concept: {concept}    Additional context: {context}"
+
+def _family_members_line(fam, width=120, max_lines=3):
+    # The member variables, in the same visit order the chart uses, so a reader
+    # can tell which column produced which point.
+    labels = [str(l) for l in fam.get('member_labels') or fam.get('members') or []]
+    if not labels:
+        return ''
+    text = "Variables (in visit order): " + "  \u2192  ".join(labels)
+    wrapped = _textwrap.wrap(text, width) or ['']
+    if len(wrapped) > max_lines:
+        wrapped = wrapped[:max_lines]
+        wrapped[-1] = wrapped[-1] + ' ...'
+    return "\\n".join(wrapped)
+
+def _set_chart_titles(ax, main_title, fam):
+    # The family name goes on the figure so it stays the visually dominant
+    # line; the two descriptive lines go on the axes title beneath it. Both are
+    # accounted for by tight_layout, so neither can be clipped.
+    fig = ax.get_figure()
+    fig.suptitle(main_title, fontsize=13)
+    lines = [_family_subtitle(fam)]
+    members_line = _family_members_line(fam)
+    if members_line:
+        lines.append(members_line)
+    ax.set_title("\\n".join(lines), fontsize=8)
 
 # ---- Numeric family: baseline-relative trajectory banding -----------------
 def _process_numeric_family(fam):
@@ -2051,7 +2117,7 @@ _TREND_ORDER = {'declining': 0, 'stable': 1, 'rising': 2}
 # outliers we want to see, so they are drawn on top and named as such.
 _OUTLIER_BAND_MAX = 3
 
-def _plot_numeric_family(ax, result, var_label, units=None):
+def _plot_numeric_family(ax, result, fam, units=None):
     x = np.arange(len(result['visit_labels']))
     bands_sorted = sorted(
         result['bands'],
@@ -2088,7 +2154,7 @@ def _plot_numeric_family(ax, result, var_label, units=None):
     ax.set_xticks(x)
     ax.set_xticklabels(result['visit_labels'], rotation=45 if len(x) > 4 else 0,
                         ha='right' if len(x) > 4 else 'center')
-    ax.set_title(f"Longitudinal Trend - {var_label.upper()}")
+    _set_chart_titles(ax, f"Longitudinal Trend - {str(fam['var_label']).upper()}", fam)
     ax.set_xlabel("Visit")
     ax.set_ylabel(f"Value ({units})" if units else "Value")
     ax.legend(frameon=False, fontsize=8, loc='best',
@@ -2121,7 +2187,7 @@ def _process_categorical_family(fam):
     label_maps = [var_meta[v]['categories'] or {} for v in fam['members']]
     return {'fam_df': fam_df, 'n_patients': n_patients, 'label_maps': label_maps}
 
-def _plot_categorical_family(ax, processed, var_label):
+def _plot_categorical_family(ax, processed, fam):
     fam_df = processed['fam_df']
     label_maps = processed['label_maps']
     visits = list(fam_df.columns)
@@ -2210,7 +2276,7 @@ def _plot_categorical_family(ax, processed, var_label):
     ax.set_xlabel(
         f"n={n_patients} patients - N/A = no recorded value at that visit "
         f"(missed visit or withdrawal)", fontsize=8)
-    ax.set_title(f"Category Flow - {var_label.upper()}")
+    _set_chart_titles(ax, f"Category Flow - {str(fam['var_label']).upper()}", fam)
 
 # ---- Run over every identified family --------------------------------------
 longitudinal_json = {}
@@ -2223,15 +2289,18 @@ for fam in families:
             if result is None:
                 plt.close(fig)
                 continue
-            _plot_numeric_family(ax, result, fam['var_label'], fam['units'])
+            _plot_numeric_family(ax, result, fam, fam['units'])
             chart_suffix = 'longitudinal-trend'
             longitudinal_json[fam['key']] = {
                 'var_type': fam['var_type'],
                 'var_label': fam['var_label'],
                 'concept': fam['concept'],
+                'concept_name': fam['concept_name'],
                 'additional_context': fam['context'],
+                'additional_context_name': fam['context_name'],
                 'units': fam['units'],
                 'member_variables': fam['members'],
+                'member_labels': fam['member_labels'],
                 'chart_type': 'trajectory_bands',
                 **result,
             }
@@ -2240,14 +2309,17 @@ for fam in families:
             if processed is None:
                 plt.close(fig)
                 continue
-            _plot_categorical_family(ax, processed, fam['var_label'])
+            _plot_categorical_family(ax, processed, fam)
             chart_suffix = 'category_flow'
             longitudinal_json[fam['key']] = {
                 'var_type': fam['var_type'],
                 'var_label': fam['var_label'],
                 'concept': fam['concept'],
+                'concept_name': fam['concept_name'],
                 'additional_context': fam['context'],
+                'additional_context_name': fam['context_name'],
                 'member_variables': fam['members'],
+                'member_labels': fam['member_labels'],
                 'visit_labels': fam['visit_labels'],
                 'chart_type': 'alluvial',
                 'n_patients': processed['n_patients'],
