@@ -400,6 +400,12 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
   const [edaError, setEdaError] = React.useState<string | null>(null);
   const [edaLoading, setEdaLoading] = React.useState(false);
   const [edaAvail, setEdaAvail] = React.useState<Record<string, boolean>>({});
+  const [comparisonDetails, setComparisonDetails] = React.useState<{
+    sourceVar: string;
+    sourceCohort: string;
+    targetVar: string;
+    targetCohort: string;
+  } | null>(null);
 
   // Check EDA availability for cohorts
   React.useEffect(() => {
@@ -614,6 +620,12 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
       setActiveTgtDomains(tgtDomains);
     }
   }, [tgtDomains]);
+  const allStatuses = ['Identical Match', 'Partial Match', 'Compatible Match', 'Not Applicable'].filter(s => s in statusCounts);
+  React.useEffect(() => {
+    if (allStatuses.length > 0 && activeStatuses.length === 0) {
+      setActiveStatuses(allStatuses);
+    }
+  }, [allStatuses]);
 
   const toggle = (arr: string[], v: string, set: (a: string[]) => void) => set(arr.includes(v) ? arr.filter(x => x !== v) : [...arr, v]);
   const toggleExclusive = (arr: string[], v: string, all: string[], set: (a: string[]) => void) => {
@@ -623,13 +635,13 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
 
   function cycleVarFilter() {
     setFocusedId(null); setFocusedEdge(null); setActiveSrcDomains(srcDomains); setActiveTgtDomains(tgtDomains);
-    setActiveStatuses([]); setSrcSort('default'); setTgtSort('default'); setSearchQ(''); setExpandedIds(new Set());
+    setActiveStatuses(allStatuses); setSrcSort('default'); setTgtSort('default'); setSearchQ(''); setExpandedIds(new Set());
     setHoveredId(null); setHoveredEdge(null); setSelectedEdge(null); setSelectedEdgeData(null); setEdaImage(null); setEdaError(null);
     setVarFilter(f => f === 'mapped' ? 'unmapped' : 'mapped');
   }
   function resetAll() {
     setFocusedId(null); setFocusedEdge(null); setActiveSrcDomains(srcDomains); setActiveTgtDomains(tgtDomains);
-    setActiveStatuses([]); setVarFilter('mapped');
+    setActiveStatuses(allStatuses); setVarFilter('mapped');
     setSrcSort('default'); setTgtSort('default'); setSearchQ(''); setExpandedIds(new Set()); setHoveredEdge(null); setSelectedEdge(null); setSelectedEdgeData(null); setEdaImage(null); setEdaError(null);
   }
   const varFilterLabel = varFilter === 'unmapped' ? 'showing only vars with no cross-mappings' : 'showing only cross-mapped vars';
@@ -691,22 +703,22 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
             <div className="text-xs font-semibold opacity-50 uppercase tracking-wide">Harmonization status</div>
             <button className="btn btn-xs btn-ghost text-error" onClick={resetAll}>↺ Reset all filters</button>
           </div>
+          <div className="flex gap-3 mb-1">
+            <button className="btn btn-xs btn-ghost text-xs" style={{ fontSize: 10, padding: '0 4px', height: 16, minHeight: 16 }} onClick={() => setActiveStatuses(allStatuses)}>select all</button>
+            <button className="btn btn-xs btn-ghost text-xs" style={{ fontSize: 10, padding: '0 4px', height: 16, minHeight: 16 }} onClick={() => setActiveStatuses([])}>unselect all</button>
+          </div>
           <div className="flex flex-wrap gap-1">
-            {['Identical Match', 'Partial Match', 'Compatible Match', 'Not Applicable'].filter(s => s in statusCounts).map(s => {
+            {allStatuses.map(s => {
               const count = statusCounts[s] as number;
-              const active = activeStatuses.length === 0 || activeStatuses.includes(s);
+              const active = activeStatuses.includes(s);
               const c = edgeClr(s);
               return (
-                <label key={s} onClick={() => {
-                  if (activeStatuses.length === 0) { setActiveStatuses([s]); return; }
-                  toggle(activeStatuses, s, setActiveStatuses);
-                }} className="flex items-center gap-1 cursor-pointer border rounded" style={{ backgroundColor: active ? c : '#f8fafc', borderColor: active ? c : '#cbd5e1', color: active ? '#fff' : '#94a3b8', fontWeight: active ? 600 : 400, fontSize: 10, padding: '1px 6px', height: 22, minHeight: 22, opacity: active ? 1 : 0.5, whiteSpace: 'nowrap' }}>
-                  <input type="checkbox" checked={activeStatuses.includes(s)} readOnly className="checkbox checkbox-xs" style={{ minHeight: 12, height: 12, width: 12 }} />
+                <label key={s} onClick={() => toggleExclusive(activeStatuses, s, allStatuses, setActiveStatuses)} className="flex items-center gap-1 cursor-pointer border rounded" style={{ backgroundColor: active ? c : '#f8fafc', borderColor: active ? c : '#cbd5e1', color: active ? '#fff' : '#94a3b8', fontWeight: active ? 600 : 400, fontSize: 10, padding: '1px 6px', height: 22, minHeight: 22, opacity: active ? 1 : 0.5, whiteSpace: 'nowrap' }}>
+                  <input type="checkbox" checked={active} readOnly className="checkbox checkbox-xs" style={{ minHeight: 12, height: 12, width: 12 }} />
                   <span>{s} ({count})</span>
                 </label>
               );
             })}
-            {activeStatuses.length > 0 && <button className="btn btn-xs btn-ghost" onClick={() => setActiveStatuses([])}>clear</button>}
           </div>
         </div>
       </div>
@@ -741,6 +753,21 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
         )}
         {hoveredId && ' · hover: showing connected edges'}
       </div>
+      {(() => {
+        const isFiltered =
+          (activeSrcDomains.length > 0 && activeSrcDomains.length < srcDomains.length) ||
+          (activeTgtDomains.length > 0 && activeTgtDomains.length < tgtDomains.length) ||
+          (activeStatuses.length > 0 && activeStatuses.length < allStatuses.length) ||
+          focusedId !== null ||
+          focusedEdge !== null ||
+          searchQ.trim() !== '';
+        if (!isFiltered) return null;
+        return (
+          <div className="text-xs opacity-70 mb-2 font-medium">
+            Counts after current filtering: {searchedSrc.length} source variable{searchedSrc.length !== 1 ? 's' : ''}, {searchedTgt.length} target variable{searchedTgt.length !== 1 ? 's' : ''}, {searchedEdges.length} mapping{searchedEdges.length !== 1 ? 's' : ''}
+          </div>
+        );
+      })()}
       {/* SVG graph */}
       <div className="border rounded-lg bg-base-100 overflow-x-auto" style={{ maxHeight: '72vh', overflowY: 'auto' }}>
         {/* Sort buttons positioned above columns */}
@@ -806,6 +833,7 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
                   const handleCompareEda = async () => {
                     if (!sourceCohort || !srcVar || !tgtStudy || !tgtVar) return;
                     setEdaLoading(true); setEdaError(null); setEdaImage(null);
+                    setComparisonDetails({ sourceVar: srcVar, sourceCohort, targetVar: tgtVar, targetCohort: tgtStudy });
                     const imageUrl = `/api/compare-eda/${encodeURIComponent(sourceCohort)}/${encodeURIComponent(srcVar)}/${encodeURIComponent(tgtStudy)}/${encodeURIComponent(tgtVar)}`;
                     try {
                       const response = await fetch(imageUrl);
@@ -890,6 +918,7 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
         const handleCompareEda = async () => {
           if (!sourceCohort || !srcVar || !tgtStudy || !tgtVar) return;
           setEdaLoading(true); setEdaError(null); setEdaImage(null);
+          setComparisonDetails({ sourceVar: srcVar, sourceCohort, targetVar: tgtVar, targetCohort: tgtStudy });
           const imageUrl = `/api/compare-eda/${encodeURIComponent(sourceCohort)}/${encodeURIComponent(srcVar)}/${encodeURIComponent(tgtStudy)}/${encodeURIComponent(tgtVar)}`;
           try {
             const response = await fetch(imageUrl);
@@ -936,24 +965,54 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
                   {edaLoading ? <span className="loading loading-spinner loading-xs"></span> : <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18"/><path d="M7 16l4-8 4 4 4-8"/></svg>}
                   Compare EDA
                 </button>
-                <button className="btn btn-ghost btn-sm btn-circle" onClick={() => { setSelectedEdge(null); setSelectedEdgeData(null); setEdaImage(null); setEdaError(null); }}>✕</button>
+                <button className="btn btn-ghost btn-sm btn-circle" onClick={() => { setSelectedEdge(null); setSelectedEdgeData(null); setEdaImage(null); setEdaError(null); setComparisonDetails(null); }}>✕</button>
               </div>
             </div>
-            {(edaImage || edaError) && (
-              <div className="mt-4 pt-4 border-t">
-                {edaError ? (
-                  <div className="alert alert-error text-sm"><div className="whitespace-pre-wrap">{edaError}</div></div>
-                ) : edaImage ? (
-                  <div className="text-center">
-                    <img src={edaImage} alt="EDA Comparison" style={{ maxWidth: '75%', height: 'auto' }} className="mx-auto rounded shadow" />
-                    <a href={edaImage} download={`comparison_${srcVar}_vs_${tgtVar}.png`} className="btn btn-sm btn-outline mt-3">Save Image</a>
-                  </div>
-                ) : null}
-              </div>
-            )}
           </div>
         );
       })()}
+
+      {/* Modal to display merged EDA image or error — duplicates table view modal */}
+      {(edaImage || edaError) && comparisonDetails && (
+        <div className="modal modal-open">
+          <div className="modal-box max-w-5xl">
+            <h3 className="font-bold text-lg mb-4">
+              {comparisonDetails
+                ? `Statistical Comparison: ${comparisonDetails.sourceVar} (${comparisonDetails.sourceCohort}) vs ${comparisonDetails.targetVar} (${comparisonDetails.targetCohort})`
+                : 'EDA Comparison'
+              }
+            </h3>
+            {edaError ? (
+              <div className="alert alert-error">
+                <div className="whitespace-pre-wrap">{edaError}</div>
+              </div>
+            ) : edaImage ? (
+              <img
+                src={edaImage}
+                alt="Merged EDA comparison"
+                style={{ width: '75%', height: 'auto' }}
+                className="mx-auto"
+              />
+            ) : null}
+            <div className="modal-action">
+              {!edaError && edaImage && (
+                <a
+                  href={edaImage}
+                  download={comparisonDetails
+                    ? `comparison_${comparisonDetails.sourceVar}_${comparisonDetails.sourceCohort}_vs_${comparisonDetails.targetVar}_${comparisonDetails.targetCohort}.png`
+                    : "eda-comparison.png"
+                  }
+                  className="btn btn-primary"
+                >
+                  Save Image
+                </a>
+              )}
+              <button className="btn" onClick={() => { setEdaImage(null); setEdaError(null); setComparisonDetails(null); }}>Close</button>
+            </div>
+          </div>
+          <div className="modal-backdrop" onClick={() => { setEdaImage(null); setEdaError(null); setComparisonDetails(null); }}></div>
+        </div>
+      )}
     </div>
   );
 }

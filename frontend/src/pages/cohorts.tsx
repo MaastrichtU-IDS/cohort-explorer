@@ -19,7 +19,10 @@ import AutocompleteConcept from '@/components/AutocompleteConcept';
 import {InfoIcon} from '@/components/Icons';
 
 // Helper component to render highlighted text
-const HighlightedText = ({text, searchTerms, searchMode}: {text: string, searchTerms: string[], searchMode?: 'or' | 'and' | 'exact'}) => {
+const HighlightedText = ({text, searchTerms, searchMode, noHighlight}: {text: string, searchTerms: string[], searchMode?: 'or' | 'and' | 'exact', noHighlight?: boolean}) => {
+  if (noHighlight) {
+    return <span>{text}</span>;
+  }
   const highlightedHtml = highlightSearchTerms(text, searchTerms, searchMode);
   
   if (highlightedHtml === text) {
@@ -157,7 +160,7 @@ const SearchResultsTable = React.memo(({cohortsData, searchTerms, searchMode, se
                 title={`Click to search within ${cohortId}`}
               >
                 <td className="font-semibold whitespace-nowrap">
-                  <HighlightedText text={cohortId} searchTerms={searchTerms} searchMode={searchMode} />
+                  <HighlightedText text={cohortId} searchTerms={searchTerms} searchMode={searchMode} noHighlight />
                 </td>
                 <td>
                   {matchedSections.length > 0 ? (
@@ -177,7 +180,7 @@ const SearchResultsTable = React.memo(({cohortsData, searchTerms, searchMode, se
                     <div className="flex flex-wrap gap-1 max-w-md">
                       {matchedVariables.slice(0, 5).map((varName, idx) => (
                         <span key={idx} className="badge badge-sm badge-outline">
-                          <HighlightedText text={varName} searchTerms={searchTerms} searchMode={searchMode} />
+                          <HighlightedText text={varName} searchTerms={searchTerms} searchMode={searchMode} noHighlight />
                         </span>
                       ))}
                       {matchedVariables.length > 5 && (
@@ -1343,7 +1346,7 @@ export default function CohortsList() {
               setActiveSubTab({});
               setCohortSearchQueries({});
             }}
-            className="fixed bottom-6 right-6 z-[9999] btn btn-sm btn-error shadow-lg"
+            className="fixed bottom-6 right-6 z-[9999] btn btn-error shadow-lg"
             title="Clear search and collapse all cohorts"
           >
             ✕ Clear Search
@@ -1359,7 +1362,7 @@ export default function CohortsList() {
               setCohortSearchQueries({});
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
-            className="fixed bottom-6 left-6 z-[9999] btn btn-sm btn-outline btn-neutral shadow-lg"
+            className={`fixed right-6 z-[9999] btn btn-sm btn-outline btn-neutral shadow-lg ${searchInput.trim() ? 'bottom-20' : 'bottom-6'}`}
             title="Back to top and collapse all cohorts"
           >
             ↑ Back to Top
