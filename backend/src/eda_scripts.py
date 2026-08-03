@@ -54,6 +54,26 @@ def _canon_value_token(v):
     except Exception:
         return s
 
+def _missing_code_variants(p):
+    # Some dictionaries write numeric missing codes with a space (or comma) where
+    # a decimal or thousands separator belongs, e.g. "9999 000" for 9999.000 or
+    # 9999000. The literal token "9999 000" never matches a numeric cell, so we
+    # register every plausible reading:
+    #   - the combined decimal form  (9999.000)
+    #   - the combined integer form  (9999000)
+    #   - each part as a standalone code (9999, 000)
+    # This ensures sentinels such as 9999 are caught regardless of how the
+    # dictionary author intended the separator.
+    m = _re.match(r'^([+-]?[0-9]+)[ ,]([0-9]{3})$', p)
+    if not m:
+        return [p]
+    head, tail = m.group(1), m.group(2)
+    out = []
+    for v in (head + '.' + tail, head + tail, head, tail):
+        if v not in out:
+            out.append(v)
+    return out
+
 def _parse_missing_codes(raw_value):
     # The dictionary MISSING column may declare several codes separated by "|".
     if raw_value is None:
@@ -69,8 +89,11 @@ def _parse_missing_codes(raw_value):
     out = []
     for part in s.split('|'):
         p = part.strip()
-        if p != '' and p not in out:
-            out.append(p)
+        if p == '':
+            continue
+        for code in _missing_code_variants(p):
+            if code not in out:
+                out.append(code)
     return out
 
 def _read_csv_as_text(path):

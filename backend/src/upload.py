@@ -728,7 +728,19 @@ def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
                     f"and the right side must be the human-readable label. "
                     f"Reversed entries: {', '.join(repr(m) for m in misordered)}."
                 )
-    
+
+        # MISSING column validation: reject codes containing spaces
+        missing_raw = str(row.get("MISSING", "")).strip() if "MISSING" in df.columns else ""
+        if missing_raw and missing_raw.lower() != "na":
+            for part in missing_raw.split("|"):
+                code = part.strip()
+                if code and " " in code:
+                    errors.append(
+                        f"Row {i+2} (Variable: '{var_name_for_error}'): Missing code '{code}' in the MISSING column contains a space. "
+                        f"Missing codes must not contain spaces. If a space was intended as a decimal or thousands separator, "
+                        f"use a dot or remove it (e.g. '999.000' or '999000' instead of '999 000')."
+                    )
+
     return errors
 
 
