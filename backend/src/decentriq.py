@@ -150,6 +150,9 @@ def create_provision_dcr(
     """
     additional_analysts = additional_analysts or []
     excluded_data_owners = excluded_data_owners or []
+    # The creator must never be excluded from their own DCR.
+    creator_email = user["email"]
+    excluded_data_owners = [e for e in excluded_data_owners if e != creator_email]
     import time
     start_time = time.time()
     logging.info(f"[TIMING] Starting DCR provisioning for {cohort.cohort_id}")
@@ -599,6 +602,8 @@ async def get_compute_dcr_definition(
     include_mapping_upload_slot: bool = False,
     research_question: str = None,
 ) -> Any:
+    # The creator must never be excluded from their own DCR.
+    excluded_data_owners = [e for e in (excluded_data_owners or []) if e != user["email"]]
     start_time = datetime.now()
     logging.info(f"Starting DCR definition creation for user {user['email']} at {start_time}")
     
