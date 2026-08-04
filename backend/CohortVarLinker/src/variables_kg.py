@@ -54,7 +54,11 @@ def process_variables_metadata_file(file_path:str, study_metadata_graph_file_pat
         cohort_id = normalize_text(cohort_name)
    
         cohort_uri = get_study_uri(cohort_id)
-        data = data.apply(lambda col: col.map(lambda x: x.lower() if isinstance(x, str) else x))
+         _CASE_SENSITIVE_COLS = {"units", "unit concept code"}
+        data = data.apply(
+            lambda col: col if col.name in _CASE_SENSITIVE_COLS
+            else col.map(lambda x: x.lower() if isinstance(x, str) else x)
+        )
         cohort_graph = URIRef(OntologyNamespaces.CMEO.value + f"graph/{cohort_id}") #named graph for the cohort
 
         g = init_graph(default_graph_identifier=cohort_graph)
