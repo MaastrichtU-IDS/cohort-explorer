@@ -223,8 +223,9 @@ async def get_available_mapping_files(
     
     logger.info(f"[DEBUG] get_available_mapping_files: received {len(cohort_ids)} cohort_ids")
     
+    selected_lower = {c.lower() for c in cohort_ids}
     available_mappings = []
-    
+
     # Scan directory for .csv mapping files
     if os.path.exists(output_dir):
         all_files = os.listdir(output_dir)
@@ -232,42 +233,44 @@ async def get_available_mapping_files(
         csv_files = [f for f in all_files if f.endswith('.csv') and not f.endswith('.meta.csv')]
         logger.info(f"[DEBUG] get_available_mapping_files: csv files = {csv_files}")
         for filename in csv_files:
-            # Parse cohort names from filename.
-            # Pattern: {source}_{target}_{...rest}.csv
-            # The first two underscore-separated parts are source and target cohorts.
+            # Parse cohort names from filename by matching leading underscore-
+            # separated parts against the selected cohort IDs. Once a part
+            # doesn't match any selected cohort, the rest is treated as the
+            # model/mode suffix.
             stem = filename[:-len('.csv')]
             parts = stem.split('_')
-            if len(parts) < 2:
-                continue
-            file_cohorts = [parts[0].lower(), parts[1].lower()]
-            logger.info(f"[DEBUG] Parsed file '{filename}': cohorts = {file_cohorts}")
-            
+            file_cohorts = []
+            for p in parts:
+                if p.lower() in selected_lower:
+                    file_cohorts.append(p.lower())
+                else:
+                    break
             if len(file_cohorts) < 2:
-                # Need at least 2 cohorts for a mapping file
-                logger.info(f"[DEBUG] Skipping '{filename}': less than 2 cohorts")
+                logger.info(f"[DEBUG] Skipping '{filename}': less than 2 matched cohorts")
                 continue
-            
+            logger.info(f"[DEBUG] Parsed file '{filename}': cohorts = {file_cohorts}")
+
             filepath = os.path.join(output_dir, filename)
             file_size = os.path.getsize(filepath)
             mtime = os.path.getmtime(filepath)
-            
+
             # Create display name showing all cohorts
             display_name = ' → '.join(file_cohorts)
-            
+
             # Count data rows (minus header) for stats
             try:
                 with open(filepath, 'r', encoding='utf-8') as f:
                     row_count = max(0, sum(1 for _ in f) - 1)
             except Exception:
                 row_count = 0
-            
+
             stats = {"total_mappings": row_count}
-            
+
             # Skip files with 0 mappings (failed or empty runs)
             if row_count == 0:
                 logger.info(f"[DEBUG] Skipping '{filename}': 0 total mappings")
                 continue
-            
+
             available_mappings.append({
                 'cohorts': file_cohorts,
                 'filename': filename,
