@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 MODEL_MAP = {
     # --- Biomedical domain models ---
     "cardioembed":"michiyasunaga/BioLinkBERT-large",
+    "zembed":"zeroentropy/zembed-1",
     "sapbert":  "cambridgeltl/SapBERT-from-PubMedBERT-fulltext",
     "biolord":  "FremyCompany/BioLORD-2023",
     # "coder":"GanjinZero/UMLSBert_ENG",
@@ -121,7 +122,7 @@ class UnifiedEmbeddingModel:
         cache = cache_dir or settings.MODEL_CACHE_DIR
         dtype = torch.float16 if self._is_decoder else torch.float32
 
-        print(f"🔥 Loading embedding model: {model_name_or_path}...")
+       
         self.tokenizer = AutoTokenizer.from_pretrained(
             model_name_or_path, cache_dir=cache, trust_remote_code=True)
         # self.model = AutoModel.from_pretrained(
@@ -129,10 +130,10 @@ class UnifiedEmbeddingModel:
         #     dtype=dtype)
         if backend_key == "cardioembed":
                 from peft import PeftModel
-                base = AutoModel.from_pretrained("michiyasunaga/BioLinkBERT-large", cache_dir=cache, torch_dtype=dtype)
+                base = AutoModel.from_pretrained("michiyasunaga/BioLinkBERT-large", cache_dir=cache, dtype=dtype)
                 self.model = PeftModel.from_pretrained(base, "richardyoung/CardioEmbed-BioLinkBERT").merge_and_unload()
         else:
-            self.model = AutoModel.from_pretrained(model_name_or_path, cache_dir=cache, trust_remote_code=True, torch_dtype=dtype)
+            self.model = AutoModel.from_pretrained(model_name_or_path, cache_dir=cache, trust_remote_code=True, dtype=dtype)
 
         if self._is_decoder:
             self.tokenizer.padding_side = "left"
@@ -146,8 +147,8 @@ class UnifiedEmbeddingModel:
         self.model.eval()
 
         self.embedding_dim = self.model.config.hidden_size
-        print(f"✅ Model loaded: dim={self.embedding_dim}, "
-              f"pool={self._pooling}, device={self.device}")
+        # # print(f"✅ Model loaded: dim={self.embedding_dim}, "
+        #       f"pool={self._pooling}, device={self.device}")
 
     def _pool(self, last_hidden: torch.Tensor,
           attention_mask: torch.Tensor) -> torch.Tensor:
@@ -242,7 +243,7 @@ class APIEmbeddingModel:
         else:
             raise ValueError(f"Unknown API provider: {provider}")
 
-        print(f"✅ API model ready: {self.provider} ({self._model_name})")
+        # print(f"✅ API model ready: {self.provider} ({self._model_name})")
 
     def embed_batch(self, texts: List[str], show_progress: bool = False,
                     is_query: bool = True) -> np.ndarray:
@@ -323,7 +324,7 @@ class FireworksEmbeddingModel:
         self._instruction_prefix = INSTRUCTION_MODELS.get(backend_key, "")
         self._passage_prefix = PASSAGE_PREFIXES.get(backend_key, "")
 
-        print(f"✅ Together AI model ready: {self._model_name} (dim={self.embedding_dim})")
+        # print(f"✅ Together AI model ready: {self._model_name} (dim={self.embedding_dim})")
 
     def embed_batch(self, texts: List[str], show_progress: bool = False,
                     is_query: bool = True) -> np.ndarray:
@@ -402,7 +403,7 @@ class OllamaEmbeddingModel:
         except Exception as e:
             logger.warning(f"Could not probe Ollama dim: {e}")
 
-        print(f"✅ Ollama model ready: {self._ollama_tag} (dim={self.embedding_dim})")
+        # print(f"✅ Ollama model ready: {self._ollama_tag} (dim={self.embedding_dim})")
 
     def _embed_raw(self, texts: List[str]) -> List[List[float]]:
         if self._client:
@@ -463,7 +464,7 @@ def get_model(backend: str = "biolord") -> Tuple[UnifiedEmbeddingModel, int]:
             _model_instance = APIEmbeddingModel(backend, api_key=settings.OPENAI_API_KEY if backend == "openai" else settings.GEMINI_API_KEY)
 
         # if backend in TOGETHER_MODELS:
-        #     print(f"🔥 Loading Together AI embedding model: {backend}...")
+        #     # print(f"🔥 Loading Together AI embedding model: {backend}...")
         #     _model_instance = TogetherEmbeddingModel(
         #         backend_key=backend,
         #     )

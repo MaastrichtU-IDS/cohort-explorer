@@ -8,13 +8,15 @@ import requests
 from thefuzz import fuzz
 import os
 import re
-import time
 import urllib.parse
 from enum import Enum
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Sequence, Set, Tuple
+from dataclasses import dataclass, asdict
 from datetime import datetime
 import logging
-
+import unicodedata
+from pathlib import Path
+# import re
 
 _VISIT_MONTH_RE = re.compile(r'(\d+)\s*months?', re.IGNORECASE)
 _VISIT_BASELINE_RE = re.compile(r'baseline|month\s*0|randomization', re.IGNORECASE)
@@ -22,9 +24,17 @@ _PRE_BASELINE_MONTH_RE = re.compile(
     r'(\d+)\s*months?\s*(?:prior to|before)\s*baseline',
     re.IGNORECASE,
 )
-
 _BASELINE_PRIOR_MONTH_RE = re.compile(
     r'baseline.*?(\d+)\s*months?\s*(?:prior|before)',
+    re.IGNORECASE,
+)
+_BETWEEN_BASELINE_VISIT_RE = re.compile(
+    r"\b(?:between|from)\s+(?:baseline|bl)\s+(?:and|to|-)\s+(?:visit\s*)?(\d+)\b",
+    re.IGNORECASE,
+)
+_BASELINE_TO_VISIT_RE = re.compile(
+    r"\b(?:baseline|bl)\s*(?:to|[-–—]|through|until)\s*"
+    r"(?:(?:visit|month|week|day)s?\s*)?(\d+)\b",
     re.IGNORECASE,
 )
 
@@ -45,8 +55,8 @@ _TEMPORAL_CONTEXT_RE = re.compile(
         r'|\d+\s*(?:months?|years?|weeks?|days?)\s+follow[-\s]*up'
       r')'
 
-      # Pattern B: trailing bare 'Month12' (no 'at' prefix)
-      r'|\s+Month\s*\d+\s*$'
+    #   # Pattern B: trailing bare 'Month12' (no 'at' prefix)
+    #   r'|\s+Month\s*\d+\s*$'
 
       # Pattern C: '[N months] prior to randomization' (no 'at' prefix)
       r'|\s+(?:\d+\s*months?\s+)?prior\s+to\s+randomization'
@@ -57,6 +67,17 @@ _TEMPORAL_CONTEXT_RE = re.compile(
     re.IGNORECASE
 )
 
+def is_interval_period(period: str) -> bool:
+    if not period:
+        return False
+
+    p = str(period).lower().strip()
+    return (
+        p.startswith("interval ")
+        or p.startswith("pre-baseline ")
+        or "between" in p
+        or " to " in p
+    )
 def has_real_value(x):
     if x is None or pd.isna(x):
         return False
@@ -73,7 +94,7 @@ def clean_label_remove_temporal_context(label: str) -> str:
     prev = None
     while prev != cleaned:
         prev = cleaned
-        cleaned = _TEMPORAL_CONTEXT_RE.sub('', cleaned)
+        cleaned = _TEMPORAL_CONTEXT_RE.sub(' ', cleaned)
     
     # Normalize whitespace and strip punctuation artifacts
     cleaned = re.sub(r'\s+', ' ', cleaned).strip().strip(' ,;-')
@@ -157,6 +178,48 @@ def is_identifier_like_variable(row: pd.Series) -> tuple[bool, list[str]]:
 
 
 
+_INSTANCE_PREFIX_RE = re.compile(r"^\s*\d+\s*\.\s*")  # leading event index: "1.", "10."
+
+def canonical_var_key(x, strip_instance_prefix: bool = True) -> str:
+    """Robust key for comparing variable names across CSVs.
+
+    Encoding-invariant (mojibake repaired, diacritics folded) and
+    separator-invariant ('.', '_', '-', whitespace all unified), so names
+    differing only in punctuation or accent encoding collapse to one key.
+    """
+    if pd.isna(x):
+        return ""
+    s = str(x).strip()
+
+    # 1) Repair mojibake deterministically: ftfy if available, else fixed table.
+    try:
+        from ftfy import fix_text
+        s = fix_text(s)
+    except Exception:
+        for bad, good in {
+            "Ã¤": "ä", "Ã¶": "ö", "Ã¼": "ü", "ÃŸ": "ß",
+            "Ã„": "Ä", "Ã–": "Ö", "Ãœ": "Ü",
+            "√§": "ä", "√∂": "ö", "√º": "ü", "â¤": "ä",
+        }.items():
+            s = s.replace(bad, good)
+
+    # 2) Normalise + casefold + strip diacritics (ä->a, é->e): key no longer
+    #    depends on how the accent was encoded on disk.
+    s = unicodedata.normalize("NFKC", s).casefold()
+    s = "".join(ch for ch in unicodedata.normalize("NFKD", s)
+                if not unicodedata.combining(ch))
+
+    # 3) Optional: drop a leading repeated-event index so per-instance source
+    #    variables align with a single base dictionary entry.
+    if strip_instance_prefix:
+        s = _INSTANCE_PREFIX_RE.sub("", s)
+
+    # 4) Unify ALL separators so 'hf.first.diagnosed' == 'hf_first_diagnosed'.
+    s = re.sub(r"[\s._\-]+", "_", s)
+    s = re.sub(r"[^a-z0-9_]+", "", s)
+    return s.strip("_").lower()
+
+
 def is_absolute_vs_percent_dose(src_unit: Optional[str], tgt_unit: Optional[str]) -> bool:
     """
     Detect whether a unit pair represents an absolute medication dose
@@ -220,8 +283,20 @@ def split_categories(categories: str | None) -> tuple[List[str], List[str]]:
         return [], []
     if "=" not in categories:
         return parts, parts
-    original_categories = [c.split("=")[0].strip() for c in parts]
-    category_labels = [c.split("=")[1].strip() if "=" in c else c.strip() for c in parts]
+
+    original_categories: List[str] = []
+    category_labels: List[str] = []
+    for part in parts:
+        if "=" in part:
+            code, label = part.split("=", 1)
+            code = code.strip().strip('"')
+            original_categories.append(code)
+            category_labels.append(label.strip())
+        else:
+            # Truncated or legacy token without code=label (e.g. "contraindica")
+            token = part.strip().strip('"')
+            original_categories.append(token)
+            category_labels.append(token)
     return original_categories, category_labels
 
 
@@ -366,16 +441,14 @@ def get_cohort_uri(cohort_id: str) -> URIRef:
 
 
 def get_cohort_mapping_uri(cohort_id: str) -> URIRef:
-    print(f"cohort_id: {cohort_id}")
+
     safe_cohort_mapping_id = normalize_text(cohort_id)
-    if safe_cohort_mapping_id == "":
-        print("Cohort ID is empty")
+
     return OntologyNamespaces.CMEO.value[f"graph/{safe_cohort_mapping_id}"]
 
 def get_var_uri(cohort_id: str | URIRef, var_id: str) -> URIRef:
     safe_var_id = normalize_text(var_id)
-    if safe_var_id == "":
-        print("Variable ID is empty")
+
     safe_cohort_id = normalize_text(cohort_id)
     return OntologyNamespaces.CMEO.value[f"{safe_cohort_id}/{safe_var_id}"]
 
@@ -496,13 +569,26 @@ def build_concept_text(main_label, composite_labels_str) -> str:
     """String form of the concept signature (kept for callers that expect a string)."""
     return " ".join(build_concept_parts(main_label, composite_labels_str)).strip()
 
+def is_interval_period(period: str) -> bool:
+    if not period:
+        return False
+
+    p = str(period).lower().strip()
+    return (
+        p.startswith("interval ")
+        or p.startswith("pre-baseline ")
+        or "between" in p
+        or " to " in p
+    )
 def extract_visit_period(visit: str) -> str:
     """Normalize visit string to comparable period label."""
     if not visit:
         return ""
 
     v = str(visit).lower().strip()
-
+    m = _BETWEEN_BASELINE_VISIT_RE.search(v) or _BASELINE_TO_VISIT_RE.search(v)
+    if m:
+        return f"interval baseline to visit {m.group(1)}"
     # Must come before generic baseline detection.
     m = _PRE_BASELINE_MONTH_RE.search(v) or _BASELINE_PRIOR_MONTH_RE.search(v)
     if m:
@@ -520,7 +606,789 @@ def extract_visit_period(visit: str) -> str:
         return f"follow-up {m2.group(1)} months"
 
     return v
-    
+
+def is_determinate_period(visit: str) -> bool:
+    """Return True iff the visit string resolves to a recognised discrete or
+    interval period.
+
+    A visit that does not resolve — an undetermined label, a date field, or a
+    study-period axis such as 'study days'
+    """
+    if not visit:
+        return False
+    v = str(visit).lower().strip()
+    return bool(
+        _BETWEEN_BASELINE_VISIT_RE.search(v)
+        or _BASELINE_TO_VISIT_RE.search(v)
+        or _PRE_BASELINE_MONTH_RE.search(v)
+        or _BASELINE_PRIOR_MONTH_RE.search(v)
+        or _VISIT_BASELINE_RE.search(v)
+        or _VISIT_MONTH_RE.search(v)
+        or re.search(r'month\s*(\d+)', v, re.IGNORECASE)
+    )
+
+# =============================================================================
+# UNDETERMINED-VISIT EXPANSION
+# =============================================================================
+# A study such as Aachen-HF records every variable against a single generic
+# axis ("visit date"): the value was taken at *a* visit, but the dictionary
+# never says which protocol timepoint that visit is. A study such as TIME-CHF
+# names its schedule explicitly (baseline, follow-up 1/3/6/18 months, 1 year,
+# end of study). When those two are cross-mapped, an undetermined visit does
+# not "differ" from baseline — it is unresolved, and it is a legitimate
+# candidate for *every* timepoint the counterpart study exposes. The helpers
+# below enumerate that candidate set exhaustively instead of silently
+# collapsing it onto baseline.
+
+_VISIT_YEAR_RE = re.compile(r'(\d+)\s*years?', re.IGNORECASE)
+_VISIT_WEEK_RE = re.compile(r'(\d+)\s*weeks?', re.IGNORECASE)
+_PRE_BASELINE_PERIOD_RE = re.compile(r'pre-baseline\s+(\d+)\s*months?', re.IGNORECASE)
+# Unquantified pre-baseline windows: TIME-CHF's "prior to baseline visit".
+# extract_visit_period() folds these into "baseline time" because it only
+# looks for a month count; that would make a pre-baseline variable align with
+# a baseline one, so canonical_visit_period() keeps them apart.
+_BARE_PRE_BASELINE_RE = re.compile(
+    r'\b(?:prior\s+to|before|pre[-\s]?)\s*baseline', re.IGNORECASE
+)
+
+# Labels that place a record in time without naming a protocol timepoint.
+# Matched on a space-normalised label, so "visit_date" and "visit date" both hit.
+_UNDETERMINED_VISIT_HINTS = (
+    "visit date", "date of visit", "visit day",
+    "event date", "date of event",
+    "index date", "date of assessment", "assessment date",
+    "undetermined", "unknown", "not specified", "unspecified",
+    "study day", "study days",
+)
+
+
+def is_undetermined_visit(visit: Optional[str]) -> bool:
+    """True when a visit label carries no protocol-timepoint information.
+
+    A determinate label always wins: "date of baseline visit" names baseline,
+    so it is *not* undetermined even though it contains "date".
+    """
+    if visit is None:
+        return True
+    v = str(visit).strip().lower()
+    if not v or v in {"nan", "none", "null"}:
+        return True
+    if is_determinate_period(v):
+        return False
+    v_norm = re.sub(r'[_\-]+', ' ', v)
+    v_norm = re.sub(r'\s+', ' ', v_norm)
+    return any(hint in v_norm for hint in _UNDETERMINED_VISIT_HINTS)
+
+
+def canonical_visit_period(visit: Optional[str]) -> str:
+    """extract_visit_period() plus year/week folding.
+
+    The dictionaries mix units for the same timepoint ("follow-up 1 year" in
+    TIME-CHF vs "follow-up 12 months" elsewhere); folding to months lets the
+    candidate list de-duplicate. extract_visit_period() itself is left alone
+    because the retrieval gate is calibrated against its current behaviour.
+    """
+    if visit is None:
+        return ""
+    v = str(visit).strip().lower()
+    if not v:
+        return ""
+    if (_BARE_PRE_BASELINE_RE.search(v)
+            and not _PRE_BASELINE_MONTH_RE.search(v)
+            and not _BASELINE_PRIOR_MONTH_RE.search(v)):
+        return "pre-baseline"
+    period = extract_visit_period(v)
+    if period != v:
+        return period
+    m = _VISIT_YEAR_RE.search(v)
+    if m:
+        return f"follow-up {int(m.group(1)) * 12} months"
+    m = _VISIT_WEEK_RE.search(v)
+    if m:
+        return f"follow-up {int(m.group(1))} weeks"
+    return period
+
+
+def visit_sort_key(period: str):
+    """Chronological ordering for a canonical period label."""
+    p = (period or "").lower()
+    m = _PRE_BASELINE_PERIOD_RE.search(p)
+    if m:
+        return (0, -int(m.group(1)), p)
+    if p.startswith("pre-baseline"):
+        return (0, 0, p)
+    if p.startswith("interval ") or is_interval_period(p):
+        return (2, 0, p)
+    if "baseline" in p or "randomization" in p:
+        return (1, 0, p)
+    m = re.search(r'(\d+)\s*months?', p)
+    if m:
+        return (1, int(m.group(1)), p)
+    m = re.search(r'(\d+)\s*weeks?', p)
+    if m:
+        return (1, int(m.group(1)) / 4.345, p)
+    if "end of study" in p or "final" in p or "last" in p:
+        return (4, 0, p)
+    return (3, 0, p)
+
+
+def is_pre_baseline_period(period: Optional[str]) -> bool:
+    """True for a retrospective window that precedes the baseline visit."""
+    p = (period or "").lower()
+    return p.startswith("pre-baseline") or bool(_BARE_PRE_BASELINE_RE.search(p))
+
+
+def expand_undetermined_visit(
+    undetermined_visit: Optional[str],
+    counterpart_visits: Optional[Iterable] = None,
+    include_pre_baseline: bool = False,
+) -> List[str]:
+    """Enumerate the timepoints an undetermined visit could resolve to.
+
+    `counterpart_visits` is the visit vocabulary of the *other* study — the one
+    that names its schedule. Only determinate labels are kept: another
+    undetermined label on that side adds no information. The result is
+    canonicalised, de-duplicated and ordered chronologically.
+
+    Pre-baseline windows are excluded by default. A pre-baseline period is not
+    a scheduled study visit — it is a retrospective window (history taken
+    before enrolment), so a generic 'visit date' is never evidence of one.
+    Pre-baseline is therefore matched only against pre-baseline, which the
+    determinate-vs-determinate branch of resolve_visit_pair() handles by
+    canonical equality. Pass include_pre_baseline=True to override.
+
+    Returns [] when the visit is not undetermined, or when the counterpart
+    study has no explicit timepoints to expand onto.
+    """
+    if not is_undetermined_visit(undetermined_visit):
+        return []
+    if not counterpart_visits:
+        return []
+    periods: Dict[str, None] = {}
+    for cv in counterpart_visits:
+        if cv is None:
+            continue
+        raw = str(cv).strip()
+        if not raw or is_undetermined_visit(raw):
+            continue
+        period = canonical_visit_period(raw)
+        if not period:
+            continue
+        if not include_pre_baseline and is_pre_baseline_period(period):
+            continue
+        periods.setdefault(period, None)
+    return sorted(periods.keys(), key=visit_sort_key)
+
+
+def resolve_visit_pair(
+    source_visit: Optional[str],
+    target_visit: Optional[str],
+    source_visit_universe: Optional[Iterable] = None,
+    target_visit_universe: Optional[Iterable] = None,
+) -> Dict[str, Any]:
+    """Classify a candidate pair's temporal relation into three states.
+
+    'aligned'      both sides name the same protocol timepoint
+    'mismatch'     both sides name a timepoint and they disagree
+    'undetermined' at least one side has no protocol timepoint; the pair is one
+                   of `candidate_timepoints` possible resolutions rather than a
+                   mismatch
+
+    'undetermined' means the dictionaries alone cannot say which visit a
+    generic date column refers to, so a consumer must resolve it against the
+    actual visit records before harmonising. It is an open question, not a
+    finding. No separate verification flag is returned: the status and
+    `undetermined_side` already carry it.
+
+    The universes are the visit vocabularies of each study (or of the matched
+    concept within each study). The undetermined side is expanded against the
+    *opposite* side's universe, falling back to that side's own visit so the
+    candidate list is never empty when the counterpart is explicit.
+    """
+    s_raw = "" if source_visit is None else str(source_visit).strip()
+    t_raw = "" if target_visit is None else str(target_visit).strip()
+    s_period = canonical_visit_period(s_raw)
+    t_period = canonical_visit_period(t_raw)
+
+    s_undet = is_undetermined_visit(s_raw)
+    t_undet = is_undetermined_visit(t_raw)
+
+    result: Dict[str, Any] = {
+        "source_visit": s_raw,
+        "target_visit": t_raw,
+        "source_period": s_period,
+        "target_period": t_period,
+        "undetermined_side": None,
+        "candidate_timepoints": [],
+        "resolved_timepoint": "",
+        "note": "",
+    }
+
+    if not s_undet and not t_undet:
+        # Canonical equality already keeps pre-baseline apart from baseline,
+        # so a pre-baseline window aligns only with another pre-baseline one.
+        aligned = s_period == t_period
+        result["status"] = "aligned" if aligned else "mismatch"
+        result["note"] = (
+            "" if aligned
+            else f"Timepoints differ ({s_period or s_raw} vs {t_period or t_raw})."
+        )
+        return result
+
+    result["status"] = "undetermined"
+    if s_undet and t_undet:
+        result["undetermined_side"] = "both"
+        result["note"] = (
+            f"Neither timepoint is protocol-resolved ({s_raw or 'unspecified'} vs "
+            f"{t_raw or 'unspecified'}); temporal alignment cannot be established "
+            f"from the dictionaries and must be verified against the actual visit "
+            f"records before harmonisation."
+        )
+        return result
+
+    if t_undet:
+        result["undetermined_side"] = "target"
+        universe = list(source_visit_universe) if source_visit_universe else [s_raw]
+        candidates = expand_undetermined_visit(t_raw, universe)
+        undet_label, other_label, other_period = t_raw, "source", s_period or s_raw
+    else:
+        result["undetermined_side"] = "source"
+        universe = list(target_visit_universe) if target_visit_universe else [t_raw]
+        candidates = expand_undetermined_visit(s_raw, universe)
+        undet_label, other_label, other_period = s_raw, "target", t_period or t_raw
+
+    result["candidate_timepoints"] = candidates
+    result["resolved_timepoint"] = other_period
+
+    # A pre-baseline window is not a scheduled visit, so a generic date column
+    # is no evidence that the record falls in one. Do not offer it as a
+    # resolution — say plainly that it needs the data to settle.
+    if is_pre_baseline_period(other_period):
+        result["candidate_timepoints"] = []
+        result["note"] = (
+            f"The {other_label} timepoint is a pre-baseline window "
+            f"('{other_period}') while the {result['undetermined_side']} timepoint is "
+            f"undetermined ('{undet_label}'). A pre-baseline window aligns only with "
+            f"another pre-baseline window, and a generic visit/date column is not "
+            f"evidence of one. Verify against the actual visit records before "
+            f"harmonisation."
+        )
+        return result
+
+    if candidates:
+        result["note"] = (
+            f"{result['undetermined_side'].capitalize()} timepoint is undetermined "
+            f"('{undet_label}'); it may correspond to any of the {len(candidates)} "
+            f"{other_label} timepoints [{', '.join(candidates)}]. This pair records "
+            f"the '{other_period}' resolution, which is a candidate only — confirm "
+            f"against the actual visit records before harmonisation."
+        )
+    else:
+        result["note"] = (
+            f"{result['undetermined_side'].capitalize()} timepoint is undetermined "
+            f"('{undet_label}') and the {other_label} study exposes no explicit "
+            f"timepoints; temporal alignment is unresolved and must be verified "
+            f"against the actual visit records."
+        )
+    return result
+
+
+def build_visit_universe(rows: Iterable, visit_key: str = "visit") -> List[str]:
+    """Collect the distinct raw visit labels present in a study's rows.
+
+    Accepts dicts, pandas rows, or objects with a `.visit` attribute.
+    """
+    seen: Dict[str, None] = {}
+    for row in rows or []:
+        if row is None:
+            continue
+        if isinstance(row, dict):
+            value = row.get(visit_key)
+        else:
+            value = getattr(row, visit_key, None)
+        if value is None:
+            continue
+        raw = str(value).strip()
+        if raw and raw.lower() not in {"nan", "none", "null"}:
+            seen.setdefault(raw, None)
+    return list(seen.keys())
+
+
+# =============================================================================
+# TIMEPOINT INSTANCE EXPANSION
+# =============================================================================
+# When one study records a variable against a generic 'visit date' and the other
+# holds one column per protocol visit, a single asserted mapping stands for
+# several concrete column correspondences. Aachen-HF's `Orthopnea` is one column
+# repeated per visit row; TIME-CHF spreads the same measurement across
+# Orthopnea, Orthopnea1, Orthopnea3, Orthopnea6, Orthopnea12, Orthopnea18. A
+# consumer reshaping wide<->long needs those column names, which the mapping row
+# does not carry — it names timepoints, not columns.
+#
+# This produces CANDIDATES, never assertions. Which Aachen visit-date row is
+# month 3 is a fact about the data, not the dictionary, so downstream accepts or
+# discards each instance once it can see the visit dates. Because a discarded
+# candidate is cheap and a missing one is unrecoverable, expansion deliberately
+# over-generates: every family member at every timepoint is emitted, and
+# lossy pairings (a 0/1/2/3 severity against a yes/no flag) are emitted too,
+# flagged rather than filtered.
+#
+# Nothing here writes files or mutates its inputs. The evaluated mapping CSV is
+# untouched, so retrieval counts and ground-truth scoring are unaffected.
+
+
+@dataclass(frozen=True)
+class TimepointExpansionRow:
+    """One concrete (source column, target column, timepoint) correspondence.
+
+    Distinct from verdict.TimepointInfo, which annotates a *mapping row* with
+    how its two timepoints relate. This is a *row of the expansion output*: one
+    candidate column pair a consumer can accept or discard against the data.
+    """
+
+    source_var: str
+    target_var: str
+    visit_period: str
+    """Canonical period this instance sits at, e.g. 'follow-up 3 months'."""
+    source_visit: str
+    target_visit: str
+    concept_id: Optional[int] = None
+    undetermined_side: str = ""
+    anchor_source: str = ""
+    anchor_target: str = ""
+    """The mapping row this instance was derived from. Lets a caller clone that
+    row so the expansion keeps the mapping file's own schema instead of
+    inventing a second one."""
+    origin: str = "expanded"
+    """'asserted' when the cross-mapping itself produced this pair, 'expanded'
+    when it was derived from the counterpart study's visit schedule. Lets a
+    consumer weight the two differently, or ignore expansions entirely."""
+    parameter_columns: str = ""
+    """For a derived variable, the actual columns to feed the formula at this
+    timepoint — 'Weight3|Crea3|Age|Gender' — rather than the concept ids the
+    mapping carries, which do not identify a column when a concept spans six of
+    them."""
+    broadcast_parameters: str = ""
+    """Parameters taken as available here despite not being re-measured at this
+    visit (age, sex, height). Recorded so a consumer can check the assumption:
+    a lab run only at enrolment would look the same to the availability rule."""
+    harmonization_status: str = ""
+    """No separate verification flag: a non-empty `undetermined_side` already
+    means the dictionaries cannot say which visit this row belongs to, so it
+    must be checked against the data. Only the *timepoint* is in question —
+    the concept/unit/category verdict in `harmonization_status` stands."""
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+def _record_get(record: Any, *names: str) -> Any:
+    """Read a field from a VariableNode, dict, or pandas row alike."""
+    for name in names:
+        if isinstance(record, dict):
+            if name in record:
+                return record[name]
+        else:
+            value = getattr(record, name, None)
+            if value is not None:
+                return value
+    return None
+
+
+def _context_signature(value: Any) -> frozenset:
+    """Normalise a context id field (list, pipe string, or empty) to a set.
+
+    Context is part of the family key because two variables can share a concept
+    id and still be different variables — TIME-CHF's ALT measurement versus
+    GISSI-HF's ALT reference-range bounds being the standing example.
+    """
+    if value is None:
+        return frozenset()
+    if isinstance(value, (list, tuple, set, frozenset)):
+        parts = [str(v).strip() for v in value]
+    else:
+        text = str(value).strip()
+        if not text or text.lower() in ("nan", "none", "null"):
+            return frozenset()
+        parts = [p.strip() for p in re.split(r"[|;]+", text)]
+    return frozenset(p for p in parts if p and p.lower() not in ("nan", "none", "null"))
+
+
+def _normalise_unit(value: Any) -> str:
+    """UCUM code, lowercased, with any ``ucum:`` prefix dropped."""
+    text = "" if value is None else str(value).strip().lower()
+    if text in ("nan", "none", "null"):
+        return ""
+    return text[5:].strip() if text.startswith("ucum:") else text
+
+
+def _family_key(record: Any) -> Optional[Tuple[Any, frozenset, frozenset, str, str]]:
+    """The identity a timepoint family shares.
+
+    ``(concept, context, category concepts, unit, statistical type)``.
+
+    Concept and context alone are not enough: they say what a variable is
+    *about*, not how it is recorded, so `Edema` (0/1/2/3 severity) and
+    `Edema_01` (yes/no) key identically and become each other's timepoint
+    siblings. Expansion then manufactures pairs no matcher judged, and a
+    verdict can transfer between genuinely different variables.
+
+    Category CONCEPTS rather than labels, and a set rather than a sequence,
+    because the label list is unstable in all three ways that matter: order
+    (`no||yes` at baseline, `yes||no` at 12 months for one variable), spelling
+    (`sinus rhythm` and `sinus rythm` both resolve to 4091898), and language
+    across the study dictionaries. Keying on the rendered labels splits real
+    families apart; keying on the concepts does not.
+
+    Statistical type here is the analytic classification (binary / multi-class
+    / continuous), NOT a storage type — `INT` covers binary and multi-class
+    alike and would separate almost nothing.
+    """
+    concept = _record_get(record, "main_id", "omop_id", "variable_omop_id")
+    if concept in (None, "", 0):
+        return None
+    try:
+        concept = int(concept)
+    except (TypeError, ValueError):
+        return None
+
+    context = _context_signature(
+        _record_get(record, "context_ids", "composite_code_omop_ids",
+                    "additional_context_omop_id")
+    )
+    categories = _context_signature(
+        _record_get(record, "category_ids", "categorical_value_omop_id",
+                    "categories_omop_ids")
+    )
+    unit = _normalise_unit(_record_get(record, "unit", "units"))
+    stat_type = _record_get(record, "statistical_type", "vartype", "var_type")
+    stat_type = "" if stat_type is None else str(stat_type).strip().lower()
+    if stat_type in ("nan", "none", "null"):
+        stat_type = ""
+    return (concept, context, categories, unit, stat_type)
+
+
+_PARAM_IDS_RE = re.compile(r"parameter columns?\s*\[([^\]]*)\]", re.IGNORECASE)
+
+
+def parse_parameter_concepts(transformation_rule: Any) -> List[int]:
+    """Pull the parameter concept ids out of a derived-variable rule string.
+
+    The rule reads "Derived variable eGFR_CKD_EPI using parameter columns
+    [3025315, 3016723, 3022304, 46235213]." — concept ids, which do not name a
+    column: 3025315 (body weight) is six columns in TIME-CHF.
+    """
+    if transformation_rule is None:
+        return []
+    match = _PARAM_IDS_RE.search(str(transformation_rule))
+    if not match:
+        return []
+    return [int(n) for n in re.findall(r"\d+", match.group(1))]
+
+
+def derive_parameter_timepoints(
+    parameter_concepts: Sequence[int],
+    variables: Sequence[Any],
+    broadcast_time_invariant: bool = True,
+) -> Tuple[Dict[str, Dict[int, str]], Set[int]]:
+    """Work out at which timepoints a derived variable can actually be computed.
+
+    A derived variable exists wherever *all* its parameters are available, so
+    the timepoints are the intersection of the parameters' visits.
+
+    Availability is not the same as being re-measured. Age, sex and height are
+    recorded once and still apply at month 18; requiring them to repeat
+    collapses every derivation onto baseline, which is what the plain
+    intersection in neuro_matcher does. A parameter occurring exactly once
+    across the study is therefore treated as time-invariant and broadcast to
+    every timepoint — and returned in the second element so the caller can say
+    which parameters that assumption was made for. A lab run only at enrolment
+    is indistinguishable to this rule, which is why it is reported rather than
+    hidden.
+
+    Returns ({period: {concept_id: variable name}}, broadcast concept ids).
+    """
+    by_concept: Dict[int, List[Any]] = {}
+    for record in variables or []:
+        concept = _record_get(record, "main_id", "omop_id", "variable_omop_id")
+        try:
+            concept = int(concept)
+        except (TypeError, ValueError):
+            continue
+        by_concept.setdefault(concept, []).append(record)
+
+    varying: List[Set[str]] = []
+    per_concept_periods: Dict[int, Dict[str, str]] = {}
+    broadcast: Set[int] = set()
+
+    for concept in parameter_concepts:
+        records = by_concept.get(concept, [])
+        if not records:
+            return {}, set()          # a parameter absent entirely: nothing to derive
+        periods: Dict[str, str] = {}
+        for record in records:
+            period = canonical_visit_period(_record_get(record, "visit") or "")
+            name = str(_record_get(record, "name", "variablename") or "").strip()
+            if period and name:
+                periods.setdefault(period, name)
+        per_concept_periods[concept] = periods
+        if broadcast_time_invariant and len(records) == 1:
+            broadcast.add(concept)
+        else:
+            varying.append(set(periods))
+
+    if varying:
+        shared = set.intersection(*varying)
+    else:
+        # Every parameter is time-invariant, so the derivation holds wherever
+        # any of them is recorded — in practice, baseline.
+        shared = {p for periods in per_concept_periods.values() for p in periods}
+
+    resolved: Dict[str, Dict[int, str]] = {}
+    for period in shared:
+        columns: Dict[int, str] = {}
+        for concept in parameter_concepts:
+            periods = per_concept_periods[concept]
+            name = periods.get(period)
+            if name is None and concept in broadcast:
+                name = next(iter(periods.values()), "")
+            if not name:
+                columns = {}
+                break
+            columns[concept] = name
+        if columns:
+            resolved[period] = columns
+    return resolved, broadcast
+
+
+def _index_families(variables: Sequence[Any]) -> Dict[Tuple[Any, frozenset], List[Any]]:
+    """Group a study's variables by (concept, context)."""
+    families: Dict[Tuple[Any, frozenset], List[Any]] = {}
+    for record in variables or []:
+        key = _family_key(record)
+        if key is None:
+            continue
+        families.setdefault(key, []).append(record)
+    return families
+
+
+# def expand_timepoint_instances(
+#     mappings: Iterable[Any],
+#     source_variables: Sequence[Any] = (),
+#     target_variables: Sequence[Any] = (),
+#     include_pre_baseline: bool = False,
+# ) -> Tuple[List[TimepointExpansionRow], List[Dict[str, Any]]]:
+#     """Expand undetermined-timepoint mappings into concrete column instances.
+
+#     `mappings` are cross-mapping rows (dicts or a DataFrame's ``to_dict("records")``)
+#     carrying at least source, target, source_visit, target_visit; the concept and
+#     context columns are used when present. `source_variables` / `target_variables`
+#     are the two studies' full variable lists — full, not scoped, since the point
+#     is to name every real column a consumer will meet in the data.
+
+#     Returns (instances, diagnostics).
+
+#     Expansion only fires where exactly one side is undetermined. A pair whose
+#     timepoints are both known needs no expansion, and a pair with both sides
+#     undetermined has nothing to anchor on; each is emitted once, as asserted.
+
+#     `diagnostics` records what could not be expanded and why — a family that
+#     could not be located, a concept whose context diverges across timepoints —
+#     so gaps surface instead of silently shrinking the candidate set.
+#     """
+#     rows = list(mappings) if mappings is not None else []
+#     if hasattr(rows, "to_dict"):  # a DataFrame slipped through
+#         rows = rows.to_dict("records")
+
+#     src_families = _index_families(source_variables)
+#     tgt_families = _index_families(target_variables)
+
+#     # Name -> record, so a mapping row's anchor can be resolved to the record
+#     # its family key was built from.
+#     def _by_name(variables: Sequence[Any]) -> Dict[str, Any]:
+#         index: Dict[str, Any] = {}
+#         for record in variables or []:
+#             name = str(_record_get(record, "name", "variablename") or "").strip().lower()
+#             if name:
+#                 index.setdefault(name, record)
+#         return index
+
+#     src_by_name = _by_name(source_variables)
+#     tgt_by_name = _by_name(target_variables)
+
+#     # pair -> verdict, for every pair the matcher actually decided. Consulted in
+#     # _emit rather than threaded through the loop: one family is reached from
+#     # several mapping rows, and whichever arrives first must not determine
+#     # whether the others keep their verdict.
+#     asserted: Dict[Tuple[str, str], str] = {}
+#     for row in rows:
+#         s_name = str(_record_get(row, "source", "source_var", "src_var") or "").strip()
+#         t_name = str(_record_get(row, "target", "target_var", "tgt_var") or "").strip()
+#         if s_name and t_name:
+#             asserted[(s_name.lower(), t_name.lower())] = str(
+#                 _record_get(row, "harmonization_status") or "").strip()
+
+#     instances: Dict[Tuple[str, str, str], TimepointExpansionRow] = {}
+#     diagnostics: List[Dict[str, Any]] = []
+
+#     def _emit(source_var: str, target_var: str, period: str,
+#               s_visit: str, t_visit: str, concept: Optional[int],
+#               side: str, anchor: Tuple[str, str],
+#               parameter_columns: str = "", broadcast: str = "",
+#               origin: Optional[str] = None) -> None:
+#         pair = (source_var.lower(), target_var.lower())
+#         key = (pair[0], pair[1], period)
+#         if key in instances:
+#             return
+#         instances[key] = TimepointExpansionRow(
+#             source_var=source_var, target_var=target_var, visit_period=period,
+#             source_visit=s_visit, target_visit=t_visit, concept_id=concept,
+#             undetermined_side=side,
+#             anchor_source=anchor[0], anchor_target=anchor[1],
+#             # `origin` is normally decided by the pair name, but a derived
+#             # variable keeps the same name at every timepoint, so the caller
+#             # states which period was the judged one.
+#             origin=origin or ("asserted" if pair in asserted else "expanded"),
+#             harmonization_status=asserted.get(pair, ""),
+#             parameter_columns=parameter_columns, broadcast_parameters=broadcast,
+#         )
+
+#     for row in rows:
+#         s_name = str(_record_get(row, "source", "source_var", "src_var") or "").strip()
+#         t_name = str(_record_get(row, "target", "target_var", "tgt_var") or "").strip()
+#         if not s_name or not t_name:
+#             continue
+#         s_visit = str(_record_get(row, "source_visit") or "").strip()
+#         t_visit = str(_record_get(row, "target_visit") or "").strip()
+#         resolution = resolve_visit_pair(s_visit, t_visit)
+#         side = resolution["undetermined_side"] or ""
+
+#         # A derived variable is not a column, so it has no family to expand
+#         # against — it exists wherever all its parameters do. Resolve those
+#         # parameters to real column names per timepoint instead.
+#         parameter_concepts = parse_parameter_concepts(
+#             _record_get(row, "transformation_rule"))
+#         if parameter_concepts:
+#             resolved, broadcast = derive_parameter_timepoints(
+#                 parameter_concepts, source_variables)
+#             if resolved:
+#                 judged_period = canonical_visit_period(s_visit)
+#                 for period, columns in resolved.items():
+#                     _emit(s_name, t_name, period,
+#                           period if period else s_visit, t_visit,
+#                           _family_key(row)[0] if _family_key(row) else None,
+#                           side, (s_name, t_name),
+#                           parameter_columns="|".join(columns[c] for c in parameter_concepts),
+#                           broadcast="|".join(str(c) for c in parameter_concepts
+#                                              if c in broadcast),
+#                           origin="asserted" if period == judged_period else "expanded")
+#                 continue
+#             diagnostics.append({
+#                 "issue": "derived_parameters_unavailable",
+#                 "source": s_name, "target": t_name,
+#                 "concept_id": _family_key(row)[0] if _family_key(row) else None,
+#                 "context": [],
+#                 "detail": f"parameters {parameter_concepts} are not all available "
+#                           f"at any single timepoint; kept the asserted pair only",
+#             })
+
+#         # Both timepoints known, or neither anchorable: one row, no expansion.
+#         if resolution["status"] != "undetermined" or side == "both":
+#             period = (canonical_visit_period(s_visit)
+#                       or canonical_visit_period(t_visit) or "")
+#             _emit(s_name, t_name, period, s_visit, t_visit,
+#                   _family_key(row)[0] if _family_key(row) else None, side,
+#                   (s_name, t_name))
+#             continue
+
+#         # One side is undetermined: expand the determinate side's family.
+#         if side == "target":
+#             families, by_name, anchor_name = src_families, src_by_name, s_name
+#         else:
+#             families, by_name, anchor_name = tgt_families, tgt_by_name, t_name
+
+#         # Key off the anchor's own variable record rather than rebuilding the
+#         # key from the mapping row's flattened columns. The row and the record
+#         # spell the same facts differently — pipe-joined strings against typed
+#         # lists, `ucum:mg` against `mg` — so two constructions have to be kept
+#         # byte-identical or every lookup silently misses and expansion stops
+#         # happening at all. One builder, one input type, no drift.
+#         anchor = by_name.get(anchor_name.lower())
+#         key = _family_key(anchor) if anchor is not None else None
+#         family = families.get(key, []) if key else []
+
+#         if not family:
+#             # Nothing to expand onto — emit the asserted pair and say so.
+#             period = canonical_visit_period(s_visit if side == "target" else t_visit)
+#             _emit(s_name, t_name, period, s_visit, t_visit,
+#                   key[0] if key else None, side, (s_name, t_name))
+#             diagnostics.append({
+#                 "issue": "family_not_found",
+#                 "source": s_name, "target": t_name,
+#                 "concept_id": key[0] if key else None,
+#                 "context": sorted(key[1]) if key else [],
+#                 "detail": ("no variable record found for the anchor"
+#                            if anchor is None else
+#                            "no variables share this (concept, context, categories, "
+#                            "unit, statistical type); expansion limited to the asserted pair"),
+#             })
+#             continue
+
+#         # A timepoint family holds one member per visit. Two members claiming a
+#         # period is a contradiction — whatever they are, they are not the same
+#         # variable measured twice — so refuse rather than pick. This is the only
+#         # guard that catches variables sharing concept, categories, unit AND
+#         # type, such as `edema_01` (current) against `edemahistory_01` (history)
+#         # or `fu__v6` (all-cause) against `fu_hf_v6` (HF-specific).
+#         by_period: Dict[str, List[str]] = {}
+#         for member in family:
+#             member_name = str(_record_get(member, "name", "variablename") or "").strip()
+#             if member_name:
+#                 by_period.setdefault(
+#                     canonical_visit_period(str(_record_get(member, "visit") or "").strip()) or "",
+#                     []).append(member_name)
+#         clashes = {p: sorted(set(n)) for p, n in by_period.items() if len(set(n)) > 1}
+#         if clashes:
+#             detail = "; ".join(
+#                 "{}: {}".format(period_name or "unknown", ", ".join(names))
+#                 for period_name, names in sorted(clashes.items())
+#             )
+#             period = canonical_visit_period(s_visit if side == "target" else t_visit)
+#             _emit(s_name, t_name, period, s_visit, t_visit,
+#                   key[0], side, (s_name, t_name))
+#             diagnostics.append({
+#                 "issue": "family_not_a_timepoint_series",
+#                 "source": s_name, "target": t_name,
+#                 "concept_id": key[0],
+#                 "context": sorted(key[1]),
+#                 "detail": f"two variables claim the same visit period ({detail}) "
+#                           f"— not a timepoint series, so not expanded",
+#             })
+#             continue
+
+#         for member in family:
+#             member_name = str(_record_get(member, "name", "variablename") or "").strip()
+#             member_visit = str(_record_get(member, "visit") or "").strip()
+#             if not member_name:
+#                 continue
+#             period = canonical_visit_period(member_visit)
+#             if not include_pre_baseline and is_pre_baseline_period(period):
+#                 continue
+#             if side == "target":
+#                 _emit(member_name, t_name, period, member_visit, t_visit,
+#                       key[0], side, (s_name, t_name))
+#             else:
+#                 _emit(s_name, member_name, period, s_visit, member_visit,
+#                       key[0], side, (s_name, t_name))
+
+#     ordered = sorted(
+#         instances.values(),
+#         key=lambda i: (i.source_var.lower(), i.target_var.lower(),
+#                        visit_sort_key(i.visit_period)),
+#     )
+#     return ordered, diagnostics
+
+
 def extract_tick_values(texts: str) -> List[float]:
     """Extract numeric tick labels from a matplotlib Text() list‑string.
 
@@ -561,7 +1429,7 @@ def safe_int(value):
     try:
         return int(float(value)) if value else None
     except ValueError:
-        print(f"Invalid integer value: {value}")
+        # print(f"Invalid integer value: {value}")
         return None
 
 
@@ -1052,10 +1920,10 @@ def compare_with_fuzz(text1: str, text2: str):
     return similarity
 
 def delete_existing_triples(graph_uri: str | URIRef, subject="?s", predicate="?p"):
-    print(f"deleting existing triples from the graph={graph_uri}")
+    # print(f"deleting existing triples from the graph={graph_uri}")
     if graph_exists(graph_uri):
         
-        print(f"Graph exists: {graph_uri}")
+        # print(f"Graph exists: {graph_uri}")
         query = f"""
         PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
         DELETE WHERE {{
@@ -1071,9 +1939,9 @@ def delete_existing_triples(graph_uri: str | URIRef, subject="?s", predicate="?p
         results =query_endpoint.query()
         response_status = results.response.status
         # response_content = results.response.read()
-        print(f"graph deletion status code: {response_status}")
-    else:
-        print(f"Graph does not exist: {graph_uri}")
+        # print(f"graph deletion status code: {response_status}")
+    # else:
+        # print(f"Graph does not exist: {graph_uri}")
         
 def graph_exists(graph_uri: str | URIRef):
     query = f"""
@@ -1142,56 +2010,34 @@ def save_graph_to_trig_file(graph_data, file_path):
         # Write the TRiG data to a file
         with open(file_path, 'w', encoding='utf-8') as f:
             f.write(trig_data)
-        print(f"Graph data successfully saved to {file_path}")
+    #     print(f"Graph data successfully saved to {file_path}")
     except Exception as e:
-        print(f"Error saving graph to TRiG file: {e}")
+        # print(f"Error saving graph to TRiG file: {e}")
+        pass
 
 
 
-# its for graphDB
-# def publish_graph_to_endpoint(g: Graph, graph_uri: str | None = None) -> bool:
-#     """Insert the graph into the triplestore endpoint."""
-#     # url = f"{settings.sparql_endpoint}/store?{graph_uri}"
-#     url = f"{settings.sparql_endpoint}/rdf-graphs/{graph_uri}"
-#     print(f"URL: {url}")
-#     headers = {"Content-Type": "application/trig"}
-#     g.serialize("/tmp/upload-data.trig", format="trig")
-#     with open("/tmp/upload-data.trig", "rb") as file:
-#         response = requests.post(url, headers=headers, data=file, timeout=300)
-#         print(f"Response: {response}")
-#     # NOTE: Fails when we pass RDF as string directly
-#     # response = requests.post(url, headers=headers, data=graph_data)
-#     # Check response status and print result
-#     if not response.ok:
-#         print(f"Failed to upload data: {response.status_code}, {response.text}")
-#     return response.ok
+
 
 # for oxigraph
-def publish_graph_to_endpoint(g: Graph, graph_uri: str | None = None, max_retries: int = 3) -> bool:
+def publish_graph_to_endpoint(g: Graph, graph_uri: str | None = None) -> bool:
     """Insert the graph into the triplestore endpoint."""
     # url = f"{settings.sparql_endpoint}/store?{graph_uri}"
     url = f"{settings.sparql_endpoint}/store"
     if graph_uri:
         url += f"?graph={graph_uri}"
-        print(f"URL: {url}")
+        # print(f"URL: {url}")
     headers = {"Content-Type": "application/trig"}
     g.serialize("/tmp/upload-data.trig", format="trig")
-    for attempt in range(1, max_retries + 1):
-        try:
-            with open("/tmp/upload-data.trig", "rb") as file:
-                response = requests.post(url, headers=headers, data=file, timeout=300)
-                print(f"Response: {response}")
-            if not response.ok:
-                print(f"Failed to upload data: {response.status_code}, {response.text}")
-            return response.ok
-        except (requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError) as e:
-            if attempt < max_retries:
-                wait = 2 ** attempt
-                print(f"Connection error on attempt {attempt}/{max_retries}: {e}. Retrying in {wait}s...")
-                time.sleep(wait)
-            else:
-                print(f"Failed after {max_retries} attempts: {e}")
-                raise
+    with open("/tmp/upload-data.trig", "rb") as file:
+        response = requests.post(url, headers=headers, data=file, timeout=300)
+        # print(f"Response: {response}")
+    # NOTE: Fails when we pass RDF as string directly
+    # response = requests.post(url, headers=headers, data=graph_data)
+    # Check response status and print result
+    # if not response.ok:
+    #     print(f"Failed to upload data: {response.status_code}, {response.text}")
+    return response.ok
 
 def find_related_studies(study_name:str) -> list[str]:
     query = f"""
@@ -1280,7 +2126,7 @@ def export_hierarchy_to_excel(hierarchy: dict, label_map: dict, output_file: str
             "child_label": lambda x: list(x),
         })
  df.to_excel(output_file, index=False)
- print(f"[INFO] Hierarchy exported to {output_file}")
+#  print(f"[INFO] Hierarchy exported to {output_file}")
  
  
  
@@ -1323,7 +2169,7 @@ def insert_graph_into_named_graph(g_new: Graph, graph_uri: str, chunk_size: int 
 
     lines = [ln for ln in nt_str.splitlines() if ln.strip()]
     if not lines:
-        print("No new triples to insert.")
+        # print("No new triples to insert.")
         return
 
     sparql = SPARQLWrapper(settings.update_endpoint)
@@ -1342,12 +2188,13 @@ def insert_graph_into_named_graph(g_new: Graph, graph_uri: str, chunk_size: int 
         """
         sparql.setQuery(query)
         res = sparql.query()
-        print(f"Inserted {min(i+chunk_size, len(lines))}/{len(lines)} triples; HTTP {res.response.status}")
+      
 
 
 def setup_logger(log_file: str):
-    logger = logging.getLogger(__name__)
-    # info should include timestamp and log level
+    logger = logging.getLogger(f"cohortvarlinker.{Path(log_file).stem}")
+    if logger.handlers:                      # already configured this run
+        return logger
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
     stream_handler = logging.StreamHandler()
     stream_handler.setFormatter(formatter)
@@ -1356,4 +2203,5 @@ def setup_logger(log_file: str):
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
     logger.setLevel(logging.INFO)
+    logger.propagate = False                 # do not re-emit via root
     return logger

@@ -2,46 +2,83 @@
 from typing import List, Set, Tuple, Optional
 import re
 from .config import settings    
-from .utils import extract_visit_period
+from .utils import extract_visit_period, is_interval_period, is_determinate_period
+
 _nlp = None
 class FuzzyMatcher:
 
     @staticmethod
+    # def check_visit_string(visit_str_1: str, visit_str_2: str) -> bool:
+    #     """Normalize temporal context strings."""
+    #     s_low = extract_visit_period(visit_str_1.lower())
+    #     t_low = extract_visit_period(visit_str_2.lower())
+    #     # print(f"s_low: {s_low}, t_low: {t_low}")
+    #     for hint in settings.DATE_HINTS and "interval" not in {s_low,t_low}:
+    #         if hint in s_low and hint in t_low:
+    #             if s_low == t_low: # e.g. visit date not same as event date
+    #                 return True
+    #             else:
+    #                 return False
+    #         elif hint in s_low:
+    #             return True
+    #         elif hint in t_low:
+    #             return True
+        
+    #     return s_low == t_low
+
+    @staticmethod   
     def check_visit_string(visit_str_1: str, visit_str_2: str) -> bool:
-        """Normalize temporal context strings."""
-        s_low = extract_visit_period(visit_str_1.lower())
-        t_low = extract_visit_period(visit_str_2.lower())
-        # print(f"s_low: {s_low}, t_low: {t_low}")
+        """Return True only when temporal contexts are comparable."""
+        s_low = extract_visit_period(visit_str_1)
+        t_low = extract_visit_period(visit_str_2)
+
+        # Reject interval-vs-point comparisons.
+        # Example: "between baseline and visit 1" vs "baseline"
+        if is_interval_period(s_low) != is_interval_period(t_low):
+            return False
+
+        # If both are intervals, accept only the same interval.
+        # Example: "baseline to visit 1" vs "baseline to visit 1"
+        if is_interval_period(s_low) and is_interval_period(t_low):
+            return s_low == t_low
+
         for hint in settings.DATE_HINTS:
             if hint in s_low and hint in t_low:
-                if s_low == t_low: # e.g. visit date not same as event date
-                    return True
-                else:
-                    return False
+                return s_low == t_low
             elif hint in s_low:
                 return True
             elif hint in t_low:
                 return True
+
         return s_low == t_low
 
-    # @staticmethod
-    # def check_visit_string(visit_str_1: str, visit_str_2: str) -> bool:
-    #     """Match if periods agree, or if one side is a date-hint placeholder
-    #     and the other is baseline (registry-enrollment convention)."""
-    #     s_low = extract_visit_period(visit_str_1.lower())
-    #     t_low = extract_visit_period(visit_str_2.lower())
-    #     if s_low == t_low:
-    #         return True
-    #     s_hint = any(h in s_low for h in settings.DATE_HINTS)
-    #     t_hint = any(h in t_low for h in settings.DATE_HINTS)
-    #     if s_hint and t_hint:
-    #         return s_low == t_low                    # both placeholders: literal equality
-    #     if s_hint:
-    #         return t_low == "baseline time"          # placeholder ↔ baseline only
-    #     if t_hint:
-    #         return s_low == "baseline time"
-    #     return False                                  # both explicit and unequal
+   
+    @staticmethod
+    def visits_compatible(visit_str_1: str, visit_str_2: str) -> bool:
+        """Retrieval-stage visit gate.
 
+        A concept-matched candidate is rejected on temporal grounds only when
+        both visit labels resolve to a determinate, discrete period and those
+        periods disagree. When either side does not resolve to a discrete
+        timepoint (undetermined, a date field, or a study-period axis such as
+        'study days'), the visit supplies no evidence of disagreement and does
+        not block retrieval. The determinate branch reproduces the
+        interval-versus-point and same-period logic of check_visit_string, so
+        genuine repeated-measures mismatches (e.g. baseline vs month 6) are
+        still rejected.
+        """
+        s = extract_visit_period(visit_str_1)
+        t = extract_visit_period(visit_str_2)
+
+        if is_determinate_period(visit_str_1) and is_determinate_period(visit_str_2):
+            # Both sides denote a discrete or interval timepoint: apply the
+            # strict comparison.
+            if is_interval_period(s) != is_interval_period(t):
+                return False
+            return s == t
+
+        # At least one side is non-discrete: not a temporal constraint.
+        return True
     @staticmethod
     def tokenize(text):
             # Split on non-alphanumeric chars (keep only words)

@@ -8,7 +8,6 @@ from typing import Optional
 from .verdict import StructuralEvidence, LLMEvidence, Verdict, TimepointInfo
 from .data_model import MatchLevel, TransformationType, MappingType, MappingRelation, ContextMatchType
 
-
 def decide(mode: str,
            structural: StructuralEvidence,
            llm_verdit: Optional[LLMEvidence],
@@ -23,7 +22,9 @@ def decide(mode: str,
     return _ontology_only_decide(structural, timepoint)
 
 
-# Penalise broader vs specific pair matching
+
+
+
 
 def _extra_info_from_llm(extra: dict, llm: Optional[LLMEvidence]) -> dict:
     out = dict(extra)
@@ -31,17 +32,34 @@ def _extra_info_from_llm(extra: dict, llm: Optional[LLMEvidence]) -> dict:
     if llm is not None:
         if llm.transform_direction:
             out["transform_direction"] = llm.transform_direction
+
         if llm.transform:
-            out["llm_transform"] = llm.transform
-        out["llm_verdict"] = llm.verdict
-        out["llm_confidence"] = llm.confidence
+            # The concrete "how" of the transformation. run.py lifts this into
+            # the transformation_rule column, leaving transformation_type to
+            # hold the category alone.
+            out["transformation_rule"] = llm.transform
+
+        # llm_verdict / llm_confidence are NOT copied here: they are already in
+        # the LLMEvidence column, and duplicating them let the two disagree.
+        #
+        # The logprob uncertainty block is left out for the same reason, and it
+        # used to be the exception: every one of its eleven fields is already an
+        # LLMEvidence attribute (logprob_usable, logprob_distribution_type,
+        # logprob_observability, logprob_confidence, logprob_top_label,
+        # logprob_top_prob, logprob_runner_up, logprob_margin,
+        # logprob_raw_margin, confidence_source, logprob_dist), so copying them
+        # here bought a second, JSON-inside-JSON copy that could drift from the
+        # first — and cost ~245 characters on every row that consulted the LLM.
+
         hv = (getattr(llm, "harmonized_variable", None) or "").strip()
         if hv:
             out["harmonized_variable"] = hv
-        # print(out)
+
     return out
+
+    
 def _demote_hierarchical(s: StructuralEvidence) -> tuple[MatchLevel, TransformationType, str]:
-    # print(s)
+
     relation = s.extra.get("mapping_relation", "")
     if MappingRelation.is_hierarchical(relation) and s.level in (
         MatchLevel.IDENTICAL, MatchLevel.COMPATIBLE
@@ -50,7 +68,7 @@ def _demote_hierarchical(s: StructuralEvidence) -> tuple[MatchLevel, Transformat
                           if s.transformation == TransformationType.NONE
                           else s.transformation)
         # phrase = MappingRelation.humanize(relation)
-        reason = f"{s.reason} | Concepts are related but one is more generic, the other more specific; manual review recommended"
+        reason = f"{s.reason}. Concepts are related but one is more generic, the other more specific; manual review recommended"
         return MatchLevel.PARTIAL, transformation, reason
     return s.level, s.transformation, s.reason
 
@@ -81,7 +99,12 @@ def _ne_decide(s: StructuralEvidence,
         else:
             # Lower int = better match; min picks the better of IDENTICAL vs structural.
             capped = min(MatchLevel.IDENTICAL, s.level, key=int)
-        transformation = llm.transform or TransformationType.NONE   # COMPLETE ⇒ no transform
+        # llm.transform is free text ("mg/dL = ug/mL / 10"), i.e. a *rule*, not a
+        # type. Putting it here made transformation_type unfilterable — rows
+        # needing unit conversion never carried UNIT_CONVERSION. The structural
+        # category stands; the text travels as transformation_rule via
+        # _extra_info_from_llm.
+        transformation = s.transformation or TransformationType.NONE
         reason = s.reason or "Handler verdict"
         if llm.reason:
             reason = f"{reason} | LLM confirmed: {llm.reason}"
@@ -122,7 +145,7 @@ def _symbolic_neural_with_llm_decide(s: StructuralEvidence,
                llm_use:bool) -> Verdict:
     if llm is None:
         level, transformation, reason = _demote_hierarchical(s)
-        level = MatchLevel.NOT_APPLICABLE if llm_use and s.level == MatchLevel.PARTIAL else level
+        level = MatchLevel.NOT_APPLICABLE if (llm_use and s.level == MatchLevel.PARTIAL and transformation != TransformationType.DERIVATION)  else level
         return _build_verdict(level, transformation, reason, tp, s.extra)
     
     if llm.verdict == "IMPOSSIBLE":
@@ -138,7 +161,12 @@ def _symbolic_neural_with_llm_decide(s: StructuralEvidence,
             capped = MatchLevel.COMPATIBLE
         else:
             capped = min(MatchLevel.IDENTICAL, s.level, key=int)
-        transformation = llm.transform or TransformationType.NONE   # COMPLETE ⇒ no transform
+        # llm.transform is free text ("mg/dL = ug/mL / 10"), i.e. a *rule*, not a
+        # type. Putting it here made transformation_type unfilterable — rows
+        # needing unit conversion never carried UNIT_CONVERSION. The structural
+        # category stands; the text travels as transformation_rule via
+        # _extra_info_from_llm.
+        transformation = s.transformation or TransformationType.NONE
         reason = s.reason or "Ontology match"
         if llm.reason:
             reason = f"{reason} | LLM confirmed: {llm.reason}"
@@ -150,7 +178,8 @@ def _symbolic_neural_with_llm_decide(s: StructuralEvidence,
             capped = min(MatchLevel.IDENTICAL, s.level, key=int)
         else:
             capped = MatchLevel.COMPATIBLE
-        transformation = llm.transform or _compatible_transformation(s)
+        # Same reason as above: category here, llm.transform carried as a rule.
+        transformation = _compatible_transformation(s)
         reason = s.reason or "Ontology match"
         if llm.reason:
             reason = f"{reason} | LLM confirmed: {llm.reason}"
@@ -234,11 +263,26 @@ def _build_verdict(level: MatchLevel,
 
 # LLM-call gating — decides whether to spend an LLM call on a candidate.
 
+def _is_derivation(s: StructuralEvidence) -> bool:
+    transformation = (
+        s.transformation.value
+        if isinstance(s.transformation, TransformationType)
+        else str(s.transformation)
+    )
+
+    return (
+        transformation == TransformationType.DERIVATION.value
+        or bool(s.extra.get("is_derived_pair"))
+        or "derived variable" in str(s.extra.get("transformation_rule", "")).lower()
+    )
 
 def should_consult_llm(s: StructuralEvidence) -> bool:
     """Symmetric pre-filter: skip LLM whenever the structural answer is
     decisive in either direction.
     """
+
+    if _is_derivation(s):
+        return False
     if s.needs_review:
         return True
     # Decisive answers — no LLM needed.

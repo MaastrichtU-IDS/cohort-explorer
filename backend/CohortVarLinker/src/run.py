@@ -3,6 +3,7 @@ import json
 import os
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pickle import LIST
 import pandas as pd
 from typing import Any, Dict, List, Tuple
 from .config import settings
@@ -14,14 +15,17 @@ from .data_model import (
     MappingType, VariableNode, VariableCollection,
     Statistics, StatisticalType, ContextMatchType, _safe_float
 )
+from dataclasses import asdict
+
 from .utils import setup_logger
 from .neuro_matcher import NeuroSymbolicMatcher
 from .variable_profile import VariableProfile
 from .graph_similarity import compute_context_scores
-from .utils import execute_query
+from .utils import execute_query,canonical_var_key,build_visit_universe
 
 from .harmonized_variable import suggest_harmonized_variable_without_llm
 logger = setup_logger('storelog.log')
+
 _CTX_TYPE_TO_VERDICT = {
     ContextMatchType.EXACT.value:           "COMPLETE",
     ContextMatchType.COMPATIBLE.value:      "COMPATIBLE",
@@ -30,10 +34,42 @@ _CTX_TYPE_TO_VERDICT = {
     ContextMatchType.NOT_APPLICABLE.value:  "IMPOSSIBLE",
 }
 
+
+# Logprob detail stays on LLMEvidence — llm_call still computes it and a
+# logprob-capable backend (openrouter, fireworks) will populate it — but it is
+# not written out while empty. On litellm these are never requested, so every
+# row would otherwise carry ~250 characters of false, "" and 0.0.
+_LOGPROB_KEYS = (
+    "logprob_usable", "logprob_distribution_type", "logprob_observability",
+    "logprob_dist", "logprob_confidence", "logprob_top_label",
+    "logprob_top_prob", "logprob_runner_up", "logprob_margin",
+    "logprob_raw_margin",
+)
+_EMPTY = (None, "", 0, 0.0, False, {}, [])
+
+
+def _evidence_for_output(evidence: LLMEvidence) -> dict:
+    """LLMEvidence as a dict, minus logprob fields that carry no value.
+
+    Only the logprob keys are eligible for dropping, and only when empty: a
+    blank `reason` or `transform` is a fact about the verdict and stays. If a
+    backend does return logprobs, the populated keys reappear on their own.
+    """
+    out = asdict(evidence)
+    for key in _LOGPROB_KEYS:
+        if key in out and out[key] in _EMPTY:
+            del out[key]
+    return out
+
+
 def _llm_tuple_to_evidence(parsed_tuple) -> LLMEvidence:
     """Adapter: llm_call.py returns (matched_or_none, ctx_type, conf, reason_json).
-    Convert to the policy-facing LLMEvidence record."""
+
+    Here `conf` is already logprob-based confidence if llm_call.py applied
+    _apply_logprob_confidence().
+    """
     matched, ctx_type, conf, reason_json = parsed_tuple
+
     if matched is False or ctx_type == ContextMatchType.NOT_APPLICABLE.value:
         verdict = "IMPOSSIBLE"
     else:
@@ -41,6 +77,8 @@ def _llm_tuple_to_evidence(parsed_tuple) -> LLMEvidence:
 
     reason = transform = transform_dir = ""
     harmonized = ""
+    d = {}
+
     try:
         d = json.loads(reason_json) if isinstance(reason_json, str) else {}
         reason = d.get("reason", "") or ""
@@ -50,25 +88,41 @@ def _llm_tuple_to_evidence(parsed_tuple) -> LLMEvidence:
     except (json.JSONDecodeError, TypeError):
         pass
 
+    self_reported_conf = float(d.get("llm_self_reported_confidence") or conf or 0.0)
+
+    # The logprob detail (distribution, margins, runner-up) is deliberately not
+    # read: it went unused downstream, and on the litellm backend it was never
+    # populated anyway — logprobs are only requested for openrouter/fireworks.
+    # `confidence_source` is kept because it says which mechanism produced
+    # `confidence`; llm_call still computes the rest, so reinstating them is a
+    # matter of reading them here again.
     return LLMEvidence(
         verdict=verdict,
-        confidence=float(conf) if conf is not None else 0.0,
+        confidence=self_reported_conf,
         reason=reason,
         transform=transform,
         transform_direction=transform_dir,
         harmonized_variable=harmonized,
+        confidence_source=d.get("confidence_source") or "",
     )
-
+    
+    
 class StudyMapper:
 
     def __init__(self, vector_db: Any, embedding_model: Any, omop_graph: Any = None,
                  vector_collection: str = "studies",
                  mapping_mode: str = MappingType.OEH.value, llm_model:str = None,
-                 enable_source_claim_early_exit: bool = True,
-                 phase_a_workers: int | None = None):
+                 enable_source_claim_early_exit: bool = False,
+                 phase_a_workers: int | None = None,
+                 list_of_var= List[str]):
         self.collection_name = vector_collection
         self.llm_model = llm_model
         self.embed_model = embedding_model
+        # The typed nodes from the most recent run_pipeline, kept so timepoint
+        # expansion can key families off the same records the matching used
+        # instead of re-reading the dictionaries and re-deriving them.
+        self.last_source_variables: List[VariableNode] = []
+        self.last_target_variables: List[VariableNode] = []
         self.similarity_threshold =  self._select_mode_specific_threshold(mapping_mode)
 
         # When True, once a source variable is matched COMPLETE or COMPATIBLE
@@ -91,9 +145,43 @@ class StudyMapper:
 
         )
         self.graph = omop_graph
+        self.var_list = list_of_var
 
    
-    
+    def _restrict_source_variables(self, src_col: VariableCollection) -> None:
+        """Restrict the SOURCE collection to the benchmark's source variables.
+
+        Compute-scoping only. Metric-neutral under the evaluator's left-join
+        scoring: source variables absent from GT never enter the scored set,
+        so removing them cannot alter F1. Target collection is left untouched
+        — each retained source still competes against the full target space,
+        so retrieval-recall misses are still penalised.
+        """
+        if not self.var_list:
+            return
+        wanted = {canonical_var_key(v) for v in self.var_list}
+        before = len(src_col.variables)
+        src_col.variables = [
+            v for v in src_col.variables if canonical_var_key(v.name) in wanted
+        ]
+        src_col._by_omop_id = None
+        src_col._by_name = None
+        src_col._build_indexes()
+
+        matched = {canonical_var_key(v.name) for v in src_col.variables}
+        missing = wanted - matched
+        # logger.info(
+        #     f"Source scope [{src_col.study}]: kept {len(src_col.variables)}/{before} "
+        #     f"variables ({len(wanted)} requested, {len(missing)} not found)"
+        # )
+        if missing:
+            logger.warning(
+                f"{len(missing)} requested source variables absent from"
+                f"{src_col.study}: {sorted(missing)[:10]}"
+            )
+        
+        
+
     def _select_mode_specific_threshold(self, mapping_mode):
         if mapping_mode == MappingType.NE.value:
             return 0.45  # lower a bit due to low label quality
@@ -150,8 +238,8 @@ class StudyMapper:
             omop = int(result["omop_id"]["value"])
             code_label = result.get("code_label", {}).get("value", "")
             code_value = result.get("code_value", {}).get("value", "")
-            src_cat = result.get("source_domain", {}).get("value", "").strip().lower()
-            tgt_cat = result.get("target_domain", {}).get("value", "").strip().lower()
+            src_cat = result["source_domain"]["value"].strip().lower()
+            tgt_cat = result["target_domain"]["value"].strip().lower()
 
             def parse_raw(raw: str) -> List[Tuple[str, str, str]]:
                 out = []
@@ -243,10 +331,13 @@ class StudyMapper:
             node.category_labels = _split_labels(p.get("categories_labels"))
             node.category_ids = _split_ids(p.get("categories_omop_ids"))  if mapping_mode != MappingType.NE.value else []
             node.original_categories = _split_labels(p.get("original_categories"))
+            node.category_pairs = _split_labels(p.get("categories_pairs"))
+
             node.statistics = Statistics(
                 min_val=_safe_float(p.get("min_val")),
                 max_val=_safe_float(p.get("max_val")),
             )
+            node.data_type = p.get("data_type") or node.data_type or ""
 
     # ──────────────────────────────────────────────────────────────────
     # Source-claim early-exit (ablation): once a source has been matched
@@ -335,7 +426,18 @@ class StudyMapper:
         matcher = self.matcher
         structurals: Dict[int, Tuple[VariableNode, VariableNode, Any]] = {}
 
-     
+        # def _one(item: Tuple[int, Dict[str, Any]]) -> Tuple[int, Tuple[VariableNode, VariableNode, Any]]:
+        #     idx, row = item
+        #     s = VariableNode.for_match_pair(
+        #         src_col, row, side="source", study=src_study,
+        #     )
+        #     t = VariableNode.for_match_pair(
+        #         tgt_col, row, side="target", study=tgt_study,
+        #     )
+        #     ev = compute_structural(
+        #         s, t, mapping_mode=mapping_mode, matcher=matcher,
+        #     )
+        #     return idx, (s, t, ev)
         def _one(item):
             idx, row = item
             try:
@@ -375,15 +477,19 @@ class StudyMapper:
 
         src_col = VariableCollection(study=src_study, variables=[])
         tgt_col = VariableCollection(study=tgt_study, variables=[])
+        # Set now as well as on the way out, so a caller reading them after an
+        # early return sees an empty list rather than the previous pair's.
+        self.last_source_variables: list = []
+        self.last_target_variables: list = []
 
         # get studies design protocols
         if self.llm_model:
             from .study_context import format_study_context_block
             study_context = format_study_context_block(src_study, tgt_study)
             if study_context:
-                logger.info(f"📋 Study context fetched ({len(study_context)} chars):\n{study_context}")
+                # logger.info(f"📋 Study context fetched ({len(study_context)} chars):\n{study_context}")
                 # Store on the LLM matcher so assess() can prepend it to prompts.
-                self.matcher.llm_matcher.set_study_context(study_context)
+                self.matcher.llm_matcher._study_context = study_context
         # ── Step 1a: Parse SPARQL → typed VariableCollections ─────
         if mapping_mode == MappingType.NE.value:
             src_col = VariableCollection(study=src_study,
@@ -405,7 +511,7 @@ class StudyMapper:
                     col._by_name = None
                     col._build_indexes()
                     # logger.info(f"  📎 Added {len(unmapped)} unmapped variables from {study}")
-
+        # self._restrict_source_variables(src_col)
         self._enrich_with_profiles(src_col,  mapping_mode)
         self._enrich_with_profiles(tgt_col,  mapping_mode)
         # logger.info(f"📊 Parsed {len(src_col)} source, {len(tgt_col)} target variables")
@@ -455,7 +561,7 @@ class StudyMapper:
             if self.llm_model:
                 ambiguous = [idx for idx, (_, _, ev) in structurals.items()
                               if should_consult_llm(ev)]
-                # n_skipped_structural = len(recs) - len(ambiguous)
+                n_skipped_structural = len(recs) - len(ambiguous)
 
                 if self.enable_source_claim_early_exit and ambiguous:
                     llm_evidence, n_skipped_claim = self._resolve_llm_with_source_claim(
@@ -480,11 +586,27 @@ class StudyMapper:
 
             # Phase C: one policy.decide() per row, immutable verdict, single write
             # logger.info(f"⚖️  Phase C: policy decision for {len(structurals)} candidates...")
+
+            src_visit_universe = build_visit_universe(src_col.variables)
+            tgt_visit_universe = build_visit_universe(tgt_col.variables)
+            # logger.info(
+            #     f"🗓️  visit universes — {src_study}: {len(src_visit_universe)} label(s), "
+            #     f"{tgt_study}: {len(tgt_visit_universe)} label(s)"
+            # )
             descriptions, transformations, statuses = [], [], []
+            # The concrete "how" of a transformation (a conversion formula, a
+            # derivation). Kept out of transformation_type so that column holds
+            # only the TransformationType category and stays filterable.
+            transformation_rules = []
             # llm_use = True if self.llm_model else False
+            llm_evidences = []
             for idx in range(len(recs)):
                 s, t, struct_ev = structurals[idx]
-                tp = make_timepoint_info(s, t)
+                tp = make_timepoint_info(
+                    s, t,
+                    source_visit_universe=src_visit_universe,
+                    target_visit_universe=tgt_visit_universe,
+                )
 
                 verdict = decide(mapping_mode, struct_ev, llm_evidence.get(idx), llm_use, tp)
                 
@@ -500,16 +622,41 @@ class StudyMapper:
                     if hv:
                         details["harmonized_variable"] = hv
                 transformations.append(details.pop("transformation", "") or "")
+                transformation_rules.append(details.pop("transformation_rule", "") or "")
                 descriptions.append(json.dumps(details, default=str, ensure_ascii=False))
                 statuses.append(status)
-                # if llm_use: 
-                #     logger.info(f"final verdict for source {s} and target {t} is {verdict}")
 
+                ev = llm_evidence.get(idx)                        # NEW
+                llm_evidences.append(                             # NEW
+                    json.dumps(_evidence_for_output(ev), default=str, ensure_ascii=False)
+                    if ev is not None else ""
+                )
             df["transformation_type"]   = transformations
+            # Derived-variable rules are already set upstream by
+            # compute_derived_variables; only fill where that left a blank, so
+            # the more specific rule always wins.
+            if "transformation_rule" in df.columns:
+                existing = df["transformation_rule"].tolist()
+                df["transformation_rule"] = [
+                    str(old) if str(old).strip() and str(old).strip().lower() != "nan" else new
+                    for old, new in zip(existing, transformation_rules)
+                ]
+            else:
+                df["transformation_rule"] = transformation_rules
             df["Mapping Description"]   = descriptions
             df["harmonization_status"]  = statuses
+            df["LLMEvidence"]          = llm_evidences
         
         df.dropna(subset=["source", "target"], inplace=True)
         df.drop(columns="context_match_type", inplace=True, errors="ignore")
+
+        # Hand the typed collections back alongside the frame. Timepoint
+        # expansion needs each variable's concept, category concepts, unit and
+        # statistical type; the frame carries those only as flattened strings,
+        # so a caller without the nodes has to re-read the dictionaries and
+        # re-derive what the graph already resolved. These are the same objects
+        # the matching used, so expansion cannot disagree with it.
+        self.last_source_variables = list(src_col.variables)
+        self.last_target_variables = list(tgt_col.variables)
         return df
        

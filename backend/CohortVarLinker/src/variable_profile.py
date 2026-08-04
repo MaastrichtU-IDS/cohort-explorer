@@ -33,7 +33,8 @@ class VariableProfile:
                 )
                 results.append(row.model_dump())
         except Exception as e:
-            print(f"Error chunk fetch: {e}")
+            # print(f"Error chunk fetch: {e}")
+            pass
         return results
 
     # =================================================================
