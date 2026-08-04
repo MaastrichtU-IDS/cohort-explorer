@@ -622,14 +622,14 @@ class NeuroSymbolicMatcher:
                 vectors = self.embed_model.embed_batch(uncached, is_query=True)
                 for text, vec in zip(uncached, vectors):
                     _embed_cache[_cache_key(self.embed_model.model_name, text)] = vec.tolist()
-                print(f" ✅ Pre-embedded {len(uncached)} query texts (1 batch)")
+             # print(f" ✅ Pre-embedded {len(uncached)} query texts (1 batch)")
 
         concept_matches = {}
         total_groups = len(src_grouped)
 
         for idx, (sid, s_group) in enumerate(src_grouped.items()):
-            if (idx + 1) % 50 == 0 or idx == 0:
-                print(f"resolve_matches: {idx + 1}/{total_groups} source groups...")
+            # if (idx + 1) % 50 == 0 or idx == 0:
+               # print(f"resolve_matches: {idx + 1}/{total_groups} source groups...")
 
             rep = s_group[0]
             matched_candidates = set()
@@ -696,7 +696,7 @@ class NeuroSymbolicMatcher:
                             }
                         concept_matches[ckey]["group_pairs"].append((src_node, tgt_node, score))
         
-        print(f"total concept_matches unique pairs: {len(concept_matches)}")
+        # print(f"total concept_matches unique pairs: {len(concept_matches)}")
         for ckey, entry in concept_matches.items():
             rel_str = entry["relation"].strip().lower() if entry["relation"] else "unknown"
             for src_node, tgt_node, score in entry["group_pairs"]:
@@ -779,10 +779,10 @@ class NeuroSymbolicMatcher:
 
         # ── Step 3: call the LLM once across all groups.
         case_ids = [f"P{i}" for i in range(len(flat_keys))]
-        # if len(flat_keys) > 1:
-        #     logger.info(f"  🤖 LLM Validating : {len(flat_keys)} concept pairs")
-        # else:
-        #     logger.debug(f"  🤖 LLM Validating : {len(flat_keys)} concept pair")
+        if len(flat_keys) > 1:
+            logger.info(f"  🤖 LLM Validating : {len(flat_keys)} concept pairs")
+        else:
+            logger.debug(f"  🤖 LLM Validating : {len(flat_keys)} concept pair")
         grouped_results, _stats = self.llm_matcher.assess(groups, case_ids=case_ids)
 
         # ── Step 4: convert verdicts to LLMEvidence
@@ -910,7 +910,7 @@ class NeuroSymbolicMatcher:
             groups.append(group)
 
         case_ids = [f"P{i}" for i in range(len(flat_keys))]
-        # logger.info(f"  🤖 LLM: {len(flat_keys)} concept pairs")
+        logger.info(f"  🤖 LLM: {len(flat_keys)} concept pairs")
 
         grouped_results, stats = self.llm_matcher.assess(groups, case_ids=case_ids)
         
@@ -1017,7 +1017,7 @@ class NeuroSymbolicMatcher:
             src_ids_per_row.append(s_row)
             tgt_ids_per_row.append(t_row)
 
-        print(f"🔤 Ontology cache: {len(label_cache)} label→OMOP mappings")
+        # print(f"🔤 Ontology cache: {len(label_cache)} label→OMOP mappings")
 
         if self.graph is not None:
             pairs_to_check = {
@@ -1026,14 +1026,14 @@ class NeuroSymbolicMatcher:
                 for sid in s_ids for tid in t_ids if sid != tid
             } - align_cache.keys()
             if pairs_to_check:
-                print(f"🧭 Resolving {len(pairs_to_check)} unique OMOP-pair alignments via graph...")
+                # print(f"🧭 Resolving {len(pairs_to_check)} unique OMOP-pair alignments via graph...")
                 resolve = self.graph.source_to_targets_paths
                 aligned = 0
                 for sid, tid in pairs_to_check:
                     hit = bool(resolve(sid, {tid}, max_depth=1))
                     align_cache[(sid, tid)] = hit
                     aligned += hit
-                print(f"✅ Alignment cache: {aligned} aligned / {len(pairs_to_check)} checked")
+                # print(f"✅ Alignment cache: {aligned} aligned / {len(pairs_to_check)} checked")
 
         if self.mapping_mode == MappingType.OO.value or not all_labels:
             return df
@@ -1049,8 +1049,8 @@ class NeuroSymbolicMatcher:
             print(f"🔤 Pre-encoding {len(texts)} NEW embeddings "
                 f"({len(new_lbls)} labels + {len(new_ctx)} contextualized; {cached_n} reused from cache)...")
             emb_cache.update(zip(keys, model_object.embed_batch(texts, show_progress=False)))
-        else:
-            print(f"🔤 All {cached_n} embeddings reused from cache — no encoding needed.")
+        # else:
+            # print(f"🔤 All {cached_n} embeddings reused from cache — no encoding needed.")
 
-        print(f"✅ Cache size: {len(emb_cache)} embeddings")
+        # print(f"✅ Cache size: {len(emb_cache)} embeddings")
         return df

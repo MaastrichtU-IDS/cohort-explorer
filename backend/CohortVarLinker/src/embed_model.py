@@ -16,33 +16,36 @@ logger = logging.getLogger(__name__)
 
 MODEL_MAP = {
     # --- Biomedical domain models ---
-    # "cardioembed":"michiyasunaga/BioLinkBERT-large",
-    # "zembed":"zeroentropy/zembed-1",
-    # "sapbert":  "cambridgeltl/SapBERT-from-PubMedBERT-fulltext",
+    "cardioembed":"michiyasunaga/BioLinkBERT-large",
+    "zembed":"zeroentropy/zembed-1",
+    "sapbert":  "cambridgeltl/SapBERT-from-PubMedBERT-fulltext",
     "biolord":  "FremyCompany/BioLORD-2023",
     # "coder":"GanjinZero/UMLSBert_ENG",
-    # "medembed":"abhinand/MedEmbed-base-v0.1",
-    # "coder":"GanjinZero/coder_eng",
-    # # --- General-purpose models ---
-    # "qwen3-0.6b":    "Qwen/Qwen3-Embedding-0.6B", 
-    # "qwen3-8b" :  "accounts/fireworks/models/qwen3-embedding-8b", #"qwen3-embedding:8b" ,
-    # "gemma": "google/embeddinggemma-300m",
-    # "nomic":"nomic-ai/nomic-embed-text-v2-moe",
-    # "e5":       "intfloat/e5-large-v2", 
-    # "minilm":   "all-MiniLM-L6-v2",
-    # "mxbai":    "mixedbread-ai/mxbai-embed-large-v1",
-    # "bge":      "BAAI/bge-large-en-v1.5", # same bge, cloud-hosted
-    # "gte":      "Alibaba-NLP/gte-modernbert-base", # same gte, cloud-hosted
-    # "openai": "text-embedding-3-large",
-    # "gemini": "models/gemini-embedding-001",
-    # "kalm": "KaLM-Embedding/KaLM-embedding-multilingual-mini-instruct-v2.5",
-    # "qwen2":"Alibaba-NLP/gte-Qwen2-7B-instruct",
-    # "biobart":"GanjinZero/biobart-large",
-    # "sentence_sapbert": "amrothemich/sapbert-sentence-transformers"
+    "medembed":"abhinand/MedEmbed-base-v0.1",
+    "coder":"GanjinZero/coder_eng",
+    # --- General-purpose models ---
+    "qwen3-0.6b":    "Qwen/Qwen3-Embedding-0.6B", 
+    "qwen3-8b" :  "accounts/fireworks/models/qwen3-embedding-8b", #"qwen3-embedding:8b" ,
+    "gemma": "google/embeddinggemma-300m",
+    "nomic":"nomic-ai/nomic-embed-text-v2-moe",
+    "e5":       "intfloat/e5-large-v2", 
+    "minilm":   "all-MiniLM-L6-v2",
+    "mxbai":    "mixedbread-ai/mxbai-embed-large-v1",
+    "bge":      "BAAI/bge-large-en-v1.5", # same bge, cloud-hosted
+    "gte":      "Alibaba-NLP/gte-modernbert-base", # same gte, cloud-hosted
+    "openai": "text-embedding-3-large",
+    "gemini": "models/gemini-embedding-001",
+    "kalm": "KaLM-Embedding/KaLM-embedding-multilingual-mini-instruct-v2.5",
+    "qwen2":"Alibaba-NLP/gte-Qwen2-7B-instruct",
+    "biobart":"GanjinZero/biobart-large",
+    "sentence_sapbert": "amrothemich/sapbert-sentence-transformers"
               # MTEB #2  (0.6B)
     # "linq":     "Linq-AI-Research/Linq-Embed-Mistral",   # MTEB #5  (7B)
+    # NOTE: gemini-embedding-001 and text-embedding-3-large are API-only.
+    #       Use APIEmbeddingModel("gemini"|"openai", api_key=...) for those.
 
-
+  
+  
 }
 OLLAMA_MODELS = {"qwen3-8b"}
 POOLING_STRATEGY = {
@@ -119,7 +122,7 @@ class UnifiedEmbeddingModel:
         cache = cache_dir or settings.MODEL_CACHE_DIR
         dtype = torch.float16 if self._is_decoder else torch.float32
 
-        print(f"🔥 Loading embedding model: {model_name_or_path}...")
+       
         self.tokenizer = AutoTokenizer.from_pretrained(
             model_name_or_path, cache_dir=cache, trust_remote_code=True)
         # self.model = AutoModel.from_pretrained(
@@ -144,8 +147,8 @@ class UnifiedEmbeddingModel:
         self.model.eval()
 
         self.embedding_dim = self.model.config.hidden_size
-        print(f"✅ Model loaded: dim={self.embedding_dim}, "
-              f"pool={self._pooling}, device={self.device}")
+        # # print(f"✅ Model loaded: dim={self.embedding_dim}, "
+        #       f"pool={self._pooling}, device={self.device}")
 
     def _pool(self, last_hidden: torch.Tensor,
           attention_mask: torch.Tensor) -> torch.Tensor:
@@ -161,7 +164,18 @@ class UnifiedEmbeddingModel:
         # mean pooling
         mask = attention_mask.unsqueeze(-1).float()
         return (last_hidden * mask).sum(1) / mask.sum(1).clamp(min=1e-9)
-   
+    # def _pool(self, last_hidden: torch.Tensor,
+    #           attention_mask: torch.Tensor) -> torch.Tensor:
+    #     if self._pooling == "cls":
+    #         return last_hidden[:, 0]
+    #     if self._pooling == "last":
+    #         # last non-pad token per sequence
+    #         seq_lens = attention_mask.sum(dim=1) - 1
+    #         return last_hidden[torch.arange(last_hidden.size(0),
+    #                            device=last_hidden.device), seq_lens]
+    #     # mean pooling
+    #     mask = attention_mask.unsqueeze(-1).float()
+    #     return (last_hidden * mask).sum(1) / mask.sum(1).clamp(min=1e-9)
 
     @torch.no_grad()
     def embed_batch(self, texts: List[str], show_progress: bool = False,
@@ -229,7 +243,7 @@ class APIEmbeddingModel:
         else:
             raise ValueError(f"Unknown API provider: {provider}")
 
-        print(f"✅ API model ready: {self.provider} ({self._model_name})")
+        # print(f"✅ API model ready: {self.provider} ({self._model_name})")
 
     def embed_batch(self, texts: List[str], show_progress: bool = False,
                     is_query: bool = True) -> np.ndarray:
@@ -310,7 +324,7 @@ class FireworksEmbeddingModel:
         self._instruction_prefix = INSTRUCTION_MODELS.get(backend_key, "")
         self._passage_prefix = PASSAGE_PREFIXES.get(backend_key, "")
 
-        print(f"✅ Together AI model ready: {self._model_name} (dim={self.embedding_dim})")
+        # print(f"✅ Together AI model ready: {self._model_name} (dim={self.embedding_dim})")
 
     def embed_batch(self, texts: List[str], show_progress: bool = False,
                     is_query: bool = True) -> np.ndarray:
@@ -389,7 +403,7 @@ class OllamaEmbeddingModel:
         except Exception as e:
             logger.warning(f"Could not probe Ollama dim: {e}")
 
-        print(f"✅ Ollama model ready: {self._ollama_tag} (dim={self.embedding_dim})")
+        # print(f"✅ Ollama model ready: {self._ollama_tag} (dim={self.embedding_dim})")
 
     def _embed_raw(self, texts: List[str]) -> List[List[float]]:
         if self._client:
@@ -450,7 +464,7 @@ def get_model(backend: str = "biolord") -> Tuple[UnifiedEmbeddingModel, int]:
             _model_instance = APIEmbeddingModel(backend, api_key=settings.OPENAI_API_KEY if backend == "openai" else settings.GEMINI_API_KEY)
 
         # if backend in TOGETHER_MODELS:
-        #     print(f"🔥 Loading Together AI embedding model: {backend}...")
+        #     # print(f"🔥 Loading Together AI embedding model: {backend}...")
         #     _model_instance = TogetherEmbeddingModel(
         #         backend_key=backend,
         #     )

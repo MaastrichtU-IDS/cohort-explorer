@@ -1125,19 +1125,41 @@ def compute_structural(src: VariableNode,
     )
 
 
-def make_timepoint_info(src: VariableNode, tgt: VariableNode):
+def make_timepoint_info(
+    src: VariableNode,
+    tgt: VariableNode,
+    source_visit_universe=None,
+    target_visit_universe=None,
+):
     """Build TimepointInfo from a candidate pair.
 
     Pulled out so run.py doesn't need to know about VariableNode internals.
+
+    The universes are each study's visit vocabulary. They let an undetermined
+    side (a study that records everything against a generic 'visit date') be
+    expanded onto the exhaustive list of protocol timepoints the counterpart
+    study exposes, instead of being reported as a mismatch against whichever
+    timepoint happens to be on the other side of this row.
     """
     from .verdict import TimepointInfo
+    from .utils import resolve_visit_pair
+
     s_visit = src.visit or ""
     t_visit = tgt.visit or ""
-    aligned = s_visit.lower().strip() == t_visit.lower().strip()
+    res = resolve_visit_pair(
+        s_visit, t_visit,
+        source_visit_universe=source_visit_universe,
+        target_visit_universe=target_visit_universe,
+    )
     return TimepointInfo(
-        aligned=aligned,
+        aligned=(res["status"] == "aligned"),
         source_visit=s_visit,
         target_visit=t_visit,
+        status=res["status"],
+        undetermined_side=res["undetermined_side"],
+        candidate_timepoints=tuple(res["candidate_timepoints"]),
+        resolved_timepoint=res["resolved_timepoint"],
+        note=res["note"],
     )
         
 

@@ -4,16 +4,12 @@ import pandas as pd
 import json
 import os
 import glob
-# import time
-# from collections import defaultdict
-# from typing import Any
+
 from updated_src.run import StudyMapper
 from updated_src.variables_kg import process_variables_metadata_file
 from updated_src.study_kg import generate_studies_kg
 from updated_src.constraints import CategoryMapper
-# from updated_src.embed_model import get_model
 from updated_src.omop_graph_nx import OmopGraphNX
-# from updated_src.config import settings
 from updated_src.data_model import MappingType, EmbeddingType 
 from updated_src.utils import (
         get_cohort_mapping_uri,
@@ -307,8 +303,7 @@ def generate_mapping_csv(
         llm_model=llm_model
         )
     llm_tag = llm_model.split("/")[-1] if llm_model and mapping_mode != MappingType.OO.value else "no_llm" 
-    llm_tag = llm_tag.replace(":nitro","").replace(":free","").replace(":exacto","")
-    llm_tag = llm_tag
+    llm_tag = llm_tag.replace(":120b","-120b")
     for tstudy in target_studies:
         out_filename = f'{source_study}_{tstudy}_cross_mapping.csv'
         out_path = os.path.join(output_dir, out_filename)
@@ -329,6 +324,7 @@ def generate_mapping_csv(
             pd.DataFrame(columns=columns).to_csv(out_path, index=False)
         else:
             
+            mapping_transformed = mapping_transformed[mapping_transformed["harmonization_status"].str.strip().str.lower() != "not applicable"]
             mapping_transformed.to_csv(out_path, index=False)
             
     tstudy_str = "_".join(target_studies)

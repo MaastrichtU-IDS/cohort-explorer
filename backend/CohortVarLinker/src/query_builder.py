@@ -270,72 +270,76 @@ class SPARQLQueryBuilder:
                     (GROUP_CONCAT(DISTINCT ?inc_val; SEPARATOR="; ")    AS ?inclusion_criteria)
                 WHERE {{
                     GRAPH <{cls.METADATA_GRAPH}> {{
-                
-                        # ── Anchor: study design execution ──
-                        ?sde  a  obi:study_design_execution ;
-                            dc:identifier  ?study_name .
+
+                        ?sde a obi:study_design_execution ;
+                            dc:identifier ?study_name .
                         FILTER(LCASE(STR(?study_name)) = LCASE("{study_id}"))
-                
-                        # ── Study design type (e.g., "randomized_controlled_trial") ──
+
+                        # ── Study design ──
+                        OPTIONAL {{ ?sde ro:concretizes ?sdA . ?sdA cmeo:has_value ?design_val . }}
+
+                        # ── Study descriptor ──
                         OPTIONAL {{
-                            ?sde  ro:concretizes  ?sd .
-                            ?sd   cmeo:has_value  ?design_val .
+                            ?sde ro:concretizes ?sdB .
+                            ?sdB iao:is_about ?desc .
+                            ?desc a sio:descriptor ; rdfs:label ?type_label .
                         }}
-                
-                        # ── Study descriptor (e.g., "interventional") ──
-                        OPTIONAL {{
-                            ?sd   iao:is_about  ?desc .
-                            ?desc a sio:descriptor ;
-                                rdfs:label ?type_label .
-                        }}
-                
+
                         # ── Number of participants ──
                         OPTIONAL {{
-                            ?sd   ro:has_part  ?protocol .
-                            ?protocol  a  obi:protocol .
-                            ?protocol  ro:has_part  ?np .
-                            ?np   a  cmeo:number_of_participants ;
-                                cmeo:has_value  ?n_val .
+                            ?sde ro:concretizes ?sdC .
+                            ?sdC ro:has_part ?protC .
+                            ?protC a obi:protocol ; ro:has_part ?np .
+                            ?np a cmeo:number_of_participants ; cmeo:has_value ?n_val .
                         }}
-                
-                        # ── Population morbidity (key: tells LLM what conditions are guaranteed) ──
+
+                        # ── Population morbidity ──
                         OPTIONAL {{
-                            ?sd   ro:has_part  ?protocol2 .
-                            ?protocol2 ro:has_part ?elig .
-                            ?elig a obi:eligibility_criterion .
-                            ?elig ro:is_concretized_by ?enroll .
-                            ?enroll ro:has_output ?pop .
-                            ?pop  ro:has_characteristic ?morb .
-                            ?morb a obi:morbidity ;
-                                rdfs:label ?morb_label .
+                            ?sde ro:concretizes ?sdD .
+                            ?sdD ro:has_part ?protD .
+                            ?protD ro:has_part ?eligD .
+                            ?eligD a obi:eligibility_criterion ; ro:is_concretized_by ?enrollD .
+                            ?enrollD ro:has_output ?popD .
+                            ?popD ro:has_characteristic ?morb .
+                            ?morb a obi:morbidity ; rdfs:label ?morb_label .
                         }}
-                
+
                         # ── Age distribution ──
                         OPTIONAL {{
-                            ?pop  ro:has_characteristic ?age .
-                            ?age  a obi:age_distribution ;
-                                cmeo:has_value ?age_val .
+                            ?sde ro:concretizes ?sdE .
+                            ?sdE ro:has_part ?protE .
+                            ?protE ro:has_part ?eligE .
+                            ?eligE a obi:eligibility_criterion ; ro:is_concretized_by ?enrollE .
+                            ?enrollE ro:has_output ?popE .
+                            ?popE ro:has_characteristic ?age .
+                            ?age a obi:age_distribution ; cmeo:has_value ?age_val .
                         }}
-                
+
                         # ── Population location ──
                         OPTIONAL {{
-                            ?site a bfo:site ;
-                                iao:is_about ?pop ;
-                                cmeo:has_value ?loc_val .
+                            ?sde ro:concretizes ?sdF .
+                            ?sdF ro:has_part ?protF .
+                            ?protF ro:has_part ?eligF .
+                            ?eligF a obi:eligibility_criterion ; ro:is_concretized_by ?enrollF .
+                            ?enrollF ro:has_output ?popF .
+                            ?site a bfo:site ; iao:is_about ?popF ; cmeo:has_value ?loc_val .
                         }}
-                
+
                         # ── Study objective ──
                         OPTIONAL {{
-                            ?protocol ro:has_part ?obj .
-                            ?obj a obi:objective_specification ;
-                                cmeo:has_value ?obj_val .
+                            ?sde ro:concretizes ?sdG .
+                            ?sdG ro:has_part ?protG .
+                            ?protG a obi:protocol ; ro:has_part ?obj .
+                            ?obj a obi:objective_specification ; cmeo:has_value ?obj_val .
                         }}
-                
-                        # ── Inclusion criteria (concatenated) ──
+
+                        # ── Inclusion criteria ──
                         OPTIONAL {{
-                            ?elig ro:has_part ?inc_crit .
-                            ?inc_crit a obi:inclusion_criterion .
-                            ?inc_crit ro:has_part ?inc_item .
+                            ?sde ro:concretizes ?sdH .
+                            ?sdH ro:has_part ?protH .
+                            ?protH ro:has_part ?eligH .
+                            ?eligH a obi:eligibility_criterion ; ro:has_part ?inc_crit .
+                            ?inc_crit a obi:inclusion_criterion ; ro:has_part ?inc_item .
                             ?inc_item cmeo:has_value ?inc_val .
                         }}
                     }}

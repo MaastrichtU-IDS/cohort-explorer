@@ -7,7 +7,6 @@ from typing import Optional
 
 from .verdict import StructuralEvidence, LLMEvidence, Verdict, TimepointInfo
 from .data_model import MatchLevel, TransformationType, MappingType, MappingRelation, ContextMatchType
-import json
 
 def decide(mode: str,
            structural: StructuralEvidence,
@@ -26,6 +25,7 @@ def decide(mode: str,
 
 
 
+
 def _extra_info_from_llm(extra: dict, llm: Optional[LLMEvidence]) -> dict:
     out = dict(extra)
 
@@ -34,26 +34,22 @@ def _extra_info_from_llm(extra: dict, llm: Optional[LLMEvidence]) -> dict:
             out["transform_direction"] = llm.transform_direction
 
         if llm.transform:
-            out["llm_transform"] = llm.transform
+            # The concrete "how" of the transformation. run.py lifts this into
+            # the transformation_rule column, leaving transformation_type to
+            # hold the category alone.
+            out["transformation_rule"] = llm.transform
 
-        out["llm_verdict"] = llm.verdict
-        out["llm_confidence"] = llm.confidence
-
-        uncertainty = {
-            "logprob_usable": getattr(llm, "logprob_usable", False),
-            "distribution_type": getattr(llm, "logprob_distribution_type", ""),
-            "observability": getattr(llm, "logprob_observability", 0.0),
-            "logprob_confidence": getattr(llm, "logprob_confidence", 0.0),
-            "top_label": getattr(llm, "logprob_top_label", ""),
-            "top_prob": getattr(llm, "logprob_top_prob", 0.0),
-            "runner_up": getattr(llm, "logprob_runner_up", ""),
-            "margin": getattr(llm, "logprob_margin", 0.0),
-            "raw_margin": getattr(llm, "logprob_raw_margin", 0.0),
-            "confidence_source": getattr(llm, "confidence_source", ""),
-            "dist": getattr(llm, "logprob_dist", {}),
-        }
-
-        out["llm_uncertainty"] = json.dumps(uncertainty, ensure_ascii=False)
+        # llm_verdict / llm_confidence are NOT copied here: they are already in
+        # the LLMEvidence column, and duplicating them let the two disagree.
+        #
+        # The logprob uncertainty block is left out for the same reason, and it
+        # used to be the exception: every one of its eleven fields is already an
+        # LLMEvidence attribute (logprob_usable, logprob_distribution_type,
+        # logprob_observability, logprob_confidence, logprob_top_label,
+        # logprob_top_prob, logprob_runner_up, logprob_margin,
+        # logprob_raw_margin, confidence_source, logprob_dist), so copying them
+        # here bought a second, JSON-inside-JSON copy that could drift from the
+        # first — and cost ~245 characters on every row that consulted the LLM.
 
         hv = (getattr(llm, "harmonized_variable", None) or "").strip()
         if hv:
@@ -63,7 +59,7 @@ def _extra_info_from_llm(extra: dict, llm: Optional[LLMEvidence]) -> dict:
 
     
 def _demote_hierarchical(s: StructuralEvidence) -> tuple[MatchLevel, TransformationType, str]:
-    # print(s)
+
     relation = s.extra.get("mapping_relation", "")
     if MappingRelation.is_hierarchical(relation) and s.level in (
         MatchLevel.IDENTICAL, MatchLevel.COMPATIBLE
@@ -103,7 +99,12 @@ def _ne_decide(s: StructuralEvidence,
         else:
             # Lower int = better match; min picks the better of IDENTICAL vs structural.
             capped = min(MatchLevel.IDENTICAL, s.level, key=int)
-        transformation = llm.transform or TransformationType.NONE   # COMPLETE ⇒ no transform
+        # llm.transform is free text ("mg/dL = ug/mL / 10"), i.e. a *rule*, not a
+        # type. Putting it here made transformation_type unfilterable — rows
+        # needing unit conversion never carried UNIT_CONVERSION. The structural
+        # category stands; the text travels as transformation_rule via
+        # _extra_info_from_llm.
+        transformation = s.transformation or TransformationType.NONE
         reason = s.reason or "Handler verdict"
         if llm.reason:
             reason = f"{reason} | LLM confirmed: {llm.reason}"
@@ -160,7 +161,12 @@ def _symbolic_neural_with_llm_decide(s: StructuralEvidence,
             capped = MatchLevel.COMPATIBLE
         else:
             capped = min(MatchLevel.IDENTICAL, s.level, key=int)
-        transformation = llm.transform or TransformationType.NONE   # COMPLETE ⇒ no transform
+        # llm.transform is free text ("mg/dL = ug/mL / 10"), i.e. a *rule*, not a
+        # type. Putting it here made transformation_type unfilterable — rows
+        # needing unit conversion never carried UNIT_CONVERSION. The structural
+        # category stands; the text travels as transformation_rule via
+        # _extra_info_from_llm.
+        transformation = s.transformation or TransformationType.NONE
         reason = s.reason or "Ontology match"
         if llm.reason:
             reason = f"{reason} | LLM confirmed: {llm.reason}"
@@ -172,7 +178,8 @@ def _symbolic_neural_with_llm_decide(s: StructuralEvidence,
             capped = min(MatchLevel.IDENTICAL, s.level, key=int)
         else:
             capped = MatchLevel.COMPATIBLE
-        transformation = llm.transform or _compatible_transformation(s)
+        # Same reason as above: category here, llm.transform carried as a rule.
+        transformation = _compatible_transformation(s)
         reason = s.reason or "Ontology match"
         if llm.reason:
             reason = f"{reason} | LLM confirmed: {llm.reason}"
@@ -286,6 +293,20 @@ def should_consult_llm(s: StructuralEvidence) -> bool:
     # PARTIAL is genuinely ambiguous — let the LLM weigh in.
     return True
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Source-claim early-exit support
+#
+# When a source variable is matched to a target with verdict COMPLETE or
+# COMPATIBLE, we can skip the LLM on the same source's remaining ambiguous
+# candidates ("source claim"). This requires a defensible per-source
+# ordering so the *best* candidate gets the LLM first; otherwise a mediocre
+# COMPATIBLE could claim the source before the LLM ever sees an IDENTICAL
+# one further down the list.
+# Ordering is built entirely from structural-layer signals that already
+# exist on the candidate row.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
 # Lower rank = considered first. Hierarchical relations are pushed last
 # because _demote_hierarchical will demote them in policy anyway.
 _RELATION_RANK = {
@@ -339,4 +360,8 @@ def llm_priority_key(structural: StructuralEvidence) -> tuple:
         -sim_score,
     )
 
+
+# Verdicts that claim the source and shut down further LLM calls for it.
+# PARTIAL is deliberately excluded — a PARTIAL doesn't harmonize the
+# source, so a later candidate might still produce a real match.
 CLAIMING_VERDICTS = frozenset({"COMPLETE", "COMPATIBLE"})

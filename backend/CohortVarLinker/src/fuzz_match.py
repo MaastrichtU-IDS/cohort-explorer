@@ -1,15 +1,32 @@
 
-from typing import list, set, tuple, Optional
+from typing import List, Set, Tuple, Optional
 import re
-from .config import settings
+from .config import settings    
 from .utils import extract_visit_period, is_interval_period, is_determinate_period
 
 _nlp = None
 class FuzzyMatcher:
 
-
-
     @staticmethod
+    # def check_visit_string(visit_str_1: str, visit_str_2: str) -> bool:
+    #     """Normalize temporal context strings."""
+    #     s_low = extract_visit_period(visit_str_1.lower())
+    #     t_low = extract_visit_period(visit_str_2.lower())
+    #     # print(f"s_low: {s_low}, t_low: {t_low}")
+    #     for hint in settings.DATE_HINTS and "interval" not in {s_low,t_low}:
+    #         if hint in s_low and hint in t_low:
+    #             if s_low == t_low: # e.g. visit date not same as event date
+    #                 return True
+    #             else:
+    #                 return False
+    #         elif hint in s_low:
+    #             return True
+    #         elif hint in t_low:
+    #             return True
+        
+    #     return s_low == t_low
+
+    @staticmethod   
     def check_visit_string(visit_str_1: str, visit_str_2: str) -> bool:
         """Return True only when temporal contexts are comparable."""
         s_low = extract_visit_period(visit_str_1)
@@ -35,6 +52,7 @@ class FuzzyMatcher:
 
         return s_low == t_low
 
+   
     @staticmethod
     def visits_compatible(visit_str_1: str, visit_str_2: str) -> bool:
         """Retrieval-stage visit gate.
@@ -71,7 +89,7 @@ class FuzzyMatcher:
        return (FuzzyMatcher.tokenize(label2).issubset(FuzzyMatcher.tokenize(label1)) or FuzzyMatcher.tokenize(label1).issubset(FuzzyMatcher.tokenize(label2)))
    
     @staticmethod
-    def _is_negation_pair(cat1: str, cat2: str) -> tuple[bool, Optional[str], Optional[str]]:
+    def _is_negation_pair(cat1: str, cat2: str) -> Tuple[bool, Optional[str], Optional[str]]:
         """Check if two categories form a positive/negative pair."""
         
         neg1 = FuzzyMatcher.has_negation(cat1)
@@ -100,7 +118,7 @@ class FuzzyMatcher:
             return any(token.dep_ == 'neg' for token in doc)
     
     @staticmethod
-    def get_lemmas(text: str) -> set[str]:
+    def get_lemmas(text: str) -> Set[str]:
         """Extract meaningful lemmas using spaCy's built-in filtering."""
         nlp = FuzzyMatcher._get_nlp()
         doc = nlp(text.lower())
@@ -111,7 +129,7 @@ class FuzzyMatcher:
     }
 
     @staticmethod
-    def _is_redundant(candidate: str, existing: list[str], threshold: float = 0.8) -> bool:
+    def _is_redundant(candidate: str, existing: List[str], threshold: float = 0.8) -> bool:
         cand_lemmas = FuzzyMatcher.get_lemmas(candidate)
         if not cand_lemmas:
             return True
@@ -128,7 +146,7 @@ class FuzzyMatcher:
         return score >= threshold
         
     @staticmethod
-    def _deduplicate_parts(parts: list[str], threshold: float = 0.8) -> list[str]:
+    def _deduplicate_parts(parts: List[str], threshold: float = 0.8) -> List[str]:
         """Remove redundant parts, keeping first occurrence."""
         result = []
         for part in parts:

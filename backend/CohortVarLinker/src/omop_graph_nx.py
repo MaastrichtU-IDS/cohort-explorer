@@ -5,6 +5,8 @@ from typing import List, Tuple
 from collections import deque, OrderedDict
 from llm.data_model import MappingRelation
 
+# LOINC_REQUIRED_AXES = ['component', 'system', 'time_aspect']
+# LOINC_IGNORABLE_AXES = ['property', 'method', 'scale_type', 'specimen']
 LOINC_REQUIRED_AXES = ["component", "time_aspect"]
 LOINC_DECISIVE_AXES = ["property"]
 LOINC_CONTEXT_AXES = ["system", "specimen"]
@@ -141,31 +143,7 @@ class OmopGraphNX:
         print(f"forward rel = {rm_fwd}")
         MAPTO_INT = rm_fwd.get("maps to", -1)
         print(f"mapto edges: {MAPTO_INT}")
-        # MAPTO_INTS = frozenset(x for x in (
-        #         rm_fwd.get("maps to"), rm_fwd.get("mapped from")
-        #     ) if x)
-        # isa_succ, subs_succ, equiv_bidir = {}, {}, {}
-        # maps_to_count = {}  # node → count of outgoing maps_to edges
-
-        # t0 = time.time()
-        # for u, v, data in g.edges(data=True):
- 
-        #     rels = data.get('all_r') or frozenset({data.get('r', 0)})
-        #     if IS_A in rels:
-        #         isa_succ.setdefault(u, set()).add(v)
-        #     if SUBS in rels:
-        #         subs_succ.setdefault(u, set()).add(v)
-        #     if rels & EQUIV:
-        #         equiv_bidir.setdefault(u, set()).add(v)
-        #         equiv_bidir.setdefault(v, set()).add(u)
-        #     if MAPTO_INT in rels:
-        #         maps_to_count[u] = maps_to_count.get(u, 0) + 1
-
-        # self._isa_succ = {k: frozenset(v) for k, v in isa_succ.items()}
-        # self._subs_succ = {k: frozenset(v) for k, v in subs_succ.items()}
-        # self._equiv_bidir = {k: frozenset(v) for k, v in equiv_bidir.items()}
-        # self._multi_target_mappers = frozenset(
-        #     u for u, c in maps_to_count.items() if c > 1)
+       
 
         isa_succ, subs_succ, equiv_bidir = {}, {}, {}
         equiv_targets = {}  # Track fan-out for ALL equivalence types
@@ -1407,6 +1385,4 @@ def run_pair_tests(omop_nx):
 
     print(f"\n  Pair tests: {passed} passed, {failed} failed, {passed + failed} total")
     return failed == 0
-
-   
 

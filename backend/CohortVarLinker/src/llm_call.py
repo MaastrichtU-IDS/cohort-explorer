@@ -67,7 +67,7 @@ class LLMDiskCache:
             # Backward compatibility with old cache format:
             # {"prompt": ..., "r": "..."}
             if "r" in data:
-                # logger.info(f"cached = {data}")
+                logger.info(f"cached = {data}")
                 return data
 
             return None
@@ -110,14 +110,14 @@ Each variable has:
 - categories: allowed values in format [original value=readable label|original value=readable label]
 """
 
-_BATCH_INPUT_NE = """
-# INPUT
-One Source variable and multiple target variables are provided. Source/Target are positional labels only — they do not imply which side is finer or coarser, nor which side is the reference.
-Each variable has:
-- description: variable label from study metadata
-- unit: measurement unit, if available
-- categories: allowed values in format [original value=readable label|original value=readable label]
-"""
+# _BATCH_INPUT_NE = """
+# # INPUT
+# One Source variable and multiple target variables are provided. Source/Target are positional labels only — they do not imply which side is finer or coarser, nor which side is the reference.
+# Each variable has:
+# - description: variable label from study metadata
+# - unit: measurement unit, if available
+# - categories: allowed values in format [original value=readable label|original value=readable label]
+# """
  
 _INPUT_EV = """
 # INPUT
@@ -133,18 +133,33 @@ Each variable may include:
 - Graph evidence: optional hierarchical structure of primary standard concept from controlled vocabularies
 """
 
-_BATCH_INPUT_EV = """
-# INPUT
-One Source variable and multiple target variables are provided. Source/Target are positional labels only — they do not imply which side is finer or coarser, nor which side is the reference.
-Each variable may include:
-- Description: short variable label
-- Concepts: ordered concepts separated by " | "
-  - first concept = primary concept (authoritative for meaning)
-  - remaining concepts = refinements that may narrow or qualify meaning
-- categories: allowed values in format [original value=readable label|original value=readable label]
-- Unit: measurement unit, if available
-- Graph evidence: hierarchical structure of primary standard concept from controlled vocabularies
-"""
+# _BATCH_INPUT_EV = """
+# # INPUT
+# One Source variable and multiple target variables are provided. Source/Target are positional labels only — they do not imply which side is finer or coarser, nor which side is the reference.
+# Each variable may include:
+# - Description: short variable label
+# - Concepts: ordered concepts separated by " | "
+#   - first concept = primary concept (authoritative for meaning)
+#   - remaining concepts = refinements that may narrow or qualify meaning
+# - categories: allowed values in format [original value=readable label|original value=readable label]
+# - Unit: measurement unit, if available
+# - Graph evidence: hierarchical structure of primary standard concept from controlled vocabularies
+# """
+
+# _RULES_EV_ONLY = """- The first concept is authoritative for variable meaning. Treat additional concepts as refinements only if they materially change clinical interpretation; otherwise treat them as annotation context. 
+# - If Description and concepts conflict, use concepts as the primary meaning. 
+# """ 
+
+# _OUTPUT_PAIR = """
+# # OUTPUT CONSTRAINTS
+# - status_code: 1 | 2 | 3 | 4   (1=COMPLETE, 2=COMPATIBLE, 3=PARTIAL, 4=IMPOSSIBLE)
+# - status: COMPLETE | COMPATIBLE | PARTIAL | IMPOSSIBLE
+# - confidence: float 0.0-1.0
+# - reason: 50 words or fewer; prioritize clarity and explanation over word count. explain which rules you applied and why.
+# - transform: 40 words or fewer, or ""
+# - harmonized_variable: 12 words or fewer, snake_case, or ""
+# - alignment_direction: "bidirectional" | "source to target" | "target to source" | "both for derivation" | ""
+# """
 
 _OUTPUT_PAIR = """
 # OUTPUT FORMAT
@@ -160,23 +175,23 @@ Return ONLY one valid JSON object:
 }}
 """
 
-_OUTPUT_BATCH = """
-# OUTPUT CONSTRAINTS
-- Each verdict has the same fields and limits as the single-pair schema.
-- Evaluate each (Source, Target i) pair independently. Targets must not influence one another.
-# OUTPUT FORMAT
-Return ONLY one valid JSON array, one object per target, in the same order as Target 1 .. Target N:
-[
-  {{
-    "status": "<COMPLETE|COMPATIBLE|PARTIAL|IMPOSSIBLE>",
-    "confidence": <float>,
-    "reason": "<50 words or fewer>",
-    "transform": "<40 words or fewer, or empty>",
-    "harmonized_variable": "<snake_case or empty>",
-    "alignment_direction": "<direction or empty>"
-  }}
-]
-"""
+# _OUTPUT_BATCH = """
+# # OUTPUT CONSTRAINTS
+# - Each verdict has the same fields and limits as the single-pair schema.
+# - Evaluate each (Source, Target i) pair independently. Targets must not influence one another.
+# # OUTPUT FORMAT
+# Return ONLY one valid JSON array, one object per target, in the same order as Target 1 .. Target N:
+# [
+#   {{
+#     "status": "<COMPLETE|COMPATIBLE|PARTIAL|IMPOSSIBLE>",
+#     "confidence": <float>,
+#     "reason": "<50 words or fewer>",
+#     "transform": "<40 words or fewer, or empty>",
+#     "harmonized_variable": "<snake_case or empty>",
+#     "alignment_direction": "<direction or empty>"
+#   }}
+# ]
+# """
 
 _STUDY_CONTEXT_RULES = """
 
@@ -261,7 +276,6 @@ No single pooled variable can be built without ambiguous decomposition or unsupp
 4. Did any missing or unsupported value become "No"?
 5. Did a composite, residual field, sibling relationship, anatomical restriction, setting conflict, or history/current distinction invalidate the match?
 
-
 # CONFIDENCE
 Certainty in the chosen status, whatever it is:
 - 0.95-1.00: unambiguous
@@ -289,11 +303,12 @@ The data operation that builds the harmonized variable; limitations go in reason
 """
  
 _PREAMBLE = """You are a clinical data harmonization expert assessing whether two variables from separate studies can be aligned into a common harmonized variable for pooled patient-level analysis. Determine whether the merge is clinically meaningful and whether any required transformation is supported by clinical guidelines or accepted domain knowledge.
-The source and target variables come from different cohorts. Harmonization pools different patients into one dataset, with one row per patient; therefore, the two sides are never repeated measurements of the same individual."""
+The source and target variables come from different cohorts. Harmonization pools different patients into one dataset, with one row per patient; therefore, the two sides are never repeated measurements of the same individual. "Source" and "Target" are simply positional labels for a directionless pair, you must assess the alignment by identifying which directional path preserves the most information and minimizes clinical inference. """
 
-_BATCH_PREAMBLE = """You are a clinical data harmonization expert assessing whether a single Source variable can be aligned to each of several candidate Target variables and merged into a common harmonized analysis variable for pooled statistical analysis. The source and target variables originate from separate studies. Harmonization pools these patients into a single patient-level analysis variable, one row per patient; the two sides are therefore never repeated measurements of the same individual.
-You will receive ONE Source and multiple Targets in a single request. Evaluate each (Source, Target i) pair independently and in isolation, using the same rules and definitions as a single-pair assessment. A target's verdict must depend only on that target and the Source — never on the presence, similarity, or verdict of any other target in the batch. Do not normalize, balance, or rank verdicts across targets. Two targets that would each receive COMPLETE in isolation must each receive COMPLETE here.
-"""
+# _BATCH_PREAMBLE = """You are a clinical data harmonization expert assessing whether a single Source variable can be aligned to each of several candidate Target variables and merged into a common harmonized analysis variable for pooled statistical analysis. The source and target variables originate from separate studies. Harmonization pools these patients into a single patient-level analysis variable, one row per patient; the two sides are therefore never repeated measurements of the same individual.
+# You will receive ONE Source and multiple Targets in a single request. Evaluate each (Source, Target i) pair independently and in isolation, using the same rules and definitions as a single-pair assessment. A target's verdict must depend only on that target and the Source — never on the presence, similarity, or verdict of any other target in the batch. Do not normalize, balance, or rank verdicts across targets. Two targets that would each receive COMPLETE in isolation must each receive COMPLETE here.
+
+# """
 
 
 VERDICT_JSON_SCHEMA = {
@@ -536,50 +551,69 @@ def _build_pair_prompt(src_concepts:str = "", src_cats:str = "", tgt_concepts:st
 
     return prompt
 
-def _build_batch_prompt(
-    src_desc: str = "",
-    src_concepts: str = "",
-    src_cats: str = "",
-    src_unit: str = "",
-    targets: List[Dict[str, str]] = None,
-    mode: str = MappingType.OEH.value,
-) -> str:
-    """Build a prompt with 1 Source + N Targets. Schema and independence rule
-    live in the batch system prompt — this function only formats the data.
-    """
-    targets = targets or []
+# def _build_batch_prompt(
+#     src_desc: str = "",
+#     src_concepts: str = "",
+#     src_cats: str = "",
+#     src_unit: str = "",
+#     targets: List[Dict[str, str]] = None,
+#     mode: str = MappingType.OEH.value,
+# ) -> str:
+#     """Build a prompt with 1 Source + N Targets. Schema and independence rule
+#     live in the batch system prompt — this function only formats the data.
+#     """
+#     targets = targets or []
 
-    if mode == MappingType.NE.value:
-        src_line = f"Source: description: {src_desc}"
-    else:
-        # src_line = f"Source: description: {src_desc}"
-        src_line = f"Source: description: {src_desc}, concepts: {src_concepts}"
-    if src_unit:
-        src_line += f", unit: {src_unit}"
-    src_line += f", categories: [{src_cats}]"
+#     if mode == MappingType.NE.value:
+#         src_line = f"Source: description: {src_desc}"
+#     else:
+#         # src_line = f"Source: description: {src_desc}"
+#         src_line = f"Source: description: {src_desc}, concepts: {src_concepts}"
+#     if src_unit:
+#         src_line += f", unit: {src_unit}"
+#     src_line += f", categories: [{src_cats}]"
 
-    target_lines = []
-    for i, t in enumerate(targets, start=1):
-        if mode == MappingType.NE.value:
-            line = f"Target {i}: description: {t.get('desc', '')}"
-        else:
-            # line = (
-            #     f"Target {i}: description: {t.get('desc', '')}"
-            # )
-            line = (
-                f"Target {i}: description: {t.get('desc', '')}, "
-                f"concepts: {t.get('tgt_concepts', '')}"
-            )
-        if t.get("tgt_unit"):
-            line += f", unit: {t['tgt_unit']}"
-        line += f", categories: [{t.get('tgt_cats', '')}]"
-        # if t.get("evidence"):
-        #     line += f"\n  graph_evidence: [{t['evidence']}]"
-        target_lines.append(line)
+#     target_lines = []
+#     for i, t in enumerate(targets, start=1):
+#         if mode == MappingType.NE.value:
+#             line = f"Target {i}: description: {t.get('desc', '')}"
+#         else:
+#             # line = (
+#             #     f"Target {i}: description: {t.get('desc', '')}"
+#             # )
+#             line = (
+#                 f"Target {i}: description: {t.get('desc', '')}, "
+#                 f"concepts: {t.get('tgt_concepts', '')}"
+#             )
+#         if t.get("tgt_unit"):
+#             line += f", unit: {t['tgt_unit']}"
+#         line += f", categories: [{t.get('tgt_cats', '')}]"
+#         # if t.get("evidence"):
+#         #     line += f"\n  graph_evidence: [{t['evidence']}]"
+#         target_lines.append(line)
 
-    return "## INPUT\n" + src_line + "\n" + "\n".join(target_lines)
+#     return "## INPUT\n" + src_line + "\n" + "\n".join(target_lines)
 
 
+
+# def _extract_logprob_dist(logprobs_obj) -> dict | None:
+#     """Find the status_code token position and return {label: prob} or None."""
+#     if not logprobs_obj or not logprobs_obj.content:
+#         return None
+#     for tok in logprobs_obj.content:
+#         if tok.token.strip() in _CODE_TO_LABEL:
+#             import math
+#             dist = {}
+#             for alt in tok.top_logprobs:
+#                 label = _CODE_TO_LABEL.get(alt.token.strip())
+#                 if label:
+#                     dist[label] = math.exp(alt.logprob)
+#             # include the sampled token itself if not already in alts
+#             sampled_label = _CODE_TO_LABEL.get(tok.token.strip())
+#             if sampled_label and sampled_label not in dist:
+#                 dist[sampled_label] = math.exp(tok.logprob)
+#             return dist if dist else None
+#     return None
 
 # def _parse_batch(text: str, expected_n: int) -> List[Tuple[Optional[bool], str, float, str]]:
 #     """Parse a JSON array of verdicts. Returns exactly expected_n results,
@@ -658,7 +692,7 @@ def _normalize_logprobs(label_logprobs: dict[str, float]) -> dict[str, float]:
         label: val / total
         for label, val in exp_vals.items()
     }
-
+    # logger.info (f"normalized logs = {normalized_logprob}")
     return normalized_logprob
 
 
@@ -730,22 +764,22 @@ def _build_system_prompt(
     batching: bool,
     study_context: str = "",
 ) -> str:
-    preamble = _BATCH_PREAMBLE if batching else _PREAMBLE
+    preamble =  _PREAMBLE 
 
-    if batching:
-        input_block = (
-            _BATCH_INPUT_NE
-            if mode == MappingType.NE.value
-            else _BATCH_INPUT_EV
-        )
-        output_block = _OUTPUT_BATCH
-    else:
-        input_block = (
-            _INPUT_NE
-            if mode == MappingType.NE.value
-            else _INPUT_EV
-        )
-        output_block = _OUTPUT_PAIR
+    # if batching:
+    #     input_block = (
+    #         _BATCH_INPUT_NE
+    #         if mode == MappingType.NE.value
+    #         else _BATCH_INPUT_EV
+    #     )
+    #     output_block = _OUTPUT_BATCH
+    # else:
+    input_block = (
+        _INPUT_NE
+        if mode == MappingType.NE.value
+        else _INPUT_EV
+    )
+    output_block = _OUTPUT_PAIR
 
     context_parts = [_STUDY_CONTEXT_RULES]
 
@@ -772,7 +806,7 @@ def _build_system_prompt(
         + _SHARED_BODY.format(study_context_block=study_context_block)
         + output_block
     )
-   
+    # logger.info(f"prompt is {final_prompt}")
     return final_prompt
 
 
@@ -929,7 +963,11 @@ class LLMConceptMatcher:
             self._cache.set_system_prompt(self._system_prompt)
 
 
-   
+    # def set_study_context(self, context_block: str) -> None:
+    #         """Set cohort-pair study metadata for all LLM calls in this run."""
+    #         self._study_context = (context_block or "").strip()
+    #         self._refresh_system_prompt()
+
     def _apply_model_generation_defaults(self, model: str) -> None:
         """Apply model-specific decoding defaults for LLM-as-classifier runs.
 
@@ -942,9 +980,24 @@ class LLMConceptMatcher:
             ("gpt-oss" in m or "gpt_oss" in m or "gpt oss" in m or "gpt-120" in m)
             and ("120b" in m or "120-b" in m or "120" in m)
         )
+
+        # is_deepseek_v4 = "deepseek" in m and ("v4" in m or "v-4" in m)
+        # is_glm = ("glm" in m and "4.7" in m )
+        # is_qwen_plus = (
+        #     "qwen" in m
+        #     and "plus" in m
+        #     and (
+        #         "3.6" in m or "3-6" in m or "3p6" in m or "36" in m
+        #         or "3.7" in m or "3-7" in m or "3p7" in m or "37" in m
+        #     )
+        # )
+     
+       
         if is_gpt_oss_120b:
-            self.max_tokens = 16384
-        # logger.info (f"for LLM {m}, temperature = { self.temperature}, top_p = {self.top_p},top_k = {self.top_k} ")
+                self.max_tokens = 16384 
+       
+           
+        logger.info (f"for LLM {m}, temperature = { self.temperature}, top_p = {self.top_p},top_k = {self.top_k} ")
     @staticmethod
     def _backend_for(model: str) -> str:
         m = model.lower()
@@ -1091,7 +1144,10 @@ class LLMConceptMatcher:
         mname = model.split('/')[-1]
         client = self._clients[self.backend]
 
-      
+        # if self.batching:
+        #     sys_prompt = SYSTEM_PROMPT_NE_BATCH if self.mode == MappingType.NE.value else SYSTEM_PROMPT_EV_BATCH
+        # else:
+        #     sys_prompt = SYSTEM_PROMPT_NE if self.mode == MappingType.NE.value else SYSTEM_PROMPT_EV
 
         sys_prompt = self._system_prompt
         api_model = self._fireworks_model_name(model) if self.backend == "fireworks" else (model.replace("openrouter/", "") if self.backend == "openrouter" else model)
@@ -1099,7 +1155,13 @@ class LLMConceptMatcher:
         client = self._clients[self.backend]
         logprob_evidence = None
 
-    
+        # logger.info(
+        #     f"LLM REQUEST model={model} backend={self.backend} "
+        #     f"mode={self.mode} batching={self.batching}\n"
+        #     f"=== SYSTEM PROMPT ===\n{sys_prompt}\n"
+        #     f"=== USER INPUT ===\n{prompt}\n"
+        # )
+
         try:
             if self.backend == "ollama":
                 resp = client.chat(
@@ -1109,7 +1171,7 @@ class LLMConceptMatcher:
                     options={"temperature": self.temperature, "num_predict": output_token_limit},
                 )
                 result = resp["message"]["content"] or ""
-                print(f"[ollama] got {len(result)} chars")
+                # print(f"[ollama] got {len(result)} chars")
 
           
 
@@ -1122,7 +1184,13 @@ class LLMConceptMatcher:
                         {"role": "user", "content": prompt},
                     ],
                     "reasoning": {"effort": "high"},
-                  
+                    # "verbosity": "low",
+                    # "reasoning": {
+                    #     "effort": "medium"
+                    # },
+                    # "provider": {
+                    #     "require_parameters": True
+                    # },
                     "provider": {
                         "quantizations": [
                         "bf16"
@@ -1151,7 +1219,7 @@ class LLMConceptMatcher:
                 text = choice.message.content or ""
                 logprob_evidence = _extract_status_code_logprob_evidence( getattr(choice, "logprobs", None))
 
-                print("DEBUG status text:", text[:500])
+                # print("DEBUG status text:", text[:500])
                 # logprobs_obj = getattr(choice, "logprobs", None)
                 # print("DEBUG logprob_dist:", _extract_status_logprob_dist(logprobs_obj))
                 return text, logprob_evidence
@@ -1222,9 +1290,9 @@ class LLMConceptMatcher:
             else:
                 result = ""
         except Exception as e:
-            print(f"[{mname}] call failed: {e}")
+            # print(f"[{mname}] call failed: {e}")
             return "", {}
-        
+        # logger.info (f"LLM={model}, prompt={prompt}, result ={result}, logprob_dist ={logprob_evidence}")
         return result, logprob_evidence
 
    
@@ -1277,6 +1345,7 @@ class LLMConceptMatcher:
                 "confidence_source": "unavailable_logprob",
             }),
         )
+        
  
 
     def _is_pending_llm_result(self, result) -> bool:

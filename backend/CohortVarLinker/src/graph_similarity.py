@@ -1,4 +1,6 @@
+"""graph_similarity.py — Component-wise embedding context scoring.
 
+"""
 from __future__ import annotations
 from typing import List, Tuple
 import numpy as np
@@ -58,8 +60,7 @@ def check_value_overlap(codes_a: List[int], values_b: List[int],
 
 def is_trivial_value_set(labels: frozenset) -> bool:
     """Trivial if all labels are generic qualifiers (yes/no/present/absent/...)."""
-    if not labels: 
-        return True
+    if not labels: return True
     if len(labels) == 2:
         from .fuzz_match import FuzzyMatcher
         pair = list(labels)
@@ -196,6 +197,7 @@ def compute_context_scores(
     """
     if mapping_mode == MappingType.NE.value:  # no concepts mapping/context available in NE model. relies entirely on variable label which is already computed in neuro_matcher 
         return df
+   
     if max_depth is None: 
         max_depth = settings.DEFAULT_GRAPH_DEPTH
     # use_emb = embed_model is not None and mapping_mode != MappingType.OO.value
@@ -229,6 +231,7 @@ def compute_context_scores(
     # ── Neural / unresolved rows ─────────────────────────
     if not embed_model: 
         return df
+   
     if not llm:
         pending = df["context_match_type"] == ContextMatchType.PENDING.value
         s = df["sim_score"].fillna(0.0)
@@ -237,4 +240,9 @@ def compute_context_scores(
         df.loc[pending & (s >= 0.8) & (s < 0.9),   "context_match_type"] = ContextMatchType.COMPATIBLE.value
         df.loc[pending & (s >= 0.6) & (s < 0.8),   "context_match_type"] = ContextMatchType.PARTIAL.value
         df.loc[pending & (s < 0.6),      "context_match_type"] = ContextMatchType.PENDING.value
+    # if not llm:
+    #     # Drop pending rows whose neural similarity is too low to trust.
+    #     pending = df["context_match_type"] == ContextMatchType.PENDING.value
+    #     low_score = pending & (df["sim_score"].fillna(0.0) < settings.ADAPTIVE_THRESHOLD)
+    #     df.loc[low_score, "context_match_type"] = ContextMatchType.NOT_APPLICABLE.value
     return df
