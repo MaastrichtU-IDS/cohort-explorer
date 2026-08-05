@@ -332,6 +332,8 @@ def cohort_to_dict(cohort: Cohort) -> Dict[str, Any]:
             "omop_domain": variable.omop_domain,
             "source_name": variable.source_name,
             "source_label": variable.source_label,
+            "additional_context": variable.additional_context,
+            "unit_concept_name": variable.unit_concept_name,
             "index": variable.index,
             "na": variable.na,
             "categories": []
@@ -1270,6 +1272,8 @@ def build_cohort_variables_from_csv(cohort_id: str, csv_path: str) -> bool:
                 omop_domain=_opt("DOMAIN"),
                 source_name=source_name_val,
                 source_label=source_label_val,
+                additional_context=_opt("ADDITIONAL CONTEXT CONCEPT NAME"),
+                unit_concept_name=_opt("UNIT CONCEPT NAME"),
                 index=None,
                 na=na_val,
                 categories=categories,

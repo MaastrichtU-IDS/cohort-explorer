@@ -724,6 +724,8 @@ const VariablesList = ({
                       )}
                       {variable.definition && <p>Definition: {variable.definition}</p>}
                       {variable.visit_concept_name && <p>Visit concept name: {variable.visit_concept_name}</p>}
+                      {variable.additional_context && <p>Additional context: {variable.additional_context}</p>}
+                      {variable.unit_concept_name && <p>Unit concept name: {variable.unit_concept_name}</p>}
                       {variable.visits && <p>Visit: {variable.visits}</p>}
                       {variable.frequency && <p>Frequency: {variable.frequency}</p>}
                       {variable.duration && <p>Duration: {variable.duration}</p>}

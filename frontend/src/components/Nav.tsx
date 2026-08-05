@@ -3,7 +3,7 @@
 import React, {useState, useEffect, useMemo, useCallback, useRef} from 'react';
 import Link from 'next/link';
 import {useRouter} from 'next/router';
-import {LogIn, LogOut, Compass, Upload, HardDrive, Map, Box, FileText, Settings} from 'react-feather';
+import {LogIn, LogOut, Compass, Upload, HardDrive, Map, Box, FileText, Settings, Layers} from 'react-feather';
 import {useCohorts} from '@/components/CohortsContext';
 import {DarkThemeIcon, LightThemeIcon} from '@/components/Icons';
 import {apiUrl} from '@/utils';
@@ -714,6 +714,12 @@ export function Nav() {
             </Link>
           </li>
           <li>
+            <Link href="/concept-clusters" className={pathname === '/concept-clusters' ? 'active' : ''}>
+              <Layers size={24} />
+              <span className="text-base">Clusters</span>
+            </Link>
+          </li>
+          <li>
             <Link href="/dcrs" className={pathname === '/dcrs' ? 'active' : ''}>
               <Box size={24} />
               <span className="text-base">My DCRs</span>
@@ -734,6 +740,7 @@ export function Nav() {
             <li><Link href="/upload">Upload</Link></li>
             <li><Link href="/cohorts">Explore</Link></li>
             <li><Link href="/mapping">Mapping</Link></li>
+            <li><Link href="/concept-clusters">Clusters</Link></li>
             <li><Link href="/dcrs">My DCRs</Link></li>
             <li><Link href="/docs_store">Documents</Link></li>
           </ul>

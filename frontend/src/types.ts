@@ -87,6 +87,8 @@ export interface Variable {
   mapped_label: string | null;
   source_name?: string | null;
   source_label?: string | null;
+  additional_context?: string | null;
+  unit_concept_name?: string | null;
   categories: Category[];
   [key: string]: any;
 }
