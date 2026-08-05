@@ -1160,10 +1160,6 @@ function CohortMetadataComparison({ cohortsData, sourceCohort, selectedTargets }
       label: 'Study Design',
       render: (i) => cohortEntries[i].data?.study_design || '—',
     },
-    {
-      label: 'Study Objective',
-      render: (i) => cohortEntries[i].data?.study_objective || '—',
-    },
   ];
 
   // Build EDA sub-rows for each added variable

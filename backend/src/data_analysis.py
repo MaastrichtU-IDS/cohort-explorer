@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
 
 from src.auth import get_current_user
-from src.cohort_cache import get_cohorts_from_cache, is_cache_initialized, cohort_to_dict
+from src.cohort_cache import get_cohorts_from_cache, is_cache_initialized, cohort_to_dict, initialize_cache_from_source_files
 from src.utils import retrieve_cohorts_metadata
 
 router = APIRouter()
@@ -321,3 +321,86 @@ def longitudinal_audit(user: Any = Depends(get_current_user)) -> HTMLResponse:
 
     results = audit_all_cohorts()
     return HTMLResponse(content=render_audit_html(results))
+
+
+# ------------------------------------------------------------------
+# Visit mapping consistency check
+# ------------------------------------------------------------------
+@router.get("/check-visit-mapping")
+def check_visit_mapping(user: Any = Depends(get_current_user)) -> dict:
+    """Check consistency of visits → visit_concept_name mappings across all cohorts.
+
+    For each distinct value in the ``visits`` column, builds a histogram of the
+    ``visit_concept_name`` values it has been mapped to, along with the
+    (variable_name, cohort_id) pairs for each mapping.
+
+    If a visits value is mapped to more than one distinct visit_concept_name,
+    the majority mapping is considered correct and all minority mappings are
+    reported as suspect.
+    """
+    user_email = user["email"]
+    cohorts = get_cohorts_from_cache(user_email)
+    if not cohorts:
+        initialize_cache_from_source_files(user_email)
+        cohorts = get_cohorts_from_cache(user_email)
+
+    # visit_value -> { visit_concept_name -> [(var_name, cohort_id), ...] }
+    mapping: dict[str, dict[str, list[list[str]]]] = {}
+
+    for cohort_id, cohort in cohorts.items():
+        if not cohort.variables:
+            continue
+        for var in cohort.variables.values():
+            raw_visit = (var.visits or "").strip()
+            if not raw_visit or raw_visit.lower() == "na":
+                continue
+            raw_concept = (var.visit_concept_name or "").strip()
+            if not raw_concept or raw_concept.lower() == "na":
+                raw_concept = "(empty)"
+
+            if raw_visit not in mapping:
+                mapping[raw_visit] = {}
+            if raw_concept not in mapping[raw_visit]:
+                mapping[raw_visit][raw_concept] = []
+            mapping[raw_visit][raw_concept].append([var.var_name, cohort_id])
+
+    # Detect inconsistencies: visits values mapped to >1 concept name
+    suspect_mappings: list[dict] = []
+    for visit_value, concept_map in mapping.items():
+        if len(concept_map) <= 1:
+            continue
+
+        # Find the majority concept name (by number of variables)
+        sorted_concepts = sorted(
+            concept_map.items(),
+            key=lambda kv: len(kv[1]),
+            reverse=True,
+        )
+        majority_concept = sorted_concepts[0][0]
+        majority_count = len(sorted_concepts[0][1])
+
+        minorities = []
+        for concept_name, pairs in sorted_concepts[1:]:
+            minorities.append({
+                "visit_concept_name": concept_name,
+                "variable_count": len(pairs),
+                "variables": pairs,
+            })
+
+        suspect_mappings.append({
+            "visits_value": visit_value,
+            "majority": {
+                "visit_concept_name": majority_concept,
+                "variable_count": majority_count,
+                "variables": concept_map[majority_concept],
+            },
+            "minorities": minorities,
+            "total_variables": sum(len(p) for p in concept_map.values()),
+            "distinct_concept_names": list(concept_map.keys()),
+        })
+
+    return {
+        "total_visits_values": len(mapping),
+        "suspect_count": len(suspect_mappings),
+        "suspect_mappings": suspect_mappings,
+    }
