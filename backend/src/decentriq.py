@@ -613,6 +613,7 @@ async def get_compute_dcr_definition(
     selected_mapping_files: list[dict] = None,
     include_mapping_upload_slot: bool = False,
     research_question: str = None,
+    merge_use_shuffled: bool = False,
 ) -> Any:
     # The creator must never be excluded from their own DCR.
     excluded_data_owners = [e for e in (excluded_data_owners or []) if e != user["email"]]
@@ -671,6 +672,10 @@ async def get_compute_dcr_definition(
     dcr_start = datetime.now()
     data_nodes = []
     metadata_nodes = []
+    # Maps cohort_id -> shuffled sample data node name, for cohorts that actually got
+    # a shuffled sample node provisioned. Used by the merge/pool node when the user
+    # opts to pool the shuffled samples instead of the full cohort data.
+    shuffled_nodes = {}
     dcr_count = len(client.get_data_room_descriptions())
     # Use custom DCR name if provided, otherwise use default naming
     if dcr_name and dcr_name.strip():
@@ -754,6 +759,7 @@ async def get_compute_dcr_definition(
                     RawDataNodeDefinition(name=shuffled_node_id, is_required=False)
                 )
                 shuffled_node_added = True
+                shuffled_nodes[cohort_id] = shuffled_node_id
                 
                 # Add data owners for shuffled sample node (participants already have base nodes from build_dcr_participants)
                 # Add requester as data owner
@@ -1007,12 +1013,30 @@ async def get_compute_dcr_definition(
     # Python environment.
     studies_info = []
     for cohort_id in selected_cohorts.keys():
-        data_node_id = cohort_id.replace(" ", "-")
+        raw_data_node_id = cohort_id.replace(" ", "-")
         metadata_node_id = f"{cohort_id.replace(' ', '-')}_metadata_dictionary"
+
+        if merge_use_shuffled and cohort_id in shuffled_nodes:
+            # Pool the shuffled sample. The fragmentation/shuffle step replaces the
+            # original ID column with a synthetic "Synthetic_ID" column.
+            data_node_id = shuffled_nodes[cohort_id]
+            patient_id = "Synthetic_ID"
+        else:
+            if merge_use_shuffled:
+                logging.warning(
+                    f"merge_use_shuffled=True but no shuffled sample node exists for "
+                    f"cohort '{cohort_id}'; falling back to the full cohort data for the merge."
+                )
+            # Pool the raw cohort data node; the patient id is the cohort's original
+            # ID variable (discovered via SNOMED/OMOP codes).
+            data_node_id = raw_data_node_id
+            patient_id = find_patient_id_variable(cohort_id) or ""
+
         studies_info.append({
             "study_name": cohort_id,
             "data_node": data_node_id,
             "dict_node": metadata_node_id,
+            "patient_id": patient_id,
         })
 
     # Resolve mapping cohort tokens back to the EXACT study names used as keys in the
@@ -1048,13 +1072,17 @@ async def get_compute_dcr_definition(
         )
     )
 
-    # The merge node depends on every cohort data node, metadata dictionary node,
-    # and cross-study mapping node so all inputs are mounted under /input.
-    merge_dependencies = list(data_nodes) + list(metadata_nodes) + [m["node_name"] for m in mapping_nodes]
+    # The merge node depends on the chosen per-study data node (full data or shuffled
+    # sample), every metadata dictionary node, and every cross-study mapping node so
+    # all inputs are mounted under /input. Using the data nodes actually referenced by
+    # studies_info ensures the shuffled sample nodes are included when pooling shuffled
+    # data.
+    study_data_nodes = [s["data_node"] for s in studies_info]
+    merge_dependencies = list(dict.fromkeys(study_data_nodes + list(metadata_nodes) + [m["node_name"] for m in mapping_nodes]))
     builder.add_node_definition(
         PythonComputeNodeDefinition(
             name=MERGE_NODE_NAME,
-            script=merge_datasets_script(studies_info, merge_mappings_info),
+            script=merge_datasets_script(studies_info, merge_mappings_info, is_shuffled_data=merge_use_shuffled),
             dependencies=merge_dependencies,
             custom_environment=MERGE_ENV_NAME,
         )
@@ -1129,6 +1157,7 @@ async def create_live_compute_dcr(
     selected_mapping_files: list[dict] = None,
     include_mapping_upload_slot: bool = False,
     research_question: str = None,
+    merge_use_shuffled: bool = False,
 ) -> dict[str, Any]:
     """Create and publish a live compute DCR that is immediately available for use.
     
@@ -1152,7 +1181,7 @@ async def create_live_compute_dcr(
     logging.info(f"Starting live compute DCR creation for user {user['email']} at {start_time}")
     
     # Step 1: Create the DCR definition (reuse existing logic)
-    dcr_definition, dcr_title, participants, mapping_nodes = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings, dcr_name, excluded_data_owners, selected_mapping_files, include_mapping_upload_slot, research_question)
+    dcr_definition, dcr_title, participants, mapping_nodes = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings, dcr_name, excluded_data_owners, selected_mapping_files, include_mapping_upload_slot, research_question, merge_use_shuffled)
     
     # Step 2: Publish the DCR to Decentriq with retry logic for race conditions
     import time
@@ -1497,6 +1526,11 @@ async def api_create_live_compute_dcr(
     # Extract include_mapping_upload_slot from request, default to False
     include_mapping_upload_slot = cohorts_request.get("include_mapping_upload_slot", False)
 
+    # Extract merge_use_shuffled from request, default to False.
+    # When True the merge/pool node uses each cohort's shuffled sample instead of the
+    # full cohort data.
+    merge_use_shuffled = cohorts_request.get("merge_use_shuffled", False)
+
     # Extract session_id from request (frontend-generated UUID correlating wizard events)
     session_id = cohorts_request.get("session_id")
 
@@ -1542,7 +1576,7 @@ async def api_create_live_compute_dcr(
 
     # Create and publish the live compute DCR
     try:
-        result = await create_live_compute_dcr(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings, dcr_name, excluded_data_owners, selected_mapping_files, include_mapping_upload_slot, research_question)
+        result = await create_live_compute_dcr(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings, dcr_name, excluded_data_owners, selected_mapping_files, include_mapping_upload_slot, research_question, merge_use_shuffled)
         duration_ms = int((datetime.now() - publish_started_at).total_seconds() * 1000)
         log_dcr_event(
             "dcr_publish_succeeded",

@@ -50,6 +50,9 @@ export function Nav() {
   const [selectedMappingFiles, setSelectedMappingFiles] = useState<Record<string, boolean>>({});
   const [loadingMappingFiles, setLoadingMappingFiles] = useState(false);
   const [includeMappingUploadSlot, setIncludeMappingUploadSlot] = useState(false);
+  // Whether the merge/pool node should combine the shuffled samples (true) instead
+  // of the full cohort data (false, default).
+  const [mergeUseShuffled, setMergeUseShuffled] = useState(false);
   const [wizardStep, setWizardStep] = useState(0);
   const [researchQuestion, setResearchQuestion] = useState('');
   const [showAddCohortModal, setShowAddCohortModal] = useState(false);
@@ -416,7 +419,8 @@ export function Nav() {
           selected_mapping_files: availableMappingFiles
             .filter(m => selectedMappingFiles[m.filename] !== false)
             .map(m => ({ filename: m.filename, filepath: m.filepath, display_name: m.display_name, cohorts: m.cohorts })),
-          include_mapping_upload_slot: includeMappingUploadSlot
+          include_mapping_upload_slot: includeMappingUploadSlot,
+          merge_use_shuffled: mergeUseShuffled
         })
       });
       
@@ -1118,7 +1122,33 @@ export function Nav() {
                           <span className="label-text text-base">Include a file upload slot for cross-study mapping</span>
                         </label>
                       </div>
-                      
+
+                      {/* Merge/pool data source: full cohort data vs shuffled samples */}
+                      <div className="mt-8 pt-4 border-t">
+                        <p className="text-sm font-semibold mb-1">Merge / pool data source</p>
+                        <p className="text-xs text-base-content/60 mb-3">
+                          Choose whether the merge-datasets (pooling) step combines the full cohort data or the shuffled samples.
+                        </p>
+                        <div className="form-control">
+                          <label className="label cursor-pointer justify-start gap-3">
+                            <input
+                              type="checkbox"
+                              className="toggle toggle-primary"
+                              checked={mergeUseShuffled}
+                              onChange={(e) => setMergeUseShuffled(e.target.checked)}
+                            />
+                            <span className="label-text text-base">
+                              {mergeUseShuffled ? 'Merge the shuffled samples' : 'Merge the full cohorts data'}
+                            </span>
+                          </label>
+                        </div>
+                        {mergeUseShuffled && (
+                          <p className="text-xs text-warning mt-2">
+                            Make sure shuffled samples are enabled (Data Samples step) for the cohorts you want to pool; cohorts without a shuffled sample fall back to their full data.
+                          </p>
+                        )}
+                      </div>
+
                       <p className="text-xs text-base-content/50 mt-4 italic">
                         Missing a mapping file? Generate it from the <Link href="/mapping" className="underline hover:text-primary">Mapping page</Link>.
                       </p>
@@ -1153,6 +1183,9 @@ export function Nav() {
                         <div className="p-3 bg-base-200 rounded-lg">
                           <strong>Mapping Files:</strong> {availableMappingFiles.filter(m => selectedMappingFiles[m.filename] !== false).map(m => m.display_name).join(', ') || 'None'}
                           {includeMappingUploadSlot && ' + Upload slot'}
+                        </div>
+                        <div className="p-3 bg-base-200 rounded-lg">
+                          <strong>Merge / pool data source:</strong> {mergeUseShuffled ? 'Shuffled samples' : 'Full cohorts data'}
                         </div>
                       </div>
                       

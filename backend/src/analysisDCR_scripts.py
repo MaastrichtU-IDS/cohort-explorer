@@ -650,6 +650,7 @@ with open(log_file, "a") as log:
 def merge_datasets_script(
     studies_info: list[dict],
     mappings_info: list[dict] = None,
+    is_shuffled_data: bool = False,
 ) -> str:
     """Generate the merge/pool script that combines all cohorts using the cohortpool package.
 
@@ -664,10 +665,14 @@ def merge_datasets_script(
             - 'study_name': the cohort identifier used as the study key
             - 'data_node':  the DCR data node name (mounted at /input/<data_node>)
             - 'dict_node':  the DCR metadata dictionary node name (mounted at /input/<dict_node>)
+            - 'patient_id': the patient/subject id column name in the cohort data
         mappings_info: Optional list of dicts, one per cross-study mapping, each with:
             - 'node_name': the DCR mapping node name (mounted at /input/<node_name>)
             - 'study_a':   the first study name referenced by the mapping
             - 'study_b':   the second study name referenced by the mapping
+        is_shuffled_data: Whether the pooled inputs are shuffled/synthetic samples
+            (True) or the full cohort data (False). Passed through to
+            `cohortpool.pool(is_shuffled_data=...)`.
 
     Returns:
         The Python script as a string.
@@ -675,15 +680,17 @@ def merge_datasets_script(
     mappings_info = mappings_info or []
 
     # Build the `studies` dict literal.
-    # Each study points to its data file and dictionary file mounted under /input.
+    # Each study points to its data file, dictionary file (mounted under /input) and
+    # the patient id column used to align records across studies.
     studies_lines = []
     for study in studies_info:
         study_name = study["study_name"]
         data_node = study["data_node"]
         dict_node = study["dict_node"]
+        patient_id = study.get("patient_id", "") or ""
         studies_lines.append(
-            '        "{name}": {{"data": "/input/{data}", "dictionary": "/input/{dic}"}},'.format(
-                name=study_name, data=data_node, dic=dict_node
+            '        "{name}": {{"data": "/input/{data}", "dictionary": "/input/{dic}", "patient_id": "{pid}"}},'.format(
+                name=study_name, data=data_node, dic=dict_node, pid=patient_id
             )
         )
     studies_block = "\n".join(studies_lines) if studies_lines else ""
@@ -704,19 +711,36 @@ def merge_datasets_script(
     mappings_block = "\n".join(mappings_lines) if mappings_lines else ""
 
     return f"""import os
+import atexit
+from contextlib import ExitStack
+from importlib import resources
 from cohortpool import pool
 
 # Output directory (always exists in the Decentriq environment)
 output_dir = "/output"
 log_file = os.path.join(output_dir, "merge_datasets_log.txt")
 
+# Reference files are bundled inside the installed cohortpool package (under
+# `cohortpool/reference`). Access them via importlib.resources so it works whether
+# the package is installed as a directory or a zipped archive. as_file materialises
+# a real filesystem path (needed because pool() takes path strings); the ExitStack
+# keeps the paths valid for the whole run and cleans up any temp files at exit.
+_ref_stack = ExitStack()
+atexit.register(_ref_stack.close)
+_ref_root = resources.files("cohortpool").joinpath("reference")
+
+def _ref_path(filename):
+    return str(_ref_stack.enter_context(resources.as_file(_ref_root.joinpath(filename))))
+
 # Studies to pool. Each study points to its cohort data node and metadata dictionary
-# node, mounted read-only under /input inside the enclave.
+# node, mounted read-only under /input inside the enclave, plus the patient id column
+# used to align records across studies.
 studies = {{
 {studies_block}
 }}
 
 # Cross-study mapping files available in this DCR (variable mappings between studies).
+# Each mapping file is uploaded as a DCR data node and mounted read-only under /input.
 mappings = [
 {mappings_block}
 ]
@@ -724,11 +748,38 @@ mappings = [
 with open(log_file, "w") as log:
     log.write("Pooling {{}} studies with {{}} mapping file(s)\\n".format(len(studies), len(mappings)))
     log.write("Studies: {{}}\\n".format(list(studies.keys())))
+    log.write("Reference package root: {{}}\\n".format(_ref_root))
 
 # Pool the datasets together using the cohortpool package.
 result = pool(
     studies=studies,
     mappings=mappings,
+    output_dir=output_dir,
+    # Reference files bundled in the cohortpool package.
+    unit_conversion_table=_ref_path("units_conversion.csv"),
+    drug_target_reference=_ref_path("drug_target_doses.csv"),
+    drug_class_reference=_ref_path("drug_classes.csv"),
+    # Core variables - enables derivation of age from DOB, BMI from height/weight.
+    core_variables_reference=_ref_path("core_variables.csv"),
+    # Quality thresholds. Inclusion is decided on how many pooled patients actually
+    # have a value; min_study_coverage_pct is retained only as a reported metric.
+    min_study_coverage_pct=80,
+    min_data_completeness_pct=50,
+    # Mapping options.
+    include_partial=True,
+    # Partial-match transformations. Supplying this list REPLACES the built-in default
+    # registry, so the two defaults must be named explicitly or they are lost.
+    partial_rules=[
+        "CATEGORY_DECOMPOSE",
+        "DATE_TO_PRESENCE",
+        "CATEGORICAL_TO_INDICATOR",
+        "POSITIVE_ONLY_BINARY",
+        "DATE_TO_GRANULARITY",
+    ],
+    minimum_studies=2,
+    # Whether the pooled inputs are shuffled/synthetic samples; affects report
+    # warnings only. Set from the DCR wizard's "merge on shuffled samples" switch.
+    is_shuffled_data={is_shuffled_data},
 )
 
 pooled_df = result["pooled_dataframe"]
