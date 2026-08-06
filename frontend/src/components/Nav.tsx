@@ -197,6 +197,34 @@ export function Nav() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showModal, userEmail]);
 
+  // Reset all wizard state to defaults.
+  const resetWizardState = useCallback(() => {
+    setWizardStep(0);
+    setDcrName('');
+    setDcrNameCustomized(false);
+    setIsEditingDcrName(false);
+    setResearchQuestion('');
+    setAdditionalAnalysts([]);
+    setNewAnalystEmail('');
+    setManuallyIncludedOwners([]);
+    setAirlockSettings({});
+    setShuffledSampleSettings({});
+    setCohortsWithShuffledSamples([]);
+    setCohortsWithoutShuffledSamples([]);
+    setAvailableMappingFiles([]);
+    setSelectedMappingFiles({});
+    setIncludeMappingUploadSlot(false);
+    setMergeUseShuffled(false);
+    setPublishedDCR(null);
+    setDcrCreated(false);
+    setConfigDownloaded(false);
+    setIsLoading(false);
+    setLoadingAction(null);
+    setParticipantsPreview(null);
+    setCohortSearchQuery('');
+    setShowAddCohortModal(false);
+  }, []);
+
   // Explicit close handler so both the ✕ and "Close" buttons log consistently.
   const closeWizard = useCallback(() => {
     if (sessionIdRef.current && userEmail) {
@@ -213,8 +241,9 @@ export function Nav() {
     }
     sessionIdRef.current = null;
     setShowModal(false);
+    resetWizardState();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userEmail, logWizardEvent]);
+  }, [userEmail, logWizardEvent, resetWizardState]);
 
   // --- Default DCR name --------------------------------------------------
   // Format: "<cohort1>-<cohort2>-...-<Month><Day>" e.g. "CohortA-CohortB-April22".
@@ -836,6 +865,10 @@ export function Nav() {
               <>
               {/* ========== WIZARD VIEW ========== */}
               <>
+                {/* X close button at top right */}
+                <div className="flex justify-end -mt-2 -mr-2 mb-2">
+                  <button className="btn btn-sm btn-ghost" onClick={closeWizard}>✕</button>
+                </div>
                 {/* Step indicator */}
                 <ul className="steps steps-horizontal w-full mb-6 text-xs">
                   {wizardSteps.map((step, idx) => (
