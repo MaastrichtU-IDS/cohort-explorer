@@ -1,5 +1,5 @@
+import re
 from llm.config import settings
-
 
 class SPARQLQueryBuilder:
     """Responsible solely for constructing valid SPARQL queries."""
@@ -261,9 +261,20 @@ class SPARQLQueryBuilder:
         # print(query)
         return query
         
+    @staticmethod
+    def _separator_insensitive(study_id: str) -> str:
+        """Collapse spaces, underscores and hyphens so the same study matches
+        regardless of how its name was punctuated in the source spreadsheet.
+        Mirrors the REPLACE() applied to dc:identifier inside the query."""
+        return re.sub(r"[\s_-]+", " ", str(study_id).strip().lower())
+
     @classmethod
     def build_study_context_query(cls,study_id: str) -> str:
-        study_id =  study_id.replace("_", " ")
+        # Study ids reach us as cohort folder / graph names ("gissi-hf_outcomes"),
+        # while dc:identifier carries the spreadsheet spelling of the same study
+        # ("gissi-hf outcomes"). Collapse separators on both sides so either
+        # spelling matches instead of rewriting one into the other.
+        study_key = cls._separator_insensitive(study_id)
         query =  f"""
         {cls.PREFIXES}
                 SELECT
@@ -281,7 +292,7 @@ class SPARQLQueryBuilder:
 
                         ?sde a obi:study_design_execution ;
                             dc:identifier ?study_name .
-                        FILTER(LCASE(STR(?study_name)) = LCASE("{study_id}"))
+                        FILTER(REPLACE(LCASE(STR(?study_name)), "[ _-]+", " ") = "{study_key}")
 
                         # ── Study design ──
                         OPTIONAL {{ ?sde ro:concretizes ?sdA . ?sdA cmeo:has_value ?design_val . }}
