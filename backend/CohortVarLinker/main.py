@@ -44,7 +44,7 @@ def create_study_metadata_graph(file_path, recreate=False):
         if len(g) > 0:
             # print(f"delete_existing_triples for graph: {OntologyNamespaces.CMEO.value['graph/studies_metadata']}")
             delete_existing_triples(graph_uri=OntologyNamespaces.CMEO.value["graph/studies_metadata"])
-            # response=publish_graph_to_endpoint(g)
+            response=publish_graph_to_endpoint(g)
             g.serialize(destination=graph_file_path, format="trig")
             # print(f"Serialized graph to: {graph_file_path}")
             return g
