@@ -177,6 +177,40 @@ function SuspectCard({ suspect }: { suspect: SuspectMapping }) {
           </button>
         </div>
 
+        {/* Inconsistency description */}
+        <div className="mt-2 bg-warning/10 border border-warning/20 rounded-lg p-3 text-sm">
+          <div className="flex items-start gap-2">
+            <AlertTriangle size={18} className="text-warning flex-shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p className="font-semibold">
+                Inconsistency detected for visits value: <span className="font-mono">{suspect.visits_value}</span>
+              </p>
+              <p className="text-base-content/70">
+                This visits value is mapped to <span className="font-semibold text-warning">{suspect.distinct_concept_names.length} different visit concept names</span> across {suspect.total_variables} variables:
+              </p>
+              <ul className="list-disc list-inside space-y-0.5 text-base-content/70">
+                <li>
+                  <span className="text-success font-semibold">{suspect.majority.visit_concept_name}</span>
+                  {' — '}
+                  {suspect.majority.variable_count} {suspect.majority.variable_count === 1 ? 'variable' : 'variables'}
+                  {' (majority mapping)'}
+                </li>
+                {suspect.minorities.map((m, i) => (
+                  <li key={i}>
+                    <span className="text-warning font-semibold">{m.visit_concept_name}</span>
+                    {' — '}
+                    {m.variable_count} {m.variable_count === 1 ? 'variable' : 'variables'}
+                    {' (suspect mapping)'}
+                  </li>
+                ))}
+              </ul>
+              <p className="text-base-content/50 text-xs mt-1">
+                The majority mapping is assumed correct. Variables in the suspect mapping(s) should be reviewed and remapped to <span className="font-semibold">{suspect.majority.visit_concept_name}</span>.
+              </p>
+            </div>
+          </div>
+        </div>
+
         {/* Details */}
         {expanded && (
           <div className="mt-4 space-y-3" onClick={e => e.stopPropagation()}>
@@ -186,7 +220,7 @@ function SuspectCard({ suspect }: { suspect: SuspectMapping }) {
                 <CheckCircle size={16} className="text-success" />
                 Majority: {suspect.majority.visit_concept_name} ({suspect.majority.variable_count} variables)
               </div>
-              <VariableList variables={suspect.majority.variables} />
+              <VariableList variables={suspect.majority.variables} visitsValue={suspect.visits_value} visitConceptName={suspect.majority.visit_concept_name} />
             </div>
 
             {/* Minority mappings */}
@@ -196,7 +230,7 @@ function SuspectCard({ suspect }: { suspect: SuspectMapping }) {
                   <AlertTriangle size={16} className="text-warning" />
                   Suspect: {m.visit_concept_name} ({m.variable_count} variables)
                 </div>
-                <VariableList variables={m.variables} />
+                <VariableList variables={m.variables} visitsValue={suspect.visits_value} visitConceptName={m.visit_concept_name} />
               </div>
             ))}
           </div>
@@ -206,7 +240,7 @@ function SuspectCard({ suspect }: { suspect: SuspectMapping }) {
   );
 }
 
-function VariableList({ variables }: { variables: [string, string][] }) {
+function VariableList({ variables, visitsValue, visitConceptName }: { variables: [string, string][]; visitsValue: string; visitConceptName: string }) {
   return (
     <div className="overflow-x-auto">
       <table className="table table-xs">
@@ -214,6 +248,8 @@ function VariableList({ variables }: { variables: [string, string][] }) {
           <tr>
             <th>Variable</th>
             <th>Cohort</th>
+            <th>Visits</th>
+            <th>Visit Concept Name</th>
           </tr>
         </thead>
         <tbody>
@@ -221,6 +257,8 @@ function VariableList({ variables }: { variables: [string, string][] }) {
             <tr key={i}>
               <td className="font-mono text-xs">{varName}</td>
               <td className="text-xs">{cohortId}</td>
+              <td className="text-xs">{visitsValue}</td>
+              <td className="text-xs">{visitConceptName}</td>
             </tr>
           ))}
         </tbody>
