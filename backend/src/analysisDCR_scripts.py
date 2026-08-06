@@ -689,7 +689,7 @@ def merge_datasets_script(
         dict_node = study["dict_node"]
         patient_id = study.get("patient_id", "") or ""
         studies_lines.append(
-            '        "{name}": {{"data": "/input/{data}", "dictionary": "/input/{dic}", "patient_id": "{pid}"}},'.format(
+            '        "{name}": {{"data": "/input/{data}", "dictionary": "/input/{dic}/{dic}.csv", "patient_id": "{pid}"}},'.format(
                 name=study_name, data=data_node, dic=dict_node, pid=patient_id
             )
         )

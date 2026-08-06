@@ -197,10 +197,31 @@ export function Nav() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showModal, userEmail]);
 
+  // --- Default DCR name --------------------------------------------------
+  // Format: "<cohort1>-<cohort2>-...-<Month><Day>" e.g. "CohortA-CohortB-April22".
+  // Re-computed whenever the set of selected cohorts changes. When the user
+  // has not manually edited the name (dcrNameCustomized=false) we push this
+  // default into the dcrName field so the wizard always shows a meaningful
+  // title; once they click the pencil and type their own, we stop touching it.
+  const defaultDcrName = useMemo(() => {
+    const cohortIds = Object.keys(dataCleanRoom?.cohorts || {});
+    const now = new Date();
+    const month = now.toLocaleString('en-US', { month: 'long' });
+    const day = now.getDate();
+    const dateSuffix = `${month}${day}`;
+    return cohortIds.length > 0 ? `${cohortIds.join('-')}-${dateSuffix}` : dateSuffix;
+  }, [dataCleanRoom?.cohorts]);
+
+  useEffect(() => {
+    if (!dcrNameCustomized) {
+      setDcrName(defaultDcrName);
+    }
+  }, [defaultDcrName, dcrNameCustomized]);
+
   // Reset all wizard state to defaults.
   const resetWizardState = useCallback(() => {
     setWizardStep(0);
-    setDcrName('');
+    setDcrName(defaultDcrName);
     setDcrNameCustomized(false);
     setIsEditingDcrName(false);
     setResearchQuestion('');
@@ -223,7 +244,7 @@ export function Nav() {
     setParticipantsPreview(null);
     setCohortSearchQuery('');
     setShowAddCohortModal(false);
-  }, []);
+  }, [defaultDcrName]);
 
   // Explicit close handler so both the ✕ and "Close" buttons log consistently.
   const closeWizard = useCallback(() => {
@@ -244,27 +265,6 @@ export function Nav() {
     resetWizardState();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userEmail, logWizardEvent, resetWizardState]);
-
-  // --- Default DCR name --------------------------------------------------
-  // Format: "<cohort1>-<cohort2>-...-<Month><Day>" e.g. "CohortA-CohortB-April22".
-  // Re-computed whenever the set of selected cohorts changes. When the user
-  // has not manually edited the name (dcrNameCustomized=false) we push this
-  // default into the dcrName field so the wizard always shows a meaningful
-  // title; once they click the pencil and type their own, we stop touching it.
-  const defaultDcrName = useMemo(() => {
-    const cohortIds = Object.keys(dataCleanRoom?.cohorts || {});
-    const now = new Date();
-    const month = now.toLocaleString('en-US', { month: 'long' });
-    const day = now.getDate();
-    const dateSuffix = `${month}${day}`;
-    return cohortIds.length > 0 ? `${cohortIds.join('-')}-${dateSuffix}` : dateSuffix;
-  }, [dataCleanRoom?.cohorts]);
-
-  useEffect(() => {
-    if (!dcrNameCustomized) {
-      setDcrName(defaultDcrName);
-    }
-  }, [defaultDcrName, dcrNameCustomized]);
 
   
   // Helper function to scroll to notification box
@@ -352,7 +352,7 @@ export function Nav() {
         body: JSON.stringify({
           ...dataCleanRoom,
           include_shuffled_samples: shuffledSampleSettings,
-          dcr_name: dcrName,
+          dcr_name: dcrName || defaultDcrName,
           session_id: sessionIdRef.current
         })
       });
@@ -442,7 +442,7 @@ export function Nav() {
               isEnabled ? 20 : 0
             ])
           ),
-          dcr_name: dcrName,
+          dcr_name: dcrName || defaultDcrName,
           research_question: researchQuestion,
           session_id: sessionIdRef.current,
           selected_mapping_files: availableMappingFiles
