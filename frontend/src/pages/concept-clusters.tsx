@@ -48,6 +48,10 @@ function splitValues(raw: string | null | undefined): string[] {
     .filter(v => v && v.toLowerCase() !== 'na');
 }
 
+function normalizeValue(v: string): string {
+  return v.trim().toLowerCase();
+}
+
 function buildClusters(
   cohortsData: Record<string, Cohort>,
   mode: ClusterMode
@@ -74,8 +78,9 @@ function buildClusters(
       };
 
       for (const val of values) {
-        if (!groups[val]) groups[val] = [];
-        groups[val].push(member);
+        const normKey = normalizeValue(val);
+        if (!groups[normKey]) groups[normKey] = [];
+        groups[normKey].push(member);
       }
     }
   }
@@ -94,7 +99,8 @@ function buildClusters(
       for (const m of members) {
         const vals = splitValues(m[otherMode]);
         for (const v of vals) {
-          counts[v] = (counts[v] || 0) + 1;
+          const nv = normalizeValue(v);
+          counts[nv] = (counts[nv] || 0) + 1;
         }
       }
       correspondences[otherMode] = counts;
