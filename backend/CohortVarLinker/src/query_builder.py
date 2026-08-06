@@ -1,5 +1,5 @@
-from .config import settings
-
+import re
+from llm.config import settings
 
 class SPARQLQueryBuilder:
     """Responsible solely for constructing valid SPARQL queries."""
@@ -153,6 +153,8 @@ class SPARQLQueryBuilder:
         (GROUP_CONCAT(DISTINCT STR(?cat_omop_id); SEPARATOR="||") AS ?cat_omop_ids)
         (GROUP_CONCAT(DISTINCT ?_catL; SEPARATOR="||") AS ?all_cat_labels)
         (GROUP_CONCAT(DISTINCT ?_catV; SEPARATOR="||") AS ?all_original_cat_values)
+        (GROUP_CONCAT(DISTINCT ?_catPair; SEPARATOR="||") AS ?all_cat_pairs)
+
         (SAMPLE(?_ordered_code_labels) AS ?code_label)
         (SAMPLE(?_ordered_code_values) AS ?code_value)
         (SAMPLE(?_ordered_omop_ids) AS ?omop_ids)
@@ -208,6 +210,7 @@ class SPARQLQueryBuilder:
 
             BIND(COALESCE(?standard_unit, ?raw_unit) AS ?_unit_label)
         }}
+
             # Categories
             OPTIONAL {{
             ?cat_val a obi:categorical_value_specification ;
@@ -220,6 +223,8 @@ class SPARQLQueryBuilder:
             OPTIONAL {{ ?cat_code iao:denotes/cmeo:has_value ?cat_omop_id . }}
         
         }}
+        BIND(CONCAT(STR(?_catV), "=", COALESCE(STR(?_catL), STR(?_catV))) AS ?_catPair)
+
         }}
 
             # Codes subquery - OUTSIDE the GRAPH block but joined on ?dataElement
@@ -256,9 +261,20 @@ class SPARQLQueryBuilder:
         # print(query)
         return query
         
+    @staticmethod
+    def _separator_insensitive(study_id: str) -> str:
+        """Collapse spaces, underscores and hyphens so the same study matches
+        regardless of how its name was punctuated in the source spreadsheet.
+        Mirrors the REPLACE() applied to dc:identifier inside the query."""
+        return re.sub(r"[\s_-]+", " ", str(study_id).strip().lower())
+
     @classmethod
     def build_study_context_query(cls,study_id: str) -> str:
-        study_id =  study_id.replace("_", " ")
+        # Study ids reach us as cohort folder / graph names ("gissi-hf_outcomes"),
+        # while dc:identifier carries the spreadsheet spelling of the same study
+        # ("gissi-hf outcomes"). Collapse separators on both sides so either
+        # spelling matches instead of rewriting one into the other.
+        study_key = cls._separator_insensitive(study_id)
         query =  f"""
         {cls.PREFIXES}
                 SELECT
@@ -276,7 +292,7 @@ class SPARQLQueryBuilder:
 
                         ?sde a obi:study_design_execution ;
                             dc:identifier ?study_name .
-                        FILTER(LCASE(STR(?study_name)) = LCASE("{study_id}"))
+                        FILTER(REPLACE(LCASE(STR(?study_name)), "[ _-]+", " ") = "{study_key}")
 
                         # ── Study design ──
                         OPTIONAL {{ ?sde ro:concretizes ?sdA . ?sdA cmeo:has_value ?design_val . }}
