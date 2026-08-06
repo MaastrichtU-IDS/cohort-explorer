@@ -9,14 +9,25 @@ type ClusterMode = 'concept_name' | 'concept_code' | 'omop_id';
 type SortKey = 'cohorts' | 'variables';
 type SortDir = 'asc' | 'desc';
 
+const ALL_MODES: ClusterMode[] = ['concept_name', 'concept_code', 'omop_id'];
+
+const MODE_LABELS: Record<ClusterMode, string> = {
+  concept_name: 'Variable Concept Name',
+  concept_code: 'Variable Concept Code',
+  omop_id: 'Variable OMOP ID',
+};
+
 interface ClusterMember {
   cohortId: string;
-  cohortName: string;
   varName: string;
   varLabel: string;
   visitConceptName: string;
+  visits: string;
   additionalContext: string;
   unitConceptName: string;
+  concept_name: string;
+  concept_code: string;
+  omop_id: string;
 }
 
 interface Cluster {
@@ -24,13 +35,18 @@ interface Cluster {
   members: ClusterMember[];
   cohortCount: number;
   variableCount: number;
+  // Correspondence counts to the other two dimensions
+  // e.g. if mode is 'concept_name', correspondences has 'concept_code' and 'omop_id'
+  correspondences: Partial<Record<ClusterMode, Record<string, number>>>;
 }
 
-const MODE_LABELS: Record<ClusterMode, string> = {
-  concept_name: 'Variable Concept Name',
-  concept_code: 'Variable Concept Code',
-  omop_id: 'Variable OMOP ID',
-};
+function splitValues(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  return String(raw)
+    .split('|')
+    .map(v => v.trim())
+    .filter(v => v && v.toLowerCase() !== 'na');
+}
 
 function buildClusters(
   cohortsData: Record<string, Cohort>,
@@ -41,37 +57,55 @@ function buildClusters(
   for (const [cohortId, cohort] of Object.entries(cohortsData)) {
     if (!cohort.variables) continue;
     for (const variable of Object.values(cohort.variables) as Variable[]) {
-      const rawValue = variable[mode];
-      if (!rawValue || String(rawValue).trim().toLowerCase() === 'na') continue;
+      const values = splitValues(variable[mode] as string);
+      if (values.length === 0) continue;
 
-      // Some fields may be pipe-separated (e.g. multiple concept names)
-      const values = String(rawValue).split('|').map(v => v.trim()).filter(v => v && v.toLowerCase() !== 'na');
+      const member: ClusterMember = {
+        cohortId,
+        varName: variable.var_name,
+        varLabel: variable.var_label || variable.var_name,
+        visitConceptName: variable.visit_concept_name || '',
+        visits: variable.visits || '',
+        additionalContext: variable.additional_context || '',
+        unitConceptName: variable.unit_concept_name || '',
+        concept_name: variable.concept_name || '',
+        concept_code: variable.concept_code || '',
+        omop_id: variable.omop_id ? String(variable.omop_id) : '',
+      };
 
       for (const val of values) {
-        const key = val;
-        if (!groups[key]) groups[key] = [];
-        groups[key].push({
-          cohortId,
-          cohortName: cohortId,
-          varName: variable.var_name,
-          varLabel: variable.var_label || variable.var_name,
-          visitConceptName: variable.visit_concept_name || '',
-          additionalContext: variable.additional_context || '',
-          unitConceptName: variable.unit_concept_name || '',
-        });
+        if (!groups[val]) groups[val] = [];
+        groups[val].push(member);
       }
     }
   }
+
+  const otherModes = ALL_MODES.filter(m => m !== mode);
 
   const clusters: Cluster[] = [];
   for (const [key, members] of Object.entries(groups)) {
     if (members.length < 2) continue;
     const uniqueCohorts = new Set(members.map(m => m.cohortId));
+
+    // Build correspondence counts for each other mode
+    const correspondences: Partial<Record<ClusterMode, Record<string, number>>> = {};
+    for (const otherMode of otherModes) {
+      const counts: Record<string, number> = {};
+      for (const m of members) {
+        const vals = splitValues(m[otherMode]);
+        for (const v of vals) {
+          counts[v] = (counts[v] || 0) + 1;
+        }
+      }
+      correspondences[otherMode] = counts;
+    }
+
     clusters.push({
       key,
       members,
       cohortCount: uniqueCohorts.size,
       variableCount: members.length,
+      correspondences,
     });
   }
 
@@ -204,8 +238,48 @@ export default function ConceptClustersPage() {
   );
 }
 
+function CorrespondenceBadges({ cluster, mode }: { cluster: Cluster; mode: ClusterMode }) {
+  const otherModes = ALL_MODES.filter(m => m !== mode);
+
+  return (
+    <div className="mt-2 space-y-1">
+      {otherModes.map(otherMode => {
+        const counts = cluster.correspondences[otherMode];
+        if (!counts || Object.keys(counts).length === 0) return null;
+        const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+        const total = sorted.reduce((sum, [, c]) => sum + c, 0);
+
+        return (
+          <div key={otherMode} className="text-xs">
+            <span className="font-semibold text-base-content/60">{MODE_LABELS[otherMode]}s:</span>{' '}
+            {sorted.map(([val, count], i) => (
+              <span key={val}>
+                {i > 0 && ', '}
+                <span className={count === total ? 'font-semibold' : 'text-base-content/50'}>
+                  {val}
+                </span>
+                <span className="text-base-content/40"> ({count})</span>
+              </span>
+            ))}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+type AggColumn = 'visits' | 'visitConceptName' | 'additionalContext' | 'unitConceptName';
+
+const AGG_LABELS: Record<AggColumn, string> = {
+  visits: 'Visits',
+  visitConceptName: 'Visit Concept',
+  additionalContext: 'Additional Context',
+  unitConceptName: 'Unit Concept',
+};
+
 function ClusterCard({ cluster, mode }: { cluster: Cluster; mode: ClusterMode }) {
   const [expanded, setExpanded] = useState(false);
+  const [aggColumn, setAggColumn] = useState<AggColumn | null>(null);
 
   // Group members by cohort
   const byCohort = useMemo(() => {
@@ -217,14 +291,32 @@ function ClusterCard({ cluster, mode }: { cluster: Cluster; mode: ClusterMode })
     return groups;
   }, [cluster.members]);
 
+  // Build histogram for the selected aggregation column
+  const aggHistogram = useMemo(() => {
+    if (!aggColumn) return null;
+    const counts: Record<string, number> = {};
+    for (const m of cluster.members) {
+      const raw = m[aggColumn];
+      if (!raw || raw.trim().toLowerCase() === 'na') continue;
+      // Split pipe-separated values
+      const vals = raw.split('|').map(v => v.trim()).filter(v => v && v.toLowerCase() !== 'na');
+      for (const v of vals) {
+        counts[v] = (counts[v] || 0) + 1;
+      }
+    }
+    const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    const maxCount = sorted.length > 0 ? sorted[0][1] : 0;
+    return { sorted, maxCount, total: cluster.members.length };
+  }, [aggColumn, cluster.members]);
+
   return (
     <div className="card bg-base-200 shadow-sm border border-base-300">
-      <div
-        className="card-body p-4 cursor-pointer"
-        onClick={() => setExpanded(prev => !expanded)}
-      >
+      <div className="card-body p-4">
         {/* Cluster header */}
-        <div className="flex items-center justify-between gap-4">
+        <div
+          className="flex items-center justify-between gap-4 cursor-pointer"
+          onClick={() => setExpanded(prev => !expanded)}
+        >
           <div className="flex-1 min-w-0">
             <h3 className="font-semibold text-lg truncate" title={cluster.key}>
               {cluster.key}
@@ -237,15 +329,61 @@ function ClusterCard({ cluster, mode }: { cluster: Cluster; mode: ClusterMode })
                 {cluster.variableCount} {cluster.variableCount === 1 ? 'variable' : 'variables'}
               </span>
             </div>
+
+            {/* Correspondence counts */}
+            <CorrespondenceBadges cluster={cluster} mode={mode} />
           </div>
           <button className="btn btn-ghost btn-sm">
             {expanded ? '▲ Collapse' : '▼ Expand'}
           </button>
         </div>
 
+        {/* Aggregation controls */}
+        {expanded && (
+          <div className="flex flex-wrap gap-2 items-center mt-2" onClick={e => e.stopPropagation()}>
+            <span className="text-xs text-base-content/60">Aggregate:</span>
+            {(Object.keys(AGG_LABELS) as AggColumn[]).map(col => (
+              <button
+                key={col}
+                onClick={() => setAggColumn(prev => prev === col ? null : col)}
+                className={`btn btn-xs ${aggColumn === col ? 'btn-primary' : 'btn-outline'}`}
+              >
+                {AGG_LABELS[col]}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Aggregation histogram */}
+        {expanded && aggHistogram && (
+          <div className="bg-base-100 rounded-lg p-3 border border-base-200 mt-2" onClick={e => e.stopPropagation()}>
+            <div className="font-medium text-sm mb-2">
+              {AGG_LABELS[aggColumn!]} distribution
+            </div>
+            {aggHistogram.sorted.length === 0 ? (
+              <p className="text-xs text-base-content/40">No values for this column.</p>
+            ) : (
+              <div className="space-y-1">
+                {aggHistogram.sorted.map(([val, count]) => (
+                  <div key={val} className="flex items-center gap-2 text-xs">
+                    <div className="flex-shrink-0 w-40 truncate" title={val}>{val}</div>
+                    <div className="flex-1 bg-base-200 rounded-full h-4 overflow-hidden">
+                      <div
+                        className="bg-primary h-full rounded-full"
+                        style={{ width: `${(count / aggHistogram.maxCount) * 100}%` }}
+                      />
+                    </div>
+                    <div className="flex-shrink-0 w-8 text-right font-mono">{count}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Cluster details */}
         {expanded && (
-          <div className="mt-4 space-y-3">
+          <div className="mt-4 space-y-3" onClick={e => e.stopPropagation()}>
             {Object.entries(byCohort).map(([cohortId, members]) => (
               <div key={cohortId} className="bg-base-100 rounded-lg p-3 border border-base-200">
                 <div className="font-medium text-sm text-base-content/80 mb-2">
@@ -258,6 +396,7 @@ function ClusterCard({ cluster, mode }: { cluster: Cluster; mode: ClusterMode })
                         <th>Variable</th>
                         <th>Label</th>
                         <th>Visit Concept</th>
+                        <th>Visits</th>
                         <th>Additional Context</th>
                         <th>Unit Concept</th>
                       </tr>
@@ -268,6 +407,7 @@ function ClusterCard({ cluster, mode }: { cluster: Cluster; mode: ClusterMode })
                           <td className="font-mono text-xs">{m.varName}</td>
                           <td>{m.varLabel}</td>
                           <td className="text-xs">{m.visitConceptName || '—'}</td>
+                          <td className="text-xs">{m.visits || '—'}</td>
                           <td className="text-xs">{m.additionalContext || '—'}</td>
                           <td className="text-xs">{m.unitConceptName || '—'}</td>
                         </tr>

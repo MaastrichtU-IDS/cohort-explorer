@@ -567,10 +567,10 @@ const CohortSearchResults = ({ cohortId, cohortData, searchTerms, searchMode }: 
                     {variable.omop_id && <span className="badge" style={{ backgroundColor: '#dbeafe', color: '#1e3a8a', border: '1px solid #bfdbfe' }}>OMOP ID: {variable.omop_id}</span>}
                     <AutocompleteConcept
                       query={variable.var_label}
-                      value={variable.mapped_id || variable.concept_id}
+                      value={variable.mapped_id || ''}
                       domain={variable.omop_domain}
                       index={`${cohortId}_${variable.var_name}_search`}
-                      tooltip={variable.mapped_label || variable.mapped_id || variable.concept_id}
+                      tooltip={variable.mapped_label || variable.mapped_id || ''}
                       onSelect={(concept: any) => handleConceptSelect(variable.var_name, concept)}
                       canEdit={cohortsData[cohortId]?.can_edit}
                     />
@@ -598,7 +598,7 @@ const CohortSearchResults = ({ cohortId, cohortData, searchTerms, searchMode }: 
                 <p>
                   <HighlightedText text={variable.var_label || ''} searchTerms={searchTerms} searchMode={searchMode} />
                 </p>
-                {(variable.concept_name || variable.mapped_label) && (
+                {(variable.concept_name || variable.mapped_label || variable.visit_concept_name || variable.unit_concept_name) && (
                   <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-600 dark:text-gray-400 mt-1">
                     {variable.concept_name && (
                       <span className="flex-shrink-0">
@@ -610,6 +610,18 @@ const CohortSearchResults = ({ cohortId, cohortData, searchTerms, searchMode }: 
                       <span className="flex-shrink-0">
                         <span className="font-semibold">Mapped:</span>{' '}
                         <HighlightedText text={variable.mapped_label} searchTerms={searchTerms} searchMode={searchMode} />
+                      </span>
+                    )}
+                    {variable.visit_concept_name && (
+                      <span className="flex-shrink-0">
+                        <span className="font-semibold">Visit:</span>{' '}
+                        {variable.visit_concept_name}
+                      </span>
+                    )}
+                    {variable.unit_concept_name && (
+                      <span className="flex-shrink-0">
+                        <span className="font-semibold">Unit:</span>{' '}
+                        {variable.unit_concept_name}
                       </span>
                     )}
                   </div>
@@ -641,10 +653,10 @@ const CohortSearchResults = ({ cohortId, cohortData, searchTerms, searchMode }: 
                         <div className="ml-8">
                           <AutocompleteConcept
                             query={variable.var_label}
-                            value={variable.mapped_id || variable.concept_id}
+                            value={variable.mapped_id || ''}
                             domain={variable.omop_domain}
                             index={`${cohortId}_${variable.var_name}_search_inside`}
-                            tooltip={variable.mapped_label || variable.mapped_id || variable.concept_id}
+                            tooltip={variable.mapped_label || variable.mapped_id || ''}
                             onSelect={(concept: any) => handleConceptSelect(variable.var_name, concept)}
                             canEdit={cohortsData[cohortId]?.can_edit}
                           />

@@ -2305,14 +2305,14 @@ def _plot_categorical_family(ax, processed, fam):
 longitudinal_json = {}
 for fam in families:
     name_slug = re.sub(r'[^a-z0-9]+', '_', str(fam['var_label']).lower()).strip('_')
-    fig, ax = plt.subplots(figsize=(10, 6))
+    # fig, ax = plt.subplots(figsize=(10, 6))
     try:
         if fam['var_type'] in ('int', 'float'):
             result = _process_numeric_family(fam)
             if result is None:
-                plt.close(fig)
+                # plt.close(fig)
                 continue
-            _plot_numeric_family(ax, result, fam, fam['units'])
+            # _plot_numeric_family(ax, result, fam, fam['units'])
             chart_suffix = 'longitudinal-trend'
             longitudinal_json[fam['key']] = {
                 'var_type': fam['var_type'],
@@ -2330,9 +2330,9 @@ for fam in families:
         elif fam['var_type'] == 'categorical':
             processed = _process_categorical_family(fam)
             if processed is None:
-                plt.close(fig)
+                # plt.close(fig)
                 continue
-            _plot_categorical_family(ax, processed, fam)
+            # _plot_categorical_family(ax, processed, fam)
             chart_suffix = 'category_flow'
             longitudinal_json[fam['key']] = {
                 'var_type': fam['var_type'],
@@ -2348,14 +2348,15 @@ for fam in families:
                 'n_patients': processed['n_patients'],
             }
         else:
-            plt.close(fig)
+            # plt.close(fig)
             continue
-        plt.tight_layout()
-        plt.savefig(f"/output/{name_slug}_{chart_suffix}.png", dpi=160, bbox_inches='tight')
+        # plt.tight_layout()
+        # plt.savefig(f"/output/{name_slug}_{chart_suffix}.png", dpi=160, bbox_inches='tight')
     except Exception as e:
         data_issues.append(f"Longitudinal family {fam['key']}: failed to build chart: {e}")
     finally:
-        plt.close('all')
+        pass
+        # plt.close('all')
 
 with open('/output/eda_longitudinal_v1_{cohort_id}.json', 'w') as f:
     json.dump(longitudinal_json, f, indent=4)
