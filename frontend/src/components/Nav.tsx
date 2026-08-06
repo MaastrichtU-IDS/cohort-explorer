@@ -1155,7 +1155,7 @@ export function Nav() {
                         </div>
                         {mergeUseShuffled && (
                           <p className="text-xs text-warning mt-2">
-                            Make sure shuffled samples are enabled (Data Samples step) for the cohorts you want to pool; cohorts without a shuffled sample fall back to their full data.
+                            Make sure shuffled samples are enabled (Data Samples step) for the cohorts you want to pool; cohorts without a shuffled sample will be excluded from the merge.
                           </p>
                         )}
                       </div>

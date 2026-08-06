@@ -1016,17 +1016,18 @@ async def get_compute_dcr_definition(
         raw_data_node_id = cohort_id.replace(" ", "-")
         metadata_node_id = f"{cohort_id.replace(' ', '-')}_metadata_dictionary"
 
-        if merge_use_shuffled and cohort_id in shuffled_nodes:
+        if merge_use_shuffled:
+            if cohort_id not in shuffled_nodes:
+                logging.warning(
+                    f"merge_use_shuffled=True but no shuffled sample node exists for "
+                    f"cohort '{cohort_id}'; skipping this cohort in the merge."
+                )
+                continue
             # Pool the shuffled sample. The fragmentation/shuffle step replaces the
             # original ID column with a synthetic "Synthetic_ID" column.
             data_node_id = shuffled_nodes[cohort_id]
             patient_id = "Synthetic_ID"
         else:
-            if merge_use_shuffled:
-                logging.warning(
-                    f"merge_use_shuffled=True but no shuffled sample node exists for "
-                    f"cohort '{cohort_id}'; falling back to the full cohort data for the merge."
-                )
             # Pool the raw cohort data node; the patient id is the cohort's original
             # ID variable (discovered via SNOMED/OMOP codes).
             data_node_id = raw_data_node_id

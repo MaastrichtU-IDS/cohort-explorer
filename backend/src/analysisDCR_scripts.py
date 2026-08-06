@@ -731,8 +731,8 @@ mappings = [
 ]
 
 with open(log_file, "w") as log:
-    log.write("Pooling {{}} studies with {{}} mapping file(s)\n".format(len(studies), len(mappings)))
-    log.write("Studies: {{}}\n".format(list(studies.keys())))
+    log.write("Pooling {{}} studies with {{}} mapping file(s)\\n".format(len(studies), len(mappings)))
+    log.write("Studies: {{}}\\n".format(list(studies.keys())))
 
 # Pool the datasets together using the cohortpool package.
 # Unit conversions, drug classes, drug target doses and core variables all come
