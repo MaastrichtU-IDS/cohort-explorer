@@ -28,6 +28,10 @@ class Settings:
     decentriq_token: str = field(default_factory=lambda: os.getenv("DECENTRIQ_TOKEN", ""))
     admins: str = field(default_factory=lambda: os.getenv("ADMINS", ""))
 
+    # GitHub Personal Access Token used to install the private `cohortpool` package
+    # into the Decentriq enclave environment.
+    cohortpool_github_token: str = field(default_factory=lambda: os.getenv("COHORTPOOL_GITHUB_TOKEN", ""))
+
     data_folder: str = field(default_factory=lambda: os.getenv("DATA_FOLDER", "../data"))
     dev_mode: bool = field(default_factory=lambda: os.getenv("DEV_MODE", "false").lower() == "true")
 

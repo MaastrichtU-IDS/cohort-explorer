@@ -43,7 +43,19 @@ except PackageNotFoundError:
 # The environment installs the `cohortpool` package directly from GitHub so it is
 # available inside the enclave. Pin to a branch/commit/tag by appending e.g. "@main".
 MERGE_ENV_NAME = "cohortpool_env"
-COHORTPOOL_GITHUB_URL = "git+https://github.com/komi786/cohortpool.git"
+# cohortpool is a private repo, so a GitHub Personal Access Token (PAT) with repo
+# read scope must be embedded in the pip-installable Git URL for the enclave to
+# fetch and install it. The token is loaded from the COHORTPOOL_GITHUB_TOKEN env var.
+if settings.cohortpool_github_token:
+    COHORTPOOL_GITHUB_URL = (
+        f"git+https://{settings.cohortpool_github_token}@github.com/komi786/cohortpool.git"
+    )
+else:
+    logger.warning(
+        "COHORTPOOL_GITHUB_TOKEN is not set; cohortpool install from the private "
+        "repo will fail in the enclave."
+    )
+    COHORTPOOL_GITHUB_URL = "git+https://github.com/komi786/cohortpool.git"
 MERGE_ENV_REQUIREMENTS = f"{COHORTPOOL_GITHUB_URL}\n"
 MERGE_NODE_NAME = "merge-datasets"
 
