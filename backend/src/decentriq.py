@@ -720,11 +720,10 @@ async def get_compute_dcr_definition(
         # Add a node for the cohort's metadata dictionary
         metadata_node_id = f"{cohort_id.replace(' ', '-')}_metadata_dictionary"
         
-        # Use the helper function to identify the appropriate metadata schema for this cohort
-        metadata_cols = identify_cohort_meta_schema(cohort)
-        
+        # Use RawDataNodeDefinition (same as data nodes) so the file is mounted
+        # directly at /input/<node_name> rather than as a directory.
         builder.add_node_definition(
-            TableDataNodeDefinition(name=metadata_node_id, columns=metadata_cols, is_required=False)
+            RawDataNodeDefinition(name=metadata_node_id, is_required=False)
         )
         metadata_nodes.append(metadata_node_id)
         
