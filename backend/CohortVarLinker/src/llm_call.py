@@ -119,19 +119,7 @@ Each variable has:
 # - categories: allowed values in format [original value=readable label|original value=readable label]
 # """
  
-_INPUT_EV = """
-# INPUT
-The source and target variables originate from separate studies. Harmonization pools these patients into a single patient-level analysis variable, one row per patient; the two sides are therefore never repeated measurements of the same individual.
-Two variables are provided: Source and Target. Source/Target are positional labels only.
-Each variable may include:
-- Description: short variable label
-- Concepts: ordered concepts separated by " | "
-  - first concept = primary concept (authoritative for meaning)
-  - remaining concepts = refinements that may narrow or qualify meaning
-- categories: allowed values in format [original value=readable label|original value=readable label]
-- Unit: measurement unit, if available
-- Graph evidence: optional hierarchical structure of primary standard concept from controlled vocabularies
-"""
+
 
 # _BATCH_INPUT_EV = """
 # # INPUT
@@ -161,19 +149,6 @@ Each variable may include:
 # - alignment_direction: "bidirectional" | "source to target" | "target to source" | "both for derivation" | ""
 # """
 
-_OUTPUT_PAIR = """
-# OUTPUT FORMAT
-Return ONLY one valid JSON object:
-{{
-  "status_code": <1|2|3|4> (1=COMPLETE, 2=COMPATIBLE, 3=PARTIAL, 4=IMPOSSIBLE),
-  "status": "<COMPLETE|COMPATIBLE|PARTIAL|IMPOSSIBLE>",
-  "confidence": <float>,
-  "reason": "<50 words or fewer; prioritize clarity and explanation over word count. explain which rules you applied and why.>",
-  "transform": "<40 words or fewer, or empty>",
-  "harmonized_variable": "<12 words or fewer; snake_case or empty>",
-  "alignment_direction": "<direction or empty>"
-}}
-"""
 
 # _OUTPUT_BATCH = """
 # # OUTPUT CONSTRAINTS
@@ -193,6 +168,32 @@ Return ONLY one valid JSON object:
 # ]
 # """
 
+_INPUT_EV = """
+# INPUT
+The source and target variables originate from separate studies. Harmonization pools these patients into a single patient-level analysis variable, one row per patient; the two sides are therefore never repeated measurements of the same individual.
+Two variables are provided: Source and Target. Source/Target are positional labels only.
+Each variable may include:
+- Description: short variable label
+- Concepts: ordered concepts separated by pipe symbol "|"
+  - first concept = primary concept (authoritative for meaning)
+  - remaining concepts = refinements that may narrow or qualify meaning
+- categories: allowed values in format [original value=readable label|original value=readable label] (separated by pipe symbol "|")
+- Unit: measurement unit, if available
+- Graph evidence: optional hierarchical structure of primary standard concept from controlled vocabulary
+"""
+_OUTPUT_PAIR = """
+# OUTPUT FORMAT
+Return ONLY one valid JSON object:
+{{
+  "status_code": <1|2|3|4> (1=COMPLETE, 2=COMPATIBLE, 3=PARTIAL, 4=IMPOSSIBLE),
+  "status": "<COMPLETE|COMPATIBLE|PARTIAL|IMPOSSIBLE>",
+  "confidence": <float>,
+  "reason": "<30 words or fewer; prioritize clarity and explanation over word count. explain which rules you applied and why.>",
+  "transform": <structured transformation object, or "">
+  "harmonized_variable": "<12 words or fewer; snake_case or empty>",
+  "alignment_direction": "<direction or empty>"
+}}
+"""
 _STUDY_CONTEXT_RULES = """
 
 # STUDY CONTEXT
@@ -202,79 +203,76 @@ Use cohort population, inclusion criteria, and shared morbidities to identify va
 _SHARED_BODY = """
 {study_context_block}
 
-### MANDATORY SEMANTIC GATES
-Assess harmonizability for pooled patient-level analysis, not surface semantic similarity.
+# MANDATORY SEMANTIC GATES
 
-For each variable, where the metadata allows, identify:
+Assess harmonizability for pooled patient-level analysis, not surface semantic similarity. For each variable, identify where supported by metadata:
 1. Clinical entity — condition, measurement, medication, procedure, or event.
-2. Information axis — presence, severity, amount, dose, date, frequency, cause, method, or other attribute.
-3. Observation frame — history/ever, current state, during a specified test, incident event, cumulative period, or point-in-time assessment.
-4. Anatomical scope — general, organ-specific, regional, unilateral, bilateral, or other site restriction.
-5. Composition — single entity, parent class, subtype/member, union, sum, aggregate, or residual "other" field.
-6. Value support — which clinical states are explicitly represented and what a missing value means.
-7. If visit is omitted, assume source and target are recorded at the same timepoint.
+2. Information axis — presence, severity, amount, dose, date, frequency, cause, method, or another attribute.
+3. Temporal context — history/ever, current state, specified test, incident event, cumulative period, or point-in-time assessment. For duration or time-to-event variables, compare start and end anchors, event meaning, direction, unit, and censoring. Different intervals are IMPOSSIBLE; missing duration means unknown or censored. Different representations of the same interval may be COMPATIBLE or PARTIAL.
+4. Anatomical scope — general, organ-specific, regional, unilateral, bilateral, or another site restriction.
+5. Composition — single entity, parent class, subtype/member, union, sum, aggregate, or residual field.
+6. Value support — explicitly represented clinical states and the meaning of missing values.
 
-Apply the following gates before assigning a status.
-** Composite/component gate. On each side identify whether it is a single entity, a parent class, a member/subtype, or a pre-composed aggregate (sum or union), and whether the axis is dose or presence.
-    - A pre-composed aggregate of members matched to the parent class they exhaust, with the axis-correct operator (sum for dose, logical OR for presence), equals the class total → valid. Classify by representation: COMPLETE if value and unit align, COMPATIBLE if a lossless reversible recode/conversion is needed, PARTIAL if lossy or external-reference dependent. If the members do not exhaust the class, PARTIAL, or IMPOSSIBLE where the shortfall cannot be quantified.
-    - An aggregate or composite matched to a single member, or to a different aggregate, would require isolating a component from a combined figure → IMPOSSIBLE.
-    - An operator that does not match the axis (sum on presence, OR on dose) constructs a different variable → IMPOSSIBLE.
-    - Rolling members up to their class is permitted; pulling a component out of a composite is not.
-** Residual-field gate. "Other X" or "remaining X" excludes the separately itemized members of X, so its membership is unknown from the pair alone. It cannot align to a single itemized member (disjoint by construction) or to total X (unknown membership) → IMPOSSIBLE. A true parent "any X" that excludes nothing is not a residual field; a specific member maps to it as subtype→parent (PARTIAL).
-** Anatomical-scope gate. Laterality and site restriction are defining when one variable can be positive while the other is negative for the same patient. Identical category sets do not override a scope difference.
-** Setting/default gate. A defining qualifier (posture, physiological state, specimen, provocation, assay) present on one side and omitted on the other is read as the conventional default for that measurement, but only where a recognized clinical default exists. COMPLETE/COMPATIBLE only if the specified value is that default; if it departs from the default, or if both sides specify conflicting values, no single pooled variable exists → IMPOSSIBLE. Where no recognized default exists (assay/method, device scale, anatomical site), an omitted qualifier stays unverifiable — do not upgrade to COMPLETE.
-** Value-mapping gate. For every explicit observed value, determine whether it maps to a valid harmonized value or must remain unknown. Never map missing, not recorded, not assessed, or an unsupported negative to "No".
-** When dealing with clinical observations versus true physiological states, the goal shifts to preserving diagnostic precision.
+Apply these decision gates before assigning a status.
 
-### STATUS BOUNDARIES
+**Composite/component gate.** A pre-composed aggregate matched to the parent class it exhausts is valid only with the correct operator: sum for dose and logical OR for presence. Classify it as COMPLETE when values and units align, COMPATIBLE when reversible recoding or conversion is required, and PARTIAL when the transformation is lossy or externally referenced. If the members do not exhaust the class, classify it as PARTIAL, or IMPOSSIBLE when the shortfall cannot be quantified. Extracting one member from an aggregate, matching different aggregates, or applying an axis-inappropriate operator is IMPOSSIBLE. Members may be rolled up to a parent class; components may not be inferred from a composite.
+**Residual-field gate.** “Other X” or “remaining X” excludes separately recorded members, and its membership is unknown from the pair alone. It cannot align with an itemized member or total X and is therefore IMPOSSIBLE. A true parent variable such as “any X” is not residual; a specific member may map to it as PARTIAL.
+**Anatomical-scope gate.** Laterality and site restriction are defining when one variable may be positive while the other is negative for the same patient. Identical categories do not override an anatomical-scope difference.
+**Setting/default gate.** A qualifier such as posture, physiological state, specimen, provocation, or assay may be inferred from an unqualified variable only when a recognized clinical default exists. COMPLETE or COMPATIBLE is permitted only when the specified qualifier equals that default. Conflicting specified qualifiers are IMPOSSIBLE. When no recognized default exists, an omitted qualifier remains unresolved and must not be upgraded to COMPLETE.
+**Value-mapping gate.** Map every explicit value to a valid harmonized value or retain it as unknown. Never map missing, unrecorded, unassessed, or unsupported negative values to “No.” When a test finding is mapped to an underlying condition, a positive finding may support condition presence, but a negative finding remains unknown unless the test and metadata justify excluding the condition.
 
-COMPLETE
-Same clinical entity, information axis, observation frame, anatomical scope, granularity, and value meaning; values merge as-is, with no recoding, conversion, threshold reinterpretation, or category normalization. Mathematically equivalent unit notation is allowed only when the numeric values are unchanged.
+# STATUS BOUNDARIES
+
+## COMPLETE
+Same clinical entity, information axis, temporal context, anatomical scope, granularity, and value meaning; values merge as-is, with no recoding, conversion, threshold reinterpretation, or category normalization. Mathematically equivalent unit notation is allowed only when the numeric values are unchanged.
 Examples:
-- source: systolic BP (mmHg) vs target: sitting systolic BP (mmHg)  [seated is the office-BP default]
-- source: NT-proBNP (ug/L) vs target: NT-proBNP (ng/mL)  [1 ug/L = 1 ng/mL]
-- source: history of atrial fibrillation(1=yes|0=no) vs target: Atrial fibrillation during ECG(yes=yes|no=no) : maps target-to-source (more complete path) — yes→1, no→0 (observation-frame abstraction).
-- source: central venous pressure > 6 cm H2O (0=no|1=yes) vs target: jugular vein elevated (0=no|1=yes): maps target-to-source (more complete direction) — 1→1, 0→0 
+- source: systolic BP (mmHg) and target: sitting systolic BP (mmHg)  [seated position is implicit context when missing]
+- source: NT-proBNP (ug/L) and target: NT-proBNP (ng/mL)  [1 ug/L = 1 ng/mL]
+- source: history of atrial fibrillation(yes=yes|no=no) and target: presence of Atrial fibrillation (yes=yes|no=no) : maps target-to-source (more complete path) — yes maps to yes; no maps to 0 .
+- source: central venous pressure > 6 cm H2O (0=no|1=yes) and target: jugular vein elevated (0=no|1=yes): maps target-to-source (more complete direction) — 1 maps to 1; 0 maps to 0 
 
-
-COMPATIBLE
+## COMPATIBLE
 The same six attributes as COMPLETE, but value representations differ and a deterministic, lossless, reversible transformation aligns them — unit conversion, or bijective recoding (equal number of distinct clinical states). Clinical association or approximate interchangeability is not sufficient; a surrogate qualifies only where the metadata or adjudication policy establishes equivalence and a deterministic mapping.
-Examples:
-- source: weight (kg) vs target:weight (lb)
-- source: myocardial infarction (yes|no) vs target: myocardial infarction (t=yes|f=no)  [recoding only]
-- source: aspartate aminotransferase [enzymatic activity/volume]/L vs target: AST measurement (U/L)
-- source: jugular vein elevated (0=no|1=yes) vs target: central venous pressure > 6 cm H2O (3=yes|1=no): maps target-to-source (more complete direction) — 3→1, 1→0.
-- source: atrial fibrillation on ECG at baseline (t=yes|f=no) vs target: history of atrial fibrillation (t=yes|f=no): maps source-to-target (more complete path) — t→1, f→0 (observation-frame abstraction).
-PARTIAL
-One clinically meaningful variable can be built through a lossy, directional, or externally supported transformation. All must hold:
+**Examples**:
+- source: weight (kg) and target:weight (lb)
+- source: myocardial infarction (1=yes|0=no) and target: myocardial infarction (t=yes|f=no)  [recoding only]: maps target-to-source — t maps to 1; f maps to 0.
+- source: aspartate aminotransferase enzymatic activity (U/L) and target: AST enzymatic activity (µkat/L): maps target-to-source — multiply target values by 60 because 1 µkat/L = 60 U/L.
+- source: jugular vein elevated (0=no|1=yes) and target: central venous pressure > 6 cm H2O (3=yes|1=no): maps target-to-source (more complete direction) — 3 maps to 1; 1 maps to 0.
+- source: atrial fibrillation on ECG at baseline (t=yes|f=no) and target: history of atrial fibrillation at baseline (t=yes|f=no): maps source-to-target (more complete path) — t maps to 1; f maps to 0 (clinical-context abstraction).
+
+##  PARTIAL
+One clinically meaningful variable for data pooling can be built through a lossy, directional, or externally supported transformation, provided that the derived variable delivers distinct clinical meaning and actionable utility for analysis considering the specific context of the pooled studies. All must hold:
 1. Same entity, or a subtype/member/scope-restriction relationship identifiable from the provided metadata.
 2. The harmonized variable is one clinical concept, not a union or sum.
 3. Every explicit observed value is mapped validly or retained as unknown.
 4. No unsupported negative or missing value becomes "No".
-5. The transformation names the information loss: category collapse, positive-only derivation, observation-frame reduction, anatomical reduction, datetime approximation, or external-reference conversion.
-Examples:
-- source: Year/date of diabetes diagnosis vs target: diabetes history: maps source-to-target (more complete direction) — recorded date→yes, missing→unknown (positive-only derivation)
-- source: date of stroke event (dd/mm/yyyy) vs target: year of stroke event: maps source-to-target (more complete direction) — exact date→extracted year, missing→missing (datetime approximation).
-- source: LVEF <40% (1=yes|0=no) vs target: LVEF category (1:<40%, 2:40-49%, 3:>=50%): maps target-to-source (more complete direction) — cat1→1, cat2->0 and 3→0 (category collapse).
-- source: Ordinal pulmonary-rales extent (0=absent|1=basal|2=lower-third|3=upper-zones) vs target: basal rales (1=yes|0=no): maps source-to-target (more complete direction) — 1→1, 0→0, cat2→0 and 3→0(extent exceeds basal zone, category collapse)
-- source: Left-leg edema (0=no|1=yes) vs target: lower-limb edema (0=no|1=yes): maps source-to-target (more complete direction) — 1→1, 0→unknown (anatomical scope reduction).
-- source: captopril dose (mg) vs target: ACE-inhibitor dose (% target): maps source-to-target (more complete direction) — single member to parent class via external target-dose conversion factor (external-reference conversion).
+5. The transformation names the information loss: category collapse, positive-only derivation, anatomical reduction, datetime approximation, or downstream external-reference conversion.
+**Examples**:
+- source: Year/date of diabetes diagnosis and target: diabetes history (0=no|1=yes): maps source-to-target (more complete direction) — recorded date maps to 1; missing date maps to unknown (positive-only derivation)
+- source: date of stroke event (dd/mm/yyyy) and target: year of stroke event (yyyy): maps source-to-target (more complete direction) — converted date (dd/mm/yyyy) maps to to year (yyyy);missing date maps to missing (datetime approximation).
+- source: LVEF <40% (1=yes|0=no) and target: LVEF category (1:<40%, 2:40-49%, 3:>=50%): maps target-to-source (more complete direction) — 1 maps to 1; 2 maps to 0; 3 maps to 0 (category collapse).
+- source: Ordinal pulmonary-rales extent (0=absent|1=basal|2=lower-third|3=upper-zones) and target: basal rales (1=yes|0=no): maps source-to-target (more complete direction) — 1 maps to 1; 0 maps to 0; 2 maps to 0; 3 maps to 0 (extent exceeds basal zone, category collapse)
+- source: Left-leg edema (0=no|1=yes) and target: lower-limb edema (0=no|1=yes): maps source-to-target (more complete direction) — 1 maps to 1; 0 maps to unknown (right-leg status is unavailable).
+- source: captopril dose (mg) and target: ACE-inhibitor dose (% target): maps source-to-target (more complete direction) — single member to parent class via downstream external target-dose conversion factor (external-reference conversion).
 
-IMPOSSIBLE
+## IMPOSSIBLE
 No single pooled variable can be built without ambiguous decomposition or unsupported inference:
-- source: ARB-or-ACE use (yes/no) vs target: ACE-inhibitor use (yes/no)  [union → component].
-- source: Sum of ACE-inhibitor and ARB dose vs target: ARB dose  [aggregate → component].
-- source: "Other ARB" dose vs target: total ARB dose  [residual; membership unknown].
-- source: captopril dose (mg) vs target: trandolapril dose (mg)  [sibling drugs; raw mg not comparable across agents].
-- source: disease severity vs target: disease etiology  [different axes].
-- source: sitting systolic BP (mmHg) vs target: standing systolic BP (mmHg)  [conflicting specified settings].
+**Examples**:
+- source: ARB-or-ACE use (yes/no) and target: ACE-inhibitor use (yes/no)  [union  maps to  component].
+- source: Sum of ACE-inhibitor and ARB dose and target: ARB dose  [aggregate  maps to  component].
+- source: "Other ARB" dose and target: total ARB dose  [residual; membership unknown].
+- source: captopril dose (mg) and target: trandolapril dose (mg)  [sibling drugs; raw mg not comparable across agents].
+- source: disease severity and target: disease etiology  [different axes].
+- source: sitting systolic BP (mmHg) and target: standing systolic BP (mmHg)  [conflicting specified settings].
+- source: ALT (alanine aminotransferase) and AST (aspartate aminotransferase) [different lab test]
 
-### FINAL VERIFICATION
-1. Is the harmonized variable one single clinical concept?
-2. Are information axis and observation frame preserved, or explicitly reduced with the loss named?
-3. Is every explicit value mapped, or safely retained as unknown?
-4. Did any missing or unsupported value become "No"?
-5. Did a composite, residual field, sibling relationship, anatomical restriction, setting conflict, or history/current distinction invalidate the match?
+# FINAL VERIFICATION
+For a PARTIAL match, is the proposed harmonized variable a single, clinically coherent concept meaningful across both study contexts?
+Is every explicit value mapped or safely retained as unknown?
+Did any missing or unsupported value become No?
+Does any composite, residual field, sibling relationship, anatomical restriction, temporal difference, or setting conflict invalidate the match?
+Is the transformation complete, deterministic, and explicit about information loss?
+
 
 # CONFIDENCE
 Certainty in the chosen status, whatever it is:
@@ -283,12 +281,132 @@ Certainty in the chosen status, whatever it is:
 - 0.60-0.79: meaningful ambiguity; manual review advised
 - below 0.60: low certainty; reconsider the verdict
 
-# TRANSFORM
-The data operation that builds the harmonized variable; limitations go in reason.
-- COMPLETE: ""
-- COMPATIBLE: deterministic conversion ("kg = lb x 0.4536", "recode {{0 maps to no,1 maps to yes}}")
-- PARTIAL: lossy reduction ("collapse to yes/no", "derive presence from date", "mg to % via target-dose external conversion", "specific subtype yes -> broader class yes; specific subtype no -> broader class unknown/missing")
-- IMPOSSIBLE: ""
+# TRANSFORMATION RULE
+For every COMPATIBLE or PARTIAL result, provide a complete, machine-readable transformation that:
+* defines the operation applied to the source and target variables;
+* maps every explicit categorical value;
+* maps unsupported or missing values to `unknown`, never `no`;
+* assigns exactly one harmonized output to each input value;
+* states the information loss for PARTIAL;
+* provides any required formula or external reference;
+* uses `none` when a field is not applicable.
+**Examples**
+# TRANSFORMATION EXAMPLES
+
+## Example 1 — COMPLETE
+
+Source: body weight (kg)
+Target: body weight (kg)
+"harmonized_variable": "body_weight_kg",
+"transform": ""
+
+## Example 2 — COMPATIBLE: unit conversion
+
+Source: serum creatinine (µmol/L)
+Target: serum creatinine (mg/dL)
+
+"harmonized_variable": "serum_creatinine_umol_per_l",
+"transform": {{
+    "source_operation": "retain source values in µmol/L",
+    "target_operation": "convert target values from mg/dL to µmol/L",
+    "value_mapping": {{
+    "source": {{}},
+    "target": {{}}
+    }},
+    "numeric_rule": {{
+    "target": "target_µmol_per_L = target_value × 88.4"
+    }},
+    "missing_mapping": "unknown",
+    "information_loss": "none",
+    "reference": "1 mg/dL creatinine = 88.4 µmol/L"
+    }}
+
+
+## Example 3 — COMPATIBLE: categorical recoding
+
+Source: myocardial infarction (0=no|1=yes)
+Target: myocardial infarction (f=no|t=yes)
+
+"harmonized_variable": "myocardial_infarction_yes_no",
+"alignment_direction": "bidirectional",
+"transform": {{
+    "source_operation": "recode source categories",
+    "target_operation": "recode target categories",
+    "value_mapping": {{
+    "source": {{"0": "no","1": "yes"}},
+    "target": {{"f": "no","t": "yes"}}
+    }},
+    "numeric_rule": {{}},
+    "missing_mapping": "unknown",
+    "information_loss": "none",
+    "reference": "none"
+  }}
+
+
+## Example 4 — PARTIAL: category collapse
+
+Source: basal rales (0=no|1=yes)
+Target: rales extent (0=absent|1=basal zone|2=middle zone|3=upper zone)
+
+"harmonized_variable": "basal_rales_yes_no",
+"transform": {{
+    "source_operation": "retain binary basal-rales categories",
+    "target_operation": "collapse rales extent to basal-rales presence",
+    "value_mapping": {{
+    "source": {{"0": "no","1": "yes"}},
+    "target": {{"0": "no","1": "yes", "2": "no", "3": "no"}}
+    }},
+    "numeric_rule": {{}},
+    "missing_mapping": "unknown",
+    "information_loss": "rales extent beyond the basal zone is discarded",
+    "reference": "none"
+ }}
+
+
+## Example 5 — PARTIAL: positive-only derivation
+
+Source: date of diabetes diagnosis
+Target: history of diabetes (0=no|1=yes)
+"harmonized_variable": "diabetes_history_yes_no",
+"transform": {{
+    "source_operation": "derive diabetes presence from a recorded diagnosis date",
+    "target_operation": "retain target binary categories",
+    "value_mapping": {{
+        "source": {{ "present": "yes", "missing": "unknown"}},
+        "target": {{ "0": "no", "1": "yes"}}
+        }},
+    "numeric_rule": {{}},
+    "missing_mapping": "unknown",
+    "information_loss": "diabetes absence cannot be inferred from a missing diagnosis date",
+    "reference": "none"
+}}
+
+## Example 6 — PARTIAL: externally referenced conversion
+
+Source: captopril daily dose (mg/day)
+Target: ACE-inhibitor dose (% target dose)
+"harmonized_variable": "ace_inhibitor_target_dose_percent",
+"transform": {{
+    "source_operation": "convert captopril mg/day to percentage of its target daily dose",
+    "target_operation": "retain target-dose percentage",
+    "value_mapping": {{
+    "source": {{}},
+    "target": {{}}
+    }},
+    "numeric_rule": {{
+    "source": "dose_percentage = source_value / guideline_target_daily_dose × 100"
+    }},
+    "missing_mapping": "unknown",
+    "information_loss": "drug-specific dose is generalized to ACE-inhibitor target-dose percentage",
+    "reference": "validated captopril target daily dose"
+    }}
+
+## Example 7 — IMPOSSIBLE
+Source: ALT measurement (U/L)
+Target: AST measurement (U/L)
+"harmonized_variable": "",
+"transform": ""
+
 
 # HARMONIZED VARIABLE
 - COMPLETE/COMPATIBLE/PARTIAL: short snake_case name ("smoker_yes_no", "weight_kg")
@@ -303,7 +421,7 @@ The data operation that builds the harmonized variable; limitations go in reason
 """
  
 _PREAMBLE = """You are a clinical data harmonization expert assessing whether two variables from separate studies can be aligned into a common harmonized variable for pooled patient-level analysis. Determine whether the merge is clinically meaningful and whether any required transformation is supported by clinical guidelines or accepted domain knowledge.
-The source and target variables come from different cohorts. Harmonization pools different patients into one dataset, with one row per patient; therefore, the two sides are never repeated measurements of the same individual. "Source" and "Target" are simply positional labels for a directionless pair, you must assess the alignment by identifying which directional path preserves the most information and minimizes clinical inference. """
+The source and target variables come from different cohorts. Harmonization pools different patients into one dataset, with one row per patient; therefore, the two sides are never repeated measurements of the same individual. "Source" and "Target" are simply positional labels for a directional path. You must determine the direction that preserves the most information, minimizes clinical inference, and produces a harmonized variable with distinct clinical meaning and actionable utility within the specific context of the pooled studies."""
 
 # _BATCH_PREAMBLE = """You are a clinical data harmonization expert assessing whether a single Source variable can be aligned to each of several candidate Target variables and merged into a common harmonized analysis variable for pooled statistical analysis. The source and target variables originate from separate studies. Harmonization pools these patients into a single patient-level analysis variable, one row per patient; the two sides are therefore never repeated measurements of the same individual.
 # You will receive ONE Source and multiple Targets in a single request. Evaluate each (Source, Target i) pair independently and in isolation, using the same rules and definitions as a single-pair assessment. A target's verdict must depend only on that target and the Source — never on the presence, similarity, or verdict of any other target in the batch. Do not normalize, balance, or rank verdicts across targets. Two targets that would each receive COMPLETE in isolation must each receive COMPLETE here.
@@ -332,7 +450,55 @@ VERDICT_JSON_SCHEMA = {
         },
         "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
         "reason": {"type": "string"},
-        "transform": {"type": "string"},
+        "transform": {
+                "oneOf": [
+                    {
+                        "type": "string",
+                        "enum": [""]
+                    },
+                    {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": [
+                            "source_operation",
+                            "target_operation",
+                            "value_mapping",
+                            "missing_mapping",
+                            "information_loss",
+                            "reference"
+                        ],
+                        "properties": {
+                            "source_operation": {"type": "string"},
+                            "target_operation": {"type": "string"},
+                            "value_mapping": {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "properties": {
+                                    "source": {"type": "object",
+                                               "additionalProperties": {"type": "string"}},
+                                    "target": {"type": "object",
+                                               "additionalProperties": {"type": "string"}},
+                                },
+                            },
+
+                            "numeric_rule": {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "properties": {
+                                    "source": {"type": "string"},
+                                    "target": {"type": "string"},
+                                },
+                            },
+                            "missing_mapping": {
+                                "type": "string",
+                                "enum": ["unknown"]
+                            },
+                            "information_loss": {"type": "string"},
+                            "reference": {"type": "string"}
+                        }
+                    }
+                ]
+            },
         "harmonized_variable": {"type": "string"},
         "alignment_direction": {
             "type": "string",
@@ -994,7 +1160,10 @@ class LLMConceptMatcher:
      
        
         if is_gpt_oss_120b:
-                self.max_tokens = 16384 
+            self.max_tokens = 16384
+            self.temperature = 1.0
+            self.top_p = 1.0
+            self.top_k = 0
        
            
         logger.info (f"for LLM {m}, temperature = { self.temperature}, top_p = {self.top_p},top_k = {self.top_k} ")
@@ -1246,11 +1415,14 @@ class LLMConceptMatcher:
                 if not resp.choices:
                     return "", {}
                 choice = resp.choices[0]
-                text = choice.message.content or ""
+                # Assign rather than return: the shared logger.info at the end of
+                # this method records prompt and response, and returning here
+                # skipped it. On the litellm backend that meant no LLM call was
+                # ever logged.
+                result = choice.message.content or ""
                 logprob_evidence = _extract_status_code_logprob_evidence(
                     getattr(choice, "logprobs", None)
                 )
-                return text, logprob_evidence
             elif self.backend == "fireworks":
                 kwargs = {
                     "model": api_model,

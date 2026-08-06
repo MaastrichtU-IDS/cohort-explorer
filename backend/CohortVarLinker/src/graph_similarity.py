@@ -133,7 +133,7 @@ def score_context(
         OEC/OEH  : graph first; embedding fallback iff graph is inconclusive
         NE       : not normally used here, because NE mode has no additional context
     """
-    # print(f"src concept(s) label = {src_labels}, tgt concept(s) label = {tgt_labels}")
+
     # ── Step 1 & 2: Graph-based ──────────────────────────
     if graph is not None and mapping_mode != MappingType.NE.value:
         equiv = check_concept_equivalence(src_codes, tgt_codes, graph, max_depth)

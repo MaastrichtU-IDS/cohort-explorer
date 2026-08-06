@@ -30,7 +30,7 @@ def generate_studies_kg(filepath: str) -> Graph:
         df.columns = df.columns.str.lower()
     except UnicodeDecodeError:
         raise ValueError("Failed to read the file -- Upload with Correct CSV format")
-    # print(df.head(5))
+    # # print(df.head(5))
     df["start date"] = pd.to_datetime(df["start date"], errors="coerce").dt.strftime("%Y-%m-%dT%H:%M:%S")
     df["end date"] = pd.to_datetime(df["end date"], errors="coerce").dt.strftime("%Y-%m-%dT%H:%M:%S")
 
@@ -56,7 +56,7 @@ def generate_studies_kg(filepath: str) -> Graph:
 
         study_design_value =  row["study design"].lower().strip() if pd.notna(row["study design"]) else None
        
-        # print(f"Study design value: {study_design_value}")
+        # # print(f"Study design value: {study_design_value}")
         if study_design_value:
             study_design_value = normalize_text(study_design_value)
             study_design_uri = URIRef(study_uri + "/" + study_design_value)
@@ -113,7 +113,7 @@ def generate_studies_kg(filepath: str) -> Graph:
              
         # study design has various "has direct part" which includes primary objective, endpoints, selection criteria, etc.
         if row["study objective"] and pd.notna(row["study objective"]):
-            # print(row["Primary objective"])
+            # # print(row["Primary objective"])
             po_value = row["study objective"].lower().strip() if pd.notna(row["study objective"]) else ""
             objective_uri = URIRef(study_uri + "/objective_specification") 
             g.add((protocol_uri, RDFS.label, Literal("objective specification", datatype=XSD.string), metadata_graph))
@@ -230,7 +230,7 @@ def add_study_timing(g: Graph, row: pd.Series, study_design_execution_uri: URIRe
             g.add((study_completion_date_uri, RDF.type, OntologyNamespaces.CMEO.value.end_time, metadata_graph))
             g.add((study_design_execution_uri, OntologyNamespaces.IAO.value.has_time_stamp, study_completion_date_uri, metadata_graph))
             # end_time_tuple = day_month_year(row["end date"])
-            # print(f"End time tuple: {end_time_tuple}")
+            # # print(f"End time tuple: {end_time_tuple}")
             # if end_time_tuple:
             #     day, month, year = end_time_tuple
             #     g.add((study_completion_date_uri, OntologyNamespaces.TIME.value.day, Literal(day, datatype=XSD.gDay), metadata_graph))
@@ -391,7 +391,7 @@ def add_age_group_inclusion_criterion(g: Graph, study_uri: URIRef, inclusion_cri
         return g
     
     age_group_inclusion_criterion_uri =  URIRef(study_uri + "/age_group_inclusion_criterion")
-    # print(f"Age group inclusion criterion URI: {age_group_inclusion_criterion_uri}")    
+    # # print(f"Age group inclusion criterion URI: {age_group_inclusion_criterion_uri}")    
     g.add((age_group_inclusion_criterion_uri, RDF.type, OntologyNamespaces.CMEO.value.age_group_inclusion_criterion, metadata_graph))
     g.add((inclusion_criterion_uri, OntologyNamespaces.RO.value.has_part, age_group_inclusion_criterion_uri, metadata_graph))
     g.add((age_group_inclusion_criterion_uri, OntologyNamespaces.RO.value.part_of, inclusion_criterion_uri, metadata_graph))
@@ -405,7 +405,7 @@ def add_age_group_inclusion_criterion(g: Graph, study_uri: URIRef, inclusion_cri
         if min_age is not None:
             min_age = float(min_age)
            
-        # print(f"Age group inclusion criterion value ranges: {min_age}, {max_age}")  
+        # # print(f"Age group inclusion criterion value ranges: {min_age}, {max_age}")  
             min_age_value_specification =  URIRef(age_group_inclusion_criterion_uri + "/minimum_age_value_specification")
             g.add((min_age_value_specification, RDF.type, OntologyNamespaces.OBI.value.minimum_age_value_specification, metadata_graph))
             g.add((min_age_value_specification, OntologyNamespaces.CMEO.value.has_value, Literal(min_age, datatype=XSD.float), metadata_graph))
@@ -490,7 +490,7 @@ def update_metadata_graph(endpoint_url, cohort_uri, variable_uris, metadata_grap
     study_variable_design_specification_uri = URIRef(cohort_uri + "/study_design_variable_specification")
     
     if not graph_exists(graph_uri):
-        print("⚠️ Metadata graph does not exist, skipping update.")
+        # print("⚠️ Metadata graph does not exist, skipping update.")
         return None
     
     # Construct SPARQL `INSERT DATA` query
@@ -504,7 +504,7 @@ def update_metadata_graph(endpoint_url, cohort_uri, variable_uris, metadata_grap
         }}
     """
     
-   # print(f"📌 SPARQL Update Query:\n{query}")
+   # # print(f"📌 SPARQL Update Query:\n{query}")
 
     # Send the SPARQL Update request to Oxigraph
     headers = {"Content-Type": "application/sparql-update"}
@@ -555,8 +555,8 @@ def reconstruct_metadata_graph(graph_uri, metadata_graph_path) -> None:
         # result_data is in RDFLib Graph format when using TURTLE return format
         save_graph_to_trig_file(g, metadata_graph_path)
     except Exception as e:
+        return e
         # print(f"Error querying the graph: {e}") 
-        pass
 
 # def reconstruct_metadata_graph(graph_uri, metadata_graph_path):
 #     """
@@ -568,7 +568,7 @@ def reconstruct_metadata_graph(graph_uri, metadata_graph_path) -> None:
 #     :param metadata_graph_path: Path to save the exported graph in TriG format
 #     """
     
-#     print(f"Retrieving named graph from: {graph_uri}")
+#     # print(f"Retrieving named graph from: {graph_uri}")
 
 #     headers = {"Accept": "application/trig"}  # Request TriG format
 
@@ -577,7 +577,7 @@ def reconstruct_metadata_graph(graph_uri, metadata_graph_path) -> None:
 #         response = requests.get(graph_uri, headers=headers, timeout=300)
 
 #         if response.status_code == 200:
-#             print(f"Successfully retrieved RDF data from {graph_uri}")
+#             # print(f"Successfully retrieved RDF data from {graph_uri}")
 
 #             # Parse the RDF data using rdflib
 #             g = rdflib.Graph()
@@ -587,14 +587,14 @@ def reconstruct_metadata_graph(graph_uri, metadata_graph_path) -> None:
 #             with open(metadata_graph_path, "w", encoding="utf-8") as trig_file:
 #                 trig_file.write(response.text)
 
-#             print(f"Saved RDF data to {metadata_graph_path}")
+#             # print(f"Saved RDF data to {metadata_graph_path}")
 #             return True
 #         else:
-#             print(f"Failed to retrieve graph: {response.status_code}, {response.text}")
+#             # print(f"Failed to retrieve graph: {response.status_code}, {response.text}")
 #             return False
 
 #     except Exception as e:
-#         print(f"Error querying the graph: {e}")
+#         # print(f"Error querying the graph: {e}")
 #         return False
 
 
@@ -613,7 +613,6 @@ def add_data_access_spec(study_name:str,  data_policy:list[str], data_modifier:l
     
     else:
         # print("study exists in the metadata graph, adding DUO policy")
-        # pass
         create_policy_assignment(cohort_uri, study_design_execution_uri,metadata_graph, data_policy, data_modifier, disease_concept_code, disease_concept_label, disease_concept_omop_id,study_metadata_graph_file_path) 
 
 

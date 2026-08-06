@@ -122,7 +122,7 @@ class UnifiedEmbeddingModel:
         cache = cache_dir or settings.MODEL_CACHE_DIR
         dtype = torch.float16 if self._is_decoder else torch.float32
 
-       
+        # print(f"🔥 Loading embedding model: {model_name_or_path}...")
         self.tokenizer = AutoTokenizer.from_pretrained(
             model_name_or_path, cache_dir=cache, trust_remote_code=True)
         # self.model = AutoModel.from_pretrained(
@@ -147,7 +147,7 @@ class UnifiedEmbeddingModel:
         self.model.eval()
 
         self.embedding_dim = self.model.config.hidden_size
-        # # print(f"✅ Model loaded: dim={self.embedding_dim}, "
+        # print(f"✅ Model loaded: dim={self.embedding_dim}, "
         #       f"pool={self._pooling}, device={self.device}")
 
     def _pool(self, last_hidden: torch.Tensor,
@@ -164,18 +164,7 @@ class UnifiedEmbeddingModel:
         # mean pooling
         mask = attention_mask.unsqueeze(-1).float()
         return (last_hidden * mask).sum(1) / mask.sum(1).clamp(min=1e-9)
-    # def _pool(self, last_hidden: torch.Tensor,
-    #           attention_mask: torch.Tensor) -> torch.Tensor:
-    #     if self._pooling == "cls":
-    #         return last_hidden[:, 0]
-    #     if self._pooling == "last":
-    #         # last non-pad token per sequence
-    #         seq_lens = attention_mask.sum(dim=1) - 1
-    #         return last_hidden[torch.arange(last_hidden.size(0),
-    #                            device=last_hidden.device), seq_lens]
-    #     # mean pooling
-    #     mask = attention_mask.unsqueeze(-1).float()
-    #     return (last_hidden * mask).sum(1) / mask.sum(1).clamp(min=1e-9)
+    
 
     @torch.no_grad()
     def embed_batch(self, texts: List[str], show_progress: bool = False,
@@ -464,7 +453,7 @@ def get_model(backend: str = "biolord") -> Tuple[UnifiedEmbeddingModel, int]:
             _model_instance = APIEmbeddingModel(backend, api_key=settings.OPENAI_API_KEY if backend == "openai" else settings.GEMINI_API_KEY)
 
         # if backend in TOGETHER_MODELS:
-        #     # print(f"🔥 Loading Together AI embedding model: {backend}...")
+        #     print(f"🔥 Loading Together AI embedding model: {backend}...")
         #     _model_instance = TogetherEmbeddingModel(
         #         backend_key=backend,
         #     )

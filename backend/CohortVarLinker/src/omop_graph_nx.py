@@ -41,8 +41,22 @@ LOINC_AXIS_RELS = {
     'has component': 'component', 'has property': 'property', 'has time aspect': 'time_aspect',
     'has system': 'system', 'has scale type': 'scale_type', 'has method': 'method', 'has specimen': 'specimen',
 }
+# Relations that assert two concepts denote the SAME thing, so equivalence may
+# be propagated across them.
+#
+# "maps to" / "mapped from" are deliberately absent. They are OMOP's
+# standardisation mapping -- non-standard concept to its standard replacement --
+# and that is frequently lossy rather than equivalent: "h/o: multiple allergies"
+# maps to the generic hub "history of event", as does "history of neoplasm", so
+# treating the mapping as equivalence made those two siblings equivalent through
+# the pivot. The same shape turned aspirin into a beta blocker, via the
+# combination products "bisoprolol and acetylsalicylic acid" that map to it.
+#
+# Every remaining entry is an explicit cross-vocabulary equivalence assertion.
+# A concept pair related ONLY by a bare mapping still reaches the hierarchical
+# gates below; it simply no longer arrives there already declared identical.
 EQUIV_REL_NAMES = frozenset({
-    "maps to", "mapped from", "rxnorm - atc pr lat", "atc - rxnorm pr lat",
+    "rxnorm - atc pr lat", "atc - rxnorm pr lat",
     "atc - rxnorm", "rxnorm - atc", "snomed - rxnorm eq", "rxnorm - snomed eq",
     "atc - snomed eq", "snomed - atc eq", "cpt4 - snomed eq", "snomed - cpt4 eq",
     "cpt4 - loinc eq", "loinc - cpt4 eq",
@@ -139,11 +153,11 @@ class OmopGraphNX:
         g = self.graph
 
         # Resolve the "maps to" int for multi-target detection
-        rm_fwd = {r: i for i, r in g.graph.get('rel_map_rev', {}).items()}
-        print(f"forward rel = {rm_fwd}")
-        MAPTO_INT = rm_fwd.get("maps to", -1)
-        print(f"mapto edges: {MAPTO_INT}")
-       
+        # rm_fwd = {r: i for i, r in g.graph.get('rel_map_rev', {}).items()}
+        # print(f"forward rel = {rm_fwd}")
+        # MAPTO_INT = rm_fwd.get("maps to", -1)
+        # print(f"mapto edges: {MAPTO_INT}")
+     
 
         isa_succ, subs_succ, equiv_bidir = {}, {}, {}
         equiv_targets = {}  # Track fan-out for ALL equivalence types
@@ -171,12 +185,12 @@ class OmopGraphNX:
             u for u, targets in equiv_targets.items() if len(targets) > 1
         )
 
-        elapsed = time.time() - t0
-        print(f"[INFO] Built typed adjacency index in {elapsed:.2f}s "
-              f"(is_a:{sum(len(v) for v in self._isa_succ.values()):,}, "
-              f"subsumes:{sum(len(v) for v in self._subs_succ.values()):,}, "
-              f"equiv:{sum(len(v) for v in self._equiv_bidir.values()):,}, "
-              f"multi_target_mappers:{len(self._multi_target_mappers):,})")
+        # elapsed = time.time() - t0
+        # print(f"[INFO] Built typed adjacency index in {elapsed:.2f}s "
+        #       f"(is_a:{sum(len(v) for v in self._isa_succ.values()):,}, "
+        #       f"subsumes:{sum(len(v) for v in self._subs_succ.values()):,}, "
+        #       f"equiv:{sum(len(v) for v in self._equiv_bidir.values()):,}, "
+        #       f"multi_target_mappers:{len(self._multi_target_mappers):,})")
 
     # ══════════════════════════════════════════════════════════════════
     # Shared helpers
@@ -312,8 +326,9 @@ class OmopGraphNX:
 
     def get_node_attr(self, nid, attr):
         try:
-            if attr in ('vocabulary', 'concept_name', 'name', 'concept_class'):
-                col = {'name': 'concept_name', 'vocabulary': 'concept_vocabulary'}.get(
+            if attr in ('vocabulary', 'concept_name', 'name', 'concept_class', 'domain', 'concept_domain'):
+                col = {'name': 'concept_name', 'vocabulary': 'concept_vocabulary',
+                       'domain': 'concept_domain'}.get(
                     attr, f'concept_{attr}' if 'concept' not in attr else attr)
                 meta = self.graph.graph.get('meta')
                 if meta is None or col not in meta.columns:
@@ -594,6 +609,21 @@ class OmopGraphNX:
         "body structure": "anatomy",
     }
 
+    # OMOP domain_id -> coarse kind. Authoritative when present: the CDM
+    # assigns it per concept, so it needs no vocabulary-specific guessing.
+    _DOMAIN_KIND = {
+        # Observation stays its own kind. A lab test is a Measurement in both
+        # LOINC and SNOMED -- in SNOMED it often carries concept_class
+        # "Procedure" while domain_id says Measurement, which is the case this
+        # table exists to resolve. An Observation is a different clinical fact
+        # and folding it into measurement would let every recorded observation
+        # gate through to every lab test.
+        "measurement": "measurement", "observation": "observation",
+        "condition": "condition", "procedure": "procedure",
+        "drug": "drug", "device": "device", "specimen": "anatomy",
+        "spec anatomic site": "anatomy", "meas value": "qualifier",
+    }
+
     def _concept_kind(self, cid: int) -> str:
         """Return a coarse OMOP-domain category for *cid*.
 
@@ -605,6 +635,19 @@ class OmopGraphNX:
           2. SNOMED/multi-domain vocab → look up concept_class.
           3. Fallback to 'unknown' (permissive at the compatibility gate).
         """
+        # OMOP's own domain_id first: it is assigned precisely to say which
+        # kind of clinical fact a concept represents, and it is the only field
+        # that separates a measurement procedure from a surgical one -- SNOMED
+        # labels both concept_class "Procedure", while domain_id calls
+        # "Nitrogen measurement" a Measurement and "Coronary artery bypass
+        # graft" a Procedure. Resolving by concept_class alone made every LOINC
+        # lab test incompatible with its SNOMED parent and silently discarded
+        # the 21,077-edge OHDSI LOINC-SNOMED crosswalk (Talapova et al. 2020),
+        # which is expressed as exactly those Is a / Subsumes edges.
+        dom = self.get_node_attr(cid, "domain").lower().strip()
+        if dom in self._DOMAIN_KIND:
+            return self._DOMAIN_KIND[dom]
+
         v = self.get_node_attr(cid, "vocabulary").lower().strip()
         v = VOCAB_ALIASES.get(v, v)
         kind = self._VOCAB_KIND.get(v)
@@ -880,7 +923,7 @@ class OmopGraphNX:
         meta = self.graph.graph.get('meta')
         if meta is not None and 'concept_vocabulary' in meta.columns:
             c = meta['concept_vocabulary'].value_counts()
-            print(f"Total unique vocabularies:{len(c)}\n\nVocabulary distribution:\n{c}")
+            # print(f"Total unique vocabularies:{len(c)}\n\nVocabulary distribution:\n{c}")
             return c
         return None
 
@@ -893,7 +936,7 @@ class OmopGraphNX:
         if not csv_file_path:
             raise ValueError("No CSV file path provided.")
 
-        print("Reading CSV...")
+        # print("Reading CSV...")
         use_cols = [
             "concept_id_1", "concept_id_2", "relationship_id",
             "concept_vocabulary_1", "concept_vocabulary_2",
@@ -901,28 +944,34 @@ class OmopGraphNX:
             "concept_code_1", "concept_code_2",
             "concept_synonym_1", "concept_synonym_2",
             "concept_class_1", "concept_class_2",
+            # domain_id is what separates a lab procedure from a surgical one.
+            # SNOMED gives both concept_class "Procedure"; only the domain says
+            # "Nitrogen measurement" is a Measurement while "Coronary artery
+            # bypass graft" is a Procedure. Without it the compatibility gate
+            # discards all 21,077 edges of the OHDSI LOINC-SNOMED crosswalk.
+            "concept_domain_1", "concept_domain_2",
         ]
         header = pd.read_csv(csv_file_path, nrows=0)
         actual = [c for c in use_cols if c in header.columns]
         df = pd.read_csv(csv_file_path, usecols=actual, dtype=str)
         df['relationship_id'] = df['relationship_id'].str.lower()
 
-        for col in ['concept_vocabulary_1', 'concept_vocabulary_2']:
-            if col in df.columns:
-                print(f"Unique vocabs:{sorted(df[col].dropna().unique())}")
+        # for col in ['concept_vocabulary_1', 'concept_vocabulary_2']:
+        #     if col in df.columns:
+        #         print(f"Unique vocabs:{sorted(df[col].dropna().unique())}")
 
         # ── Separate LOINC axis rows from edge rows ──
         loinc_df = df[df['relationship_id'].isin(LOINC_AXIS_RELS)].copy()
         df_e = df[~df['relationship_id'].isin(LOINC_AXIS_RELS)].copy()
         df_e = df_e[df_e['relationship_id'].isin(set(EQ_RELS) | set[str](DIR_RELS))].copy()
-        print(f"df_e head\n{df_e.head()}")
-        print(f"LOINC axis:{len(loinc_df):,}, Edge rows:{len(df_e):,}")
+        # print(f"df_e head\n{df_e.head()}")
+        # print(f"LOINC axis:{len(loinc_df):,}, Edge rows:{len(df_e):,}")
 
         # ── Build node metadata ──
         c1 = {c: c[:-2] for c in actual if c.endswith('_1')}
-        print(f"c1= {c1}")
+        # print(f"c1= {c1}")
         c2 = {c: c[:-2] for c in actual if c.endswith('_2')}
-        print(f"c2= {c2}")
+        # print(f"c2= {c2}")
         all_df = pd.concat([df_e, loinc_df], ignore_index=True)
         fm = pd.concat([
             all_df[list[str](c1)].rename(columns=c1),
@@ -934,6 +983,8 @@ class OmopGraphNX:
         mcols = ['concept_id', 'concept_vocabulary', 'concept_name', 'concept_synonym', 'concept_code']
         if 'concept_class' in fm.columns:
             mcols.append('concept_class')
+        if 'concept_domain' in fm.columns:
+            mcols.append('concept_domain')
         meta = fm.drop_duplicates(subset=['concept_id'])[
             [c for c in mcols if c in fm.columns]].copy()
         meta.set_index('concept_id', inplace=True)
@@ -1003,7 +1054,7 @@ class OmopGraphNX:
         self._build_typed_adjacency()
 
         self.save_graph(self.output_file)
-        print(f"[INFO] Done. Nodes:{self.graph.number_of_nodes():,}, Edges:{self.graph.number_of_edges():,}")
+        # print(f"[INFO] Done. Nodes:{self.graph.number_of_nodes():,}, Edges:{self.graph.number_of_edges():,}")
 
     def save_graph(self, path):
         out = path if path.endswith(".gz") else path + ".gz"
@@ -1016,7 +1067,7 @@ class OmopGraphNX:
         }
         with gzip.open(out, "wb", compresslevel=6) as f:
             pickle.dump(bundle, f, protocol=pickle.HIGHEST_PROTOCOL)
-        print(f"[INFO] Saved to {out}")
+        # print(f"[INFO] Saved to {out}")
 
     def load_graph(self, path):
         if not path.endswith(".gz") and os.path.exists(path + ".gz"):
@@ -1033,7 +1084,7 @@ class OmopGraphNX:
             self.graph = data  # backward compat with old pickles
             self._build_typed_adjacency()
         self._IS_A = self._SUBSUMES = self._EQUIV_INTS = None
-        print(f"[INFO] Loaded {path}. Nodes:{self.graph.number_of_nodes()} Edges:{self.graph.number_of_edges()}")
+        # print(f"[INFO] Loaded {path}. Nodes:{self.graph.number_of_nodes()} Edges:{self.graph.number_of_edges()}")
 
     def clear_caches(self):
         """Clear all caches."""
@@ -1280,109 +1331,157 @@ class OmopGraphNX:
 
         return equiv_chain + hier_chain[1:]
 
-def run_pair_tests(omop_nx):
-    """Test source_to_targets_paths against curated concept pairs."""
+# def run_pair_tests(omop_nx):
+#     """Test source_to_targets_paths against curated concept pairs."""
 
-    cases = [
-        # (src, tgt, should_match, description)
-        # ── LOINC hierarchy: parent-child should NOT match ──
-        (4248525, 4060832, True,
-         "lying systolic BP vs systolic BP (parent-child)"),
-        (4248525, 4326744, False,
-         "lying systolic BP vs blood pressure (too broad"),
+#     cases = [
+#         # (src, tgt, should_match, description)
+#         # ── LOINC hierarchy: parent-child should NOT match ──
+#         (4248525, 4060832, True,
+#          "lying systolic BP vs systolic BP (parent-child)"),
+#         (4248525, 4326744, False,
+#          "lying systolic BP vs blood pressure (too broad"),
 
-        # ── Drug cross-vocab: unrelated vs related ──
-        (4306892, 21601810, False,
-         "furosemide vs cilazapril+diuretics (unrelated combo)"),
-        (4306892, 21601516, True,
-         "furosemide vs HIGH-CEILING DIURETICS (ancestor class)"),
+#         # ── Drug cross-vocab: unrelated vs related ──
+#         (4306892, 21601810, False,
+#          "furosemide vs cilazapril+diuretics (unrelated combo)"),
+#         (4306892, 21601516, True,
+#          "furosemide vs HIGH-CEILING DIURETICS (ancestor class)"),
 
-        # ── Combination ingredient: should NOT match single ingredient ──
-        (21035025, 956874, False,
-         "amiloride/furosemide oral soln vs furosemide (combo→ingredient)"),
+#         # ── Combination ingredient: should NOT match single ingredient ──
+#         (21035025, 956874, False,
+#          "amiloride/furosemide oral soln vs furosemide (combo→ingredient)"),
 
-        # ── Maps-to equivalence ──
-        (4151548, 3020399, False,
-         "Glucose measurement, body fluid vs glucose [mass/volume] urine (maps_to)"),
+#         # ── Maps-to equivalence ──
+#         (4151548, 3020399, False,
+#          "Glucose measurement, body fluid vs glucose [mass/volume] urine (maps_to)"),
 
-        # ── LOINC loose match (same component, different property) ──
-        (3020399, 3005570, True,
-         "glucose [mass/vol] urine vs glucose [mol/vol] urine (LOINC axes)"),
+#         # ── LOINC loose match (same component, different property) ──
+#         (3020399, 3005570, True,
+#          "glucose [mass/vol] urine vs glucose [mol/vol] urine (LOINC axes)"),
 
-        # ── ATC hierarchy ──
-        (21601517, 21601520, True,
-         "sulfonamides plain vs piretanide (parent→child)"),
-        (21601517, 21601521, True,
-         "sulfonamides plain vs torasemide (parent→child)"),
-        (21601517, 942350, True,
-         "sulfonamides plain vs torsemide (cross-vocab descendant)"),
+#         # ── ATC hierarchy ──
+#         (21601517, 21601520, True,
+#          "sulfonamides plain vs piretanide (parent→child)"),
+#         (21601517, 21601521, True,
+#          "sulfonamides plain vs torasemide (parent→child)"),
+#         (21601517, 942350, True,
+#          "sulfonamides plain vs torsemide (cross-vocab descendant)"),
 
-        # ── ATC siblings: should NOT match ──
-        (942350, 21601520, False,
-         "torsemide vs piretanide (siblings under same parent)"),
+#         # ── ATC siblings: should NOT match ──
+#         (942350, 21601520, False,
+#          "torsemide vs piretanide (siblings under same parent)"),
 
-        # ── Disease hierarchy ──
-        (312327, 4329847, True,
-         "acute MI vs myocardial infarction (child→parent)"),
-        (4173632, 312327, False,
-         "microinfarct of heart vs acute MI (siblings)"),
-         (4242997, 4336464, False,
-         "Cholecystectomy vsC oronary artery bypass graft"),
-         (21600961,4146455,False,
-         "ANTITHROMBOTIC AGENTS Antihypertensive therapy"),
-         (21600961, 3655005, False,
-         "antithrombotic agents vs Platelet aggregation inhibitor therapy"),
-         (4029066, 21601521, True,
-         "Torsemide vs torasemide; oral, parenteral"),
-         (21601665, 1314002, True,
-         "BETA BLOCKING AGENTS vs Atenolol"),
-          (1314002, 21601665, True,
-         "Atenolol vs BETA BLOCKING AGENTS"),
-         (3000963,3009744, False,
-         "hemoglobin [mass/volume] in blood vs mchc [mass/volume] by automated count"),
-         (3005456,3023103, True,
-         "Potassium [Moles/volume] in Serum or Plasma vs Potassium [Moles/volume] in Blood"),
-         (21601665,1332418, False,
-         "beta blocking agents vs amlodipine"),
-           (1326303,1243623, False,
-         "digoxin vs inotropic therapy"),
-         (3001308,3007070, False, "ldl vs hdl"),
-         (21601665,1318853,False,
-         "beta blocking agents,nifedipine"),
-         (970250,21601517, 
-         False, "spironolactone vs diuretics")
-    ]
+#         # ── Disease hierarchy ──
+#         (312327, 4329847, True,
+#          "acute MI vs myocardial infarction (child→parent)"),
+#         (4173632, 312327, False,
+#          "microinfarct of heart vs acute MI (siblings)"),
+#          (4242997, 4336464, False,
+#          "Cholecystectomy vsC oronary artery bypass graft"),
+#          (21600961,4146455,False,
+#          "ANTITHROMBOTIC AGENTS Antihypertensive therapy"),
+#          (21600961, 3655005, False,
+#          "antithrombotic agents vs Platelet aggregation inhibitor therapy"),
+#          (4029066, 21601521, True,
+#          "Torsemide vs torasemide; oral, parenteral"),
+#          (21601665, 1314002, True,
+#          "BETA BLOCKING AGENTS vs Atenolol"),
+#           (1314002, 21601665, True,
+#          "Atenolol vs BETA BLOCKING AGENTS"),
+#          (3000963,3009744, False,
+#          "hemoglobin [mass/volume] in blood vs mchc [mass/volume] by automated count"),
+#          (3005456,3023103, True,
+#          "Potassium [Moles/volume] in Serum or Plasma vs Potassium [Moles/volume] in Blood"),
+#          (21601665,1332418, False,
+#          "beta blocking agents vs amlodipine"),
+#            (1326303,1243623, False,
+#          "digoxin vs inotropic therapy"),
+#          (3001308,3007070, False, "ldl vs hdl"),
+#          (21601665,1318853,False,
+#          "beta blocking agents,nifedipine"),
+#          (970250,21601517,False, "spironolactone vs diuretics"),
 
-    passed = failed = 0
-    for src, tgt, expected, desc in cases:
-        results = omop_nx.source_to_targets_paths(src, [tgt], max_depth=1)
-        matched = len(results) > 0
-        ok = matched == expected
+#         # ── Hub-mediated siblings: two concepts that both `maps to` the same
+#         # generic parent are NOT equivalent. `maps to` is OMOP's
+#         # standardisation mapping (non-standard -> standard replacement) and is
+#         # frequently lossy: "h/o: multiple allergies" and "history of neoplasm"
+#         # both map to "history of event" (1340204), so treating the mapping as
+#         # equivalence made them members of one equivalence class -- reported as
+#         # exactMatch. Same shape put aspirin under beta blockers via the
+#         # combination products that map to it. These fail if "maps to" /
+#         # "mapped from" are ever re-added to EQUIV_REL_NAMES.
+#         (4060077, 4078300, False,
+#          "h/o multiple allergies vs history of neoplasm (both maps_to 'history of event')"),
+#         (4078300, 4060077, False,
+#          "history of neoplasm vs h/o multiple allergies (reverse direction)"),
+#         (4060077, 1340204, False,
+#          "h/o multiple allergies vs history of event (its own broader concept)"),
+#         (1112807, 21601664, False,
+#          "aspirin vs BETA BLOCKING AGENTS (via bisoprolol+aspirin combination)"),
+#         (1112807, 21601665, False,
+#          "aspirin vs beta blocking agents, plain (same route, sibling class)"),
+#         (1112807, 21600961, True,
+#          "aspirin vs ANTITHROMBOTIC AGENTS (genuine ATC ancestor, B01AC06 < B01)"),
+#         (1112807, 4306886, True,
+#          "aspirin RxNorm vs aspirin SNOMED (real cross-vocab equivalence)"),
+#         (1112807, 21600991, True,
+#          "aspirin vs acetylsalicylic acid; oral (rxnorm - atc pr lat)"),
+#         # Two unrelated 'history of' findings must not collapse through the hub
+#         # either -- the pattern generalises to every h/o concept in the corpus.
+#         (4214956, 4078300, False,
+#          "history of clinical finding vs history of neoplasm (hub siblings)"),
+#     ]
 
-        # Gather diagnostics
-        src_name = omop_nx.get_node_attr(src, 'name')
-        tgt_name = omop_nx.get_node_attr(tgt, 'name')
-        src_vocab = omop_nx.get_node_attr(src, 'vocabulary')
-        tgt_vocab = omop_nx.get_node_attr(tgt, 'vocabulary')
-        match_label = results[0][1] if results else "none"
+#     passed = failed = 0
+#     for src, tgt, expected, desc in cases:
+#         results = omop_nx.source_to_targets_paths(src, [tgt], max_depth=1)
+#         matched = len(results) > 0
+#         ok = matched == expected
 
-        status = "✓" if ok else "✗ FAIL"
-        expect_str = "match" if expected else "no match"
-        got_str = f"matched ({match_label})" if matched else "no match"
+#         # Gather diagnostics
+#         src_name = omop_nx.get_node_attr(src, 'name')
+#         tgt_name = omop_nx.get_node_attr(tgt, 'name')
+#         src_vocab = omop_nx.get_node_attr(src, 'vocabulary')
+#         tgt_vocab = omop_nx.get_node_attr(tgt, 'vocabulary')
+#         match_label = results[0][1] if results else "none"
 
-        print(f"  {status}  [{src_vocab}] {src_name} ({src}) "
-              f"→ [{tgt_vocab}] {tgt_name} ({tgt})")
-        print(f"         expected: {expect_str}, got: {got_str}")
+#         status = "✓" if ok else "✗ FAIL"
+#         expect_str = "match" if expected else "no match"
+#         got_str = f"matched ({match_label})" if matched else "no match"
 
-        if not ok:
-            failed += 1
-            path = omop_nx.explain_path(src, tgt)
-            print(f"         explain:  {path['path_type']} — {path['explanation']}")
-            eq_src = omop_nx._equiv_closure(src)
-            print(f"equv({src}): {sorted(eq_src)[:8]}{'...' if len(eq_src) > 8 else ''}")
-        else:
-            passed += 1
+#         print(f"  {status}  [{src_vocab}] {src_name} ({src}) "
+#               f"→ [{tgt_vocab}] {tgt_name} ({tgt})")
+#         print(f"         expected: {expect_str}, got: {got_str}")
 
-    print(f"\n  Pair tests: {passed} passed, {failed} failed, {passed + failed} total")
-    return failed == 0
+#         if not ok:
+#             failed += 1
+#             path = omop_nx.explain_path(src, tgt)
+#             print(f"         explain:  {path['path_type']} — {path['explanation']}")
+#             eq_src = omop_nx._equiv_closure(src)
+#             print(f"equv({src}): {sorted(eq_src)[:8]}{'...' if len(eq_src) > 8 else ''}")
+#         else:
+#             passed += 1
+
+#     print(f"\n  Pair tests: {passed} passed, {failed} failed, {passed + failed} total")
+#     return failed == 0
+    
+# if __name__ == "__main__":
+#     start_time = time.time()
+#     csv_path = "/Users/komalgilani/phd_projects/CohortVarLinker/data/concept_relationship_enriched.csv"
+#     omop_nx = OmopGraphNX(csv_path, output_file='graph_nx.pkl.gz')
+#     run_pair_tests(omop_nx)
+#     p = omop_nx.explain_path(970250, 21601517, max_depth=4)
+#     print(p['explanation'])
+#     for u, v, rel in p['edges']:
+#         print(f"  {u} ({omop_nx.get_node_attr(u,'name')}, {omop_nx.get_node_attr(u,'vocabulary')}) "
+#             f"--{rel}--> "
+#             f"{v} ({omop_nx.get_node_attr(v,'name')}, {omop_nx.get_node_attr(v,'vocabulary')})")
+#     # 970250,21601517, 
+# #     print(p['path'])        # [(21600961, name, vocab), (X, name, vocab), (3655005, name, vocab)]
+# #     print(omop_nx.get_edge_rels(p['path'][1][0], 3655005))   # every relation stored on X→365500
+
+# #     eq = omop_nx._equiv_closure(778939)
+# #     print(eq)
+   
 

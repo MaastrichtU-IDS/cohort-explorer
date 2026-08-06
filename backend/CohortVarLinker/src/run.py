@@ -35,10 +35,7 @@ _CTX_TYPE_TO_VERDICT = {
 }
 
 
-# Logprob detail stays on LLMEvidence — llm_call still computes it and a
-# logprob-capable backend (openrouter, fireworks) will populate it — but it is
-# not written out while empty. On litellm these are never requested, so every
-# row would otherwise carry ~250 characters of false, "" and 0.0.
+
 _LOGPROB_KEYS = (
     "logprob_usable", "logprob_distribution_type", "logprob_observability",
     "logprob_dist", "logprob_confidence", "logprob_top_label",
@@ -187,15 +184,7 @@ class StudyMapper:
             return 0.45  # lower a bit due to low label quality
         return settings.ADAPTIVE_THRESHOLD 
     
-    # def fetch_studies_context(src_study_id:str, tgt_study_id:str):
-        
-     
-    #     src_query = SPARQLQueryBuilder.build_study_context_query(src_study_id )
-    #     tgt_query = SPARQLQueryBuilder.build_study_context_query(tgt_study_id)
-
-    #     bindings = execute_query(src_query).get("results", {}).get("bindings", [])
-    #     bindings = execute_query(tgt_query).get("results", {}).get("bindings", [])
-
+   
     # Step 1a: SPARQL → typed VariableCollections
     def _fetch_unmapped_variables(self, study: str, role: str = None,use_filter:bool=False) -> List[VariableNode]:
         """Raw unmapped variables — self-sufficient (no enrichment needed)."""
@@ -313,6 +302,15 @@ class StudyMapper:
                     continue
             return result
 
+        def _as_int(val):
+            """Single concept id, or None. SPARQL returns these as strings."""
+            if val in (None, ""):
+                return None
+            try:
+                return int(float(str(val).strip()))
+            except (ValueError, TypeError):
+                return None
+
        
         prof_map = (
                 profiles_df.drop_duplicates(subset="identifier", keep="last")
@@ -326,6 +324,8 @@ class StudyMapper:
             # Parse into typed values BEFORE assignment (validators don't fire post-init)
             node.statistical_type = StatisticalType.from_string(p.get("stat_label")) if mapping_mode != MappingType.NE.value else node.statistical_type
             node.unit = p.get("unit_label", "") if mapping_mode != MappingType.NE.value else node.unit
+    
+            node.unit_concept_id = _as_int(p.get("unit_omop_id")) if mapping_mode != MappingType.NE.value else node.unit_concept_id
             node.context_labels = _split_labels(p.get("composite_code_labels")) if mapping_mode != MappingType.NE.value else []
             node.context_ids = _split_ids(p.get("composite_code_omop_ids"))   if mapping_mode != MappingType.NE.value else []
             node.category_labels = _split_labels(p.get("categories_labels"))
@@ -561,7 +561,7 @@ class StudyMapper:
             if self.llm_model:
                 ambiguous = [idx for idx, (_, _, ev) in structurals.items()
                               if should_consult_llm(ev)]
-                n_skipped_structural = len(recs) - len(ambiguous)
+                # n_skipped_structural = len(recs) - len(ambiguous)
 
                 if self.enable_source_claim_early_exit and ambiguous:
                     llm_evidence, n_skipped_claim = self._resolve_llm_with_source_claim(
@@ -586,7 +586,9 @@ class StudyMapper:
 
             # Phase C: one policy.decide() per row, immutable verdict, single write
             # logger.info(f"⚖️  Phase C: policy decision for {len(structurals)} candidates...")
-
+            # Visit vocabulary of each study. A study that records everything
+            # against a generic 'visit date' is expanded onto the counterpart's
+            # explicit schedule rather than being scored as a mismatch.
             src_visit_universe = build_visit_universe(src_col.variables)
             tgt_visit_universe = build_visit_universe(tgt_col.variables)
             # logger.info(

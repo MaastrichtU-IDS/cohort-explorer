@@ -7,11 +7,6 @@ These dataclasses define the data flow between pipeline stages:
   LLMEvidence         ← produced by llm_call.py (when LLM is consulted)
   Verdict             ← produced once, by policy.decide(), never mutated
 
-The frozen=True is load-bearing: it prevents the class of bug where one
-stage rewrites another stage's output. The Compatible→Partial collapse
-in NE mode existed because `current_level` was mutable and the cap
-(constraints.py:989) overwrote the handler's verdict. With frozen
-verdicts that overwrite is a TypeError, not a silent regression.
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
@@ -100,11 +95,6 @@ class TimepointInfo:
         return self.status == "undetermined"
 
 
-# Keys that already exist as their own CSV column or inside the LLMEvidence
-# column. Measured identical on every row where both were present, so carrying
-# them in the details blob only doubled the file and created two places for the
-# same fact to drift apart. harmonized_variable is deliberately NOT here —
-# run.py reads it back out of details to decide whether to synthesise one.
 _REDUNDANT_DETAIL_KEYS = frozenset({
     "mapping_relation",                     # own column
     "source_type", "target_type",           # own columns
@@ -150,9 +140,6 @@ class Verdict:
         details["timepoint_aligned"] = "yes" if self.timepoint.aligned else "no"
         if self.timepoint.status:
             details["timepoint_status"] = self.timepoint.status
-        # No separate "requires verification" flag: timepoint_status ==
-        # 'undetermined' already carries it, and undetermined_timepoint_side
-        # says which side. A third field would only be able to disagree.
         if not self.timepoint.aligned and self.level != MatchLevel.NOT_APPLICABLE:
             details["source_timepoint"] = self.timepoint.source_visit
             details["target_timepoint"] = self.timepoint.target_visit

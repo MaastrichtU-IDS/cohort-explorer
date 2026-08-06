@@ -35,13 +35,14 @@ def load_vectordb(collection_name:str, vectordb_path: str ="komal.qdrant.137.120
     If recreate is True, the collection is deleted (if it exists) and then created.
     Otherwise, if the collection does not exist, it is created.
     """
-
+    # print("📥 Loading embedding model")
 
     embedding_model, embedding_size = get_embedding_model(model_name=model_name)
     vectordb = QdrantClient(host=vectordb_path, port=6333, timeout=240)
 
     try:
         if recreate:
+            # print(f"🔄 Recreating collection '{collection_name}' on {vectordb_path}")
             vectordb.delete_collection(collection_name)
             vectordb.create_collection(
                 collection_name=collection_name,
@@ -56,7 +57,9 @@ def load_vectordb(collection_name:str, vectordb_path: str ="komal.qdrant.137.120
                     ),
             )
     except Exception as e:
-    
+
+        # print(f"Collection not found or error occurred: {e}")
+        # print(f"Creating new collection '{collection_name}' on {vectordb_path}")
         vectordb.create_collection(
             collection_name=collection_name,
             vectors_config=VectorParams(size=embedding_size, distance=Distance.COSINE),
@@ -178,6 +181,7 @@ def _prepare_var_metadata(row: Dict[str, Any], study_name: str) -> Dict[str, Any
 def insert_in_db(vectordb, embedding_model, points, collection_name):
     valid_points = [(p, p["text"]) for p in points if p.get("text")]
     if not valid_points:
+        # print("⚠️ No valid points to insert")
         return
 
     # Batch encode all texts in one forward pass
@@ -193,6 +197,7 @@ def insert_in_db(vectordb, embedding_model, points, collection_name):
         ))
 
     vectordb.upsert(collection_name=collection_name, wait=True, points=point_structs)
+    # print(f"✔ Inserted {len(point_structs)} points into Qdrant")
 
 def _cache_key(model_name: str, text: str) -> str:
     return f"{model_name}::{text}"
@@ -384,7 +389,7 @@ def search_in_db(vectordb, embedding_model, query_text,
                  min_threshold=settings.ADAPTIVE_THRESHOLD) -> List[Any]:
     query_text = clean_label_remove_temporal_context(query_text).lower()
  
-
+    # print(query_text)
     ck = _cache_key(embedding_model.model_name, query_text)
     query_vector = _embed_cache.get(ck)
     if query_vector is None:
@@ -407,6 +412,7 @@ def search_in_db(vectordb, embedding_model, query_text,
 
     scores = np.array([r.score for r in results])
     cutoff = adaptive_retrieval(scores,min_threshold)
+    # print(f"total {len(results)} and cutoff = {cutoff}")
     is_ne = mapping_mode == MappingType.NE.value
     seen, out = set(), []
     for r in results[:cutoff]:
@@ -459,6 +465,7 @@ def search_category_by_id(vectordb: QdrantClient, embedding_model: Any,
     seen, matches = set(), []
     scores = np.array([r.score for r in results])
     cutoff = adaptive_retrieval(scores, min_score)
+    # print(f"total {len(results)} and cutoff =  {cutoff}")
     for point in results[:cutoff]:
         # if point.score < cutoff:
         #     continue
@@ -483,9 +490,11 @@ def generate_studies_embeddings(dir_path:str, vectordb_path:str, collection_name
     """
     vectordb, embedding_model = load_vectordb(recreate=recreate_db, collection_name=collection_name, vectordb_path=vectordb_path, model_name=model_name)
     if vectordb is None or embedding_model is None:
+    #     print(f"❌ Error loading vector database or embedding model")
         return None, None
     # clear_embed_cache()
     if not recreate_db:
+    #     print(f"📊 Database already exists, skipping generation")
         return vectordb, embedding_model
     
     for cohort_folder in os.listdir(dir_path):
@@ -513,19 +522,21 @@ def generate_studies_embeddings(dir_path:str, vectordb_path:str, collection_name
                     break
             
             if cohort_metadata_file and os.path.exists(cohort_metadata_file):
+                # print(f"📄 Found metadata file: {cohort_metadata_file}")
                 
                 points = load_csv_points_dedup(cohort_metadata_file, study_name, embedding_mode=embedding_mode)
+                # print(f"📝 Generated {len(points)} points (variables + categories)")
                 
                 # Insert in batches
                 batch_size = 300
                 for i in range(0, len(points), batch_size):
                     batch_points = points[i:i + batch_size]
                     # batch_num = (i // batch_size) + 1
-                    
+                    # print(f"\n  Batch {batch_num}: Inserting {len(batch_points)} points...")
                     insert_in_db(vectordb, embedding_model, batch_points, collection_name)
                 
             # else:
-            #     print(f"⚠️ No metadata file found for {cohort_folder}")
+                # print(f"⚠️ No metadata file found for {cohort_folder}")
     
     return vectordb, embedding_model
 
