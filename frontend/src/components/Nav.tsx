@@ -263,6 +263,30 @@ export function Nav() {
     setTheme(newTheme);
   };
 
+  // Verify the user still has a valid session before opening the DCR wizard.
+  // The `userEmail` state is only populated on initial page load, so a session
+  // that expires afterwards would otherwise leave a stale "logged in" state and
+  // allow the wizard to open. We probe an authenticated endpoint (/admin/check)
+  // which returns 401/403 when the session is no longer valid.
+  const openDcrWizard = async () => {
+    try {
+      const response = await fetch(`${apiUrl}/admin/check`, {credentials: 'include'});
+      if (!response.ok) {
+        // Session is gone/expired: clear stale auth state and redirect to login.
+        setUserEmail(null);
+        window.location.href = `${apiUrl}/login`;
+        return;
+      }
+    } catch (error) {
+      // Network/other error verifying the session: treat as not authenticated.
+      setUserEmail(null);
+      window.location.href = `${apiUrl}/login`;
+      return;
+    }
+    setShowModal(true);
+    setWizardStep(0);
+  };
+
   const handleLogout = () => {
     fetch(`${apiUrl}/logout`, {
       method: 'POST',
@@ -750,7 +774,7 @@ export function Nav() {
         {/* Desktop */}
         <div className="menu menu-horizontal my-0 py-0 space-x-6 pr-6 items-center">
           {(pathname === '/' || pathname === '/cohorts' || pathname === '/mapping' || pathname === '/dcrs') && (
-            <button id="dcr-button" onClick={() => { setShowModal(true); setWizardStep(0); }} className="btn bg-white border-2 border-gray-300 shadow-md hover:shadow-lg hover:bg-gray-50 transition-all duration-200 py-3 px-6" style={{ minWidth: '280px' }}>
+            <button id="dcr-button" onClick={openDcrWizard} className="btn bg-white border-2 border-gray-300 shadow-md hover:shadow-lg hover:bg-gray-50 transition-all duration-200 py-3 px-6" style={{ minWidth: '280px' }}>
               Create a Data Clean Room <div className="badge badge-neutral badge-sm">{Object.keys(dataCleanRoom?.cohorts).length || 0}</div>
             </button>
           )}
@@ -797,8 +821,11 @@ export function Nav() {
                 <div className="flex justify-end mb-2">
                   <button className="btn btn-sm btn-ghost" onClick={closeWizard}>✕</button>
                 </div>
-                <div className="min-h-[200px] flex items-center justify-center">
-                  <p className="text-red-500 text-center">Authenticate to access the explorer</p>
+                <div className="min-h-[200px] flex flex-col items-center justify-center gap-4">
+                  <p className="text-red-500 text-center">Your session has expired. Please log in again to create a Data Clean Room.</p>
+                  <a href={`${apiUrl}/login`} className="btn btn-primary">
+                    <LogIn size={18} /> Log in
+                  </a>
                 </div>
               </>
             ) : (
