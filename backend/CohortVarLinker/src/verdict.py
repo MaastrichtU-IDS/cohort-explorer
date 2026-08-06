@@ -1,5 +1,12 @@
 """
 verdict.py — Immutable contracts for the matching pipeline.
+
+These dataclasses define the data flow between pipeline stages:
+
+  StructuralEvidence  ← produced by handlers in constraints.py
+  LLMEvidence         ← produced by llm_call.py (when LLM is consulted)
+  Verdict             ← produced once, by policy.decide(), never mutated
+
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
@@ -28,23 +35,31 @@ class StructuralEvidence:
     """Handler-specific context: source_unit, target_unit, source_range,
     target_range, categories, etc. Survives into the final Verdict.extra."""
 
-
 @dataclass(frozen=True)
 class LLMEvidence:
-    """The LLM's verdict on a candidate pair.
-
-    Carries the raw verdict string ('COMPLETE' | 'COMPATIBLE' | 'PARTIAL'
-    | 'IMPOSSIBLE') rather than a ContextMatchType — keeping the LLM's
-    semantic protocol explicit and out of the rest of the pipeline.
-
-    """
     verdict: str
     confidence: float
     reason: str = ""
     transform: str = ""
     transform_direction: str = ""
+    harmonized_variable: str = ""
 
     VALID_VERDICTS = ("COMPLETE", "COMPATIBLE", "PARTIAL", "IMPOSSIBLE")
+
+    # Logprob-derived uncertainty evidence
+    logprob_usable: bool = False
+    logprob_distribution_type: str = ""   # complete_four_class | observed_alternatives | unusable
+    logprob_observability: float = 0.0    # observed class codes / 4
+
+    logprob_dist: dict = field(default_factory=dict)
+    logprob_confidence: float = 0.0
+    logprob_top_label: str = ""
+    logprob_top_prob: float = 0.0
+    logprob_runner_up: str = ""
+    logprob_margin: float = 0.0
+    logprob_raw_margin: float = 0.0
+
+    confidence_source: str = ""
 
     def __post_init__(self):
         if self.verdict not in self.VALID_VERDICTS:
@@ -80,11 +95,6 @@ class TimepointInfo:
         return self.status == "undetermined"
 
 
-# Keys that already exist as their own CSV column or inside the LLMEvidence
-# column. Measured identical on every row where both were present, so carrying
-# them in the details blob only doubled the file and created two places for the
-# same fact to drift apart. harmonized_variable is deliberately NOT here —
-# run.py reads it back out of details to decide whether to synthesise one.
 _REDUNDANT_DETAIL_KEYS = frozenset({
     "mapping_relation",                     # own column
     "source_type", "target_type",           # own columns
@@ -130,9 +140,6 @@ class Verdict:
         details["timepoint_aligned"] = "yes" if self.timepoint.aligned else "no"
         if self.timepoint.status:
             details["timepoint_status"] = self.timepoint.status
-        # No separate "requires verification" flag: timepoint_status ==
-        # 'undetermined' already carries it, and undetermined_timepoint_side
-        # says which side. A third field would only be able to disagree.
         if not self.timepoint.aligned and self.level != MatchLevel.NOT_APPLICABLE:
             details["source_timepoint"] = self.timepoint.source_visit
             details["target_timepoint"] = self.timepoint.target_visit

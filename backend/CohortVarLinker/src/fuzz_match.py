@@ -7,24 +7,7 @@ from .utils import extract_visit_period, is_interval_period, is_determinate_peri
 _nlp = None
 class FuzzyMatcher:
 
-    @staticmethod
-    # def check_visit_string(visit_str_1: str, visit_str_2: str) -> bool:
-    #     """Normalize temporal context strings."""
-    #     s_low = extract_visit_period(visit_str_1.lower())
-    #     t_low = extract_visit_period(visit_str_2.lower())
-    #     # print(f"s_low: {s_low}, t_low: {t_low}")
-    #     for hint in settings.DATE_HINTS and "interval" not in {s_low,t_low}:
-    #         if hint in s_low and hint in t_low:
-    #             if s_low == t_low: # e.g. visit date not same as event date
-    #                 return True
-    #             else:
-    #                 return False
-    #         elif hint in s_low:
-    #             return True
-    #         elif hint in t_low:
-    #             return True
-        
-    #     return s_low == t_low
+    
 
     @staticmethod   
     def check_visit_string(visit_str_1: str, visit_str_2: str) -> bool:

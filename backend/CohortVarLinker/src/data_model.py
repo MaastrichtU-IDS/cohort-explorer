@@ -3,7 +3,8 @@ import math
 from enum import Enum, IntEnum
 from typing import Any, ClassVar, Dict, List, Optional, Set
 from pydantic import BaseModel, Field, field_validator, model_validator, computed_field
-
+# import re
+# from pydantic import BaseModel
 from dataclasses import dataclass
 
 @dataclass
@@ -261,6 +262,18 @@ class VariableNode(BaseModel):
     
     # --- Unit Information ---
     unit: str = Field(default="", description="UCUM unit ID or unit label")
+    unit_concept_id: Optional[int] = Field(
+        default=None,
+        description=(
+            "OMOP concept for the unit. Preferred over `unit` when deciding "
+            "whether two variables share a unit: the dictionaries spell one unit "
+            "many ways (MG-DL / mg/dL / mg/dl all = 8840; umol/L / µmol/L / μmol/L "
+            "all = 8749) and include outright typos (hh/mm for mmHg, 109/L for "
+            "10*9/L) that no string normalisation reconciles. `unit` stays the "
+            "display and conversion-table key, since units_conversion.csv is "
+            "keyed on UCUM strings."
+        ),
+    )
     
     # --- Temporal Context ---
     visit: str = Field(
@@ -1063,6 +1076,7 @@ class VariableProfileRow(BaseModel):
     identifier: str = Field(..., description="Variable identifier (dc:identifier)")
     stat_label: Optional[str] = Field(default=None, description="Statistical type label")
     unit_label: Optional[str] = Field(default=None, description="Unit label (UCUM)")
+    unit_omop_id: Optional[str] = Field(default=None, description="OMOP concept id for the unit")
     data_type: Optional[str] = Field(default=None, description="Data type (int, float, str, datetime)")
     categories_labels: Optional[str] = Field(default=None, description="Pipe-separated category labels")
     categories_omop_ids: Optional[str] = Field(default=None, description="Pipe-separated category OMOP IDs")

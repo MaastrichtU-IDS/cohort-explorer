@@ -22,7 +22,7 @@ def decide(mode: str,
     return _ontology_only_decide(structural, timepoint)
 
 
-
+# Penalise broader vs specific pair matching
 
 
 
@@ -38,18 +38,6 @@ def _extra_info_from_llm(extra: dict, llm: Optional[LLMEvidence]) -> dict:
             # the transformation_rule column, leaving transformation_type to
             # hold the category alone.
             out["transformation_rule"] = llm.transform
-
-        # llm_verdict / llm_confidence are NOT copied here: they are already in
-        # the LLMEvidence column, and duplicating them let the two disagree.
-        #
-        # The logprob uncertainty block is left out for the same reason, and it
-        # used to be the exception: every one of its eleven fields is already an
-        # LLMEvidence attribute (logprob_usable, logprob_distribution_type,
-        # logprob_observability, logprob_confidence, logprob_top_label,
-        # logprob_top_prob, logprob_runner_up, logprob_margin,
-        # logprob_raw_margin, confidence_source, logprob_dist), so copying them
-        # here bought a second, JSON-inside-JSON copy that could drift from the
-        # first — and cost ~245 characters on every row that consulted the LLM.
 
         hv = (getattr(llm, "harmonized_variable", None) or "").strip()
         if hv:
@@ -230,8 +218,19 @@ def _compatible_transformation(s: StructuralEvidence) -> TransformationType:
 
     Prefer the handler's transformation when it already implies a concrete
     operation (unit conversion, value normalization, aggregation).
-    Otherwise default to value normalization, which is the most general
-    'compatible-after-transform' label.
+
+    When it does not, two differing units are themselves the concrete operation:
+    the handler returns a non-concrete transformation whenever it cannot verify
+    unit equivalence ("units: (ucum:g/l); cannot verify equivalence"), and the
+    LLM then confirms the pair is compatible precisely because the conversion is
+    deterministic. Falling through to value normalization in that case labelled
+    253 continuous conversions -- g/L to g/dL, mmol/L to mg/dL, L/L to %, umol/L
+    to mg/dL -- as categorical recoding, which is not merely a wrong name: a
+    consumer reading transformation_type to decide how to merge would look for
+    category mappings on a variable that has no categories.
+
+    Only differing units qualify. Equal units mean the compatibility came from
+    something else, and value normalization remains the honest general label.
     """
     concrete = (
         TransformationType.UNIT_CONVERSION,
@@ -243,6 +242,16 @@ def _compatible_transformation(s: StructuralEvidence) -> TransformationType:
     )
     if s.transformation in concrete:
         return s.transformation
+
+    def _unit(key: str) -> str:
+        value = s.extra.get(key)
+        text = "" if value is None else str(value).strip()
+        return "" if text.lower() in ("nan", "none", "null") else text
+
+    src_unit, tgt_unit = _unit("source_unit"), _unit("target_unit")
+    if src_unit and tgt_unit and src_unit.lower() != tgt_unit.lower():
+        return TransformationType.UNIT_CONVERSION
+
     return TransformationType.VALUE_NORMALIZATION
 
 

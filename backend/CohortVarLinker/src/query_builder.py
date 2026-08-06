@@ -146,6 +146,7 @@ class SPARQLQueryBuilder:
         ?identifier 
         (SAMPLE(?_stat_label)    AS ?stat_label)
         (SAMPLE(?_unit_label)    AS ?unit_label)
+        (SAMPLE(?_unit_omop_id)  AS ?unit_omop_id)
         (SAMPLE(?_data_type_val) AS ?data_type_val)
         (MAX(?_min_v)            AS ?min_val)
         (MAX(?_max_v)            AS ?max_val)
@@ -186,7 +187,7 @@ class SPARQLQueryBuilder:
             cmeo:has_value ?_max_v .
         }}
 
-        #unit 
+        #unit
         OPTIONAL {{
             ?dataElement obi:has_measurement_unit_label ?unit_node .
 
@@ -196,6 +197,13 @@ class SPARQLQueryBuilder:
 
             OPTIONAL {{
                 ?unit_node cmeo:has_value ?raw_unit .
+            }}
+
+            # The unit's OMOP concept. UCUM strings are spelled many ways for one
+            # unit across these dictionaries, so the id is what says two units are
+            # the same; the label is kept for display and for the conversion table.
+            OPTIONAL {{
+                ?unit_node skos:closeMatch/iao:denotes/cmeo:has_value ?_unit_omop_id .
             }}
 
             BIND(COALESCE(?standard_unit, ?raw_unit) AS ?_unit_label)
