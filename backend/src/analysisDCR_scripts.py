@@ -711,26 +711,11 @@ def merge_datasets_script(
     mappings_block = "\n".join(mappings_lines) if mappings_lines else ""
 
     return f"""import os
-import atexit
-from contextlib import ExitStack
-from importlib import resources
 from cohortpool import pool
 
 # Output directory (always exists in the Decentriq environment)
 output_dir = "/output"
 log_file = os.path.join(output_dir, "merge_datasets_log.txt")
-
-# Reference files are bundled inside the installed cohortpool package (under
-# `cohortpool/reference`). Access them via importlib.resources so it works whether
-# the package is installed as a directory or a zipped archive. as_file materialises
-# a real filesystem path (needed because pool() takes path strings); the ExitStack
-# keeps the paths valid for the whole run and cleans up any temp files at exit.
-_ref_stack = ExitStack()
-atexit.register(_ref_stack.close)
-_ref_root = resources.files("cohortpool").joinpath("reference")
-
-def _ref_path(filename):
-    return str(_ref_stack.enter_context(resources.as_file(_ref_root.joinpath(filename))))
 
 # Studies to pool. Each study points to its cohort data node and metadata dictionary
 # node, mounted read-only under /input inside the enclave, plus the patient id column
@@ -746,21 +731,17 @@ mappings = [
 ]
 
 with open(log_file, "w") as log:
-    log.write("Pooling {{}} studies with {{}} mapping file(s)\\n".format(len(studies), len(mappings)))
-    log.write("Studies: {{}}\\n".format(list(studies.keys())))
-    log.write("Reference package root: {{}}\\n".format(_ref_root))
+    log.write("Pooling {{}} studies with {{}} mapping file(s)\n".format(len(studies), len(mappings)))
+    log.write("Studies: {{}}\n".format(list(studies.keys())))
 
 # Pool the datasets together using the cohortpool package.
+# Unit conversions, drug classes, drug target doses and core variables all come
+# from the tables bundled with the package. Pass a path for any of them to use an
+# edited copy instead.
 result = pool(
     studies=studies,
     mappings=mappings,
     output_dir=output_dir,
-    # Reference files bundled in the cohortpool package.
-    unit_conversion_table=_ref_path("units_conversion.csv"),
-    drug_target_reference=_ref_path("drug_target_doses.csv"),
-    drug_class_reference=_ref_path("drug_classes.csv"),
-    # Core variables - enables derivation of age from DOB, BMI from height/weight.
-    core_variables_reference=_ref_path("core_variables.csv"),
     # Quality thresholds. Inclusion is decided on how many pooled patients actually
     # have a value; min_study_coverage_pct is retained only as a reported metric.
     min_study_coverage_pct=80,

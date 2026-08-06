@@ -1129,18 +1129,29 @@ export function Nav() {
                         <p className="text-xs text-base-content/60 mb-3">
                           Choose whether the merge-datasets (pooling) step combines the full cohort data or the shuffled samples.
                         </p>
-                        <div className="form-control">
-                          <label className="label cursor-pointer justify-start gap-3">
-                            <input
-                              type="checkbox"
-                              className="toggle toggle-primary"
-                              checked={mergeUseShuffled}
-                              onChange={(e) => setMergeUseShuffled(e.target.checked)}
-                            />
-                            <span className="label-text text-base">
-                              {mergeUseShuffled ? 'Merge the shuffled samples' : 'Merge the full cohorts data'}
-                            </span>
-                          </label>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                              !mergeUseShuffled
+                                ? 'bg-primary text-primary-content'
+                                : 'bg-base-200 text-base-content/70 hover:bg-base-300'
+                            }`}
+                            onClick={() => setMergeUseShuffled(false)}
+                          >
+                            Full cohort data
+                          </button>
+                          <button
+                            type="button"
+                            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                              mergeUseShuffled
+                                ? 'bg-primary text-primary-content'
+                                : 'bg-base-200 text-base-content/70 hover:bg-base-300'
+                            }`}
+                            onClick={() => setMergeUseShuffled(true)}
+                          >
+                            Shuffled samples
+                          </button>
                         </div>
                         {mergeUseShuffled && (
                           <p className="text-xs text-warning mt-2">
