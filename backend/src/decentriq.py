@@ -1278,20 +1278,11 @@ async def create_live_compute_dcr(
                 # Generate encryption key
                 key = dq.Key()
                 
-                # Remove header from metadata file (same as provision DCR)
-                metadata_noheader_filepath = metadata_file_to_upload.split(".")[0] + "_noHeader.csv"
+                # Upload and publish the metadata (with header intact, since
+                # RawDataNodeDefinition mounts the file as-is and cohortpool needs
+                # the header to identify the variable-name column).
                 with open(metadata_file_to_upload, "rb") as data:
-                    header = data.readline()
-                    logging.info(f"Removed header from {cohort_id} metadata: {header.decode('utf-8').strip()}")
-                    restfile = data.read()
-                
-                with open(metadata_noheader_filepath, "wb") as data_noheader:
-                    data_noheader.write(restfile)
-                os.sync()
-                
-                # Upload and publish the metadata
-                with open(metadata_noheader_filepath, "rb") as data_noheader:
-                    metadata_node.upload_and_publish_dataset(data_noheader, key, f"{metadata_node_id}.csv")
+                    metadata_node.upload_and_publish_dataset(data, key, f"{metadata_node_id}.csv")
                 
                 logging.info(f"Successfully uploaded metadata for cohort {cohort_id}")
                 metadata_upload_results[cohort_id] = "success"
