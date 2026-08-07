@@ -1030,7 +1030,14 @@ async def get_compute_dcr_definition(
             # Pool the raw cohort data node; the patient id is the cohort's original
             # ID variable (discovered via SNOMED/OMOP codes).
             data_node_id = raw_data_node_id
-            patient_id = find_patient_id_variable(cohort_id) or ""
+            patient_id = find_patient_id_variable(cohort_id)
+
+        if not patient_id:
+            logging.warning(
+                f"No patient ID variable found for cohort '{cohort_id}'; "
+                f"skipping this cohort in the merge."
+            )
+            continue
 
         studies_info.append({
             "study_name": cohort_id,

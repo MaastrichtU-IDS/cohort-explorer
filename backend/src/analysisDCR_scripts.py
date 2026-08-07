@@ -730,6 +730,24 @@ mappings = [
 {mappings_block}
 ]
 
+# Preprocess: strip leading/trailing spaces from column names in each study's data CSV.
+# Data owners upload raw CSVs whose headers may contain stray spaces (e.g. "Record ID "
+# vs "Record ID"), which would cause cohortpool's exact column lookup to fail.
+for study_id, cfg in studies.items():
+    data_path = cfg["data"]
+    try:
+        cleaned_path = os.path.join("/tmp", os.path.basename(data_path))
+        with open(data_path, "r") as src, open(cleaned_path, "w") as dst:
+            header = src.readline()
+            stripped = ",".join(col.strip() for col in header.rstrip("\\r\\n").split(","))
+            dst.write(stripped + "\\n")
+            for line in src:
+                dst.write(line)
+        cfg["data"] = cleaned_path
+    except Exception as e:
+        with open(log_file, "a") as log:
+            log.write("Failed to clean columns for {{}}: {{}}\\n".format(study_id, e))
+
 with open(log_file, "w") as log:
     log.write("Pooling {{}} studies with {{}} mapping file(s)\\n".format(len(studies), len(mappings)))
     log.write("Studies: {{}}\\n".format(list(studies.keys())))
