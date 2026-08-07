@@ -263,6 +263,8 @@ export function Nav() {
     sessionIdRef.current = null;
     setShowModal(false);
     resetWizardState();
+    sessionStorage.setItem('dataCleanRoom', JSON.stringify({cohorts: {}}));
+    setDataCleanRoom({cohorts: {}});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userEmail, logWizardEvent, resetWizardState]);
 
