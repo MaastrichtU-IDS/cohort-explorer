@@ -670,9 +670,9 @@ export function Nav() {
     }
   }, [showModal, cohortIdsKey]);
 
-  // Fetch participants preview when modal opens
+  // Fetch participants preview when modal opens or cohorts change
   useEffect(() => {
-    if (showParticipantsModal && dataCleanRoom?.cohorts) {
+    if (showModal && dataCleanRoom?.cohorts && Object.keys(dataCleanRoom.cohorts).length > 0) {
       const fetchParticipants = async () => {
         setLoadingParticipants(true);
         try {
@@ -701,7 +701,7 @@ export function Nav() {
       
       fetchParticipants();
     }
-  }, [showParticipantsModal, cohortIdsKey, additionalAnalysts]);
+  }, [showModal, cohortIdsKey, additionalAnalysts]);
 
   // Memoize cohort IDs to prevent unnecessary recalculations
   const dcrCohortIds = useMemo(() => 
