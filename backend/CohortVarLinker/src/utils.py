@@ -684,11 +684,6 @@ def is_undetermined_visit(visit: Optional[str]) -> bool:
 
 def canonical_visit_period(visit: Optional[str]) -> str:
     """extract_visit_period() plus year/week folding.
-
-    The dictionaries mix units for the same timepoint ("follow-up 1 year" in
-    TIME-CHF vs "follow-up 12 months" elsewhere); folding to months lets the
-    candidate list de-duplicate. extract_visit_period() itself is left alone
-    because the retrieval gate is calibrated against its current behaviour.
     """
     if visit is None:
         return ""
@@ -709,6 +704,17 @@ def canonical_visit_period(visit: Optional[str]) -> str:
     if m:
         return f"follow-up {int(m.group(1))} weeks"
     return period
+
+
+def is_determinate_canonical_period(visit: Optional[str]) -> bool:
+    """is_determinate_period() over the units canonical_visit_period() reads.
+    """
+    if not visit:
+        return False
+    v = str(visit).strip().lower()
+    if is_determinate_period(v):
+        return True
+    return bool(_VISIT_YEAR_RE.search(v) or _VISIT_WEEK_RE.search(v))
 
 
 def visit_sort_key(period: str):

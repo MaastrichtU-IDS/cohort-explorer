@@ -2,7 +2,11 @@
 from typing import List, Set, Tuple, Optional
 import re
 from .config import settings    
-from .utils import extract_visit_period, is_interval_period, is_determinate_period
+from .utils import (
+    canonical_visit_period,
+    is_interval_period,
+    is_determinate_canonical_period,
+)
 
 _nlp = None
 class FuzzyMatcher:
@@ -12,8 +16,8 @@ class FuzzyMatcher:
     @staticmethod   
     def check_visit_string(visit_str_1: str, visit_str_2: str) -> bool:
         """Return True only when temporal contexts are comparable."""
-        s_low = extract_visit_period(visit_str_1)
-        t_low = extract_visit_period(visit_str_2)
+        s_low = canonical_visit_period(visit_str_1)
+        t_low = canonical_visit_period(visit_str_2)
 
         # Reject interval-vs-point comparisons.
         # Example: "between baseline and visit 1" vs "baseline"
@@ -50,10 +54,11 @@ class FuzzyMatcher:
         genuine repeated-measures mismatches (e.g. baseline vs month 6) are
         still rejected.
         """
-        s = extract_visit_period(visit_str_1)
-        t = extract_visit_period(visit_str_2)
+        s = canonical_visit_period(visit_str_1)
+        t = canonical_visit_period(visit_str_2)
 
-        if is_determinate_period(visit_str_1) and is_determinate_period(visit_str_2):
+        if (is_determinate_canonical_period(visit_str_1)
+                and is_determinate_canonical_period(visit_str_2)):
             # Both sides denote a discrete or interval timepoint: apply the
             # strict comparison.
             if is_interval_period(s) != is_interval_period(t):
