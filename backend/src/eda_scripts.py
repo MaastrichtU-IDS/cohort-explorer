@@ -2062,15 +2062,40 @@ def _process_numeric_family(fam):
     n_visits = fam_df.shape[1]
     if n_visits < 2:
         return None
-    baseline = fam_df.iloc[:, 0]
-    usable = baseline.notna() & (fam_df.notna().sum(axis=1) >= 2)
+    # A patient contributes as long as they have at least two measurements
+    # anywhere in the family; the first *scheduled* visit no longer has to be
+    # present. This keeps patients who enrolled late or missed baseline but
+    # were still followed over time.
+    usable = fam_df.notna().sum(axis=1) >= 2
     sub = fam_df[usable].reset_index(drop=True)
     n_patients = int(len(sub))
     if n_patients < 5:
         data_issues.append(f"Longitudinal family {fam['key']}: fewer than 5 usable patient trajectories, skipping chart.")
         return None
 
-    baseline_vals = sub.iloc[:, 0]
+    # ---- x positions for slope: real elapsed time when every visit resolves to
+    # a duration/baseline, otherwise evenly-spaced visit order. Using time-aware
+    # spacing keeps a "+10% over 3 months" band from being read the same as
+    # "+10% over 3 years".
+    _keys = [_visit_sort_key(lbl) for lbl in fam['visit_labels']]
+    _tvals = [k[1] for k in _keys]
+    _tiers = {k[0] for k in _keys}
+    if _tiers <= {0.0, 1.0} and all(_tvals[i] < _tvals[i + 1] for i in range(len(_tvals) - 1)):
+        x_pos = np.array(_tvals, dtype=float)
+    else:
+        x_pos = np.arange(n_visits, dtype=float)
+    x_span = float(x_pos.max() - x_pos.min()) or 1.0
+
+    # ---- Per-patient baseline = each patient's OWN first recorded value, so a
+    # patient anchored at visit 2 is still expressed as change-from-their-start
+    # and stays comparable, by shape, to a patient anchored at baseline.
+    arr = sub.to_numpy(dtype=float)
+    baseline_vals = np.full(len(arr), np.nan)
+    for i in range(len(arr)):
+        nn = np.where(~np.isnan(arr[i]))[0]
+        if len(nn):
+            baseline_vals[i] = arr[i][nn[0]]
+    baseline_vals = pd.Series(baseline_vals, index=sub.index)
     denom = baseline_vals.abs().replace(0, np.nan)
     norm = sub.sub(baseline_vals, axis=0)
     norm_pct = norm.div(denom, axis=0)
@@ -2092,6 +2117,32 @@ def _process_numeric_family(fam):
             return 1.0
         return float(np.sqrt(np.nanmean((a[mask] - b[mask]) ** 2)))
 
+    def _silhouette(dist_mat, lab):
+        # Average silhouette width from a precomputed distance matrix (numpy
+        # only). Used to pick the band count instead of a fixed rule.
+        lab = np.asarray(lab)
+        clusters = np.unique(lab)
+        if len(clusters) < 2:
+            return -1.0
+        scores = []
+        for i in range(len(lab)):
+            same = lab == lab[i]
+            same[i] = False
+            a = float(np.mean(dist_mat[i, same])) if same.any() else 0.0
+            b = np.inf
+            for c in clusters:
+                if c == lab[i]:
+                    continue
+                other = lab == c
+                if other.any():
+                    b = min(b, float(np.mean(dist_mat[i, other])))
+            if b == np.inf:
+                scores.append(0.0)
+            else:
+                denom_s = max(a, b)
+                scores.append((b - a) / denom_s if denom_s > 0 else 0.0)
+        return float(np.mean(scores)) if scores else -1.0
+
     if nf < 4:
         fit_labels = np.ones(nf, dtype=int)
     else:
@@ -2100,11 +2151,21 @@ def _process_numeric_family(fam):
             for j in range(i + 1, nf):
                 dd = _nan_rmse(fit_mat[i], fit_mat[j])
                 dist[i, j] = dist[j, i] = dd
-        k = max(2, min(6, round((nf / 2) ** 0.5)))
-        k = min(k, max(1, nf - 1))
         condensed = squareform(dist, checks=False)
         Z = linkage(condensed, method='average')
-        fit_labels = fcluster(Z, k, criterion='maxclust')
+        # Pick the band count by the best average silhouette over candidate
+        # values, rather than assuming sqrt(n/2) bands regardless of structure.
+        k_max = min(6, nf - 1)
+        best_score, fit_labels = -np.inf, None
+        for k in range(2, k_max + 1):
+            cand = fcluster(Z, k, criterion='maxclust')
+            if len(set(cand)) < 2:
+                continue
+            score = _silhouette(dist, cand)
+            if score > best_score:
+                best_score, fit_labels = score, cand
+        if fit_labels is None:
+            fit_labels = np.ones(nf, dtype=int)
 
     centroids = {b: np.nanmean(fit_mat[fit_labels == b], axis=0) for b in set(fit_labels)}
     labels = np.array([min(centroids, key=lambda b: _nan_rmse(mat[i], centroids[b])) for i in range(n_patients)])
@@ -2114,17 +2175,30 @@ def _process_numeric_family(fam):
         band_mask = labels == b
         band_df = sub[band_mask]
         band_norm = norm_pct[band_mask]
+        # ---- Trend from the WHOLE trajectory: least-squares slope of the
+        # band's per-visit median (baseline-relative) against visit time. The
+        # implied end-to-end change (slope x span) drives the label, so a band
+        # that dips then recovers is not mislabelled from its endpoint alone.
+        med_norm = band_norm.median(axis=0, skipna=True).to_numpy(dtype=float)
+        fit_mask = ~np.isnan(med_norm)
+        if fit_mask.sum() >= 2:
+            slope = float(np.polyfit(x_pos[fit_mask], med_norm[fit_mask], 1)[0])
+        else:
+            slope = 0.0
+        trend_change = slope * x_span
         end_col = band_norm.iloc[:, -1]
         end_shift = float(end_col.mean(skipna=True)) if end_col.notna().any() else 0.0
-        if end_shift > 0.05:
+        if trend_change > 0.05:
             trend_label = 'rising'
-        elif end_shift < -0.05:
+        elif trend_change < -0.05:
             trend_label = 'declining'
         else:
             trend_label = 'stable'
         bands.append({
             'band_label': trend_label,
             'end_shift': None if pd.isna(end_shift) else float(end_shift),
+            'trend_change': None if pd.isna(trend_change) else float(trend_change),
+            'trend_slope': None if pd.isna(slope) else float(slope),
             'n_patients': int(band_mask.sum()),
             'median': [None if pd.isna(v) else float(v) for v in band_df.median(axis=0, skipna=True)],
             'q1': [None if pd.isna(v) else float(v) for v in band_df.quantile(0.25, axis=0)],
@@ -2145,7 +2219,7 @@ def _plot_numeric_family(ax, result, fam, units=None):
     bands_sorted = sorted(
         result['bands'],
         key=lambda b: (_TREND_ORDER.get(b['band_label'], 1),
-                       -abs(b.get('end_shift') or 0.0)),
+                       -abs((b.get('trend_change') if b.get('trend_change') is not None else b.get('end_shift')) or 0.0)),
     )
     # Several bands can share a trend; a dash pattern plus the magnitude in the
     # label keeps them apart.
@@ -2160,7 +2234,9 @@ def _plot_numeric_family(ax, result, fam, units=None):
         q1 = np.array([np.nan if v is None else v for v in band['q1']], dtype=float)
         q3 = np.array([np.nan if v is None else v for v in band['q3']], dtype=float)
         n = band['n_patients']
-        shift = band.get('end_shift')
+        shift = band.get('trend_change')
+        if shift is None:
+            shift = band.get('end_shift')
         parts = [trend.capitalize()]
         if shift is not None:
             parts.append(f"{shift * 100:+.0f}%")

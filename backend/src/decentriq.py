@@ -1817,6 +1817,10 @@ def run_computation_get_output(dcr_id: str,  user: Any = Depends(get_current_use
     #c2_node = dcr.get_node("c2_save_to_json") 
     c3_node = dcr.get_node("c3_eda_data_profiling")
     result = c3_node.run_computation_and_get_results_as_zip()
+    # The longitudinal_analysis node shares c1/c2 dependencies with c3, so those
+    # have already run; here we just execute it and collect its own output zip.
+    longitudinal_node = dcr.get_node("longitudinal_analysis")
+    longitudinal_result = longitudinal_node.run_computation_and_get_results_as_zip()
     #timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     storage_dir = f"/data/dcr_output_{cohort_id}"
 
@@ -1839,8 +1843,17 @@ def run_computation_get_output(dcr_id: str,  user: Any = Depends(get_current_use
     #print("Full path of storage directory: ", storage_dir.resolve())
     os.makedirs(storage_dir, mode=0o777, exist_ok=True)
     result.extractall(str(storage_dir))
+    longitudinal_result.extractall(str(storage_dir))
     os.sync()
-        
+
+    # Update this cohort's EDA markers (eda_version / has_longitudinal) in the
+    # cache now that the new output JSON files have been written to disk.
+    try:
+        from src.cohort_cache import refresh_cohort_eda_status
+        refresh_cohort_eda_status(cohort_id)
+    except Exception as e:
+        logging.warning(f"Could not refresh EDA markers for cohort {cohort_id}: {e}")
+
     return {"status": "success", "saved_path": str(storage_dir)}
 
 

@@ -306,6 +306,8 @@ def cohort_to_dict(cohort: Cohort) -> Dict[str, Any]:
         "clinically_relevant_exposure_exclusion": cohort.clinically_relevant_exposure_exclusion,
         "can_edit": cohort.can_edit,
         "physical_dictionary_exists": cohort.physical_dictionary_exists,
+        "eda_version": cohort.eda_version,
+        "has_longitudinal": cohort.has_longitudinal,
         "variables": {}
     }
     
@@ -375,6 +377,61 @@ def dict_to_cohort(cohort_dict: Dict[str, Any]) -> Cohort:
     
     return cohort
 
+def detect_eda_status(cohort_id: str) -> tuple[Optional[str], bool]:
+    """Inspect the cohort's DCR output folder and report which EDA artefacts exist.
+
+    Looks at ``{data_folder}/dcr_output_{cohort_id}`` for the JSON files written by
+    the enclave compute nodes and derives two markers purely from the filenames:
+
+    - eda_version:      "v2" when ``eda_output_v2_{id}.json`` is present, else "v1"
+                        when only the legacy ``eda_output_{id}.json`` is present,
+                        else None.
+    - has_longitudinal: True when ``eda_longitudinal_v1_{id}.json`` is present.
+    """
+    dcr_dir = os.path.join(settings.data_folder, f"dcr_output_{cohort_id}")
+    eda_version: Optional[str] = None
+    has_longitudinal = False
+    if os.path.isdir(dcr_dir):
+        if os.path.exists(os.path.join(dcr_dir, f"eda_output_v2_{cohort_id}.json")):
+            eda_version = "v2"
+        elif os.path.exists(os.path.join(dcr_dir, f"eda_output_{cohort_id}.json")):
+            eda_version = "v1"
+        has_longitudinal = os.path.exists(
+            os.path.join(dcr_dir, f"eda_longitudinal_v1_{cohort_id}.json")
+        )
+    return eda_version, has_longitudinal
+
+
+def apply_eda_status(cohort: Cohort) -> None:
+    """Set ``eda_version`` and ``has_longitudinal`` on a Cohort from its output folder."""
+    cohort.eda_version, cohort.has_longitudinal = detect_eda_status(cohort.cohort_id)
+
+
+def refresh_cohort_eda_status(cohort_id: str) -> bool:
+    """Recompute a single cohort's EDA markers and persist the cache.
+
+    Used by the compute-get-output endpoint after new enclave output has been
+    extracted to disk. Returns True if the cohort was found and updated.
+    """
+    global _cohorts_cache
+
+    if cohort_id not in _cohorts_cache and not _cohorts_cache:
+        load_cache_from_disk()
+    if cohort_id not in _cohorts_cache:
+        logging.warning(
+            f"refresh_cohort_eda_status: cohort '{cohort_id}' not in cache; cannot update EDA markers."
+        )
+        return False
+    apply_eda_status(_cohorts_cache[cohort_id])
+    save_cache_to_disk()
+    logging.info(
+        f"Refreshed EDA markers for cohort '{cohort_id}': "
+        f"eda_version={_cohorts_cache[cohort_id].eda_version}, "
+        f"has_longitudinal={_cohorts_cache[cohort_id].has_longitudinal}"
+    )
+    return True
+
+
 def add_cohort_to_cache(cohort: Cohort, save_to_disk: bool = True) -> None:
     """Add or update a cohort in the cache.
     
@@ -384,6 +441,11 @@ def add_cohort_to_cache(cohort: Cohort, save_to_disk: bool = True) -> None:
                      bulk operations to avoid race conditions and improve performance.
     """
     global _cohorts_cache, _cache_initialized
+    
+    # Derive the EDA output markers from the cohort's DCR output folder every
+    # time it is (re)added, so any cache build/refresh reflects the JSON files
+    # currently present on disk.
+    apply_eda_status(cohort)
     
     _cohorts_cache[cohort.cohort_id] = cohort
     _cache_initialized = True
@@ -1526,6 +1588,12 @@ def initialize_cache_from_excel(excel_filepath: str, user_email: str | None = No
                             logging.info(f"No data dictionary found for {cohort_id}")
                     except Exception as e:
                         logging.warning(f"Failed to load variables for {cohort_id}: {e}")
+        
+        # Derive the EDA output markers (eda_version / has_longitudinal) for every
+        # cohort from its DCR output folder. This path stores cohorts directly in
+        # the cache (not via add_cohort_to_cache), so the markers are applied here.
+        for _cohort in _cohorts_cache.values():
+            apply_eda_status(_cohort)
         
         # Mark cache as initialized
         _cache_initialized = True

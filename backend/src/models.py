@@ -117,6 +117,14 @@ class Cohort:
     variables: dict[str, CohortVariable] = field(default_factory=dict)
     can_edit: bool = False
     physical_dictionary_exists: bool = False # New field
+    # EDA output markers, derived by inspecting the cohort's DCR output folder
+    # (data/dcr_output_{cohort_id}) whenever the cache is built/refreshed and
+    # after the compute-get-output endpoint runs.
+    #   eda_version:      "v2" if eda_output_v2_{id}.json exists, "v1" if only
+    #                     the legacy eda_output_{id}.json exists, else None.
+    #   has_longitudinal: True if eda_longitudinal_v1_{id}.json exists.
+    eda_version: Optional[str] = None
+    has_longitudinal: bool = False
 
     def dict(self):
         return {k: str(v) for k, v in asdict(self).items()}

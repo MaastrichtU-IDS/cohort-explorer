@@ -27,6 +27,12 @@ export interface Cohort {
   references?: string[];
   // Analysis data availability
   has_aggregate_analysis?: boolean;
+  // EDA output markers derived on the backend from the cohort's DCR output
+  // folder. eda_version is "v2" when the structured v2 EDA JSON exists, "v1"
+  // when only the legacy EDA JSON exists, else null/undefined. has_longitudinal
+  // is true when the longitudinal analysis JSON exists.
+  eda_version?: 'v1' | 'v2' | null;
+  has_longitudinal?: boolean;
   can_edit?: boolean;
 
   // Additional metadata fields

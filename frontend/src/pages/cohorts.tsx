@@ -1489,6 +1489,13 @@ export default function CohortsList() {
                       aggregate analysis added
                     </span>
                   )}
+                  {/* EDA output version marker (derived on the backend from the DCR output folder).
+                      Same badge style for v1 and v2; only the version in the wording changes. */}
+                  {cohortData.eda_version && (
+                    <span className="badge mx-1" style={{ backgroundColor: '#dcfce7', color: '#166534', border: '1px solid #bbf7d0' }}>
+                      variable profiling &amp; analyses {cohortData.eda_version}
+                    </span>
+                  )}
                   {/* Removed start date - end date tag as it's shown in the More Details section */}
                   {/* Removed contact email tags as they're shown in the More Details section */}
                 </div>
