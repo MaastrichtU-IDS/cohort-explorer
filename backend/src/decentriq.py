@@ -1987,14 +1987,12 @@ def build_dcr_participants(
             participants[user_email]["data_owner_of"].add(metadata_node_id)
     
     # Add additional analysts if provided
-    # They get the same privileges as the requester (data_owner_of and analyst_of)
+    # They get analyst privileges only (not data ownership of cohort data nodes).
     if additional_analysts:
         for analyst_email in additional_analysts:
             if analyst_email and analyst_email != user_email:
                 if analyst_email not in participants:
                     participants[analyst_email] = {"data_owner_of": set(), "analyst_of": set()}
-                # Give them the same data_owner_of permissions as the requester
-                participants[analyst_email]["data_owner_of"].update(participants[user_email]["data_owner_of"])
     
     return participants
 
