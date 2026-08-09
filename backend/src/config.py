@@ -35,6 +35,17 @@ class Settings:
     data_folder: str = field(default_factory=lambda: os.getenv("DATA_FOLDER", "../data"))
     dev_mode: bool = field(default_factory=lambda: os.getenv("DEV_MODE", "false").lower() == "true")
 
+    # Local LiteLLM proxy (OpenAI-compatible) used by the experimental AI chat.
+    # base_url + api_key are provided in the .env file; model has a sane default.
+    litellm_base_url: str = field(default_factory=lambda: os.getenv("LITELLM_BASE_URL", ""))
+    litellm_api_key: str = field(default_factory=lambda: os.getenv("LITELLM_API_KEY", ""))
+    litellm_model: str = field(default_factory=lambda: os.getenv("LITELLM_MODEL", "gpt-3.5-turbo"))
+
+    @property
+    def chat_enabled(self) -> bool:
+        """Chat is only available when the proxy base URL is configured."""
+        return bool(self.litellm_base_url)
+
     @property
     def redirect_uri(self) -> str:
         if self.api_host.startswith("localhost"):

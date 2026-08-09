@@ -9,6 +9,7 @@ from fastapi.responses import RedirectResponse
 from starlette.middleware.cors import CORSMiddleware
 
 from src.auth import router as auth_router
+from src.chat import router as chat_router
 from src.config import settings
 from src.data_analysis import router as data_analysis_router
 from src.data_analysis import bare_router as data_analysis_bare_router
@@ -81,6 +82,7 @@ app.include_router(decentriq_router, tags=["upload"])
 app.include_router(auth_router, tags=["authentication"])
 app.include_router(admin_router, tags=["admin"])
 app.include_router(docs_router, prefix="/docs-api", tags=["documents"])
+app.include_router(chat_router, tags=["chat"])
 
 
 app.add_middleware(
