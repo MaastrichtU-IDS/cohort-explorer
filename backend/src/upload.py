@@ -7,8 +7,8 @@ import shutil
 import csv
 import json
 from datetime import datetime
-from enum import Enum
-from pathlib import Path
+# from enum import Enum
+# from pathlib import Path
 from typing import Any
 from re import sub
 import pandas as pd
@@ -23,15 +23,17 @@ from src.auth import get_current_user
 from src.utils import (
     ICARE,
     curie_converter,
+    prefix_map,
     extract_age_range,
-    get_cohorts_metadata_query,
+    # get_cohorts_metadata_query,
     init_graph,
     OntologyNamespaces,
     normalize_text,
     retrieve_cohorts_metadata,
     run_query
 )
-from src.cohort_cache import add_cohort_to_cache, clear_cache, create_cohort_from_dict_file, create_cohort_from_metadata_graph
+from src.cohort_cache import add_cohort_to_cache, clear_cache
+# create_cohort_from_dict_file, create_cohort_from_metadata_graph
 from src.decentriq import create_provision_dcr, metadatadict_cols_schema1
 from src.mapping_generation.retriever import map_csv_to_standard_codes
 
@@ -625,7 +627,7 @@ def get_athena_validation_errors(dict_path: str) -> list[str]:
     Any component with status FAIL contributes its reason to the message.
     """
     import re
-    from CohortVarLinker.validate_cde import validate_dictionary
+    from cross_mapping.validate_cde import validate_dictionary
 
     error_messages: list[str] = []
     temp_csv = dict_path + f"._athena_tmp_{os.getpid()}.csv"
@@ -863,11 +865,6 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
                                     try:
                                         cat_code_uri = curie_converter.expand(code_to_check)
                                         if cat_code_uri: # Only add if valid and expanded
-                                            #print(f"Adding category code {cat_code_uri} for category {category['value']} in cohort {cohort_id}, line {i}")
-                                            # Another temp fix just for TIM-HF!!
-                                            # cat_code_uri = cat_code_uri.lower().replace("ucum/%", "ucum/percent").replace("[", "").replace("]", "")
-                                            #print(f"Adding category code {cat_code_uri} for category {category['value']} in cohort {cohort_id}, line {i}, cat_uri: {cat_uri}")
-                                            # Store concept code using CMEO model (will be added via standardization process)
                                             g.add((cat_uri, OntologyNamespaces.CMEO.value.conceptId, URIRef(cat_code_uri), cohort_graph_uri))
                                     except Exception as curie_exc:
                                         error_msg = str(curie_exc)
@@ -1317,7 +1314,7 @@ async def validate_athena_codes(
         raise HTTPException(status_code=403, detail="You need to be admin to perform this action.")
     from fastapi.responses import FileResponse
     from src.cohort_cache import get_cohorts_from_cache
-    from CohortVarLinker.validate_cde import validate_dictionary
+    from cross_mapping.validate_cde import validate_dictionary
 
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     reports_folder = os.path.join(settings.data_folder, "ATHENA_VALIDATION_REPORTS")
@@ -1443,7 +1440,7 @@ async def validate_athena_codes_single(
         raise HTTPException(status_code=403, detail="You need to be admin to perform this action.")
     from fastapi.responses import FileResponse
     from src.cohort_cache import get_cohorts_from_cache
-    from CohortVarLinker.validate_cde import validate_dictionary
+    from cross_mapping.validate_cde import validate_dictionary
 
     all_cohorts = get_cohorts_from_cache(user_email)
     # Case-insensitive match: resolve the supplied cohort_id to the canonical key
@@ -2053,7 +2050,7 @@ def process_all_metadata_fields(g: Graph, row: pd.Series, study_design_execution
         # "morbidity": {"ns": "OBI", "type": "morbidity", "target": "protocol"},
         "administrator": {"ns": "NCBI", "type": "homo_sapiens", "target": "execution", "rel": "has_participant"},
         "study contact person": {"ns": "NCBI", "type": "homo_sapiens", "target": "execution", "rel": "has_participant"},
-        # Additional fields to match CohortVarLinker
+        # Additional fields to match cross_mapping
         "frequency of data collection": {"ns": "CMEO", "type": "timeline_specification", "target": "protocol"},
         "interventions": {"ns": "CMEO", "type": "intervention_specification", "target": "protocol", "label": True},
     }
@@ -2070,11 +2067,11 @@ def process_all_metadata_fields(g: Graph, row: pd.Series, study_design_execution
         return targets[target]
     
     def get_uri_suffix(field_name):
-        # Special case mappings to match CohortVarLinker URIs
+        # Special case mappings to match cross_mapping URIs
         uri_mappings = {
-            "study type": "/descriptor",  # Must match CohortVarLinker
-            "frequency of data collection": "/timeline_specification",  # Must match CohortVarLinker
-            "interventions": "/intervention",  # Must match CohortVarLinker (singular!)
+            "study type": "/descriptor",  # Must match cross_mapping
+            "frequency of data collection": "/timeline_specification",  # Must match cross_mapping
+            "interventions": "/intervention",  # Must match cross_mapping (singular!)
         }
         if field_name in uri_mappings:
             return uri_mappings[field_name]
@@ -2231,7 +2228,7 @@ def handle_special_fields(g: Graph, row: pd.Series, study_design_execution_uri: 
     
     # Handle outcome specifications with nested structure required by SPARQL query
     # Query expects: protocol -> outcome_specification -> primary/secondary_outcome_specification
-    # URIs must match CohortVarLinker: /primary_outcome_specification (not /primary_outcome_spec)
+    # URIs must match cross_mapping: /primary_outcome_specification (not /primary_outcome_spec)
     has_primary = pd.notna(row.get("primary outcome specification", ""))
     has_secondary = pd.notna(row.get("secondary outcome specification", ""))
     
@@ -2242,33 +2239,33 @@ def handle_special_fields(g: Graph, row: pd.Series, study_design_execution_uri: 
         g.add((protocol_uri, OntologyNamespaces.RO.value.has_part, outcome_spec_uri, metadata_graph))
         g.add((outcome_spec_uri, RDFS.label, Literal("outcome specification", datatype=XSD.string), metadata_graph))
         
-        # Add primary outcome specification - split by semicolon like CohortVarLinker
+        # Add primary outcome specification - split by semicolon like cross_mapping
         if has_primary:
             primary_values = str(row["primary outcome specification"]).lower().split(';') if pd.notna(row["primary outcome specification"]) else []
             for primary_value in primary_values:
                 primary_value = primary_value.strip()
                 if primary_value:  # Skip empty values
-                    # URI matches CohortVarLinker: /primary_outcome_specification
+                    # URI matches cross_mapping: /primary_outcome_specification
                     primary_uri = URIRef(study_uri + "/primary_outcome_specification")
                     g.add((primary_uri, RDF.type, OntologyNamespaces.CMEO.value.primary_outcome_specification, metadata_graph))
                     g.add((primary_uri, RDFS.label, Literal("primary outcome specification", datatype=XSD.string), metadata_graph))
                     g.add((outcome_spec_uri, OntologyNamespaces.RO.value.has_part, primary_uri, metadata_graph))
                     g.add((primary_uri, OntologyNamespaces.CMEO.value.has_value, Literal(primary_value, datatype=XSD.string), metadata_graph))
         
-        # Add secondary outcome specification - split by semicolon like CohortVarLinker
+        # Add secondary outcome specification - split by semicolon like cross_mapping
         if has_secondary:
             secondary_values = str(row["secondary outcome specification"]).lower().split(';') if pd.notna(row["secondary outcome specification"]) else []
             for secondary_value in secondary_values:
                 secondary_value = secondary_value.strip()
                 if secondary_value:  # Skip empty values
-                    # URI matches CohortVarLinker: /secondary_outcome_specification
+                    # URI matches cross_mapping: /secondary_outcome_specification
                     secondary_uri = URIRef(study_uri + "/secondary_outcome_specification")
                     g.add((secondary_uri, RDF.type, OntologyNamespaces.CMEO.value.secondary_outcome_specification, metadata_graph))
                     g.add((secondary_uri, RDFS.label, Literal("secondary outcome specification", datatype=XSD.string), metadata_graph))
                     g.add((outcome_spec_uri, OntologyNamespaces.RO.value.has_part, secondary_uri, metadata_graph))
                     g.add((secondary_uri, OntologyNamespaces.CMEO.value.has_value, Literal(secondary_value, datatype=XSD.string), metadata_graph))
     
-    # Handle inclusion criteria - matches CohortVarLinker implementation
+    # Handle inclusion criteria - matches cross_mapping implementation
     inclusion_criteria_columns = [col for col in row.index if "inclusion criterion" in col.lower()]
     if inclusion_criteria_columns:
         # Create inclusion criterion container
@@ -2302,7 +2299,7 @@ def handle_special_fields(g: Graph, row: pd.Series, study_design_execution_uri: 
                         g.add((col_inclusion_criteria_uri, RDFS.label, Literal(col, datatype=XSD.string), metadata_graph))
                         g.add((col_inclusion_criteria_uri, OntologyNamespaces.CMEO.value.has_value, Literal(inclusion_criteria_value, datatype=XSD.string), metadata_graph))
     
-    # Handle exclusion criteria - matches CohortVarLinker implementation
+    # Handle exclusion criteria - matches cross_mapping implementation
     exclusion_criteria_columns = [col for col in row.index if "exclusion criterion" in col.lower()]
     if exclusion_criteria_columns:
         # Create exclusion criterion container

@@ -2278,7 +2278,7 @@ def insert_graph_into_named_graph(g_new: Graph, graph_uri: str, chunk_size: int 
 
 
 def setup_logger(log_file: str):
-    logger = logging.getLogger(f"cohortvarlinker.{Path(log_file).stem}")
+    logger = logging.getLogger(f"cross_mapping.{Path(log_file).stem}")
     if logger.handlers:                      # already configured this run
         return logger
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')

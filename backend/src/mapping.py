@@ -3,6 +3,7 @@ import logging
 
 import requests
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 from PIL import Image
 
@@ -17,7 +18,7 @@ router = APIRouter()
 # NOTE: not really use now, Komal do the mappings in mapping_generation folder
 
 from fastapi import Body
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import JSONResponse
 import io
 import os
 import sys
@@ -60,10 +61,14 @@ async def check_mapping_cache(
     Returns cache information immediately with dictionary timestamps.
     """
     # Lazy import to avoid module-level import errors
-    from CohortVarLinker.src.config import settings as cohort_linker_settings
-    from CohortVarLinker.src.utils import get_member_studies
-    
+    from cross_mapping.naming import config_tag, csv_name
+    from cross_mapping.src.config import settings as cohort_linker_settings
+    from cross_mapping.src.utils import get_member_studies
+
     output_dir = cohort_linker_settings.output_dir
+    # naming.py is deliberately light — importing main here would pull in
+    # torch via src.run and stall this endpoint, which must answer immediately.
+    cfg = config_tag()
     
     source_study = source_study.lower()
     target_studies_names = [t[0].lower() for t in target_studies]
@@ -90,8 +95,7 @@ async def check_mapping_cache(
     outdated_pairs = []
     
     for tstudy in target_studies_names:
-        out_filename = f'{source_study}_{tstudy}_cross_mapping.csv'
-        out_path = os.path.join(output_dir, out_filename)
+        out_path = os.path.join(output_dir, csv_name(source_study, tstudy, cfg))
         
         if os.path.exists(out_path):
             # Get file modification time
@@ -145,15 +149,17 @@ async def get_available_mapping_files(
     Get all available mapping files for the given cohort IDs.
     
     Mapping files are .json files with naming pattern:
-    {cohort1}_{cohort2}_{cohortN}_sapbert_ontology+embedding(concept).json
-    
-    All parts before 'sapbert' are cohort names. A file is only included
+    {cohort1}_{cohort2}_{cohortN}_{embed_model}+{llm_tag}_{mapping_mode}.json
+
+    Everything before the config suffix is a cohort name — see
+    cross_mapping/naming.py, which owns the convention. A file is only included
     if ALL cohorts in its filename are among the selected cohorts.
     """
     logger.info(f"[DEBUG] get_available_mapping_files called with cohort_ids = {cohort_ids}")
-    
-    from CohortVarLinker.src.config import settings as cohort_linker_settings
-    
+
+    from cross_mapping.naming import parse_cohorts
+    from cross_mapping.src.config import settings as cohort_linker_settings
+
     output_dir = cohort_linker_settings.output_dir
     logger.info(f"[DEBUG] get_available_mapping_files: output_dir = {output_dir}")
     logger.info(f"[DEBUG] get_available_mapping_files: os.path.exists(output_dir) = {os.path.exists(output_dir)}")
@@ -174,21 +180,14 @@ async def get_available_mapping_files(
             if not filename.endswith('.json'):
                 continue
             
-            # Parse cohort names from filename (parts before 'sapbert')
-            # Example: "aachen-hf_bigfoot_believe_sapbert_ontology+embedding(concept).json"
-            parts = filename.replace('.json', '').split('_')
-            
-            # Find the index of 'sapbert' to know where cohort names end
-            try:
-                sapbert_idx = parts.index('sapbert')
-            except ValueError:
-                # 'sapbert' not found, skip this file
+            # Example: "aachen-hf_bigfoot_believe_biolord+gpt-oss-120b_OEH.json"
+            # parse_cohorts returns None for any .json that is not a mapping file.
+            file_cohorts = parse_cohorts(filename)
+            if file_cohorts is None:
+                logger.info(f"[DEBUG] Skipping '{filename}': not a mapping filename")
                 continue
-            
-            # Extract cohort names (all parts before 'sapbert')
-            file_cohorts = [p.lower() for p in parts[:sapbert_idx]]
             logger.info(f"[DEBUG] Parsed file '{filename}': cohorts = {file_cohorts}")
-            
+
             if len(file_cohorts) < 2:
                 # Need at least 2 cohorts for a mapping file
                 logger.info(f"[DEBUG] Skipping '{filename}': less than 2 cohorts")
@@ -231,25 +230,17 @@ async def generate_mapping(
     target_studies should be a list of [study_name, visit_constraint_bool]
     """
     # Lazy import to avoid module-level import errors
-    from CohortVarLinker.main import generate_mapping_csv
-    from CohortVarLinker.src.config import settings as cohort_linker_settings
-    
-    # Call the backend function
-    # The function writes CSVs to CohortVarLinker/data/mapping_output/{source}_{target}_cross_mapping.csv
-    # We'll return the combined JSON file
+    from cross_mapping.main import generate_mapping_csv
+    from cross_mapping.src.config import settings as cohort_linker_settings
+
+
     
     target_studies = sorted(target_studies, key=lambda x: x[0])
-    cache_info = generate_mapping_csv(source_study, target_studies)
+
+    cache_info = await run_in_threadpool(generate_mapping_csv, source_study, target_studies)
     output_dir = cohort_linker_settings.output_dir
-    
-     # Find the generated file(s)
-    source_study = source_study.lower()
-    target_str = "_".join([t[0].lower() for t in target_studies])
-    
-    # Use the same naming convention as generate_mapping_csv: {source}_{targets}_{model}_{mode}.json
-    model_name = "sapbert"
-    mapping_mode = "ontology+embedding(concept)"
-    filename = f"{source_study}_{target_str}_{model_name}_{mapping_mode}.json"
+
+    filename = cache_info["output_file"]
     filepath = os.path.join(output_dir, filename)
     if os.path.exists(filepath):
         # Read file content

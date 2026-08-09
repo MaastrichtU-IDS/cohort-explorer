@@ -11,11 +11,11 @@ from typing import Optional, Dict, Any, List, Tuple
 import re
 from pathlib import Path
 from requests.exceptions import RequestException  # add this import
-from llm.omop_graph_nx import OmopGraphNX
+from src.omop_graph_nx import OmopGraphNX
 import time
 import json
-from llm.config import settings
-from llm.utils import load_dictionary
+from src.config import settings
+from src.utils import load_dictionary
 """_summary_
 
 CDE dictionary validator (format, structure, semantics)

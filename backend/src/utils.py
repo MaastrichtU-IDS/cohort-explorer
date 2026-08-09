@@ -499,9 +499,9 @@ def get_curie_value(key: str, row: dict[str, Any]) -> str | None:
 
 def get_studies_metadata_query() -> str:
     """Get SPARQL query for retrieving studies/cohorts metadata (from sparql_queries.txt)."""
-    # Load the first query from CohortVarLinker/queries/sparql_queries.txt (lines 3-290)
+    # Load the first query from cross_mapping/queries/sparql_queries.txt (lines 3-290)
     import os
-    query_file = os.path.join(os.path.dirname(__file__), '..', 'CohortVarLinker', 'queries', 'sparql_queries.txt')
+    query_file = os.path.join(os.path.dirname(__file__), '..', 'cross_mapping', 'queries', 'sparql_queries.txt')
     with open(query_file, 'r') as f:
         lines = f.readlines()
         # Extract lines 3-290 (study metadata query including final GROUP BY)
@@ -517,7 +517,7 @@ def get_cohorts_metadata_query() -> str:
     Note: Line numbers are 1-indexed in the file, but 0-indexed in the list.
     """
     import os
-    query_file = os.path.join(os.path.dirname(__file__), '..', 'CohortVarLinker', 'queries', 'sparql_queries.txt')
+    query_file = os.path.join(os.path.dirname(__file__), '..', 'cross_mapping', 'queries', 'sparql_queries.txt')
     
     with open(query_file, 'r') as f:
         lines = f.readlines()
@@ -538,7 +538,7 @@ def get_variables_metadata_query() -> str:
     Note: Line numbers are 1-indexed in the file, but 0-indexed in the list.
     """
     import os
-    query_file = os.path.join(os.path.dirname(__file__), '..', 'CohortVarLinker', 'queries', 'sparql_queries.txt')
+    query_file = os.path.join(os.path.dirname(__file__), '..', 'cross_mapping', 'queries', 'sparql_queries.txt')
     
     with open(query_file, 'r') as f:
         lines = f.readlines()

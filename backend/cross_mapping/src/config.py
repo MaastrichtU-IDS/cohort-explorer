@@ -224,4 +224,18 @@ class Settings:
         # return  "komal.qdrant.137.120.31.148.nip.io"
         return  "../data/concept_relationship_enriched.csv"
 
+    @property
+    def output_dir(self) -> str:
+        """Where cross-mapping CSVs and the combined JSON are written.
+
+        Read directly by backend/src/mapping.py. Package-local rather than
+        data_folder-relative: DATA_FOLDER points at the shared /data volume,
+        while docker-compose mounts the mapping outputs under the package dir.
+        """
+        return os.getenv(
+            "MAPPING_OUTPUT_DIR",
+            os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                         "data", "mapping_output"),
+        )
+
 settings = Settings()
