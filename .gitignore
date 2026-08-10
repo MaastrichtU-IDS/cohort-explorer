@@ -21,3 +21,4 @@ frontend/.env.local
 
 # Mock data files (keep example)
 frontend/mock/data.json
+.coverage
