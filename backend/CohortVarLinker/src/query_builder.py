@@ -1,5 +1,5 @@
 import re
-from llm.config import settings
+from .config import settings
 
 class SPARQLQueryBuilder:
     """Responsible solely for constructing valid SPARQL queries."""
