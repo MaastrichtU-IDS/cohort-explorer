@@ -1,15 +1,28 @@
 """
-constraints.py — Semantics Constraint Pipeline:
+constraints.py — Pure Structural Constraint Pipeline
+
+Architecture:
   Context scoring (concept equivalence, embedding similarity) is computed
   upstream in resolve_matches(). By the time pairs reach this pipeline,
   context_match_type and sim_score are already populated.
+
+  This pipeline performs STRUCTURAL validation only:
+    1. ContextGate     — pre-gate using pre-computed context scores
+    2. StatisticalLogic — type-specific structural analysis (units, categories, ranges)
+    3. SubsumedCap      — downgrade to PARTIAL if context was subsumed/close_match
+
+  Decision flow:
+    context mismatch  → NOT_APPLICABLE (stop, no structural analysis)
+    context exact     → continue to structural analysis, no cap
+    context subsumed  → continue, cap to PARTIAL after structural analysis
+    no context data   → continue (neither side has context)
 """
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
 from typing import Dict, Any, Tuple, List, Optional, Set, Protocol, runtime_checkable
-
+# from unicodedata import category
 
 import numpy as np
 from .config import settings
@@ -26,6 +39,7 @@ from .data_model import (
     MappingRelation
 )
 from .utils import is_absolute_vs_percent_dose
+# from .verdict import StructuralEvidence
 _GENERIC_BOOL = frozenset({"0", "1"})
 _BOOL_POS = frozenset({"1", "yes", "true", "y", "positive", "present", "on"})
 _BOOL_NEG = frozenset({"0", "no", "false", "n", "negative", "absent", "off"})
@@ -50,7 +64,6 @@ class MatcherProtocol(Protocol):
         main_concept: Tuple[str, str],
         target_study: str,
     ) -> Tuple[bool, Optional[str]]: ...
-
 
 
 @dataclass
@@ -397,7 +410,7 @@ class ContinuousHandler:
         if ctx.is_derived_variable:
             ctx.set_result(
                 level=MatchLevel.PARTIAL,
-                reason="Variable one one side or both side is computable using other variables",
+                reason="Derived variable; recomputation required.",
                 extra_details={**unit_info, "transformation": TransformationType.DERIVATION}
             )
           
@@ -416,41 +429,75 @@ class CategoricalHandler:
     @staticmethod
     def apply(ctx: CandidateContext, s_cats: Set[str], t_cats: Set[str],
               cat_label_map: Optional[Dict]):
+        # s_raw_norm = _canonical_cats(ctx.src.original_categories)
+        # t_raw_norm = _canonical_cats(ctx.tgt.original_categories)
+        # _range_match = RangeHelper.exact_match(ctx)
+        # s_lbl_norm = _canonical_cats(s_cats)
+        # t_lbl_norm = _canonical_cats(t_cats)
+        # has_overlap = cat_label_map.get("has_overlap", False) if cat_label_map else False
+
+        # # trusted_raw_match = (s_raw == t_raw) and (has_overlap or context_is_exact)
+        # # Case 1: Equality
+       
+        # if s_raw_norm == t_raw_norm or s_lbl_norm == t_lbl_norm or _range_match:
+        #     if s_raw_norm == t_raw_norm:
+        #         is_generic = (s_raw_norm == _GENERIC_BOOL)
+        #         ctx_is_exact = (ctx.context_match_type == ContextMatchType.EXACT.value)
+        #         if is_generic and not ctx_is_exact:
+        #             level = MatchLevel.PARTIAL
+        #             reason = "Same raw 0/1 codes; semantic equivalence unverified."
+        #             extra = {"categories": s_lbl_norm,
+        #              "transformation": TransformationType.MANUAL_REVIEW}
+        #         else:
+        #             level = MatchLevel.IDENTICAL
+        #             reason = "Same raw codes." 
+        #             extra = {"categories": s_lbl_norm, "transformation": TransformationType.NONE}
+        #     else:
+        #         level = MatchLevel.COMPATIBLE
+        #         reason = "Same categories (different format)."
+        #         extra = {"categories": s_lbl_norm, "transformation": TransformationType.VALUE_NORMALIZATION} 
+        #     if level == MatchLevel.COMPATIBLE and cat_label_map:
+        #         extra.update(cat_label_map)
+            
+        #     ctx.set_result(
+        #         level=level,
+        #         reason=reason,
+        #         extra_details=extra
+        #     )
+        #     return
+
         s_raw_norm = _canonical_cats(ctx.src.original_categories)
         t_raw_norm = _canonical_cats(ctx.tgt.original_categories)
+        # literal raw tokens, no boolean folding — distinguishes "yes/no" from "1/0"
+        s_raw_strict = frozenset(str(c).strip().lower() for c in ctx.src.original_categories)
+        t_raw_strict = frozenset(str(c).strip().lower() for c in ctx.tgt.original_categories)
         _range_match = RangeHelper.exact_match(ctx)
         s_lbl_norm = _canonical_cats(s_cats)
         t_lbl_norm = _canonical_cats(t_cats)
         has_overlap = cat_label_map.get("has_overlap", False) if cat_label_map else False
 
-        # trusted_raw_match = (s_raw == t_raw) and (has_overlap or context_is_exact)
-        # Case 1: Equality
-       
         if s_raw_norm == t_raw_norm or s_lbl_norm == t_lbl_norm or _range_match:
-            if s_raw_norm == t_raw_norm:
+            raw_tokens_identical = bool(s_raw_strict) and (s_raw_strict == t_raw_strict)
+            if s_raw_norm == t_raw_norm and raw_tokens_identical:
                 is_generic = (s_raw_norm == _GENERIC_BOOL)
                 ctx_is_exact = (ctx.context_match_type == ContextMatchType.EXACT.value)
                 if is_generic and not ctx_is_exact:
                     level = MatchLevel.PARTIAL
                     reason = "Same raw 0/1 codes; semantic equivalence unverified."
                     extra = {"categories": s_lbl_norm,
-                     "transformation": TransformationType.MANUAL_REVIEW}
+                            "transformation": TransformationType.MANUAL_REVIEW}
                 else:
                     level = MatchLevel.IDENTICAL
-                    reason = "Same raw codes." 
+                    reason = "Same raw codes."
                     extra = {"categories": s_lbl_norm, "transformation": TransformationType.NONE}
             else:
                 level = MatchLevel.COMPATIBLE
-                reason = "Same categories (different format)."
-                extra = {"categories": s_lbl_norm, "transformation": TransformationType.VALUE_NORMALIZATION} 
+                reason = "Same categories (different value encoding)."
+                extra = {"categories": s_lbl_norm,
+                        "transformation": TransformationType.VALUE_NORMALIZATION}
             if level == MatchLevel.COMPATIBLE and cat_label_map:
                 extra.update(cat_label_map)
-            
-            ctx.set_result(
-                level=level,
-                reason=reason,
-                extra_details=extra
-            )
+            ctx.set_result(level=level, reason=reason, extra_details=extra)
             return
 
         # Case 2: Strict subset (canonical)
@@ -824,99 +871,206 @@ class StatisticalLogicConstraint(Constraint):
     def apply(self, ctx: CandidateContext):
         s_type = ctx.src.statistical_type
         t_type = ctx.tgt.statistical_type
+
         cat_types = {StatisticalType.BINARY.value, StatisticalType.MULTI_CLASS.value}
         cont = StatisticalType.CONTINUOUS.value
         binary = StatisticalType.BINARY.value
         valid_types = {st.value for st in StatisticalType}
         qual = StatisticalType.QUALITATIVE.value
-        
-        
-        if s_type not in valid_types or t_type not in valid_types:
-            ctx.set_result(MatchLevel.NOT_APPLICABLE,
-                    reason= f"Invalid or missing statistical types: {s_type} vs {t_type}.",
-                    extra_details={"transformation": TransformationType.NONE}
-                )
-            return
+
+        # 1. Derived variables should be finalized before ordinary structural logic.
         if ctx.is_derived_variable:
-                ctx.set_result(MatchLevel.PARTIAL, 
-                reason="Variable one one side or both side is computable using other variables",
-                extra_details={"transformation": TransformationType.DERIVATION})
-                return 
+            ctx.set_result(
+                MatchLevel.PARTIAL,
+                reason="At least one side requires computation from parameter variables.",
+                extra_details={
+                    "transformation": TransformationType.DERIVATION,
+                    "is_derived_pair": True,
+                },
+            )
+            return ctx
+
+        # 2. Only non-derived variables should fail on missing statistical type.
+        if s_type not in valid_types or t_type not in valid_types:
+            ctx.set_result(
+                MatchLevel.NOT_APPLICABLE,
+                reason=f"Invalid or missing statistical types: {s_type} vs {t_type}.",
+                extra_details={"transformation": TransformationType.NONE},
+            )
+            return ctx
+
         # Same type
         if s_type == t_type:
             if s_type == StatisticalType.CONTINUOUS.value:
                 ContinuousHandler.apply(ctx)
             elif s_type in cat_types:
                 cat_map = self._build_cat_map(ctx)
-                CategoricalHandler.apply(ctx, set(ctx.src.category_labels), set(ctx.tgt.category_labels), cat_map)
+                CategoricalHandler.apply(
+                    ctx,
+                    set(ctx.src.category_labels),
+                    set(ctx.tgt.category_labels),
+                    cat_map,
+                )
             else:
                 ctx.set_result(
                     level=MatchLevel.IDENTICAL,
                     reason="Variables are compatible.",
-                    extra_details={
-                   "transformation": TransformationType.NONE
-                    }
+                    extra_details={"transformation": TransformationType.NONE},
                 )
-              
-            return
-        # Type mismatch: continuous vs qualitative
+            return ctx
+
         if {s_type, t_type} == {cont, qual}:
-            ctx.set_result(MatchLevel.NOT_APPLICABLE, 
-                reason= "Continuous vs qualitative (free-text); no structural harmonization possible.",
-                extra_details={
-                   "transformation": TransformationType.NONE
-                })
-            return
-          
-            
-        # Qualitative vs Categorical
+            ctx.set_result(
+                MatchLevel.NOT_APPLICABLE,
+                reason="Continuous vs qualitative free-text; no structural harmonization possible.",
+                extra_details={"transformation": TransformationType.NONE},
+            )
+            return ctx
+
         if qual in {s_type, t_type} and (s_type in cat_types or t_type in cat_types):
             ctx.set_result(
                 MatchLevel.PARTIAL,
-                reason=f"Statistical type mismatch:{s_type} vs {t_type}.",
+                reason=f"Statistical type mismatch: {s_type} vs {t_type}.",
                 extra_details={"transformation": TransformationType.MANUAL_REVIEW},
             )
-            return
-       
-        # Continuous vs Categorical
+            return ctx
+
         if cont in {s_type, t_type} and (cat_types & {s_type, t_type}):
             if {s_type, t_type} == {cont, binary}:
                 ContinuousBinaryHandler.apply(ctx)
-                return
+                return ctx
+
             if RangeHelper.exact_match(ctx):
                 s_min, s_max, t_min, t_max = RangeHelper.get_minmax(ctx)
                 ctx.set_result(
                     level=MatchLevel.PARTIAL,
-                    reason=f"continuous vs categorical with identical range [{s_min}-{s_max}].",
+                    reason=f"Continuous vs categorical with identical range [{s_min}-{s_max}].",
                     extra_details={
                         "transformation": TransformationType.VALUE_NORMALIZATION,
                         "source_range": f"[{s_min}, {s_max}]",
                         "target_range": f"[{t_min}, {t_max}]",
-                    }
+                    },
                 )
-                
             else:
                 ctx.set_result(
-                level=MatchLevel.NOT_APPLICABLE,
-                reason="Continuous vs Multi-class mismatch; no valid numeric or structural overlap.",
-                extra_details={"transformation": TransformationType.MANUAL_REVIEW}
+                    level=MatchLevel.NOT_APPLICABLE,
+                    reason="Continuous vs multi-class mismatch; no valid numeric or structural overlap.",
+                    extra_details={"transformation": TransformationType.MANUAL_REVIEW},
                 )
-                return
-           
+            return ctx
 
-    
         if s_type in cat_types or t_type in cat_types:
             cat_map = self._build_cat_map(ctx)
             MixedCategoricalHandler.apply(
-                ctx, set(ctx.src.category_labels), set(ctx.tgt.category_labels), cat_map
+                ctx,
+                set(ctx.src.category_labels),
+                set(ctx.tgt.category_labels),
+                cat_map,
             )
-            return
+            return ctx
 
         ctx.set_result(
             MatchLevel.NOT_APPLICABLE,
             reason=f"Statistical type mismatch: {s_type} vs {t_type}.",
             extra_details={"transformation": TransformationType.NONE},
         )
+        return ctx
+    # def apply(self, ctx: CandidateContext):
+    #     s_type = ctx.src.statistical_type
+    #     t_type = ctx.tgt.statistical_type
+    #     cat_types = {StatisticalType.BINARY.value, StatisticalType.MULTI_CLASS.value}
+    #     cont = StatisticalType.CONTINUOUS.value
+    #     binary = StatisticalType.BINARY.value
+    #     valid_types = {st.value for st in StatisticalType}
+    #     qual = StatisticalType.QUALITATIVE.value
+
+    #     if s_type not in valid_types or t_type not in valid_types:
+    #         ctx.set_result(MatchLevel.NOT_APPLICABLE,
+    #                 reason= f"Invalid or missing statistical types: {s_type} vs {t_type}.",
+    #                 extra_details={"transformation": TransformationType.NONE}
+    #             )
+    #         return  ctx
+    #     if ctx.is_derived_variable:
+    #             ctx.set_result(MatchLevel.PARTIAL, 
+    #             reason="Variable one one side or both side is computable using other variables",
+    #             extra_details={"transformation": TransformationType.DERIVATION})
+    #             return  ctx
+    #     # Same type
+    #     if s_type == t_type:
+    #         if s_type == StatisticalType.CONTINUOUS.value:
+    #             ContinuousHandler.apply(ctx)
+    #         elif s_type in cat_types:
+    #             cat_map = self._build_cat_map(ctx)
+    #             CategoricalHandler.apply(ctx, set(ctx.src.category_labels), set(ctx.tgt.category_labels), cat_map)
+    #         else:
+    #             ctx.set_result(
+    #                 level=MatchLevel.IDENTICAL,
+    #                 reason="Variables are compatible.",
+    #                 extra_details={
+    #                "transformation": TransformationType.NONE
+    #                 }
+    #             )
+              
+    #         return ctx
+    #     # Type mismatch: continuous vs qualitative
+    #     if {s_type, t_type} == {cont, qual}:
+    #         ctx.set_result(MatchLevel.NOT_APPLICABLE, 
+    #             reason= "Continuous vs qualitative (free-text); no structural harmonization possible.",
+    #             extra_details={
+    #                "transformation": TransformationType.NONE
+    #             })
+    #         return ctx
+          
+            
+    #     # Qualitative vs Categorical
+    #     if qual in {s_type, t_type} and (s_type in cat_types or t_type in cat_types):
+    #         ctx.set_result(
+    #             MatchLevel.PARTIAL,
+    #             reason=f"Statistical type mismatch:{s_type} vs {t_type}.",
+    #             extra_details={"transformation": TransformationType.MANUAL_REVIEW},
+    #         )
+    #         return ctx
+       
+    #     # Continuous vs Categorical
+    #     if cont in {s_type, t_type} and (cat_types & {s_type, t_type}):
+    #         if {s_type, t_type} == {cont, binary}:
+    #             ContinuousBinaryHandler.apply(ctx)
+    #             return ctx
+    #         if RangeHelper.exact_match(ctx):
+    #             s_min, s_max, t_min, t_max = RangeHelper.get_minmax(ctx)
+    #             ctx.set_result(
+    #                 level=MatchLevel.PARTIAL,
+    #                 reason=f"continuous vs categorical with identical range [{s_min}-{s_max}].",
+    #                 extra_details={
+    #                     "transformation": TransformationType.VALUE_NORMALIZATION,
+    #                     "source_range": f"[{s_min}, {s_max}]",
+    #                     "target_range": f"[{t_min}, {t_max}]",
+    #                 }
+    #             )
+                
+    #         else:
+    #             ctx.set_result(
+    #             level=MatchLevel.NOT_APPLICABLE,
+    #             reason="Continuous vs Multi-class mismatch; no valid numeric or structural overlap.",
+    #             extra_details={"transformation": TransformationType.MANUAL_REVIEW}
+    #             ) 
+    #         return ctx
+           
+
+    
+    #     if s_type in cat_types or t_type in cat_types:
+    #         cat_map = self._build_cat_map(ctx)
+    #         MixedCategoricalHandler.apply(
+    #             ctx, set(ctx.src.category_labels), set(ctx.tgt.category_labels), cat_map
+    #         )
+    #         return ctx
+
+    #     ctx.set_result(
+    #         MatchLevel.NOT_APPLICABLE,
+    #         reason=f"Statistical type mismatch: {s_type} vs {t_type}.",
+    #         extra_details={"transformation": TransformationType.NONE},
+    #     )
+    #     return ctx
 
     def _build_cat_map(self, ctx: CandidateContext) -> Optional[Dict]:
         s_cats = set(ctx.src.category_labels)
@@ -935,6 +1089,9 @@ class StatisticalLogicConstraint(Constraint):
 
 # 7. compute_structural — entry point into the new pipeline
 
+_STAT_LOGIC = StatisticalLogicConstraint()
+
+
 def compute_structural(src: VariableNode,
                         tgt: VariableNode,
                         mapping_mode: MappingType = MappingType.NE.value,
@@ -947,7 +1104,7 @@ def compute_structural(src: VariableNode,
     ctx = CandidateContext(src=src, tgt=tgt, matcher=matcher,
                             mapping_mode=mapping_mode)
 
-    StatisticalLogicConstraint().apply(ctx)
+    ctx = _STAT_LOGIC.apply(ctx)
     reason = ctx.details.get("description", "").strip()
     # Convert mutable ctx to frozen StructuralEvidence.
     level = ctx.current_level
