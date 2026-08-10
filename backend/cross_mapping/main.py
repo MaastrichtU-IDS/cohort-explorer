@@ -377,10 +377,21 @@ def generate_mapping_csv(source_study: str, target_studies: list,
     n_source_vars = _combine_cross_mapping_json(
         source_study, effective_targets, os.path.join(out_dir, out_name), cfg)
 
+    # Every per-pair CSV this run left on disk, so the caller can offer them for
+    # download alongside the combined JSON. Named for the expanded targets — one
+    # requested target with a family produces one CSV per member.
+    pair_files = [
+        {"source": source_study, "target": tgt,
+         "filename": csv_name(source_study, tgt, cfg)}
+        for tgt in effective_targets
+        if os.path.exists(_cross_mapping_csv_path(source_study, tgt, cfg))
+    ]
+
     return {
         "cached_pairs": cached_pairs,
         "uncached_pairs": uncached_pairs,
         "outdated_pairs": outdated_pairs,
+        "pair_files": pair_files,
         "skipped_pairs": [
             {"source": source_study, "target": t,
              "reason": "same study family as source"}
