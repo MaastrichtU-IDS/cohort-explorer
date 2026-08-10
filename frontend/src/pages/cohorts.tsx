@@ -768,8 +768,6 @@ export default function CohortsList() {
   const useSparqlMode = router.query.mode === 'sparql';
   const [selectedStudyTypes, setSelectedStudyTypes] = useState(new Set());
   const [selectedInstitutes, setSelectedInstitutes] = useState(new Set());
-  // State to track which cohorts have aggregate data analysis available
-  const [analysisAvailability, setAnalysisAvailability] = useState<{[key: string]: boolean}>({});
   // State to track which cohorts are expanded
   const [expandedCohorts, setExpandedCohorts] = useState<{[key: string]: boolean}>({});
   // State for per-cohort search queries
@@ -1029,7 +1027,6 @@ export default function CohortsList() {
     const abortController = new AbortController();
     
     const checkAvailability = async () => {
-      const analysisAvail: Record<string, boolean> = {};
       const edaAvail: Record<string, boolean> = {};
       
       // Only proceed if we have cohorts data
@@ -1040,22 +1037,15 @@ export default function CohortsList() {
         if (!isMounted) break;
         
         try {
-          const [analysisRes, edaRes] = await Promise.all([
-            fetch(`/api/check-analysis-folder/${cohortId}`, { signal: abortController.signal }),
-            fetch(`/api/cohort-eda-output/${encodeURIComponent(cohortId)}`, { signal: abortController.signal, method: 'HEAD' }).catch(() => null),
-          ]);
-          const analysisData = await analysisRes.json();
-          analysisAvail[cohortId] = analysisData.exists;
+          const edaRes = await fetch(`/api/cohort-eda-output/${encodeURIComponent(cohortId)}`, { signal: abortController.signal, method: 'HEAD' }).catch(() => null);
           edaAvail[cohortId] = edaRes ? edaRes.ok : false;
         } catch (error: any) {
           if (error.name === 'AbortError') break;
-          analysisAvail[cohortId] = false;
           edaAvail[cohortId] = false;
         }
       }
       
       if (isMounted) {
-        setAnalysisAvailability(analysisAvail);
         setEdaAvailability(edaAvail);
       }
     };
@@ -1483,17 +1473,11 @@ export default function CohortsList() {
                       </div>
                     );
                   })()}
-                  {/* Display aggregate data analysis tag if available */}
-                  {analysisAvailability[cohortData.cohort_id] && (
-                    <span className="badge mx-1" style={{ backgroundColor: '#dbeafe', color: '#1e3a8a', border: '1px solid #bfdbfe' }}>
-                      aggregate analysis added
-                    </span>
-                  )}
                   {/* EDA output version marker (derived on the backend from the DCR output folder).
                       Same badge style for v1 and v2; only the version in the wording changes. */}
                   {cohortData.eda_version && (
-                    <span className="badge mx-1" style={{ backgroundColor: '#dcfce7', color: '#166534', border: '1px solid #bbf7d0' }}>
-                      variable profiling &amp; analyses {cohortData.eda_version}
+                    <span className="badge mx-1" style={{ backgroundColor: '#dbeafe', color: '#1e3a8a', border: '1px solid #bfdbfe' }}>
+                      {cohortData.eda_version === 'v1' ? 'variable profiling v1' : `variable profiling & analyses ${cohortData.eda_version}`}
                     </span>
                   )}
                   {/* Removed start date - end date tag as it's shown in the More Details section */}

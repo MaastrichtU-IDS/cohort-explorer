@@ -5,7 +5,7 @@ import path from 'path';
 type CohortStatistics = {
   totalCohorts: number;
   cohortsWithMetadata: number;
-  cohortsWithAggregateAnalysis: number;
+  cohortsWithVariableProfiling: number;
   totalPatients: number;
   patientsInCohortsWithMetadata: number;
   totalVariables: number;
@@ -15,7 +15,7 @@ type CohortStatistics = {
 const defaultStatistics = {
   totalCohorts: "--",
   cohortsWithMetadata: "--",
-  cohortsWithAggregateAnalysis: "--",
+  cohortsWithVariableProfiling: "--",
   totalPatients: "--",
   patientsInCohortsWithMetadata: "--",
   totalVariables: "--"

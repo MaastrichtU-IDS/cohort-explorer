@@ -8,7 +8,7 @@ import {apiUrl} from '@/utils';
 interface CohortStatistics {
   totalCohorts: number;
   cohortsWithMetadata: number;
-  cohortsWithAggregateAnalysis: number;
+  cohortsWithVariableProfiling: number;
   totalPatients: number;
   patientsInCohortsWithMetadata: number;
   totalVariables: number;
@@ -39,7 +39,7 @@ export const CohortsProvider = ({children, useSparql = false}: {children: any, u
   const [cohortStatistics, setCohortStatistics] = useState<CohortStatistics>({
     totalCohorts: 0,
     cohortsWithMetadata: 0,
-    cohortsWithAggregateAnalysis: 0,
+    cohortsWithVariableProfiling: 0,
     totalPatients: 0,
     patientsInCohortsWithMetadata: 0,
     totalVariables: 0
@@ -132,25 +132,16 @@ export const CohortsProvider = ({children, useSparql = false}: {children: any, u
       }
     });
     
-    // Check for cohorts with aggregate analysis
-    let aggregateAnalysisCount = 0;
-    for (const cohort of cohortsList) {
-      try {
-        const response = await fetch(`/api/check-analysis-folder/${cohort.cohort_id}`);
-        const data = await response.json();
-        if (data.exists) {
-          aggregateAnalysisCount++;
-        }
-      } catch (error: any) {
-        console.error(`Error checking analysis for cohort ${cohort.cohort_id}:`, error);
-      }
-    }
-    
+    // Count cohorts with variable profiling (EDA v1 or v2)
+    const cohortsWithVariableProfiling = cohortsList.filter(
+      (cohort: Cohort) => cohort.eda_version === 'v1' || cohort.eda_version === 'v2'
+    ).length;
+
     // Create the statistics object
     const statistics = {
       totalCohorts,
       cohortsWithMetadata: cohortsWithMetadataCount,
-      cohortsWithAggregateAnalysis: aggregateAnalysisCount,
+      cohortsWithVariableProfiling,
       totalPatients,
       patientsInCohortsWithMetadata,
       totalVariables

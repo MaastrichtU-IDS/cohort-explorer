@@ -5,7 +5,7 @@ import path from 'path';
 type CohortStatistics = {
   totalCohorts: number;
   cohortsWithMetadata: number;
-  cohortsWithAggregateAnalysis: number;
+  cohortsWithVariableProfiling: number;
   totalPatients: number;
   patientsInCohortsWithMetadata: number;
   totalVariables: number;

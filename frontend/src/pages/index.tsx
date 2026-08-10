@@ -15,14 +15,14 @@ export default function Home() {
   const [stats, setStats] = React.useState<{
     totalCohorts: number | string;
     cohortsWithMetadata: number | string;
-    cohortsWithAggregateAnalysis: number | string;
+    cohortsWithVariableProfiling: number | string;
     totalPatients: number | string;
     patientsInCohortsWithMetadata: number | string;
     totalVariables: number | string;
   }>({
     totalCohorts: "waiting to refresh...",
     cohortsWithMetadata: "waiting to refresh...",
-    cohortsWithAggregateAnalysis: "waiting to refresh...",
+    cohortsWithVariableProfiling: "waiting to refresh...",
     totalPatients: "--",
     patientsInCohortsWithMetadata: "--",
     totalVariables: "--"
@@ -57,7 +57,7 @@ export default function Home() {
           setStats({
             totalCohorts: "counting...",
             cohortsWithMetadata: "counting...",
-            cohortsWithAggregateAnalysis: "counting...",
+            cohortsWithVariableProfiling: "counting...",
             totalPatients: "counting...",
             patientsInCohortsWithMetadata: "counting...",
             totalVariables: "counting..."
@@ -125,10 +125,10 @@ export default function Home() {
           <div className="stat-title text-sm">Cohorts with Uploaded Metadata</div>
         </div>
         
-        {/* Cohorts with Aggregate Analysis */}
+        {/* Cohorts with Variable Profiling */}
         <div className="stat bg-base-100 shadow rounded-lg p-4">
-          <div className="stat-value text-success text-3xl">{stats.cohortsWithAggregateAnalysis}</div>
-          <div className="stat-title text-sm">Cohorts with Aggregate Data Added</div>
+          <div className="stat-value text-success text-3xl">{stats.cohortsWithVariableProfiling}</div>
+          <div className="stat-title text-sm">Cohorts with Variable Profiling</div>
         </div>
 
         {/* Total Patients */}
