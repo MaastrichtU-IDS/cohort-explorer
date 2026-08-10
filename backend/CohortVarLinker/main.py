@@ -1,47 +1,105 @@
-import pandas as pd
-# import cProfile
-# import pstats
-from SPARQLWrapper import SPARQLWrapper, JSON
-from collections import defaultdict
-import os
+"""API-facing entry point for cross-study variable mapping.
+Called by backend/src/mapping.py -> POST /api/generate-mapping.
+"""
+
 import glob
-import time
 import json
-import sys
+import os
+import threading
+import time
+from collections import defaultdict
+from contextlib import contextmanager
+from typing import Optional
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+import pandas as pd
+
 try:
-    from src.mapping_logger import log_main, log_detail, PROCESS_CVL
-except Exception:
-    # Graceful fallback when running standalone without full backend config
-    PROCESS_CVL = "cohort_var_linker"
-    def log_main(*a, **kw): pass  # noqa: E704
-    def log_detail(*a, **kw): pass  # noqa: E704
-from CohortVarLinker.src.variables_kg import process_variables_metadata_file
-from CohortVarLinker.src.study_kg import generate_studies_kg
-from CohortVarLinker.src.vector_db import generate_studies_embeddings
-from CohortVarLinker.src.utils import (
-        get_cohort_mapping_uri,
-        delete_existing_triples,
-        publish_graph_to_endpoint,
-        OntologyNamespaces,
-        get_member_studies,
-        graph_exists,
-    )
-from typing import Any
-from CohortVarLinker.src.data_model import MappingType, EmbeddingType
-from CohortVarLinker.src.run import StudyMapper
-from CohortVarLinker.src.config import settings
-from CohortVarLinker.src.vector_db import _embed_cache
-from CohortVarLinker.src.graph_similarity import _EMBED_CACHE
-from CohortVarLinker.src.constraints import CategoryMapper
-from CohortVarLinker.src.embed_model import get_model
-from CohortVarLinker.src.omop_graph_nx import OmopGraphNX
-from CohortVarLinker.validate_cde import get_omop_graph
+    import fcntl
+except ImportError:  # non-POSIX host; the in-process thread lock still applies
+    fcntl = None
+
+from .naming import (
+    DEFAULT_EMBED_MODEL,
+    DEFAULT_EMBEDDING_MODE,
+    DEFAULT_LLM_MODEL,
+    DEFAULT_MAPPING_MODE,
+    config_tag,
+    csv_name,
+    json_name,
+)
+from .src.config import settings
+from .src.constraints import CategoryMapper
+from .src.data_model import MappingType
+from .src.graph_similarity import _EMBED_CACHE
+from .src.omop_graph_nx import OmopGraphNX
+from .src.run import StudyMapper
+from .src.utils import (
+    get_member_studies,
+    get_cohort_mapping_uri,
+    graph_exists,
+    OntologyNamespaces,
+)
+from .src.vector_db import _embed_cache, generate_studies_embeddings
+
+_BASE_PATH = os.path.dirname(os.path.abspath(__file__))
+
+_EMPTY_MAPPING_COLS = ["source_study", "target_study", "source", "target",
+                       "harmonization_status"]
+
+API_EMBED_MODEL = DEFAULT_EMBED_MODEL
+API_EMBEDDING_MODE = DEFAULT_EMBEDDING_MODE
+API_MAPPING_MODE = DEFAULT_MAPPING_MODE
+API_LLM_MODEL = DEFAULT_LLM_MODEL
 
 
-def clear_all_caches():
-    """Clear the embedding cache (e.g. when the embedding model changes)."""
+# Guards construction of the singletons only — cheap, held for seconds.
+_mapper_lock = threading.Lock()
+# Keyed by configuration: two different configs need two different StudyMappers
+# (different Qdrant collection, different OMOP graph). In practice callers use
+# the defaults, so this holds one entry — but a second config would otherwise
+# have silently reused the first one's mapper.
+_mapper_state: dict[tuple, StudyMapper] = {}
+
+# Guards the pipeline against other THREADS in this process. Every request
+# shares one StudyMapper, and run_pipeline() stores per-pair state on it
+# (last_source_variables, last_target_variables, and
+# matcher.llm_matcher._study_context). Two threads running concurrently would
+# interleave on that state and silently feed one pair's study context into the
+# other pair's LLM prompts.
+_pipeline_lock = threading.Lock()
+
+# Guards the pipeline against other PROCESSES on this host. uvicorn runs with
+# --workers 6, and each worker gets its own copy of _pipeline_lock and of the
+# StudyMapper singleton — so the thread lock alone lets six workers map the same
+# pair at once, burning six times the GPU and LLM spend for one result. flock()
+# is arbitrated by the kernel on the underlying file, so every worker queues on
+# the same lock. Lives in output_dir, which is a local bind mount; flock over
+# NFS is not reliable, so keep it on local storage.
+_LOCKFILE_NAME = ".mapping.lock"
+
+@contextmanager
+def _exclusive_mapping_lock():
+    """Hold the mapping lock across every thread and every worker on this host.
+
+    Always acquired thread-lock first, then file-lock — one consistent order, so
+    there is nothing to deadlock against.
+    """
+    os.makedirs(settings.output_dir, exist_ok=True)
+    lock_path = os.path.join(settings.output_dir, _LOCKFILE_NAME)
+    with _pipeline_lock:
+        if fcntl is None:
+            yield
+            return
+        with open(lock_path, "a") as fh:
+            fcntl.flock(fh, fcntl.LOCK_EX)   # blocks until every other worker is done
+            try:
+                yield
+            finally:
+                fcntl.flock(fh, fcntl.LOCK_UN)
+
+
+def clear_all_caches() -> None:
+    """Drop the embedding caches. Stale entries survive a model or KG change."""
     _embed_cache.clear()
     _EMBED_CACHE.clear()
     CategoryMapper._label_embedding_cache.clear()
@@ -49,469 +107,318 @@ def clear_all_caches():
     CategoryMapper._alignment_cache.clear()
 
 
-def concatenate_member_csvs_to_parent(
-    source_study: str,
-    parent_study: str,
-    member_studies: list,
-    output_dir: str,
-    model_name: str,
-    mapping_mode: str,
-    llm: str
-):
+def study_family(study: str) -> list[str]:
+    """Every study reachable from `study` through obi:has_member, itself first.
+
+    get_member_studies() already looks both ways, so the family is the same set
+    whichever member is named. The walk is a closure rather than a single hop so
+    a chain (A has_member B has_member C) still collapses to one family.
     """
-    Concatenate member study CSVs into the parent study CSV.
-    Adds a 'member_study' column to track the origin of each row.
-    """
-    parent_csv_path = f'{output_dir}/{source_study}_{parent_study}_{model_name}+{llm}_{mapping_mode}_full.csv'
-
-    if not os.path.exists(parent_csv_path):
-        print(f"⚠️ Parent CSV not found: {parent_csv_path}")
-        return
-
-    parent_df = pd.read_csv(parent_csv_path)
-    parent_df['member_study'] = parent_study
-
-    dfs_to_concat = [parent_df]
-
-    for member in member_studies:
-        member_csv_path = f'{output_dir}/{source_study}_{member}_{model_name}+{llm}_{mapping_mode}_full.csv'
-
-        if os.path.exists(member_csv_path):
-            member_df = pd.read_csv(member_csv_path)
-            member_df['member_study'] = member
-            dfs_to_concat.append(member_df)
-        else:
-            print(f"  ⚠️ Member CSV not found: {member_csv_path}")
-
-    if len(dfs_to_concat) > 1:
-        combined_df = pd.concat(dfs_to_concat, ignore_index=True)
-        if 'member_study' in combined_df.columns:
-            combined_df.drop(columns=['member_study'], inplace=True)
-
-        combined_df.to_csv(parent_csv_path, encoding='utf-8', index=False)
-        print(f"✅ Combined {len(dfs_to_concat)} CSVs into {parent_study}: {len(combined_df)} total rows")
+    family, queue = [study], [study]
+    while queue:
+        for member in get_member_studies(queue.pop()):
+            if member not in family:
+                family.append(member)
+                queue.append(member)
+    return family
 
 
-def create_study_metadata_graph(file_path, recreate=False):
-
-    if recreate:
-        base_path = os.path.dirname(os.path.abspath(__file__))
-        
-        graph_file_path = f"{base_path}/data/graphs/studies_metadata.trig"
-        g=generate_studies_kg(file_path)
-        print(f"length of graph: {len(g)}")
-        # if isinstance(g, ConjunctiveGraph):
-        #     print("Graph is a ConjunctiveGraph with quads.")
-        # else:
-        #     print("Graph is a standard RDF Graph with triples.")
-        # print(OntologyNamespaces.CMEO.value["graph/studies_metadata"])
-        if len(g) > 0:
-            print(f"delete_existing_triples for graph: {OntologyNamespaces.CMEO.value['graph/studies_metadata']}")
-            # delete_existing_triples(f"{settings.sparql_endpoint}/rdf-graphs/studies_metadata")
-            delete_existing_triples(graph_uri=OntologyNamespaces.CMEO.value["graph/studies_metadata"])
-            time.sleep(1)
-            response=publish_graph_to_endpoint(g)
-            print(f"Metadata graph published to endpoint: {response}")
-            g.serialize(destination=graph_file_path, format="trig")
-            print(f"Serialized graph to: {graph_file_path}")
-            return g
-        else:
-            print("No metadata found in the file")
-            return None
-    else:
-        print("Recreate flag is set to False. Skipping processing of study metadata.")
+def _resolve_concepts_file() -> str:
+    """settings.concepts_file_path is relative to a checkout; an API worker has a
+    different cwd, so fall back to the package-local data dir."""
+    path = settings.concepts_file_path
+    for candidate in (path, os.path.join(_BASE_PATH, "data", os.path.basename(path))):
+        if os.path.exists(candidate):
+            return candidate
+    return path  # let OmopGraphNX raise against the configured path
 
 
-def create_cohort_specific_metadata_graph(dir_path, recreate=False):
-    # dir_path should be cohort folder which can have each sub-folder as cohort name and each cohort folder should have metadata file with same name as cohort folder
-    # g = init_graph()study
-    # project directory path
+def _get_mapper(embed_model: str, embedding_mode: str, mapping_mode: str,
+                llm_model: Optional[str]) -> StudyMapper:
+    """Build the StudyMapper once per process, per configuration. Loading the
+    embedding model and the OMOP graph costs minutes — a request must not pay
+    that every time."""
+    key = (embed_model, embedding_mode, mapping_mode, llm_model)
+    with _mapper_lock:
+        if key in _mapper_state:
+            return _mapper_state[key]
 
-    base_path = os.path.dirname(os.path.abspath(__file__))
-    print(f"Base path: {base_path}")
-    if  recreate:
-        for cohort_folder in os.listdir(dir_path):
-            if cohort_folder.startswith('.'):  # Skip hidden files like .DS_Store
-                continue
-            start_time = time.time()
-            cohort_path = os.path.join(dir_path, cohort_folder)
-            if os.path.isdir(cohort_path):
-                # Select most recent CSV file with 'datadictionary' in the name
-                csv_candidates = [
-                    f for f in glob.glob(os.path.join(cohort_path, "*.csv"))
-                    if ("datadictionary" in os.path.basename(f).lower()
-                    and "noheader" not in os.path.basename(f).lower())
-                ]
-                cohort_metadata_file = None
-                if csv_candidates:
-                    cohort_metadata_file = max(csv_candidates, key=os.path.getmtime)
-                    print(f"Selected metadata file for {cohort_folder}: {cohort_metadata_file}")
-
-                # Find EDA file in sibling folder named dcr_output_<cohort_folder>
-                eda_file = None
-                base_dir = os.path.dirname(dir_path)
-                dcr_output_folder = os.path.join(base_dir, f"dcr_output_{cohort_folder}")
-                if os.path.isdir(dcr_output_folder):
-                    eda_candidates = [
-                        f for f in glob.glob(os.path.join(dcr_output_folder, "eda*.json"))
-                        if os.path.basename(f).lower().startswith("eda") and f.lower().endswith(".json")
-                    ]
-                    if eda_candidates:
-                        eda_file = max(eda_candidates, key=os.path.getmtime)
-                        print(f"Selected EDA file for {cohort_folder}: {eda_file}")
-                # print(f"Processing cohort: {cohort_folder} at path: {cohort_path} for metadata file: {cohort_metadata_file}")
-                if cohort_metadata_file:
-                    if eda_file and os.path.exists(eda_file):
-                        print(f"Processing cohort: {cohort_folder} at path: {cohort_path} for eda file: {eda_file}")
-                    g, cohort_id = process_variables_metadata_file(cohort_metadata_file, cohort_name=cohort_folder, eda_file_path=eda_file, study_metadata_graph_file_path=f"{base_path}/data/graphs/studies_metadata.trig")
-                    if g and len(g) > 0:
-                        # print(validate_graph(g))
-                        g.serialize(f"{base_path}/data/graphs/{cohort_id}_metadata.trig", format="trig")
-                        print(f"Publishing graph for cohort: {cohort_id}")
-                  
-                        #delete_existing_triples(f"{settings.sparql_endpoint}/rdf-graphs/{cohort_id}")
-                        # res=publish_graph_to_endpoint(g, graph_uri=cohort_id) These lines are works with graphDB
-                        delete_existing_triples(
-                            get_cohort_mapping_uri(cohort_id)
-                        )
-                        time.sleep(1)
-                        res = publish_graph_to_endpoint(g)
-                        print(f"Graph contains {len(g)} triples before serialization.")
-                        print(f"Graph published to endpoint: {res} for cohort: {cohort_id}")
-                        
-                        end_time = time.time()
-                        print(f"Time taken to process cohort: {cohort_folder} is: {end_time - start_time}")
-                    else:
-                        print(f"Error processing metadata file for cohort: {cohort_folder}")
-                
-            else:
-                print(f"Skipping non-directory file: {cohort_folder}")
-            print(f"Base path: {base_path}")
-    else:
-        print("Recreate flag is set to False. Skipping processing of cohort metadata.")
-
-def create_pld_graph(file_path, cohort_name, output_dir=None, recreate=False) -> None:
-    if recreate:
-        start_time = time.time()
-        # g=add_raw_data_graph(file_path, cohort_name)
-        if len(g) > 0:
-            g.serialize(f"{output_dir}/{cohort_name}_pld.trig", format="trig")
-            # delete_existing_triples(f"{settings.sparql_endpoint}/rdf-graphs/{cohort_name}_pld")
-            # res=publish_graph_to_endpoint(g,graph_uri=f"{cohort_name}_pld")
-            
-            delete_existing_triples(f"{get_cohort_mapping_uri(cohort_name)}_pld")
-            time.sleep(1)
-            res=publish_graph_to_endpoint(g)
-
-            print(f"Graph published to endpoint: {res} for cohort: graph/{cohort_name}_pld")
-            end_time = time.time()
-            print(f"Time taken to process PLD: graph/{cohort_name}_pld is: {end_time - start_time}")
-        else:
-            print("No data found in the file")
-    else:
-        print("Recreate flag is set to False. Skipping processing of PLD data.")
-
-
-def check_if_data_exists(endpoint_url):
-    sparql = SPARQLWrapper(endpoint_url)
-    sparql.setReturnFormat(JSON)
-    
-    query = """
-    PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-    PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-    PREFIX omop: <http://omop.org/>
-    PREFIX dc: <http://purl.org/dc/elements/1.1/>
-
-    ASK WHERE {
-      GRAPH ?graph {
-        ?s omop:Has_omop_id ?o .
-      }
-    }
-    """
-    
-    sparql.setQuery(query)
-    results = sparql.query().convert()
-    
-    return results['boolean']
-
-def list_graphs(endpoint_url):
-    sparql = SPARQLWrapper(endpoint_url)
-    sparql.setReturnFormat(JSON)
-    sparql.setQuery("""
-                    
-    SELECT DISTINCT ?graph
-    WHERE {
-      GRAPH ?graph {
-        ?s ?p ?o .
-      }
-    }
-    """)
-    results = sparql.query().convert()
-    return [result["graph"]["value"] for result in results["results"]["bindings"]]
-
-def get_all_predicates(endpoint_url, graph_uris):
-    sparql = SPARQLWrapper(endpoint_url)
-    sparql.setReturnFormat(JSON)
-    
-    query = """
-    SELECT DISTINCT ?p
-    WHERE {
-      VALUES ?graph { """ + " ".join(f"<{uri}>" for uri in graph_uris) + """ }
-      GRAPH ?graph {
-        ?s ?p ?o .
-      }
-    }
-    """
-    
-    sparql.setQuery(query)
-    results = sparql.query().convert()
-    predicates = [result["p"]["value"] for result in results["results"]["bindings"]]
-    print(f"predicates = {predicates}")
-    return predicates
-
-
-def cluster_variables_by_omop(endpoint_url):
-    """
-    Clusters variables across cohorts based on their omop_id and displays the clusters as a pandas DataFrame.
-
-    :param endpoint_url: str, the SPARQL endpoint URL.
-    :return: pd.DataFrame, DataFrame containing omop_id and associated variable names.
-    """
-    # Check if data exists at the endpoint
-    exists = check_if_data_exists(endpoint_url)
-
-    
-    if not exists:
-        return pd.DataFrame(columns=["omop_id", "variables"])
-    
-    # Initialize SPARQLWrapper
-    sparql = SPARQLWrapper(endpoint_url)
-    sparql.setReturnFormat(JSON)
-    
-    # Define the revised SPARQL query
-    query = """
-    PREFIX cmeo: <https://w3id.org/CMEO/>
-    PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-    PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-    PREFIX dc: <http://purl.org/dc/elements/1.1/>
-    
-    SELECT ?omop_id (GROUP_CONCAT(?variable_label; SEPARATOR=", ") AS ?variables)
-    WHERE {
-      GRAPH ?graph {
-        ?variable_uri rdf:type cmeo:variable .
-        ?variable_uri cmeo:has_concept ?base_entity .
-        ?base_entity omop:has_omop_id ?omop_id .
-        ?variable_uri rdfs:label ?variable_label .
-      }
-    }
-    GROUP BY ?omop_id
-    HAVING (COUNT(?variable_uri) >= 1)
-    """
-    
-    sparql.setQuery(query)
-    
-    try:
-        # Execute the query
-        results = sparql.query().convert()
- 
-    except Exception as e:
-
-        return pd.DataFrame(columns=["omop_id", "variables"])
-    
-    # Process the results
-    clusters = []
-    for result in results["results"]["bindings"]:
-        omop_id = result["omop_id"]["value"]
-        variables_str = result["variables"]["value"]
-        variables = [var.strip() for var in variables_str.split(",")]
-        clusters.append({"omop_id": omop_id, "variables": variables})
-
-    
-    # Convert to pandas DataFrame
-    if clusters:
-        df = pd.DataFrame(clusters)
-
-    else:
-        df = pd.DataFrame(columns=["omop_id", "variables"])
-    return df
-
-
-    
-# def search_studyx_elements():
-
-
-# from owlready2 import get_ontology
-
-# simple intersectio with just variable names display
-def combine_cross_mappings_v1(
-    source_study, 
-    target_studies, 
-    output_dir, 
-    combined_output_path
-):
-    """
-    Combines individual study cross-mapping files into a single grouped file by OMOP ID.
-    """
-    omop_id_tracker = {}
-    mapping_dict = {}
-
-    for tstudy in target_studies:
-        out_path = os.path.join(output_dir, f'{source_study}_{tstudy}_full.csv')
-        df = pd.read_csv(out_path)
-        if tstudy not in mapping_dict:
-            mapping_dict[tstudy] = {}
-        for _, row in df.iterrows():
-            src = str(row["source"]).strip()
-            tgt = str(row["target"]).strip()
-            somop = str(row["somop_id"]).strip()
-            tomop = str(row["tomop_id"]).strip()
-            slabel = str(row.get("slabel", "")).strip()
-            if src not in omop_id_tracker:
-                omop_id_tracker[src] = (somop, slabel)
-            mapping_dict[tstudy][src] = (tgt, tomop)
-
-    # Group source variables by OMOP ID
-    omop_to_source_vars = defaultdict(list)
-    for src_var, (somop_id, slabel) in omop_id_tracker.items():
-        omop_to_source_vars[somop_id].append(src_var)
-
-    matched_rows = []
-    for _, src_vars in omop_to_source_vars.items():
-        row = {}
-        row[source_study] = ' | '.join(sorted(set(src_vars)))
-        for tstudy in target_studies:
-            targets = []
-            tdict = mapping_dict.get(tstudy, {})
-            for src_var in src_vars:
-                tgt_pair = tdict.get(src_var)
-                if tgt_pair:
-                    targets.append(tgt_pair[0])
-            row[tstudy] = ' | '.join(sorted(set(targets))) if targets else ''
-        matched_rows.append(row)
-
-    final_df = pd.DataFrame(matched_rows)
-    final_df.to_csv(combined_output_path, index=False)
-    print(f"✅ Combined existing mappings saved to: {combined_output_path}")
-    
-def combine_cross_mappings(
-    source_study,
-    target_studies,
-    output_dir,
-    combined_output_path,
-    extra_columns=None
-):
-    if extra_columns is None:
-        extra_columns = [
-            "category","mapping_type","source_visit","target_visit",
-            "source_type","source_unit","source_data_type",
-            "target_type","target_unit","target_data_type","transformation_rule"
-        ]
-
-    omop_id_tracker = {}
-    mapping_dict = {}
-    mapping_details = {}
-    source_details = {}
-
-    for tstudy in target_studies:
-        out_path = os.path.join(output_dir, f'{source_study}_{tstudy}_full.csv')
-        df = pd.read_csv(out_path)
-        if tstudy not in mapping_dict:
-            mapping_dict[tstudy] = {}
-            mapping_details[tstudy] = {}
-        for _, row in df.iterrows():
-            src = str(row["source"]).strip()
-            tgt = str(row["target"]).strip()
-            somop = str(row["somop_id"]).strip()
-            tomop = str(row["tomop_id"]).strip()
-            slabel = str(row.get("slabel", "")).strip()
-            if src not in omop_id_tracker:
-                omop_id_tracker[src] = (somop, slabel)
-            mapping_dict[tstudy][src] = (tgt, tomop)
-            # Target variable details
-            tdetail_pieces = []
-            for col in extra_columns:
-                if col == "transformation_rule":
-                    val = row.get(col, "")
-                    if pd.isna(val) or val == "":
-                        val = ""
-                    else:
-                        val = f"{src}→{tgt}:{val}"
-                    tdetail_pieces.append(f"{col}={val}")
-                else:
-                    val = row.get(col, "")
-                    if pd.isna(val):
-                        val = ""
-                    tdetail_pieces.append(f"{col}={val}")
-            mapping_details[tstudy][src] = (tgt, ", ".join(tdetail_pieces))
-            # Source variable details (collected once per unique source var)
-            if src not in source_details:
-                sdetail_pieces = []
-                for col in extra_columns:
-                    sval = row.get(f"source_{col}", row.get(col, ""))
-                    if pd.isna(sval):
-                        sval = ""
-                    sdetail_pieces.append(f"{col}={sval}")
-                source_details[src] = ", ".join(sdetail_pieces)
-
-    # Group source variables by OMOP ID
-    omop_to_source_vars = defaultdict(list)
-    for src_var, (somop_id, slabel) in omop_id_tracker.items():
-        omop_to_source_vars[somop_id].append(src_var)
-
-    matched_rows = []
-    for _, src_vars in omop_to_source_vars.items():
-        row = {}
-        # Source study: list source vars with details
-        row[source_study] = ' | '.join(
-            f"{src_var}: {source_details.get(src_var, '')}" for src_var in sorted(set(src_vars))
+        collection_name = f"studies_metadata_{embed_model}_{embedding_mode}"
+        vector_db, embedding_model = generate_studies_embeddings(
+            os.path.join(_BASE_PATH, "data", "cross_mapping"),
+            settings.vector_db_path,
+            collection_name,
+            model_name=embed_model,
+            embedding_mode=embedding_mode,
+            recreate_db=False,
         )
-        # Each target: list mapped target vars with details
-        for tstudy in target_studies:
-            tdict = mapping_dict.get(tstudy, {})
-            tdetail = mapping_details.get(tstudy, {})
-            targets = []
-            for src_var in src_vars:
-                tgt_pair = tdict.get(src_var)
-                if tgt_pair:
-                    tgt = tgt_pair[0]
-                    detail_str = tdetail.get(src_var, "")
-                    targets.append(f"{tgt}: {detail_str}")
-            row[tstudy] = ' | '.join(targets) if targets else ''
-        matched_rows.append(row)
+        if vector_db is None or embedding_model is None:
+            raise RuntimeError(
+                f"Vector DB collection '{collection_name}' not available at "
+                f"{settings.vector_db_path}. Build it once with recreate_db=True."
+            )
 
-    final_df = pd.DataFrame(matched_rows)
-    final_df.to_csv(combined_output_path, index=False)
-    print(f"✅ Combined existing mappings with source and target details saved to: {combined_output_path}")
-  
-  
+        omop_graph = (None if mapping_mode == MappingType.NE.value
+                      else OmopGraphNX(csv_file_path=_resolve_concepts_file()))
 
-def _write_mapping_meta(json_path: str, final_json: dict, graph_recreated: bool = False, mapping_time: str | None = None) -> None:
-    """Compute stats from a mapping dict and write a sidecar .meta.json file."""
-    total = 0
-    harm_counts: dict[str, int] = {}
-    rel_counts: dict[str, int] = {}
-    for entry in final_json.values():
-        if not isinstance(entry, dict) or "mappings" not in entry:
+        _mapper_state[key] = StudyMapper(
+            vector_db=vector_db,
+            vector_collection=collection_name,
+            embedding_model=embedding_model,
+            omop_graph=omop_graph,
+            mapping_mode=mapping_mode,
+            llm_model=llm_model,
+            list_of_var=[],   # empty -> no benchmark scoping, map every source variable
+        )
+        return _mapper_state[key]
+
+
+def _latest_dictionary_mtime(cohort_id: str) -> Optional[float]:
+    """mtime of the newest data dictionary uploaded for a cohort, or None.
+
+    Mirrors get_latest_dictionary_timestamp() in backend/src/mapping.py so the
+    cache-check endpoint and this module agree on when a CSV has gone stale.
+    """
+    folder = os.path.join(settings.data_folder, "cohorts", cohort_id)
+    if not os.path.isdir(folder):
+        return None
+    candidates = [
+        f for f in glob.glob(os.path.join(folder, "*.csv"))
+        if "datadictionary" in os.path.basename(f).lower()
+        and "noheader" not in os.path.basename(f).lower()
+    ]
+    return max((os.path.getmtime(f) for f in candidates), default=None)
+
+
+def _cross_mapping_csv_path(source_study: str, target_study: str, cfg: str) -> str:
+    """cfg keeps runs under different settings in separate files, so a cached
+    CSV from one configuration is never mistaken for another's."""
+    return os.path.join(settings.output_dir, csv_name(source_study, target_study, cfg))
+
+
+def _is_stale(source_study: str, target: str, cache_mtime: float,
+              source_dict_mtime: Optional[float],
+              target_dict_mtime: Optional[float]) -> Optional[str]:
+    """Name of the cohort whose dictionary is newer than the cached CSV, or None."""
+    if source_dict_mtime and source_dict_mtime > cache_mtime:
+        return source_study
+    if target_dict_mtime and target_dict_mtime > cache_mtime:
+        return target
+    return None
+
+
+def _write_pair_csv(mapper: StudyMapper, source_study: str, source_family: list[str],
+                    target: str, embed_model: str, mapping_mode: str, cfg: str) -> int:
+    """Map every source-family member onto `target` and write one CSV.
+
+    Source-family rows share a single file named for the study the caller asked
+    for; the source_study/target_study columns keep each row self-describing.
+    """
+    parts = []
+    for src in source_family:
+        print(f"[api] mapping {src} -> {target} ({embed_model}, {mapping_mode})")
+        df = mapper.run_pipeline(src_study=src, tgt_study=target,
+                                 mapping_mode=mapping_mode)
+        if df.empty:
             continue
-        for m in entry["mappings"]:
-            total += 1
-            hs = str(m.get("harmonization_status") or "pending")
-            mr = str(m.get("mapping_relation") or "")
-            harm_counts[hs] = harm_counts.get(hs, 0) + 1
-            rel_counts[mr] = rel_counts.get(mr, 0) + 1
-    from datetime import datetime, timezone
-    meta = {
-        "total_mappings": total,
-        "harmonization_status": harm_counts,
-        "mapping_relation": rel_counts,
-        "graph_recreated": graph_recreated,
-        "mapping_time": mapping_time or datetime.now(timezone.utc).isoformat(),
-    }
-    meta_path = json_path + ".meta.json"
-    with open(meta_path, "w", encoding="utf-8") as f:
-        json.dump(meta, f, indent=2, ensure_ascii=False)
-    print(f"📊 Mapping stats saved to {meta_path}")
+        if "harmonization_status" in df.columns:
+            df = df[df["harmonization_status"].str.strip().str.lower()
+                    != "not applicable"].copy()
+        if df.empty:
+            continue
+        df.insert(0, "source_study", src)
+        df.insert(1, "target_study", target)
+        parts.append(df)
 
+    combined = (pd.concat(parts, ignore_index=True) if parts
+                else pd.DataFrame(columns=_EMPTY_MAPPING_COLS))
+
+    # Write to a temp file and rename: os.replace is atomic on the same
+    # filesystem, so a concurrent reader never sees a half-written CSV.
+    final_path = _cross_mapping_csv_path(source_study, target, cfg)
+    tmp_path = f"{final_path}.tmp{os.getpid()}"
+    combined.to_csv(tmp_path, index=False)
+    os.replace(tmp_path, final_path)
+
+    print(f"[api] {len(combined)} rows -> {os.path.basename(final_path)}")
+    return len(combined)
+
+
+def _combine_cross_mapping_json(source_study: str, target_studies: list[str],
+                                json_path: str, cfg: str) -> int:
+    """Fold the per-target CSVs into the single JSON the frontend downloads,
+    keyed by source variable.
+
+    NaN becomes null so the payload is valid JSON — the frontend currently
+    strips NaN with a regex, which this makes unnecessary.
+    """
+    mappings = defaultdict(list)
+    for target in target_studies:
+        csv_path = _cross_mapping_csv_path(source_study, target, cfg)
+        if not os.path.exists(csv_path):
+            continue
+        df = pd.read_csv(csv_path)
+        if df.empty:
+            continue
+        df = df.astype(object).where(pd.notna(df), None)
+        for row in df.to_dict(orient="records"):
+            src_var = str(row.get("source") or "").strip()
+            if not src_var:
+                continue
+            mappings[src_var].append(
+                {"target_study": target,
+                 **{k: v for k, v in row.items() if k != "source"}}
+            )
+
+    final_json = {k: {"from": source_study, "mappings": v}
+                  for k, v in mappings.items()}
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(final_json, f, indent=2, ensure_ascii=False, default=str)
+    return len(final_json)
+
+
+def generate_mapping_csv(source_study: str, target_studies: list,
+                         force: bool = False,
+                         embed_model: str = API_EMBED_MODEL,
+                         embedding_mode: str = API_EMBEDDING_MODE,
+                         mapping_mode: str = API_MAPPING_MODE,
+                         llm_model: Optional[str] = API_LLM_MODEL) -> dict:
+    """Map `source_study` onto every requested target, caching per pair.
+    """
+    started = time.time()
+    out_dir = settings.output_dir
+    os.makedirs(out_dir, exist_ok=True)
+
+    source_study = source_study.lower()
+    requested: list[str] = []
+    for t in target_studies:
+        name = str(t[0] if isinstance(t, (list, tuple)) else t).strip().lower()
+        if name and name not in requested:
+            requested.append(name)
+    if not requested:
+        raise ValueError("generate_mapping_csv called with no target studies")
+
+    # One fingerprint for this run, stamped into every filename it writes. The
+    # JSON is named for the REQUESTED targets, not the expanded families, so
+    # backend/src/mapping.py can predict the name from the request alone.
+    cfg = config_tag(embed_model, mapping_mode, llm_model)
+
+    source_family = study_family(source_study)
+
+    # Expand each target to its full family so members get their own CSV, and
+    # drop any target sharing a family with the source — nothing to map there.
+    effective_targets: list[str] = []
+    skipped: list[str] = []
+    for tstudy in requested:
+        family = study_family(tstudy)
+        if any(t in source_family for t in family):
+            skipped.append(tstudy)
+            continue
+        for member in family:
+            if member not in effective_targets:
+                effective_targets.append(member)
+
+    dictionary_timestamps = {}
+    for cohort in dict.fromkeys(source_family + effective_targets):
+        mtime = _latest_dictionary_mtime(cohort)
+        if mtime is not None:
+            dictionary_timestamps[cohort] = mtime
+    source_dict_mtime = max(
+        (dictionary_timestamps[s] for s in source_family if s in dictionary_timestamps),
+        default=None,
+    )
+
+    cached_pairs, uncached_pairs, outdated_pairs = [], [], []
+    to_compute: list[str] = []
+
+    for tgt in effective_targets:
+        pair = {"source": source_study, "target": tgt}
+        csv_path = _cross_mapping_csv_path(source_study, tgt, cfg)
+
+        if not os.path.exists(csv_path):
+            uncached_pairs.append(pair)
+            to_compute.append(tgt)
+            continue
+
+        cache_mtime = os.path.getmtime(csv_path)
+        stale_by = _is_stale(source_study, tgt, cache_mtime, source_dict_mtime,
+                             dictionary_timestamps.get(tgt))
+
+        if stale_by or force:
+            entry = {**pair, "timestamp": cache_mtime}
+            if stale_by:
+                entry["outdated_cohort"] = stale_by
+            outdated_pairs.append(entry)
+            to_compute.append(tgt)
+        else:
+            cached_pairs.append({**pair, "timestamp": cache_mtime})
+
+    computed, reused_after_wait = [], []
+    if to_compute:
+        # One mapping at a time across the whole host. Requests that only hit
+        # cache never reach this block, so they are never made to wait.
+        with _exclusive_mapping_lock():
+            mapper = _get_mapper(embed_model, embedding_mode, mapping_mode, llm_model)
+            clear_all_caches()
+
+            for tgt in to_compute:
+                # Re-check under the lock. If we queued behind a request that
+                # wanted the same pair — in this worker or any other — its CSV is
+                # on disk now and fresh. Take it instead of spending another 15
+                # minutes producing the identical file.
+                csv_path = _cross_mapping_csv_path(source_study, tgt, cfg)
+                if not force and os.path.exists(csv_path):
+                    cache_mtime = os.path.getmtime(csv_path)
+                    if not _is_stale(source_study, tgt, cache_mtime, source_dict_mtime,
+                                     dictionary_timestamps.get(tgt)):
+                        reused_after_wait.append(tgt)
+                        continue
+
+                _write_pair_csv(mapper, source_study, source_family, tgt,
+                                embed_model, mapping_mode, cfg)
+                computed.append(tgt)
+
+    out_name = json_name(source_study, requested, cfg)
+    n_source_vars = _combine_cross_mapping_json(
+        source_study, effective_targets, os.path.join(out_dir, out_name), cfg)
+
+    return {
+        "cached_pairs": cached_pairs,
+        "uncached_pairs": uncached_pairs,
+        "outdated_pairs": outdated_pairs,
+        "skipped_pairs": [
+            {"source": source_study, "target": t,
+             "reason": "same study family as source"}
+            for t in skipped
+        ],
+        "dictionary_timestamps": dictionary_timestamps,
+        "output_file": out_name,
+        "source_variables": n_source_vars,
+        "computed_pairs": computed,
+        "reused_after_wait": reused_after_wait,
+        "duration_seconds": round(time.time() - started, 2),
+        # What actually ran, so a cached result can be told apart from a rerun
+        # under different settings without decoding the filename.
+        "config": {
+            "embed_model": embed_model,
+            "embedding_mode": embedding_mode,
+            "mapping_mode": mapping_mode,
+            "llm_model": llm_model,
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# Cache-status helpers grafted from main's CohortVarLinker/main.py.
+#
+# backend/src/mapping.py's /check-mapping-cache endpoint imports these two
+# functions directly. Komal's rewritten module (above) computes cache status
+# internally inside generate_mapping_csv, but the separate cache-check endpoint
+# still needs these. find_cached_csv's "{source}_{target}_*.csv" glob matches
+# the config-tagged names produced by naming.csv_name(). Study metadata graphs
+# are published at upload time (backend/src/upload.py), so _check_graphs_need_recreate
+# remains valid for reporting whether the triplestore graphs are current.
+# ---------------------------------------------------------------------------
 
 def find_cached_csv(source_study, target_study, output_dir):
     """Find the most recent cached CSV file for a source→target pair.
@@ -519,7 +426,7 @@ def find_cached_csv(source_study, target_study, output_dir):
     Normalizes both names to lowercase (preserving dashes) and searches
     only in output_dir for .csv files matching either:
       - {source}_{target}.csv       (exact, no suffix)
-      - {source}_{target}_*.csv     (with suffix)
+      - {source}_{target}_*.csv     (with config-tag suffix from naming.csv_name)
     Returns the path to the most recent match, or None if not found.
     """
     source = source_study.lower()
@@ -531,33 +438,10 @@ def find_cached_csv(source_study, target_study, output_dir):
     return max(matches, key=os.path.getmtime)
 
 
-def combine_all_mappings_to_json(source_study, target_studies, output_dir, json_path,
-                                model_name=None, llm_tag=None, mapping_mode=None,
-                                graph_recreated: bool = False, mapping_time: str | None = None):
-    mappings = {}
-    for target in target_studies:
-        csv_file = find_cached_csv(source_study, target, output_dir)
-        if not csv_file:
-            print(f"⚠️ Missing CSV for {source_study} → {target} in {output_dir}")
-            continue
-        df = pd.read_csv(csv_file)
-        for _, row in df.iterrows():
-            src_var = str(row["source"]).strip()
-            if not src_var:
-                continue
-            row_dict = {k: (None if pd.isna(v) else v) for k, v in row.drop(labels=["source"]).to_dict().items()}
-            entry = {"target_study": target, **row_dict}
-            mappings.setdefault(src_var, []).append(entry)
-    final_json = {k: {"from": source_study, "mappings": v} for k, v in mappings.items()}
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(final_json, f, indent=2, ensure_ascii=False, default=str)
-    print(f"✅ saved {len(final_json)} source vars → {json_path}")
-    _write_mapping_meta(json_path, final_json, graph_recreated=graph_recreated, mapping_time=mapping_time)
-      
 def _check_graphs_need_recreate(cohort_ids, cohort_file_path) -> bool:
     """Check if any cohort dictionaries are newer than their existing graph files,
     or if the graphs are missing from the triplestore.
-    
+
     Returns True if:
       - Any dictionary is newer than its graph file on disk, OR
       - Any graph file is missing on disk, OR
@@ -605,331 +489,3 @@ def _check_graphs_need_recreate(cohort_ids, cohort_file_path) -> bool:
         if latest_dict_mtime > graph_mtime:
             return True
     return False
-
-
-def generate_mapping_csv(
-    source_study,
-    target_studies,
-    data_dir=None,
-    cohort_file_path=None,
-    cohorts_metadata_file=None,
-    output_dir=None,
-    select_relevant_studies =True
-):
-    """
-    Generate mapping CSV files for a source study and a list of target studies.
-
-    Args:
-        source_study (str): The name of the source study.
-        target_studies (list of tuple): Each tuple is (target_study_name, visit_constraint_bool).
-        data_dir (str, optional): Directory containing data files. Defaults to the 'data' folder inside CohortVarLinker.
-        cohort_file_path (str, optional): Path to the cohorts directory. Defaults to settings.cohort_folder.
-        cohorts_metadata_file (str, optional): Path to the cohort metadata Excel file (must contain a 'Descriptions' sheet). Defaults to settings.data_folder + '/iCARE4CVD_Cohorts.xlsx' — the file uploaded via the admin endpoint.
-        output_dir (str, optional): Directory to store output mapping CSVs. Defaults to settings.output_dir (CohortVarLinker/data/mapping_output).
-    
-    Returns:
-        dict: Cache information with 'cached_pairs' and 'uncached_pairs' lists containing pair info and timestamps.
-    """
-
-    if data_dir is None:
-        data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
-    if cohort_file_path is None:
-        cohort_file_path = settings.cohort_folder
-    # Robust check: ensure all selected cohorts exist
-   
-    missing_cohorts = []
-    model_name = "biolord"
-    embedding_mode = EmbeddingType.EH.value  # embedding_hybrid
-    mapping_mode = MappingType.OEH.value # ontology + embedding_hybrid
-    for cohort_id in [source_study] + [t[0] for t in target_studies]:
-        cohort_dir = os.path.join(cohort_file_path, cohort_id)
-        if not os.path.exists(cohort_dir):
-            missing_cohorts.append(cohort_id)
-    if missing_cohorts:
-        # If using FastAPI, raise HTTPException; otherwise, raise ValueError
-        try:
-            from fastapi import HTTPException
-            missing_str = ", ".join(missing_cohorts)
-            message = f"The metadata of the following cohorts is missing: {missing_str}"
-            raise HTTPException(status_code=404, detail=message)
-        except ImportError:
-            missing_str = ", ".join(missing_cohorts)
-            message = f"The metadata of the following cohorts is missing: {missing_str}"
-            raise ValueError(message)
-    if cohorts_metadata_file is None:
-        # Match the file written by the admin upload endpoint
-        # (backend/src/upload.py::COHORTS_METADATA_FILEPATH). study_kg.generate_studies_kg
-        # reads this with pd.read_excel(..., sheet_name='Descriptions').
-        cohorts_metadata_file = os.path.join(settings.data_folder, "iCARE4CVD_Cohorts.xlsx")
-    if output_dir is None:
-        output_dir = settings.output_dir
-    os.makedirs(output_dir, exist_ok=True)
-
-    log_main(PROCESS_CVL, "generate_csv_started",
-             f"Starting generate_mapping_csv: {source_study} -> {[t[0] for t in target_studies]}",
-             ctx={"source": source_study, "targets": [t[0] for t in target_studies],
-                  "output_dir": os.path.abspath(output_dir)})
-    print(f"Checking for cached or ready mapping files in directory: {os.path.abspath(output_dir)}")
-
-    source_study = source_study.lower()
-    target_studies = [t[0].lower() for t in target_studies]
-    
-    # add sub-studies if select_relevant_studies is True
-    new_studies= []
-    if select_relevant_studies:
-        for tstudy in target_studies:
-            member_studies = get_member_studies(tstudy)
-            print(f"Member studies for {tstudy}: {member_studies}")
-            new_studies.extend(member_studies)
-        target_studies.extend(new_studies)
-    # Check if all requested mappings already exist... 
-    # Komal's comment: i dont think we should have this logic (330-342 please comment it out) here because in case of multiple target studies, we should check in next computations if mapping exist add it in the list and check next. when all available then we group by omop_id
-
-    # Compute LLM tag for file naming
-    llm_model = settings.llm_model
-    if llm_model and mapping_mode != MappingType.OO.value:
-        llm_tag = llm_model.split("/")[-1].replace(":nitro", "")
-    else:
-        llm_tag = "no_llm"
-    print(f"llm_tag: {llm_tag}")
-
-    # Check cache status for each mapping pair and collect info
-    cached_pairs = []
-    uncached_pairs = []
-    all_exist = True
-    
-    for tstudy in target_studies:
-        cached_path = find_cached_csv(source_study, tstudy, output_dir)
-        print(f"Checking cache for {source_study} → {tstudy}: {'found ' + cached_path if cached_path else 'not found'}")
-        
-        if cached_path:
-            mtime = os.path.getmtime(cached_path)
-            cached_pairs.append({
-                'source': source_study,
-                'target': tstudy,
-                'timestamp': mtime
-            })
-        else:
-            all_exist = False
-            uncached_pairs.append({
-                'source': source_study,
-                'target': tstudy
-            })
-    
-    cache_info = {
-        'cached_pairs': cached_pairs,
-        'uncached_pairs': uncached_pairs,
-        'graph_recreated': False
-    }
-    
-    if all_exist:
-        log_main(PROCESS_CVL, "all_cached",
-                 f"All {len(target_studies)} mapping pairs already cached, skipping computation",
-                 ctx={"cached_count": len(cached_pairs)})
-        print("All requested mappings already exist. Skipping all computation.")
-        tstudy_str = "_".join(target_studies)
-        from datetime import datetime, timezone
-        combine_all_mappings_to_json(
-                source_study=source_study,
-                target_studies=target_studies,
-                output_dir=output_dir,
-                json_path=os.path.join(output_dir, f"{source_study}_{tstudy_str}_{model_name}+{llm_tag}_{mapping_mode}.json"),
-                model_name=model_name,
-                llm_tag=llm_tag,
-                mapping_mode=mapping_mode,
-                graph_recreated=False,
-                mapping_time=datetime.now(timezone.utc).isoformat())
-        
-        return cache_info
-            
-    # Only run expensive computations if any mapping is missing
-    log_main(PROCESS_CVL, "computation_needed",
-             f"{len(uncached_pairs)} uncached pairs need computation",
-             ctx={"uncached_pairs": uncached_pairs, "cached_pairs": cached_pairs})
-
-    # Check if any cohort dictionaries are newer than their existing graph files
-    all_cohort_ids = [source_study] + target_studies
-    need_recreate = _check_graphs_need_recreate(all_cohort_ids, cohort_file_path)
-    cache_info['graph_recreated'] = need_recreate
-    if need_recreate:
-        print("One or more cohort dictionaries are newer than their graph files (or graph missing), will recreate")
-    else:
-        print("All cohort dictionaries are older than their graph files, skipping graph recreation")
-
-    log_detail(PROCESS_CVL, "graph_generation_started",
-              f"Creating study metadata graph and cohort-specific metadata graphs (recreate={need_recreate})")
-    create_study_metadata_graph(cohorts_metadata_file, recreate=need_recreate)
-    create_cohort_specific_metadata_graph(cohort_file_path, recreate=need_recreate)
-    log_detail(PROCESS_CVL, "graph_generation_completed",
-              "Metadata graphs created successfully")
-
-    print(f"Final target studies: {target_studies}")
-    collection_name = f"studies_metadata_{model_name}_{embedding_mode}"
-    log_detail(PROCESS_CVL, "embeddings_generation_started",
-              f"Generating study embeddings: collection={collection_name}",
-              ctx={"collection": collection_name, "model": model_name, "embedding_mode": embedding_mode})
-    vector_db, embedding_model = generate_studies_embeddings(
-        cohort_file_path, "qdrant", collection_name,
-        model_name=model_name, embedding_mode=embedding_mode, recreate_db=True,
-    )
-    log_detail(PROCESS_CVL, "embeddings_generation_completed",
-              "Study embeddings generated successfully")
-
-    # Reuse the cached OMOP graph singleton from validate_cde rather than
-    # constructing a fresh OmopGraphNX every call. The class self-caches to
-    # graph_nx.pkl.gz so even an independent build is just a pickle reload,
-    # but holding two in-memory instances doubles RAM for a ~300MB graph.
-    graph = get_omop_graph()
-
-    # Instantiate the StudyMapper once — it reuses vector_db, embedding model,
-    # and OMOP graph across every target study. LLM adjudication is gated on
-    # settings.llm_model (driven by MAPPING_LLM_MODEL env var); None means
-    # purely embedding + graph + constraint-solver, no LLM / API keys required.
-    study_mapper = StudyMapper(
-        vector_db=vector_db,
-        embedding_model=embedding_model,
-        omop_graph=graph,
-        vector_collection=collection_name,
-        mapping_mode=mapping_mode,
-        llm_model=llm_model,
-    )
-
-    for tstudy in target_studies:
-        cached_path = find_cached_csv(source_study, tstudy, output_dir)
-        if cached_path:
-            log_detail(PROCESS_CVL, "pair_cached",
-                      f"Mapping {source_study} -> {tstudy} already exists, skipping",
-                      ctx={"source": source_study, "target": tstudy}, depth=1)
-            print(f"Mapping already exists for {source_study} to {tstudy}, skipping computation.")
-            continue
-        out_filename = f'{source_study}_{tstudy}_{model_name}+{llm_tag}_{mapping_mode}_full.csv'
-        out_path = os.path.join(output_dir, out_filename)
-        t0 = time.time()
-        log_main(PROCESS_CVL, "pair_mapping_started",
-                 f"Running pipeline: {source_study} -> {tstudy}",
-                 ctx={"source": source_study, "target": tstudy, "mode": mapping_mode})
-        mapping_transformed = study_mapper.run_pipeline(
-            src_study=source_study,
-            tgt_study=tstudy,
-            mapping_mode=mapping_mode,
-        )  # returns empty DataFrame (with header) if no matches found
-
-        elapsed = round(time.time() - t0, 2)
-        if mapping_transformed is None or mapping_transformed.empty:
-            # If possible, preserve the expected columns
-            columns = getattr(mapping_transformed, 'columns', None)
-            if columns is None or len(columns) == 0:
-                columns = ['No mappings found']*3
-            pd.DataFrame(columns=columns).to_csv(out_path, index=False)
-            log_main(PROCESS_CVL, "pair_mapping_completed",
-                     f"Pipeline {source_study} -> {tstudy} finished in {elapsed}s (no mappings)",
-                     ctx={"source": source_study, "target": tstudy,
-                          "elapsed_s": elapsed, "mappings_count": 0})
-        else:
-            mapping_transformed.to_csv(out_path, index=False)
-            log_main(PROCESS_CVL, "pair_mapping_completed",
-                     f"Pipeline {source_study} -> {tstudy} finished in {elapsed}s ({len(mapping_transformed)} mappings)",
-                     ctx={"source": source_study, "target": tstudy,
-                          "elapsed_s": elapsed, "mappings_count": len(mapping_transformed)})
-            
-    tstudy_str = "_".join(target_studies)
-    from datetime import datetime, timezone
-    combine_all_mappings_to_json(
-        source_study=source_study,
-        target_studies=target_studies,
-        output_dir=output_dir,
-        json_path=os.path.join(output_dir, f"{source_study}_{tstudy_str}_{model_name}+{llm_tag}_{mapping_mode}.json"),
-        model_name=model_name,
-        llm_tag=llm_tag,
-        mapping_mode=mapping_mode,
-        graph_recreated=need_recreate,
-        mapping_time=datetime.now(timezone.utc).isoformat())
-    
-    return cache_info
-
-
-if __name__ == '__main__':
-    start_time = time.time()
-    data_dir = 'data'
-    cohort_file_path = f"{data_dir}/cross_mapping_article_data"
-    cohorts_metadata_file = f"{data_dir}/studies_metadata-2.xlsx"
-    output_dir = f"{data_dir}/output/cross_mapping"
-
-    model_name = "biolord"
-    select_relevant_studies = True
-    embedding_mode = EmbeddingType.EH.value
-    mapping_mode = MappingType.OEH.value
-    create_study_metadata_graph(cohorts_metadata_file, recreate=True)
-    create_cohort_specific_metadata_graph(cohort_file_path, recreate=True)
-    collection_name = f"studies_metadata_{model_name}_{embedding_mode}"
-    embedding_model, _ = get_model(model_name)
-    vector_db, embedding_model = generate_studies_embeddings(
-        cohort_file_path, "localhost", collection_name,
-        model_name=model_name, embedding_mode=embedding_mode, recreate_db=True,
-    )
-    source_study = "time-chf"
-    target_studies = ["viennahf-register", "gissi-hf", "aachen-hf"]
-
-    clear_all_caches()
-    new_studies = []
-    parent_to_members = defaultdict[Any, list](list)
-    if select_relevant_studies:
-        for tstudy in target_studies:
-            member_studies = get_member_studies(tstudy)
-            parent_to_members.setdefault(tstudy, []).extend(member_studies)
-            new_studies.extend(member_studies)
-    target_studies.extend(new_studies)
-
-    omop_id_tracker = {}
-
-    llm_model = None
-    mapping_dict = {}
-    omop_graph = None if mapping_mode == MappingType.NE.value else OmopGraphNX(csv_file_path=settings.concepts_file_path)
-    mapper = StudyMapper(
-        vector_db=vector_db,
-        vector_collection=collection_name,
-        embedding_model=embedding_model,
-        omop_graph=omop_graph,
-        mapping_mode=mapping_mode,
-        llm_model=llm_model,
-    )
-    llm_tag = llm_model.split("/")[-1] if llm_model and mapping_mode != MappingType.OO.value else "no_llm"
-    llm_tag = llm_tag.replace(":nitro", "")
-    print(f"llm_tag: {llm_tag}")
-    for tstudy in target_studies:
-        print(f"Running experiment for {source_study} -> {tstudy} with model: {model_name} and mapping mode: {mapping_mode}")
-        mapping_transformed = mapper.run_pipeline(
-            src_study=source_study,
-            tgt_study=tstudy,
-            mapping_mode=mapping_mode,
-        )
-        mapping_transformed.to_csv(
-            f'{output_dir}/{model_name}/{mapping_mode}/{source_study}_{tstudy}_{model_name}+{llm_tag}_{mapping_mode}_full.csv',
-            index=False,
-        )
-    tstudy_str = "_".join(target_studies)
-
-    for parent_study, members in parent_to_members.items():
-        if members:
-            concatenate_member_csvs_to_parent(
-                source_study=source_study,
-                parent_study=parent_study,
-                member_studies=members,
-                output_dir=f"{output_dir}/{model_name}/{mapping_mode}",
-                model_name=model_name,
-                mapping_mode=mapping_mode,
-                llm=llm_tag,
-            )
-    combine_all_mappings_to_json(
-        source_study=source_study,
-        target_studies=target_studies,
-        output_dir=f"{output_dir}/{model_name}/{mapping_mode}",
-        json_path=os.path.join(
-            f"{output_dir}/{model_name}/{mapping_mode}",
-            f"{source_study}_{tstudy_str}_{model_name}+{llm_tag}_{mapping_mode}.json",
-        ),
-        model_name=model_name,
-        mapping_mode=mapping_mode,
-        llm_tag=llm_tag,
-    )
-    print(f"Total time taken: {time.time() - start_time:.2f} seconds")

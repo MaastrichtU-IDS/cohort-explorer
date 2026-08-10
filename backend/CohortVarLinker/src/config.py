@@ -27,6 +27,14 @@ class Settings:
     # External Resources
     OPENAI_API_KEY: str = field(default_factory=lambda: os.getenv("OPENAI_API_KEY"))
     GEMINI_API_KEY: str = field(default_factory=lambda: os.getenv("GEMINI_API_KEY"))
+    # Provider keys referenced by src/llm_call.py and src/embed_model.py. Kept as
+    # env-backed fields (main's convention) so the frozen Settings never raises
+    # AttributeError when a non-default provider client is constructed.
+    OPENROUTER_API_KEY: str = field(default_factory=lambda: os.getenv("OPENROUTER_API_KEY", ""))
+    TOGETHER_API_KEY: str = field(default_factory=lambda: os.getenv("TOGETHER_API_KEY", ""))
+    ANTHROPIC_API_KEY: str = field(default_factory=lambda: os.getenv("ANTHROPIC_API_KEY", ""))
+    FIREWORKS_API_KEY: str = field(default_factory=lambda: os.getenv("FIREWORKS_API_KEY", ""))
+    FIREWORKS_BASE_URL: str = "https://api.fireworks.ai/inference/v1"
     GRAPH_REPO: str = "https://w3id.org/CMEO/graph"
 
     DATA_DOMAINS: List[str] = field(default_factory=lambda: ["drug_exposure","condition_occurrence","condition_era","observation","observation_era","measurement","visit_occurrence","procedure_occurrence","device_exposure","person"])
@@ -223,5 +231,42 @@ class Settings:
     def concepts_file_path(self) -> str:
         # return  "komal.qdrant.137.120.31.148.nip.io"
         return  "../data/concept_relationship_enriched.csv"
+
+    @property
+    def output_dir(self) -> str:
+        """Where cross-mapping CSVs and the combined JSON are written.
+
+        Read directly by backend/src/mapping.py. Package-local rather than
+        data_folder-relative: DATA_FOLDER points at the shared /data volume,
+        while docker-compose mounts the mapping outputs under the package dir.
+        """
+        return os.getenv(
+            "MAPPING_OUTPUT_DIR",
+            os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                         "data", "mapping_output"),
+        )
+
+    @property
+    def omop_graph_pickle_path(self) -> str:
+        """Where the pickled OMOP graph is persisted (read by validate_cde.py).
+
+        Next to output_dir (volume-mounted) so the graph survives container
+        rebuilds and is shared across processes. Overridable via env.
+        """
+        explicit = os.getenv("OMOP_GRAPH_PICKLE_PATH")
+        if explicit:
+            return explicit
+        return os.path.join(os.path.dirname(self.output_dir), "graph_nx.pkl.gz")
+
+    @property
+    def cohort_folder(self) -> str:
+        """Directory holding per-cohort uploads (data dictionaries).
+
+        Read by backend/src/mapping.py (cache-check endpoint) and by
+        main._check_graphs_need_recreate. Mirrors _latest_dictionary_mtime's
+        layout of settings.data_folder/cohorts/<cohort_id>/.
+        """
+        return os.path.join(self.data_folder, "cohorts")
+
 
 settings = Settings()
