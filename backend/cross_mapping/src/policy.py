@@ -60,6 +60,42 @@ def _demote_hierarchical(s: StructuralEvidence) -> tuple[MatchLevel, Transformat
         return MatchLevel.PARTIAL, transformation, reason
     return s.level, s.transformation, s.reason
 
+
+# A PARTIAL that no LLM ever saw still has a knowable direction: the candidate
+# generator already stated which side is finer. A broadMatch means the target is
+# the broader concept (torsemide -> "sulfonamides, plain"); a narrowMatch means
+# the target is the narrower one (cerebrovascular disease -> cerebrovascular
+# accident). Those map onto the ALIGNMENT DIRECTION vocabulary the LLM uses, so
+# structural and LLM verdicts stay comparable downstream.
+_HIERARCHICAL_DIRECTION = {
+    MappingRelation.SymbolicBroadMatch.value:  "source to target",   # source finer
+    MappingRelation.SymbolicNarrowMatch.value: "target to source",   # target finer
+}
+
+
+def _structural_direction(s: StructuralEvidence,
+                          level: MatchLevel,
+                          transformation: TransformationType) -> str:
+    """transform_direction for a verdict decided without the LLM."""
+    if level != MatchLevel.PARTIAL:
+        return ""
+    if transformation == TransformationType.DERIVATION or _is_derivation(s):
+        # Both sides feed a third, derived variable.
+        return "both for derivation"
+    relation = (s.extra.get("mapping_relation") or "").strip().lower()
+    return _HIERARCHICAL_DIRECTION.get(relation, "")
+
+
+def _extra_with_direction(s: StructuralEvidence,
+                          level: MatchLevel,
+                          transformation: TransformationType) -> dict:
+    """s.extra plus a transform_direction, when one can be derived structurally."""
+    out = dict(s.extra)
+    direction = _structural_direction(s, level, transformation)
+    if direction and not out.get("transform_direction"):
+        out["transform_direction"] = direction
+    return out
+
 # NE: neural matching only. The LLM is the primary semantic judge;
 
 def _ne_decide(s: StructuralEvidence,
@@ -70,7 +106,8 @@ def _ne_decide(s: StructuralEvidence,
     # No LLM consulted → structural verdict is final.
     if llm is None:
         level = MatchLevel.NOT_APPLICABLE if llm_use and s.level == MatchLevel.PARTIAL  else s.level
-        return _build_verdict(level, s.transformation, s.reason, tp, s.extra)
+        return _build_verdict(level, s.transformation, s.reason, tp,
+                              _extra_with_direction(s, level, s.transformation))
 
     if llm.verdict == "IMPOSSIBLE":
         return _build_verdict(
@@ -134,7 +171,8 @@ def _symbolic_neural_with_llm_decide(s: StructuralEvidence,
     if llm is None:
         level, transformation, reason = _demote_hierarchical(s)
         level = MatchLevel.NOT_APPLICABLE if (llm_use and s.level == MatchLevel.PARTIAL and transformation != TransformationType.DERIVATION)  else level
-        return _build_verdict(level, transformation, reason, tp, s.extra)
+        return _build_verdict(level, transformation, reason, tp,
+                              _extra_with_direction(s, level, transformation))
     
     if llm.verdict == "IMPOSSIBLE":
         return _build_verdict(
@@ -206,7 +244,8 @@ def _ontology_only_decide(s: StructuralEvidence, tp: TimepointInfo) -> Verdict:
             "manual review required."
         ).strip()
 
-    return _build_verdict(level, transformation, reason, tp, s.extra)
+    return _build_verdict(level, transformation, reason, tp,
+                          _extra_with_direction(s, level, transformation))
 
 
 

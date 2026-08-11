@@ -12,10 +12,16 @@ from __future__ import annotations
 import re
 from typing import Any, Optional
 
-from .data_model import MatchLevel, MappingRelation, VariableNode
+from .data_model import MatchLevel, MappingRelation, StatisticalType, VariableNode
 from .verdict import StructuralEvidence
 
 _SLUG_MAX = 80
+
+# The prompt caps the LLM's harmonized_variable at five words. This module must
+# use the same budget, or the two generators produce names that cannot be
+# compared: `weight_kg` from one and
+# `alanine_aminotransferase_enzymatic_activity_volume_in_blood` from the other.
+_MAX_WORDS = 5
 
 
 def _slugify(text: str) -> str:
@@ -25,6 +31,75 @@ def _slugify(text: str) -> str:
     s = re.sub(r"[^a-z0-9]+", "_", s)
     s = re.sub(r"_+", "_", s).strip("_")
     return s[:_SLUG_MAX] if s else ""
+
+
+def _bound_words(name: str, max_chars: int = _SLUG_MAX) -> str:
+    """Bound a stem by dropping trailing words, never cutting mid-word.
+
+    Depends on the stem alone. An earlier version reserved room for the axis
+    suffix, which made the same concept truncate to different lengths depending
+    on whether a suffix applied — `angiotensin_ii_receptor_blockers_arbs` in one
+    row and `angiotensin_ii_receptor` in the next, for one concept id.
+    """
+    parts = [p for p in str(name or "").split("_") if p]
+    while parts and len("_".join(parts)) > max_chars:
+        parts.pop()
+    return "_".join(parts)
+
+
+def _unit_slug(unit: str) -> str:
+    """ucum:mg/dL -> mg_per_dl. Only UCUM-tagged values count as units.
+
+    The dictionaries also park date formats in this field ("DD.MM.YYYY"), which
+    are a rendering rather than a unit and must not end up in the name.
+    """
+    u = str(unit or "").strip()
+    if not u.lower().startswith("ucum:"):
+        return ""
+    return _slugify(re.sub(r"^ucum:", "", u, flags=re.I).replace("/", " per "))
+
+
+def _is_date(v: VariableNode) -> bool:
+    return str(getattr(v, "data_type", "") or "").strip().lower() in {"datetime", "date"}
+
+
+def _axis_suffix(src: VariableNode, tgt: VariableNode) -> str:
+    """Axis marker for the pooled variable — the coarsest side wins.
+
+    Precedence follows the direction a harmonized column actually collapses in:
+    a binary side forces a presence flag, a multi-class side forces categories,
+    a date stays a date, and a unit applies only when both sides are quantities.
+    Differing units yield no suffix — nothing here can say which is canonical,
+    and asserting the wrong one is worse than omitting it.
+    """
+    types = {src.statistical_type, tgt.statistical_type}
+    if StatisticalType.BINARY in types:
+        return "yes_no"
+    if StatisticalType.MULTI_CLASS in types:
+        return "category"
+    if _is_date(src) or _is_date(tgt):
+        return "date"
+    if StatisticalType.CONTINUOUS in types:
+        src_unit, tgt_unit = _unit_slug(src.unit), _unit_slug(tgt.unit)
+        if src_unit and tgt_unit and src_unit != tgt_unit:
+            return ""
+        return src_unit or tgt_unit
+    return ""
+
+
+def _with_axis(name: str, suffix: str) -> str:
+    """Bound the concept stem, then append the axis marker.
+
+    No five-word budget: that existed so this name could be compared with the
+    LLM's, and the deterministic name is now the authoritative one. Truncating a
+    vocabulary label only invites collisions between distinct concepts.
+    """
+    stem = _bound_words(name)
+    if not stem:
+        return ""
+    if not suffix or stem == suffix or stem.endswith(f"_{suffix}"):
+        return stem
+    return f"{stem}_{suffix}"
 
 
 def _concept_name(graph: Any, concept_id: Optional[int]) -> str:
@@ -89,19 +164,14 @@ def _broader_display_name(graph: Any, src_id: Optional[int], tgt_id: Optional[in
     return ""
 
 
-def suggest_harmonized_variable_without_llm(
+def _base_name(
     src: VariableNode,
     tgt: VariableNode,
     structural: StructuralEvidence,
     *,
     graph: Any = None,
-    verdict_level: MatchLevel,
 ) -> str:
-    """Return snake_case harmonized_variable for non–LLM rows, or \"\".
-
-    Intended for pairs where `should_consult_llm` is false (structural
-    IDENTICAL / COMPATIBLE / NOT_APPLICABLE). For NOT_APPLICABLE verdicts,
-    returns \"\" so we do not invent a pooled variable name.
+    """Concept stem for the harmonized variable, before the axis suffix.
 
     Resolution order:
     1. Same OMOP id → concept name from graph, else slugified shared label.
@@ -109,9 +179,6 @@ def suggest_harmonized_variable_without_llm(
     3. Identical normalized main labels (no graph) → slugify that label.
     4. Empty string if nothing grounded.
     """
-    if verdict_level == MatchLevel.NOT_APPLICABLE:
-        return ""
-
     relation = (structural.extra.get("mapping_relation") or "").strip().lower()
 
     sid, tid = src.main_id, tgt.main_id
@@ -143,3 +210,28 @@ def suggest_harmonized_variable_without_llm(
 
     # No graph path: identical preferred labels only.
     return _name_from_pair_same_label(src, tgt)
+
+
+def suggest_harmonized_variable_without_llm(
+    src: VariableNode,
+    tgt: VariableNode,
+    structural: StructuralEvidence,
+    *,
+    graph: Any = None,
+    verdict_level: MatchLevel,
+) -> str:
+    """Return snake_case harmonized_variable for non–LLM rows, or \"\".
+
+    Intended for pairs where `should_consult_llm` is false (structural
+    IDENTICAL / COMPATIBLE / NOT_APPLICABLE). For NOT_APPLICABLE verdicts,
+    returns \"\" so we do not invent a pooled variable name.
+
+    The name is the concept stem plus the information axis, under the same
+    five-word budget the prompt gives the LLM, so both generators produce
+    comparable names.
+    """
+    if verdict_level == MatchLevel.NOT_APPLICABLE:
+        return ""
+
+    return _with_axis(_base_name(src, tgt, structural, graph=graph),
+                      _axis_suffix(src, tgt))

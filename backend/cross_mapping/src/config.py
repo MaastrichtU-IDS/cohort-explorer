@@ -13,6 +13,10 @@ class Settings:
     LIMIT: int = 10 # limit for adaptive retrival from vector db
 
     DATE_HINTS: List[str] = field(default_factory=lambda: ["visit date", "date of visit", "date of event", "event date"])
+    # TOGETHER_API_KEY: str = field(default_factory=lambda: os.getenv("TOGETHER_API_KEY"))   
+    OPENROUTER_API_KEY: str = field(default_factory=lambda: os.getenv("OPENROUTER_API_KEY"))
+    FIREWORKS_API_KEY: str = field(default_factory=lambda: os.getenv("FIREWORKS_API_KEY"))
+    FIREWORKS_BASE_URL: str = "https://api.fireworks.ai/inference/v1"
     LITELLM_BASE_URL: str = field(default_factory=lambda: os.getenv("LITELLM_BASE_URL", "https://litellm.137.120.31.164.nip.io/v1"))
     LITELLM_API_KEY: str = field(default_factory=lambda: os.getenv("LITELLM_API_KEY", "sk-noauth"))
     OLLAMA_URL = "localhost:11434"
@@ -98,7 +102,7 @@ class Settings:
         "formula": "PP = SBP - DBP"
     },
     {
-        "name": "BSA_DuBois",
+        "name": "Body_Surface_Area",
         "omop_id": 4201235,
         "code": "snomed:301898006",
         "label": "Body surface area",
@@ -223,19 +227,5 @@ class Settings:
     def concepts_file_path(self) -> str:
         # return  "komal.qdrant.137.120.31.148.nip.io"
         return  "../data/concept_relationship_enriched.csv"
-
-    @property
-    def output_dir(self) -> str:
-        """Where cross-mapping CSVs and the combined JSON are written.
-
-        Read directly by backend/src/mapping.py. Package-local rather than
-        data_folder-relative: DATA_FOLDER points at the shared /data volume,
-        while docker-compose mounts the mapping outputs under the package dir.
-        """
-        return os.getenv(
-            "MAPPING_OUTPUT_DIR",
-            os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                         "data", "mapping_output"),
-        )
 
 settings = Settings()
