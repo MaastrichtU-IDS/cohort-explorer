@@ -794,6 +794,185 @@ with open(log_file, "a") as log:
 """
 
 
+def merged_data_fragment_script(
+    merge_node_name: str,
+    patient_id_columns: list[str],
+    airlock_percentage: int,
+) -> str:
+    """Generate the airlock fragmentation script for the merged/pooled dataset.
+
+    Mirrors data_fragment_script (the per-cohort airlock script), adapted to the
+    pooled output of the merge node. The pooled dataset is MORE identifying than
+    any single cohort: cohortpool keeps each study's original patient ID column
+    and builds `pooled_patient_id` as "<study>::<original_id>". This script:
+    - Loads the pooled dataset from the merge node's output
+    - Drops every study's original patient ID column
+    - Replaces `pooled_patient_id` with synthetic IDs (same ID -> same synthetic ID)
+    - Splits the data based on the airlock percentage
+    - Caps outliers using z-scores (2 std deviations), with statistics computed
+      on the full pooled dataset (numeric columns detected by dtype, binary
+      0/1 columns excluded)
+    - Saves the fragment to output
+
+    Args:
+        merge_node_name: Name of the merge compute node (its output is mounted
+            at /input/<merge_node_name>/ inside this node).
+        patient_id_columns: The original patient ID column names of the pooled
+            studies, to be dropped from the fragment.
+        airlock_percentage: Percentage of rows to include in the fragment.
+
+    Returns:
+        The Python script as a string.
+    """
+    return f"""import pandas as pd
+import numpy as np
+import os
+
+# Output directory (always exists in Decentriq environment)
+output_dir = "/output"
+log_file = os.path.join(output_dir, "merged_fragmentation_log.txt")
+
+# Read the pooled dataset produced by the merge node (mounted under /input)
+df = pd.read_csv("/input/{merge_node_name}/pooled_dataset.csv")
+
+with open(log_file, "a") as log:
+    log.write("Loaded pooled dataset with {{}} rows and {{}} columns\\n".format(len(df), len(df.columns)))
+
+# Drop the original per-study patient ID columns. cohortpool carries each study's
+# original ID column through to the pooled output, so they must not reach the airlock.
+id_columns_to_drop = {patient_id_columns!r}
+drop_lower = {{c.lower().strip() for c in id_columns_to_drop}}
+found_id_cols = [col for col in df.columns if col.lower().strip() in drop_lower]
+if found_id_cols:
+    df = df.drop(columns=found_id_cols)
+with open(log_file, "a") as log:
+    log.write("Dropped original patient ID columns: {{}}\\n".format(found_id_cols))
+
+# Replace pooled_patient_id ("<study>::<original_id>", i.e. it embeds the original ID)
+# with synthetic IDs. Rows with the same original pooled ID get the same synthetic ID.
+pooled_id_col = None
+for col in df.columns:
+    if col.lower().strip() == "pooled_patient_id":
+        pooled_id_col = col
+        break
+
+with open(log_file, "a") as log:
+    if pooled_id_col:
+        id_col_position = df.columns.get_loc(pooled_id_col)
+        unique_ids = df[pooled_id_col].unique()
+        id_mapping = {{orig_id: 'AIRLOCK_' + str(i).zfill(6) for i, orig_id in enumerate(unique_ids, start=1)}}
+        synthetic_ids = df[pooled_id_col].map(id_mapping)
+        df = df.drop(columns=[pooled_id_col])
+        df.insert(id_col_position, 'Synthetic_ID', synthetic_ids)
+        log.write("Replaced '{{}}' with synthetic IDs at position {{}}\\n".format(pooled_id_col, id_col_position))
+        log.write("Mapped {{}} unique pooled IDs to synthetic IDs\\n".format(len(unique_ids)))
+    else:
+        synthetic_ids = ['AIRLOCK_' + str(i).zfill(6) for i in range(1, len(df) + 1)]
+        if 'Synthetic_ID' in df.columns:
+            df = df.drop(columns=['Synthetic_ID'])
+        df.insert(0, 'Synthetic_ID', synthetic_ids)
+        log.write("No pooled_patient_id column found, added row-based synthetic IDs at position 0\\n")
+
+# Airlock percentage setting (fixed for the merged dataset, independent of the
+# per-cohort airlock settings)
+airlock_percentage = {airlock_percentage}
+
+# Shuffle the dataframe to ensure random split
+df_full = df.sample(frac=1, random_state=42).reset_index(drop=True)
+
+# Split based on airlock percentage
+split_fraction = airlock_percentage / 100.0
+split_index = int(len(df_full) * split_fraction)
+df_fragment = df_full.iloc[:split_index].copy()
+
+# Identify numeric variables for outlier capping. The pooled dataset has no single
+# metadata dictionary, so detect by dtype and exclude binary 0/1 indicator columns
+# (cohortpool emits many of those) and the ID/study columns.
+excluded_cols = {{'synthetic_id', 'study_id'}}
+numeric_vars = []
+for col in df_full.columns:
+    if col.lower().strip() in excluded_cols:
+        continue
+    col_data = pd.to_numeric(df_full[col], errors='coerce')
+    if col_data.notna().sum() == 0:
+        continue
+    if not pd.api.types.is_numeric_dtype(df_full[col]):
+        continue
+    unique_vals = set(col_data.dropna().unique())
+    if len(unique_vals) <= 2 and unique_vals.issubset({{0, 1, 0.0, 1.0}}):
+        continue
+    numeric_vars.append(col)
+
+with open(log_file, "a") as log:
+    log.write("\\nIdentified {{}} numeric variables for outlier capping\\n".format(len(numeric_vars)))
+
+# Outlier capping using z-scores (2 standard deviations)
+# Calculate statistics on FULL pooled dataset, cap on fragment only
+Z_THRESHOLD = 2.0
+outlier_stats = []
+
+for var in numeric_vars:
+    try:
+        full_values = pd.to_numeric(df_full[var], errors='coerce')
+        fragment_values = pd.to_numeric(df_fragment[var], errors='coerce')
+
+        mean_val = full_values.mean()
+        median_val = full_values.median()
+        std_val = full_values.std()
+
+        if pd.isna(std_val) or std_val == 0:
+            continue
+
+        lower_limit = mean_val - (Z_THRESHOLD * std_val)
+        upper_limit = mean_val + (Z_THRESHOLD * std_val)
+
+        outliers_below = (fragment_values < lower_limit).sum()
+        outliers_above = (fragment_values > upper_limit).sum()
+        total_capped = outliers_below + outliers_above
+
+        df_fragment[var] = fragment_values.clip(lower=lower_limit, upper=upper_limit)
+
+        outlier_stats.append({{
+            'variable': var,
+            'mean': mean_val,
+            'median': median_val,
+            'std': std_val,
+            'lower_limit': lower_limit,
+            'upper_limit': upper_limit,
+            'capped_below': outliers_below,
+            'capped_above': outliers_above,
+            'total_capped': total_capped
+        }})
+    except Exception as e:
+        with open(log_file, "a") as log:
+            log.write("Error processing variable {{}}: {{}}\\n".format(var, e))
+
+# Write outlier capping summary to log
+with open(log_file, "a") as log:
+    log.write("\\n=== Outlier Capping Summary (Z-score threshold: {{}}) ===\\n".format(Z_THRESHOLD))
+    total_vars_capped = 0
+    total_values_capped = 0
+    for stat in outlier_stats:
+        if stat['total_capped'] > 0:
+            total_vars_capped += 1
+            total_values_capped += stat['total_capped']
+        log.write("\\nVariable: {{}}\\n".format(stat['variable']))
+        log.write("  Mean: {{:.4f}}, Median: {{:.4f}}, Std: {{:.4f}}\\n".format(stat['mean'], stat['median'], stat['std']))
+        log.write("  Lower limit (mean - 2*std): {{:.4f}}\\n".format(stat['lower_limit']))
+        log.write("  Upper limit (mean + 2*std): {{:.4f}}\\n".format(stat['upper_limit']))
+        log.write("  Values capped below: {{}}, above: {{}}, total: {{}}\\n".format(stat['capped_below'], stat['capped_above'], stat['total_capped']))
+    log.write("\\nTotal: {{}} values capped across {{}} variables\\n".format(total_values_capped, total_vars_capped))
+
+# Save the fragment to output
+output_file = os.path.join(output_dir, "merged_dataset_fragment.csv")
+df_fragment.to_csv(output_file, index=False)
+
+with open(log_file, "a") as log:
+    log.write("\\nMerged data fragment saved: {{}}\\n".format(output_file))
+    log.write("Fragment size: {{}} rows out of {{}} total rows ({{:.1f}}%)\\n".format(len(df_fragment), len(df_full), len(df_fragment)/len(df_full)*100 if len(df_full) else 0))
+"""
+
+
 def exploration_script() -> str:
     """Generate the basic data exploration script.
     

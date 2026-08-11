@@ -26,7 +26,7 @@ from src.auth import get_current_user
 from src.config import settings
 from src.analysis_dcr_logging import log_dcr_event, read_events
 from src.eda_scripts import c1_data_dict_check, c2_save_to_json, c3_eda_data_profiling, longitudinal_analysis, shuffle_data
-from src.analysisDCR_scripts import data_fragment_script, visualization_script, exploration_script, merge_datasets_script
+from src.analysisDCR_scripts import data_fragment_script, visualization_script, exploration_script, merge_datasets_script, merged_data_fragment_script
 from src.models import Cohort
 from src.utils import retrieve_cohorts_metadata
 from datetime import datetime
@@ -58,6 +58,10 @@ else:
     COHORTPOOL_GITHUB_URL = "git+https://github.com/komi786/cohortpool.git"
 MERGE_ENV_REQUIREMENTS = f"{COHORTPOOL_GITHUB_URL}\n"
 MERGE_NODE_NAME = "merge-datasets"
+# Fixed airlock percentage for the merged/pooled dataset fragment. Deliberately
+# hardcoded (independent of the per-cohort airlock settings); make it a request
+# parameter if the need ever comes up.
+MERGED_AIRLOCK_PERCENTAGE = 20
 
 
 def get_cohort_schema(cohort_dict: Cohort) -> list[Column]:
@@ -1071,38 +1075,88 @@ async def get_compute_dcr_definition(
             "study_b": study_b,
         })
 
-    # Define the custom Python environment that installs cohortpool from GitHub.
-    builder.add_node_definition(
-        PythonEnvironmentComputeNodeDefinition(
-            name=MERGE_ENV_NAME,
-            requirements_txt=MERGE_ENV_REQUIREMENTS,
+    # The merged/pooled output contains every cohort's data, so NOBODY may access
+    # it directly — not even data owners. The pooled data is only ever consumable
+    # through its airlock chain, mirroring the per-cohort pattern:
+    #   merge node (no analysts) -> "create-airlock-without-outliers-..." fragment
+    #   node (synthetic IDs, percentage split, outlier capping; runnable by data
+    #   owners) -> preview/airlock node on the FRAGMENT (all participants).
+    # Decentriq runs upstream dependencies automatically, so computing the fragment
+    # or retrieving the airlock triggers the merge node without anyone holding
+    # analyst permission on it — exactly how the per-cohort airlocks already work.
+    #
+    # The merged airlock is independent of the per-cohort airlocks: the fragment
+    # always uses the fixed MERGED_AIRLOCK_PERCENTAGE. The chain just needs at
+    # least one poolable study.
+    if studies_info:
+        # Define the custom Python environment that installs cohortpool from GitHub.
+        builder.add_node_definition(
+            PythonEnvironmentComputeNodeDefinition(
+                name=MERGE_ENV_NAME,
+                requirements_txt=MERGE_ENV_REQUIREMENTS,
+            )
         )
-    )
 
-    # The merge node depends on the chosen per-study data node (full data or shuffled
-    # sample), every metadata dictionary node, and every cross-study mapping node so
-    # all inputs are mounted under /input. Using the data nodes actually referenced by
-    # studies_info ensures the shuffled sample nodes are included when pooling shuffled
-    # data.
-    study_data_nodes = [s["data_node"] for s in studies_info]
-    merge_dependencies = list(dict.fromkeys(study_data_nodes + list(metadata_nodes) + [m["node_name"] for m in mapping_nodes]))
-    builder.add_node_definition(
-        PythonComputeNodeDefinition(
-            name=MERGE_NODE_NAME,
-            script=merge_datasets_script(studies_info, merge_mappings_info, is_shuffled_data=merge_use_shuffled),
-            dependencies=merge_dependencies,
-            custom_environment=MERGE_ENV_NAME,
+        # The merge node depends on the chosen per-study data node (full data or
+        # shuffled sample), every metadata dictionary node, and every cross-study
+        # mapping node so all inputs are mounted under /input. Using the data nodes
+        # actually referenced by studies_info ensures the shuffled sample nodes are
+        # included when pooling shuffled data. No participant is granted analyst_of
+        # on this node or its environment: it runs only as a dependency.
+        study_data_nodes = [s["data_node"] for s in studies_info]
+        merge_dependencies = list(dict.fromkeys(study_data_nodes + list(metadata_nodes) + [m["node_name"] for m in mapping_nodes]))
+        builder.add_node_definition(
+            PythonComputeNodeDefinition(
+                name=MERGE_NODE_NAME,
+                script=merge_datasets_script(studies_info, merge_mappings_info, is_shuffled_data=merge_use_shuffled),
+                dependencies=merge_dependencies,
+                custom_environment=MERGE_ENV_NAME,
+            )
         )
-    )
+        logging.info(
+            f"Added '{MERGE_NODE_NAME}' node using custom env '{MERGE_ENV_NAME}' "
+            f"with {len(studies_info)} studies and {len(merge_mappings_info)} mapping(s); "
+            f"no direct analysts — accessible only via its airlock chain"
+        )
 
-    # All participants can run the merge node and its custom environment.
-    for p_email in participants:
-        participants[p_email]["analyst_of"].add(MERGE_NODE_NAME)
-        participants[p_email]["analyst_of"].add(MERGE_ENV_NAME)
-    logging.info(
-        f"Added '{MERGE_NODE_NAME}' node using custom env '{MERGE_ENV_NAME}' "
-        f"with {len(studies_info)} studies and {len(merge_mappings_info)} mapping(s)"
-    )
+        merge_airlock_percentage = MERGED_AIRLOCK_PERCENTAGE
+        merged_patient_id_cols = sorted({s["patient_id"] for s in studies_info if s.get("patient_id")})
+        merge_fragment_node_name = f"create-airlock-without-outliers-{MERGE_NODE_NAME}"
+        builder.add_node_definition(
+            PythonComputeNodeDefinition(
+                name=merge_fragment_node_name,
+                script=merged_data_fragment_script(MERGE_NODE_NAME, merged_patient_id_cols, merge_airlock_percentage),
+                dependencies=[MERGE_NODE_NAME]
+            )
+        )
+        # Mirror the per-cohort fragment permissions: only data owners may run the
+        # fragmentation — here, owners of any pooled cohort's data node.
+        pooled_raw_data_nodes = {s["study_name"].replace(" ", "-") for s in studies_info}
+        for p_email, p_roles in participants.items():
+            if p_roles["data_owner_of"] & pooled_raw_data_nodes:
+                p_roles["analyst_of"].add(merge_fragment_node_name)
+
+        merge_preview_node_name = f"preview-airlock-{MERGE_NODE_NAME}"
+        builder.add_node_definition(
+            PreviewComputeNodeDefinition(
+                name=merge_preview_node_name,
+                dependency=merge_fragment_node_name,
+                quota_bytes=10000000  # 10 MB quota, same as the per-cohort airlocks
+            )
+        )
+        # Appended to preview_nodes so the loop below grants every participant the
+        # same analyst access to it as they have to the existing airlocks.
+        preview_nodes.append(merge_preview_node_name)
+        logging.info(
+            f"Added merged-dataset airlock chain: {merge_fragment_node_name} "
+            f"({merge_airlock_percentage}% fragment) -> {merge_preview_node_name}"
+        )
+    else:
+        logging.info(
+            "Skipping merge-datasets node and its airlock chain: no poolable "
+            "studies (no patient ID variable found, or no shuffled samples when "
+            "pooling shuffled data)"
+        )
 
     # Add users permissions for previews
     # for prev_node in preview_nodes:
