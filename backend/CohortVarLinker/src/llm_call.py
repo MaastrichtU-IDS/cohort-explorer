@@ -101,14 +101,7 @@ class LLMDiskCache:
     def delete(self, model: str, prompt: str, mode: str = ""):
         self._path(model, prompt, mode).unlink(missing_ok=True)
 
-_INPUT_NE = """
-# INPUT
-Two variables are provided: Source and Target. Source/Target are positional labels only — they do not imply which side is finer or coarser, nor which side is the reference.
-Each variable has:
-- description: variable label from study metadata
-- unit: measurement unit, if available
-- categories: allowed values in format [original value=readable label|original value=readable label]
-"""
+
 
 # _BATCH_INPUT_NE = """
 # # INPUT
@@ -168,10 +161,20 @@ Each variable has:
 # ]
 # """
 
+_INPUT_NE = """
+# INPUT
+The input may begin with a "# STUDY CONTEXT" block describing the two cohorts; it describes the studies, not the variables.
+Two variables follow: Source and Target. Source/Target are positional labels only — they do not imply which side is finer or coarser, nor which side is the reference.
+Each variable may include:
+- description: variable label from study metadata
+- unit: measurement unit, if available
+- categories: allowed values in format [original value=readable label|original value=readable label]
+"""
+
 _INPUT_EV = """
 # INPUT
-The source and target variables originate from separate studies. Harmonization pools these patients into a single patient-level analysis variable, one row per patient; the two sides are therefore never repeated measurements of the same individual.
-Two variables are provided: Source and Target. Source/Target are positional labels only.
+The input may begin with a "# STUDY CONTEXT" block describing the two cohorts; it describes the studies, not the variables.
+Two variables follow: Source and Target. Source/Target are positional labels only — they do not imply which side is finer or coarser, nor which side is the reference.
 Each variable may include:
 - Description: short variable label
 - Concepts: ordered concepts separated by pipe symbol "|"
@@ -189,8 +192,8 @@ Return ONLY one valid JSON object:
   "status": "<COMPLETE|COMPATIBLE|PARTIAL|IMPOSSIBLE>",
   "confidence": <float>,
   "reason": "<30 words or fewer; prioritize clarity and explanation over word count. explain which rules you applied and why.>",
-  "transform": <structured transformation object, or "">
-  "harmonized_variable": "<12 words or fewer; snake_case or empty>",
+  "transform": <structured transformation object, or "">,
+   "harmonized_variable": "<5 words or fewer; snake_case or empty>",
   "alignment_direction": "<direction or empty>"
 }}
 """
@@ -215,7 +218,7 @@ Assess harmonizability for pooled patient-level analysis, not surface semantic s
 
 Apply these decision gates before assigning a status.
 
-**Composite/component gate.** A pre-composed aggregate matched to the parent class it exhausts is valid only with the correct operator: sum for dose and logical OR for presence. Classify it as COMPLETE when values and units align, COMPATIBLE when reversible recoding or conversion is required, and PARTIAL when the transformation is lossy or externally referenced. If the members do not exhaust the class, classify it as PARTIAL, or IMPOSSIBLE when the shortfall cannot be quantified. Extracting one member from an aggregate, matching different aggregates, or applying an axis-inappropriate operator is IMPOSSIBLE. Members may be rolled up to a parent class; components may not be inferred from a composite.
+**Composite/component gate.** Applies only when one variable IS the aggregate or parent class — never construct one. Operator must preserve the axis: sum for additive quantities (dose, amount, count, duration), logical OR for presence, maximum for severity or extent. Aggregate vs the class it exhausts: COMPLETE if values and units align; COMPATIBLE if reversible recoding or conversion is needed; PARTIAL if lossy or externally referenced. Members that do not exhaust the class: PARTIAL, or IMPOSSIBLE if the shortfall cannot be quantified. Members may roll up to that class; components may not be inferred from a composite. IMPOSSIBLE: extracting a member from an aggregate; matching two aggregates; wrong operator for the axis; combining two members into an ancestor that is neither variable (a union).
 **Residual-field gate.** “Other X” or “remaining X” excludes separately recorded members, and its membership is unknown from the pair alone. It cannot align with an itemized member or total X and is therefore IMPOSSIBLE. A true parent variable such as “any X” is not residual; a specific member may map to it as PARTIAL.
 **Anatomical-scope gate.** Laterality and site restriction are defining when one variable may be positive while the other is negative for the same patient. Identical categories do not override an anatomical-scope difference.
 **Setting/default gate.** A qualifier such as posture, physiological state, specimen, provocation, or assay may be inferred from an unqualified variable only when a recognized clinical default exists. COMPLETE or COMPATIBLE is permitted only when the specified qualifier equals that default. Conflicting specified qualifiers are IMPOSSIBLE. When no recognized default exists, an omitted qualifier remains unresolved and must not be upgraded to COMPLETE.
@@ -228,17 +231,16 @@ Same clinical entity, information axis, temporal context, anatomical scope, gran
 Examples:
 - source: systolic BP (mmHg) and target: sitting systolic BP (mmHg)  [seated position is implicit context when missing]
 - source: NT-proBNP (ug/L) and target: NT-proBNP (ng/mL)  [1 ug/L = 1 ng/mL]
-- source: history of atrial fibrillation(yes=yes|no=no) and target: presence of Atrial fibrillation (yes=yes|no=no) : maps target-to-source (more complete path) — yes maps to yes; no maps to 0 .
-- source: central venous pressure > 6 cm H2O (0=no|1=yes) and target: jugular vein elevated (0=no|1=yes): maps target-to-source (more complete direction) — 1 maps to 1; 0 maps to 0 
+- source: history of atrial fibrillation (yes=yes|no=no) and target: presence of atrial fibrillation (yes=yes|no=no): values merge as-is — yes to yes; no to no.
+- source: central venous pressure > 6 cm H2O (0=no|1=yes) and target: jugular vein elevated (0=no|1=yes): values merge as-is — 1 to 1; 0 to 0.
 
 ## COMPATIBLE
 The same six attributes as COMPLETE, but value representations differ and a deterministic, lossless, reversible transformation aligns them — unit conversion, or bijective recoding (equal number of distinct clinical states). Clinical association or approximate interchangeability is not sufficient; a surrogate qualifies only where the metadata or adjudication policy establishes equivalence and a deterministic mapping.
 **Examples**:
-- source: weight (kg) and target:weight (lb)
-- source: myocardial infarction (1=yes|0=no) and target: myocardial infarction (t=yes|f=no)  [recoding only]: maps target-to-source — t maps to 1; f maps to 0.
-- source: aspartate aminotransferase enzymatic activity (U/L) and target: AST enzymatic activity (µkat/L): maps target-to-source — multiply target values by 60 because 1 µkat/L = 60 U/L.
-- source: jugular vein elevated (0=no|1=yes) and target: central venous pressure > 6 cm H2O (3=yes|1=no): maps target-to-source (more complete direction) — 3 maps to 1; 1 maps to 0.
-- source: atrial fibrillation on ECG at baseline (t=yes|f=no) and target: history of atrial fibrillation at baseline (t=yes|f=no): maps source-to-target (more complete path) — t maps to 1; f maps to 0 (clinical-context abstraction).
+- source: weight (kg) and target: weight (lb)
+- source: myocardial infarction (1=yes|0=no) and target: myocardial infarction (t=yes|f=no)  [recoding only]: target values are recoded into the source representation — t to 1; f to 0.
+- source: aspartate aminotransferase enzymatic activity (U/L) and target: AST enzymatic activity (µkat/L): target values are converted into the source representation — multiply by 60 because 1 µkat/L = 60 U/L.
+- source: jugular vein elevated (0=no|1=yes) and target: central venous pressure > 6 cm H2O (3=yes|1=no): target values are recoded into the source representation — 3 to 1; 1 to 0.
 
 ##  PARTIAL
 One clinically meaningful variable for data pooling can be built through a lossy, directional, or externally supported transformation, provided that the derived variable delivers distinct clinical meaning and actionable utility for analysis considering the specific context of the pooled studies. All must hold:
@@ -254,7 +256,7 @@ One clinically meaningful variable for data pooling can be built through a lossy
 - source: Ordinal pulmonary-rales extent (0=absent|1=basal|2=lower-third|3=upper-zones) and target: basal rales (1=yes|0=no): maps source-to-target (more complete direction) — 1 maps to 1; 0 maps to 0; 2 maps to 0; 3 maps to 0 (extent exceeds basal zone, category collapse)
 - source: Left-leg edema (0=no|1=yes) and target: lower-limb edema (0=no|1=yes): maps source-to-target (more complete direction) — 1 maps to 1; 0 maps to unknown (right-leg status is unavailable).
 - source: captopril dose (mg) and target: ACE-inhibitor dose (% target): maps source-to-target (more complete direction) — single member to parent class via downstream external target-dose conversion factor (external-reference conversion).
-
+- source: atrial fibrillation on ECG at baseline (t=yes|f=no) and target: history of atrial fibrillation at baseline (t=yes|f=no): maps source-to-target (more complete direction) — t maps to yes; f maps to unknown (a normal ECG does not exclude a prior episode; clinical-context abstraction).
 ## IMPOSSIBLE
 No single pooled variable can be built without ambiguous decomposition or unsupported inference:
 **Examples**:
@@ -262,6 +264,7 @@ No single pooled variable can be built without ambiguous decomposition or unsupp
 - source: Sum of ACE-inhibitor and ARB dose and target: ARB dose  [aggregate  maps to  component].
 - source: "Other ARB" dose and target: total ARB dose  [residual; membership unknown].
 - source: captopril dose (mg) and target: trandolapril dose (mg)  [sibling drugs; raw mg not comparable across agents].
+- source: history of prostate disorder (yes/no) and target: history of chronic kidney disease (yes/no)  [sibling conditions; their common ancestor is neither variable — synthesized union].
 - source: disease severity and target: disease etiology  [different axes].
 - source: sitting systolic BP (mmHg) and target: standing systolic BP (mmHg)  [conflicting specified settings].
 - source: ALT (alanine aminotransferase) and AST (aspartate aminotransferase) [different lab test]
@@ -289,15 +292,16 @@ For every COMPATIBLE or PARTIAL result, provide a complete, machine-readable tra
 * assigns exactly one harmonized output to each input value;
 * states the information loss for PARTIAL;
 * provides any required formula or external reference;
+* never include a "missing", "unknown" or empty key in value_mapping — missing values are covered by missing_mapping alone
 * uses `none` when a field is not applicable.
 **Examples**
-# TRANSFORMATION EXAMPLES
 
 ## Example 1 — COMPLETE
 
 Source: body weight (kg)
 Target: body weight (kg)
 "harmonized_variable": "body_weight_kg",
+"alignment_direction": "bidirectional",
 "transform": ""
 
 ## Example 2 — COMPATIBLE: unit conversion
@@ -305,7 +309,8 @@ Target: body weight (kg)
 Source: serum creatinine (µmol/L)
 Target: serum creatinine (mg/dL)
 
-"harmonized_variable": "serum_creatinine_umol_per_l",
+"harmonized_variable": "creatinine_umol_per_l",
+"alignment_direction": "bidirectional",
 "transform": {{
     "source_operation": "retain source values in µmol/L",
     "target_operation": "convert target values from mg/dL to µmol/L",
@@ -326,7 +331,6 @@ Target: serum creatinine (mg/dL)
 
 Source: myocardial infarction (0=no|1=yes)
 Target: myocardial infarction (f=no|t=yes)
-
 "harmonized_variable": "myocardial_infarction_yes_no",
 "alignment_direction": "bidirectional",
 "transform": {{
@@ -347,8 +351,8 @@ Target: myocardial infarction (f=no|t=yes)
 
 Source: basal rales (0=no|1=yes)
 Target: rales extent (0=absent|1=basal zone|2=middle zone|3=upper zone)
-
 "harmonized_variable": "basal_rales_yes_no",
+"alignment_direction": "target to source",
 "transform": {{
     "source_operation": "retain binary basal-rales categories",
     "target_operation": "collapse rales extent to basal-rales presence",
@@ -367,7 +371,8 @@ Target: rales extent (0=absent|1=basal zone|2=middle zone|3=upper zone)
 
 Source: date of diabetes diagnosis
 Target: history of diabetes (0=no|1=yes)
-"harmonized_variable": "diabetes_history_yes_no",
+"harmonized_variable": "diabetes_yes_no",
+"alignment_direction": "source to target",
 "transform": {{
     "source_operation": "derive diabetes presence from a recorded diagnosis date",
     "target_operation": "retain target binary categories",
@@ -385,7 +390,8 @@ Target: history of diabetes (0=no|1=yes)
 
 Source: captopril daily dose (mg/day)
 Target: ACE-inhibitor dose (% target dose)
-"harmonized_variable": "ace_inhibitor_target_dose_percent",
+"harmonized_variable": "ace_inhibitor_dose_pct",
+"alignment_direction": "source to target",
 "transform": {{
     "source_operation": "convert captopril mg/day to percentage of its target daily dose",
     "target_operation": "retain target-dose percentage",
@@ -405,23 +411,25 @@ Target: ACE-inhibitor dose (% target dose)
 Source: ALT measurement (U/L)
 Target: AST measurement (U/L)
 "harmonized_variable": "",
+"alignment_direction": "",
 "transform": ""
 
-
 # HARMONIZED VARIABLE
-- COMPLETE/COMPATIBLE/PARTIAL: short snake_case name ("smoker_yes_no", "weight_kg")
+- COMPLETE/COMPATIBLE/PARTIAL: snake_case, built from the primary concept plus the information axis — presence takes _yes_no, a quantity takes its unit ("heart_failure_yes_no", "body_weight_kg", "alanine aminotransferase enzymatic activity volume in blood" in U/L -> "alanine_aminotransferase_u_per_l"). Keep the concept's own wording and digits; shorten only by dropping trailing words, never by abbreviating or substituting a synonym.
 - IMPOSSIBLE: ""
 
+
 # ALIGNMENT DIRECTION
+Whether the transformation is invertible, and where it is not, how information flows. This is not a statement about which side's representation the pooled variable adopts.
 - COMPLETE: "bidirectional"
-- COMPATIBLE: "bidirectional" if reversible, else the valid one-way direction
+- COMPATIBLE: "bidirectional" (COMPATIBLE requires a reversible transformation; if it is not reversible the status is PARTIAL, not COMPATIBLE)
 - PARTIAL: "source to target" (source finer) | "target to source" (target finer) | "both for derivation" (both contribute positive evidence to a broader variable)
 - IMPOSSIBLE: ""
 
 """
  
 _PREAMBLE = """You are a clinical data harmonization expert assessing whether two variables from separate studies can be aligned into a common harmonized variable for pooled patient-level analysis. Determine whether the merge is clinically meaningful and whether any required transformation is supported by clinical guidelines or accepted domain knowledge.
-The source and target variables come from different cohorts. Harmonization pools different patients into one dataset, with one row per patient; therefore, the two sides are never repeated measurements of the same individual. "Source" and "Target" are simply positional labels for a directional path. You must determine the direction that preserves the most information, minimizes clinical inference, and produces a harmonized variable with distinct clinical meaning and actionable utility within the specific context of the pooled studies."""
+The source and target variables come from different cohorts. Harmonization pools different patients into a single patient-level analysis variable, one row per patient; therefore, the two sides are never repeated measurements of the same individual. "Source" and "Target" are simply positional labels for a directional path. You must determine the direction that preserves the most information, minimizes clinical inference, and produces a harmonized variable with distinct clinical meaning and actionable utility within the specific context of the pooled studies."""
 
 # _BATCH_PREAMBLE = """You are a clinical data harmonization expert assessing whether a single Source variable can be aligned to each of several candidate Target variables and merged into a common harmonized analysis variable for pooled statistical analysis. The source and target variables originate from separate studies. Harmonization pools these patients into a single patient-level analysis variable, one row per patient; the two sides are therefore never repeated measurements of the same individual.
 # You will receive ONE Source and multiple Targets in a single request. Evaluate each (Source, Target i) pair independently and in isolation, using the same rules and definitions as a single-pair assessment. A target's verdict must depend only on that target and the Source — never on the presence, similarity, or verdict of any other target in the batch. Do not normalize, balance, or rank verdicts across targets. Two targets that would each receive COMPLETE in isolation must each receive COMPLETE here.
@@ -712,8 +720,8 @@ def _build_pair_prompt(src_concepts:str = "", src_cats:str = "", tgt_concepts:st
     src_line += f", categories: [{src_cats}]"
     tgt_line += f", categories: [{tgt_cats}]"
     prompt = f"## INPUT\n{src_line}\n{tgt_line}"
-    # if evidence:
-    #     prompt += f"\ngraph_evidence: [{evidence}]"
+    if evidence:
+        prompt += f"\ngraph_evidence: [{evidence}]"
 
     return prompt
 
@@ -949,20 +957,20 @@ def _build_system_prompt(
 
     context_parts = [_STUDY_CONTEXT_RULES]
 
-    if study_context:
-        dynamic_context = study_context.strip()
+    # if study_context:
+    #     dynamic_context = study_context.strip()
 
-        # format_study_context_block() already starts with "# STUDY CONTEXT";
-        # remove it to avoid duplicate headers.
-        dynamic_context = re.sub(
-            r"^\s*#\s*STUDY CONTEXT\s*",
-            "",
-            dynamic_context,
-            flags=re.IGNORECASE,
-        ).strip()
+    #     # format_study_context_block() already starts with "# STUDY CONTEXT";
+    #     # remove it to avoid duplicate headers.
+    #     dynamic_context = re.sub(
+    #         r"^\s*#\s*STUDY CONTEXT\s*",
+    #         "",
+    #         dynamic_context,
+    #         flags=re.IGNORECASE,
+    #     ).strip()
 
-        if dynamic_context:
-            context_parts.append(dynamic_context)
+    #     if dynamic_context:
+    #         context_parts.append(dynamic_context)
 
     study_context_block = "\n".join(context_parts)
 
@@ -1129,10 +1137,10 @@ class LLMConceptMatcher:
             self._cache.set_system_prompt(self._system_prompt)
 
 
-    # def set_study_context(self, context_block: str) -> None:
-    #         """Set cohort-pair study metadata for all LLM calls in this run."""
-    #         self._study_context = (context_block or "").strip()
-    #         self._refresh_system_prompt()
+    def set_study_context(self, context_block: str) -> None:
+            """Set cohort-pair study metadata for all LLM calls in this run."""
+            self._study_context = (context_block or "").strip()
+            self._refresh_system_prompt()
 
     def _apply_model_generation_defaults(self, model: str) -> None:
         """Apply model-specific decoding defaults for LLM-as-classifier runs.
@@ -1464,7 +1472,7 @@ class LLMConceptMatcher:
         except Exception as e:
             # print(f"[{mname}] call failed: {e}")
             return "", {}
-        # logger.info (f"LLM={model}, prompt={prompt}, result ={result}, logprob_dist ={logprob_evidence}")
+        logger.info (f"LLM={model}, prompt={prompt}, result ={result}, logprob_dist ={logprob_evidence}")
         return result, logprob_evidence
 
    
@@ -1585,9 +1593,8 @@ class LLMConceptMatcher:
                             mode=self.mode,
                         )
                     
-                    if self._study_context and self._study_context != "":
-                        self._refresh_system_prompt()
-                        # pair_prompt = f"{self._study_context}\n\n{pair_prompt}"
+                    if self._study_context:
+                        pair_prompt = f"{self._study_context}\n\n{pair_prompt}"
                     prompts.append(pair_prompt)
 
 

@@ -99,8 +99,12 @@ _REDUNDANT_DETAIL_KEYS = frozenset({
     "mapping_relation",                     # own column
     "source_type", "target_type",           # own columns
     "source_unit", "target_unit",           # own columns
-    "transform_direction",                  # in LLMEvidence
 })
+# transform_direction is deliberately NOT stripped. It used to be, on the
+# grounds that it already travels in LLMEvidence — but a verdict decided
+# without the LLM has no LLMEvidence, and policy now derives a direction for
+# those from the mapping relation. Keeping the key here makes the direction
+# readable in one place for every row, LLM-judged or not.
 
 
 @dataclass(frozen=True)
