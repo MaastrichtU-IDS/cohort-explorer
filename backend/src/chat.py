@@ -28,6 +28,9 @@ logger = logging.getLogger(__name__)
 MAX_CONTEXT_COHORTS = 25
 MAX_VARS_PER_COHORT = 40
 MAX_CATALOG_COHORTS = 200
+# Caps for client-supplied overrides (Glass Box & friends).
+MAX_SYSTEM_PROMPT_CHARS = 8_000
+MAX_CONTEXT_CHARS = 120_000
 
 SYSTEM_PROMPT = (
     "You are the iCARE4CVD Cohort Explorer assistant. You help researchers "
@@ -175,7 +178,14 @@ def _normalize_messages(raw: Any) -> list[dict[str, str]]:
 
 
 def _assemble_payload(body: dict[str, Any]) -> tuple[list[dict[str, str]], str, float]:
-    """Turn the request body into (messages, model, temperature)."""
+    """Turn the request body into (messages, model, temperature).
+
+    Optional overrides (used by the Glass Box / Atlas layouts, which construct
+    their payloads client-side for full transparency):
+      - system_prompt: replaces the default SYSTEM_PROMPT.
+      - context: replaces the server-built cohort context entirely, so what the
+        user previews in the UI is exactly what the model receives.
+    """
     messages = _normalize_messages(body.get("messages"))
     cohort_ids = body.get("cohort_ids") or []
     if not isinstance(cohort_ids, list):
@@ -187,9 +197,20 @@ def _assemble_payload(body: dict[str, Any]) -> tuple[list[dict[str, str]], str, 
     except (TypeError, ValueError):
         temperature = 0.3
 
-    context = build_context([str(c) for c in cohort_ids], focus)
+    system_prompt = body.get("system_prompt")
+    if isinstance(system_prompt, str) and system_prompt.strip():
+        system_prompt = system_prompt.strip()[:MAX_SYSTEM_PROMPT_CHARS]
+    else:
+        system_prompt = SYSTEM_PROMPT
+
+    context_override = body.get("context")
+    if isinstance(context_override, str) and context_override.strip():
+        context = context_override.strip()[:MAX_CONTEXT_CHARS]
+    else:
+        context = build_context([str(c) for c in cohort_ids], focus)
+
     full_messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": system_prompt},
         {"role": "system", "content": f"Cohort context:\n\n{context}"},
         *messages,
     ]

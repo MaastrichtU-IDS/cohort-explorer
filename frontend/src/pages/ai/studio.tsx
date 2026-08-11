@@ -4,83 +4,13 @@
 // Pick an intent, a cohort, and a topic to assemble a well-formed question,
 // or free-type. Great for discovering what to ask.
 import React, {useEffect, useMemo, useState} from 'react';
-import type {ComponentType} from 'react';
 import Link from 'next/link';
-import {ArrowLeft, Zap, Target, Layers, Activity, FileText, Columns, Star, Send, X} from 'react-feather';
+import {ArrowLeft, Zap, Target, Layers, Send, X} from 'react-feather';
 import {useCohorts} from '@/components/CohortsContext';
 import {useCohortChat} from '@/components/ai/useCohortChat';
 import {toBriefs} from '@/components/ai/chatClient';
+import {Intent, intents, joinCohortLabel, topicBank} from '@/components/ai/promptKit';
 import {DisabledNotice, ExperimentBadge, LoginNotice, MessageList, Composer} from '@/components/ai/ui';
-
-// ---- Intent definitions ----------------------------------------------------
-
-interface Intent {
-  id: string;
-  label: string;
-  icon: ComponentType<any>;
-  template: (cohort: string, topic: string) => string;
-  blurb: string;
-}
-
-const intents: Intent[] = [
-  {
-    id: 'summarize',
-    label: 'Summarize',
-    icon: FileText,
-    blurb: 'Get a concise overview of a cohort.',
-    template: (c, t) =>
-      c
-        ? `Summarize the ${c} cohort${t ? ` with a focus on ${t}` : ''}. Include study design, population, and key variables.`
-        : `Give me an overview of the cohort catalog${t ? ` with a focus on ${t}` : ''}.`
-  },
-  {
-    id: 'compare',
-    label: 'Compare',
-    icon: Columns,
-    blurb: 'Compare two or more cohorts side by side.',
-    template: (c, t) =>
-      c
-        ? `Compare the ${c} cohort with other similar cohorts${t ? ` in terms of ${t}` : ''}.`
-        : `Compare the cohorts in this catalog${t ? ` focusing on ${t}` : ''}.`
-  },
-  {
-    id: 'explore',
-    label: 'Explore variables',
-    icon: Activity,
-    blurb: 'Find variables and measurements of interest.',
-    template: (c, t) =>
-      c
-        ? `What variables related to ${t || 'the main outcomes'} are available in the ${c} cohort?`
-        : `Which cohorts have variables related to ${t || 'cardiovascular disease'}?`
-  },
-  {
-    id: 'research',
-    label: 'Research question',
-    icon: Star,
-    blurb: 'Generate a research question from the data.',
-    template: (c, t) =>
-      c
-        ? `Suggest a research question that the ${c} cohort could answer${t ? ` about ${t}` : ''}.`
-        : `Suggest a research question that these cohorts could answer${t ? ` about ${t}` : ''}.`
-  }
-];
-
-// ---- Topic suggestions -----------------------------------------------------
-
-const topicBank = [
-  'blood pressure',
-  'cholesterol',
-  'diabetes',
-  'cardiovascular disease',
-  'mortality',
-  'medication use',
-  'biomarkers',
-  'lifestyle factors',
-  'comorbidities',
-  'study design',
-  'population demographics',
-  'longitudinal measurements'
-];
 
 // ---- Card components -------------------------------------------------------
 
@@ -173,13 +103,7 @@ export default function PromptStudio() {
 
   const assembledPrompt = useMemo(() => {
     if (!activeIntent) return '';
-    const cohortLabel =
-      chat.selected.length === 0
-        ? ''
-        : chat.selected.length === 1
-          ? chat.selected[0]
-          : `${chat.selected.slice(0, -1).join(', ')} and ${chat.selected[chat.selected.length - 1]}`;
-    return activeIntent.template(cohortLabel, effectiveTopic);
+    return activeIntent.template(joinCohortLabel(chat.selected), effectiveTopic);
   }, [activeIntent, chat.selected, effectiveTopic]);
 
   const blocked = !chat.enabled || !userEmail;

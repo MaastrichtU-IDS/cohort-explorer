@@ -2,6 +2,11 @@
 import {useCallback, useEffect, useRef, useState} from 'react';
 import {ChatMessage, fetchChatConfig, streamChat} from '@/components/ai/chatClient';
 
+export interface SendOverrides {
+  systemPrompt?: string;
+  contextOverride?: string;
+}
+
 export interface UseCohortChat {
   messages: ChatMessage[];
   input: string;
@@ -16,7 +21,7 @@ export interface UseCohortChat {
   model: string;
   configLoaded: boolean;
   error: string | null;
-  send: (text?: string) => Promise<void>;
+  send: (text?: string, overrides?: SendOverrides) => Promise<void>;
   stop: () => void;
   reset: () => void;
 }
@@ -60,7 +65,7 @@ export function useCohortChat(): UseCohortChat {
   }, [stop]);
 
   const send = useCallback(
-    async (text?: string) => {
+    async (text?: string, overrides?: SendOverrides) => {
       const content = (text ?? input).trim();
       if (!content || isStreaming) return;
       setError(null);
@@ -78,6 +83,8 @@ export function useCohortChat(): UseCohortChat {
           messages: history,
           cohortIds: selected,
           focus,
+          systemPrompt: overrides?.systemPrompt,
+          contextOverride: overrides?.contextOverride,
           signal: controller.signal,
           onChunk: delta => {
             setMessages(prev => {

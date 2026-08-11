@@ -18,6 +18,11 @@ export interface SendOptions {
   messages: ChatMessage[];
   cohortIds: string[];
   focus?: string;
+  // Optional overrides: replace the server's default instructions and/or the
+  // server-built cohort context with client-supplied text. Used by layouts
+  // that give the user direct control over what the model sees.
+  systemPrompt?: string;
+  contextOverride?: string;
   onChunk: (delta: string) => void;
   signal?: AbortSignal;
 }
@@ -43,7 +48,9 @@ export async function streamChat(opts: SendOptions): Promise<void> {
     body: JSON.stringify({
       messages: opts.messages,
       cohort_ids: opts.cohortIds,
-      focus: opts.focus || null
+      focus: opts.focus || null,
+      system_prompt: opts.systemPrompt || null,
+      context: opts.contextOverride || null
     })
   });
 

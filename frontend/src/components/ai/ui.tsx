@@ -38,6 +38,16 @@ function renderRich(text: string): string {
   return html;
 }
 
+// Rendered markdown-ish text, for use outside chat bubbles (reports, panels).
+export function RichText({text, className}: {text: string; className?: string}) {
+  return (
+    <div
+      className={className || 'prose prose-sm max-w-none leading-relaxed [&_*]:my-0'}
+      dangerouslySetInnerHTML={{__html: renderRich(text)}}
+    />
+  );
+}
+
 export function TypingDots() {
   return (
     <span className="inline-flex gap-1 items-center">
