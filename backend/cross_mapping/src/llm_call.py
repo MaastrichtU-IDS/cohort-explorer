@@ -187,7 +187,7 @@ Each variable may include:
 _OUTPUT_PAIR = """
 # OUTPUT FORMAT
 Return ONLY one valid JSON object:
-{{
+{
   "status_code": <1|2|3|4> (1=COMPLETE, 2=COMPATIBLE, 3=PARTIAL, 4=IMPOSSIBLE),
   "status": "<COMPLETE|COMPATIBLE|PARTIAL|IMPOSSIBLE>",
   "confidence": <float>,
@@ -195,7 +195,7 @@ Return ONLY one valid JSON object:
   "transform": <structured transformation object, or "">,
    "harmonized_variable": "<5 words or fewer; snake_case or empty>",
   "alignment_direction": "<direction or empty>"
-}}
+}
 """
 _STUDY_CONTEXT_RULES = """
 
@@ -245,7 +245,7 @@ The same six attributes as COMPLETE, but value representations differ and a dete
 ##  PARTIAL
 One clinically meaningful variable for data pooling can be built through a lossy, directional, or externally supported transformation, provided that the derived variable delivers distinct clinical meaning and actionable utility for analysis considering the specific context of the pooled studies. All must hold:
 1. Same entity, or a subtype/member/scope-restriction relationship identifiable from the provided metadata.
-2. The harmonized variable is one clinical concept, not a union or sum.
+2. The harmonized variable is one clinical concept, not a union or sum. When one side is a subtype or scope restriction of the other, name the harmonized variable for the concept BOTH sides can produce: the parent class when the broader side records only presence and cannot express the subtype; the subtype when the broader side encodes it among its own categories and can be collapsed onto it.
 3. Every explicit observed value is mapped validly or retained as unknown.
 4. No unsupported negative or missing value becomes "No".
 5. The transformation names the information loss: category collapse, positive-only derivation, anatomical reduction, datetime approximation, or downstream external-reference conversion.
@@ -270,12 +270,11 @@ No single pooled variable can be built without ambiguous decomposition or unsupp
 - source: ALT (alanine aminotransferase) and AST (aspartate aminotransferase) [different lab test]
 
 # FINAL VERIFICATION
-For a PARTIAL match, is the proposed harmonized variable a single, clinically coherent concept meaningful across both study contexts?
+For a PARTIAL match, is the proposed harmonized variable a single, clinically coherent concept meaningful across both study contexts and can both sides actually produce it??
 Is every explicit value mapped or safely retained as unknown?
 Did any missing or unsupported value become No?
 Does any composite, residual field, sibling relationship, anatomical restriction, temporal difference, or setting conflict invalidate the match?
 Is the transformation complete, deterministic, and explicit about information loss?
-
 
 # CONFIDENCE
 Certainty in the chosen status, whatever it is:

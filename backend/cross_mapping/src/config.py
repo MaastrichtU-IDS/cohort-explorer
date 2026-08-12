@@ -102,7 +102,7 @@ class Settings:
         "formula": "PP = SBP - DBP"
     },
     {
-        "name": "Body_Surface_Area",
+        "name": "Body_Surface_Area_m2",
         "omop_id": 4201235,
         "code": "snomed:301898006",
         "label": "Body surface area",
@@ -168,7 +168,7 @@ class Settings:
     "formula": "Eos[#/vol] = Eos_fraction × Leukocytes[#/vol] ; Eos_fraction = pct/100 when reported in %"
 },
 {
-    "name": "Age_at_baseline",
+    "name": "Age",
     "omop_id": 3022304,
     "code": "loinc:30525-0",
     "label": "Age",
