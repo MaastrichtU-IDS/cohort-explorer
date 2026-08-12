@@ -9,6 +9,7 @@ when available, mirroring the LLM rubric: prefer the coarsest shared concept.
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any, Optional
 
@@ -235,3 +236,53 @@ def suggest_harmonized_variable_without_llm(
 
     return _with_axis(_base_name(src, tgt, structural, graph=graph),
                       _axis_suffix(src, tgt))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Reading the name back out of an output row
+# ─────────────────────────────────────────────────────────────────────────────
+
+_MISSING = ("", "nan", "none")
+
+
+def _clean_cell(value: Any) -> str:
+    """A CSV cell as text, with pandas' stand-ins for empty read as empty."""
+    text = str(value).strip() if value is not None else ""
+    return "" if text.lower() in _MISSING else text
+
+
+def slugify_name(text: Any) -> str:
+    """Public spelling of the snake_case rule every harmonized name follows."""
+    return _slugify(_clean_cell(text))
+
+
+def harmonized_name_from_row(row: Any) -> str:
+    """The one harmonized name for an output row, wherever it was written.
+
+    Three places have held this name, and every reader must agree on which
+    wins, or the same row joins under two different keys:
+
+    1. the ``harmonized_variable`` column — authoritative, written by run.py;
+    2. the ``Mapping Description`` JSON blob — where it lived before the column
+       existed, so every output already on disk carries it only here;
+    3. ``derived_variable_name`` — last resort. That field names the *formula*
+       (``BSA_DuBois`` vs ``BSA_Mosteller``), not the concept, so it stands in
+       only when neither namer produced anything, and is slugified on the way
+       out so the column keeps one casing convention.
+    """
+    value = _clean_cell(row.get("harmonized_variable"))
+    if value:
+        return value
+
+    raw = row.get("Mapping Description")
+    if isinstance(raw, str) and raw.strip():
+        try:
+            payload = json.loads(raw)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            payload = None
+        if isinstance(payload, dict):
+            value = _clean_cell(payload.get("harmonized_variable"))
+            if value:
+                return value
+
+    return slugify_name(row.get("derived_variable_name"))
