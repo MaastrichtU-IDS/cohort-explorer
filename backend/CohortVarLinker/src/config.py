@@ -51,7 +51,7 @@ class Settings:
         "code": "loinc:39156-5",
         "label": "Body mass index (BMI) [Ratio]",
         "unit": "ucum:kg/m2",
-        "required_omops": [3036277, 3025315],  #  Height,Weight
+        "required_omops": [3036277, 3025315],  #  Body Height, Body Weight
         "category": "measurement",
         "data_type": "continuous_variable"
     },
@@ -185,7 +185,7 @@ class Settings:
         4083587,  # Date of birth
         4231970,  # Date of visit
     ],
-    "category": "person",
+    "category": "measurement",
     "data_type": "continuous_variable",
     "formula": "completed calendar years between date of birth and baseline date",
 }
