@@ -973,7 +973,11 @@ with open(log_file, "a") as log:
 """
 
 
-def merged_data_overview_script(merge_node_name: str, preview_node_name: str) -> str:
+def merged_data_overview_script(
+    merge_node_name: str,
+    preview_node_name: str,
+    include_patient_level: bool = False,
+) -> str:
     """Generate the example script that summarizes the FULL merged dataset.
 
     This node is the runnable end of the merged-data chain (airlock nodes cannot
@@ -993,12 +997,16 @@ def merged_data_overview_script(merge_node_name: str, preview_node_name: str) ->
             cohortpool's tables/, is mounted at /input/<merge_node_name>/).
         preview_node_name: Name of the airlock node, referenced in the header
             comments so users know how to explore the fragment in Development mode.
+        include_patient_level: When True, the patient-level pooled files are
+            exported as well. Set this only when the merge pools the shuffled
+            samples (synthetic data, no leak concern); with full cohort data it
+            must stay False so patient-level files are never exported.
 
     Returns:
         The Python script as a string.
     """
     return f"""###############################################################################
-# EXAMPLE SCRIPT — OVERVIEW OF THE MERGED DATA
+# MERGED DATA — OVERVIEW AND HARMONIZATION REPORTS
 #
 # This script reads the FULL merged (pooled) dataset produced by the
 # "{merge_node_name}" node and writes AGGREGATE information only:
@@ -1083,6 +1091,12 @@ with open(report_file, "w") as report:
 # are skipped; everything else is copied verbatim, preserving the tables/ and
 # logs/ directory structure. During the testing phase this is intentionally
 # broad — files found to be sensitive will be excluded later.
+#
+# include_patient_level is set at DCR-creation time: True when the merge pools
+# the SHUFFLED samples (synthetic data, so no leak concern — the patient-level
+# files are exported too), False when it pools the full cohort data (the
+# patient-level files are then never exported).
+include_patient_level = {include_patient_level}
 reports_dir = os.path.join(output_dir, "harmonization_reports")
 os.makedirs(reports_dir, exist_ok=True)
 copied = []
@@ -1091,7 +1105,8 @@ for root, dirs, files in os.walk(merge_dir):
     rel_root = os.path.relpath(root, merge_dir)
     for fname in sorted(files):
         in_output_root = rel_root == "."
-        if (in_output_root and fname.lower().startswith("pooled_")) or fname.lower().endswith(".parquet"):
+        is_patient_level = (in_output_root and fname.lower().startswith("pooled_")) or fname.lower().endswith(".parquet")
+        if is_patient_level and not include_patient_level:
             skipped.append(fname)
             continue
         dst_dir = reports_dir if in_output_root else os.path.join(reports_dir, rel_root)
@@ -1106,9 +1121,12 @@ with open(report_file, "a") as report:
     report.write("Merge-process metadata copied to harmonization_reports/ ({{}} files):\\n".format(len(copied)))
     for name in copied:
         report.write("  [ok]      {{}}\\n".format(name))
-    report.write("\\nSkipped (patient-level data, never exported):\\n")
-    for name in skipped:
-        report.write("  [skipped] {{}}\\n".format(name))
+    if include_patient_level:
+        report.write("\\nPatient-level files INCLUDED (merge pools the shuffled samples).\\n")
+    if skipped:
+        report.write("\\nSkipped (patient-level data, not exported):\\n")
+        for name in skipped:
+            report.write("  [skipped] {{}}\\n".format(name))
 
     report.write("\\n" + "=" * 60 + "\\n")
     report.write("OVERVIEW COMPLETE\\n")

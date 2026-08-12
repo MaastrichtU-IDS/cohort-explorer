@@ -1153,11 +1153,18 @@ async def get_compute_dcr_definition(
         # reports. It also depends on the fragment node so that running it
         # computes the fragment and thereby populates the airlock for
         # Development-mode use. Every participant can run it.
-        merge_check_node_name = "example-script-for-previewing-merged-data"
+        # When the merge pools the SHUFFLED samples (synthetic data, no leak
+        # concern) the patient-level pooled files are exported too; with full
+        # cohort data they are never exported.
+        merge_check_node_name = "merged-data-overview-and-reports"
         builder.add_node_definition(
             PythonComputeNodeDefinition(
                 name=merge_check_node_name,
-                script=merged_data_overview_script(MERGE_NODE_NAME, merge_preview_node_name),
+                script=merged_data_overview_script(
+                    MERGE_NODE_NAME,
+                    merge_preview_node_name,
+                    include_patient_level=merge_use_shuffled,
+                ),
                 dependencies=[MERGE_NODE_NAME, merge_fragment_node_name]
             )
         )
