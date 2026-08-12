@@ -23,7 +23,11 @@ from .variable_profile import VariableProfile
 from .graph_similarity import compute_context_scores
 from .utils import execute_query,canonical_var_key,build_visit_universe
 
-from .harmonized_variable import slugify_name, suggest_harmonized_variable_without_llm
+from .harmonized_variable import (
+    slugify_name,
+    suggest_harmonized_variable_for_subsumption,
+    suggest_harmonized_variable_without_llm,
+)
 logger = setup_logger('storelog.log')
 
 _CTX_TYPE_TO_VERDICT = {
@@ -87,12 +91,7 @@ def _llm_tuple_to_evidence(parsed_tuple) -> LLMEvidence:
 
     self_reported_conf = float(d.get("llm_self_reported_confidence") or conf or 0.0)
 
-    # The logprob detail (distribution, margins, runner-up) is deliberately not
-    # read: it went unused downstream, and on the litellm backend it was never
-    # populated anyway — logprobs are only requested for openrouter/fireworks.
-    # `confidence_source` is kept because it says which mechanism produced
-    # `confidence`; llm_call still computes the rest, so reinstating them is a
-    # matter of reading them here again.
+
     return LLMEvidence(
         verdict=verdict,
         confidence=self_reported_conf,
@@ -115,18 +114,15 @@ class StudyMapper:
         self.collection_name = vector_collection
         self.llm_model = llm_model
         self.embed_model = embedding_model
+
         # The typed nodes from the most recent run_pipeline, kept so timepoint
         # expansion can key families off the same records the matching used
         # instead of re-reading the dictionaries and re-deriving them.
+        
         self.last_source_variables: List[VariableNode] = []
         self.last_target_variables: List[VariableNode] = []
         self.similarity_threshold =  self._select_mode_specific_threshold(mapping_mode)
 
-        # When True, once a source variable is matched COMPLETE or COMPATIBLE
-        # against any target, the remaining ambiguous candidates for that
-        # source are skipped (no LLM call). This is an ablation knob —
-        # default False so paper numbers stay reproducible against the
-        # no-claim baseline.
         self.enable_source_claim_early_exit = enable_source_claim_early_exit
         default_workers = int(os.getenv("PHASE_A_WORKERS", "6"))
         self.phase_a_workers = max(1, min(8, phase_a_workers or default_workers))
@@ -627,6 +623,22 @@ class StudyMapper:
                         if llm_hv and llm_hv != derived_hv:
                             details["llm_harmonized_variable"] = llm_hv
                         details["harmonized_variable"] = derived_hv
+                else:
+                    # `trust_derived` is false for every pair of DIFFERENT concept
+                    # ids, which is right when the two are merely related — the
+                    # model saw both variables and the deterministic namer would
+                    # be guessing. The one exception is a name that claims the
+                    # subtype of a parent that cannot record it, which asserts of
+                    # the pooled column something only one cohort measured. That
+                    # single case is repaired here; everything else, including a
+                    # subtype name the parent's categories DO support, is left as
+                    # the model wrote it. The model's name is kept alongside.
+                    broader_hv = suggest_harmonized_variable_for_subsumption(
+                        s, t, llm_hv, graph=self.graph, verdict_level=verdict.level,
+                    )
+                    if broader_hv:
+                        details["llm_harmonized_variable"] = llm_hv
+                        details["harmonized_variable"] = broader_hv
                 harmonized_names.append((details.get("harmonized_variable") or "").strip())
                 transformations.append(details.pop("transformation", "") or "")
                 transformation_rules.append(details.pop("transformation_rule", "") or "")
@@ -651,13 +663,6 @@ class StudyMapper:
             else:
                 df["transformation_rule"] = transformation_rules
             df["Mapping Description"]   = descriptions
-            # One column for the harmonized name, so nothing downstream has to
-            # parse the blob to join on it. Deliberately *also* left inside the
-            # blob: every output already on disk carries it only there, and
-            # harmonized_name_from_row() still falls back to it for those.
-            # `derived_variable_name` no longer competes as a second name — it
-            # stays on derived rows as the formula id, and is used here only
-            # when neither namer produced anything.
             df["harmonized_variable"] = [
                 name or slugify_name(rec.get("derived_variable_name"))
                 for name, rec in zip(harmonized_names, recs)
@@ -666,7 +671,8 @@ class StudyMapper:
             df["LLMEvidence"]          = llm_evidences
         
         df.dropna(subset=["source", "target"], inplace=True)
-        df.drop(columns="context_match_type", inplace=True, errors="ignore")
+        df.drop(columns=["context_match_type", "derived_variable_name"],
+                inplace=True, errors="ignore")
 
   
         self.last_source_variables = list(src_col.variables)
