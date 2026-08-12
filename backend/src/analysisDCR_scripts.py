@@ -1,4 +1,4 @@
-"""Analysis DCR embedded scripts for data fragmentation, visualization, and exploration."""
+"""Analysis DCR embedded scripts: data fragmentation, visualization, exploration, and the merged-data chain."""
 
 
 def generate_mapping_files_section(mapping_files: list[dict] = None, include_mapping_upload_slot: bool = False) -> str:
