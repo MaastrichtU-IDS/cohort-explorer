@@ -26,7 +26,7 @@ from src.auth import get_current_user
 from src.config import settings
 from src.analysis_dcr_logging import log_dcr_event, read_events
 from src.eda_scripts import c1_data_dict_check, c2_save_to_json, c3_eda_data_profiling, longitudinal_analysis, shuffle_data
-from src.analysisDCR_scripts import data_fragment_script, visualization_script, exploration_script, merge_datasets_script, merged_data_fragment_script
+from src.analysisDCR_scripts import data_fragment_script, visualization_script, exploration_script, merge_datasets_script, merged_data_fragment_script, merged_fragment_check_script
 from src.models import Cohort
 from src.utils import retrieve_cohorts_metadata
 from datetime import datetime
@@ -1077,13 +1077,14 @@ async def get_compute_dcr_definition(
 
     # The merged/pooled output contains every cohort's data, so NOBODY may access
     # it directly — not even data owners. The pooled data is only ever consumable
-    # through its airlock chain, mirroring the per-cohort pattern:
-    #   merge node (no analysts) -> "create-airlock-without-outliers-..." fragment
-    #   node (synthetic IDs, percentage split, outlier capping; runnable by data
-    #   owners) -> preview/airlock node on the FRAGMENT (all participants).
-    # Decentriq runs upstream dependencies automatically, so computing the fragment
-    # or retrieving the airlock triggers the merge node without anyone holding
-    # analyst permission on it — exactly how the per-cohort airlocks already work.
+    # through its airlock chain:
+    #   merge node (no analysts) -> fragment node (synthetic IDs, percentage
+    #   split, outlier capping; also no analysts) -> airlock on the FRAGMENT
+    #   (all participants) -> example/check compute node (all participants).
+    # Airlock nodes have no "Run" button in the Decentriq UI; the downstream
+    # example node is what participants run, and Decentriq then executes the
+    # whole upstream chain automatically — no analyst permission needed on the
+    # intermediate nodes.
     #
     # The merged airlock is independent of the per-cohort airlocks: the fragment
     # always uses the fixed MERGED_AIRLOCK_PERCENTAGE. The chain just needs at
@@ -1121,7 +1122,9 @@ async def get_compute_dcr_definition(
 
         merge_airlock_percentage = MERGED_AIRLOCK_PERCENTAGE
         merged_patient_id_cols = sorted({s["patient_id"] for s in studies_info if s.get("patient_id")})
-        merge_fragment_node_name = f"create-airlock-without-outliers-{MERGE_NODE_NAME}"
+        # Like the merge node itself, the fragment node has no analysts (and, being
+        # a compute node, no data owners): it only runs as part of the chain.
+        merge_fragment_node_name = "create-testing-fragment-of-merged-data-noIDs-noOutliers"
         builder.add_node_definition(
             PythonComputeNodeDefinition(
                 name=merge_fragment_node_name,
@@ -1129,14 +1132,8 @@ async def get_compute_dcr_definition(
                 dependencies=[MERGE_NODE_NAME]
             )
         )
-        # Mirror the per-cohort fragment permissions: only data owners may run the
-        # fragmentation — here, owners of any pooled cohort's data node.
-        pooled_raw_data_nodes = {s["study_name"].replace(" ", "-") for s in studies_info}
-        for p_email, p_roles in participants.items():
-            if p_roles["data_owner_of"] & pooled_raw_data_nodes:
-                p_roles["analyst_of"].add(merge_fragment_node_name)
 
-        merge_preview_node_name = f"preview-airlock-{MERGE_NODE_NAME}"
+        merge_preview_node_name = "airlock-for-fragment-of-merged-data"
         builder.add_node_definition(
             PreviewComputeNodeDefinition(
                 name=merge_preview_node_name,
@@ -1147,9 +1144,28 @@ async def get_compute_dcr_definition(
         # Appended to preview_nodes so the loop below grants every participant the
         # same analyst access to it as they have to the existing airlocks.
         preview_nodes.append(merge_preview_node_name)
+
+        # Example node downstream of the airlock. Two purposes: it is the chain's
+        # trigger (airlock nodes have no "Run" button in the UI, so running this
+        # node is what executes merge -> fragment -> airlock), and it is a starting
+        # point users can copy into the Development tab. It confirms the size and
+        # columns of the merged-data fragment (dataset.csv) as seen through the
+        # airlock. Every participant (data owners and analysts alike) can run it.
+        merge_check_node_name = "example-script-for-previewing-merged-data"
+        builder.add_node_definition(
+            PythonComputeNodeDefinition(
+                name=merge_check_node_name,
+                script=merged_fragment_check_script(merge_preview_node_name),
+                dependencies=[merge_preview_node_name]
+            )
+        )
+        for p_email in participants:
+            participants[p_email]["analyst_of"].add(merge_check_node_name)
+
         logging.info(
             f"Added merged-dataset airlock chain: {merge_fragment_node_name} "
-            f"({merge_airlock_percentage}% fragment) -> {merge_preview_node_name}"
+            f"({merge_airlock_percentage}% fragment) -> {merge_preview_node_name} "
+            f"-> {merge_check_node_name}"
         )
     else:
         logging.info(

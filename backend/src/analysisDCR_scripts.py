@@ -964,12 +964,87 @@ with open(log_file, "a") as log:
     log.write("\\nTotal: {{}} values capped across {{}} variables\\n".format(total_values_capped, total_vars_capped))
 
 # Save the fragment to output
-output_file = os.path.join(output_dir, "merged_dataset_fragment.csv")
+output_file = os.path.join(output_dir, "dataset.csv")
 df_fragment.to_csv(output_file, index=False)
 
 with open(log_file, "a") as log:
     log.write("\\nMerged data fragment saved: {{}}\\n".format(output_file))
     log.write("Fragment size: {{}} rows out of {{}} total rows ({{:.1f}}%)\\n".format(len(df_fragment), len(df_full), len(df_fragment)/len(df_full)*100 if len(df_full) else 0))
+"""
+
+
+def merged_fragment_check_script(preview_node_name: str) -> str:
+    """Generate the example script that previews the merged-data fragment.
+
+    This node sits downstream of the merged-data airlock (preview) node and is
+    runnable by every participant. Running it triggers the whole upstream chain
+    (merge -> fragment -> airlock), since airlock nodes have no "Run" button of
+    their own in the UI. It reads the fragment through the airlock mount and
+    writes a small report confirming its size and columns — nothing more, so it
+    exposes no data beyond what the airlock itself already allows. Its header
+    comments invite users to copy it into the Development tab as a starting
+    point for their own analyses.
+
+    Args:
+        preview_node_name: Name of the airlock/preview node this script depends on
+            (its content is mounted at /input/<preview_node_name>/ inside this node).
+
+    Returns:
+        The Python script as a string.
+    """
+    return f"""###############################################################################
+# EXAMPLE SCRIPT — PREVIEWING THE MERGED DATA
+#
+# This script reads the merged-data fragment through the airlock node
+# "{preview_node_name}" and confirms its size and columns.
+#
+# You can copy this script into the "Development" tab and adapt it further
+# (e.g. compute statistics or build visualizations on the fragment).
+# IMPORTANT: in the Development tab you must also select the airlock node
+# "{preview_node_name}" as an input in the right-side panel,
+# otherwise the fragment will not be available under /input.
+###############################################################################
+
+import os
+import pandas as pd
+
+# Output directory (always exists in Decentriq environment)
+output_dir = "/output"
+report_file = os.path.join(output_dir, "merged_fragment_check.txt")
+
+fragment_dir = "/input/{preview_node_name}"
+fragment_path = os.path.join(fragment_dir, "dataset.csv")
+
+with open(report_file, "w") as report:
+    report.write("MERGED DATASET FRAGMENT CHECK\\n")
+    report.write("=" * 60 + "\\n\\n")
+
+    try:
+        available = sorted(os.listdir(fragment_dir))
+        report.write("Files available through the airlock: {{}}\\n\\n".format(available))
+    except Exception as e:
+        report.write("Could not list the airlock directory: {{}}\\n".format(e))
+        available = []
+
+    if not os.path.exists(fragment_path):
+        report.write("dataset.csv was NOT found through the airlock.\\n")
+        report.write("Run the fragmentation node first, then re-run this check.\\n")
+    else:
+        size_bytes = os.path.getsize(fragment_path)
+        report.write("File: dataset.csv\\n")
+        report.write("Size: {{:.2f}} KB ({{:,}} bytes)\\n\\n".format(size_bytes / 1024, size_bytes))
+        try:
+            df = pd.read_csv(fragment_path)
+            report.write("Rows: {{:,}}\\n".format(len(df)))
+            report.write("Columns: {{:,}}\\n\\n".format(len(df.columns)))
+            report.write("Column names:\\n")
+            for col in df.columns:
+                report.write("  - {{}}\\n".format(col))
+        except Exception as e:
+            report.write("Could not read dataset.csv as tabular data: {{}}\\n".format(e))
+
+    report.write("\\n" + "=" * 60 + "\\n")
+    report.write("CHECK COMPLETE\\n")
 """
 
 
