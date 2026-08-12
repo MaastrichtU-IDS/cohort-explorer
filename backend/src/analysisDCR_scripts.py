@@ -973,78 +973,145 @@ with open(log_file, "a") as log:
 """
 
 
-def merged_fragment_check_script(preview_node_name: str) -> str:
-    """Generate the example script that previews the merged-data fragment.
+def merged_data_overview_script(merge_node_name: str, preview_node_name: str) -> str:
+    """Generate the example script that summarizes the FULL merged dataset.
 
-    This node sits downstream of the merged-data airlock (preview) node and is
-    runnable by every participant. Running it triggers the whole upstream chain
-    (merge -> fragment -> airlock), since airlock nodes have no "Run" button of
-    their own in the UI. It reads the fragment through the airlock mount and
-    writes a small report confirming its size and columns — nothing more, so it
-    exposes no data beyond what the airlock itself already allows. Its header
-    comments invite users to copy it into the Development tab as a starting
-    point for their own analyses.
+    This node is the runnable end of the merged-data chain (airlock nodes cannot
+    be accessed in production mode, so this node depends on the merge node
+    directly and, by also depending on the fragment node, triggers the airlock
+    content for Development-mode use). Every participant can run it.
+
+    It reads the full pooled dataset but writes ONLY aggregate information to
+    its output — dataset shape, patients per study, per-column completeness —
+    plus ALL merge-process metadata produced by cohortpool (mapping tables,
+    disambiguation/review decisions, provenance, audits, logs, figures, the PDF
+    quality report), excluding only the patient-level data files. Intentionally
+    broad while testing; prune the export once sensitive files are identified.
 
     Args:
-        preview_node_name: Name of the airlock/preview node this script depends on
-            (its content is mounted at /input/<preview_node_name>/ inside this node).
+        merge_node_name: Name of the merge compute node (its output, including
+            cohortpool's tables/, is mounted at /input/<merge_node_name>/).
+        preview_node_name: Name of the airlock node, referenced in the header
+            comments so users know how to explore the fragment in Development mode.
 
     Returns:
         The Python script as a string.
     """
     return f"""###############################################################################
-# EXAMPLE SCRIPT — PREVIEWING THE MERGED DATA
+# EXAMPLE SCRIPT — OVERVIEW OF THE MERGED DATA
 #
-# This script reads the merged-data fragment through the airlock node
-# "{preview_node_name}" and confirms its size and columns.
+# This script reads the FULL merged (pooled) dataset produced by the
+# "{merge_node_name}" node and writes AGGREGATE information only:
+#   - dataset shape (rows, columns) and patients per study
+#   - per-column completeness (non-empty / empty counts)
+#   - ALL metadata the pooling package produced about the merge process
+#     (mapping tables, disambiguation/review decisions, provenance, audits,
+#     logs, figures, the PDF quality report) — everything except the merged
+#     dataset itself. It never writes patient-level rows to its output.
 #
-# You can copy this script into the "Development" tab and adapt it further
-# (e.g. compute statistics or build visualizations on the fragment).
-# IMPORTANT: in the Development tab you must also select the airlock node
-# "{preview_node_name}" as an input in the right-side panel,
-# otherwise the fragment will not be available under /input.
+# You can copy this script into the "Development" tab and adapt it further.
+# IMPORTANT: in the Development tab you must select this script's inputs in the
+# right-side panel. To explore the (de-identified, outlier-capped) data fragment
+# itself in Development mode, select the airlock node
+# "{preview_node_name}" as an input — it exposes dataset.csv.
 ###############################################################################
 
 import os
+import shutil
 import pandas as pd
 
 # Output directory (always exists in Decentriq environment)
 output_dir = "/output"
-report_file = os.path.join(output_dir, "merged_fragment_check.txt")
+report_file = os.path.join(output_dir, "merged_data_overview.txt")
 
-fragment_dir = "/input/{preview_node_name}"
-fragment_path = os.path.join(fragment_dir, "dataset.csv")
+merge_dir = "/input/{merge_node_name}"
+pooled_path = os.path.join(merge_dir, "pooled_dataset.csv")
 
 with open(report_file, "w") as report:
-    report.write("MERGED DATASET FRAGMENT CHECK\\n")
+    report.write("MERGED DATASET OVERVIEW\\n")
     report.write("=" * 60 + "\\n\\n")
 
-    try:
-        available = sorted(os.listdir(fragment_dir))
-        report.write("Files available through the airlock: {{}}\\n\\n".format(available))
-    except Exception as e:
-        report.write("Could not list the airlock directory: {{}}\\n".format(e))
-        available = []
-
-    if not os.path.exists(fragment_path):
-        report.write("dataset.csv was NOT found through the airlock.\\n")
-        report.write("Run the fragmentation node first, then re-run this check.\\n")
-    else:
-        size_bytes = os.path.getsize(fragment_path)
-        report.write("File: dataset.csv\\n")
-        report.write("Size: {{:.2f}} KB ({{:,}} bytes)\\n\\n".format(size_bytes / 1024, size_bytes))
+    if not os.path.exists(pooled_path):
+        report.write("pooled_dataset.csv was NOT found in the merge node output.\\n")
         try:
-            df = pd.read_csv(fragment_path)
-            report.write("Rows: {{:,}}\\n".format(len(df)))
-            report.write("Columns: {{:,}}\\n\\n".format(len(df.columns)))
-            report.write("Column names:\\n")
-            for col in df.columns:
-                report.write("  - {{}}\\n".format(col))
+            report.write("Files available: {{}}\\n".format(sorted(os.listdir(merge_dir))))
         except Exception as e:
-            report.write("Could not read dataset.csv as tabular data: {{}}\\n".format(e))
+            report.write("Could not list the merge output directory: {{}}\\n".format(e))
+        df = None
+    else:
+        size_bytes = os.path.getsize(pooled_path)
+        df = pd.read_csv(pooled_path)
+        report.write("File: pooled_dataset.csv ({{:.2f}} KB)\\n".format(size_bytes / 1024))
+        report.write("Rows (patients): {{:,}}\\n".format(len(df)))
+        report.write("Columns: {{:,}}\\n\\n".format(len(df.columns)))
+
+        # Patients per study (aggregate counts only)
+        study_col = None
+        for col in df.columns:
+            if col.lower().strip() == "study_id":
+                study_col = col
+                break
+        if study_col:
+            report.write("Patients per study:\\n")
+            for study, count in df[study_col].value_counts(dropna=False).items():
+                report.write("  - {{}}: {{:,}}\\n".format(study, count))
+            report.write("\\n")
+
+        # Per-column completeness: non-empty vs empty values for every column.
+        completeness = pd.DataFrame({{
+            "column": df.columns,
+            "non_empty_values": [int(df[c].notna().sum()) for c in df.columns],
+            "empty_values": [int(df[c].isna().sum()) for c in df.columns],
+        }})
+        completeness["pct_missing"] = (100.0 * completeness["empty_values"] / len(df)).round(2) if len(df) else 0.0
+        completeness.to_csv(os.path.join(output_dir, "column_completeness.csv"), index=False)
+        report.write("Per-column completeness written to column_completeness.csv\\n")
+        report.write("({{}} columns; showing the 30 with the most missing values)\\n\\n".format(len(completeness)))
+        worst = completeness.sort_values("pct_missing", ascending=False).head(30)
+        for _, row in worst.iterrows():
+            report.write("  - {{}}: {{:,}} non-empty / {{:,}} empty ({{:.1f}}% missing)\\n".format(
+                row["column"], row["non_empty_values"], row["empty_values"], row["pct_missing"]))
+        report.write("\\n")
+
+# Export ALL merge-process metadata produced by the pooling package — the
+# combined cross-study mapping, the applied mapping plan, disambiguation and
+# review decisions, provenance, audits, logs, figures and the PDF quality
+# report — EXCEPT the merged dataset itself. The patient-level files all sit
+# in the output root and start with "pooled_" (pooled_dataset.csv,
+# pooled_harmonized_patient_level.csv/.parquet, pooled_harmonized_filtered.csv,
+# pooled_longitudinal*.csv, pooled_provenance_patient_level.csv), so those
+# are skipped; everything else is copied verbatim, preserving the tables/ and
+# logs/ directory structure. During the testing phase this is intentionally
+# broad — files found to be sensitive will be excluded later.
+reports_dir = os.path.join(output_dir, "harmonization_reports")
+os.makedirs(reports_dir, exist_ok=True)
+copied = []
+skipped = []
+for root, dirs, files in os.walk(merge_dir):
+    rel_root = os.path.relpath(root, merge_dir)
+    for fname in sorted(files):
+        in_output_root = rel_root == "."
+        if (in_output_root and fname.lower().startswith("pooled_")) or fname.lower().endswith(".parquet"):
+            skipped.append(fname)
+            continue
+        dst_dir = reports_dir if in_output_root else os.path.join(reports_dir, rel_root)
+        os.makedirs(dst_dir, exist_ok=True)
+        try:
+            shutil.copy(os.path.join(root, fname), os.path.join(dst_dir, fname))
+            copied.append(fname if in_output_root else os.path.join(rel_root, fname))
+        except Exception as e:
+            skipped.append("{{}} (copy failed: {{}})".format(fname, e))
+
+with open(report_file, "a") as report:
+    report.write("Merge-process metadata copied to harmonization_reports/ ({{}} files):\\n".format(len(copied)))
+    for name in copied:
+        report.write("  [ok]      {{}}\\n".format(name))
+    report.write("\\nSkipped (patient-level data, never exported):\\n")
+    for name in skipped:
+        report.write("  [skipped] {{}}\\n".format(name))
 
     report.write("\\n" + "=" * 60 + "\\n")
-    report.write("CHECK COMPLETE\\n")
+    report.write("OVERVIEW COMPLETE\\n")
 """
 
 

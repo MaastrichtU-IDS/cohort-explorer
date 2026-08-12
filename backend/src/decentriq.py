@@ -26,7 +26,7 @@ from src.auth import get_current_user
 from src.config import settings
 from src.analysis_dcr_logging import log_dcr_event, read_events
 from src.eda_scripts import c1_data_dict_check, c2_save_to_json, c3_eda_data_profiling, longitudinal_analysis, shuffle_data
-from src.analysisDCR_scripts import data_fragment_script, visualization_script, exploration_script, merge_datasets_script, merged_data_fragment_script, merged_fragment_check_script
+from src.analysisDCR_scripts import data_fragment_script, visualization_script, exploration_script, merge_datasets_script, merged_data_fragment_script, merged_data_overview_script
 from src.models import Cohort
 from src.utils import retrieve_cohorts_metadata
 from datetime import datetime
@@ -1145,18 +1145,20 @@ async def get_compute_dcr_definition(
         # same analyst access to it as they have to the existing airlocks.
         preview_nodes.append(merge_preview_node_name)
 
-        # Example node downstream of the airlock. Two purposes: it is the chain's
-        # trigger (airlock nodes have no "Run" button in the UI, so running this
-        # node is what executes merge -> fragment -> airlock), and it is a starting
-        # point users can copy into the Development tab. It confirms the size and
-        # columns of the merged-data fragment (dataset.csv) as seen through the
-        # airlock. Every participant (data owners and analysts alike) can run it.
+        # Example node at the runnable end of the chain. Airlock nodes cannot be
+        # accessed in production mode (only in Development mode), so this node
+        # depends on the merge node DIRECTLY and reads the full pooled output —
+        # but writes only aggregate characteristics (shape, patients per study,
+        # per-column completeness) plus cohortpool's harmonization/mapping
+        # reports. It also depends on the fragment node so that running it
+        # computes the fragment and thereby populates the airlock for
+        # Development-mode use. Every participant can run it.
         merge_check_node_name = "example-script-for-previewing-merged-data"
         builder.add_node_definition(
             PythonComputeNodeDefinition(
                 name=merge_check_node_name,
-                script=merged_fragment_check_script(merge_preview_node_name),
-                dependencies=[merge_preview_node_name]
+                script=merged_data_overview_script(MERGE_NODE_NAME, merge_preview_node_name),
+                dependencies=[MERGE_NODE_NAME, merge_fragment_node_name]
             )
         )
         for p_email in participants:
