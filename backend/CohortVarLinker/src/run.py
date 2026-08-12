@@ -23,7 +23,7 @@ from .variable_profile import VariableProfile
 from .graph_similarity import compute_context_scores
 from .utils import execute_query,canonical_var_key,build_visit_universe
 
-from .harmonized_variable import suggest_harmonized_variable_without_llm
+from .harmonized_variable import slugify_name, suggest_harmonized_variable_without_llm
 logger = setup_logger('storelog.log')
 
 _CTX_TYPE_TO_VERDICT = {
@@ -585,6 +585,9 @@ class StudyMapper:
                 f"{tgt_study}: {len(tgt_visit_universe)} label(s)"
             )
             descriptions, transformations, statuses = [], [], []
+            # Collected alongside the blob so the name can also stand as its own
+            # column. See the df assignment below for why it is written twice.
+            harmonized_names = []
             # The concrete "how" of a transformation (a conversion formula, a
             # derivation). Kept out of transformation_type so that column holds
             # only the TransformationType category and stays filterable.
@@ -624,6 +627,7 @@ class StudyMapper:
                         if llm_hv and llm_hv != derived_hv:
                             details["llm_harmonized_variable"] = llm_hv
                         details["harmonized_variable"] = derived_hv
+                harmonized_names.append((details.get("harmonized_variable") or "").strip())
                 transformations.append(details.pop("transformation", "") or "")
                 transformation_rules.append(details.pop("transformation_rule", "") or "")
                 descriptions.append(json.dumps(details, default=str, ensure_ascii=False))
@@ -647,6 +651,17 @@ class StudyMapper:
             else:
                 df["transformation_rule"] = transformation_rules
             df["Mapping Description"]   = descriptions
+            # One column for the harmonized name, so nothing downstream has to
+            # parse the blob to join on it. Deliberately *also* left inside the
+            # blob: every output already on disk carries it only there, and
+            # harmonized_name_from_row() still falls back to it for those.
+            # `derived_variable_name` no longer competes as a second name — it
+            # stays on derived rows as the formula id, and is used here only
+            # when neither namer produced anything.
+            df["harmonized_variable"] = [
+                name or slugify_name(rec.get("derived_variable_name"))
+                for name, rec in zip(harmonized_names, recs)
+            ]
             df["harmonization_status"]  = statuses
             df["LLMEvidence"]          = llm_evidences
         
