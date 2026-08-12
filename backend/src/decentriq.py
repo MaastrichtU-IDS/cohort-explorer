@@ -26,7 +26,7 @@ from src.auth import get_current_user
 from src.config import settings
 from src.analysis_dcr_logging import log_dcr_event, read_events
 from src.eda_scripts import c1_data_dict_check, c2_save_to_json, c3_eda_data_profiling, longitudinal_analysis, shuffle_data
-from src.analysisDCR_scripts import data_fragment_script, visualization_script, exploration_script, merge_datasets_script, merged_data_fragment_script, merged_data_overview_script
+from src.analysisDCR_scripts import data_fragment_script, visualization_script, exploration_script, merge_datasets_script, merged_data_fragment_script, merged_data_overview_script, merged_airlock_example_script
 from src.models import Cohort
 from src.utils import retrieve_cohorts_metadata
 from datetime import datetime
@@ -1171,10 +1171,25 @@ async def get_compute_dcr_definition(
         for p_email in participants:
             participants[p_email]["analyst_of"].add(merge_check_node_name)
 
+        # Documentation node: numbered instructions (plus a commented snippet)
+        # on how to analyse the airlocked merged-data fragment in the
+        # Development tab. Running it only prints a pointer message — it has no
+        # dependencies, so it runs instantly and works in production mode.
+        merge_example_node_name = "example-analysis-for-merged-data-in-airlock"
+        builder.add_node_definition(
+            PythonComputeNodeDefinition(
+                name=merge_example_node_name,
+                script=merged_airlock_example_script(merge_preview_node_name),
+                dependencies=[]
+            )
+        )
+        for p_email in participants:
+            participants[p_email]["analyst_of"].add(merge_example_node_name)
+
         logging.info(
             f"Added merged-dataset airlock chain: {merge_fragment_node_name} "
             f"({merge_airlock_percentage}% fragment) -> {merge_preview_node_name} "
-            f"-> {merge_check_node_name}"
+            f"-> {merge_check_node_name}; example node: {merge_example_node_name}"
         )
     else:
         logging.info(

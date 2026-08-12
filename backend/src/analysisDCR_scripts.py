@@ -973,6 +973,70 @@ with open(log_file, "a") as log:
 """
 
 
+def merged_airlock_example_script(preview_node_name: str) -> str:
+    """Generate the example-analysis script for the merged-data airlock.
+
+    A documentation node: its script carries numbered instructions on how to
+    work with the airlocked merged-data fragment in the Development tab (the
+    key point being the input path), plus a commented minimal code snippet.
+    Running the node itself only prints a message explaining that the script
+    is meant to be copied into the Development tab. It has no dependencies,
+    so it runs instantly and cannot fail in production mode.
+
+    Args:
+        preview_node_name: Name of the airlock/preview node the instructions
+            refer to.
+
+    Returns:
+        The Python script as a string.
+    """
+    return f"""###############################################################################
+# EXAMPLE ANALYSIS — WORKING WITH THE MERGED DATA IN THE AIRLOCK
+#
+# The airlock node "{preview_node_name}" exposes a testing
+# fragment of the merged dataset (a subset of rows, synthetic IDs instead of
+# the original ones, outliers capped) as the file "dataset.csv".
+#
+# HOW TO USE THE AIRLOCK:
+#
+#   1. Open the "Development" tab of this Data Clean Room and create a new
+#      script (or copy this one into it).
+#   2. In the right-side panel of the Development tab, select the airlock node
+#      "{preview_node_name}" as an input.
+#      Without this step the fragment will NOT be available to your script.
+#   3. The airlock contents are then mounted read-only under:
+#          /input/{preview_node_name}/
+#      and the merged-data fragment itself is at:
+#          /input/{preview_node_name}/dataset.csv
+#   4. Load the fragment with pandas (see the snippet below), build up your
+#      analysis, and write any results you want to keep to /output.
+#   5. Once your analysis works, it can be added to the DCR as a compute node
+#      of its own so other participants can run it.
+#
+# MINIMAL EXAMPLE — uncomment these lines in the Development tab:
+#
+# import pandas as pd
+#
+# df = pd.read_csv("/input/{preview_node_name}/dataset.csv")
+# print("Fragment shape:", df.shape)
+# summary = df.describe(include="all")
+# summary.to_csv("/output/fragment_summary.csv")
+#
+###############################################################################
+
+message = (
+    "This is a minimal example of how an analysis script can access the merged "
+    "data in the airlock. The contents of this script are intended to be "
+    "copied and pasted into the 'Development' tab, then tested and expanded there."
+)
+print(message)
+
+# Also write the message to the output so the run produces a visible result.
+with open("/output/README.txt", "w") as f:
+    f.write(message + "\\n")
+"""
+
+
 def merged_data_overview_script(
     merge_node_name: str,
     preview_node_name: str,
@@ -1017,11 +1081,10 @@ def merged_data_overview_script(
 #     logs, figures, the PDF quality report) — everything except the merged
 #     dataset itself. It never writes patient-level rows to its output.
 #
-# You can copy this script into the "Development" tab and adapt it further.
-# IMPORTANT: in the Development tab you must select this script's inputs in the
-# right-side panel. To explore the (de-identified, outlier-capped) data fragment
-# itself in Development mode, select the airlock node
-# "{preview_node_name}" as an input — it exposes dataset.csv.
+# To explore the (de-identified, outlier-capped) merged-data fragment yourself,
+# see the node "example-analysis-for-merged-data-in-airlock": it explains how to
+# work with the airlock "{preview_node_name}"
+# in the Development tab, with a minimal code snippet to start from.
 ###############################################################################
 
 import os
