@@ -24,8 +24,10 @@ VOCAB_ALIASES = {
     "ukbiobank": "uk biobank", "cdisc": "cdisc",
     "cancer modifier": "cancer modifier", "cancer_modifier": "cancer modifier",
     "icd9proc": "icd9proc", "visit": "visit",
-    "visit type": "visit type", "visit_type": "visit type",
-    "icare4cvd": "icare4cvd", "condition status": "condition status",
+    "visit type": "visit type", 
+    "visit_type": "visit type",
+    "icare4cvd": "icare4cvd", 
+    "condition status": "condition status",
 }
 EQ_RELS = {
     "rxnorm - atc pr lat": "atc - rxnorm pr lat", "atc - rxnorm pr lat": "rxnorm - atc pr lat",
@@ -35,6 +37,8 @@ EQ_RELS = {
     "mapped from": "maps to", "maps to": "mapped from",
     "cpt4 - snomed eq": "snomed - cpt4 eq", "snomed - cpt4 eq": "cpt4 - snomed eq",
     "cpt4 - loinc eq": "loinc - cpt4 eq", "loinc - cpt4 eq": "cpt4 - loinc eq",
+    "concept same_as to": "concept same_as from",
+    "concept same_as from": "concept same_as to",
 }
 DIR_RELS = {"is a": "subsumes", "subsumes": "is a", "has answer": "answer of", "answer of": "has answer"}
 LOINC_AXIS_RELS = {
@@ -52,14 +56,27 @@ LOINC_AXIS_RELS = {
 # the pivot. The same shape turned aspirin into a beta blocker, via the
 # combination products "bisoprolol and acetylsalicylic acid" that map to it.
 #
-# Every remaining entry is an explicit cross-vocabulary equivalence assertion.
+# Every remaining entry is an explicit equivalence assertion.
 # A concept pair related ONLY by a bare mapping still reaches the hierarchical
 # gates below; it simply no longer arrives there already declared identical.
+#
+# "concept same_as to/from" is OMOP's own same-denotation relationship
+# (RELATIONSHIP.csv 44818958/44818959, "Inactive same_as active"). It is the
+# relationship the curated ICARE4CVD rows in data/cvd_vocab.csv use to record
+# measurement pairs a clinician declared interchangeable but that OMOP keeps
+# apart -- sitting / lying / unqualified systolic blood pressure, for instance,
+# are SNOMED siblings and so are (correctly) refused by the hierarchical gates.
+# Those rows previously carried "maps to", which stopped being an equivalence
+# relation for the reasons above. Note that the upstream vocabulary export
+# filters same_as out, so today only the curated rows carry it; should that
+# filter be relaxed, OMOP's ~76k inactive-to-active same_as pairs would join
+# them -- which is the same assertion, not a widening of the semantics.
 EQUIV_REL_NAMES = frozenset({
     "rxnorm - atc pr lat", "atc - rxnorm pr lat",
     "atc - rxnorm", "rxnorm - atc", "snomed - rxnorm eq", "rxnorm - snomed eq",
     "atc - snomed eq", "snomed - atc eq", "cpt4 - snomed eq", "snomed - cpt4 eq",
     "cpt4 - loinc eq", "loinc - cpt4 eq",
+    "concept same_as to", "concept same_as from",
 })
 
 
@@ -417,29 +434,6 @@ class OmopGraphNX:
             return self.graph.graph.get('loinc_axes', {}).get(int(cid), {})
         except (ValueError, TypeError):
             return {}
-
-    # def compare_loinc_axes(self, sid: int, tid: int) -> dict:
-    #     try:
-    #         sid, tid = int(sid), int(tid)
-    #     except (ValueError, TypeError):
-    #         return {'is_match': False, 'reason': 'invalid IDs'}
-    #     sa, ta = self.get_loinc_axes(sid), self.get_loinc_axes(tid)
-    #     if 'component' not in sa or 'component' not in ta:
-    #         return {'is_match': False, 'reason': 'component missing',
-    #                 'source_axes': sa, 'target_axes': ta}
-    #     matched, mismatched = [], []
-    #     for ax in LOINC_REQUIRED_AXES:
-    #         s, t = sa.get(ax), ta.get(ax)
-    #         if s and t:
-    #             (matched if s[0] == t[0] else mismatched).append(
-    #                 (ax, s[1]) if s[0] == t[0] else (ax, s[1], t[1]))
-    #         elif ax == 'component':
-    #             mismatched.append((ax, s, t))
-    #     ignored = [(a, sa[a][1], ta[a][1]) for a in LOINC_IGNORABLE_AXES
-    #                if a in sa and a in ta and sa[a][0] != ta[a][0]]
-    #     return {'is_match': not mismatched,
-    #             'matched': matched, 'mismatched': mismatched or ignored}
-
     
     def compare_loinc_axes(self, sid: int, tid: int) -> dict:
         try:
@@ -862,6 +856,13 @@ class OmopGraphNX:
             return False, "invalid IDs"
         sv = self.get_node_attr(sid, 'vocabulary').lower()
         tv = self.get_node_attr(tid, 'vocabulary').lower()
+        # An explicit equivalence assertion outranks the LOINC axis heuristic:
+        # sitting vs supine heart rate differ on the component and time-aspect
+        # axes, so the axis comparison rejects a pair that a curated same_as row
+        # declares interchangeable. source_to_targets_paths already resolves
+        # equivalence before its own LOINC branch; this keeps the two agreeing.
+        if tid in self._equiv_closure(sid):
+            return True, MappingRelation.SymbolicExactMatch.value
         if sv == 'loinc' and tv == 'loinc':
             r = self.compare_loinc_axes(sid, tid)
             if r['is_match']:
@@ -1331,157 +1332,159 @@ class OmopGraphNX:
 
         return equiv_chain + hier_chain[1:]
 
-# def run_pair_tests(omop_nx):
-#     """Test source_to_targets_paths against curated concept pairs."""
+def run_pair_tests(omop_nx):
+    """Test source_to_targets_paths against curated concept pairs."""
 
-#     cases = [
-#         # (src, tgt, should_match, description)
-#         # ── LOINC hierarchy: parent-child should NOT match ──
-#         (4248525, 4060832, True,
-#          "lying systolic BP vs systolic BP (parent-child)"),
-#         (4248525, 4326744, False,
-#          "lying systolic BP vs blood pressure (too broad"),
+    cases = [
+        # (src, tgt, should_match, description)
+        # ── LOINC hierarchy: parent-child should NOT match ──
+        (4248525, 4060832, True,
+         "lying systolic BP vs systolic BP (parent-child)"),
+         (4248525, 4232915, True,
+         "lying systolic BP vs sitting systolic BP (parent-child)"),
+        (4248525, 4326744, False,
+         "lying systolic BP vs blood pressure (too broad"),
 
-#         # ── Drug cross-vocab: unrelated vs related ──
-#         (4306892, 21601810, False,
-#          "furosemide vs cilazapril+diuretics (unrelated combo)"),
-#         (4306892, 21601516, True,
-#          "furosemide vs HIGH-CEILING DIURETICS (ancestor class)"),
+        # ── Drug cross-vocab: unrelated vs related ──
+        (4306892, 21601810, False,
+         "furosemide vs cilazapril+diuretics (unrelated combo)"),
+        (4306892, 21601516, True,
+         "furosemide vs HIGH-CEILING DIURETICS (ancestor class)"),
 
-#         # ── Combination ingredient: should NOT match single ingredient ──
-#         (21035025, 956874, False,
-#          "amiloride/furosemide oral soln vs furosemide (combo→ingredient)"),
+        # ── Combination ingredient: should NOT match single ingredient ──
+        (21035025, 956874, False,
+         "amiloride/furosemide oral soln vs furosemide (combo→ingredient)"),
 
-#         # ── Maps-to equivalence ──
-#         (4151548, 3020399, False,
-#          "Glucose measurement, body fluid vs glucose [mass/volume] urine (maps_to)"),
+        # ── Maps-to equivalence ──
+        (4151548, 3020399, False,
+         "Glucose measurement, body fluid vs glucose [mass/volume] urine (maps_to)"),
 
-#         # ── LOINC loose match (same component, different property) ──
-#         (3020399, 3005570, True,
-#          "glucose [mass/vol] urine vs glucose [mol/vol] urine (LOINC axes)"),
+        # ── LOINC loose match (same component, different property) ──
+        (3020399, 3005570, True,
+         "glucose [mass/vol] urine vs glucose [mol/vol] urine (LOINC axes)"),
 
-#         # ── ATC hierarchy ──
-#         (21601517, 21601520, True,
-#          "sulfonamides plain vs piretanide (parent→child)"),
-#         (21601517, 21601521, True,
-#          "sulfonamides plain vs torasemide (parent→child)"),
-#         (21601517, 942350, True,
-#          "sulfonamides plain vs torsemide (cross-vocab descendant)"),
+        # ── ATC hierarchy ──
+        (21601517, 21601520, True,
+         "sulfonamides plain vs piretanide (parent→child)"),
+        (21601517, 21601521, True,
+         "sulfonamides plain vs torasemide (parent→child)"),
+        (21601517, 942350, True,
+         "sulfonamides plain vs torsemide (cross-vocab descendant)"),
 
-#         # ── ATC siblings: should NOT match ──
-#         (942350, 21601520, False,
-#          "torsemide vs piretanide (siblings under same parent)"),
+        # ── ATC siblings: should NOT match ──
+        (942350, 21601520, False,
+         "torsemide vs piretanide (siblings under same parent)"),
 
-#         # ── Disease hierarchy ──
-#         (312327, 4329847, True,
-#          "acute MI vs myocardial infarction (child→parent)"),
-#         (4173632, 312327, False,
-#          "microinfarct of heart vs acute MI (siblings)"),
-#          (4242997, 4336464, False,
-#          "Cholecystectomy vsC oronary artery bypass graft"),
-#          (21600961,4146455,False,
-#          "ANTITHROMBOTIC AGENTS Antihypertensive therapy"),
-#          (21600961, 3655005, False,
-#          "antithrombotic agents vs Platelet aggregation inhibitor therapy"),
-#          (4029066, 21601521, True,
-#          "Torsemide vs torasemide; oral, parenteral"),
-#          (21601665, 1314002, True,
-#          "BETA BLOCKING AGENTS vs Atenolol"),
-#           (1314002, 21601665, True,
-#          "Atenolol vs BETA BLOCKING AGENTS"),
-#          (3000963,3009744, False,
-#          "hemoglobin [mass/volume] in blood vs mchc [mass/volume] by automated count"),
-#          (3005456,3023103, True,
-#          "Potassium [Moles/volume] in Serum or Plasma vs Potassium [Moles/volume] in Blood"),
-#          (21601665,1332418, False,
-#          "beta blocking agents vs amlodipine"),
-#            (1326303,1243623, False,
-#          "digoxin vs inotropic therapy"),
-#          (3001308,3007070, False, "ldl vs hdl"),
-#          (21601665,1318853,False,
-#          "beta blocking agents,nifedipine"),
-#          (970250,21601517,False, "spironolactone vs diuretics"),
+        # ── Disease hierarchy ──
+        (312327, 4329847, True,
+         "acute MI vs myocardial infarction (child→parent)"),
+        (4173632, 312327, False,
+         "microinfarct of heart vs acute MI (siblings)"),
+         (4242997, 4336464, False,
+         "Cholecystectomy vsC oronary artery bypass graft"),
+         (21600961,4146455,False,
+         "ANTITHROMBOTIC AGENTS Antihypertensive therapy"),
+         (21600961, 3655005, False,
+         "antithrombotic agents vs Platelet aggregation inhibitor therapy"),
+         (4029066, 21601521, True,
+         "Torsemide vs torasemide; oral, parenteral"),
+         (21601665, 1314002, True,
+         "BETA BLOCKING AGENTS vs Atenolol"),
+          (1314002, 21601665, True,
+         "Atenolol vs BETA BLOCKING AGENTS"),
+         (3000963,3009744, False,
+         "hemoglobin [mass/volume] in blood vs mchc [mass/volume] by automated count"),
+         (3005456,3023103, True,
+         "Potassium [Moles/volume] in Serum or Plasma vs Potassium [Moles/volume] in Blood"),
+         (21601665,1332418, False,
+         "beta blocking agents vs amlodipine"),
+           (1326303,1243623, False,
+         "digoxin vs inotropic therapy"),
+         (3001308,3007070, False, "ldl vs hdl"),
+         (21601665,1318853,False,
+         "beta blocking agents,nifedipine"),
+         (970250,21601517,False, "spironolactone vs diuretics"),
 
-#         # ── Hub-mediated siblings: two concepts that both `maps to` the same
-#         # generic parent are NOT equivalent. `maps to` is OMOP's
-#         # standardisation mapping (non-standard -> standard replacement) and is
-#         # frequently lossy: "h/o: multiple allergies" and "history of neoplasm"
-#         # both map to "history of event" (1340204), so treating the mapping as
-#         # equivalence made them members of one equivalence class -- reported as
-#         # exactMatch. Same shape put aspirin under beta blockers via the
-#         # combination products that map to it. These fail if "maps to" /
-#         # "mapped from" are ever re-added to EQUIV_REL_NAMES.
-#         (4060077, 4078300, False,
-#          "h/o multiple allergies vs history of neoplasm (both maps_to 'history of event')"),
-#         (4078300, 4060077, False,
-#          "history of neoplasm vs h/o multiple allergies (reverse direction)"),
-#         (4060077, 1340204, False,
-#          "h/o multiple allergies vs history of event (its own broader concept)"),
-#         (1112807, 21601664, False,
-#          "aspirin vs BETA BLOCKING AGENTS (via bisoprolol+aspirin combination)"),
-#         (1112807, 21601665, False,
-#          "aspirin vs beta blocking agents, plain (same route, sibling class)"),
-#         (1112807, 21600961, True,
-#          "aspirin vs ANTITHROMBOTIC AGENTS (genuine ATC ancestor, B01AC06 < B01)"),
-#         (1112807, 4306886, True,
-#          "aspirin RxNorm vs aspirin SNOMED (real cross-vocab equivalence)"),
-#         (1112807, 21600991, True,
-#          "aspirin vs acetylsalicylic acid; oral (rxnorm - atc pr lat)"),
-#         # Two unrelated 'history of' findings must not collapse through the hub
-#         # either -- the pattern generalises to every h/o concept in the corpus.
-#         (4214956, 4078300, False,
-#          "history of clinical finding vs history of neoplasm (hub siblings)"),
-#     ]
+        # ── Hub-mediated siblings: two concepts that both `maps to` the same
+        # generic parent are NOT equivalent. `maps to` is OMOP's
+        # standardisation mapping (non-standard -> standard replacement) and is
+        # frequently lossy: "h/o: multiple allergies" and "history of neoplasm"
+        # both map to "history of event" (1340204), so treating the mapping as
+        # equivalence made them members of one equivalence class -- reported as
+        # exactMatch. Same shape put aspirin under beta blockers via the
+        # combination products that map to it. These fail if "maps to" /
+        # "mapped from" are ever re-added to EQUIV_REL_NAMES.
+        (4060077, 4078300, False,
+         "h/o multiple allergies vs history of neoplasm (both maps_to 'history of event')"),
+        (4078300, 4060077, False,
+         "history of neoplasm vs h/o multiple allergies (reverse direction)"),
+        (4060077, 1340204, False,
+         "h/o multiple allergies vs history of event (its own broader concept)"),
+        (1112807, 21601664, False,
+         "aspirin vs BETA BLOCKING AGENTS (via bisoprolol+aspirin combination)"),
+        (1112807, 21601665, False,
+         "aspirin vs beta blocking agents, plain (same route, sibling class)"),
+        (1112807, 21600961, True,
+         "aspirin vs ANTITHROMBOTIC AGENTS (genuine ATC ancestor, B01AC06 < B01)"),
+        (1112807, 4306886, True,
+         "aspirin RxNorm vs aspirin SNOMED (real cross-vocab equivalence)"),
+        (1112807, 21600991, True,
+         "aspirin vs acetylsalicylic acid; oral (rxnorm - atc pr lat)"),
+        # Two unrelated 'history of' findings must not collapse through the hub
+        # either -- the pattern generalises to every h/o concept in the corpus.
+        (4214956, 4078300, False,
+         "history of clinical finding vs history of neoplasm (hub siblings)"),
+    ]
 
-#     passed = failed = 0
-#     for src, tgt, expected, desc in cases:
-#         results = omop_nx.source_to_targets_paths(src, [tgt], max_depth=1)
-#         matched = len(results) > 0
-#         ok = matched == expected
+    passed = failed = 0
+    for src, tgt, expected, desc in cases:
+        results = omop_nx.source_to_targets_paths(src, [tgt], max_depth=1)
+        matched = len(results) > 0
+        ok = matched == expected
 
-#         # Gather diagnostics
-#         src_name = omop_nx.get_node_attr(src, 'name')
-#         tgt_name = omop_nx.get_node_attr(tgt, 'name')
-#         src_vocab = omop_nx.get_node_attr(src, 'vocabulary')
-#         tgt_vocab = omop_nx.get_node_attr(tgt, 'vocabulary')
-#         match_label = results[0][1] if results else "none"
+        # Gather diagnostics
+        src_name = omop_nx.get_node_attr(src, 'name')
+        tgt_name = omop_nx.get_node_attr(tgt, 'name')
+        src_vocab = omop_nx.get_node_attr(src, 'vocabulary')
+        tgt_vocab = omop_nx.get_node_attr(tgt, 'vocabulary')
+        match_label = results[0][1] if results else "none"
 
-#         status = "✓" if ok else "✗ FAIL"
-#         expect_str = "match" if expected else "no match"
-#         got_str = f"matched ({match_label})" if matched else "no match"
+        status = "✓" if ok else "✗ FAIL"
+        expect_str = "match" if expected else "no match"
+        got_str = f"matched ({match_label})" if matched else "no match"
 
-#         print(f"  {status}  [{src_vocab}] {src_name} ({src}) "
-#               f"→ [{tgt_vocab}] {tgt_name} ({tgt})")
-#         print(f"         expected: {expect_str}, got: {got_str}")
+        print(f"  {status}  [{src_vocab}] {src_name} ({src}) "
+              f"→ [{tgt_vocab}] {tgt_name} ({tgt})")
+        print(f"         expected: {expect_str}, got: {got_str}")
 
-#         if not ok:
-#             failed += 1
-#             path = omop_nx.explain_path(src, tgt)
-#             print(f"         explain:  {path['path_type']} — {path['explanation']}")
-#             eq_src = omop_nx._equiv_closure(src)
-#             print(f"equv({src}): {sorted(eq_src)[:8]}{'...' if len(eq_src) > 8 else ''}")
-#         else:
-#             passed += 1
+        if not ok:
+            failed += 1
+            path = omop_nx.explain_path(src, tgt)
+            print(f"         explain:  {path['path_type']} — {path['explanation']}")
+            eq_src = omop_nx._equiv_closure(src)
+            print(f"equv({src}): {sorted(eq_src)[:8]}{'...' if len(eq_src) > 8 else ''}")
+        else:
+            passed += 1
 
-#     print(f"\n  Pair tests: {passed} passed, {failed} failed, {passed + failed} total")
-#     return failed == 0
+    print(f"\n  Pair tests: {passed} passed, {failed} failed, {passed + failed} total")
+    return failed == 0
     
-# if __name__ == "__main__":
-#     start_time = time.time()
-#     csv_path = "/Users/komalgilani/phd_projects/CohortVarLinker/data/concept_relationship_enriched.csv"
-#     omop_nx = OmopGraphNX(csv_path, output_file='graph_nx.pkl.gz')
-#     run_pair_tests(omop_nx)
-#     p = omop_nx.explain_path(970250, 21601517, max_depth=4)
-#     print(p['explanation'])
-#     for u, v, rel in p['edges']:
-#         print(f"  {u} ({omop_nx.get_node_attr(u,'name')}, {omop_nx.get_node_attr(u,'vocabulary')}) "
-#             f"--{rel}--> "
-#             f"{v} ({omop_nx.get_node_attr(v,'name')}, {omop_nx.get_node_attr(v,'vocabulary')})")
-#     # 970250,21601517, 
-# #     print(p['path'])        # [(21600961, name, vocab), (X, name, vocab), (3655005, name, vocab)]
-# #     print(omop_nx.get_edge_rels(p['path'][1][0], 3655005))   # every relation stored on X→365500
+if __name__ == "__main__":
+    start_time = time.time()
+    csv_path = "/Users/komalgilani/phd_projects/CohortVarLinker/data/concept_relationship_enriched.csv"
+    omop_nx = OmopGraphNX(csv_path, output_file='graph_nx.pkl.gz')
+    run_pair_tests(omop_nx)
+    p = omop_nx.explain_path(970250, 21601517, max_depth=4)
+    print(p['explanation'])
+    for u, v, rel in p['edges']:
+        print(f"  {u} ({omop_nx.get_node_attr(u,'name')}, {omop_nx.get_node_attr(u,'vocabulary')}) "
+            f"--{rel}--> "
+            f"{v} ({omop_nx.get_node_attr(v,'name')}, {omop_nx.get_node_attr(v,'vocabulary')})")
+    # 970250,21601517, 
+#     print(p['path'])        # [(21600961, name, vocab), (X, name, vocab), (3655005, name, vocab)]
+#     print(omop_nx.get_edge_rels(p['path'][1][0], 3655005))   # every relation stored on X→365500
 
-# #     eq = omop_nx._equiv_closure(778939)
-# #     print(eq)
+#     eq = omop_nx._equiv_closure(778939)
+#     print(eq)
    
 
