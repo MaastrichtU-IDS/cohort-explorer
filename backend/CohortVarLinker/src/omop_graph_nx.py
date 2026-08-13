@@ -911,7 +911,7 @@ class OmopGraphNX:
         header = pd.read_csv(csv_file_path, nrows=0)
         actual = [c for c in use_cols if c in header.columns]
         df = pd.read_csv(csv_file_path, usecols=actual, dtype=str)
-        df['relationship_id'] = df['relationship_id'].str.lower()
+        df['relationship_id'] = df['relationship_id'].str.lower().str.strip()
 
         # for col in ['concept_vocabulary_1', 'concept_vocabulary_2']:
         #     if col in df.columns:
