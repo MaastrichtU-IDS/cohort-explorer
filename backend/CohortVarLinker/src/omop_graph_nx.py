@@ -11,6 +11,7 @@ LOINC_REQUIRED_AXES = ["component", "time_aspect"]
 LOINC_DECISIVE_AXES = ["property"]
 LOINC_CONTEXT_AXES = ["system", "specimen"]
 LOINC_IGNORABLE_AXES = ["method", "scale_type"]
+CASE_SENSITIVE_CODE_VOCABS = frozenset({'ucum'})
 
 VOCAB_ALIASES = {
     "snomed": "snomed", "snomedct": "snomed",
@@ -45,32 +46,6 @@ LOINC_AXIS_RELS = {
     'has component': 'component', 'has property': 'property', 'has time aspect': 'time_aspect',
     'has system': 'system', 'has scale type': 'scale_type', 'has method': 'method', 'has specimen': 'specimen',
 }
-# Relations that assert two concepts denote the SAME thing, so equivalence may
-# be propagated across them.
-#
-# "maps to" / "mapped from" are deliberately absent. They are OMOP's
-# standardisation mapping -- non-standard concept to its standard replacement --
-# and that is frequently lossy rather than equivalent: "h/o: multiple allergies"
-# maps to the generic hub "history of event", as does "history of neoplasm", so
-# treating the mapping as equivalence made those two siblings equivalent through
-# the pivot. The same shape turned aspirin into a beta blocker, via the
-# combination products "bisoprolol and acetylsalicylic acid" that map to it.
-#
-# Every remaining entry is an explicit equivalence assertion.
-# A concept pair related ONLY by a bare mapping still reaches the hierarchical
-# gates below; it simply no longer arrives there already declared identical.
-#
-# "concept same_as to/from" is OMOP's own same-denotation relationship
-# (RELATIONSHIP.csv 44818958/44818959, "Inactive same_as active"). It is the
-# relationship the curated ICARE4CVD rows in data/cvd_vocab.csv use to record
-# measurement pairs a clinician declared interchangeable but that OMOP keeps
-# apart -- sitting / lying / unqualified systolic blood pressure, for instance,
-# are SNOMED siblings and so are (correctly) refused by the hierarchical gates.
-# Those rows previously carried "maps to", which stopped being an equivalence
-# relation for the reasons above. Note that the upstream vocabulary export
-# filters same_as out, so today only the curated rows carry it; should that
-# filter be relaxed, OMOP's ~76k inactive-to-active same_as pairs would join
-# them -- which is the same assertion, not a widening of the semantics.
 EQUIV_REL_NAMES = frozenset({
     "rxnorm - atc pr lat", "atc - rxnorm pr lat",
     "atc - rxnorm", "rxnorm - atc", "snomed - rxnorm eq", "rxnorm - snomed eq",
@@ -79,31 +54,10 @@ EQUIV_REL_NAMES = frozenset({
     "concept same_as to", "concept same_as from",
 })
 
-
-# class BlockingFilter:
-#     __slots__ = ('_check_fn', 'blocked', 'passed', 'equiv_class', 'source')
-
-#     def __init__(self, check_fn, source=None, equiv_class=None):
-#         self._check_fn, self.source = check_fn, source
-#         self.blocked, self.passed, self.equiv_class = {}, set(), equiv_class or set()
-
-#     def __call__(self, tid: int) -> bool:
-#         result = self._check_fn(tid)
-#         if result:
-#             self.blocked[tid] = "hierarchically related"
-#         else:
-#             self.passed.add(tid)
-#         return result
-
-#     def summary(self, graph=None):
-#         lines = [
-#             f"Source:{self.source}" + (f" ({graph.get_node_attr(self.source, 'name')})" if graph else ""),
-#             f"Blocked:{len(self.blocked)}, Passed:{len(self.passed)}",
-#         ]
-#         for tid, reason in self.blocked.items():
-#             name = graph.get_node_attr(tid, 'name') if graph else str(tid)
-#             lines.append(f"  ✗ {tid} ({name}) — {reason}")
-#         return "\n".join(lines)
+def _code_key(vocab, code) -> tuple:
+    v = str(vocab).strip().lower()
+    c = str(code).strip()
+    return (v, c if v in CASE_SENSITIVE_CODE_VOCABS else c.lower())
 
 def _compatible_loinc_property(src_prop: str, tgt_prop: str) -> bool:
     s, t = src_prop.lower().strip(), tgt_prop.lower().strip()
@@ -337,8 +291,7 @@ class OmopGraphNX:
             return c if c in self.graph else None
         if ':' in s:
             v, c = s.split(':', 1)
-            return self.graph.graph.get('code_index', {}).get(
-                (v.strip().lower(), c.strip().lower()))
+            return self.graph.graph.get('code_index', {}).get(_code_key(v, c))
         return None
 
     def get_node_attr(self, nid, attr):
@@ -907,7 +860,7 @@ class OmopGraphNX:
         return safe
 
     def concept_exists(self, cid: int, code: str, vocabulary: List[str]) -> Tuple[bool, str]:
-        vocabulary, code = [v.lower() for v in vocabulary], code.lower()
+        vocabulary = [str(v).strip().lower() for v in vocabulary]
         if cid not in self.graph:
             return False, "not found"
         meta = self.graph.graph.get('meta')
@@ -915,10 +868,13 @@ class OmopGraphNX:
             return False, "not found"
         row = meta.loc[cid]
         nv = str(row.get('concept_vocabulary', '')).strip().lower()
-        nc = str(row.get('concept_code', '')).strip().lower()
+        nc = str(row.get('concept_code', '')).strip()
         if not nv and not nc:
             return False, "not found"
-        return (True, "correct") if nv in vocabulary and nc == code else (False, "incorrect")
+        # Compare through the same normalisation the code index uses: a lowercased
+        # ATC code still matches, while UCUM keeps A (ampere) != a (year).
+        ok = nv in vocabulary and _code_key(nv, nc) == _code_key(nv, code)
+        return (True, "correct") if ok else (False, "incorrect")
 
     def get_vocabulary_stats(self):
         meta = self.graph.graph.get('meta')
@@ -995,9 +951,9 @@ class OmopGraphNX:
         # ── Code index ──
         ci = {}
         for cid, row in meta.iterrows():
-            code = str(row.get('concept_code', '')).strip().lower()
+            code = str(row.get('concept_code', '')).strip()
             if code and code != 'nan':
-                ci[(str(row.get('concept_vocabulary', '')).strip().lower(), code)] = int(cid)
+                 ci[_code_key(row.get('concept_vocabulary', ''), code)] = int(cid)
         self.graph.graph['code_index'] = ci
 
         # ── LOINC axis map ──
