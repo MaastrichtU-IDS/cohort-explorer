@@ -61,15 +61,16 @@ def _missing_code_variants(p):
     # register every plausible reading:
     #   - the combined decimal form  (9999.000)
     #   - the combined integer form  (9999000)
-    #   - each part as a standalone code (9999, 000)
-    # This ensures sentinels such as 9999 are caught regardless of how the
-    # dictionary author intended the separator.
+    #   - the head as a standalone code (9999)
+    # The tail is deliberately NOT registered as a standalone code: a tail such
+    # as "000" normalises to 0 and would silently classify every genuine zero
+    # in the data as coded-missing.
     m = _re.match(r'^([+-]?[0-9]+)[ ,]([0-9]{3})$', p)
     if not m:
         return [p]
     head, tail = m.group(1), m.group(2)
     out = []
-    for v in (head + '.' + tail, head + tail, head, tail):
+    for v in (head + '.' + tail, head + tail, head):
         if v not in out:
             out.append(v)
     return out
@@ -320,6 +321,20 @@ def _fmt_stat(value, decimals=2, suffix=''):
     if num != num:
         return 'N/A'
     return f"{num:,.{decimals}f}{suffix}"
+
+def _fmt_num(value, decimals=2):
+    # Plain fixed-point rendering with NO thousands separators: these values
+    # end up in the flat JSON output, whose consumers parse them back into
+    # numbers. None/NaN render as 'N/A'.
+    if value is None:
+        return 'N/A'
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if num != num:
+        return 'N/A'
+    return f"{num:.{decimals}f}"
 
 def _fmt_count(count, pct=None, small_pct_cutoff=5.0):
     # A zero count needs no "(0%)" suffix. Otherwise the share is rounded to a
@@ -656,19 +671,39 @@ for index, row in dictionary.iterrows():
         t = 'float'
     elif _column_is_date(cands):
         t = 'date'
-    elif cands.nunique() > 20:
-        #assume float:
-        t = 'float'
-    else: #fewer than 20 unique
-        #assume categorical:
+    elif cands.nunique() <= 20:
+        #few distinct values, none of the clean types matched: categorical
         print("The following variable deemed categorical by process of elimination: ", variable_name)
         t = 'categorical'
+    else:
+        # High-cardinality mixed content. The clean checks above require EVERY
+        # candidate to parse, so one stray annotation ("n/a", "12,5", "<40")
+        # used to push the whole column into "assume float", marking 100% of a
+        # genuinely textual column invalid. Decide by parse RATE instead: a
+        # column that is mostly numbers is numeric with a few invalid cells; a
+        # column that is mostly words is free text.
+        _num_rate = float(pd.to_numeric(cands, errors='coerce').notna().mean())
+        try:
+            _date_rate = float(pd.to_datetime(cands, errors='coerce').notna().mean())
+        except Exception:
+            _date_rate = 0.0
+        if _num_rate >= 0.5 and _num_rate >= _date_rate:
+            t = 'float'
+        elif _date_rate >= 0.5:
+            t = 'date'
+        else:
+            t = 'text'
+        msg = ("Mixed-content variable %s: %.0f%% of non-missing values parse as numeric, "
+               "%.0f%% as dates -> inferred '%s'" % (variable_name, _num_rate * 100, _date_rate * 100, t))
+        print(msg)
+        if t == 'text':
+            mismatched_types[variable_name + "-text"] = msg
 
     vars_to_process[variable_name] = t
 
     #find the mismatches between declared types (in data dictionary) and inferred types:
     if ((var_type.lower() == "datetime" and t != "date") or
-        (var_type.lower() == "str" and t != "categorical")):
+        (var_type.lower() == "str" and t not in ("categorical", "text"))):
         mismatched_types[variable_name] = {"declared": var_type, "inferred": t}
 
     completeness, _valid_values = classify_series(data[variable_name], missing_codes, t)
@@ -750,7 +785,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import seaborn as sns
-from scipy.stats import shapiro, skew, kurtosis, zscore, normaltest, median_abs_deviation, trim_mean, entropy
+from scipy.stats import shapiro, skew, kurtosis, zscore, normaltest, median_abs_deviation, trim_mean, entropy, chi2
 import warnings
 import decentriq_util
 import re
@@ -976,6 +1011,11 @@ def _numeric_structured(series, comp):
         out['trimmed_mean_10'] = _to_native(float(trim_mean(vals, 0.1)))
     except Exception:
         out['trimmed_mean_10'] = None
+    try:
+        _modes = vals.mode()
+        out['mode'] = _to_native(float(_modes.iloc[0])) if len(_modes) else None
+    except Exception:
+        out['mode'] = None
     out['skewness'] = _to_native(skew(vals, bias=False)) if n > 2 else None
     out['kurtosis'] = _to_native(kurtosis(vals, bias=False)) if n > 3 else None
     out['zero_fraction'] = _to_native(float((vals == 0).mean()))
@@ -989,6 +1029,12 @@ def _numeric_structured(series, comp):
     else:
         om = 0
     out['outliers_mad'] = {'count': om, 'pct': _to_native(om / n * 100), 'threshold': 3.5}
+    # Classic z-score rule (sample std, ddof=1); complements IQR and MAD above.
+    if std and std > 0:
+        oz = int((((vals - mean) / std).abs() > 3).sum())
+    else:
+        oz = 0
+    out['outliers_z'] = {'count': oz, 'pct': _to_native(oz / n * 100), 'threshold': 3}
     norm = {}
     if n >= 8:
         try:
@@ -1000,11 +1046,16 @@ def _numeric_structured(series, comp):
         try:
             sub = vals.sample(5000, random_state=42) if n > 5000 else vals
             _w, pw = shapiro(sub)
+            norm['shapiro_w'] = _to_native(float(_w))
             norm['shapiro_p'] = _to_native(float(pw))
             norm['shapiro_n'] = int(len(sub))
         except Exception:
             pass
-    _pv = norm.get('dagostino_p', norm.get('shapiro_p'))
+    # Fall back to Shapiro when D'Agostino is absent OR present-but-None
+    # (a NaN p-value is stored as None).
+    _pv = norm.get('dagostino_p')
+    if _pv is None:
+        _pv = norm.get('shapiro_p')
     norm['is_normal'] = bool(_pv > 0.05) if _pv is not None else None
     out['normality'] = norm
     try:
@@ -1019,8 +1070,11 @@ def _categorical_structured(series, comp, categories_mapping):
     out = {}
     categories_mapping = categories_mapping or {}
     out['completeness'] = comp
-    out['n_unique'] = int(series.nunique(dropna=True))
     s_norm = series.apply(_lowercase_if_string)
+    # Case variants of one token ("Male"/"MALE") are a single category, so the
+    # unique count is taken on the same normalised values the distribution
+    # below is built from — otherwise the two disagree.
+    out['n_unique'] = int(s_norm.nunique(dropna=True))
     # Only valid observations form the category distribution; empty and
     # coded-missing cells are reported in `completeness` instead.
     vc_valid = s_norm.value_counts(dropna=True)
@@ -1052,6 +1106,26 @@ def _categorical_structured(series, comp, categories_mapping):
         out['imbalance_ratio'] = _to_native(float(vc_valid.max() / vc_valid.min())) if vc_valid.min() > 0 else None
         top = vc_valid.idxmax()
         out['most_frequent'] = {'value': str(top), 'label': categories_mapping.get(str(top), str(top)), 'pct': _to_native(float(vc_valid.max()) / total * 100) if total else None}
+        # Goodness-of-fit against a uniform distribution over the observed
+        # categories (H0: all categories equally frequent). The raw statistic
+        # alone scales with n and category count, so dof and p-value are
+        # reported with it; `valid` is False when the expected count per
+        # category is below 5, where the chi-square approximation is unreliable.
+        if len(vc_valid) > 1:
+            expected = tot_valid / len(vc_valid)
+            stat = float((((vc_valid - expected) ** 2) / expected).sum())
+            dof = int(len(vc_valid) - 1)
+            try:
+                pval = _to_native(float(chi2.sf(stat, dof)))
+            except Exception:
+                pval = None
+            out['chi_square_uniform'] = {
+                'statistic': _to_native(stat),
+                'dof': dof,
+                'p_value': pval,
+                'expected_count_per_category': _to_native(expected),
+                'valid': bool(expected >= 5),
+            }
     return out
 
 def _date_structured(series, comp):
@@ -1062,17 +1136,52 @@ def _date_structured(series, comp):
     out['completeness'] = comp
     if len(d) == 0:
         return out
-    out['min'] = str(d.min().date())
-    out['max'] = str(d.max().date())
+    # Summary statistics keep full day-level detail (min/max/quartiles are
+    # exact dates); only the CHART aggregates full dates to month+year. The
+    # granularity field records which kind of values the column holds.
+    out['granularity'] = 'day' if _has_day_granularity(d) else 'month or coarser'
+    _fmt_date = lambda ts: str(ts.date())
+    out['min'] = _fmt_date(d.min())
+    out['max'] = _fmt_date(d.max())
+    out['mean'] = _fmt_date(d.mean())
     out['range_days'] = int((d.max() - d.min()).days)
     try:
         q = d.quantile([0.25, 0.5, 0.75])
-        out['q1'] = str(q.loc[0.25].date())
-        out['median'] = str(q.loc[0.5].date())
-        out['q3'] = str(q.loc[0.75].date())
+        out['q1'] = _fmt_date(q.loc[0.25])
+        out['median'] = _fmt_date(q.loc[0.5])
+        out['q3'] = _fmt_date(q.loc[0.75])
+        out['iqr_days'] = int((q.loc[0.75] - q.loc[0.25]).days)
+    except Exception:
+        pass
+    try:
+        _vc = d.value_counts()
+        out['most_frequent'] = {'value': _fmt_date(_vc.idxmax()), 'count': int(_vc.max())}
     except Exception:
         pass
     out['future_dates'] = int((d > pd.Timestamp.now()).sum())
+    return out
+
+def _text_structured(series, comp):
+    # Free-text columns: no distribution chart is meaningful, but the variable
+    # should still be visible in the outputs with honest summaries instead of
+    # being force-parsed as float and reported 100% invalid.
+    out = {'completeness': comp}
+    s = series.dropna().astype(str)
+    out['n'] = int(len(s))
+    out['n_unique'] = int(s.nunique())
+    if len(s) == 0:
+        return out
+    lengths = s.str.len()
+    out['length'] = {
+        'min': int(lengths.min()),
+        'max': int(lengths.max()),
+        'mean': _to_native(float(lengths.mean())),
+    }
+    out['pct_containing_digit'] = _to_native(float(s.str.contains('[0-9]').mean()) * 100)
+    vc = s.value_counts()
+    out['top_values'] = [
+        {'value': str(k)[:80], 'count': int(c)} for k, c in vc.head(10).items()
+    ]
     return out
 
 def write_structured_v2(structured_stats):
@@ -1150,66 +1259,9 @@ def variable_eda(df, vars_details):
 
             if vars_details[column]['inferred_type'] in ['int', 'float']:
 
-                #if not pd.api.types.is_numeric_dtype(df[column]):
-                    # Skip if the column is not numeric
-                    # print("Column ", column, " skipped because non-numeric")
-                    #continue
-
-                # Descriptive Stats
-                stats = df[column].describe()
-                mode_value = df[column].mode()[0] if not df[column].mode().empty else np.nan
-                #try:
-                #    empty = df[column].isnull().sum() + df[column].str.strip().eq('').sum()
-                #except:
-                #    empty = df[column].isnull().sum()
-
-                # Check for numeric values before computing skewness and kurtosis
-                if len(df[column].dropna()) > 0:
-                    #print(f"Debug {column}: dtype={df[column].dtype}, first 5 values={df[column].head()}")
-                    #print(f"After dropna: dtype={df[column].dropna().dtype}, count={len(df[column].dropna())}")
-                    #df[column] = pd.to_numeric(df[column], errors='coerce')
-                    #column_no_na = df[column].dropna()
-                    #print(f"After numeric coerce and dropping na: dtype={column_no_na.dtype}, count={column_no_na}")
-                    #print("type of column no na: ", type(column_no_na))
-                    #print("type of column_no_na values: ", type(column_no_na.values))
-                    #df[column] = df[column].astype(float)
-                    skewness = skew([_ for _ in df[column].dropna()], bias=False)
-                    #skewness = df[column].skew()
-                    kurt = kurtosis([_ for _ in df[column].dropna()], bias=False)
-                else:
-                    skewness = np.nan
-                    kurt = np.nan
-
-                # Normality Test (Shapiro capped: unreliable/invalid for very large n)
-                if len(df[column].dropna()) > 3:  # Shapiro requires at least 3 values
-                    _shapiro_input = df[column].dropna()
-                    if len(_shapiro_input) > 5000:
-                        _shapiro_input = _shapiro_input.sample(5000, random_state=42)
-                    w_test_stat, p = shapiro(_shapiro_input)
-                    normality = "Normal" if p > 0.05 else "Non-Normal"
-                    p_value_str = f"{p:.4f}"
-                else:
-                    normality = "Insufficient Data"
-                    p_value_str = "N/A"
-
-                # Outlier Detection (IQR Method)
-                Q1 = stats['25%']
-                Q3 = stats['75%']
-                IQR = Q3 - Q1
-                lower_bound = Q1 - 1.5 * IQR
-                upper_bound = Q3 + 1.5 * IQR
-                _col_vals = df[column]
-                outliers = int(((_col_vals < lower_bound) | (_col_vals > upper_bound)).sum())
-
-                # Z-Scores for Outliers
-                z_scores = zscore([_ for _ in df[column].dropna()]) if len(df[column].dropna()) > 0 else np.array([])
-                z_outliers = (np.abs(z_scores) > 3).sum() if z_scores.size > 0 else 0
-
-                # Range Calculation
-                range_value = stats['max'] - stats['min']
-
-                # Structured v2 measures are computed first so the panel can
-                # reuse them instead of recomputing.
+                # The v2 structured measures are the single source of truth;
+                # the panel below only RENDERS them. (The two used to be
+                # computed independently and drifted.)
                 try:
                     structured[column] = _numeric_structured(df[column], comp)
                     structured[column]['type'] = 'numeric'
@@ -1217,9 +1269,19 @@ def variable_eda(df, vars_details):
                 except Exception as e:
                     data_issues.append(f"Failed to compute structured numeric stats for {column}: {str(e)}")
                 _sv = structured.get(column, {})
+                _out_iqr = _sv.get('outliers_iqr') or {}
                 _out_mad = _sv.get('outliers_mad') or {}
+                _out_z = _sv.get('outliers_z') or {}
                 _norm = _sv.get('normality') or {}
                 _zero_frac = _sv.get('zero_fraction')
+
+                # Human-readable verdict for the Shapiro test.
+                _shapiro_p = _norm.get('shapiro_p')
+                if _shapiro_p is None:
+                    _normality_line = "p-value=N/A => Insufficient Data"
+                else:
+                    _normality_line = "p-value=%.4f => %s" % (
+                        _shapiro_p, "Normal" if _shapiro_p > 0.05 else "Non-Normal")
 
                 # Stats Text. _GROUP_BREAK entries render as blank lines so the
                 # panel reads as labelled blocks rather than one long list.
@@ -1232,35 +1294,35 @@ def variable_eda(df, vars_details):
                     f"Count missing total (% of all rows): {_fmt_count(count_missing_total, comp.get('pct_missing_total', 0))}",
                     f"Count invalid (% of all rows): {_fmt_count(count_invalid, comp.get('pct_invalid', 0))}",
                     f"Missing code(s) declared: {missing_codes_txt}",
-                    f"Number of Unique Values/Categories: {df[column].nunique()}",
+                    f"Number of Unique Values/Categories: {_sv.get('n_unique', 0)}",
                     _GROUP_BREAK,
-                    f"Mean: {stats['mean']:.2f}",
-                    f"Median: {stats['50%']:.2f}",
-                    f"Mode: {mode_value:.2f}",
+                    f"Mean: {_fmt_num(_sv.get('mean'))}",
+                    f"Median: {_fmt_num(_sv.get('median'))}",
+                    f"Mode: {_fmt_num(_sv.get('mode'))}",
                     f"Trimmed mean (10%): {_fmt_stat(_sv.get('trimmed_mean_10'))}",
                     _GROUP_BREAK,
-                    f"Std Dev: {stats['std']:.2f}",
-                    f"Variance: {stats['std']**2:.2f}",
+                    f"Std Dev: {_fmt_num(_sv.get('std'))}",
+                    f"Variance: {_fmt_num(_sv.get('variance'))}",
                     f"CV: {_fmt_stat(_sv.get('cv'), 3)}",
                     f"MAD: {_fmt_stat(_sv.get('mad'))}",
-                    f"Min: {stats['min']:.2f}",
-                    f"Max: {stats['max']:.2f}",
-                    f"Range: {range_value:.2f}", 
+                    f"Min: {_fmt_num(_sv.get('min'))}",
+                    f"Max: {_fmt_num(_sv.get('max'))}",
+                    f"Range: {_fmt_num(_sv.get('range'))}",
                     _GROUP_BREAK,
-                    f"Q1: {Q1:.2f}",
-                    f"Q3: {Q3:.2f}",
-                    f"IQR: {IQR:.2f}",
+                    f"Q1: {_fmt_num(_sv.get('q1'))}",
+                    f"Q3: {_fmt_num(_sv.get('q3'))}",
+                    f"IQR: {_fmt_num(_sv.get('iqr'))}",
                     f"P5 / P95: {_fmt_stat(_sv.get('p5'))} / {_fmt_stat(_sv.get('p95'))}",
                     _GROUP_BREAK,
                     f"Zero fraction (% of valid): {_fmt_pct(None if _zero_frac is None else _zero_frac * 100)}",
-                    f"Outliers (IQR, % of valid): {_fmt_count(outliers, (outliers / count_nonnull) * 100 if count_nonnull else None)}",
+                    f"Outliers (IQR, % of valid): {_fmt_count(_out_iqr.get('count'), _out_iqr.get('pct'))}",
                     f"Outliers (MAD, % of valid): {_fmt_count(_out_mad.get('count'), _out_mad.get('pct'))}",
-                    f"Outliers (Z): {_fmt_count(z_outliers, (z_outliers / count_nonnull) * 100 if count_nonnull else None)}",
+                    f"Outliers (Z): {_fmt_count(_out_z.get('count'), _out_z.get('pct'))}",
                     _GROUP_BREAK,
-                    f"Skewness: {skewness:.2f}",
-                    f"Kurtosis: {kurt:.2f}",
-                    f"W_Test: {w_test_stat:.2f}",
-                    f"Normality Test: p-value={p_value_str} => {normality}",
+                    f"Skewness: {_fmt_num(_sv.get('skewness'))}",
+                    f"Kurtosis: {_fmt_num(_sv.get('kurtosis'))}",
+                    f"W_Test: {_fmt_stat(_norm.get('shapiro_w'))}",
+                    f"Normality Test: {_normality_line}",
                     f"Normality (D'Agostino) p-value: {_fmt_stat(_norm.get('dagostino_p'), 4)}"
                 )
 
@@ -1273,21 +1335,18 @@ def variable_eda(df, vars_details):
 
             # Categorical variables
             elif vars_details[column]['inferred_type'] == 'categorical':
-                stats = df[column].describe()
-                # Only valid observations: blanks and coded-missing values are
-                # reported separately rather than shown as categories.
-                value_counts = df[column].apply(_lowercase_if_string).value_counts(dropna=True)
-                total = int(value_counts.sum())
-
                 # Get the categories mapping and normalize keys
                 categories_mapping = vars_details[column].get("categories", None)
                 if not isinstance(categories_mapping, dict):
                     categories_mapping = {}
-                categories_mapping = {str(k): v for (k, v) in categories_mapping.items()}
-                #print("variable: ", column, "categories:", categories_mapping, value_counts )
+                # Observed values were canonicalised ("1.0" -> "1") and
+                # lowercased before counting, so dictionary keys must be
+                # normalised the same way or lookups miss (e.g. categories
+                # declared without "=" are stored with uppercase keys).
+                categories_mapping = {_canon_value_token(str(k)).lower(): v for (k, v) in categories_mapping.items()}
 
-                # Structured v2 measures are computed first so the panel can
-                # reuse them instead of recomputing.
+                # The v2 structured measures are the single source of truth;
+                # the panel below only RENDERS them.
                 try:
                     structured[column] = _categorical_structured(df[column], comp, categories_mapping)
                     structured[column]['type'] = 'categorical'
@@ -1295,8 +1354,9 @@ def variable_eda(df, vars_details):
                 except Exception as e:
                     data_issues.append(f"Failed to compute structured categorical stats for {column}: {str(e)}")
                 _sv = structured.get(column, {})
+                _dist = _sv.get('distribution') or []
 
-                if value_counts.empty:
+                if not _dist:
                     stats_text = tuple(_identity_lines(column, vars_details[column])) + (
                         f"Type: Categorical (encoded as {df[column].dtype})",
                         _GROUP_BREAK,
@@ -1304,10 +1364,6 @@ def variable_eda(df, vars_details):
                         f"Missing Values (% of all rows): {_fmt_count(df[column].isnull().sum(), df[column].isnull().mean() * 100)}"
                     )
                 else:
-                    # Chi-square test
-                    expected = total / len(value_counts)
-                    chi_square_stat = ((value_counts - expected) ** 2 / expected).sum()
-
                     # Class balance, one panel entry per category: a single
                     # entry with embedded newlines is reflowed into one blob by
                     # _format_stats_lines. Percentages are given against the
@@ -1316,19 +1372,16 @@ def variable_eda(df, vars_details):
                     # Only the first N categories are listed; the full
                     # distribution always goes to the structured JSON output.
                     _MAX_CLASS_BALANCE_LINES = 30
-                    _cb_items = list(value_counts.items())
-                    _cb_hidden = max(0, len(_cb_items) - _MAX_CLASS_BALANCE_LINES)
+                    _cb_hidden = max(0, len(_dist) - _MAX_CLASS_BALANCE_LINES)
                     class_balance_lines = []
                     _cb_flat = []
-                    for key, count in _cb_items[:_MAX_CLASS_BALANCE_LINES]:
-                        _mapped = categories_mapping.get(str(key))
-                        if _mapped and str(key) != str(_mapped):
-                            _cat_label = f"{key} ({_mapped})"
+                    for _entry in _dist[:_MAX_CLASS_BALANCE_LINES]:
+                        _key, _mapped = _entry['value'], _entry['label']
+                        if _mapped and str(_key) != str(_mapped):
+                            _cat_label = f"{_key} ({_mapped})"
                         else:
-                            _cat_label = f"{key}"
-                        _pct_valid = (count / total * 100) if total else None
-                        _pct_all = (count / n_rows_total * 100) if n_rows_total else None
-                        _cb_entry = f"{_cat_label} -> {int(count)} ({_fmt_pct_dual(_pct_valid, _pct_all)})"
+                            _cat_label = f"{_key}"
+                        _cb_entry = f"{_cat_label} -> {_entry['count']} ({_fmt_pct_dual(_entry['pct'], _entry['pct_of_total'])})"
                         class_balance_lines.append(f"- {_cb_entry}")
                         _cb_flat.append(_cb_entry)
                     if _cb_hidden:
@@ -1339,11 +1392,23 @@ def variable_eda(df, vars_details):
                     # keeps only the text between the first and second colon.
                     class_balance_flat = "; ".join(_cb_flat)
 
+                    _mf = _sv.get('most_frequent') or {}
+                    # Chi-square goodness of fit vs uniform; the statistic alone
+                    # scales with n, so df and p-value are shown with it.
+                    _chi = _sv.get('chi_square_uniform') or {}
+                    if _chi:
+                        _chi_line = "stat=%s, df=%s, p=%s%s" % (
+                            _fmt_num(_chi.get('statistic')), _chi.get('dof', 'N/A'),
+                            _fmt_stat(_chi.get('p_value'), 4),
+                            "" if _chi.get('valid', True) else " (low expected counts; approximate)")
+                    else:
+                        _chi_line = "N/A (single category)"
+
                     stats_text = tuple(_identity_lines(column, vars_details[column])) + (
                         f"Type: Categorical (encoded as {df[column].dtype})",
                         _GROUP_BREAK,
-                        f"Number of unique values/categories: {len(value_counts)}",
-                        f"Most frequent category: {categories_mapping.get(str(value_counts.idxmax()), 'Unknown')} ",
+                        f"Number of unique values/categories: {_sv.get('n_unique', len(_dist))}",
+                        f"Most frequent category: {_mf.get('label', _mf.get('value', 'N/A'))} ",
                         _GROUP_BREAK,
                         f"Count of valid observations: {count_nonnull} of {n_rows_total} rows",
                         f"Count empty (blank cells, % of all rows): {_fmt_count(count_na, comp.get('pct_empty', 0))}",
@@ -1356,7 +1421,7 @@ def variable_eda(df, vars_details):
                         f"Normalized entropy: {_fmt_stat(_sv.get('normalized_entropy'), 3)}",
                         f"Gini impurity: {_fmt_stat(_sv.get('gini_impurity'), 3)}",
                         f"Imbalance ratio: {_fmt_stat(_sv.get('imbalance_ratio'))}",
-                        f"Chi-Square Test Statistic: {chi_square_stat:.2f}",
+                        f"Chi-square vs uniform: {_chi_line}",
                         _GROUP_BREAK,
                         "Class balance (n, % of valid / % of all rows)",
                     ) + tuple(class_balance_lines)
@@ -1365,9 +1430,9 @@ def variable_eda(df, vars_details):
                 # rotated tick label and one annotation per category, and is
                 # unreadable regardless of how long it takes to render.
                 _MAX_CHARTED_CATEGORIES = 60
-                if column in vars_to_graph and len(value_counts) > _MAX_CHARTED_CATEGORIES:
+                if column in vars_to_graph and len(_dist) > _MAX_CHARTED_CATEGORIES:
                     data_issues.append(
-                        f"Column {column}: {len(value_counts)} distinct categories exceeds the "
+                        f"Column {column}: {len(_dist)} distinct categories exceeds the "
                         f"charting limit of {_MAX_CHARTED_CATEGORIES}; chart skipped."
                     )
                 elif column in vars_to_graph:
@@ -1379,14 +1444,13 @@ def variable_eda(df, vars_details):
                         
             
             elif vars_details[column]['inferred_type'] == 'date':
-                try:
-                    stats = pd.to_datetime(df[column], errors='coerce').describe()
-                except:
-                    continue
-                value_counts = df[column].value_counts(dropna=True)
-                total = int(value_counts.sum())
-                # Structured v2 measures are computed first so the panel can
-                # reuse them instead of recomputing.
+                # The v2 structured measures are the single source of truth;
+                # the panel below only RENDERS them. Series.describe() is
+                # deliberately avoided: the keys it returns for datetime input
+                # differ across pandas versions (1.x returns count/unique/
+                # top/freq unless told otherwise; 2.x returns mean/min/
+                # quantiles/max), so relying on its layout ties the script to
+                # the enclave's pandas.
                 try:
                     structured[column] = _date_structured(df[column], comp)
                     structured[column]['type'] = 'date'
@@ -1395,48 +1459,93 @@ def variable_eda(df, vars_details):
                     data_issues.append(f"Failed to compute structured date stats for {column}: {str(e)}")
                 _sv = structured.get(column, {})
                 # Full calendar dates are charted at month+year resolution, so
-                # the panel says so rather than leaving the chart to explain it.
-                if _has_day_granularity(pd.to_datetime(df[column], errors='coerce')):
+                # the panel says so; the summary statistics below keep full
+                # day-level detail.
+                if str(_sv.get('granularity', '')).startswith('day'):
                     _granularity_lines = [
                         f"Value granularity: full date (year, month, day)",
                         f"Chart note: {_MONTH_AGG_NOTE}",
                     ]
                 else:
                     _granularity_lines = []
-                stats_text = _identity_lines(column, vars_details[column]) + [
-                        f"Type: Date (encoded as {df[column].dtype})",
-                ] + _granularity_lines + [
-                        _GROUP_BREAK,
-                        f"Number of unique values: {len(value_counts)}",
-                        f"Most frequent value: {str(value_counts.idxmax()).split('.')[0]}",
-                        _GROUP_BREAK,
+                _count_lines = [
                         f"Count of valid observations: {count_nonnull} of {n_rows_total} rows",
                         f"Count empty (blank cells, % of all rows): {_fmt_count(count_na, comp.get('pct_empty', 0))}",
                         f"Count coded missing (% of all rows): {_fmt_count(count_missing, comp.get('pct_coded_missing', 0))}",
                         f"Count missing total (% of all rows): {_fmt_count(count_missing_total, comp.get('pct_missing_total', 0))}",
                         f"Count invalid (% of all rows): {_fmt_count(count_invalid, comp.get('pct_invalid', 0))}",
                         f"Missing code(s) declared: {missing_codes_txt}",
-                        _GROUP_BREAK,
-                        f"Mean: {stats['mean'].date()}",
-                        f"Median: {stats['50%'].date()}",
-                        f"Min: {stats['min'].date()}",
-                        f"Max: {stats['max'].date()}",
-                        f"Range: {stats['max'] - stats['min']}", 
-                        f"Range (days): {_sv.get('range_days', 'N/A')}",
-                        _GROUP_BREAK,
-                        f"Q1: {stats['25%'].date()}",
-                        f"Q3: {stats['75%'].date()}",
-                        f"IQR: {stats['75%'] - stats['25%']}",
-                        _GROUP_BREAK,
-                        f"Dates in the future: {_sv.get('future_dates', 'N/A')}",
                 ]
-                #stats_text.extend([f"{k.capitalize()}: {v}" for k,v in stats.items()])
+                if not _sv.get('n'):
+                    stats_text = _identity_lines(column, vars_details[column]) + [
+                            f"Type: Date (encoded as {df[column].dtype})",
+                            _GROUP_BREAK,
+                    ] + _count_lines + [
+                            _GROUP_BREAK,
+                            "No valid date values to summarise.",
+                    ]
+                else:
+                    _mf = _sv.get('most_frequent') or {}
+                    stats_text = _identity_lines(column, vars_details[column]) + [
+                            f"Type: Date (encoded as {df[column].dtype})",
+                    ] + _granularity_lines + [
+                            _GROUP_BREAK,
+                            f"Number of unique values: {_sv.get('n_unique', 'N/A')}",
+                            f"Most frequent value: {_mf.get('value', 'N/A')}",
+                            _GROUP_BREAK,
+                    ] + _count_lines + [
+                            _GROUP_BREAK,
+                            f"Mean: {_sv.get('mean', 'N/A')}",
+                            f"Median: {_sv.get('median', 'N/A')}",
+                            f"Min: {_sv.get('min', 'N/A')}",
+                            f"Max: {_sv.get('max', 'N/A')}",
+                            f"Range (days): {_sv.get('range_days', 'N/A')}",
+                            _GROUP_BREAK,
+                            f"Q1: {_sv.get('q1', 'N/A')}",
+                            f"Q3: {_sv.get('q3', 'N/A')}",
+                            f"IQR (days): {_sv.get('iqr_days', 'N/A')}",
+                            _GROUP_BREAK,
+                            f"Dates in the future: {_sv.get('future_dates', 'N/A')}",
+                    ]
 
                 if column in vars_to_graph:
                     try:
                         graph_tick_data[column] = create_save_graph(df, column, stats_text, 'datetime')
                     except Exception as e:
                         data_issues.append(f"Failed to create a graph for column {column}. Exception msg: {str(e)}")
+
+            elif vars_details[column]['inferred_type'] == 'text':
+                # Free text: no chart (a bar per unique string is meaningless),
+                # but the variable stays visible with honest text summaries.
+                try:
+                    structured[column] = _text_structured(df[column], comp)
+                    structured[column]['type'] = 'text'
+                    structured[column]['label'] = vars_details[column]['var_label']
+                except Exception as e:
+                    data_issues.append(f"Failed to compute structured text stats for {column}: {str(e)}")
+                _sv = structured.get(column, {})
+                _len = _sv.get('length') or {}
+                _top_lines = []
+                for _entry in (_sv.get('top_values') or [])[:5]:
+                    # No colon in these values; the flat-JSON builder keeps
+                    # only the text between the first and second colon.
+                    _top_lines.append(f"- {_entry['value']} -> {_entry['count']}")
+                stats_text = tuple(_identity_lines(column, vars_details[column])) + (
+                    f"Type: Text (free text; no chart rendered)",
+                    _GROUP_BREAK,
+                    f"Count of valid observations: {count_nonnull} of {n_rows_total} rows",
+                    f"Count empty (blank cells, % of all rows): {_fmt_count(count_na, comp.get('pct_empty', 0))}",
+                    f"Count coded missing (% of all rows): {_fmt_count(count_missing, comp.get('pct_coded_missing', 0))}",
+                    f"Count missing total (% of all rows): {_fmt_count(count_missing_total, comp.get('pct_missing_total', 0))}",
+                    f"Missing code(s) declared: {missing_codes_txt}",
+                    _GROUP_BREAK,
+                    f"Number of unique values: {_sv.get('n_unique', 0)}",
+                    f"Value length (min / mean / max): {_len.get('min', 'N/A')} / {_fmt_num(_len.get('mean'), 1)} / {_len.get('max', 'N/A')}",
+                    f"Values containing a digit (% of valid): {_fmt_pct(_sv.get('pct_containing_digit'))}",
+                    _GROUP_BREAK,
+                    "Most frequent values (n)",
+                ) + tuple(_top_lines)
+
             else:
                 print("ELSE case: variable name ", column, "inferred type: ", vars_details[column]['inferred_type'])
                 stats_text = []
