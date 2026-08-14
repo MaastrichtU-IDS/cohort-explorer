@@ -21,6 +21,7 @@ import {
   VariableDetail
 } from '@/components/ai/contextBuilder';
 import {Composer, DisabledNotice, ExperimentBadge, LoginNotice, MessageList} from '@/components/ai/ui';
+import {withAiAccess} from '@/components/ai/guards';
 import {Cohort} from '@/types';
 
 function SectionTitle({step, children}: {step: number; children: React.ReactNode}) {
@@ -34,7 +35,7 @@ function SectionTitle({step, children}: {step: number; children: React.ReactNode
   );
 }
 
-export default function GlassBox() {
+function GlassBox() {
   const {cohortsData, userEmail} = useCohorts();
   const chat = useCohortChat();
 
@@ -94,8 +95,8 @@ export default function GlassBox() {
     <main className="h-[calc(100vh-8rem)] bg-base-200 flex flex-col">
       {/* Top bar */}
       <div className="border-b border-base-300 bg-base-100 px-6 py-3 flex items-center gap-3">
-        <Link href="/ai" className="btn btn-ghost btn-sm gap-1">
-          <ArrowLeft size={16} /> Hub
+        <Link href="/ai/alternatives" className="btn btn-ghost btn-sm gap-1">
+          <ArrowLeft size={16} /> Alternatives
         </Link>
         <h1 className="font-bold text-lg">Glass Box</h1>
         <ExperimentBadge />
@@ -326,3 +327,5 @@ export default function GlassBox() {
     </main>
   );
 }
+
+export default withAiAccess(GlassBox, {requireAdmin: true});

@@ -11,12 +11,19 @@ Environment (.env):
     LITELLM_API_KEY   api_key for the proxy
     LITELLM_MODEL     default model name (optional, defaults to gpt-3.5-turbo)
 """
+import json
 import logging
+import os
+import random
+import re
+import threading
+from datetime import datetime
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
+from src.admin import _require_admin
 from src.auth import get_current_user
 from src.config import settings
 
@@ -244,6 +251,360 @@ def chat(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[st
     except Exception as exc:
         logger.warning("Chat completion failed: %s", exc)
         raise HTTPException(status_code=502, detail=f"Upstream model error: {exc}")
+
+
+# ---- Conversation starters ---------------------------------------------------
+#
+# "Conversation starters" are model-generated questions shown on the chat
+# landing page and — grouped under thematic keywords — in Guided Exploration.
+# Generation is admin-driven from the manager page (/ai/starters): admins can
+# generate new starters (optionally steered by a direction/theme prompt),
+# regroup them under keywords, and prune the pool. Generated starters are
+# APPENDED to a JSON file so the pool grows over time; the keyword grouping is
+# rewritten on each pass so it always reflects the full pool.
+
+CONVERSATION_STARTERS_FILE = os.path.join(settings.data_folder, "ai_conversation_starters.json")
+STARTER_KEYWORDS_FILE = os.path.join(settings.data_folder, "ai_starter_keywords.json")
+
+# Serializes pool-file writes (generate / delete may run concurrently).
+_pool_lock = threading.Lock()
+
+# Static fallback so the UI always has something to show before an admin has
+# generated any starters (or when chat is not configured).
+FALLBACK_STARTERS = [
+    {"text": "Give me an overview of what this cohort catalog contains.", "kind": "basic"},
+    {"text": "Which cohorts have the most variables available?", "kind": "basic"},
+    {"text": "Which cohorts focus on diabetes or cardiovascular disease?", "kind": "basic"},
+    {"text": "Which cohorts could be combined to study blood pressure over time?", "kind": "interesting"},
+    {"text": "What variables related to heart failure are measured across multiple cohorts?", "kind": "interesting"},
+    {"text": "Suggest a research question that two or more cohorts could answer together.", "kind": "interesting"},
+]
+
+STARTER_GENERATION_INSTRUCTIONS = (
+    "You generate conversation starters for iCARE-AI, an assistant that helps researchers "
+    "explore a catalog of cardiovascular research cohorts. Based ONLY on the catalog "
+    "context provided, produce questions a user could ask the assistant.\n\n"
+    "Return STRICT JSON, no markdown fences and no commentary, exactly of the form:\n"
+    '{"interesting": ["...", "..."], "basic": ["...", "..."]}\n\n'
+    "- \"interesting\": 8 specific, research-oriented questions. Reference actual cohorts, "
+    "domains or variables from the context where possible; favour cross-cohort angles.\n"
+    "- \"basic\": 6 simple orientation questions a first-time user might ask.\n"
+    "- Each question must be a single sentence under 140 characters, ending with a question mark."
+)
+
+
+def _load_starter_pool() -> list[dict]:
+    try:
+        with open(CONVERSATION_STARTERS_FILE) as fh:
+            data = json.load(fh)
+        starters = data.get("starters", [])
+        return [s for s in starters if isinstance(s, dict) and _clean(s.get("text"))]
+    except Exception:
+        return []
+
+
+def _write_starter_pool(pool: list[dict]) -> None:
+    os.makedirs(os.path.dirname(CONVERSATION_STARTERS_FILE), exist_ok=True)
+    with open(CONVERSATION_STARTERS_FILE, "w") as fh:
+        json.dump({"starters": pool}, fh, indent=2)
+
+
+def _append_to_starter_pool(new_starters: list[dict], direction: Optional[str] = None) -> int:
+    """Append starters to the pool file, deduplicating on text. Returns count added."""
+    with _pool_lock:
+        pool = _load_starter_pool()
+        seen = {s["text"].strip().lower() for s in pool}
+        added = 0
+        now = datetime.now().isoformat(timespec="seconds")
+        for s in new_starters:
+            text = _clean(s.get("text"))
+            if not text or text.lower() in seen:
+                continue
+            seen.add(text.lower())
+            entry = {
+                "text": text,
+                "kind": s.get("kind", "interesting"),
+                "generated_at": now,
+                "model": settings.litellm_model,
+            }
+            if direction:
+                entry["direction"] = direction
+            pool.append(entry)
+            added += 1
+        if added:
+            _write_starter_pool(pool)
+    return added
+
+
+def _parse_generated_starters(content: str) -> list[dict]:
+    """Parse the model's JSON (tolerating code fences); fall back to line parsing."""
+    text = content.strip()
+    text = re.sub(r"^```[a-zA-Z]*\n?|```$", "", text, flags=re.MULTILINE).strip()
+    match = re.search(r"\{.*\}", text, flags=re.DOTALL)
+    if match:
+        try:
+            data = json.loads(match.group(0))
+            starters = []
+            for kind in ("interesting", "basic"):
+                for item in data.get(kind, []):
+                    if isinstance(item, str) and item.strip():
+                        starters.append({"text": item.strip()[:200], "kind": kind})
+            if starters:
+                return starters
+        except json.JSONDecodeError:
+            pass
+    # Fallback: any line that looks like a question.
+    starters = []
+    for line in text.splitlines():
+        line = re.sub(r"^\s*(?:[-*•]|\d+[.)])\s*", "", line).strip().strip('"')
+        if line.endswith("?") and 10 < len(line) <= 200:
+            starters.append({"text": line, "kind": "interesting"})
+    return starters
+
+
+def generate_conversation_starters(direction: Optional[str] = None) -> dict[str, Any]:
+    """Ask the model for conversation starters and append them to the pool.
+
+    Admin-driven (see the /api/chat/starters/generate endpoint). An optional
+    `direction` steers the generation towards a specific theme. Returns a
+    summary dict; after a successful append the keyword grouping is refreshed.
+    """
+    if not settings.chat_enabled:
+        return {"parsed": 0, "added": 0, "error": "AI chat is not configured."}
+    direction = _clean(direction) or None
+    try:
+        import openai
+
+        client = openai.OpenAI(
+            api_key=settings.litellm_api_key or "sk-no-key",
+            base_url=settings.litellm_base_url,
+        )
+        instructions = STARTER_GENERATION_INSTRUCTIONS
+        if direction:
+            instructions += (
+                f"\n\nIMPORTANT: generate the questions in this specific direction/theme: \"{direction}\". "
+                "Every question, including the basic ones, must relate to it."
+            )
+        context = build_context([], None)
+        response = client.chat.completions.create(
+            model=settings.litellm_model,
+            messages=[
+                {"role": "system", "content": instructions},
+                {"role": "user", "content": f"Cohort catalog context:\n\n{context}\n\nGenerate the questions now."},
+            ],
+            temperature=0.9,
+        )
+        content = response.choices[0].message.content or ""
+        starters = _parse_generated_starters(content)
+        added = _append_to_starter_pool(starters, direction=direction)
+        logger.info(
+            "Conversation-starter generation%s: parsed %d, appended %d new to %s",
+            f" (direction: {direction})" if direction else "", len(starters), added,
+            CONVERSATION_STARTERS_FILE,
+        )
+    except Exception as exc:
+        logger.warning("Conversation-starter generation failed: %s", exc)
+        return {"parsed": 0, "added": 0, "error": str(exc)}
+    # Refresh the keyword grouping so it reflects the grown pool.
+    group_starters_by_keyword()
+    return {"parsed": len(starters), "added": added, "direction": direction}
+
+
+# ---- Keyword grouping of the starter pool ------------------------------------
+#
+# A second pass over the pool: the model groups the conversation starters under
+# short thematic keywords. The Guided Exploration flow shows these keywords as
+# the next selection after "Formulate Research Questions".
+
+KEYWORD_GROUPING_INSTRUCTIONS = (
+    "You organize conversation starters for iCARE-AI, an assistant for exploring "
+    "a catalog of cardiovascular research cohorts. Group the questions below under 6 to 12 "
+    "short thematic keywords (1-3 words each, lowercase, e.g. \"heart failure\", "
+    "\"medication use\", \"aging\"). A question may appear under multiple keywords; prefer "
+    "keywords that group at least 2 questions.\n\n"
+    "Return STRICT JSON only, no markdown fences and no commentary, exactly of the form:\n"
+    '{"keywords": [{"keyword": "...", "questions": ["...", "..."]}]}'
+)
+
+
+def _load_starter_keywords_file() -> dict:
+    try:
+        with open(STARTER_KEYWORDS_FILE) as fh:
+            return json.load(fh)
+    except Exception:
+        return {}
+
+
+def _load_starter_keywords() -> list[dict]:
+    keywords = _load_starter_keywords_file().get("keywords", [])
+    return [
+        k for k in keywords
+        if isinstance(k, dict) and _clean(k.get("keyword")) and isinstance(k.get("questions"), list)
+    ]
+
+
+def _parse_keyword_groups(content: str) -> list[dict]:
+    text = content.strip()
+    text = re.sub(r"^```[a-zA-Z]*\n?|```$", "", text, flags=re.MULTILINE).strip()
+    match = re.search(r"\{.*\}", text, flags=re.DOTALL)
+    if not match:
+        return []
+    try:
+        data = json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return []
+    groups = []
+    for entry in data.get("keywords", []):
+        if not isinstance(entry, dict):
+            continue
+        keyword = _clean(entry.get("keyword"))
+        questions = [q.strip()[:200] for q in entry.get("questions", []) if isinstance(q, str) and q.strip()]
+        if keyword and questions:
+            groups.append({"keyword": keyword.lower()[:40], "questions": questions})
+    return groups[:15]
+
+
+def group_starters_by_keyword() -> dict[str, Any]:
+    """Group the current starter pool under keywords and rewrite the keywords file."""
+    if not settings.chat_enabled:
+        return {"groups": 0, "error": "AI chat is not configured."}
+    pool = _load_starter_pool()
+    if len(pool) < 4:
+        logger.info("Keyword grouping skipped: starter pool too small (%d)", len(pool))
+        return {"groups": 0, "error": f"Starter pool too small ({len(pool)} starters)."}
+    try:
+        import openai
+
+        client = openai.OpenAI(
+            api_key=settings.litellm_api_key or "sk-no-key",
+            base_url=settings.litellm_base_url,
+        )
+        question_list = "\n".join(f"- {s['text']}" for s in pool[:150])
+        response = client.chat.completions.create(
+            model=settings.litellm_model,
+            messages=[
+                {"role": "system", "content": KEYWORD_GROUPING_INSTRUCTIONS},
+                {"role": "user", "content": f"Questions to group:\n\n{question_list}\n\nGroup them now."},
+            ],
+            temperature=0.3,
+        )
+        content = response.choices[0].message.content or ""
+        groups = _parse_keyword_groups(content)
+        if not groups:
+            logger.warning("Keyword grouping produced no parsable groups")
+            return {"groups": 0, "error": "The model returned no parsable keyword groups."}
+        with _pool_lock:
+            os.makedirs(os.path.dirname(STARTER_KEYWORDS_FILE), exist_ok=True)
+            with open(STARTER_KEYWORDS_FILE, "w") as fh:
+                json.dump(
+                    {
+                        "keywords": groups,
+                        "generated_at": datetime.now().isoformat(timespec="seconds"),
+                        "model": settings.litellm_model,
+                        "pool_size": len(pool),
+                    },
+                    fh,
+                    indent=2,
+                )
+        logger.info("Keyword grouping: wrote %d keyword group(s) to %s", len(groups), STARTER_KEYWORDS_FILE)
+        return {"groups": len(groups)}
+    except Exception as exc:
+        logger.warning("Keyword grouping failed: %s", exc)
+        return {"groups": 0, "error": str(exc)}
+
+
+# ---- Public endpoints (any logged-in user) -----------------------------------
+
+@router.get("/api/chat/conversation-starters")
+def conversation_starters(n: int = 6, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """A random selection from the starter pool (mixing basic + interesting)."""
+    n = max(1, min(n, 12))
+    pool = _load_starter_pool() or list(FALLBACK_STARTERS)
+
+    basic = [s for s in pool if s.get("kind") == "basic"]
+    interesting = [s for s in pool if s.get("kind") != "basic"]
+    random.shuffle(basic)
+    random.shuffle(interesting)
+    n_basic = min(len(basic), max(1, n // 3)) if basic else 0
+    picked = basic[:n_basic] + interesting[: n - n_basic]
+    if len(picked) < n:
+        remaining = basic[n_basic:] + interesting[n - n_basic:]
+        picked += remaining[: n - len(picked)]
+    random.shuffle(picked)
+    return {
+        "starters": [{"text": s["text"], "kind": s.get("kind", "interesting")} for s in picked],
+        "pool_size": len(pool),
+    }
+
+
+@router.get("/api/chat/starter-keywords")
+def starter_keywords(user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """The keyword groups derived from the conversation-starter pool."""
+    groups = _load_starter_keywords()
+    return {
+        "keywords": [
+            {"keyword": g["keyword"], "count": len(g["questions"]), "questions": g["questions"][:6]}
+            for g in groups
+        ]
+    }
+
+
+# ---- Admin management endpoints (the /ai/starters manager page) --------------
+
+@router.get("/api/chat/starters/manage")
+def manage_starters(user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Full pool + keyword grouping, for the admin manager page."""
+    _require_admin(user)
+    keywords_data = _load_starter_keywords_file()
+    return {
+        "chat_enabled": settings.chat_enabled,
+        "model": settings.litellm_model,
+        "starters": _load_starter_pool(),
+        "keywords": _load_starter_keywords(),
+        "keywords_meta": {
+            "generated_at": keywords_data.get("generated_at"),
+            "model": keywords_data.get("model"),
+            "pool_size": keywords_data.get("pool_size"),
+        },
+    }
+
+
+@router.post("/api/chat/starters/generate")
+def admin_generate_starters(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Generate new starters, optionally steered by a direction/theme prompt.
+
+    Runs synchronously (this is an admin page; the call can take a minute on a
+    local model) and refreshes the keyword grouping afterwards.
+    """
+    _require_admin(user)
+    direction = body.get("direction") if isinstance(body, dict) else None
+    result = generate_conversation_starters(direction if isinstance(direction, str) else None)
+    result["pool_size"] = len(_load_starter_pool())
+    return result
+
+
+@router.post("/api/chat/starters/regroup")
+def admin_regroup_starters(user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Re-run the keyword grouping over the current pool."""
+    _require_admin(user)
+    return group_starters_by_keyword()
+
+
+@router.post("/api/chat/starters/delete")
+def admin_delete_starters(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Delete starters from the pool by exact text match."""
+    _require_admin(user)
+    texts = body.get("texts") if isinstance(body, dict) else None
+    if not isinstance(texts, list) or not texts:
+        raise HTTPException(status_code=400, detail="'texts' must be a non-empty list.")
+    targets = {str(t).strip().lower() for t in texts}
+    with _pool_lock:
+        pool = _load_starter_pool()
+        kept = [s for s in pool if s["text"].strip().lower() not in targets]
+        deleted = len(pool) - len(kept)
+        if deleted:
+            _write_starter_pool(kept)
+    return {"deleted": deleted, "remaining": len(kept)}
 
 
 @router.post("/api/chat/stream")

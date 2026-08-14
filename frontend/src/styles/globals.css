@@ -101,3 +101,31 @@ a.link {
     transform: translateY(0);
   }
 }
+
+/* Shimmer nudge for the iCARE-AI Guided Exploration "Ask" button: a soft light
+   sweep signalling that the assembled question is well-specified and ready. */
+@keyframes icare-shimmer {
+  0% {
+    transform: translateX(-100%) skewX(-15deg);
+  }
+  100% {
+    transform: translateX(250%) skewX(-15deg);
+  }
+}
+
+.shimmer-nudge {
+  position: relative;
+  overflow: hidden;
+}
+
+.shimmer-nudge::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 45%;
+  background: linear-gradient(105deg, transparent 20%, rgba(255, 255, 255, 0.35) 50%, transparent 80%);
+  animation: icare-shimmer 2.2s ease-in-out infinite;
+  pointer-events: none;
+}

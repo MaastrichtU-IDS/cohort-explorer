@@ -80,6 +80,91 @@ export async function streamChat(opts: SendOptions): Promise<void> {
   }
 }
 
+// ---- Conversation starters (model-generated pool, served by the backend) ----
+// Admin-managed via /ai/starters; the chat landing page shows a random sample.
+
+export interface ConversationStarter {
+  text: string;
+  kind: 'interesting' | 'basic';
+}
+
+export async function fetchConversationStarters(n = 6): Promise<ConversationStarter[]> {
+  try {
+    const res = await fetch(`${apiUrl}/api/chat/conversation-starters?n=${n}`, {credentials: 'include'});
+    if (!res.ok) return [];
+    const j = await res.json();
+    return Array.isArray(j.starters) ? j.starters : [];
+  } catch {
+    return [];
+  }
+}
+
+// Thematic keyword groups derived from the starter pool. Shown as the next
+// selection after "Formulate Research Questions" in Guided Exploration.
+export interface StarterKeyword {
+  keyword: string;
+  count: number;
+  questions: string[];
+}
+
+export async function fetchStarterKeywords(): Promise<StarterKeyword[]> {
+  try {
+    const res = await fetch(`${apiUrl}/api/chat/starter-keywords`, {credentials: 'include'});
+    if (!res.ok) return [];
+    const j = await res.json();
+    return Array.isArray(j.keywords) ? j.keywords : [];
+  } catch {
+    return [];
+  }
+}
+
+// ---- Admin management of the starter pool (used by /ai/starters) ------------
+
+export interface StarterPoolEntry extends ConversationStarter {
+  generated_at?: string;
+  model?: string;
+  direction?: string;
+}
+
+export interface StarterManageData {
+  chat_enabled: boolean;
+  model: string;
+  starters: StarterPoolEntry[];
+  keywords: StarterKeyword[];
+  keywords_meta: {generated_at?: string; model?: string; pool_size?: number};
+}
+
+async function adminPost(path: string, body?: object): Promise<any> {
+  const res = await fetch(`${apiUrl}${path}`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body || {})
+  });
+  if (!res.ok) {
+    const j = await res.json().catch(() => ({}));
+    throw new Error(j.detail || `Request failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function adminFetchStarterPool(): Promise<StarterManageData> {
+  const res = await fetch(`${apiUrl}/api/chat/starters/manage`, {credentials: 'include'});
+  if (!res.ok) {
+    const j = await res.json().catch(() => ({}));
+    throw new Error(j.detail || `Request failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export const adminGenerateStarters = (direction: string) =>
+  adminPost('/api/chat/starters/generate', {direction: direction.trim() || null});
+
+export const adminRegroupStarters = () => adminPost('/api/chat/starters/regroup');
+
+export const adminDeleteStarters = (texts: string[]) =>
+  adminPost('/api/chat/starters/delete', {texts});
+
 // ---- Context helpers driven by the client-side cohort cache ----------------
 
 export interface CohortBrief {

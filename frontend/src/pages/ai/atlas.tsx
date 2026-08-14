@@ -11,6 +11,7 @@ import {ArrowLeft, Map, Plus, Search, X} from 'react-feather';
 import {useCohorts} from '@/components/CohortsContext';
 import {useCohortChat} from '@/components/ai/useCohortChat';
 import {Composer, DisabledNotice, ExperimentBadge, LoginNotice, MessageList} from '@/components/ai/ui';
+import {withAiAccess} from '@/components/ai/guards';
 import {Cohort, Variable} from '@/types';
 
 const MAX_PICKED = 4;
@@ -480,7 +481,7 @@ function makeDemoCohorts(): {[id: string]: Cohort} {
 
 // ---- Main layout -----------------------------------------------------------
 
-export default function CohortAtlas() {
+function CohortAtlas() {
   const {cohortsData, userEmail} = useCohorts();
   const chat = useCohortChat();
   const router = useRouter();
@@ -540,8 +541,8 @@ export default function CohortAtlas() {
     <main className="h-[calc(100vh-8rem)] bg-base-200 flex flex-col">
       {/* Top bar */}
       <div className="border-b border-base-300 bg-base-100 px-6 py-3 flex items-center gap-3">
-        <Link href="/ai" className="btn btn-ghost btn-sm gap-1">
-          <ArrowLeft size={16} /> Hub
+        <Link href="/ai/alternatives" className="btn btn-ghost btn-sm gap-1">
+          <ArrowLeft size={16} /> Alternatives
         </Link>
         <h1 className="font-bold text-lg">Cohort Atlas</h1>
         <ExperimentBadge />
@@ -686,3 +687,5 @@ export default function CohortAtlas() {
     </main>
   );
 }
+
+export default withAiAccess(CohortAtlas, {requireAdmin: true});

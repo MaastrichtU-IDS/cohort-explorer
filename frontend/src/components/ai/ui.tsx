@@ -183,3 +183,12 @@ export function ExperimentBadge() {
     <span className="badge badge-sm bg-purple-100 text-purple-800 border border-purple-200">experimental</span>
   );
 }
+
+// Privacy note shown wherever the model is referenced.
+export function LocalModelNote({className}: {className?: string}) {
+  return (
+    <span className={className || 'text-[11px] text-base-content/40'}>
+      Local LLM running exclusively on Maastricht University servers
+    </span>
+  );
+}

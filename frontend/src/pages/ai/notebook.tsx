@@ -16,6 +16,7 @@ import {
   toBriefs
 } from '@/components/ai/chatClient';
 import {Composer, DisabledNotice, ExperimentBadge, LoginNotice, RichText, TypingDots} from '@/components/ai/ui';
+import {withAiAccess} from '@/components/ai/guards';
 
 interface Cell {
   id: number;
@@ -28,7 +29,7 @@ interface Cell {
 
 let nextCellId = 1;
 
-export default function FieldNotebook() {
+function FieldNotebook() {
   const {cohortsData, userEmail} = useCohorts();
   const [title, setTitle] = useState('Untitled brief');
   const [cells, setCells] = useState<Cell[]>([]);
@@ -153,8 +154,8 @@ export default function FieldNotebook() {
     <main className="h-[calc(100vh-8rem)] bg-base-200 flex flex-col">
       {/* Top bar */}
       <div className="border-b border-base-300 bg-base-100 px-6 py-3 flex items-center gap-3">
-        <Link href="/ai" className="btn btn-ghost btn-sm gap-1">
-          <ArrowLeft size={16} /> Hub
+        <Link href="/ai/alternatives" className="btn btn-ghost btn-sm gap-1">
+          <ArrowLeft size={16} /> Alternatives
         </Link>
         <h1 className="font-bold text-lg">Field Notebook</h1>
         <ExperimentBadge />
@@ -344,3 +345,5 @@ export default function FieldNotebook() {
     </main>
   );
 }
+
+export default withAiAccess(FieldNotebook, {requireAdmin: true});
