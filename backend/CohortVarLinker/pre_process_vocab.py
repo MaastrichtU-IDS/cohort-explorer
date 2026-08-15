@@ -2,7 +2,7 @@
 import pandas as pd
 # import numpy as np
 import os
-from llm.utils import load_dictionary
+from CohortVarLinker.src.utils import load_dictionary
 import csv
 
 CASE_SENSITIVE_COLS = {'concept_code', 'concept_code_1', 'concept_code_2'}

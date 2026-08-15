@@ -11,7 +11,7 @@ import re
 import os
 import warnings
 warnings.filterwarnings('ignore')
-from llm.utils import clean_label_remove_temporal_context, setup_logger, determine_var_uri , canonical_var_key
+from CohortVarLinker.src.utils import clean_label_remove_temporal_context, setup_logger, determine_var_uri, canonical_var_key
 
 logger = setup_logger('eval.log')
 
