@@ -1,24 +1,44 @@
 'use client';
 
 // Small shared UI atoms for the experimental AI chat layouts.
-import React, {useEffect, useRef} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {ChatMessage} from '@/components/ai/chatClient';
 import {apiUrl} from '@/utils';
 
-// Very small, safe markdown-ish renderer: escapes HTML then applies bold,
-// inline code, and turns "- " / "* " lines into bullets. No external deps.
+// Very small, safe markdown-ish renderer: escapes HTML then applies headings,
+// bold, italics, inline code, and turns "- " / "* " lines into bullets.
+// No external deps.
 function renderRich(text: string): string {
   const esc = text
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
   const withInline = esc
+    // Inline code needs explicit foreground + background so it stays readable
+    // regardless of the surrounding prose/theme colors.
+    .replace(
+      /`([^`]+)`/g,
+      '<code class="px-1 py-0.5 rounded bg-base-200 border border-base-300 text-base-content text-[0.9em] font-mono">$1</code>'
+    )
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/`([^`]+)`/g, '<code class="px-1 py-0.5 rounded bg-base-300 text-sm">$1</code>');
+    // Single-asterisk italics (bold already consumed its double asterisks).
+    .replace(/(^|[^*\w])\*([^*\n]+)\*(?![\w*])/g, '$1<em>$2</em>');
   const lines = withInline.split('\n');
   let html = '';
   let inList = false;
+  const closeList = () => {
+    if (inList) {
+      html += '</ul>';
+      inList = false;
+    }
+  };
   for (const line of lines) {
+    const heading = line.match(/^\s*#{1,6}\s+(.*)$/);
+    if (heading) {
+      closeList();
+      html += `<div class="font-semibold mt-3 mb-1">${heading[1]}</div>`;
+      continue;
+    }
     const bullet = line.match(/^\s*[-*]\s+(.*)$/);
     if (bullet) {
       if (!inList) {
@@ -27,14 +47,11 @@ function renderRich(text: string): string {
       }
       html += `<li>${bullet[1]}</li>`;
     } else {
-      if (inList) {
-        html += '</ul>';
-        inList = false;
-      }
+      closeList();
       html += line.trim() === '' ? '<div class="h-2"></div>' : `<div>${line}</div>`;
     }
   }
-  if (inList) html += '</ul>';
+  closeList();
   return html;
 }
 
@@ -58,27 +75,79 @@ export function TypingDots() {
   );
 }
 
+function VariantToggle({
+  variant,
+  onChange
+}: {
+  variant: 'summary' | 'detailed';
+  onChange: (v: 'summary' | 'detailed') => void;
+}) {
+  const btn = (v: 'summary' | 'detailed', label: string) => (
+    <button
+      onClick={() => onChange(v)}
+      className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold border transition-all ${
+        variant === v
+          ? 'bg-blue-100 text-blue-900 border-blue-300'
+          : 'bg-base-100 text-base-content/50 border-base-300 hover:border-blue-300'
+      }`}
+    >
+      {label}
+    </button>
+  );
+  return (
+    <span className="inline-flex gap-1">
+      {btn('summary', 'Summary')}
+      {btn('detailed', 'Detailed')}
+    </span>
+  );
+}
+
 export function MessageBubble({message, streaming}: {message: ChatMessage; streaming?: boolean}) {
   const isUser = message.role === 'user';
+  // Assistant turns carry two answer variants (short summary / in-depth);
+  // default to the summary and let the user toggle.
+  const [variant, setVariant] = useState<'summary' | 'detailed'>('summary');
   if (message.role === 'system') return null;
+
+  const hasVariants = !isUser && (message.summary !== undefined || message.detailed !== undefined);
+  const shown = hasVariants
+    ? (variant === 'summary' ? message.summary : message.detailed) || ''
+    : message.content;
+
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
       <div
         className={`max-w-[85%] rounded-2xl px-4 py-3 shadow-sm ${
-          isUser ? 'bg-primary text-primary-content rounded-br-sm' : 'bg-base-100 border border-base-300 rounded-bl-sm'
+          isUser
+            ? 'bg-blue-100 text-blue-900 border border-blue-200 rounded-br-sm'
+            : 'bg-base-100 border border-base-300 rounded-bl-sm'
         }`}
       >
         {!isUser && (
-          <div className="text-[11px] uppercase tracking-wide opacity-50 mb-1 font-semibold">Assistant</div>
+          <div className="flex items-center gap-3 mb-1.5">
+            <span className="text-[11px] uppercase tracking-wide opacity-50 font-semibold">Assistant</span>
+            {hasVariants && <VariantToggle variant={variant} onChange={setVariant} />}
+          </div>
         )}
-        {message.content ? (
+        {shown ? (
           <div
             className="prose prose-sm max-w-none leading-relaxed [&_*]:my-0"
-            dangerouslySetInnerHTML={{__html: renderRich(message.content)}}
+            dangerouslySetInnerHTML={{__html: renderRich(shown)}}
           />
         ) : streaming ? (
           <TypingDots />
+        ) : hasVariants ? (
+          <span className="text-sm text-base-content/40 italic">
+            No {variant} answer{streaming ? ' yet' : ' was produced'} — try the other tab.
+          </span>
         ) : null}
+        {/* Long answers get a second toggle at the bottom so switching back
+            doesn't require scrolling up. */}
+        {hasVariants && shown.length > 700 && !streaming && (
+          <div className="mt-3 pt-2 border-t border-base-200">
+            <VariantToggle variant={variant} onChange={setVariant} />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -138,7 +207,11 @@ export function Composer({
           Stop
         </button>
       ) : (
-        <button className="btn btn-primary btn-sm gap-1" onClick={onSend} disabled={disabled || !value.trim()}>
+        <button
+          className="btn btn-sm gap-1 bg-blue-100 text-blue-900 hover:bg-blue-200 border-blue-300"
+          onClick={onSend}
+          disabled={disabled || !value.trim()}
+        >
           Send
         </button>
       )}

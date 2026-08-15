@@ -7,7 +7,13 @@ export type Role = 'user' | 'assistant' | 'system';
 export interface ChatMessage {
   role: Role;
   content: string;
+  // Assistant turns are answered twice — once briefly, once in depth — and the
+  // bubble lets the user toggle between the two variants.
+  summary?: string;
+  detailed?: string;
 }
+
+export type AnswerStyle = 'summary' | 'detailed';
 
 export interface ChatConfig {
   enabled: boolean;
@@ -23,6 +29,9 @@ export interface SendOptions {
   // that give the user direct control over what the model sees.
   systemPrompt?: string;
   contextOverride?: string;
+  // Answer style: the backend appends a matching instruction (short summary vs
+  // in-depth). Omit for the default, unconstrained style.
+  style?: AnswerStyle;
   onChunk: (delta: string) => void;
   signal?: AbortSignal;
 }
@@ -50,7 +59,8 @@ export async function streamChat(opts: SendOptions): Promise<void> {
       cohort_ids: opts.cohortIds,
       focus: opts.focus || null,
       system_prompt: opts.systemPrompt || null,
-      context: opts.contextOverride || null
+      context: opts.contextOverride || null,
+      style: opts.style || null
     })
   });
 
@@ -164,6 +174,23 @@ export const adminRegroupStarters = () => adminPost('/api/chat/starters/regroup'
 
 export const adminDeleteStarters = (texts: string[]) =>
   adminPost('/api/chat/starters/delete', {texts});
+
+export interface ContextDiagnostics {
+  sizes: {
+    n_cohorts: number;
+    n_variables: number;
+    n_distinct_concepts: number;
+    current_catalog_context_tokens: number;
+    concept_index_tokens: number;
+    full_detail_tokens: number;
+  };
+  model_info: {max_input_tokens?: number; max_tokens?: number; max_output_tokens?: number} | null;
+  model_info_error?: string;
+  window_probe?: {approx_tokens: number; ok: boolean; error?: string}[];
+}
+
+export const adminContextDiagnostics = (probeWindow: boolean): Promise<ContextDiagnostics> =>
+  adminPost('/api/chat/starters/context-diagnostics', {probe_window: probeWindow});
 
 // ---- Context helpers driven by the client-side cohort cache ----------------
 

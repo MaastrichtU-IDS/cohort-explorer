@@ -19,6 +19,10 @@ export function AiAccessGuard({
 }) {
   const {userEmail} = useCohorts();
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
+  // CohortsContext starts userEmail as '' while the auth check is in flight and
+  // sets it to null only when the user is definitively not logged in. Treat the
+  // in-flight state as loading, not as "please log in".
+  const authPending = userEmail === '' || userEmail === undefined;
 
   useEffect(() => {
     if (!requireAdmin || !userEmail) return;
@@ -35,6 +39,14 @@ export function AiAccessGuard({
       cancelled = true;
     };
   }, [requireAdmin, userEmail]);
+
+  if (authPending) {
+    return (
+      <div className="flex justify-center items-center min-h-[60vh]">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
 
   if (!userEmail) {
     return (

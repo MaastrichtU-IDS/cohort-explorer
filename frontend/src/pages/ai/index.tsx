@@ -11,7 +11,7 @@
 // Requires login. Alternative experimental layouts live under
 // /ai/alternatives (admins only, not linked from here on purpose).
 import React, {useEffect, useMemo, useState} from 'react';
-import {ChevronDown, ChevronUp, Compass, MessageCircle, Search, Send, X} from 'react-feather';
+import {ChevronDown, ChevronUp, Compass, Home, MessageCircle, Search, Send, X} from 'react-feather';
 import {useCohorts} from '@/components/CohortsContext';
 import {useCohortChat} from '@/components/ai/useCohortChat';
 import {withAiAccess} from '@/components/ai/guards';
@@ -60,13 +60,13 @@ function CohortFocus({
     <div>
       <button
         onClick={() => onOpenChange(!open)}
-        className="w-full flex items-center justify-center gap-2 rounded-xl border border-base-300 bg-base-100 py-2 text-sm text-base-content/70 hover:border-primary/50 transition-all"
+        className="w-full flex items-center justify-center gap-2 rounded-xl border border-base-300 bg-base-100 py-2 text-sm text-base-content/70 hover:border-blue-300 transition-all"
       >
         {open ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
         <span>
           [optional] Focus on specific cohorts…
           {selected.length > 0 && (
-            <span className="badge badge-primary badge-sm ml-2">{selected.length} selected</span>
+            <span className="badge badge-sm ml-2 bg-blue-100 text-blue-900 border-blue-300">{selected.length} selected</span>
           )}
         </span>
       </button>
@@ -91,7 +91,7 @@ function CohortFocus({
                   onClick={() => onToggle(b.id)}
                   title={b.studyType || undefined}
                   className={`badge gap-1 cursor-pointer transition-all ${
-                    active ? 'badge-primary' : 'badge-outline hover:badge-primary'
+                    active ? 'border-blue-300 bg-blue-100 text-blue-900' : 'badge-outline hover:border-blue-300'
                   }`}
                 >
                   {b.id}
@@ -218,15 +218,15 @@ function GuidedExploration({
                 onClick={() => setIntentId(active ? null : intent.id)}
                 className={`relative rounded-xl border p-4 text-left transition-all overflow-hidden ${
                   active
-                    ? 'border-primary bg-primary/5 shadow-sm'
-                    : 'border-base-300 bg-base-100 hover:border-primary/40 hover:shadow-sm'
+                    ? 'border-blue-300 bg-blue-50 shadow-sm'
+                    : 'border-base-300 bg-base-100 hover:border-blue-300 hover:shadow-sm'
                 }`}
               >
-                {active && <div className="absolute inset-x-0 top-0 h-0.5 bg-primary" />}
+                {active && <div className="absolute inset-x-0 top-0 h-0.5 bg-blue-300" />}
                 <div className="flex items-center gap-2 mb-1">
                   <span
                     className={`inline-flex p-1.5 rounded-lg ${
-                      active ? 'bg-primary text-primary-content' : 'bg-base-200'
+                      active ? 'bg-blue-100 text-blue-900' : 'bg-base-200'
                     }`}
                   >
                     <Icon size={16} />
@@ -241,7 +241,7 @@ function GuidedExploration({
       </div>
 
       {/* Topic / criteria / hypothesis / keywords */}
-      <div className={freeTextOnly ? 'rounded-xl ring-2 ring-primary/30 p-4 bg-base-100' : undefined}>
+      <div className={freeTextOnly ? 'rounded-xl ring-2 ring-blue-300 p-4 bg-base-100' : undefined}>
         <div className="text-sm font-semibold text-base-content/60 uppercase tracking-wide mb-3 text-center">
           {activeIntent ? activeIntent.topicLabel : 'Focus on a topic (optional)'}
           {isResearch && keywords.length > 0 && (
@@ -260,8 +260,8 @@ function GuidedExploration({
                 }}
                 className={`px-3 py-1 rounded-full text-sm border transition-all ${
                   topic === t
-                    ? 'border-primary bg-primary/10 text-primary font-medium'
-                    : 'border-base-300 hover:border-primary/40 text-base-content/70'
+                    ? 'border-blue-300 bg-blue-100 text-blue-900 font-medium'
+                    : 'border-base-300 hover:border-blue-300 text-base-content/70'
                 }`}
               >
                 {t}
@@ -308,11 +308,11 @@ function GuidedExploration({
 
       {/* Assembled question */}
       {assembled ? (
-        <div className="rounded-xl border border-primary/30 bg-primary/5 p-4">
-          <div className="text-xs font-semibold text-primary mb-1.5">Your question</div>
+        <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+          <div className="text-xs font-semibold text-blue-900 mb-1.5">Your question</div>
           <p className="text-sm text-base-content/80 leading-relaxed mb-3">{assembled}</p>
           <button
-            className={`btn btn-primary w-full gap-2 ${ready && !blocked ? 'shimmer-nudge' : ''}`}
+            className={`btn w-full gap-2 bg-blue-100 text-blue-900 hover:bg-blue-200 border-blue-300 ${ready && !blocked ? 'shimmer-nudge' : ''}`}
             disabled={blocked}
             onClick={() => onAsk(assembled)}
           >
@@ -338,7 +338,7 @@ function GuidedExploration({
 function ICareAI() {
   const {cohortsData, userEmail} = useCohorts();
   const chat = useCohortChat();
-  const [mode, setMode] = useState<'guided' | 'chat'>('guided');
+  const [mode, setMode] = useState<'guided' | 'chat'>('chat');
   const [starters, setStarters] = useState<ConversationStarter[]>([]);
 
   // Random selection of conversation starters (fresh per visit).
@@ -363,8 +363,8 @@ function ICareAI() {
       onClick={() => setMode(m)}
       className={`flex items-center gap-2.5 px-8 py-3.5 rounded-2xl border-2 text-base font-semibold transition-all ${
         mode === m
-          ? 'border-primary bg-primary text-primary-content shadow-md'
-          : 'border-base-300 bg-base-100 text-base-content/70 hover:border-primary/50 hover:text-base-content'
+          ? 'border-blue-300 bg-blue-100 text-blue-900 shadow-md'
+          : 'border-base-300 bg-base-100 text-base-content/70 hover:border-blue-300 hover:text-base-content'
       }`}
     >
       <Icon size={19} /> {label}
@@ -375,6 +375,18 @@ function ICareAI() {
     <main className="h-[calc(100vh-8rem)] bg-base-200 flex flex-col">
       {/* Top bar */}
       <div className="border-b border-base-300 bg-base-100 px-6 py-3 flex items-center gap-3">
+        {(chat.messages.length > 0 || mode === 'guided') && (
+          <button
+            className="btn btn-ghost btn-sm gap-1.5"
+            title="Back to the iCARE-AI landing page"
+            onClick={() => {
+              chat.reset();
+              setMode('chat');
+            }}
+          >
+            <Home size={15} /> Home
+          </button>
+        )}
         <h1 className="font-bold text-lg">iCARE-AI</h1>
         <ExperimentBadge />
         {chat.model && (
@@ -387,8 +399,8 @@ function ICareAI() {
 
       {/* Mode switcher */}
       <div className="flex justify-center gap-4 py-5">
-        {modeButton('guided', 'Guided Exploration', Compass)}
         {modeButton('chat', 'Chat', MessageCircle)}
+        {modeButton('guided', 'Guided Exploration', Compass)}
       </div>
 
       <div className="flex-1 overflow-y-auto flex flex-col">
@@ -434,7 +446,7 @@ function ICareAI() {
                     key={q.text}
                     disabled={blocked}
                     onClick={() => chat.send(q.text)}
-                    className="text-left rounded-xl border border-base-300 bg-base-100 px-3.5 py-2.5 hover:border-primary hover:shadow-sm transition-all text-sm text-base-content/80 disabled:opacity-50"
+                    className="text-left rounded-xl border border-base-300 bg-base-100 px-3.5 py-2.5 hover:border-blue-300 hover:shadow-sm transition-all text-sm text-base-content/80 disabled:opacity-50"
                   >
                     {q.text}
                   </button>
@@ -469,7 +481,7 @@ function ICareAI() {
                         key={s}
                         disabled={blocked}
                         onClick={() => chat.send(s)}
-                        className="shrink-0 px-2.5 py-1 rounded-full border border-base-300 bg-base-100 text-xs text-base-content/70 hover:border-primary hover:text-primary transition-all disabled:opacity-50"
+                        className="shrink-0 px-2.5 py-1 rounded-full border border-base-300 bg-base-100 text-xs text-base-content/70 hover:border-blue-300 hover:text-blue-900 transition-all disabled:opacity-50"
                       >
                         {s}
                       </button>
@@ -479,7 +491,7 @@ function ICareAI() {
                 {chat.selected.length > 0 && (
                   <div className="flex flex-wrap gap-1 mb-2">
                     {chat.selected.map(id => (
-                      <span key={id} className="badge badge-primary badge-sm gap-1">
+                      <span key={id} className="badge badge-sm gap-1 bg-blue-100 text-blue-900 border-blue-300">
                         {id}
                         <button onClick={() => chat.toggleCohort(id)}>
                           <X size={12} />

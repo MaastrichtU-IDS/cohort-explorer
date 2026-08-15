@@ -35,6 +35,9 @@ logger = logging.getLogger(__name__)
 MAX_CONTEXT_COHORTS = 25
 MAX_VARS_PER_COHORT = 40
 MAX_CATALOG_COHORTS = 200
+# Variable names sampled per cohort in the CATALOG (no cohorts selected) view,
+# so catalog-wide questions about variables can be answered with real names.
+CATALOG_VARS_SAMPLE = 15
 # Caps for client-supplied overrides (Glass Box & friends).
 MAX_SYSTEM_PROMPT_CHARS = 8_000
 MAX_CONTEXT_CHARS = 120_000
@@ -48,6 +51,20 @@ SYSTEM_PROMPT = (
     "points, reference cohorts and variables by name, and never invent variables, "
     "values, or statistics that are not present in the context."
 )
+
+# Every question is asked twice — once per style — and the chat bubble lets the
+# user toggle between the two answers.
+STYLE_INSTRUCTIONS = {
+    "summary": (
+        "Answer style: SHORT SUMMARY. Give only the essential answer, in at most 4 "
+        "sentences or up to 5 short bullet points. No preamble, no closing offer."
+    ),
+    "detailed": (
+        "Answer style: DETAILED. Give a thorough, well-structured answer with "
+        "specifics — cohort names, variable names, caveats — where the context "
+        "supports them."
+    ),
+}
 
 
 def _get_openai_client() -> Any:
@@ -142,7 +159,11 @@ def build_context(cohort_ids: list[str], focus: Optional[str] = None) -> str:
 
     selected = [cid for cid in cohort_ids if cid in all_cohorts][:MAX_CONTEXT_COHORTS]
     if selected:
-        parts.append(f"The user is focusing on {len(selected)} cohort(s):")
+        parts.append(
+            f"The user is focusing on {len(selected)} cohort(s): {', '.join(selected)}. "
+            "Base your answer MAINLY on these cohorts and their variables; mention other "
+            "cohorts only when directly relevant to the question."
+        )
         for cid in selected:
             parts.append(_summarize_cohort(all_cohorts[cid], include_variables=True))
     else:
@@ -153,10 +174,22 @@ def build_context(cohort_ids: list[str], focus: Optional[str] = None) -> str:
         )
         catalog = []
         for cohort in list(all_cohorts.values())[:MAX_CATALOG_COHORTS]:
-            n_vars = len(getattr(cohort, "variables", {}) or {})
+            variables = getattr(cohort, "variables", {}) or {}
             stype = _clean(getattr(cohort, "study_type", ""))
             descr = f" ({stype})" if stype else ""
-            catalog.append(f"- {cohort.cohort_id}{descr}: {n_vars} variables")
+            catalog.append(f"- {cohort.cohort_id}{descr}: {len(variables)} variables")
+            # A sample of actual variable names so catalog-wide questions
+            # ("which cohorts measure X?") can be answered without selecting
+            # cohorts first. Deep dives still require selecting cohorts.
+            if variables:
+                names = [
+                    _clean(getattr(v, "var_name", ""))[:40]
+                    for v in list(variables.values())[:CATALOG_VARS_SAMPLE]
+                ]
+                names = [n for n in names if n]
+                if names:
+                    suffix = ", …" if len(variables) > CATALOG_VARS_SAMPLE else ""
+                    catalog.append(f"    variables include: {', '.join(names)}{suffix}")
         parts.append("\n".join(catalog))
 
     if _clean(focus):
@@ -215,12 +248,33 @@ def _assemble_payload(body: dict[str, Any]) -> tuple[list[dict[str, str]], str, 
         context = context_override.strip()[:MAX_CONTEXT_CHARS]
     else:
         context = build_context([str(c) for c in cohort_ids], focus)
+        # Single-round retrieval: mirror the cohorts-page search (OR mode) over
+        # the user's question and inject matching variable details, excluding
+        # terms that are too broad. See chat_retrieval.py.
+        try:
+            from src.chat_retrieval import retrieve_for_question
+            from src.cohort_cache import get_cohorts_from_cache
+
+            last_user = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
+            if last_user:
+                section = retrieve_for_question(
+                    last_user,
+                    get_cohorts_from_cache(""),
+                    restrict_to=[str(c) for c in cohort_ids],
+                )
+                if section:
+                    context = f"{context}\n\n{section}"
+        except Exception as exc:
+            logger.warning("Question-based variable retrieval failed: %s", exc)
 
     full_messages = [
         {"role": "system", "content": system_prompt},
         {"role": "system", "content": f"Cohort context:\n\n{context}"},
-        *messages,
     ]
+    style = body.get("style")
+    if isinstance(style, str) and style in STYLE_INSTRUCTIONS:
+        full_messages.append({"role": "system", "content": STYLE_INSTRUCTIONS[style]})
+    full_messages.extend(messages)
     return full_messages, model, temperature
 
 
@@ -588,6 +642,77 @@ def admin_regroup_starters(user: Any = Depends(get_current_user)) -> dict[str, A
     """Re-run the keyword grouping over the current pool."""
     _require_admin(user)
     return group_starters_by_keyword()
+
+
+@router.post("/api/chat/starters/context-diagnostics")
+def admin_context_diagnostics(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Context diagnostics for the admin page.
+
+    Always returns catalog size estimates (thin catalog vs concept index vs full
+    detail) plus LiteLLM's reported model limits. With {"probe_window": true} it
+    additionally probes the ACTUAL accepted context size empirically by sending
+    increasingly large filler prompts until the server rejects one — this can
+    take minutes on a large local model.
+    """
+    _require_admin(user)
+    from src.chat_retrieval import catalog_size_estimates
+    from src.cohort_cache import get_cohorts_from_cache
+
+    all_cohorts = get_cohorts_from_cache("")
+    result: dict[str, Any] = {"sizes": catalog_size_estimates(all_cohorts)}
+    result["sizes"]["current_catalog_context_tokens"] = round(len(build_context([], None)) / 4)
+
+    # What LiteLLM claims about the model (configured metadata, not a measurement).
+    result["model_info"] = None
+    if settings.chat_enabled:
+        try:
+            import requests
+
+            base = settings.litellm_base_url.rstrip("/")
+            info_base = base[:-3] if base.endswith("/v1") else base
+            resp = requests.get(
+                f"{info_base}/model/info",
+                headers={"Authorization": f"Bearer {settings.litellm_api_key or 'sk-no-key'}"},
+                timeout=15,
+            )
+            if resp.ok:
+                for entry in resp.json().get("data", []):
+                    if entry.get("model_name") == settings.litellm_model:
+                        info = entry.get("model_info", {}) or {}
+                        result["model_info"] = {
+                            "max_input_tokens": info.get("max_input_tokens"),
+                            "max_tokens": info.get("max_tokens"),
+                            "max_output_tokens": info.get("max_output_tokens"),
+                        }
+                        break
+            else:
+                result["model_info_error"] = f"/model/info returned {resp.status_code}"
+        except Exception as exc:
+            result["model_info_error"] = str(exc)
+
+    # Empirical probe: the deployed server's real limit is whatever it accepts.
+    if body.get("probe_window") and settings.chat_enabled:
+        probe_results = []
+        try:
+            client = _get_openai_client()
+            filler_word = " token"  # ~1 token per repetition
+            for target in (4_000, 8_000, 16_000, 32_000, 64_000, 100_000, 128_000):
+                prompt = "Reply with the single word OK." + filler_word * target
+                try:
+                    client.chat.completions.create(
+                        model=settings.litellm_model,
+                        messages=[{"role": "user", "content": prompt}],
+                        max_tokens=2,
+                        temperature=0,
+                    )
+                    probe_results.append({"approx_tokens": target, "ok": True})
+                except Exception as exc:
+                    probe_results.append({"approx_tokens": target, "ok": False, "error": str(exc)[:300]})
+                    break
+        except HTTPException as exc:
+            probe_results.append({"approx_tokens": 0, "ok": False, "error": str(exc.detail)})
+        result["window_probe"] = probe_results
+    return result
 
 
 @router.post("/api/chat/starters/delete")

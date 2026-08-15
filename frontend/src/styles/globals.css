@@ -125,7 +125,8 @@ a.link {
   bottom: 0;
   left: 0;
   width: 45%;
-  background: linear-gradient(105deg, transparent 20%, rgba(255, 255, 255, 0.35) 50%, transparent 80%);
+  /* Blue-tinted sweep: visible on the light-blue button where white would wash out. */
+  background: linear-gradient(105deg, transparent 20%, rgba(96, 165, 250, 0.4) 50%, transparent 80%);
   animation: icare-shimmer 2.2s ease-in-out infinite;
   pointer-events: none;
 }

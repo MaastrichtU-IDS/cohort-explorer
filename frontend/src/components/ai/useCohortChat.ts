@@ -71,48 +71,61 @@ export function useCohortChat(): UseCohortChat {
       setError(null);
       setInput('');
 
-      const history = [...messages, {role: 'user' as const, content}];
-      // Add the user turn plus an empty assistant turn we stream into.
-      setMessages([...history, {role: 'assistant', content: ''}]);
+      // For follow-up turns the model sees the DETAILED variant of earlier
+      // answers (that is the fuller record of what was said).
+      const historyForModel: ChatMessage[] = [...messages, {role: 'user' as const, content}].map(m =>
+        m.role === 'assistant' ? {role: m.role, content: m.detailed || m.content} : {role: m.role, content: m.content}
+      );
+
+      // Add the user turn plus an empty assistant turn holding both variants,
+      // each streamed by its own request.
+      setMessages([...messages, {role: 'user', content}, {role: 'assistant', content: '', summary: '', detailed: ''}]);
       setIsStreaming(true);
 
       const controller = new AbortController();
       abortRef.current = controller;
-      try {
-        await streamChat({
-          messages: history,
+
+      const streamVariant = (style: 'summary' | 'detailed') =>
+        streamChat({
+          messages: historyForModel,
           cohortIds: selected,
           focus,
           systemPrompt: overrides?.systemPrompt,
           contextOverride: overrides?.contextOverride,
+          style,
           signal: controller.signal,
           onChunk: delta => {
             setMessages(prev => {
               const next = [...prev];
               const last = next[next.length - 1];
               if (last && last.role === 'assistant') {
-                next[next.length - 1] = {role: 'assistant', content: last.content + delta};
+                next[next.length - 1] = {...last, [style]: (last[style] || '') + delta};
               }
               return next;
             });
           }
         });
-      } catch (e: any) {
-        if (e?.name !== 'AbortError') {
-          setError(e?.message || 'Something went wrong contacting the model.');
-          setMessages(prev => {
-            const next = [...prev];
-            const last = next[next.length - 1];
-            if (last && last.role === 'assistant' && !last.content) {
-              next.pop();
-            }
-            return next;
-          });
-        }
-      } finally {
-        setIsStreaming(false);
-        abortRef.current = null;
+
+      const results = await Promise.allSettled([streamVariant('summary'), streamVariant('detailed')]);
+      const failures = results.filter(
+        (r): r is PromiseRejectedResult => r.status === 'rejected' && r.reason?.name !== 'AbortError'
+      );
+      if (failures.length === results.length) {
+        // Both variants failed: surface the error and drop the empty bubble.
+        setError(failures[0].reason?.message || 'Something went wrong contacting the model.');
+        setMessages(prev => {
+          const next = [...prev];
+          const last = next[next.length - 1];
+          if (last && last.role === 'assistant' && !last.summary && !last.detailed && !last.content) {
+            next.pop();
+          }
+          return next;
+        });
+      } else if (failures.length > 0) {
+        setError(failures[0].reason?.message || 'One of the answer variants failed.');
       }
+      setIsStreaming(false);
+      abortRef.current = null;
     },
     [input, isStreaming, messages, selected, focus]
   );

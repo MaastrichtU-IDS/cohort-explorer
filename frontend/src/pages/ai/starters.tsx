@@ -8,10 +8,12 @@
 //   - inspect and prune the pool
 // Generation is admin-driven only (no automatic generation at app startup).
 import React, {useEffect, useMemo, useState} from 'react';
-import {MessageSquare, RefreshCw, Search, Tag, Trash2, Zap} from 'react-feather';
+import {Cpu, MessageSquare, RefreshCw, Search, Tag, Trash2, Zap} from 'react-feather';
 import {withAiAccess} from '@/components/ai/guards';
 import {
+  ContextDiagnostics,
   StarterManageData,
+  adminContextDiagnostics,
   adminDeleteStarters,
   adminFetchStarterPool,
   adminGenerateStarters,
@@ -28,6 +30,9 @@ function ConversationStarterManager() {
   const [regrouping, setRegrouping] = useState(false);
   const [filter, setFilter] = useState('');
   const [openKeyword, setOpenKeyword] = useState<string | null>(null);
+  const [diagnostics, setDiagnostics] = useState<ContextDiagnostics | null>(null);
+  const [diagnosing, setDiagnosing] = useState(false);
+  const [probing, setProbing] = useState(false);
 
   const refresh = async () => {
     try {
@@ -79,6 +84,19 @@ function ConversationStarterManager() {
 
   const remove = (text: string) =>
     run(() => adminDeleteStarters([text]), () => {}, r => `Deleted ${r.deleted} starter(s); ${r.remaining} remain.`);
+
+  const runDiagnostics = async (probeWindow: boolean) => {
+    const setBusy = probeWindow ? setProbing : setDiagnosing;
+    setBusy(true);
+    setError(null);
+    try {
+      setDiagnostics(await adminContextDiagnostics(probeWindow));
+    } catch (e: any) {
+      setError(e?.message || 'Diagnostics failed.');
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const filteredStarters = useMemo(() => {
     if (!data) return [];
@@ -205,6 +223,89 @@ function ConversationStarterManager() {
                 .find(k => k.keyword === openKeyword)
                 ?.questions.map(q => <li key={q}>{q}</li>)}
             </ul>
+          )}
+        </section>
+
+        {/* Context diagnostics */}
+        <section className="rounded-xl border border-base-300 bg-base-100 p-4 mb-5">
+          <div className="flex items-center gap-2 font-semibold mb-2">
+            <Cpu size={16} /> Context diagnostics
+            <div className="ml-auto flex gap-2">
+              <button className="btn btn-outline btn-xs gap-1" disabled={diagnosing || probing} onClick={() => runDiagnostics(false)}>
+                {diagnosing ? <span className="loading loading-spinner loading-xs" /> : <RefreshCw size={12} />}
+                Measure sizes
+              </button>
+              <button
+                className="btn btn-outline btn-xs gap-1"
+                disabled={diagnosing || probing || !data?.chat_enabled}
+                onClick={() => runDiagnostics(true)}
+                title="Sends increasingly large prompts to the model until one is rejected — can take minutes"
+              >
+                {probing ? <span className="loading loading-spinner loading-xs" /> : <Cpu size={12} />}
+                Probe context window
+              </button>
+            </div>
+          </div>
+          <p className="text-xs text-base-content/60 mb-3">
+            Measures how large the catalog would be in each candidate encoding, what LiteLLM claims the
+            model&apos;s limits are, and (via the probe) what prompt size the deployed server actually accepts.
+          </p>
+          {diagnostics && (
+            <div className="text-sm space-y-3">
+              <div className="grid sm:grid-cols-3 gap-2">
+                <div className="rounded-lg bg-base-200 p-2.5">
+                  <div className="text-xs text-base-content/50">Catalog</div>
+                  <div className="font-semibold">
+                    {diagnostics.sizes.n_cohorts} cohorts · {diagnostics.sizes.n_variables.toLocaleString()} variables
+                  </div>
+                  <div className="text-xs text-base-content/50">
+                    {diagnostics.sizes.n_distinct_concepts.toLocaleString()} distinct concepts
+                  </div>
+                </div>
+                <div className="rounded-lg bg-base-200 p-2.5">
+                  <div className="text-xs text-base-content/50">Context sizes (≈ tokens)</div>
+                  <div className="text-xs mt-1">
+                    current thin catalog: <b>{diagnostics.sizes.current_catalog_context_tokens.toLocaleString()}</b>
+                    <br />
+                    concept index: <b>{diagnostics.sizes.concept_index_tokens.toLocaleString()}</b>
+                    <br />
+                    full detail: <b>{diagnostics.sizes.full_detail_tokens.toLocaleString()}</b>
+                  </div>
+                </div>
+                <div className="rounded-lg bg-base-200 p-2.5">
+                  <div className="text-xs text-base-content/50">LiteLLM model info</div>
+                  <div className="text-xs mt-1">
+                    {diagnostics.model_info
+                      ? `max input: ${diagnostics.model_info.max_input_tokens?.toLocaleString() ?? '—'} · max output: ${
+                          diagnostics.model_info.max_output_tokens?.toLocaleString() ?? '—'
+                        }`
+                      : diagnostics.model_info_error || 'not reported'}
+                  </div>
+                </div>
+              </div>
+              {diagnostics.window_probe && (
+                <div>
+                  <div className="text-xs font-semibold text-base-content/60 mb-1">Empirical window probe</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {diagnostics.window_probe.map(p => (
+                      <span
+                        key={p.approx_tokens}
+                        title={p.error}
+                        className={`badge badge-sm ${p.ok ? 'badge-success badge-outline' : 'badge-error'}`}
+                      >
+                        ~{(p.approx_tokens / 1000).toFixed(0)}k {p.ok ? '✓' : '✗'}
+                      </span>
+                    ))}
+                  </div>
+                  {diagnostics.window_probe.some(p => !p.ok) && (
+                    <p className="text-[11px] text-base-content/50 mt-1">
+                      First rejected size’s error:{' '}
+                      {diagnostics.window_probe.find(p => !p.ok)?.error}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
           )}
         </section>
 
