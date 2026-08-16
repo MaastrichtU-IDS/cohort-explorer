@@ -96,6 +96,8 @@ export async function streamChat(opts: SendOptions): Promise<void> {
 export interface ConversationStarter {
   text: string;
   kind: 'interesting' | 'basic';
+  // Up to 3 keyword themes this starter belongs to (from the grouping pass).
+  keywords?: string[];
 }
 
 export async function fetchConversationStarters(n = 6): Promise<ConversationStarter[]> {

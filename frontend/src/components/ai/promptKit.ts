@@ -87,10 +87,10 @@ export interface GuidedIntent {
 export const guidedIntents: GuidedIntent[] = [
   {
     id: 'identify',
-    label: 'Identify Cohorts Based on Criteria',
+    label: 'Find Cohorts',
     icon: Filter,
-    blurb: 'Find the cohorts that match your inclusion criteria.',
-    topicLabel: 'Your criteria',
+    blurb: 'Find the cohorts that match your search criteria.',
+    topicLabel: 'Your search criteria',
     topicPlaceholder: 'e.g. elderly patients with heart failure and medication data',
     template: (c, t) =>
       t
@@ -113,7 +113,7 @@ export const guidedIntents: GuidedIntent[] = [
     id: 'hypothesis',
     label: 'Explore a Hypothesis',
     icon: HelpCircle,
-    blurb: 'Check whether the data could support your hypothesis.',
+    blurb: "Explore your hypothesis' suitability to the available cohorts.",
     topicLabel: 'Your hypothesis',
     topicPlaceholder: 'e.g. beta-blocker use is associated with slower cognitive decline in the elderly',
     template: (c, t) =>

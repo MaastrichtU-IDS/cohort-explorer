@@ -11,7 +11,7 @@
 // Requires login. Alternative experimental layouts live under
 // /ai/alternatives (admins only, not linked from here on purpose).
 import React, {useEffect, useMemo, useState} from 'react';
-import {ChevronDown, ChevronUp, Compass, Home, MessageCircle, Search, Send, X} from 'react-feather';
+import {ChevronDown, ChevronLeft, ChevronUp, Compass, Home, MessageCircle, Search, Send, X} from 'react-feather';
 import {useCohorts} from '@/components/CohortsContext';
 import {useCohortChat} from '@/components/ai/useCohortChat';
 import {withAiAccess} from '@/components/ai/guards';
@@ -182,10 +182,19 @@ function GuidedExploration({
   }, []);
 
   const selectIntent = (id: string) => {
-    const next = id === intentId ? null : id;
-    setIntentId(next);
+    setIntentId(id);
+    setTopic('');
+    setCustomTopic('');
     // Cohort-centric intents make the cohort picker the natural next step.
-    if (next && COHORT_CENTRIC_INTENTS.has(next)) setCohortsOpen(true);
+    setCohortsOpen(COHORT_CENTRIC_INTENTS.has(id));
+  };
+
+  const goBack = () => {
+    setIntentId(null);
+    setTopic('');
+    setCustomTopic('');
+    setCohortsOpen(false);
+    onClearCohorts();
   };
 
   const activeIntent = guidedIntents.find(i => i.id === intentId) || null;
@@ -201,34 +210,21 @@ function GuidedExploration({
   const chips = isResearch && keywords.length > 0 ? keywords.map(k => k.keyword) : topicBank;
   const {ready, hint} = intentReadiness(intentId, effectiveTopic, selected.length);
 
-  return (
-    <div className="max-w-3xl mx-auto px-4 pb-10 space-y-7">
-      {/* What do you want to do? */}
-      <div>
-        <div className="text-sm font-semibold text-base-content/60 uppercase tracking-wide mb-3 text-center">
-          What would you like to do?
-        </div>
+  // Step 1 — pick an intent. The cards are the only thing on screen.
+  if (!activeIntent) {
+    return (
+      <div className="max-w-3xl mx-auto px-4 pb-10">
         <div className="grid sm:grid-cols-2 gap-3">
           {guidedIntents.map(intent => {
             const Icon = intent.icon;
-            const active = intentId === intent.id;
             return (
               <button
                 key={intent.id}
-                onClick={() => setIntentId(active ? null : intent.id)}
-                className={`relative rounded-xl border p-4 text-left transition-all overflow-hidden ${
-                  active
-                    ? 'border-blue-300 bg-blue-50 shadow-sm'
-                    : 'border-base-300 bg-base-100 hover:border-blue-300 hover:shadow-sm'
-                }`}
+                onClick={() => selectIntent(intent.id)}
+                className="rounded-xl border border-base-300 bg-base-100 p-4 text-left transition-all hover:border-blue-300 hover:shadow-sm"
               >
-                {active && <div className="absolute inset-x-0 top-0 h-0.5 bg-blue-300" />}
                 <div className="flex items-center gap-2 mb-1">
-                  <span
-                    className={`inline-flex p-1.5 rounded-lg ${
-                      active ? 'bg-blue-100 text-blue-900' : 'bg-base-200'
-                    }`}
-                  >
+                  <span className="inline-flex p-1.5 rounded-lg bg-base-200">
                     <Icon size={16} />
                   </span>
                   <span className="font-semibold text-sm">{intent.label}</span>
@@ -238,12 +234,33 @@ function GuidedExploration({
             );
           })}
         </div>
+        <p className="text-center mt-6">
+          <LocalModelNote />
+        </p>
+      </div>
+    );
+  }
+
+  // Step 2 — the options relevant to the chosen intent, plus a back button.
+  const ActiveIcon = activeIntent.icon;
+  return (
+    <div className="max-w-3xl mx-auto px-4 pb-10 space-y-6">
+      <div className="flex items-center gap-3">
+        <button className="btn btn-ghost btn-sm gap-1" onClick={goBack}>
+          <ChevronLeft size={16} /> Back
+        </button>
+        <div className="flex items-center gap-2">
+          <span className="inline-flex p-1.5 rounded-lg bg-blue-100 text-blue-900">
+            <ActiveIcon size={16} />
+          </span>
+          <span className="font-semibold">{activeIntent.label}</span>
+        </div>
       </div>
 
       {/* Topic / criteria / hypothesis / keywords */}
       <div className={freeTextOnly ? 'rounded-xl ring-2 ring-blue-300 p-4 bg-base-100' : undefined}>
         <div className="text-sm font-semibold text-base-content/60 uppercase tracking-wide mb-3 text-center">
-          {activeIntent ? activeIntent.topicLabel : 'Focus on a topic (optional)'}
+          {activeIntent.topicLabel}
           {isResearch && keywords.length > 0 && (
             <span className="normal-case font-normal text-base-content/40"> — suggested themes</span>
           )}
@@ -275,7 +292,7 @@ function GuidedExploration({
             autoFocus
             rows={2}
             className="textarea textarea-bordered w-full"
-            placeholder={activeIntent?.topicPlaceholder}
+            placeholder={activeIntent.topicPlaceholder}
             value={customTopic}
             onChange={e => {
               setCustomTopic(e.target.value);
@@ -287,7 +304,7 @@ function GuidedExploration({
             key={intentId || 'none'}
             autoFocus={freeTextOnly}
             className="input input-bordered w-full"
-            placeholder={activeIntent ? activeIntent.topicPlaceholder : '…or type your own topic'}
+            placeholder={activeIntent.topicPlaceholder}
             value={customTopic}
             onChange={e => {
               setCustomTopic(e.target.value);
@@ -307,24 +324,18 @@ function GuidedExploration({
       />
 
       {/* Assembled question */}
-      {assembled ? (
-        <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
-          <div className="text-xs font-semibold text-blue-900 mb-1.5">Your question</div>
-          <p className="text-sm text-base-content/80 leading-relaxed mb-3">{assembled}</p>
-          <button
-            className={`btn w-full gap-2 bg-blue-100 text-blue-900 hover:bg-blue-200 border-blue-300 ${ready && !blocked ? 'shimmer-nudge' : ''}`}
-            disabled={blocked}
-            onClick={() => onAsk(assembled)}
-          >
-            <Send size={15} /> Ask iCARE-AI
-          </button>
-          {hint && <p className="text-xs text-base-content/50 text-center mt-2">{hint}</p>}
-        </div>
-      ) : (
-        <p className="text-center text-sm text-base-content/40">
-          Pick an option above to assemble your question.
-        </p>
-      )}
+      <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+        <div className="text-xs font-semibold text-blue-900 mb-1.5">Your question</div>
+        <p className="text-sm text-base-content/80 leading-relaxed mb-3">{assembled}</p>
+        <button
+          className={`btn w-full gap-2 bg-blue-100 text-blue-900 hover:bg-blue-200 border-blue-300 ${ready && !blocked ? 'shimmer-nudge' : ''}`}
+          disabled={blocked}
+          onClick={() => onAsk(assembled)}
+        >
+          <Send size={15} /> Ask iCARE-AI
+        </button>
+        {hint && <p className="text-xs text-base-content/50 text-center mt-2">{hint}</p>}
+      </div>
 
       <p className="text-center">
         <LocalModelNote />
@@ -420,11 +431,8 @@ function ICareAI() {
           />
         ) : chat.messages.length === 0 ? (
           /* Chat landing: big centered box + suggested questions */
-          <div className="flex-1 flex flex-col justify-center max-w-2xl mx-auto w-full px-4 pb-16">
-            <h2 className="text-3xl font-bold text-center mb-2">What would you like to know?</h2>
-            <p className="text-center text-base-content/60 mb-6">
-              Ask anything about the cohorts, their variables and their populations.
-            </p>
+          <div className="flex-1 flex flex-col justify-center max-w-3xl mx-auto w-full px-4 pb-16">
+            <h2 className="text-3xl font-bold text-center mb-5">What would you like to know?</h2>
             <div className="shadow-lg rounded-2xl">
               <Composer
                 value={chat.input}
@@ -433,22 +441,35 @@ function ICareAI() {
                 onStop={chat.stop}
                 isStreaming={chat.isStreaming}
                 disabled={blocked}
-                placeholder="Ask about the cohorts…"
+                placeholder="Ask about the studies…"
+                large
               />
             </div>
-            <p className="text-center mt-2 mb-6">
+            <p className="text-center mt-2 mb-7">
               <LocalModelNote />
             </p>
             {starters.length > 0 && (
-              <div className="grid sm:grid-cols-2 gap-2.5">
+              <div className="grid sm:grid-cols-2 gap-4">
                 {starters.map(q => (
                   <button
                     key={q.text}
                     disabled={blocked}
                     onClick={() => chat.send(q.text)}
-                    className="text-left rounded-xl border border-base-300 bg-base-100 px-3.5 py-2.5 hover:border-blue-300 hover:shadow-sm transition-all text-sm text-base-content/80 disabled:opacity-50"
+                    className="flex flex-col gap-2 text-left rounded-2xl border border-base-300 bg-base-100 px-5 py-4 hover:border-blue-300 hover:shadow-md transition-all disabled:opacity-50"
                   >
-                    {q.text}
+                    <span className="text-[15px] leading-snug text-base-content/80">{q.text}</span>
+                    {q.keywords && q.keywords.length > 0 && (
+                      <span className="flex flex-wrap gap-1">
+                        {q.keywords.map(kw => (
+                          <span
+                            key={kw}
+                            className="px-2 py-0.5 rounded-full text-[11px] bg-blue-100 text-blue-900 border border-blue-200"
+                          >
+                            {kw}
+                          </span>
+                        ))}
+                      </span>
+                    )}
                   </button>
                 ))}
               </div>

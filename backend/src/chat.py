@@ -585,8 +585,24 @@ def conversation_starters(n: int = 6, user: Any = Depends(get_current_user)) -> 
         remaining = basic[n_basic:] + interesting[n - n_basic:]
         picked += remaining[: n - len(picked)]
     random.shuffle(picked)
+
+    # Tag each starter with up to 3 keyword themes it belongs to (from the
+    # grouping pass), matched on exact question text.
+    keyword_index: dict[str, list[str]] = {}
+    for group in _load_starter_keywords():
+        kw = group["keyword"]
+        for q in group.get("questions", []):
+            keyword_index.setdefault(q.strip().lower(), []).append(kw)
+
     return {
-        "starters": [{"text": s["text"], "kind": s.get("kind", "interesting")} for s in picked],
+        "starters": [
+            {
+                "text": s["text"],
+                "kind": s.get("kind", "interesting"),
+                "keywords": keyword_index.get(s["text"].strip().lower(), [])[:3],
+            }
+            for s in picked
+        ],
         "pool_size": len(pool),
     }
 

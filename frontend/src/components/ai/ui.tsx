@@ -175,7 +175,8 @@ export function Composer({
   onStop,
   isStreaming,
   disabled,
-  placeholder
+  placeholder,
+  large
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -184,6 +185,8 @@ export function Composer({
   isStreaming: boolean;
   disabled?: boolean;
   placeholder?: string;
+  // Roomier variant used on the chat landing page.
+  large?: boolean;
 }) {
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -192,23 +195,25 @@ export function Composer({
     }
   };
   return (
-    <div className="flex items-end gap-2 bg-base-100 border border-base-300 rounded-2xl p-2 shadow-sm">
+    <div className={`flex items-end gap-2 bg-base-100 border border-base-300 rounded-2xl shadow-sm ${large ? 'p-3' : 'p-2'}`}>
       <textarea
-        className="textarea textarea-ghost flex-1 resize-none focus:outline-none max-h-40 min-h-[2.75rem] text-base"
-        rows={1}
+        className={`textarea textarea-ghost flex-1 resize-none focus:outline-none ${
+          large ? 'max-h-60 min-h-[4.5rem] text-lg' : 'max-h-40 min-h-[2.75rem] text-base'
+        }`}
+        rows={large ? 2 : 1}
         value={value}
-        placeholder={placeholder || 'Ask about the cohorts…'}
+        placeholder={placeholder || 'Ask about the studies…'}
         disabled={disabled}
         onChange={e => onChange(e.target.value)}
         onKeyDown={onKeyDown}
       />
       {isStreaming ? (
-        <button className="btn btn-error btn-sm gap-1" onClick={onStop}>
+        <button className={`btn btn-error gap-1 ${large ? '' : 'btn-sm'}`} onClick={onStop}>
           Stop
         </button>
       ) : (
         <button
-          className="btn btn-sm gap-1 bg-blue-100 text-blue-900 hover:bg-blue-200 border-blue-300"
+          className={`btn gap-1 bg-blue-100 text-blue-900 hover:bg-blue-200 border-blue-300 ${large ? '' : 'btn-sm'}`}
           onClick={onSend}
           disabled={disabled || !value.trim()}
         >
