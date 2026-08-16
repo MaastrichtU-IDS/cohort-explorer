@@ -9,7 +9,7 @@ import logging
 from .query_builder import SPARQLQueryBuilder
 from .utils import execute_query
 
-# logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
 def fetch_study_context(study_id: str) -> Optional[Dict[str, str]]:
@@ -18,11 +18,11 @@ def fetch_study_context(study_id: str) -> Optional[Dict[str, str]]:
     try:
         bindings = execute_query(query).get("results", {}).get("bindings", [])
     except Exception as e:
-        # logger.error(f"Study context query failed for '{study_id}': {e}")
+        logger.error(f"Study context query failed for '{study_id}': {e}")
         return None
 
     if not bindings:
-        # logger.warning(f"No study metadata found for '{study_id}'")
+        logger.warning(f"No study metadata found for '{study_id}'")
         return None
 
     return {k: v["value"] for k, v in bindings[0].items() if v.get("value")}
@@ -49,11 +49,11 @@ def format_study_context_block(src_study: str, tgt_study: str) -> str:
         parts = [f"{label}: {meta.get('study_name', study_id)}"]
         design = meta.get("study_design") or meta.get("study_type")
         inclusion_criteria =  meta.get("inclusion_criteria")
-        if design:
-            parts.append(f"design={design}")
+        # if design:
+        #     parts.append(f"design={design}")
         n = meta.get("n_participants")
         if n:
-            parts.append(f"N={n}")
+            parts.append(f"total patients={n}")
         morb = meta.get("morbidities")
         if morb:
             parts.append(f"population={morb}")
@@ -73,13 +73,13 @@ def format_study_context_block(src_study: str, tgt_study: str) -> str:
                 for m in meta.get("morbidities", "").split(";")
                 if m.strip()}
 
-    shared = _morb_set(src) & _morb_set(tgt)
-    if shared:
-        lines.append(
-            f"Both cohorts share study-level condition(s): {', '.join(sorted(shared))}. "
-            "A variable encoding any of these shared conditions will be "
-            "constant across both studies (zero variance) — classify such "
-            "pairs as IMPOSSIBLE regardless of structural similarity."
-        )
+    # shared = _morb_set(src) & _morb_set(tgt)
+    # if shared:
+    #     lines.append(
+    #         f"Both cohorts share study-level condition(s): {', '.join(sorted(shared))}. "
+    #         "A variable encoding any of these shared conditions will be "
+    #         "constant across both studies (zero variance) — classify such "
+    #         "pairs as IMPOSSIBLE regardless of structural similarity."
+    #     )
 
     return "\n".join(lines)

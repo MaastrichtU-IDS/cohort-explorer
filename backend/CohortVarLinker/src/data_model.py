@@ -252,7 +252,8 @@ class VariableNode(BaseModel):
     category_labels: List[str] = Field(default_factory=list, description="Categorical value labels")
     category_codes: List[str] = Field(default_factory=list, description="Categorical value codes")
     original_categories: List[str] = Field(default_factory=list, description="Original categorical values from source")
-    
+    category_pairs: List[str] = Field(default_factory=list, description="Categorical 'original=label' pairs for LLM serialization")
+
     # --- Statistical Properties ---
     statistical_type: Optional[StatisticalType] = Field(
         default=None, 
@@ -461,6 +462,7 @@ class VariableNode(BaseModel):
             "composite_code_labels": self.composite_code_labels,
             "sim_score": self.sim_score or 0.0,
             "min_value": self.statistics.min_val,
+            "data_type":self.data_type,
             "max_value": self.statistics.max_val,
         }
     
@@ -485,6 +487,7 @@ class VariableNode(BaseModel):
             "composite_code_labels": self.composite_code_labels,
             "sim_score": self.sim_score or 0.0,
             "min_value": self.statistics.min_val,
+            "data_type" :self.data_type,
             "max_value": self.statistics.max_val,
         }
     
@@ -504,6 +507,7 @@ class VariableNode(BaseModel):
             "visit": self.visit,
             role: self.name,  # "source": name or "target": name
             "stats_type": self.statistical_type.value if self.statistical_type else "",
+            "data_type" :self.data_type,
             "unit_label": self.unit,
         }
     
@@ -1086,7 +1090,7 @@ class VariableProfileRow(BaseModel):
     composite_code_omop_ids: Optional[str] = Field(default=None, description="Pipe-separated composite OMOP IDs")
     min_val: Optional[str] = Field(default=None, description="Minimum value (as string from SPARQL)")
     max_val: Optional[str] = Field(default=None, description="Maximum value (as string from SPARQL)")
-    
+    categories_pairs: Optional[str]  = Field(default=None, description="Pipe-separated (original value=label)")
     class Config:
         extra = "allow"
 
