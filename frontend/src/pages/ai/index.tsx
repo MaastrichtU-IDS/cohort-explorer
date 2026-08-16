@@ -11,14 +11,13 @@
 // Requires login. Alternative experimental layouts live under
 // /ai/alternatives (admins only, not linked from here on purpose).
 import React, {useEffect, useMemo, useState} from 'react';
-import {ChevronDown, ChevronLeft, ChevronUp, Compass, Home, MessageCircle, Search, Send, X} from 'react-feather';
+import {ChevronDown, ChevronLeft, ChevronUp, Compass, Home, MessageCircle, RefreshCw, Search, Send, X} from 'react-feather';
 import {useCohorts} from '@/components/CohortsContext';
 import {useCohortChat} from '@/components/ai/useCohortChat';
 import {withAiAccess} from '@/components/ai/guards';
 import {
   StarterKeyword,
   ConversationStarter,
-  buildSuggestions,
   fetchStarterKeywords,
   fetchConversationStarters,
   toBriefs
@@ -39,21 +38,26 @@ function CohortFocus({
   onToggle,
   onClear,
   open,
-  onOpenChange
+  onOpenChange,
+  maxCohorts
 }: {
   selected: string[];
   onToggle: (id: string) => void;
   onClear: () => void;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  maxCohorts?: number;
 }) {
   const {cohortsData} = useCohorts();
   const [query, setQuery] = useState('');
+  const atMax = maxCohorts !== undefined && selected.length >= maxCohorts;
 
   const briefs = useMemo(() => toBriefs(cohortsData || {}), [cohortsData]);
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return q ? briefs.filter(b => b.id.toLowerCase().includes(q)) : briefs;
+    // Without a search, show only cohorts that have variables uploaded — those
+    // are the ones with data to explore. Searching reaches the whole catalog.
+    return q ? briefs.filter(b => b.id.toLowerCase().includes(q)) : briefs.filter(b => b.variableCount > 0);
   }, [briefs, query]);
 
   return (
@@ -85,13 +89,20 @@ function CohortFocus({
           <div className="flex flex-wrap gap-1.5 max-h-48 overflow-y-auto">
             {filtered.map(b => {
               const active = selected.includes(b.id);
+              // When at the cap, non-selected cohorts can't be added (only removals).
+              const disabled = !active && atMax;
               return (
                 <button
                   key={b.id}
-                  onClick={() => onToggle(b.id)}
-                  title={b.studyType || undefined}
-                  className={`badge gap-1 cursor-pointer transition-all ${
-                    active ? 'border-blue-300 bg-blue-100 text-blue-900' : 'badge-outline hover:border-blue-300'
+                  onClick={() => !disabled && onToggle(b.id)}
+                  disabled={disabled}
+                  title={disabled ? `Maximum ${maxCohorts} cohorts` : b.studyType || undefined}
+                  className={`badge gap-1 transition-all ${
+                    active
+                      ? 'border-blue-300 bg-blue-100 text-blue-900 cursor-pointer'
+                      : disabled
+                        ? 'badge-outline opacity-40 cursor-not-allowed'
+                        : 'badge-outline hover:border-blue-300 cursor-pointer'
                   }`}
                 >
                   {b.id}
@@ -103,6 +114,14 @@ function CohortFocus({
               <span className="text-xs text-base-content/40 py-2">No cohorts match “{query}”</span>
             )}
           </div>
+          {atMax && (
+            <p className="text-[11px] text-blue-900/70 mt-2">Maximum {maxCohorts} cohorts selected.</p>
+          )}
+          {!query.trim() && (
+            <p className="text-[11px] text-base-content/40 mt-2">
+              Showing cohorts with uploaded variables. Search to find any cohort in the catalog.
+            </p>
+          )}
           {selected.length > 0 && (
             <button className="btn btn-ghost btn-xs mt-2" onClick={onClear}>
               Clear selection
@@ -122,6 +141,11 @@ function CohortFocus({
 // (readiness drives the shimmer nudge on the Ask button).
 const COHORT_CENTRIC_INTENTS = new Set(['compare', 'summarize']);
 const FREE_TEXT_INTENTS = new Set(['identify', 'hypothesis']);
+// Intents whose question needs no topic/criteria input at all.
+const NO_TOPIC_INTENTS = new Set(['compare', 'summarize']);
+// Compare requires between 2 and 4 cohorts.
+const COMPARE_MIN = 2;
+const COMPARE_MAX = 4;
 
 function intentReadiness(
   intentId: string | null,
@@ -134,12 +158,9 @@ function intentReadiness(
         ? {ready: true}
         : {ready: false, hint: 'Describe your criteria above to search for matching cohorts.'};
     case 'compare':
-      return nCohorts >= 2
+      return nCohorts >= COMPARE_MIN
         ? {ready: true}
-        : {
-            ready: false,
-            hint: 'Tip: select at least two cohorts above — as is, the comparison will span the whole catalog.'
-          };
+        : {ready: false, hint: `Select ${COMPARE_MIN} to ${COMPARE_MAX} cohorts to compare.`};
     case 'summarize':
       return nCohorts >= 1
         ? {ready: true}
@@ -205,36 +226,40 @@ function GuidedExploration({
 
   const isResearch = intentId === 'research';
   const freeTextOnly = intentId !== null && FREE_TEXT_INTENTS.has(intentId);
+  const noTopic = intentId !== null && NO_TOPIC_INTENTS.has(intentId);
   // Keyword chips for research (fallback to the generic topics until the
   // starter pool has been grouped); generic topic chips otherwise.
   const chips = isResearch && keywords.length > 0 ? keywords.map(k => k.keyword) : topicBank;
   const {ready, hint} = intentReadiness(intentId, effectiveTopic, selected.length);
+  // Hard gate (button not clickable), as opposed to the soft readiness hint:
+  // Compare requires at least COMPARE_MIN cohorts.
+  const hardBlocked = intentId === 'compare' && selected.length < COMPARE_MIN;
 
   // Step 1 — pick an intent. The cards are the only thing on screen.
   if (!activeIntent) {
     return (
-      <div className="max-w-3xl mx-auto px-4 pb-10">
-        <div className="grid sm:grid-cols-2 gap-3">
+      <div className="max-w-4xl mx-auto px-4 pb-10">
+        <div className="grid sm:grid-cols-2 gap-5">
           {guidedIntents.map(intent => {
             const Icon = intent.icon;
             return (
               <button
                 key={intent.id}
                 onClick={() => selectIntent(intent.id)}
-                className="rounded-xl border border-base-300 bg-base-100 p-4 text-left transition-all hover:border-blue-300 hover:shadow-sm"
+                className="rounded-2xl border border-base-300 bg-base-100 p-6 text-left transition-all hover:border-blue-300 hover:shadow-md"
               >
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="inline-flex p-1.5 rounded-lg bg-base-200">
-                    <Icon size={16} />
+                <div className="flex items-center gap-3 mb-2">
+                  <span className="inline-flex p-2.5 rounded-xl bg-base-200">
+                    <Icon size={22} />
                   </span>
-                  <span className="font-semibold text-sm">{intent.label}</span>
+                  <span className="font-semibold text-lg">{intent.label}</span>
                 </div>
-                <p className="text-xs text-base-content/60 leading-relaxed">{intent.blurb}</p>
+                <p className="text-sm text-base-content/60 leading-relaxed">{intent.blurb}</p>
               </button>
             );
           })}
         </div>
-        <p className="text-center mt-6">
+        <p className="text-center mt-8">
           <LocalModelNote />
         </p>
       </div>
@@ -257,62 +282,65 @@ function GuidedExploration({
         </div>
       </div>
 
-      {/* Topic / criteria / hypothesis / keywords */}
-      <div className={freeTextOnly ? 'rounded-xl ring-2 ring-blue-300 p-4 bg-base-100' : undefined}>
-        <div className="text-sm font-semibold text-base-content/60 uppercase tracking-wide mb-3 text-center">
-          {activeIntent.topicLabel}
-          {isResearch && keywords.length > 0 && (
-            <span className="normal-case font-normal text-base-content/40"> — suggested themes</span>
+      {/* Topic / criteria / hypothesis / keywords — omitted for intents that
+          need no topic (Compare, Summarize). */}
+      {!noTopic && (
+        <div className={freeTextOnly ? 'rounded-xl ring-2 ring-blue-300 p-4 bg-base-100' : undefined}>
+          <div className="text-sm font-semibold text-base-content/60 uppercase tracking-wide mb-3 text-center">
+            {activeIntent.topicLabel}
+            {isResearch && keywords.length > 0 && (
+              <span className="normal-case font-normal text-base-content/40"> — suggested themes</span>
+            )}
+          </div>
+          {/* Criteria/hypothesis are free text of the user's own; chips only get in the way there. */}
+          {!freeTextOnly && (
+            <div className="flex flex-wrap justify-center gap-1.5 mb-2">
+              {chips.map(t => (
+                <button
+                  key={t}
+                  onClick={() => {
+                    setTopic(topic === t ? '' : t);
+                    setCustomTopic('');
+                  }}
+                  className={`px-3 py-1 rounded-full text-sm border transition-all ${
+                    topic === t
+                      ? 'border-blue-300 bg-blue-100 text-blue-900 font-medium'
+                      : 'border-base-300 hover:border-blue-300 text-base-content/70'
+                  }`}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+          )}
+          {intentId === 'hypothesis' ? (
+            <textarea
+              key={intentId}
+              autoFocus
+              rows={2}
+              className="textarea textarea-bordered w-full"
+              placeholder={activeIntent.topicPlaceholder}
+              value={customTopic}
+              onChange={e => {
+                setCustomTopic(e.target.value);
+                if (e.target.value.trim()) setTopic('');
+              }}
+            />
+          ) : (
+            <input
+              key={intentId || 'none'}
+              autoFocus={freeTextOnly}
+              className="input input-bordered w-full"
+              placeholder={activeIntent.topicPlaceholder}
+              value={customTopic}
+              onChange={e => {
+                setCustomTopic(e.target.value);
+                if (e.target.value.trim()) setTopic('');
+              }}
+            />
           )}
         </div>
-        {/* Criteria/hypothesis are free text of the user's own; chips only get in the way there. */}
-        {!freeTextOnly && (
-          <div className="flex flex-wrap justify-center gap-1.5 mb-2">
-            {chips.map(t => (
-              <button
-                key={t}
-                onClick={() => {
-                  setTopic(topic === t ? '' : t);
-                  setCustomTopic('');
-                }}
-                className={`px-3 py-1 rounded-full text-sm border transition-all ${
-                  topic === t
-                    ? 'border-blue-300 bg-blue-100 text-blue-900 font-medium'
-                    : 'border-base-300 hover:border-blue-300 text-base-content/70'
-                }`}
-              >
-                {t}
-              </button>
-            ))}
-          </div>
-        )}
-        {intentId === 'hypothesis' ? (
-          <textarea
-            key={intentId}
-            autoFocus
-            rows={2}
-            className="textarea textarea-bordered w-full"
-            placeholder={activeIntent.topicPlaceholder}
-            value={customTopic}
-            onChange={e => {
-              setCustomTopic(e.target.value);
-              if (e.target.value.trim()) setTopic('');
-            }}
-          />
-        ) : (
-          <input
-            key={intentId || 'none'}
-            autoFocus={freeTextOnly}
-            className="input input-bordered w-full"
-            placeholder={activeIntent.topicPlaceholder}
-            value={customTopic}
-            onChange={e => {
-              setCustomTopic(e.target.value);
-              if (e.target.value.trim()) setTopic('');
-            }}
-          />
-        )}
-      </div>
+      )}
 
       {/* Cohort focus */}
       <CohortFocus
@@ -321,6 +349,7 @@ function GuidedExploration({
         onClear={onClearCohorts}
         open={cohortsOpen}
         onOpenChange={setCohortsOpen}
+        maxCohorts={intentId === 'compare' ? COMPARE_MAX : undefined}
       />
 
       {/* Assembled question */}
@@ -328,8 +357,8 @@ function GuidedExploration({
         <div className="text-xs font-semibold text-blue-900 mb-1.5">Your question</div>
         <p className="text-sm text-base-content/80 leading-relaxed mb-3">{assembled}</p>
         <button
-          className={`btn w-full gap-2 bg-blue-100 text-blue-900 hover:bg-blue-200 border-blue-300 ${ready && !blocked ? 'shimmer-nudge' : ''}`}
-          disabled={blocked}
+          className={`btn w-full gap-2 bg-blue-100 text-blue-900 hover:bg-blue-200 border-blue-300 ${ready && !blocked && !hardBlocked ? 'shimmer-nudge' : ''}`}
+          disabled={blocked || hardBlocked}
           onClick={() => onAsk(assembled)}
         >
           <Send size={15} /> Ask iCARE-AI
@@ -347,20 +376,20 @@ function GuidedExploration({
 // ---- Main layout -----------------------------------------------------------
 
 function ICareAI() {
-  const {cohortsData, userEmail} = useCohorts();
+  const {userEmail} = useCohorts();
   const chat = useCohortChat();
   const [mode, setMode] = useState<'guided' | 'chat'>('chat');
   const [starters, setStarters] = useState<ConversationStarter[]>([]);
+  // Bumped to remount GuidedExploration back to its landing (step 1).
+  const [guidedKey, setGuidedKey] = useState(0);
 
-  // Random selection of conversation starters (fresh per visit).
+  // Random selection of conversation starters (fresh per visit). "More
+  // starters" re-fetches for a new random 4.
+  const shuffleStarters = () => fetchConversationStarters(4).then(setStarters);
   useEffect(() => {
-    fetchConversationStarters(6).then(setStarters);
+    shuffleStarters();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const followUps = useMemo(
-    () => buildSuggestions(cohortsData || {}, chat.selected).slice(0, 3),
-    [cohortsData, chat.selected]
-  );
 
   const blocked = !chat.enabled || !userEmail;
 
@@ -369,9 +398,24 @@ function ICareAI() {
     chat.send(text);
   };
 
+  // Return to the chat landing, clearing any ongoing conversation. Used by both
+  // the Home button and the Chat mode button (they behave identically).
+  const goHome = () => {
+    chat.reset();
+    setMode('chat');
+  };
+
+  // Jump to the Guided Exploration landing (intent cards), resetting any
+  // in-progress wizard step and cohort selection.
+  const goGuided = () => {
+    chat.clearSelection();
+    setGuidedKey(k => k + 1);
+    setMode('guided');
+  };
+
   const modeButton = (m: 'guided' | 'chat', label: string, Icon: any) => (
     <button
-      onClick={() => setMode(m)}
+      onClick={() => (m === 'chat' ? goHome() : goGuided())}
       className={`flex items-center gap-2.5 px-8 py-3.5 rounded-2xl border-2 text-base font-semibold transition-all ${
         mode === m
           ? 'border-blue-300 bg-blue-100 text-blue-900 shadow-md'
@@ -390,10 +434,7 @@ function ICareAI() {
           <button
             className="btn btn-ghost btn-sm gap-1.5"
             title="Back to the iCARE-AI landing page"
-            onClick={() => {
-              chat.reset();
-              setMode('chat');
-            }}
+            onClick={goHome}
           >
             <Home size={15} /> Home
           </button>
@@ -423,6 +464,7 @@ function ICareAI() {
 
         {mode === 'guided' ? (
           <GuidedExploration
+            key={guidedKey}
             selected={chat.selected}
             onToggleCohort={chat.toggleCohort}
             onClearCohorts={chat.clearSelection}
@@ -474,6 +516,16 @@ function ICareAI() {
                 ))}
               </div>
             )}
+            {starters.length > 0 && (
+              <div className="text-center mt-3">
+                <button
+                  onClick={shuffleStarters}
+                  className="inline-flex items-center gap-1 text-xs text-base-content/50 hover:text-blue-900 transition-colors"
+                >
+                  <RefreshCw size={12} /> More starters
+                </button>
+              </div>
+            )}
             {chat.error && (
               <div className="alert alert-error mt-4 text-sm">
                 <span>{chat.error}</span>
@@ -493,22 +545,11 @@ function ICareAI() {
                 )}
               </div>
             </div>
-            <div className="border-t border-base-300 bg-base-100 px-4 md:px-8 py-3">
+            <div className="bg-base-200 px-4 md:px-8 pb-3">
               <div className="max-w-3xl mx-auto">
-                {!chat.isStreaming && (
-                  <div className="flex gap-1.5 mb-2 overflow-x-auto pb-0.5">
-                    {followUps.map(s => (
-                      <button
-                        key={s}
-                        disabled={blocked}
-                        onClick={() => chat.send(s)}
-                        className="shrink-0 px-2.5 py-1 rounded-full border border-base-300 bg-base-100 text-xs text-base-content/70 hover:border-blue-300 hover:text-blue-900 transition-all disabled:opacity-50"
-                      >
-                        {s}
-                      </button>
-                    ))}
-                  </div>
-                )}
+                {/* In an ongoing conversation this is a follow-up field: no
+                    placeholder, no suggestion chips — just continue the thread.
+                    Any pinned cohort scope stays visible as context. */}
                 {chat.selected.length > 0 && (
                   <div className="flex flex-wrap gap-1 mb-2">
                     {chat.selected.map(id => (
@@ -528,15 +569,8 @@ function ICareAI() {
                   onStop={chat.stop}
                   isStreaming={chat.isStreaming}
                   disabled={blocked}
-                  placeholder={
-                    chat.selected.length
-                      ? `Ask about ${chat.selected.slice(0, 2).join(', ')}${chat.selected.length > 2 ? '…' : ''}`
-                      : 'Ask about the cohorts…'
-                  }
+                  placeholder=""
                 />
-                <div className="text-center mt-1.5">
-                  <LocalModelNote />
-                </div>
               </div>
             </div>
           </div>

@@ -86,6 +86,28 @@ export interface GuidedIntent {
 
 export const guidedIntents: GuidedIntent[] = [
   {
+    id: 'hypothesis',
+    label: 'Explore a Hypothesis',
+    icon: HelpCircle,
+    blurb: "Explore your hypothesis' suitability to the available cohorts.",
+    topicLabel: 'Your hypothesis',
+    topicPlaceholder: '',
+    template: (c, t) =>
+      t
+        ? `I want to explore this hypothesis: "${t}". ${c ? `Focusing on ${c}, assess` : 'Assess'} which cohorts and variables could support investigating it, suggest a study design, and note limitations.`
+        : `Help me formulate a hypothesis that ${c ? `${c} could` : 'the cohorts in this catalog could'} realistically support investigating.`
+  },
+  {
+    id: 'research',
+    label: 'Formulate Research Questions',
+    icon: Star,
+    blurb: 'Generate research questions the data could answer.',
+    topicLabel: 'Focus on a topic (optional)',
+    topicPlaceholder: '…or type your own topic',
+    template: (c, t) =>
+      `Suggest research questions that ${c ? `the ${c} cohort(s)` : 'these cohorts'} could answer${t ? ` about ${t}` : ''}, and for each note which variables would be involved.`
+  },
+  {
     id: 'identify',
     label: 'Find Cohorts',
     icon: Filter,
@@ -101,35 +123,13 @@ export const guidedIntents: GuidedIntent[] = [
     id: 'compare',
     label: 'Compare Cohorts',
     icon: Columns,
-    blurb: 'Put two or more cohorts side by side.',
-    topicLabel: 'Focus on a topic (optional)',
-    topicPlaceholder: '…or type your own topic',
+    blurb: 'Put two to four cohorts side by side.',
+    topicLabel: '',
+    topicPlaceholder: '',
     template: (c, t) =>
       c
-        ? `Compare ${c}: study design, population, size and what they measure${t ? `, focusing on ${t}` : ''}. Highlight the most important differences.`
-        : `Compare the cohorts in this catalog${t ? `, focusing on ${t}` : ''}. Highlight the most important differences and suggest which are most similar.`
-  },
-  {
-    id: 'hypothesis',
-    label: 'Explore a Hypothesis',
-    icon: HelpCircle,
-    blurb: "Explore your hypothesis' suitability to the available cohorts.",
-    topicLabel: 'Your hypothesis',
-    topicPlaceholder: 'e.g. beta-blocker use is associated with slower cognitive decline in the elderly',
-    template: (c, t) =>
-      t
-        ? `I want to explore this hypothesis: "${t}". ${c ? `Focusing on ${c}, assess` : 'Assess'} which cohorts and variables could support investigating it, suggest a study design, and note limitations.`
-        : `Help me formulate a hypothesis that ${c ? `${c} could` : 'the cohorts in this catalog could'} realistically support investigating.`
-  },
-  {
-    id: 'research',
-    label: 'Formulate Research Questions',
-    icon: Star,
-    blurb: 'Generate research questions the data could answer.',
-    topicLabel: 'Focus on a topic (optional)',
-    topicPlaceholder: '…or type your own topic',
-    template: (c, t) =>
-      `Suggest research questions that ${c ? `the ${c} cohort(s)` : 'these cohorts'} could answer${t ? ` about ${t}` : ''}, and for each note which variables would be involved.`
+        ? `Compare ${c}: study design, population, size and what they measure. Highlight the most important differences.`
+        : `Compare the cohorts in this catalog. Highlight the most important differences and suggest which are most similar.`
   },
   {
     id: 'variables',
@@ -148,12 +148,12 @@ export const guidedIntents: GuidedIntent[] = [
     label: 'Summarize a Cohort',
     icon: FileText,
     blurb: 'Get a concise overview of a cohort or the whole catalog.',
-    topicLabel: 'Focus on a topic (optional)',
-    topicPlaceholder: '…or type your own topic',
+    topicLabel: '',
+    topicPlaceholder: '',
     template: (c, t) =>
       c
-        ? `Summarize ${c}${t ? ` with a focus on ${t}` : ''}: study design, population, and key variables.`
-        : `Give me an overview of the cohort catalog${t ? ` with a focus on ${t}` : ''}.`
+        ? `Summarize ${c}: study design, population, and key variables.`
+        : `Give me an overview of the cohort catalog.`
   }
 ];
 
