@@ -31,6 +31,26 @@ import {
   MessageList
 } from '@/components/ai/ui';
 
+// Distinct color per keyword theme (deterministic: same keyword -> same color).
+// Full class strings so Tailwind's JIT keeps them.
+const KEYWORD_COLORS = [
+  'bg-blue-100 text-blue-900 border-blue-200',
+  'bg-emerald-100 text-emerald-900 border-emerald-200',
+  'bg-amber-100 text-amber-900 border-amber-200',
+  'bg-rose-100 text-rose-900 border-rose-200',
+  'bg-violet-100 text-violet-900 border-violet-200',
+  'bg-cyan-100 text-cyan-900 border-cyan-200',
+  'bg-orange-100 text-orange-900 border-orange-200',
+  'bg-teal-100 text-teal-900 border-teal-200',
+  'bg-fuchsia-100 text-fuchsia-900 border-fuchsia-200',
+  'bg-lime-100 text-lime-900 border-lime-200'
+];
+function keywordColor(kw: string): string {
+  let h = 0;
+  for (let i = 0; i < kw.length; i++) h = (h * 31 + kw.charCodeAt(i)) >>> 0;
+  return KEYWORD_COLORS[h % KEYWORD_COLORS.length];
+}
+
 // ---- Cohort focus: collapsible picker ---------------------------------------
 
 function CohortFocus({
@@ -146,6 +166,8 @@ const NO_TOPIC_INTENTS = new Set(['compare', 'summarize']);
 // Compare requires between 2 and 4 cohorts.
 const COMPARE_MIN = 2;
 const COMPARE_MAX = 4;
+// Topic chips are multi-select, capped like the cohort picker.
+const MAX_TOPICS = 5;
 
 function intentReadiness(
   intentId: string | null,
@@ -192,10 +214,14 @@ function GuidedExploration({
   blocked: boolean;
 }) {
   const [intentId, setIntentId] = useState<string | null>(null);
-  const [topic, setTopic] = useState('');
+  // Up to MAX_TOPICS chip selections, plus an optional free-text topic.
+  const [topics, setTopics] = useState<string[]>([]);
   const [customTopic, setCustomTopic] = useState('');
   const [cohortsOpen, setCohortsOpen] = useState(false);
   const [keywords, setKeywords] = useState<StarterKeyword[]>([]);
+
+  const toggleTopic = (t: string) =>
+    setTopics(prev => (prev.includes(t) ? prev.filter(x => x !== t) : prev.length >= MAX_TOPICS ? prev : [...prev, t]));
 
   // Thematic keywords derived from the conversation-starter pool.
   useEffect(() => {
@@ -204,7 +230,7 @@ function GuidedExploration({
 
   const selectIntent = (id: string) => {
     setIntentId(id);
-    setTopic('');
+    setTopics([]);
     setCustomTopic('');
     // Cohort-centric intents make the cohort picker the natural next step.
     setCohortsOpen(COHORT_CENTRIC_INTENTS.has(id));
@@ -212,14 +238,16 @@ function GuidedExploration({
 
   const goBack = () => {
     setIntentId(null);
-    setTopic('');
+    setTopics([]);
     setCustomTopic('');
     setCohortsOpen(false);
     onClearCohorts();
   };
 
   const activeIntent = guidedIntents.find(i => i.id === intentId) || null;
-  const effectiveTopic = customTopic.trim() || topic;
+  // Selected chip topics plus any free-text topic, as one comma-joined string.
+  const effectiveTopic = [...topics, customTopic.trim()].filter(Boolean).join(', ');
+  const atTopicMax = topics.length >= MAX_TOPICS;
   const assembled = activeIntent
     ? activeIntent.template(joinCohortLabel(selected), effectiveTopic)
     : '';
@@ -303,26 +331,34 @@ function GuidedExploration({
             {isResearch && keywords.length > 0 && (
               <span className="normal-case font-normal text-base-content/40"> · suggested themes</span>
             )}
+            {!freeTextOnly && (
+              <span className="normal-case font-normal text-base-content/40"> · pick up to {MAX_TOPICS}</span>
+            )}
           </div>
           {/* Criteria/hypothesis are free text of the user's own; chips only get in the way there. */}
           {!freeTextOnly && (
             <div className="flex flex-wrap justify-center gap-1.5 mb-2">
-              {chips.map(t => (
-                <button
-                  key={t}
-                  onClick={() => {
-                    setTopic(topic === t ? '' : t);
-                    setCustomTopic('');
-                  }}
-                  className={`px-3 py-1 rounded-full text-sm border transition-all ${
-                    topic === t
-                      ? 'border-blue-300 bg-blue-100 text-blue-900 font-medium'
-                      : 'border-base-300 hover:border-blue-300 text-base-content/70'
-                  }`}
-                >
-                  {t}
-                </button>
-              ))}
+              {chips.map(t => {
+                const active = topics.includes(t);
+                const disabled = !active && atTopicMax;
+                return (
+                  <button
+                    key={t}
+                    onClick={() => toggleTopic(t)}
+                    disabled={disabled}
+                    title={disabled ? `Up to ${MAX_TOPICS} topics` : undefined}
+                    className={`px-3 py-1 rounded-full text-sm border transition-all ${
+                      active
+                        ? 'border-blue-300 bg-blue-100 text-blue-900 font-medium'
+                        : disabled
+                          ? 'border-base-300 text-base-content/30 cursor-not-allowed'
+                          : 'border-base-300 hover:border-blue-300 text-base-content/70'
+                    }`}
+                  >
+                    {t}
+                  </button>
+                );
+              })}
             </div>
           )}
           {intentId === 'hypothesis' ? (
@@ -333,10 +369,7 @@ function GuidedExploration({
               className="textarea textarea-bordered w-full"
               placeholder={activeIntent.topicPlaceholder}
               value={customTopic}
-              onChange={e => {
-                setCustomTopic(e.target.value);
-                if (e.target.value.trim()) setTopic('');
-              }}
+              onChange={e => setCustomTopic(e.target.value)}
               onKeyDown={onInputKeyDown}
             />
           ) : (
@@ -346,10 +379,7 @@ function GuidedExploration({
               className="input input-bordered w-full"
               placeholder={activeIntent.topicPlaceholder}
               value={customTopic}
-              onChange={e => {
-                setCustomTopic(e.target.value);
-                if (e.target.value.trim()) setTopic('');
-              }}
+              onChange={e => setCustomTopic(e.target.value)}
               onKeyDown={onInputKeyDown}
             />
           )}
@@ -506,6 +536,11 @@ function ICareAI() {
               <LocalModelNote />
             </p>
             {starters.length > 0 && (
+              <p className="text-center text-xs text-base-content/50 mb-2">
+                Some example questions (auto generated)
+              </p>
+            )}
+            {starters.length > 0 && (
               <div className="grid sm:grid-cols-2 gap-4">
                 {starters.map(q => (
                   <button
@@ -518,10 +553,7 @@ function ICareAI() {
                     {q.keywords && q.keywords.length > 0 && (
                       <span className="flex flex-wrap gap-1">
                         {q.keywords.map(kw => (
-                          <span
-                            key={kw}
-                            className="px-2 py-0.5 rounded-full text-[11px] bg-blue-100 text-blue-900 border border-blue-200"
-                          >
+                          <span key={kw} className={`px-2 py-0.5 rounded-full text-[11px] border ${keywordColor(kw)}`}>
                             {kw}
                           </span>
                         ))}
