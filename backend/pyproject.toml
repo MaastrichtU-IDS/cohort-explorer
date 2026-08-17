@@ -47,7 +47,9 @@ dependencies = [
     # NOTE: dependencies for mapping-generation are below
     "tqdm",
     "torch",
-    "transformers",
+    # transformers >=4.56 renamed the from_pretrained kwarg torch_dtype -> dtype,
+    # which the CohortVarLinker embedding code (from Komal) relies on.
+    "transformers >=4.56",
     "python-dotenv",
     "qdrant-client",
     "langchain >=0.2.0,<0.3",
@@ -67,7 +69,8 @@ dependencies = [
     "fastembed",
     # "fastembed-gpu",
     "onnxruntime <1.20",  # Pin to version compatible with Python 3.10
-    "adapters",
+    # "adapters",  # removed: only a commented-out import used it, and it pinned
+    # transformers to ~4.45 (blocking the dtype= kwarg above).
     "langdetect",
     "rank_bm25",
     "json-repair",
