@@ -4,6 +4,7 @@ Called by backend/src/mapping.py -> POST /api/generate-mapping.
 
 import glob
 import json
+import logging
 import os
 import threading
 import time
@@ -133,6 +134,8 @@ def _resolve_concepts_file() -> str:
     return path  # let OmopGraphNX raise against the configured path
 
 
+
+
 def _get_mapper(embed_model: str, embedding_mode: str, mapping_mode: str,
                 llm_model: Optional[str]) -> StudyMapper:
     """Build the StudyMapper once per process, per configuration. Loading the
@@ -158,8 +161,25 @@ def _get_mapper(embed_model: str, embedding_mode: str, mapping_mode: str,
                 f"{settings.vector_db_path}. Build it once with recreate_db=True."
             )
 
-        omop_graph = (None if mapping_mode == MappingType.NE.value
-                      else OmopGraphNX(csv_file_path=_resolve_concepts_file()))
+        # Prefer the prebuilt graph pickle (settings.omop_graph_pickle_path,
+        # which resolves to <CohortVarLinker>/data/graph_nx.pkl.gz and honours
+        # the OMOP_GRAPH_PICKLE_PATH env override); only build from the concepts
+        # CSV when no pickle is available.
+        if mapping_mode == MappingType.NE.value:
+            omop_graph = None
+        else:
+            graph_file = settings.omop_graph_pickle_path
+            if os.path.exists(graph_file):
+                logging.info("Loading prebuilt OMOP graph from %s", graph_file)
+                omop_graph = OmopGraphNX(output_file=graph_file)
+            else:
+                logging.info(
+                    "No prebuilt OMOP graph pickle at %s; building from concepts CSV",
+                    graph_file,
+                )
+                omop_graph = OmopGraphNX(
+                    csv_file_path=_resolve_concepts_file(), output_file=graph_file
+                )
 
         _mapper_state[key] = StudyMapper(
             vector_db=vector_db,
