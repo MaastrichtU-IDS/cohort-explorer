@@ -1,7 +1,8 @@
 'use client';
 
 import React, {useEffect, useState} from 'react';
-import {Settings, Shield, AlertTriangle} from 'react-feather';
+import Link from 'next/link';
+import {Settings, Shield, AlertTriangle, Star, ArrowRight} from 'react-feather';
 import {useCohorts} from '@/components/CohortsContext';
 import {apiUrl} from '@/utils';
 
@@ -10,6 +11,8 @@ export default function AdminSettingsPage() {
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
   const [timechfTesting, setTimechfTesting] = useState(false);
+  const [aiNavEnabled, setAiNavEnabled] = useState(false);
+  const [togglingAiNav, setTogglingAiNav] = useState(false);
   const [toggling, setToggling] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -37,6 +40,7 @@ export default function AdminSettingsPage() {
       .then(data => {
         if (data) {
           setTimechfTesting(data.timechf_testing_enabled);
+          setAiNavEnabled(!!data.ai_nav_enabled);
         }
       })
       .catch(err => {
@@ -64,6 +68,27 @@ export default function AdminSettingsPage() {
       setError(err.message);
     } finally {
       setToggling(false);
+    }
+  };
+
+  const handleToggleAiNav = async () => {
+    setTogglingAiNav(true);
+    setError(null);
+    try {
+      const res = await fetch(`${apiUrl}/admin/toggle-ai-nav`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || 'Toggle failed');
+      }
+      const data = await res.json();
+      setAiNavEnabled(!!data.ai_nav_enabled);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setTogglingAiNav(false);
     }
   };
 
@@ -144,6 +169,55 @@ export default function AdminSettingsPage() {
               {toggling && <span className="loading loading-spinner loading-sm ml-2"></span>}
             </label>
           </div>
+        </div>
+      </div>
+
+      {/* iCARE-AI nav toggle */}
+      <div className="card bg-base-200 shadow-md mt-6">
+        <div className="card-body">
+          <h2 className="card-title text-lg flex items-center gap-2">
+            <Star size={18} /> iCARE-AI
+          </h2>
+          <p className="text-sm text-base-content/70 mb-4">
+            Show or hide the iCARE-AI button in the navigation bar for all users.
+          </p>
+
+          <div className="form-control">
+            <label className="label cursor-pointer justify-start gap-4">
+              <input
+                type="checkbox"
+                className={`toggle toggle-primary toggle-lg ${togglingAiNav ? 'opacity-50' : ''}`}
+                checked={aiNavEnabled}
+                onChange={handleToggleAiNav}
+                disabled={togglingAiNav}
+              />
+              <div>
+                <span className="label-text text-base font-medium">Show iCARE-AI in the navigation bar</span>
+                <p className="text-xs text-base-content/50 mt-1">
+                  {aiNavEnabled
+                    ? 'Enabled. The iCARE-AI button is visible to users.'
+                    : 'Disabled. The iCARE-AI button is hidden.'}
+                </p>
+              </div>
+              {togglingAiNav && <span className="loading loading-spinner loading-sm ml-2"></span>}
+            </label>
+          </div>
+
+          <div className="divider my-2"></div>
+
+          <Link
+            href="/ai/starters"
+            className="flex items-center justify-between gap-3 rounded-lg border border-base-300 bg-base-100 px-4 py-3 hover:border-primary transition-colors"
+          >
+            <div>
+              <div className="font-medium">Manage conversation starters</div>
+              <p className="text-xs text-base-content/60 mt-0.5">
+                Add, delete, and generate the example questions shown on the iCARE-AI chat page, and
+                regroup them into keyword themes.
+              </p>
+            </div>
+            <ArrowRight size={18} className="shrink-0 text-primary" />
+          </Link>
         </div>
       </div>
     </div>

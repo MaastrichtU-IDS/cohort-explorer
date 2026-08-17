@@ -1,6 +1,8 @@
 """Admin settings endpoints — accessible only to users in the ADMINS list."""
 
+import json
 import logging
+import os
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -18,6 +20,32 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 
 TIMECHF_TEST_EMAIL = "wei.wei@maastrichtuniversity.nl"
 TIMECHF_COHORT_ID = "TIME-CHF"
+
+# Persisted app settings toggled from the admin page (shared across workers via
+# a small JSON file in the data folder).
+APP_SETTINGS_FILE = os.path.join(settings.data_folder, "app_settings.json")
+APP_SETTINGS_DEFAULTS = {
+    # Whether the "iCARE-AI" nav button is shown to users.
+    "ai_nav_enabled": False,
+}
+
+
+def _load_app_settings() -> dict:
+    result = dict(APP_SETTINGS_DEFAULTS)
+    try:
+        with open(APP_SETTINGS_FILE) as fh:
+            stored = json.load(fh)
+        if isinstance(stored, dict):
+            result.update({k: stored[k] for k in APP_SETTINGS_DEFAULTS if k in stored})
+    except Exception:
+        pass
+    return result
+
+
+def _save_app_settings(values: dict) -> None:
+    os.makedirs(os.path.dirname(APP_SETTINGS_FILE), exist_ok=True)
+    with open(APP_SETTINGS_FILE, "w") as fh:
+        json.dump(values, fh, indent=2)
 
 
 def _require_admin(user: dict[str, str]) -> str:
@@ -55,7 +83,30 @@ def get_admin_settings(user: Any = Depends(get_current_user)) -> dict:
 
     return {
         "timechf_testing_enabled": timechf_testing,
+        "ai_nav_enabled": _load_app_settings()["ai_nav_enabled"],
     }
+
+
+# ------------------------------------------------------------------
+# GET /admin/public-settings — app settings any logged-in user may read
+# (used by the nav bar to decide whether to show the iCARE-AI button)
+# ------------------------------------------------------------------
+@router.get("/public-settings")
+def get_public_settings(user: Any = Depends(get_current_user)) -> dict:
+    return {"ai_nav_enabled": _load_app_settings()["ai_nav_enabled"]}
+
+
+# ------------------------------------------------------------------
+# POST /admin/toggle-ai-nav — show/hide the iCARE-AI nav button
+# ------------------------------------------------------------------
+@router.post("/toggle-ai-nav")
+def toggle_ai_nav(user: Any = Depends(get_current_user)) -> dict:
+    admin_email = _require_admin(user)
+    values = _load_app_settings()
+    values["ai_nav_enabled"] = not values["ai_nav_enabled"]
+    _save_app_settings(values)
+    logging.info("Admin %s set ai_nav_enabled=%s", admin_email, values["ai_nav_enabled"])
+    return {"ai_nav_enabled": values["ai_nav_enabled"]}
 
 
 # ------------------------------------------------------------------

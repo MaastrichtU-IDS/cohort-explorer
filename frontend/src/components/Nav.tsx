@@ -3,7 +3,7 @@
 import React, {useState, useEffect, useMemo, useCallback, useRef} from 'react';
 import Link from 'next/link';
 import {useRouter} from 'next/router';
-import {LogIn, LogOut, Compass, Upload, HardDrive, Map, Box, FileText, Settings} from 'react-feather';
+import {LogIn, LogOut, Compass, Upload, HardDrive, Map, Box, FileText, Settings, Star} from 'react-feather';
 import {useCohorts} from '@/components/CohortsContext';
 import {DarkThemeIcon, LightThemeIcon} from '@/components/Icons';
 import {apiUrl} from '@/utils';
@@ -58,6 +58,7 @@ export function Nav() {
   const [showAddCohortModal, setShowAddCohortModal] = useState(false);
   const [cohortSearchQuery, setCohortSearchQuery] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
+  const [aiNavEnabled, setAiNavEnabled] = useState(false);
   const notificationRef = React.useRef<HTMLDivElement>(null);
 
   // Check admin status
@@ -66,6 +67,15 @@ export function Nav() {
     fetch(`${apiUrl}/admin/check`, {credentials: 'include'})
       .then(res => res.ok ? res.json() : null)
       .then(data => { if (data) setIsAdmin(data.is_admin); })
+      .catch(() => {});
+  }, [userEmail]);
+
+  // Whether the iCARE-AI nav button is enabled (admin-controlled toggle).
+  useEffect(() => {
+    if (!userEmail) return;
+    fetch(`${apiUrl}/admin/public-settings`, {credentials: 'include'})
+      .then(res => res.ok ? res.json() : null)
+      .then(data => { if (data) setAiNavEnabled(!!data.ai_nav_enabled); })
       .catch(() => {});
   }, [userEmail]);
 
@@ -778,6 +788,14 @@ export function Nav() {
               <span className="text-base">My DCRs</span>
             </Link>
           </li>
+          {aiNavEnabled && (
+            <li>
+              <Link href="/ai" className={pathname === '/ai' || pathname.startsWith('/ai/') ? 'active' : ''}>
+                <Star size={24} />
+                <span className="text-base">iCARE-AI</span>
+              </Link>
+            </li>
+          )}
           <li>
             <Link href="/docs_store" className={pathname === '/docs_store' ? 'active' : ''}>
               <FileText size={24} />
@@ -794,6 +812,7 @@ export function Nav() {
             <li><Link href="/cohorts">Explore</Link></li>
             <li><Link href="/mapping">Mapping</Link></li>
             <li><Link href="/dcrs">My DCRs</Link></li>
+            {aiNavEnabled && <li><Link href="/ai">iCARE-AI</Link></li>}
             <li><Link href="/docs_store">Documents</Link></li>
           </ul>
         </div>
