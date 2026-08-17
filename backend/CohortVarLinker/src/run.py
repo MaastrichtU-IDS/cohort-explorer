@@ -223,8 +223,14 @@ class StudyMapper:
             omop = int(result["omop_id"]["value"])
             code_label = result.get("code_label", {}).get("value", "")
             code_value = result.get("code_value", {}).get("value", "")
-            src_cat = result["source_domain"]["value"].strip().lower()
-            tgt_cat = result["target_domain"]["value"].strip().lower()
+            # source_domain / target_domain are GROUP_CONCAT aggregates over
+            # OPTIONAL values within a UNION: for an omop_id present in only one
+            # study, the other side's aggregate is empty and some SPARQL engines
+            # (e.g. Oxigraph) omit the binding entirely. Read defensively — an
+            # unbound domain means that side has no variables here anyway, so the
+            # empty category is never attached to a node.
+            src_cat = result.get("source_domain", {}).get("value", "").strip().lower()
+            tgt_cat = result.get("target_domain", {}).get("value", "").strip().lower()
 
             def parse_raw(raw: str) -> List[Tuple[str, str, str]]:
                 out = []
