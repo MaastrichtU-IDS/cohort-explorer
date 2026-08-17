@@ -229,14 +229,17 @@ class Settings:
     
     @property
     def vector_db_path(self) -> str:
-        """Qdrant host. Env-driven so the deployment can point at the Qdrant
-        service; falls back to 'localhost'.
+        """Qdrant host. Env-driven, defaulting to 'qdrant' (the docker-compose
+        service name) so the containerized deployment reaches the Qdrant
+        container over the compose network with no extra env wiring.
 
-        Restored to the env-driven form after the reconciliation with Komal's
-        cross-mapping code hardcoded it to 'localhost'.
+        Default is 'qdrant' because until Aug 2026 the cross-mapping call site
+        hardcoded host="qdrant"; the rewrite in ec49aef swapped that literal for
+        this property. Keeping 'qdrant' as the fallback reproduces the working
+        pre-rewrite behavior without requiring VECTOR_DB_HOST in .env. For local
+        dev outside compose, set VECTOR_DB_HOST=localhost.
         """
-        # return  "komal.qdrant.137.120.31.148.nip.io"
-        return os.getenv("VECTOR_DB_HOST", "localhost")
+        return os.getenv("VECTOR_DB_HOST", "qdrant")
     @property
     def concepts_file_path(self) -> str:
         # return  "komal.qdrant.137.120.31.148.nip.io"
