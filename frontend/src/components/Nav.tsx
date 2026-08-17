@@ -3,9 +3,9 @@
 import React, {useState, useEffect, useMemo, useCallback, useRef} from 'react';
 import Link from 'next/link';
 import {useRouter} from 'next/router';
-import {LogIn, LogOut, Compass, Upload, HardDrive, Map, Box, FileText, Settings, Star} from 'react-feather';
+import {LogIn, LogOut, Compass, Upload, HardDrive, Map, Box, FileText, Settings} from 'react-feather';
 import {useCohorts} from '@/components/CohortsContext';
-import {DarkThemeIcon, LightThemeIcon} from '@/components/Icons';
+import {DarkThemeIcon, LightThemeIcon, SparklesIcon} from '@/components/Icons';
 import {apiUrl} from '@/utils';
 import {ParticipantsModal} from '@/components/ParticipantsModal';
 
@@ -791,7 +791,7 @@ export function Nav() {
           {aiNavEnabled && (
             <li>
               <Link href="/ai" className={pathname === '/ai' || pathname.startsWith('/ai/') ? 'active' : ''}>
-                <Star size={24} />
+                <SparklesIcon size={24} />
                 <span className="text-base">iCARE-AI</span>
               </Link>
             </li>

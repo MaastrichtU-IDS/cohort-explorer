@@ -2,7 +2,8 @@
 
 import React, {useEffect, useState} from 'react';
 import Link from 'next/link';
-import {Settings, Shield, AlertTriangle, Star, ArrowRight} from 'react-feather';
+import {Settings, Shield, AlertTriangle, ArrowRight} from 'react-feather';
+import {SparklesIcon} from '@/components/Icons';
 import {useCohorts} from '@/components/CohortsContext';
 import {apiUrl} from '@/utils';
 
@@ -176,7 +177,7 @@ export default function AdminSettingsPage() {
       <div className="card bg-base-200 shadow-md mt-6">
         <div className="card-body">
           <h2 className="card-title text-lg flex items-center gap-2">
-            <Star size={18} /> iCARE-AI
+            <SparklesIcon size={18} /> iCARE-AI
           </h2>
           <p className="text-sm text-base-content/70 mb-4">
             Show or hide the iCARE-AI button in the navigation bar for all users.
