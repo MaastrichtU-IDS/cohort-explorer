@@ -46,7 +46,11 @@ dependencies = [
     # "pydantic-settings",
     # NOTE: dependencies for mapping-generation are below
     "tqdm",
-    "torch",
+    # torch >=2.6 is required by transformers >=4.57 to load .bin checkpoints via
+    # torch.load (CVE-2025-32434); the SAPBERT model loaded at bi_encoder.py is
+    # not safetensors, so the older torch is rejected at import time. Capped below
+    # 2.7 to keep this a minimal bump from 2.5.1 (avoids the cu13 jump of newer torch).
+    "torch >=2.6,<2.7",
     # transformers >=4.56 renamed the from_pretrained kwarg torch_dtype -> dtype,
     # which the CohortVarLinker embedding code (from Komal) relies on.
     "transformers >=4.56",
