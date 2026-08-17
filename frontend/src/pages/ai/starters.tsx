@@ -8,11 +8,12 @@
 //   - inspect and prune the pool
 // Generation is admin-driven only (no automatic generation at app startup).
 import React, {useEffect, useMemo, useState} from 'react';
-import {Cpu, MessageSquare, RefreshCw, Search, Tag, Trash2, Zap} from 'react-feather';
+import {Cpu, MessageSquare, Plus, RefreshCw, Search, Tag, Trash2, Zap} from 'react-feather';
 import {withAiAccess} from '@/components/ai/guards';
 import {
   ContextDiagnostics,
   StarterManageData,
+  adminAddStarter,
   adminContextDiagnostics,
   adminDeleteStarters,
   adminFetchStarterPool,
@@ -33,6 +34,9 @@ function ConversationStarterManager() {
   const [diagnostics, setDiagnostics] = useState<ContextDiagnostics | null>(null);
   const [diagnosing, setDiagnosing] = useState(false);
   const [probing, setProbing] = useState(false);
+  const [newText, setNewText] = useState('');
+  const [newKind, setNewKind] = useState<'interesting' | 'basic'>('interesting');
+  const [adding, setAdding] = useState(false);
 
   const refresh = async () => {
     try {
@@ -85,6 +89,15 @@ function ConversationStarterManager() {
   const remove = (text: string) =>
     run(() => adminDeleteStarters([text]), () => {}, r => `Deleted ${r.deleted} starter(s); ${r.remaining} remain.`);
 
+  const addStarter = () => {
+    if (!newText.trim()) return;
+    run(
+      () => adminAddStarter(newText.trim(), newKind),
+      setAdding,
+      r => (r.added ? `Added starter. Pool size: ${r.pool_size}.` : 'That starter is already in the pool.')
+    ).then(() => setNewText(''));
+  };
+
   const runDiagnostics = async (probeWindow: boolean) => {
     const setBusy = probeWindow ? setProbing : setDiagnosing;
     setBusy(true);
@@ -108,7 +121,7 @@ function ConversationStarterManager() {
       : data.starters;
   }, [data, filter]);
 
-  const busy = generating || regrouping;
+  const busy = generating || regrouping || adding;
 
   return (
     <main className="min-h-[calc(100vh-8rem)] bg-base-200">
@@ -226,8 +239,91 @@ function ConversationStarterManager() {
           )}
         </section>
 
-        {/* Context diagnostics */}
-        <section className="rounded-xl border border-base-300 bg-base-100 p-4 mb-5">
+        {/* Pool */}
+        <section className="rounded-xl border border-base-300 bg-base-100 p-4">
+          <div className="flex items-center gap-2 font-semibold mb-3">
+            <MessageSquare size={16} /> Starter pool
+            <span className="text-xs font-normal text-base-content/50">
+              {data ? `${data.starters.length} starter(s)` : 'loading…'}
+            </span>
+            <label className="input input-xs input-bordered flex items-center gap-1 ml-auto w-56">
+              <Search size={12} className="opacity-50" />
+              <input
+                className="grow"
+                placeholder="Filter…"
+                value={filter}
+                onChange={e => setFilter(e.target.value)}
+              />
+            </label>
+          </div>
+
+          {/* Manually add a starter */}
+          <div className="flex flex-col sm:flex-row gap-2 mb-4 items-stretch">
+            <input
+              className="input input-sm input-bordered flex-1"
+              placeholder="Write a conversation starter…"
+              value={newText}
+              onChange={e => setNewText(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  addStarter();
+                }
+              }}
+            />
+            <select
+              className="select select-sm select-bordered"
+              value={newKind}
+              onChange={e => setNewKind(e.target.value as 'interesting' | 'basic')}
+            >
+              <option value="interesting">interesting</option>
+              <option value="basic">basic</option>
+            </select>
+            <button className="btn btn-primary btn-sm gap-1" disabled={busy || !newText.trim()} onClick={addStarter}>
+              {adding ? <span className="loading loading-spinner loading-xs" /> : <Plus size={14} />}
+              Add
+            </button>
+          </div>
+
+          {data && data.starters.length === 0 ? (
+            <p className="text-sm text-base-content/50">
+              The pool is empty — the chat page is showing its static fallback questions. Generate
+              some starters above.
+            </p>
+          ) : (
+            <div className="divide-y divide-base-200">
+              {filteredStarters.map(s => (
+                <div key={s.text} className="py-2 flex items-start gap-3 group">
+                  <span
+                    className={`badge badge-xs mt-1 shrink-0 ${
+                      s.kind === 'basic' ? 'badge-ghost' : 'badge-primary badge-outline'
+                    }`}
+                  >
+                    {s.kind}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm leading-snug">{s.text}</div>
+                    <div className="text-[11px] text-base-content/40">
+                      {s.generated_at}
+                      {s.direction ? ` · direction: ${s.direction}` : ''}
+                    </div>
+                  </div>
+                  <button
+                    className="btn btn-ghost btn-xs text-error opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                    title="Delete this starter"
+                    disabled={busy}
+                    onClick={() => remove(s.text)}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* Context diagnostics — kept at the bottom (least frequently used). */}
+        <section className="rounded-xl border border-base-300 bg-base-100 p-4 mt-5">
           <div className="flex items-center gap-2 font-semibold mb-2">
             <Cpu size={16} /> Context diagnostics
             <div className="ml-auto flex gap-2">
@@ -305,60 +401,6 @@ function ConversationStarterManager() {
                   )}
                 </div>
               )}
-            </div>
-          )}
-        </section>
-
-        {/* Pool */}
-        <section className="rounded-xl border border-base-300 bg-base-100 p-4">
-          <div className="flex items-center gap-2 font-semibold mb-3">
-            <MessageSquare size={16} /> Starter pool
-            <span className="text-xs font-normal text-base-content/50">
-              {data ? `${data.starters.length} starter(s)` : 'loading…'}
-            </span>
-            <label className="input input-xs input-bordered flex items-center gap-1 ml-auto w-56">
-              <Search size={12} className="opacity-50" />
-              <input
-                className="grow"
-                placeholder="Filter…"
-                value={filter}
-                onChange={e => setFilter(e.target.value)}
-              />
-            </label>
-          </div>
-          {data && data.starters.length === 0 ? (
-            <p className="text-sm text-base-content/50">
-              The pool is empty — the chat page is showing its static fallback questions. Generate
-              some starters above.
-            </p>
-          ) : (
-            <div className="divide-y divide-base-200">
-              {filteredStarters.map(s => (
-                <div key={s.text} className="py-2 flex items-start gap-3 group">
-                  <span
-                    className={`badge badge-xs mt-1 shrink-0 ${
-                      s.kind === 'basic' ? 'badge-ghost' : 'badge-primary badge-outline'
-                    }`}
-                  >
-                    {s.kind}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm leading-snug">{s.text}</div>
-                    <div className="text-[11px] text-base-content/40">
-                      {s.generated_at}
-                      {s.direction ? ` · direction: ${s.direction}` : ''}
-                    </div>
-                  </div>
-                  <button
-                    className="btn btn-ghost btn-xs text-error opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
-                    title="Delete this starter"
-                    disabled={busy}
-                    onClick={() => remove(s.text)}
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                </div>
-              ))}
             </div>
           )}
         </section>

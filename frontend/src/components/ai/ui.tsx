@@ -85,7 +85,7 @@ function VariantToggle({
   const btn = (v: 'summary' | 'detailed', label: string) => (
     <button
       onClick={() => onChange(v)}
-      className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold border transition-all ${
+      className={`px-4 py-1 rounded-full text-base font-semibold border transition-all ${
         variant === v
           ? 'bg-blue-100 text-blue-900 border-blue-300'
           : 'bg-base-100 text-base-content/50 border-base-300 hover:border-blue-300'
@@ -95,7 +95,7 @@ function VariantToggle({
     </button>
   );
   return (
-    <span className="inline-flex gap-1">
+    <span className="inline-flex gap-1.5">
       {btn('summary', 'Summary')}
       {btn('detailed', 'Detailed')}
     </span>

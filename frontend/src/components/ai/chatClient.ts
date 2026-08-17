@@ -174,6 +174,9 @@ export const adminGenerateStarters = (direction: string) =>
 
 export const adminRegroupStarters = () => adminPost('/api/chat/starters/regroup');
 
+export const adminAddStarter = (text: string, kind: 'interesting' | 'basic') =>
+  adminPost('/api/chat/starters/add', {text, kind});
+
 export const adminDeleteStarters = (texts: string[]) =>
   adminPost('/api/chat/starters/delete', {texts});
 

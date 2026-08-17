@@ -42,9 +42,27 @@ CATALOG_VARS_SAMPLE = 15
 MAX_SYSTEM_PROMPT_CHARS = 8_000
 MAX_CONTEXT_CHARS = 120_000
 
+# How the platform works — shared so the assistant can guide users through the
+# actual workflow, not just describe data.
+PLATFORM_OVERVIEW = (
+    "About the iCARE4CVD Cohort Explorer platform:\n"
+    "- The Explorer lets analysts discover cardiovascular studies/cohorts of interest and the "
+    "variables each has uploaded (its metadata).\n"
+    "- To actually analyse data, an analyst creates an analysis DCR (Data Clean Room): a secure "
+    "computing enclave. The data owners (cohort admins) upload their real data into the DCR, and "
+    "the analyst writes a script that computes over that data WITHOUT ever seeing the raw records — "
+    "only permitted outputs leave the enclave.\n"
+    "- A mapping functionality helps analysts identify which variables in one cohort LIKELY "
+    "correspond to variables in another cohort (these are suggested equivalences, not guarantees).\n"
+    "When relevant, explain how the user could act via these features (e.g. create a DCR to run an "
+    "analysis, or use mapping to align variables across cohorts), but never claim to have run an "
+    "analysis or seen raw data yourself."
+)
+
 SYSTEM_PROMPT = (
     "You are the iCARE4CVD Cohort Explorer assistant. You help researchers "
     "understand and compare cardiovascular research cohorts and their variables. "
+    f"\n\n{PLATFORM_OVERVIEW}\n\n"
     "Answer using ONLY the cohort context provided in this conversation. "
     "IMPORTANT: focus your search, comparisons and suggestions on cohorts that "
     "have variables (metadata) uploaded to the Explorer — these are the only "
@@ -739,6 +757,19 @@ def admin_context_diagnostics(body: dict[str, Any], user: Any = Depends(get_curr
             probe_results.append({"approx_tokens": 0, "ok": False, "error": str(exc.detail)})
         result["window_probe"] = probe_results
     return result
+
+
+@router.post("/api/chat/starters/add")
+def admin_add_starter(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Manually add a single conversation starter to the pool."""
+    _require_admin(user)
+    text = _clean(body.get("text")) if isinstance(body, dict) else ""
+    if not text:
+        raise HTTPException(status_code=400, detail="'text' must be a non-empty string.")
+    kind = body.get("kind") if isinstance(body, dict) else None
+    kind = kind if kind in ("basic", "interesting") else "interesting"
+    added = _append_to_starter_pool([{"text": text[:200], "kind": kind}])
+    return {"added": added, "pool_size": len(_load_starter_pool())}
 
 
 @router.post("/api/chat/starters/delete")

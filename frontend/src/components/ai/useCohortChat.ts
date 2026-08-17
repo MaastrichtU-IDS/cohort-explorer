@@ -5,6 +5,9 @@ import {ChatMessage, fetchChatConfig, streamChat} from '@/components/ai/chatClie
 export interface SendOverrides {
   systemPrompt?: string;
   contextOverride?: string;
+  // Start a fresh conversation for this turn, discarding prior messages (used
+  // when Guided Exploration sends its assembled question).
+  startNew?: boolean;
 }
 
 export interface UseCohortChat {
@@ -71,15 +74,18 @@ export function useCohortChat(): UseCohortChat {
       setError(null);
       setInput('');
 
+      // A new conversation starts from an empty history.
+      const base = overrides?.startNew ? [] : messages;
+
       // For follow-up turns the model sees the DETAILED variant of earlier
       // answers (that is the fuller record of what was said).
-      const historyForModel: ChatMessage[] = [...messages, {role: 'user' as const, content}].map(m =>
+      const historyForModel: ChatMessage[] = [...base, {role: 'user' as const, content}].map(m =>
         m.role === 'assistant' ? {role: m.role, content: m.detailed || m.content} : {role: m.role, content: m.content}
       );
 
       // Add the user turn plus an empty assistant turn holding both variants,
       // each streamed by its own request.
-      setMessages([...messages, {role: 'user', content}, {role: 'assistant', content: '', summary: '', detailed: ''}]);
+      setMessages([...base, {role: 'user', content}, {role: 'assistant', content: '', summary: '', detailed: ''}]);
       setIsStreaming(true);
 
       const controller = new AbortController();

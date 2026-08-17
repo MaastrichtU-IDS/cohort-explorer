@@ -235,6 +235,18 @@ function GuidedExploration({
   // Compare requires at least COMPARE_MIN cohorts.
   const hardBlocked = intentId === 'compare' && selected.length < COMPARE_MIN;
 
+  const submit = () => {
+    if (blocked || hardBlocked || !assembled.trim()) return;
+    onAsk(assembled);
+  };
+  // Enter (without Shift) in a guided input submits, like clicking Ask.
+  const onInputKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      submit();
+    }
+  };
+
   // Step 1 — pick an intent. The cards are the only thing on screen.
   if (!activeIntent) {
     return (
@@ -325,6 +337,7 @@ function GuidedExploration({
                 setCustomTopic(e.target.value);
                 if (e.target.value.trim()) setTopic('');
               }}
+              onKeyDown={onInputKeyDown}
             />
           ) : (
             <input
@@ -337,6 +350,7 @@ function GuidedExploration({
                 setCustomTopic(e.target.value);
                 if (e.target.value.trim()) setTopic('');
               }}
+              onKeyDown={onInputKeyDown}
             />
           )}
         </div>
@@ -359,7 +373,7 @@ function GuidedExploration({
         <button
           className={`btn w-full gap-2 bg-blue-100 text-blue-900 hover:bg-blue-200 border-blue-300 ${ready && !blocked && !hardBlocked ? 'shimmer-nudge' : ''}`}
           disabled={blocked || hardBlocked}
-          onClick={() => onAsk(assembled)}
+          onClick={submit}
         >
           <Send size={15} /> Ask iCARE-AI
         </button>
@@ -393,9 +407,10 @@ function ICareAI() {
 
   const blocked = !chat.enabled || !userEmail;
 
+  // Guided Exploration sends its assembled question as a fresh conversation.
   const ask = (text: string) => {
     setMode('chat');
-    chat.send(text);
+    chat.send(text, {startNew: true});
   };
 
   // Return to the chat landing, clearing any ongoing conversation. Used by both
