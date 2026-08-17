@@ -84,7 +84,7 @@ const modes: Mode[] = [
     id: 'feasibility',
     label: 'Check a thesis',
     icon: HelpCircle,
-    blurb: 'Bring your own thesis — can this data test it?',
+    blurb: 'Bring your own thesis. Can this data test it?',
     needsThesis: true,
     prompt: () => '' // built from the thesis at send time
   }
@@ -322,7 +322,7 @@ function HypothesisLab() {
               </div>
               <p className="text-xs text-base-content/50 mt-2">
                 {scope.length === 0
-                  ? 'No cohorts selected — ideas will draw on the whole catalog at a glance.'
+                  ? 'No cohorts selected. Ideas will draw on the whole catalog at a glance.'
                   : `Ideas will be grounded in ${scope.length} cohort(s), metadata and variables included.`}
               </p>
             </div>
@@ -425,7 +425,7 @@ function HypothesisLab() {
               <div className="text-2xl font-bold mb-2">What could this data prove?</div>
               <p className="text-base-content/60">
                 Put cohorts on the bench, pick a brainstorming mode, and generate. Each idea arrives as a
-                card — keep the promising ones, refine them into analysis plans, discard the rest, and
+                card: keep the promising ones, refine them into analysis plans, discard the rest, and
                 export what survives.
               </p>
             </div>
@@ -454,7 +454,7 @@ function HypothesisLab() {
                       <div className="flex items-center gap-1 shrink-0">
                         <button
                           className={`btn btn-xs gap-1 ${idea.kept ? 'btn-primary' : 'btn-ghost'}`}
-                          title={idea.kept ? 'Kept — click to unkeep' : 'Keep this idea'}
+                          title={idea.kept ? 'Kept (click to unkeep)' : 'Keep this idea'}
                           onClick={() =>
                             setIdeas(prev => prev.map(i => (i.id === idea.id ? {...i, kept: !i.kept} : i)))
                           }

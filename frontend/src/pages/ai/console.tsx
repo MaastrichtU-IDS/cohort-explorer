@@ -100,7 +100,7 @@ function CohortDetail({cohort, onPin, pinned}: {cohort: Cohort; onPin: () => voi
         )}
         {Object.keys(cohort.variables || {}).length > 80 && !varQuery.trim() && (
           <div className="text-center text-xs text-base-content/40 py-3">
-            Showing first 80 of {Object.keys(cohort.variables).length} variables — search to filter
+            Showing first 80 of {Object.keys(cohort.variables).length} variables. Search to filter.
           </div>
         )}
       </div>

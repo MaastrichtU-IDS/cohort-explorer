@@ -47,7 +47,7 @@ export const promptPresets: PromptPreset[] = [
   {
     id: 'plain',
     label: 'Plain-language explainer',
-    blurb: 'For non-specialists — no jargon.',
+    blurb: 'For non-specialists, no jargon.',
     text:
       'You explain the iCARE4CVD cohort catalog to readers without a medical or statistical ' +
       'background. Use only the cohort context provided. Use short sentences and everyday words; ' +

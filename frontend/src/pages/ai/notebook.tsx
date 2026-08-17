@@ -336,8 +336,8 @@ function FieldNotebook() {
             disabled={blocked}
             placeholder={
               scope.length
-                ? `Ask about ${scope.slice(0, 2).join(', ')}${scope.length > 2 ? '…' : ''} — becomes cell ${cells.length + 1}`
-                : `Ask the catalog — becomes cell ${cells.length + 1}`
+                ? `Ask about ${scope.slice(0, 2).join(', ')}${scope.length > 2 ? '…' : ''} (becomes cell ${cells.length + 1})`
+                : `Ask the catalog (becomes cell ${cells.length + 1})`
             }
           />
         </div>

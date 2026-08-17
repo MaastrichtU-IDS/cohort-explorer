@@ -252,7 +252,7 @@ function ProfileCard({stats}: {stats: CohortStats}) {
 function DomainMixPanel({stats, ranked}: {stats: CohortStats[]; ranked: string[]}) {
   return (
     <div className="rounded-xl border border-base-300 bg-base-100 p-4 shadow-sm">
-      <div className="font-semibold text-sm mb-1">What they measure — OMOP domain mix</div>
+      <div className="font-semibold text-sm mb-1">What they measure: OMOP domain mix</div>
       <div className="text-xs text-base-content/50 mb-3">Share of each cohort&apos;s variables by domain</div>
       <div className="flex flex-wrap gap-x-4 gap-y-1 mb-4">
         {ranked.map((d, i) => (
@@ -308,7 +308,7 @@ function OverlapPanel({stats}: {stats: CohortStats[]}) {
     const toPct = (n: number) => (union ? (100 * n) / union : 0);
     return (
       <div className="rounded-xl border border-base-300 bg-base-100 p-4 shadow-sm">
-        <div className="font-semibold text-sm mb-1">Shared ground — concept overlap</div>
+        <div className="font-semibold text-sm mb-1">Shared ground: concept overlap</div>
         <div className="text-xs text-base-content/50 mb-3">
           Distinct OMOP concepts mapped in each cohort, and where they coincide
         </div>
@@ -354,7 +354,7 @@ function OverlapPanel({stats}: {stats: CohortStats[]}) {
 
   return (
     <div className="rounded-xl border border-base-300 bg-base-100 p-4 shadow-sm overflow-x-auto">
-      <div className="font-semibold text-sm mb-1">Shared ground — concept overlap</div>
+      <div className="font-semibold text-sm mb-1">Shared ground: concept overlap</div>
       <div className="text-xs text-base-content/50 mb-3">
         Shared mapped OMOP concepts per pair; diagonal = concepts mapped in that cohort
       </div>
@@ -401,7 +401,7 @@ function CatalogOverview({cohorts, onPick}: {cohorts: Cohort[]; onPick: (id: str
     <div className="rounded-xl border border-base-300 bg-base-100 p-4 shadow-sm max-w-2xl mx-auto">
       <div className="font-semibold text-sm mb-1">The catalog at a glance</div>
       <div className="text-xs text-base-content/50 mb-3">
-        Cohorts with the most uploaded variables — click one to start mapping
+        Cohorts with the most uploaded variables. Click one to start mapping.
       </div>
       <div className="space-y-1.5">
         {top.map(c => (
@@ -611,7 +611,7 @@ function CohortAtlas() {
                 </div>
                 <div className="text-2xl font-bold mb-2">Put cohorts on the map</div>
                 <p className="text-base-content/60 max-w-md mx-auto">
-                  Pick up to {MAX_PICKED} cohorts above. The Atlas draws real charts from the catalog —
+                  Pick up to {MAX_PICKED} cohorts above. The Atlas draws real charts from the catalog,
                   and the narrator on the right sees exactly what you see.
                 </p>
               </div>
@@ -639,7 +639,7 @@ function CohortAtlas() {
           <div className="px-4 py-3 border-b border-base-300">
             <div className="font-semibold text-sm">Narrator</div>
             <div className="text-[11px] text-base-content/50">
-              Sees exactly the numbers on this canvas — nothing more.
+              Sees exactly the numbers on this canvas, nothing more.
             </div>
           </div>
           <div className="flex-1 overflow-y-auto px-4 py-4">

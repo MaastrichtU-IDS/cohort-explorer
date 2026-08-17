@@ -164,15 +164,15 @@ function intentReadiness(
     case 'summarize':
       return nCohorts >= 1
         ? {ready: true}
-        : {ready: false, hint: 'Pick a cohort above — or send as is for an overview of the whole catalog.'};
+        : {ready: false, hint: 'Pick a cohort above, or send as is for an overview of the whole catalog.'};
     case 'hypothesis':
       return topic
         ? {ready: true}
-        : {ready: false, hint: 'State your hypothesis above — or send as is to get help formulating one.'};
+        : {ready: false, hint: 'State your hypothesis above, or send as is to get help formulating one.'};
     case 'research':
       return topic || nCohorts > 0
         ? {ready: true}
-        : {ready: false, hint: 'Pick a keyword or a cohort to sharpen the questions — or send as is.'};
+        : {ready: false, hint: 'Pick a keyword or a cohort to sharpen the questions, or send as is.'};
     default:
       return {ready: true};
   }
@@ -301,7 +301,7 @@ function GuidedExploration({
           <div className="text-sm font-semibold text-base-content/60 uppercase tracking-wide mb-3 text-center">
             {activeIntent.topicLabel}
             {isResearch && keywords.length > 0 && (
-              <span className="normal-case font-normal text-base-content/40"> — suggested themes</span>
+              <span className="normal-case font-normal text-base-content/40"> · suggested themes</span>
             )}
           </div>
           {/* Criteria/hypothesis are free text of the user's own; chips only get in the way there. */}

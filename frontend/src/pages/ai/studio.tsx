@@ -254,7 +254,7 @@ function PromptStudio() {
                   </div>
                   <div className="text-2xl font-bold mb-2">Build a question, step by step</div>
                   <p className="text-base-content/60 max-w-md mx-auto">
-                    Use the panel on the left to assemble a well-formed question from building blocks —
+                    Use the panel on the left to assemble a well-formed question from building blocks,
                     or just type freely below.
                   </p>
                 </div>

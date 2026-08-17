@@ -168,7 +168,7 @@ function ConversationStarterManager() {
           <textarea
             className="textarea textarea-bordered w-full text-sm"
             rows={2}
-            placeholder="Optional direction/theme — e.g. medication adherence in elderly heart-failure patients"
+            placeholder="Optional direction/theme, e.g. medication adherence in elderly heart-failure patients"
             value={direction}
             onChange={e => setDirection(e.target.value)}
           />
@@ -213,7 +213,7 @@ function ConversationStarterManager() {
           </div>
           {data && data.keywords.length === 0 ? (
             <p className="text-sm text-base-content/50">
-              No keyword themes yet — generate starters or re-group the pool.
+              No keyword themes yet. Generate starters or re-group the pool.
             </p>
           ) : (
             <div className="flex flex-wrap gap-1.5">
@@ -287,7 +287,7 @@ function ConversationStarterManager() {
 
           {data && data.starters.length === 0 ? (
             <p className="text-sm text-base-content/50">
-              The pool is empty — the chat page is showing its static fallback questions. Generate
+              The pool is empty. The chat page is showing its static fallback questions. Generate
               some starters above.
             </p>
           ) : (
@@ -335,7 +335,7 @@ function ConversationStarterManager() {
                 className="btn btn-outline btn-xs gap-1"
                 disabled={diagnosing || probing || !data?.chat_enabled}
                 onClick={() => runDiagnostics(true)}
-                title="Sends increasingly large prompts to the model until one is rejected — can take minutes"
+                title="Sends increasingly large prompts to the model until one is rejected (can take minutes)"
               >
                 {probing ? <span className="loading loading-spinner loading-xs" /> : <Cpu size={12} />}
                 Probe context window

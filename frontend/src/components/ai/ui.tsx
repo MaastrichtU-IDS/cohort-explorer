@@ -138,7 +138,7 @@ export function MessageBubble({message, streaming}: {message: ChatMessage; strea
           <TypingDots />
         ) : hasVariants ? (
           <span className="text-sm text-base-content/40 italic">
-            No {variant} answer{streaming ? ' yet' : ' was produced'} — try the other tab.
+            No {variant} answer{streaming ? ' yet' : ' was produced'}. Try the other tab.
           </span>
         ) : null}
         {/* Long answers get a second toggle at the bottom so switching back

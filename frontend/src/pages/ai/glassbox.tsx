@@ -144,7 +144,7 @@ function GlassBox() {
               </div>
               {chat.selected.length === 0 && (
                 <p className="text-xs text-base-content/50 mt-2">
-                  Nothing selected — the model gets a thin catalog listing (ids and variable counts only).
+                  Nothing selected. The model gets a thin catalog listing (ids and variable counts only).
                 </p>
               )}
             </div>
@@ -284,8 +284,8 @@ function GlassBox() {
                   </div>
                   <div className="text-2xl font-bold mb-2">Nothing hidden</div>
                   <p className="text-base-content/60 max-w-md mx-auto">
-                    Tune the instructions, choose what metadata is shared, and check the payload preview
-                    — then ask. What you see on the left is exactly what the model sees.
+                    Tune the instructions, choose what metadata is shared, and check the payload preview,
+                    then ask. What you see on the left is exactly what the model sees.
                   </p>
                 </div>
               ) : (
@@ -318,7 +318,7 @@ function GlassBox() {
                 onStop={chat.stop}
                 isStreaming={chat.isStreaming}
                 disabled={blocked}
-                placeholder="Ask — with full control over what the model knows…"
+                placeholder="Ask, with full control over what the model knows…"
               />
             </div>
           </div>

@@ -37,7 +37,7 @@ const waveOne: Layout[] = [
     icon: Grid,
     tagline: 'Compose questions from building blocks.',
     blurb:
-      'A guided, card-driven canvas. Pick an intent, a cohort, and a topic to assemble a well-formed question — or free-type. Great for discovering what to ask.',
+      'A guided, card-driven canvas. Pick an intent, a cohort, and a topic to assemble a well-formed question, or free-type. Great for discovering what to ask.',
     accent: 'from-rose-500 to-orange-500'
   }
 ];
@@ -47,7 +47,7 @@ const waveTwo: Layout[] = [
     href: '/ai/glassbox',
     title: 'Glass Box',
     icon: Eye,
-    tagline: 'See — and control — exactly what the model sees.',
+    tagline: 'See, and control, exactly what the model sees.',
     blurb:
       'Edit the model’s instructions (or pick a persona preset), toggle which metadata groups are shared, dial variable detail up or down, and preview the payload byte-for-byte before sending.',
     accent: 'from-cyan-500 to-sky-600'
@@ -58,7 +58,7 @@ const waveTwo: Layout[] = [
     icon: Map,
     tagline: 'A visual comparison canvas, narrated by the model.',
     blurb:
-      'Put up to four cohorts on a canvas of real charts — domain mix, demographics, concept overlap — computed from the catalog itself. The narrator sees exactly the numbers you see, and nothing else.',
+      'Put up to four cohorts on a canvas of real charts (domain mix, demographics, concept overlap) computed from the catalog itself. The narrator sees exactly the numbers you see, and nothing else.',
     accent: 'from-fuchsia-500 to-purple-600'
   },
   {
@@ -67,7 +67,7 @@ const waveTwo: Layout[] = [
     icon: BookOpen,
     tagline: 'Ask in sequence, leave with a document.',
     blurb:
-      'Every question becomes a cell — question, answer, and the cohort scope it was asked under. Re-run cells as your scope evolves, then export the whole brief as Markdown.',
+      'Every question becomes a cell: question, answer, and the cohort scope it was asked under. Re-run cells as your scope evolves, then export the whole brief as Markdown.',
     accent: 'from-amber-500 to-orange-600'
   },
   {
@@ -76,7 +76,7 @@ const waveTwo: Layout[] = [
     icon: Zap,
     tagline: 'From data you have to theses you can test.',
     blurb:
-      'Research brainstorming over the catalog: generate testable hypotheses, map analysis opportunities, hunt for gaps — or feasibility-check your own thesis. Ideas land as cards to keep, refine into analysis plans, and export.',
+      'Research brainstorming over the catalog: generate testable hypotheses, map analysis opportunities, hunt for gaps, or feasibility-check your own thesis. Ideas land as cards to keep, refine into analysis plans, and export.',
     accent: 'from-lime-500 to-emerald-600'
   }
 ];
@@ -118,7 +118,7 @@ function AiAlternatives() {
         </div>
         <p className="text-base-content/70 max-w-2xl">
           The main iCARE-AI interface lives at <Link href="/ai" className="link">/ai</Link>. The layouts
-          below are alternative takes being prototyped — each explores a different way to blend chat
+          below are alternative takes being prototyped. Each explores a different way to blend chat
           with structured cohort context{cohortCount ? ` across ${cohortCount} cohorts` : ''}, powered by
           the same local model running exclusively on Maastricht University servers.
         </p>
@@ -136,7 +136,7 @@ function AiAlternatives() {
 
         <div className="mt-10">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-base-content/50 mb-4">
-            Second wave — control, visuals, documents, ideation
+            Second wave: control, visuals, documents, ideation
           </h2>
           <div className="grid md:grid-cols-2 gap-5">
             {waveTwo.map(l => (
