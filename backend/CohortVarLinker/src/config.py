@@ -229,13 +229,11 @@ class Settings:
     
     @property
     def vector_db_path(self) -> str:
-        """Qdrant host. Defaults to 'localhost' for dev; set VECTOR_DB_HOST=qdrant
-        (the docker-compose service name) in production.
+        """Qdrant host. Env-driven so the deployment can point at the Qdrant
+        service; falls back to 'localhost'.
 
-        NOTE: this was hardcoded to 'localhost' during the reconciliation with
-        Komal's cross-mapping code, which broke the containerized deployment
-        (Qdrant is a separate compose service, not localhost). Restored to the
-        env-driven form; VECTOR_DB_HOST is wired in docker-compose.prod.yml.
+        Restored to the env-driven form after the reconciliation with Komal's
+        cross-mapping code hardcoded it to 'localhost'.
         """
         # return  "komal.qdrant.137.120.31.148.nip.io"
         return os.getenv("VECTOR_DB_HOST", "localhost")
