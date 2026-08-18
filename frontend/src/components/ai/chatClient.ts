@@ -253,3 +253,129 @@ export function buildSuggestions(cohortsData: {[id: string]: Cohort}, selected: 
     `Suggest a research question these cohorts could answer together.`
   ];
 }
+
+// ---- Conversation history ---------------------------------------------------
+// The client upserts the full transcript after each completed turn; the backend
+// (src/ai_history.py) derives usage metrics. Each user sees their own history;
+// admins can request scope='all'.
+
+export type ArrivalPath = 'chat' | 'intention_cards';
+
+// A conversation as returned by the list endpoint (metrics + preview, no full
+// transcript). The detail endpoint returns the same shape plus `messages`.
+export interface ConversationSummary {
+  id: string;
+  user_id: string;
+  arrival_path: ArrivalPath | string;
+  model: string;
+  started_at: string;
+  created_at: string;
+  updated_at: string;
+  duration_seconds: number | null;
+  message_count: number;
+  user_message_count: number;
+  assistant_message_count: number;
+  user_chars: number;
+  assistant_chars: number;
+  preview: string;
+  entry_context: Record<string, any>;
+}
+
+export interface ConversationDetail extends ConversationSummary {
+  messages: ChatMessage[];
+}
+
+export interface HistoryPage {
+  total: number;
+  limit: number;
+  offset: number;
+  scope: 'own' | 'all';
+  items: ConversationSummary[];
+}
+
+export interface UsageSummary {
+  scope: 'own' | 'all';
+  conversations: number;
+  messages: number;
+  user_messages: number;
+  assistant_messages: number;
+  users: number;
+  avg_messages: number | null;
+  avg_duration_seconds: number | null;
+  user_chars: number;
+  assistant_chars: number;
+  by_path: Record<string, number>;
+  by_day: {day: string; count: number}[];
+  top_users: {user_id: string; conversations: number}[];
+}
+
+export interface SaveConversationPayload {
+  conversationId: string;
+  startedAt: string;
+  arrivalPath: ArrivalPath;
+  entryContext?: Record<string, any>;
+  model?: string;
+  messages: ChatMessage[];
+}
+
+// Persist (upsert) a conversation. Fire-and-forget from the caller's view:
+// failures are logged, never surfaced, so history never breaks the chat.
+export async function saveConversation(payload: SaveConversationPayload): Promise<void> {
+  try {
+    await fetch(`${apiUrl}/api/chat/history`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        conversation_id: payload.conversationId,
+        started_at: payload.startedAt,
+        arrival_path: payload.arrivalPath,
+        entry_context: payload.entryContext || {},
+        model: payload.model || null,
+        messages: payload.messages
+      })
+    });
+  } catch (err) {
+    // Non-fatal: the conversation continues even if history can't be saved.
+    // eslint-disable-next-line no-console
+    console.warn('Failed to save conversation history', err);
+  }
+}
+
+export async function fetchHistory(params?: {
+  scope?: 'own' | 'all';
+  path?: string;
+  search?: string;
+  minMessages?: number;
+  maxMessages?: number;
+  limit?: number;
+  offset?: number;
+}): Promise<HistoryPage> {
+  const q = new URLSearchParams();
+  if (params?.scope) q.set('scope', params.scope);
+  if (params?.path) q.set('path', params.path);
+  if (params?.search) q.set('search', params.search);
+  if (params?.minMessages != null) q.set('min_messages', String(params.minMessages));
+  if (params?.maxMessages != null) q.set('max_messages', String(params.maxMessages));
+  if (params?.limit != null) q.set('limit', String(params.limit));
+  if (params?.offset != null) q.set('offset', String(params.offset));
+  const res = await fetch(`${apiUrl}/api/chat/history?${q.toString()}`, {credentials: 'include'});
+  if (!res.ok) throw new Error(`Failed to load history (${res.status})`);
+  return await res.json();
+}
+
+export async function fetchConversation(id: string): Promise<ConversationDetail> {
+  const res = await fetch(`${apiUrl}/api/chat/history/${encodeURIComponent(id)}`, {
+    credentials: 'include'
+  });
+  if (!res.ok) throw new Error(`Failed to load conversation (${res.status})`);
+  return await res.json();
+}
+
+export async function fetchUsageSummary(scope: 'own' | 'all' = 'own'): Promise<UsageSummary> {
+  const res = await fetch(`${apiUrl}/api/chat/history/summary?scope=${scope}`, {
+    credentials: 'include'
+  });
+  if (!res.ok) throw new Error(`Failed to load usage summary (${res.status})`);
+  return await res.json();
+}

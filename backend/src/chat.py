@@ -23,6 +23,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
+from src import ai_history
 from src.admin import _require_admin
 from src.auth import get_current_user
 from src.config import settings
@@ -815,3 +816,97 @@ def chat_stream(body: dict[str, Any], user: Any = Depends(get_current_user)) -> 
             yield f"\n\n[Error contacting the model: {exc}]"
 
     return StreamingResponse(_generate(), media_type="text/plain; charset=utf-8")
+
+
+# ---- Conversation history ----------------------------------------------------
+#
+# Conversations are persisted in a SQLite store (src/ai_history.py). The client
+# upserts the full transcript after each completed turn (keyed by a
+# client-generated conversation_id), so the dual summary/detailed answer
+# variants and abandoned conversations are both captured without the streaming
+# endpoint having to accumulate racing streams. Each user sees their own
+# history; admins can view everyone's via scope=all.
+
+
+def _user_email(user: Any) -> str:
+    return (user.get("email") or "").strip().lower() if isinstance(user, dict) else ""
+
+
+def _is_admin(user: Any) -> bool:
+    return _user_email(user) in settings.admins_list
+
+
+@router.post("/api/chat/history")
+def save_conversation(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Upsert a conversation's transcript + metadata. Called by the client after
+    each completed turn."""
+    conv_id = _clean(body.get("conversation_id"))
+    if not conv_id:
+        raise HTTPException(status_code=400, detail="conversation_id is required")
+    messages = body.get("messages")
+    if not isinstance(messages, list):
+        raise HTTPException(status_code=400, detail="messages must be a list")
+
+    try:
+        ai_history.upsert_conversation(
+            conv_id=conv_id,
+            user_id=_user_email(user),
+            arrival_path=_clean(body.get("arrival_path")) or "chat",
+            model=_clean(body.get("model")) or settings.litellm_model,
+            entry_context=body.get("entry_context") or {},
+            messages=messages,
+            started_at=_clean(body.get("started_at")) or None,
+        )
+    except ai_history.AccessError:
+        raise HTTPException(status_code=403, detail="This conversation belongs to another user")
+    except Exception as exc:  # storage must never break the chat experience
+        logger.warning("Failed to save conversation %s: %s", conv_id, exc)
+        raise HTTPException(status_code=500, detail="Could not save conversation")
+    return {"ok": True, "id": conv_id}
+
+
+@router.get("/api/chat/history")
+def list_history(
+    scope: str = "own",
+    path: Optional[str] = None,
+    search: Optional[str] = None,
+    min_messages: Optional[int] = None,
+    max_messages: Optional[int] = None,
+    limit: int = 50,
+    offset: int = 0,
+    user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
+    """List conversations, newest activity first. scope=all is admin-only."""
+    return ai_history.list_conversations(
+        viewer_id=_user_email(user),
+        is_admin=_is_admin(user),
+        scope=scope,
+        path=path,
+        search=search,
+        min_messages=min_messages,
+        max_messages=max_messages,
+        limit=max(1, min(int(limit), 200)),
+        offset=max(0, int(offset)),
+    )
+
+
+@router.get("/api/chat/history/summary")
+def history_summary(scope: str = "own", user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Aggregate usage metrics for the dashboard. scope=all is admin-only."""
+    return ai_history.usage_summary(
+        viewer_id=_user_email(user), is_admin=_is_admin(user), scope=scope
+    )
+
+
+@router.get("/api/chat/history/{conv_id}")
+def get_history(conv_id: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Full transcript for one conversation. Owner or admin only."""
+    try:
+        conv = ai_history.get_conversation(
+            conv_id, viewer_id=_user_email(user), is_admin=_is_admin(user)
+        )
+    except ai_history.AccessError:
+        raise HTTPException(status_code=403, detail="This conversation belongs to another user")
+    if conv is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return conv

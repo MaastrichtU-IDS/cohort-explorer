@@ -210,7 +210,7 @@ function GuidedExploration({
   selected: string[];
   onToggleCohort: (id: string) => void;
   onClearCohorts: () => void;
-  onAsk: (text: string) => void;
+  onAsk: (text: string, meta?: {intent?: string | null; topics?: string}) => void;
   blocked: boolean;
 }) {
   const [intentId, setIntentId] = useState<string | null>(null);
@@ -265,7 +265,7 @@ function GuidedExploration({
 
   const submit = () => {
     if (blocked || hardBlocked || !assembled.trim()) return;
-    onAsk(assembled);
+    onAsk(assembled, {intent: intentId, topics: effectiveTopic});
   };
   // Enter (without Shift) in a guided input submits, like clicking Ask.
   const onInputKeyDown = (e: React.KeyboardEvent) => {
@@ -438,9 +438,18 @@ function ICareAI() {
   const blocked = !chat.enabled || !userEmail;
 
   // Guided Exploration sends its assembled question as a fresh conversation.
-  const ask = (text: string) => {
+  const ask = (text: string, meta?: {intent?: string | null; topics?: string}) => {
     setMode('chat');
-    chat.send(text, {startNew: true});
+    chat.send(text, {
+      startNew: true,
+      arrivalPath: 'intention_cards',
+      entryContext: {
+        intent: meta?.intent || null,
+        topics: meta?.topics || '',
+        cohortIds: chat.selected,
+        focus: chat.focus
+      }
+    });
   };
 
   // Return to the chat landing, clearing any ongoing conversation. Used by both

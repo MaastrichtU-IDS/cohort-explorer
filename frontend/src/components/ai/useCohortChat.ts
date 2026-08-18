@@ -1,6 +1,12 @@
 // Shared conversation state + streaming logic reused by every AI layout.
 import {useCallback, useEffect, useRef, useState} from 'react';
-import {ChatMessage, fetchChatConfig, streamChat} from '@/components/ai/chatClient';
+import {
+  ArrivalPath,
+  ChatMessage,
+  fetchChatConfig,
+  saveConversation,
+  streamChat
+} from '@/components/ai/chatClient';
 
 export interface SendOverrides {
   systemPrompt?: string;
@@ -8,6 +14,21 @@ export interface SendOverrides {
   // Start a fresh conversation for this turn, discarding prior messages (used
   // when Guided Exploration sends its assembled question).
   startNew?: boolean;
+  // How this conversation was entered — recorded in history. Defaults to 'chat';
+  // Guided Exploration passes 'intention_cards'.
+  arrivalPath?: ArrivalPath;
+  // Extra context to store with the conversation (intent, topics, starter…).
+  entryContext?: Record<string, any>;
+}
+
+// A stable per-conversation id, best-effort (crypto.randomUUID where available).
+function newConversationId(): string {
+  try {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  } catch {
+    /* fall through */
+  }
+  return `conv-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 export interface UseCohortChat {
@@ -41,6 +62,13 @@ export function useCohortChat(): UseCohortChat {
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
+  // Conversation identity for history persistence. Set when a conversation
+  // begins (first turn or an explicit startNew) and reused across follow-ups.
+  const conversationIdRef = useRef<string | null>(null);
+  const startedAtRef = useRef<string | null>(null);
+  const arrivalPathRef = useRef<ArrivalPath>('chat');
+  const entryContextRef = useRef<Record<string, any>>({});
+
   useEffect(() => {
     fetchChatConfig().then(cfg => {
       setEnabled(cfg.enabled);
@@ -65,6 +93,8 @@ export function useCohortChat(): UseCohortChat {
     stop();
     setMessages([]);
     setError(null);
+    // Next send starts a brand-new conversation record.
+    conversationIdRef.current = null;
   }, [stop]);
 
   const send = useCallback(
@@ -76,6 +106,16 @@ export function useCohortChat(): UseCohortChat {
 
       // A new conversation starts from an empty history.
       const base = overrides?.startNew ? [] : messages;
+
+      // Establish conversation identity for history. A fresh record begins on an
+      // explicit startNew, or on the first turn of an otherwise-empty chat.
+      const startingNew = overrides?.startNew || !conversationIdRef.current || base.length === 0;
+      if (startingNew) {
+        conversationIdRef.current = newConversationId();
+        startedAtRef.current = new Date().toISOString();
+        arrivalPathRef.current = overrides?.arrivalPath || 'chat';
+        entryContextRef.current = overrides?.entryContext || {cohortIds: selected, focus};
+      }
 
       // For follow-up turns the model sees the DETAILED variant of earlier
       // answers (that is the fuller record of what was said).
@@ -91,6 +131,10 @@ export function useCohortChat(): UseCohortChat {
       const controller = new AbortController();
       abortRef.current = controller;
 
+      // Accumulate each variant locally too, so we can persist the final
+      // transcript without reading React state back out.
+      const acc: {summary: string; detailed: string} = {summary: '', detailed: ''};
+
       const streamVariant = (style: 'summary' | 'detailed') =>
         streamChat({
           messages: historyForModel,
@@ -101,6 +145,7 @@ export function useCohortChat(): UseCohortChat {
           style,
           signal: controller.signal,
           onChunk: delta => {
+            acc[style] += delta;
             setMessages(prev => {
               const next = [...prev];
               const last = next[next.length - 1];
@@ -127,13 +172,33 @@ export function useCohortChat(): UseCohortChat {
           }
           return next;
         });
-      } else if (failures.length > 0) {
-        setError(failures[0].reason?.message || 'One of the answer variants failed.');
+      } else {
+        if (failures.length > 0) {
+          setError(failures[0].reason?.message || 'One of the answer variants failed.');
+        }
+        // Persist the completed turn (best-effort; never blocks the UI).
+        const assistant: ChatMessage = {
+          role: 'assistant',
+          content: acc.detailed || acc.summary,
+          summary: acc.summary,
+          detailed: acc.detailed
+        };
+        const transcript: ChatMessage[] = [...base, {role: 'user', content}, assistant];
+        if (conversationIdRef.current) {
+          void saveConversation({
+            conversationId: conversationIdRef.current,
+            startedAt: startedAtRef.current || new Date().toISOString(),
+            arrivalPath: arrivalPathRef.current,
+            entryContext: entryContextRef.current,
+            model,
+            messages: transcript
+          });
+        }
       }
       setIsStreaming(false);
       abortRef.current = null;
     },
-    [input, isStreaming, messages, selected, focus]
+    [input, isStreaming, messages, selected, focus, model]
   );
 
   return {
