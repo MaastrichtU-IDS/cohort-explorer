@@ -1,5 +1,7 @@
 """Exploratory Data Analysis (EDA) module."""
 
+import json as _json
+
 
 # Shared helper code injected into both c2 and c3 via the {shared_helpers}
 # placeholder, so the two nodes always agree on how data is loaded and how
@@ -778,7 +780,17 @@ pprint(all_data_issues)
 
 
 
-def c3_eda_data_profiling(cohort_id: str) -> str:
+def c3_eda_data_profiling(cohort_id: str, stratifier_config: dict | None = None) -> str:
+    """Generate the c3 profiling script.
+
+    stratifier_config, chosen by the DCR creator at provision time:
+      {"excluded_defaults": ["sex" | "age", ...],   # default stratifiers to skip
+       "custom_variables": ["varname", ...]}        # extra stratifier columns
+    """
+    _cfg = {"excluded_defaults": [], "custom_variables": []}
+    for _k in list(_cfg.keys()):
+        if isinstance(stratifier_config, dict) and isinstance(stratifier_config.get(_k), list):
+            _cfg[_k] = [str(x) for x in stratifier_config[_k]]
     raw_script = """
 import pandas as pd
 import numpy as np
@@ -786,6 +798,7 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import seaborn as sns
 from scipy.stats import shapiro, skew, kurtosis, zscore, normaltest, median_abs_deviation, trim_mean, entropy, chi2
+from scipy.stats import ttest_ind, mannwhitneyu, kruskal, spearmanr, pearsonr, chi2_contingency
 import warnings
 import decentriq_util
 import re
@@ -802,6 +815,18 @@ warnings.filterwarnings('ignore')
 
 # Study/cohort this DCR belongs to; shown on every panel and chart title.
 COHORT_ID = "{cohort_id}"
+
+# Stratified-analysis configuration, baked in at DCR provision time. The DCR
+# creator can opt out of default stratifiers and/or add custom ones by name.
+_STRATIFIER_CONFIG = {stratifier_config}
+
+# Default stratifiers are recognised by standardised concept, never by column
+# name (the same variable is called sex/DEM_SEX/Gender/GESCHLECHT across
+# cohorts, and codings even flip: 0=male in one cohort, 1=male in another).
+_DEFAULT_STRATIFIERS = {
+    'sex': {'omop_ids': ['46235213'], 'kind': 'categorical'},   # LOINC 76689-9 "Sex assigned at birth"
+    'age': {'omop_ids': ['3022304'], 'kind': 'numeric'},        # LOINC 30525-0 "Age"
+}
 
 def _meta_value(details, key):
     # Read an optional metadata-dictionary field, treating NaN and the various
@@ -1184,7 +1209,399 @@ def _text_structured(series, comp):
     ]
     return out
 
-def write_structured_v2(structured_stats):
+# ---------------------------------------------------------------------------
+# Stratified analysis: cross-variable context against common stratifiers
+# (sex, age by default; configurable at DCR provision time). JSON-only: the
+# interactive visualisation lives in the frontend, not in enclave PNGs.
+#
+# Robustness principles:
+#   - effect sizes are first-class (Hedges g, Cliff's delta, Cramér's V,
+#     epsilon²), not just p-values;
+#   - rank-based measures (Mann-Whitney, Spearman, Kruskal-Wallis) are the
+#     PRIMARY tests, since biomarkers are rarely normal;
+#   - with ~a thousand variables tested, raw p-values WILL contain false
+#     positives, so Benjamini-Hochberg q-values are attached per test family;
+#   - strata below a minimum size get descriptives but no formal test.
+# ---------------------------------------------------------------------------
+_MIN_STRATUM_N = 10       # smallest stratum that still gets a formal test
+_MIN_CORR_N = 10          # minimum complete pairs for a correlation
+_AGE_BAND_EDGES = [0, 45, 55, 65, 75, 200]
+_AGE_BAND_LABELS = ['<45', '45-54', '55-64', '65-74', '>=75']
+_MAX_CONTINGENCY_CATEGORIES = 20
+_NOTABLE_Q_CUTOFF = 0.05
+_MAX_NOTABLE = 50
+
+def _bh_qvalues(pairs):
+    # Benjamini-Hochberg step-up. pairs: [(key, p)] -> {key: q}.
+    items = [(k, float(p)) for k, p in pairs if p is not None]
+    items.sort(key=lambda kp: kp[1])
+    m = len(items)
+    out = {}
+    prev = 1.0
+    for rank in range(m, 0, -1):
+        k, p = items[rank - 1]
+        q = min(prev, p * m / rank)
+        prev = q
+        out[k] = _to_native(q)
+    return out
+
+def _hedges_g(a, b):
+    # Bias-corrected standardised mean difference and its approximate SE.
+    n1, n2 = len(a), len(b)
+    if n1 < 2 or n2 < 2:
+        return None, None
+    s1, s2 = float(a.std(ddof=1)), float(b.std(ddof=1))
+    sp2 = ((n1 - 1) * s1 ** 2 + (n2 - 1) * s2 ** 2) / (n1 + n2 - 2)
+    if sp2 <= 0:
+        return None, None
+    d = (float(a.mean()) - float(b.mean())) / math.sqrt(sp2)
+    j = 1.0 - 3.0 / (4.0 * (n1 + n2) - 9.0)
+    g = d * j
+    se = math.sqrt((n1 + n2) / (n1 * n2) + g ** 2 / (2.0 * (n1 + n2)))
+    return g, se
+
+def _numeric_vs_groups(vals, groups):
+    # Numeric target split by a categorical stratifier (e.g. weight by sex).
+    dfp = pd.DataFrame({'v': pd.to_numeric(vals, errors='coerce'), 'g': groups}).dropna()
+    # Nullable Float64/Int64 -> plain float64: scipy's tests reject pandas
+    # masked arrays (safe here, all NA rows are already gone).
+    dfp['v'] = dfp['v'].astype(float)
+    per, arrays = {}, {}
+    for g, sub in dfp.groupby('g'):
+        s = sub['v']
+        per[str(g)] = {
+            'n': int(len(s)),
+            'mean': _to_native(float(s.mean())),
+            'std': _to_native(float(s.std())) if len(s) > 1 else None,
+            'median': _to_native(float(s.median())),
+            'q1': _to_native(float(s.quantile(0.25))),
+            'q3': _to_native(float(s.quantile(0.75))),
+        }
+        arrays[str(g)] = s
+    out = {'by_stratum': per}
+    big = sorted(arrays.items(), key=lambda kv: -len(kv[1]))[:2]
+    if len(big) == 2 and all(len(s) >= _MIN_STRATUM_N for _, s in big):
+        (ga, a), (gb, b) = big
+        comp = {'strata_compared': [ga, gb]}
+        try:
+            _t, p_t = ttest_ind(a, b, equal_var=False)
+            comp['welch_p'] = _to_native(float(p_t))
+        except Exception:
+            pass
+        try:
+            u, p_u = mannwhitneyu(a, b, alternative='two-sided')
+            comp['mannwhitney_p'] = _to_native(float(p_u))
+            # Cliff's delta in [-1, 1]: robust dominance of the first stratum.
+            comp['cliffs_delta'] = _to_native(2.0 * float(u) / (len(a) * len(b)) - 1.0)
+        except Exception:
+            pass
+        g_val, g_se = _hedges_g(a, b)
+        if g_val is not None:
+            comp['hedges_g'] = _to_native(g_val)
+            comp['hedges_g_ci95'] = [_to_native(g_val - 1.96 * g_se), _to_native(g_val + 1.96 * g_se)]
+        out['comparison'] = comp
+    else:
+        out['comparison'] = None
+        out['comparison_note'] = 'skipped: fewer than two strata with n >= %d' % _MIN_STRATUM_N
+    return out
+
+def _numeric_vs_numeric(vals, strat_vals):
+    # Numeric target vs numeric stratifier (e.g. biomarker vs age).
+    dfp = pd.DataFrame({'v': pd.to_numeric(vals, errors='coerce'),
+                        's': pd.to_numeric(strat_vals, errors='coerce')}).dropna().astype(float)
+    n = int(len(dfp))
+    out = {'n': n}
+    if n < _MIN_CORR_N:
+        out['note'] = 'skipped: fewer than %d complete pairs' % _MIN_CORR_N
+        return out
+    try:
+        rho, p_s = spearmanr(dfp['v'], dfp['s'])
+        out['spearman_rho'] = _to_native(float(rho))
+        out['spearman_p'] = _to_native(float(p_s))
+    except Exception:
+        pass
+    try:
+        r, p_p = pearsonr(dfp['v'], dfp['s'])
+        out['pearson_r'] = _to_native(float(r))
+        out['pearson_p'] = _to_native(float(p_p))
+    except Exception:
+        pass
+    return out
+
+def _age_band_summaries(vals, age_vals):
+    dfp = pd.DataFrame({'v': pd.to_numeric(vals, errors='coerce'),
+                        'a': pd.to_numeric(age_vals, errors='coerce')}).dropna().astype(float)
+    if dfp.empty:
+        return None
+    bands = pd.cut(dfp['a'], bins=_AGE_BAND_EDGES, labels=_AGE_BAND_LABELS, right=False)
+    rows = []
+    for lbl, sub in dfp.groupby(bands, observed=True):
+        if len(sub) == 0:
+            continue
+        rows.append({'band': str(lbl), 'n': int(len(sub)), 'median': _to_native(float(sub['v'].median()))})
+    return rows or None
+
+def _categorical_vs_groups(vals, groups):
+    # Categorical target vs categorical stratifier: contingency + chi-square
+    # independence + Cramér's V. Rare categories beyond the cap fold into
+    # '(other)' so the table stays bounded.
+    dfp = pd.DataFrame({'v': vals, 'g': groups}).dropna()
+    if dfp.empty:
+        return None
+    top = dfp['v'].value_counts().head(_MAX_CONTINGENCY_CATEGORIES).index
+    dfp['v'] = dfp['v'].where(dfp['v'].isin(top), other='(other)')
+    tab = pd.crosstab(dfp['g'], dfp['v'])
+    out = {
+        'contingency': {str(g): {str(c): int(n) for c, n in row.items()} for g, row in tab.iterrows()},
+        'pct_within_stratum': {str(g): {str(c): _to_native(n / row.sum() * 100) for c, n in row.items()}
+                               for g, row in tab.iterrows()},
+    }
+    if tab.shape[0] > 1 and tab.shape[1] > 1:
+        try:
+            stat, p, dof, expected = chi2_contingency(tab)
+            n = int(tab.values.sum())
+            k = min(tab.shape) - 1
+            out['chi2'] = {'statistic': _to_native(float(stat)), 'dof': int(dof),
+                           'p_value': _to_native(float(p)), 'valid': bool(expected.min() >= 5)}
+            out['cramers_v'] = _to_native(math.sqrt(float(stat) / (n * k))) if n > 0 and k > 0 else None
+        except Exception:
+            pass
+    return out
+
+def _groups_vs_numeric(vals, strat_vals):
+    # Categorical target vs numeric stratifier: stratifier distribution per
+    # category (e.g. median age per NYHA class) + Kruskal-Wallis + epsilon².
+    dfp = pd.DataFrame({'v': vals, 'a': pd.to_numeric(strat_vals, errors='coerce')}).dropna()
+    if dfp.empty:
+        return None
+    dfp['a'] = dfp['a'].astype(float)
+    keep = dfp['v'].value_counts().head(_MAX_CONTINGENCY_CATEGORIES).index
+    per, arrays = {}, []
+    for cat, sub in dfp[dfp['v'].isin(keep)].groupby('v'):
+        a = sub['a']
+        per[str(cat)] = {'n': int(len(a)), 'median': _to_native(float(a.median())),
+                         'q1': _to_native(float(a.quantile(0.25))), 'q3': _to_native(float(a.quantile(0.75)))}
+        if len(a) >= _MIN_STRATUM_N:
+            arrays.append(a.values)
+    out = {'stratifier_by_category': per}
+    if len(arrays) > 1:
+        try:
+            h, p = kruskal(*arrays)
+            n = sum(len(x) for x in arrays)
+            k = len(arrays)
+            out['kruskal'] = {'H': _to_native(float(h)), 'p_value': _to_native(float(p)),
+                              'epsilon_sq': _to_native((float(h) - k + 1) / (n - k)) if n > k else None}
+        except Exception:
+            pass
+    return out
+
+def _missingness_vs_stratifier(missing_mask, strat_series, kind):
+    # Is *being missing* associated with the stratifier? Flags systematic
+    # collection gaps (e.g. a biomarker only measured in men, or echo data
+    # missing in the oldest patients) that per-variable profiling cannot see.
+    n_missing = int(missing_mask.sum())
+    n_present = int((~missing_mask).sum())
+    if n_missing < _MIN_STRATUM_N or n_present < _MIN_STRATUM_N:
+        return None
+    if kind == 'categorical':
+        dfp = pd.DataFrame({'m': missing_mask, 'g': strat_series}).dropna()
+        tab = pd.crosstab(dfp['g'], dfp['m'])
+        if tab.shape[0] < 2 or tab.shape[1] < 2:
+            return None
+        out = {'pct_missing_by_stratum': {str(g): _to_native(row.get(True, 0) / row.sum() * 100)
+                                          for g, row in tab.iterrows()}}
+        try:
+            _stat, p, _dof, expected = chi2_contingency(tab)
+            out['chi2_p'] = _to_native(float(p))
+            out['valid'] = bool(expected.min() >= 5)
+        except Exception:
+            pass
+        return out
+    a = pd.to_numeric(strat_series[missing_mask], errors='coerce').dropna().astype(float)
+    b = pd.to_numeric(strat_series[~missing_mask], errors='coerce').dropna().astype(float)
+    if len(a) < _MIN_STRATUM_N or len(b) < _MIN_STRATUM_N:
+        return None
+    out = {'stratifier_median_when_missing': _to_native(float(a.median())),
+           'stratifier_median_when_present': _to_native(float(b.median()))}
+    try:
+        _u, p = mannwhitneyu(a, b, alternative='two-sided')
+        out['mannwhitney_p'] = _to_native(float(p))
+    except Exception:
+        pass
+    return out
+
+def _detect_stratifiers():
+    cfg = _STRATIFIER_CONFIG if isinstance(_STRATIFIER_CONFIG, dict) else {}
+    excluded = set(str(x).strip().lower() for x in (cfg.get('excluded_defaults') or []))
+    found = {}
+    for name, spec in _DEFAULT_STRATIFIERS.items():
+        if name in excluded:
+            data_issues.append("Stratifier '%s' excluded by DCR configuration." % name)
+            continue
+        cands = []
+        for v in vars_details.columns:
+            vl = str(v).strip().lower()
+            if vl in patient_id_cols or vl not in data.columns:
+                continue
+            omop = _meta_value(vars_details[v], 'omop_id')
+            if omop.endswith('.0'):
+                omop = omop[:-2]
+            if omop in spec['omop_ids']:
+                cands.append(vl)
+        if not cands:
+            data_issues.append("Default stratifier '%s' (OMOP %s) not found in this cohort; skipped."
+                               % (name, '/'.join(spec['omop_ids'])))
+            continue
+        # Several columns can share the concept (e.g. age at every visit);
+        # prefer the least-missing one, which is normally the baseline value.
+        cands_sorted = sorted(cands, key=lambda c: -_int0(completeness_by_var.get(c, {}).get('n_valid')))
+        found[name] = {'column': cands_sorted[0], 'kind': spec['kind'], 'source': 'default',
+                       'all_candidates': cands}
+    for raw in (cfg.get('custom_variables') or []):
+        vl = str(raw).strip().lower()
+        if vl in [s['column'] for s in found.values()] or vl in found:
+            continue
+        if vl not in data.columns or vl not in vars_details.columns:
+            data_issues.append("Custom stratifier '%s' not found in the dataset; skipped." % raw)
+            continue
+        t = vars_details[vl]['inferred_type']
+        kind = 'numeric' if t in ('int', 'float') else ('categorical' if t == 'categorical' else None)
+        if kind is None:
+            data_issues.append("Custom stratifier '%s' has unsupported type '%s'; skipped." % (raw, t))
+            continue
+        found[vl] = {'column': vl, 'kind': kind, 'source': 'user'}
+    # Materialise the stratum series. Categorical strata are formed on the
+    # dictionary LABELS, never on raw codes: cohorts flip codings (0=male in
+    # one study, 1=male in another) and only the labels are comparable.
+    for name, s in found.items():
+        col = s['column']
+        if s['kind'] == 'categorical':
+            mapping = vars_details[col].get('categories', None)
+            mapping = mapping if isinstance(mapping, dict) else {}
+            mapping = {_canon_value_token(str(k)).lower(): v for k, v in mapping.items()}
+
+            def _label_of(x, _m=mapping):
+                # Observed values are canonicalised + lowercased exactly like
+                # the mapping keys, so case variants of one stratum merge and
+                # the dictionary label is used whenever one is declared.
+                if pd.isna(x):
+                    return None
+                key = _canon_value_token(str(x)).lower()
+                return _m.get(key, key)
+
+            ser = data[col].map(_label_of)
+            s['series'] = ser
+            s['strata_n'] = {str(k): int(v) for k, v in ser.value_counts().items()}
+        else:
+            ser = pd.to_numeric(data[col], errors='coerce')
+            s['series'] = ser
+            s['n_valid'] = int(ser.notna().sum())
+            s['median'] = _to_native(float(ser.median())) if ser.notna().any() else None
+    return found
+
+def stratified_analysis(structured):
+    strats = _detect_stratifiers()
+    if not strats:
+        return {}
+    fdr_registry = []   # (family, variable, dict-to-annotate, primary p)
+    for column in data.columns:
+        if column not in vars_details.columns or column in patient_id_cols:
+            continue
+        entry = structured.get(column)
+        if entry is None:
+            continue
+        typ = vars_details[column]['inferred_type']
+        blocks = {}
+        for name, s in strats.items():
+            if column == s['column']:
+                continue
+            p_primary, eff = None, None
+            try:
+                if s['kind'] == 'categorical':
+                    if typ in ('int', 'float'):
+                        block = _numeric_vs_groups(data[column], s['series'])
+                        comp = block.get('comparison') or {}
+                        p_primary, eff = comp.get('mannwhitney_p'), comp.get('hedges_g')
+                    elif typ == 'categorical':
+                        block = _categorical_vs_groups(data[column], s['series']) or {}
+                        p_primary = (block.get('chi2') or {}).get('p_value')
+                        eff = block.get('cramers_v')
+                    else:
+                        block = {}
+                else:
+                    if typ in ('int', 'float'):
+                        block = _numeric_vs_numeric(data[column], s['series'])
+                        if name == 'age':
+                            bands = _age_band_summaries(data[column], s['series'])
+                            if bands:
+                                block['by_age_band'] = bands
+                        p_primary, eff = block.get('spearman_p'), block.get('spearman_rho')
+                    elif typ == 'categorical':
+                        block = _groups_vs_numeric(data[column], s['series']) or {}
+                        kw = block.get('kruskal') or {}
+                        p_primary, eff = kw.get('p_value'), kw.get('epsilon_sq')
+                    else:
+                        block = {}
+                miss = _missingness_vs_stratifier(data[column].isna(), s['series'], s['kind'])
+                if miss:
+                    block['missingness'] = miss
+                    mp = miss.get('chi2_p', miss.get('mannwhitney_p'))
+                    if mp is not None:
+                        fdr_registry.append(('missingness_vs_' + name, column, miss, mp))
+            except Exception as e:
+                data_issues.append("Stratified analysis failed for %s vs %s: %s" % (column, name, str(e)))
+                continue
+            if block:
+                if p_primary is not None:
+                    block['primary_p'] = _to_native(p_primary)
+                    block['primary_effect'] = _to_native(eff) if eff is not None else None
+                    fdr_registry.append(('association_vs_' + name, column, block, p_primary))
+                blocks[name] = block
+        if blocks:
+            entry['stratified'] = blocks
+    # BH-FDR within each family of tests, written back into the same dicts.
+    families = {}
+    for fam, var, ref, p in fdr_registry:
+        families.setdefault(fam, []).append((var, ref, p))
+    for fam, items in families.items():
+        qmap = _bh_qvalues([(i, p) for i, (_v, _r, p) in enumerate(items)])
+        for i, (_v, ref, _p) in enumerate(items):
+            if i in qmap:
+                ref['q_value'] = qmap[i]
+    # Metadata + a ready-to-render shortlist of associations that survive FDR.
+    meta = {'config': _STRATIFIER_CONFIG, 'stratifiers': {}}
+    for name, s in strats.items():
+        info = {'column': s['column'], 'kind': s['kind'], 'source': s['source']}
+        if len(s.get('all_candidates', [])) > 1:
+            info['other_candidates'] = [c for c in s['all_candidates'] if c != s['column']]
+        if s['kind'] == 'categorical':
+            info['strata_n'] = s['strata_n']
+        else:
+            info['n_valid'] = s['n_valid']
+            info['median'] = s['median']
+        meta['stratifiers'][name] = info
+    notable = {}
+    for fam, items in families.items():
+        rows = []
+        for var, ref, p in items:
+            q = ref.get('q_value')
+            if q is not None and q < _NOTABLE_Q_CUTOFF:
+                rows.append({'variable': var, 'q_value': q,
+                             'effect': ref.get('primary_effect'), 'p_value': _to_native(p)})
+        rows.sort(key=lambda r: abs(r['effect']) if isinstance(r.get('effect'), (int, float)) else 0.0,
+                  reverse=True)
+        if rows:
+            notable[fam] = rows[:_MAX_NOTABLE]
+    meta['notable_associations'] = notable
+    meta['n_tests_by_family'] = {fam: len(items) for fam, items in families.items()}
+    meta['fdr_note'] = ("q_value is the Benjamini-Hochberg FDR-adjusted p-value, computed within each "
+                        "test family across all variables. With this many tests, raw p-values alone "
+                        "will contain false positives; screen on q_value and judge magnitude by the "
+                        "effect size, not the p-value.")
+    return meta
+
+
+def write_structured_v2(structured_stats, stratifier_meta=None):
     # Writes a typed, aggregate-only EDA output to a NEW file (v2), never
     # overwriting the legacy eda_output_{cohort_id}.json.
     try:
@@ -1214,11 +1631,12 @@ def write_structured_v2(structured_stats):
         entry['graph_url'] = f"https://explorer.icare4cvd.eu/api/variable-graph/{cohort_id}/{vname}"
         variables[vname] = entry
     output = {
-        'schema_version': '2.0',
+        'schema_version': '2.1',
         'cohort_id': '{cohort_id}',
         'generated_at': datetime.now().isoformat(),
         'n_rows': int(n_rows_total),
         'n_variables': int(len(variables)),
+        'stratified_analysis': stratifier_meta or {},
         'variables': variables,
         'data_issues': data_issues,
     }
@@ -1826,7 +2244,15 @@ meta_data_enriched = integrate_eda_with_metadata(vars_to_stats)
 json_dicts = dataframe_to_json_dicts(meta_data_enriched)
 
 try:
-    write_structured_v2(structured_stats)
+    stratifier_meta = stratified_analysis(structured_stats)
+    print("Stratified analysis complete:", list((stratifier_meta.get('stratifiers') or {}).keys()), flush=True)
+except Exception as e:
+    print("Stratified analysis failed:", e)
+    data_issues.append(f"Stratified analysis failed: {str(e)}")
+    stratifier_meta = {}
+
+try:
+    write_structured_v2(structured_stats, stratifier_meta)
 except Exception as e:
     print("Failed to write v2 structured EDA output:", e)
     data_issues.append(f"Failed to write v2 structured EDA output: {str(e)}")
@@ -1836,6 +2262,7 @@ with open('/output/data_issues.json', 'w') as json_file:
 """
     return (raw_script.replace("{shared_helpers}", _SHARED_HELPERS)
             .replace("{chart_style}", _CHART_STYLE_HELPERS)
+            .replace("{stratifier_config}", _json.dumps(_cfg))
             .replace("{cohort_id}", cohort_id))
 
 

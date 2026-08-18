@@ -1966,6 +1966,8 @@ async def post_create_provision_dcr(
     cohort_id: str = Form(...),
     additional_analysts: str = Form("[]"),
     excluded_data_owners: str = Form("[]"),
+    # {"excluded_defaults": ["sex"|"age", ...], "custom_variables": ["varname", ...]}
+    stratifier_config: str = Form("{}"),
 ) -> dict[str, Any]:
     import time
     t0 = time.time()
@@ -1989,10 +1991,14 @@ async def post_create_provision_dcr(
         import json as _json
         parsed_additional_analysts = _json.loads(additional_analysts) if isinstance(additional_analysts, str) else (additional_analysts or [])
         parsed_excluded_data_owners = _json.loads(excluded_data_owners) if isinstance(excluded_data_owners, str) else (excluded_data_owners or [])
+        parsed_stratifier_config = _json.loads(stratifier_config) if isinstance(stratifier_config, str) else (stratifier_config or {})
+        if not isinstance(parsed_stratifier_config, dict):
+            parsed_stratifier_config = {}
         dcr_data = create_provision_dcr(
             user, cohort_info,
             additional_analysts=parsed_additional_analysts,
             excluded_data_owners=parsed_excluded_data_owners,
+            stratifier_config=parsed_stratifier_config,
         )
     except Exception as e:
         raise HTTPException(

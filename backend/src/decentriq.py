@@ -155,7 +155,8 @@ def create_provision_dcr(
     user: Any,
     cohort: Cohort,
     additional_analysts: list[str] = None,
-    excluded_data_owners: list[str] = None
+    excluded_data_owners: list[str] = None,
+    stratifier_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Initialize a Data Clean Room in Decentriq when a new cohort is uploaded.
 
@@ -163,6 +164,10 @@ def create_provision_dcr(
         additional_analysts: Extra analyst emails. They become data owners of
             all nodes EXCEPT the raw cohort data node (i.e. metadata + compute nodes).
         excluded_data_owners: Data owner emails to exclude from the DCR entirely.
+        stratifier_config: Options for the stratified analysis embedded in the
+            c3 EDA script: {"excluded_defaults": ["sex"|"age", ...],
+            "custom_variables": ["varname", ...]}. Baked into the script at
+            provision time.
     """
     additional_analysts = additional_analysts or []
     excluded_data_owners = excluded_data_owners or []
@@ -232,7 +237,7 @@ def create_provision_dcr(
     #    PythonComputeNodeDefinition(name="c3_map_missing_do_not_run", script=c3_map_missing_do_not_run(cohort.cohort_id), dependencies=[metadata_node_id, data_node_id, "c2_save_to_json"])
     #)
     builder.add_node_definition(
-        PythonComputeNodeDefinition(name="c3_eda_data_profiling", script=c3_eda_data_profiling(cohort.cohort_id), dependencies=["c1_data_dict_check", "c2_save_to_json", metadata_node_id, data_node_id])
+        PythonComputeNodeDefinition(name="c3_eda_data_profiling", script=c3_eda_data_profiling(cohort.cohort_id, stratifier_config), dependencies=["c1_data_dict_check", "c2_save_to_json", metadata_node_id, data_node_id])
     )
     builder.add_node_definition(
         PythonComputeNodeDefinition(name="longitudinal_analysis", script=longitudinal_analysis(cohort.cohort_id), dependencies=["c1_data_dict_check", "c2_save_to_json", metadata_node_id, data_node_id])

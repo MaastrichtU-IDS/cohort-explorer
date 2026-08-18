@@ -39,6 +39,13 @@ export default function UploadPage() {
   const [manuallyIncludedOwners, setManuallyIncludedOwners] = useState<string[]>([]);
   const [participantsPreview, setParticipantsPreview] = useState<any>(null);
   const [loadingParticipants, setLoadingParticipants] = useState(false);
+
+  // Stratified-analysis configuration for the EDA scripts embedded in the DCR.
+  // Defaults (sex, age) are detected inside the DCR via OMOP annotations in
+  // the metadata dictionary; the creator can opt out or add extra variables.
+  const [excludedDefaultStratifiers, setExcludedDefaultStratifiers] = useState<string[]>([]);
+  const [customStratifiers, setCustomStratifiers] = useState<string[]>([]);
+  const [newStratifierVar, setNewStratifierVar] = useState('');
   
   const [operationMessage, setOperationMessage] = useState<{text: string, type: 'error' | 'success' | 'info' | 'warning'} | null>(null);
 
@@ -81,6 +88,9 @@ export default function UploadPage() {
     setManuallyIncludedOwners([]);
     setParticipantsPreview(null);
     setNewAnalystEmail('');
+    setExcludedDefaultStratifiers([]);
+    setCustomStratifiers([]);
+    setNewStratifierVar('');
   }, [cohortId]);
 
   // Fetch participants preview when modal opens
@@ -150,6 +160,24 @@ export default function UploadPage() {
 
   const removeAnalyst = useCallback((email: string) => {
     setAdditionalAnalysts(prev => prev.filter(e => e !== email));
+  }, []);
+
+  const toggleDefaultStratifier = useCallback((name: string) => {
+    setExcludedDefaultStratifiers(prev =>
+      prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name]
+    );
+  }, []);
+
+  const addCustomStratifier = useCallback(() => {
+    const v = newStratifierVar.trim();
+    if (v && !customStratifiers.includes(v)) {
+      setCustomStratifiers([...customStratifiers, v]);
+      setNewStratifierVar('');
+    }
+  }, [newStratifierVar, customStratifiers]);
+
+  const removeCustomStratifier = useCallback((v: string) => {
+    setCustomStratifiers(prev => prev.filter(x => x !== v));
   }, []);
 
   const clearMetadataFile = () => {
@@ -287,6 +315,10 @@ export default function UploadPage() {
     formData.append('cohort_id', cohortId);
     formData.append('additional_analysts', JSON.stringify(additionalAnalysts));
     formData.append('excluded_data_owners', JSON.stringify(excludedDataOwners));
+    formData.append('stratifier_config', JSON.stringify({
+      excluded_defaults: excludedDefaultStratifiers,
+      custom_variables: customStratifiers
+    }));
     try {
       const response = await fetch(`${apiUrl}/create-provision-dcr`, {
         method: 'POST',
@@ -576,6 +608,73 @@ export default function UploadPage() {
                            <strong>Excluded data owners:</strong> {excludedDataOwners.join(', ')}
                          </p>
                        )}
+                     </div>
+                   )}
+                 </div>
+
+                 {/* Stratified-analysis configuration */}
+                 <div className="form-control">
+                   <label className="label">
+                     <span className="label-text font-semibold">Stratified EDA analysis</span>
+                   </label>
+                   <p className="text-sm text-base-content/70 mb-3">
+                     The EDA scripts embedded in the DCR will analyse every variable against these stratifiers
+                     (correlations, group differences, missingness patterns). Sex and age are detected
+                     automatically via their OMOP annotations in the metadata dictionary; untick to opt out,
+                     or add other variables from this cohort as extra stratifiers.
+                   </p>
+                   <div className="flex flex-wrap items-center gap-6 mb-3">
+                     {[{ name: 'sex', label: 'Sex' }, { name: 'age', label: 'Age' }].map(d => (
+                       <label key={d.name} className="label cursor-pointer gap-2 py-0">
+                         <input
+                           type="checkbox"
+                           className="checkbox checkbox-sm"
+                           checked={!excludedDefaultStratifiers.includes(d.name)}
+                           onChange={() => toggleDefaultStratifier(d.name)}
+                         />
+                         <span className="label-text">{d.label} (default)</span>
+                       </label>
+                     ))}
+                   </div>
+                   <div className="flex gap-2">
+                     <input
+                       type="text"
+                       list="stratifier-var-options"
+                       className="input input-bordered input-sm flex-grow"
+                       placeholder="Add another variable as stratifier (e.g. diabetes)"
+                       value={newStratifierVar}
+                       onChange={e => setNewStratifierVar(e.target.value)}
+                       onKeyDown={e => {
+                         if (e.key === 'Enter') {
+                           e.preventDefault();
+                           addCustomStratifier();
+                         }
+                       }}
+                     />
+                     <datalist id="stratifier-var-options">
+                       {Object.keys(cohortsData?.[cohortId]?.variables || {}).map(v => (
+                         <option key={v} value={v} />
+                       ))}
+                     </datalist>
+                     <button type="button" className="btn btn-sm btn-outline" onClick={addCustomStratifier}>
+                       Add
+                     </button>
+                   </div>
+                   {customStratifiers.length > 0 && (
+                     <div className="mt-2 flex flex-wrap gap-2">
+                       {customStratifiers.map(v => (
+                         <span key={v} className="badge badge-outline gap-1">
+                           {v}
+                           <button
+                             type="button"
+                             className="ml-1 hover:text-error"
+                             aria-label={`Remove ${v}`}
+                             onClick={() => removeCustomStratifier(v)}
+                           >
+                             ×
+                           </button>
+                         </span>
+                       ))}
                      </div>
                    )}
                  </div>
