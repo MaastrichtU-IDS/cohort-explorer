@@ -254,6 +254,51 @@ export function buildSuggestions(cohortsData: {[id: string]: Cohort}, selected: 
   ];
 }
 
+// ---- Cross-cohort mapping availability --------------------------------------
+// For each pair of selected cohorts, the backend reports whether a cached
+// mapping file exists (the assistant grounds cross-cohort answers in it) or
+// not (the chat shows a "generate the mapping" button).
+
+export interface MappingPairStatus {
+  source: string;
+  target: string;
+  cached: boolean;
+  filename: string | null;
+  generated_at?: string;
+}
+
+export async function fetchMappingStatus(cohortIds: string[]): Promise<MappingPairStatus[]> {
+  if (cohortIds.length < 2) return [];
+  const res = await fetch(
+    `${apiUrl}/api/chat/mapping-status?cohort_ids=${encodeURIComponent(cohortIds.join(','))}`,
+    {credentials: 'include'}
+  );
+  if (!res.ok) throw new Error(`Failed to check mapping status (${res.status})`);
+  const data = await res.json();
+  return data.pairs || [];
+}
+
+// Generate the mapping for one pair via the same endpoint the mapping page
+// uses. Slow (can take minutes): callers should show a progress state.
+export async function generateMappingPair(source: string, target: string): Promise<void> {
+  const res = await fetch(`${apiUrl}/api/generate-mapping`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({source_study: source, target_studies: [[target, false]]})
+  });
+  if (!res.ok) {
+    let detail = `Mapping generation failed (${res.status})`;
+    try {
+      const j = await res.json();
+      detail = j.detail || j.error || detail;
+    } catch {
+      /* body was not JSON */
+    }
+    throw new Error(detail);
+  }
+}
+
 // ---- Conversation history ---------------------------------------------------
 // The client upserts the full transcript after each completed turn; the backend
 // (src/ai_history.py) derives usage metrics. Each user sees their own history;

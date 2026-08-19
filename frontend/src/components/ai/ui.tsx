@@ -6,8 +6,57 @@ import {ChatMessage} from '@/components/ai/chatClient';
 import {apiUrl} from '@/utils';
 
 // Very small, safe markdown-ish renderer: escapes HTML then applies headings,
-// bold, italics, inline code, and turns "- " / "* " lines into bullets.
-// No external deps.
+// bold, italics, inline code, pipe tables, and turns "- " / "* " lines into
+// bullets. No external deps.
+
+// A line that looks like a markdown table row: |cell|cell| (leading pipe).
+function isTableRow(line: string): boolean {
+  return /^\s*\|.*\|\s*$/.test(line);
+}
+
+// A markdown table separator row: | --- | :---: | ---- |
+function isTableSeparator(line: string): boolean {
+  return /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$/.test(line);
+}
+
+function splitRow(line: string): string[] {
+  // Strip the outer pipes then split on the inner ones.
+  return line
+    .trim()
+    .replace(/^\|/, '')
+    .replace(/\|$/, '')
+    .split('|')
+    .map(c => c.trim());
+}
+
+// Render a block of consecutive table lines to an HTML table. Cells arrive
+// already escaped + inline-formatted. Wrapped in overflow-x-auto so wide
+// tables scroll inside the bubble instead of breaking the layout.
+function renderTable(rows: string[]): string {
+  if (rows.length === 0) return '';
+  const headerCells = splitRow(rows[0]);
+  const hasSeparator = rows.length > 1 && isTableSeparator(rows[1]);
+  const bodyRows = rows.slice(hasSeparator ? 2 : 1).filter(r => !isTableSeparator(r));
+
+  let html = '<div class="overflow-x-auto my-2"><table class="table table-xs table-zebra w-auto min-w-[50%] border border-base-300">';
+  html += '<thead><tr>';
+  for (const c of headerCells) {
+    html += `<th class="bg-base-200 text-base-content font-semibold whitespace-nowrap">${c}</th>`;
+  }
+  html += '</tr></thead><tbody>';
+  for (const row of bodyRows) {
+    const cells = splitRow(row);
+    html += '<tr>';
+    // Pad/truncate to the header width so ragged rows don't skew columns.
+    for (let i = 0; i < headerCells.length; i++) {
+      html += `<td class="align-top">${cells[i] ?? ''}</td>`;
+    }
+    html += '</tr>';
+  }
+  html += '</tbody></table></div>';
+  return html;
+}
+
 function renderRich(text: string): string {
   const esc = text
     .replace(/&/g, '&amp;')
@@ -32,7 +81,21 @@ function renderRich(text: string): string {
       inList = false;
     }
   };
-  for (const line of lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    // Table block: two or more consecutive |...| rows (the model may or may
+    // not emit a ---|--- separator row; both shapes render).
+    if (isTableRow(line) && i + 1 < lines.length && (isTableRow(lines[i + 1]) || isTableSeparator(lines[i + 1]))) {
+      closeList();
+      const block: string[] = [];
+      while (i < lines.length && (isTableRow(lines[i]) || isTableSeparator(lines[i]))) {
+        block.push(lines[i]);
+        i++;
+      }
+      i--; // the for-loop increment moves past the block's last line
+      html += renderTable(block);
+      continue;
+    }
     const heading = line.match(/^\s*#{1,6}\s+(.*)$/);
     if (heading) {
       closeList();

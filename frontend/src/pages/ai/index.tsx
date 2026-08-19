@@ -18,8 +18,11 @@ import {withAiAccess} from '@/components/ai/guards';
 import {
   StarterKeyword,
   ConversationStarter,
+  MappingPairStatus,
   fetchStarterKeywords,
   fetchConversationStarters,
+  fetchMappingStatus,
+  generateMappingPair,
   toBriefs
 } from '@/components/ai/chatClient';
 import {guidedIntents, joinCohortLabel, topicBank} from '@/components/ai/promptKit';
@@ -149,6 +152,84 @@ function CohortFocus({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ---- Cross-cohort mapping availability ---------------------------------------
+//
+// When 2+ cohorts are selected, show for each pair whether a cached mapping
+// file is available to the assistant, and offer to generate missing ones via
+// the same pipeline as the mapping page. Generation is slow (minutes), so the
+// button turns into a progress state while it runs.
+function MappingAvailability({selected}: {selected: string[]}) {
+  const [pairs, setPairs] = useState<MappingPairStatus[]>([]);
+  const [generating, setGenerating] = useState<string | null>(null); // "src|tgt"
+  const [genError, setGenError] = useState<string | null>(null);
+
+  const refresh = () => {
+    if (selected.length < 2) {
+      setPairs([]);
+      return;
+    }
+    fetchMappingStatus(selected)
+      .then(setPairs)
+      .catch(() => setPairs([]));
+  };
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(refresh, [selected.join('|')]);
+
+  if (selected.length < 2 || pairs.length === 0) return null;
+
+  const generate = async (source: string, target: string) => {
+    const key = `${source}|${target}`;
+    setGenerating(key);
+    setGenError(null);
+    try {
+      await generateMappingPair(source, target);
+      refresh();
+    } catch (err: any) {
+      setGenError(err?.message || 'Mapping generation failed.');
+    } finally {
+      setGenerating(null);
+    }
+  };
+
+  return (
+    <div className="mb-2 space-y-1">
+      {pairs.map(p => {
+        const key = `${p.source}|${p.target}`;
+        if (p.cached) {
+          return (
+            <div key={key} className="text-[11px] text-base-content/60 flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
+              Mapping {p.source} → {p.target} available to the assistant
+              <span className="font-mono text-[10px] bg-base-300/60 px-1.5 py-0.5 rounded">{p.filename}</span>
+            </div>
+          );
+        }
+        const busy = generating === key;
+        return (
+          <div key={key} className="flex items-center gap-2">
+            <button
+              className="btn btn-xs btn-outline btn-primary normal-case"
+              disabled={generating !== null}
+              onClick={() => generate(p.source, p.target)}
+            >
+              {busy ? (
+                <>
+                  <span className="loading loading-spinner loading-xs" />
+                  Generating mapping {p.source} → {p.target}… (this can take several minutes)
+                </>
+              ) : (
+                <>Generate the mapping between {p.source} and {p.target} and let the assistant use it</>
+              )}
+            </button>
+          </div>
+        );
+      })}
+      {genError && <div className="text-[11px] text-error">{genError}</div>}
     </div>
   );
 }
@@ -544,6 +625,9 @@ function ICareAI() {
             <p className="text-center mt-2 mb-7">
               <LocalModelNote />
             </p>
+            <div className="flex justify-center">
+              <MappingAvailability selected={chat.selected} />
+            </div>
             {starters.length > 0 && (
               <p className="text-center text-xs text-base-content/50 mb-2">
                 Some example questions (auto generated)
@@ -618,6 +702,7 @@ function ICareAI() {
                     ))}
                   </div>
                 )}
+                <MappingAvailability selected={chat.selected} />
                 <Composer
                   value={chat.input}
                   onChange={chat.setInput}
