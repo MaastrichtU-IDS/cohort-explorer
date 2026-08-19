@@ -44,9 +44,6 @@ from .src.vector_db import _embed_cache, generate_studies_embeddings
 
 _BASE_PATH = os.path.dirname(os.path.abspath(__file__))
 
-_EMPTY_MAPPING_COLS = ["source_study", "target_study", "source", "target",
-                       "harmonization_status"]
-
 API_EMBED_MODEL = DEFAULT_EMBED_MODEL
 API_EMBEDDING_MODE = DEFAULT_EMBEDDING_MODE
 API_MAPPING_MODE = DEFAULT_MAPPING_MODE
@@ -216,6 +213,34 @@ def _cross_mapping_csv_path(source_study: str, target_study: str, cfg: str) -> s
     return os.path.join(settings.output_dir, csv_name(source_study, target_study, cfg))
 
 
+def _csv_has_rows(path: str) -> bool:
+    """True if the CSV holds at least one data row beyond the header."""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            next(f)
+            return any(line.strip() for line in f)
+    except (OSError, StopIteration):
+        return False
+
+
+def _find_pair_csv(source_study: str, target_study: str, cfg: str) -> Optional[str]:
+    """Existing usable CSV for this pair+config, or None.
+
+    Prefers the current naming from csv_name(), then falls back to the same
+    name with the legacy "_full" suffix — mapping runs executed outside this
+    backend deliver their files under that convention, and we take those files
+    as-is rather than renaming them. Header-only files don't count as cached:
+    a failed or empty run must not shadow a real cache entry or be served as
+    a fresh result.
+    """
+    exact = _cross_mapping_csv_path(source_study, target_study, cfg)
+    legacy = f"{exact[:-len('.csv')]}_full.csv"
+    for path in (exact, legacy):
+        if os.path.exists(path) and _csv_has_rows(path):
+            return path
+    return None
+
+
 def _is_stale(source_study: str, target: str, cache_mtime: float,
               source_dict_mtime: Optional[float],
               target_dict_mtime: Optional[float]) -> Optional[str]:
@@ -250,8 +275,14 @@ def _write_pair_csv(mapper: StudyMapper, source_study: str, source_family: list[
         df.insert(1, "target_study", target)
         parts.append(df)
 
-    combined = (pd.concat(parts, ignore_index=True) if parts
-                else pd.DataFrame(columns=_EMPTY_MAPPING_COLS))
+    if not parts:
+        # An empty result is a failed or degenerate run, not a mapping. Writing
+        # it would make the header-only file pass the exact-name cache check on
+        # the next request and shadow any legacy _full CSV for the same pair.
+        print(f"[api] 0 rows for {source_study} -> {target}; not writing a cache file")
+        return 0
+
+    combined = pd.concat(parts, ignore_index=True)
 
     # Write to a temp file and rename: os.replace is atomic on the same
     # filesystem, so a concurrent reader never sees a half-written CSV.
@@ -274,8 +305,8 @@ def _combine_cross_mapping_json(source_study: str, target_studies: list[str],
     """
     mappings = defaultdict(list)
     for target in target_studies:
-        csv_path = _cross_mapping_csv_path(source_study, target, cfg)
-        if not os.path.exists(csv_path):
+        csv_path = _find_pair_csv(source_study, target, cfg)
+        if csv_path is None:
             continue
         df = pd.read_csv(csv_path)
         if df.empty:
@@ -353,9 +384,9 @@ def generate_mapping_csv(source_study: str, target_studies: list,
 
     for tgt in effective_targets:
         pair = {"source": source_study, "target": tgt}
-        csv_path = _cross_mapping_csv_path(source_study, tgt, cfg)
+        csv_path = _find_pair_csv(source_study, tgt, cfg)
 
-        if not os.path.exists(csv_path):
+        if csv_path is None:
             uncached_pairs.append(pair)
             to_compute.append(tgt)
             continue
@@ -386,8 +417,8 @@ def generate_mapping_csv(source_study: str, target_studies: list,
                 # wanted the same pair — in this worker or any other — its CSV is
                 # on disk now and fresh. Take it instead of spending another 15
                 # minutes producing the identical file.
-                csv_path = _cross_mapping_csv_path(source_study, tgt, cfg)
-                if not force and os.path.exists(csv_path):
+                csv_path = _find_pair_csv(source_study, tgt, cfg)
+                if not force and csv_path is not None:
                     cache_mtime = os.path.getmtime(csv_path)
                     if not _is_stale(source_study, tgt, cache_mtime, source_dict_mtime,
                                      dictionary_timestamps.get(tgt)):
@@ -405,12 +436,12 @@ def generate_mapping_csv(source_study: str, target_studies: list,
     # Every per-pair CSV this run left on disk, so the caller can offer them for
     # download alongside the combined JSON. Named for the expanded targets — one
     # requested target with a family produces one CSV per member.
-    pair_files = [
-        {"source": source_study, "target": tgt,
-         "filename": csv_name(source_study, tgt, cfg)}
-        for tgt in effective_targets
-        if os.path.exists(_cross_mapping_csv_path(source_study, tgt, cfg))
-    ]
+    pair_files = []
+    for tgt in effective_targets:
+        path = _find_pair_csv(source_study, tgt, cfg)
+        if path:
+            pair_files.append({"source": source_study, "target": tgt,
+                               "filename": os.path.basename(path)})
 
     return {
         "cached_pairs": cached_pairs,
@@ -457,13 +488,16 @@ def find_cached_csv(source_study, target_study, output_dir):
     Normalizes both names to lowercase (preserving dashes) and searches
     only in output_dir for .csv files matching either:
       - {source}_{target}.csv       (exact, no suffix)
-      - {source}_{target}_*.csv     (with config-tag suffix from naming.csv_name)
+      - {source}_{target}_*.csv     (with config-tag suffix from naming.csv_name,
+                                     including externally generated *_full.csv)
+    Header-only files are ignored so an empty failed run never reads as cached.
     Returns the path to the most recent match, or None if not found.
     """
     source = source_study.lower()
     target = target_study.lower()
     matches = glob.glob(os.path.join(output_dir, f"{source}_{target}.csv"))
     matches += glob.glob(os.path.join(output_dir, f"{source}_{target}_*.csv"))
+    matches = [m for m in matches if _csv_has_rows(m)]
     if not matches:
         return None
     return max(matches, key=os.path.getmtime)
