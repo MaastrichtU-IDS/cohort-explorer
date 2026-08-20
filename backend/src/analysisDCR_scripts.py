@@ -1095,10 +1095,18 @@ def merged_data_overview_script(
     Returns:
         The Python script as a string.
     """
-    return f"""###############################################################################
-# RUN THE MERGE AND CREATE THE AIRLOCK
-#
-# A note on the name: the merge itself does NOT happen in this script. The
+    # include_patient_level is True exactly when the merge pools the SHUFFLED
+    # samples; in that case the merge node has analysts and is visible in the
+    # interface, so the "hidden node" explanation would be wrong.
+    if include_patient_level:
+        name_note = f"""# A note on the name: the merge itself does NOT happen in this script — the
+# merge code lives in the "{merge_node_name}" node. Running THIS node makes
+# the platform compute that node and the airlock fragment first (they are its
+# dependencies), which populates the airlock for Development-mode use. Since
+# this merge pools the shuffled samples (synthetic data), the merge node is
+# also visible and directly runnable on its own."""
+    else:
+        name_note = f"""# A note on the name: the merge itself does NOT happen in this script. The
 # actual merge code lives in the "{merge_node_name}" node, which the platform
 # hides from the interface because no participant has direct access to it (it
 # deliberately has no analysts — its full patient-level output must not be
@@ -1106,7 +1114,12 @@ def merged_data_overview_script(
 # the runnable handle for the chain: because it depends on "{merge_node_name}"
 # and on the airlock fragment node, running THIS node makes the platform
 # compute the merge and the fragment first, which populates the airlock for
-# Development-mode use.
+# Development-mode use."""
+
+    return f"""###############################################################################
+# RUN THE MERGE AND CREATE THE AIRLOCK
+#
+{name_note}
 #
 # What this script itself does: it reads the FULL merged (pooled) dataset
 # produced by the "{merge_node_name}" node and writes AGGREGATE information only:

@@ -1107,34 +1107,47 @@ async def get_compute_dcr_definition(
         # shuffled sample), every metadata dictionary node, and every cross-study
         # mapping node so all inputs are mounted under /input. Using the data nodes
         # actually referenced by studies_info ensures the shuffled sample nodes are
-        # included when pooling shuffled data. No participant is granted analyst_of
-        # on this node or its environment: it runs only as a dependency.
+        # included when pooling shuffled data.
+        #
+        # Access depends on what is being pooled: with FULL cohort data no
+        # participant is granted analyst_of on this node or its environment (its
+        # patient-level output must not be directly retrievable, so it runs only
+        # as a dependency and the platform hides it). With SHUFFLED samples the
+        # data is synthetic, so the node gets a distinct name and every
+        # participant becomes an analyst of it — the merge script is then visible
+        # and directly runnable.
+        merge_node_name = "merge-dataset-samples" if merge_use_shuffled else MERGE_NODE_NAME
         study_data_nodes = [s["data_node"] for s in studies_info]
         merge_dependencies = list(dict.fromkeys(study_data_nodes + list(metadata_nodes) + [m["node_name"] for m in mapping_nodes]))
         builder.add_node_definition(
             PythonComputeNodeDefinition(
-                name=MERGE_NODE_NAME,
+                name=merge_node_name,
                 script=merge_datasets_script(studies_info, merge_mappings_info, is_shuffled_data=merge_use_shuffled),
                 dependencies=merge_dependencies,
                 custom_environment=MERGE_ENV_NAME,
             )
         )
+        if merge_use_shuffled:
+            for p_email in participants:
+                participants[p_email]["analyst_of"].add(merge_node_name)
         logging.info(
-            f"Added '{MERGE_NODE_NAME}' node using custom env '{MERGE_ENV_NAME}' "
+            f"Added '{merge_node_name}' node using custom env '{MERGE_ENV_NAME}' "
             f"with {len(studies_info)} studies and {len(merge_mappings_info)} mapping(s); "
-            f"no direct analysts — accessible only via its airlock chain"
+            + ("all participants are analysts (shuffled samples)" if merge_use_shuffled
+               else "no direct analysts — accessible only via its airlock chain")
         )
 
         merge_airlock_percentage = MERGED_AIRLOCK_PERCENTAGE
         merged_patient_id_cols = sorted({s["patient_id"] for s in studies_info if s.get("patient_id")})
-        # Like the merge node itself, the fragment node has no analysts (and, being
-        # a compute node, no data owners): it only runs as part of the chain.
+        # The fragment node has no analysts (and, being a compute node, no data
+        # owners): it only runs as part of the chain. (The merge node itself is
+        # analyst-less too, except when pooling shuffled samples — see above.)
         merge_fragment_node_name = "create-testing-fragment-of-merged-data-noIDs-noOutliers"
         builder.add_node_definition(
             PythonComputeNodeDefinition(
                 name=merge_fragment_node_name,
-                script=merged_data_fragment_script(MERGE_NODE_NAME, merged_patient_id_cols, merge_airlock_percentage),
-                dependencies=[MERGE_NODE_NAME]
+                script=merged_data_fragment_script(merge_node_name, merged_patient_id_cols, merge_airlock_percentage),
+                dependencies=[merge_node_name]
             )
         )
 
@@ -1166,11 +1179,11 @@ async def get_compute_dcr_definition(
             PythonComputeNodeDefinition(
                 name=merge_check_node_name,
                 script=merged_data_overview_script(
-                    MERGE_NODE_NAME,
+                    merge_node_name,
                     merge_preview_node_name,
                     include_patient_level=merge_use_shuffled,
                 ),
-                dependencies=[MERGE_NODE_NAME, merge_fragment_node_name]
+                dependencies=[merge_node_name, merge_fragment_node_name]
             )
         )
         for p_email in participants:
