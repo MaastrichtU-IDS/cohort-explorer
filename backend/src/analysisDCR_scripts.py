@@ -757,6 +757,31 @@ with open(log_file, "w") as log:
     log.write("Pooling {{}} studies with {{}} mapping file(s)\\n".format(len(studies), len(mappings)))
     log.write("Studies: {{}}\\n".format(list(studies.keys())))
 
+# Sanity-check the mapping files' harmonization_status values BEFORE pooling.
+# cohortpool silently drops every row whose status is not exactly
+# 'Identical Match', 'Compatible Match' or 'Partial Match' (a missing column
+# drops ALL rows), and an all-dropped mapping leads to an empty pool. Logging
+# the counts up front makes that failure diagnosable from this node's log.
+import csv as _csv
+_ACCEPTED_STATUSES = {{"Identical Match", "Compatible Match", "Partial Match"}}
+with open(log_file, "a") as log:
+    for m in mappings:
+        try:
+            with open(m["path"], newline="") as fh:
+                rows = list(_csv.DictReader(fh))
+            counts = {{}}
+            for r in rows:
+                status = (r.get("harmonization_status") or "").strip()
+                counts[status] = counts.get(status, 0) + 1
+            log.write("Mapping {{}} -> {{}}: {{}} rows, harmonization_status counts: {{}}\\n".format(
+                m["study_a"], m["study_b"], len(rows), counts or "(no rows)"))
+            accepted = sum(n for s, n in counts.items() if s in _ACCEPTED_STATUSES)
+            if accepted == 0:
+                log.write("  WARNING: no row has an accepted status - cohortpool will "
+                          "ignore this whole mapping file.\\n")
+        except Exception as e:
+            log.write("Could not inspect mapping file {{}}: {{}}\\n".format(m.get("path"), e))
+
 # Pool the datasets together using the cohortpool package.
 # Unit conversions, drug classes, drug target doses and core variables all come
 # from the tables bundled with the package. Pass a path for any of them to use an
@@ -765,9 +790,12 @@ result = pool(
     studies=studies,
     mappings=mappings,
     output_dir=output_dir,
-    # Publish the harmonized data in longitudinal (patient x visit) form, with
-    # visit timing expressed in months; the patient-level frame is still produced.
-    output_format="longitudinal",
+    # "both" publishes the longitudinal (patient x visit) view AND the
+    # patient-level view. The patient-level file is required: with
+    # output_format="longitudinal" it is computed but NOT written, so
+    # result["pooled_dataframe"] comes back empty and the downstream airlock
+    # fragment / overview nodes would crash reading an empty pooled_dataset.csv.
+    output_format="both",
     temporal_unit="months",
     # Quality thresholds: a variable needs values for >=50% of each cohort's
     # patients, and >=80% of pooled patients overall, to be included.
@@ -795,7 +823,16 @@ result = pool(
 
 # Persist the patient-level pooled dataset. Downstream nodes (the airlock
 # fragment and the overview node) read this file, so keep the name stable.
+# Fail loudly if pooling produced nothing: writing an empty CSV would only move
+# the crash into the downstream nodes with a far less useful error.
 pooled_df = result["pooled_dataframe"]
+if pooled_df.empty:
+    with open(log_file, "a") as log:
+        log.write("ERROR: pooling produced an empty patient-level dataset. "
+                  "Most common cause: no mapping rows were accepted (see the "
+                  "harmonization_status counts above; cohortpool only accepts "
+                  "'Identical Match', 'Compatible Match' and 'Partial Match').\\n")
+    raise RuntimeError("Pooling produced an empty patient-level dataset; see merge_datasets_log.txt")
 output_file = os.path.join(output_dir, "pooled_dataset.csv")
 pooled_df.to_csv(output_file, index=False)
 
@@ -821,11 +858,11 @@ else:
     with open(log_file, "a") as log:
         log.write("No longitudinal dataframe in the pool() result.\\n")
 
-# Record any additional output files the package reports having written.
-if "output_files" in result:
+# Record the output files the package reports having written.
+if "output_paths" in result:
     with open(log_file, "a") as log:
-        log.write("Package output files:\\n")
-        for key, path in result["output_files"].items():
+        log.write("Package output paths:\\n")
+        for key, path in result["output_paths"].items():
             log.write("  {{}}: {{}}\\n".format(key, path))
 """
 
