@@ -290,8 +290,10 @@ with open(log_file, "a") as log:
         log.write("  Values capped below: {{}}, above: {{}}, total: {{}}\\n".format(stat['capped_below'], stat['capped_above'], stat['total_capped']))
     log.write("\\nTotal: {{}} values capped across {{}} variables\\n".format(total_values_capped, total_vars_capped))
 
-# Save the fragment to output
-output_file = os.path.join(output_dir, "{cohort_id}_data_fragment.csv")
+# Save the fragment to output. The file is always named "dataset.csv" (the
+# cohort is identified by the airlock node/folder name, which stays per-cohort),
+# matching the merged-data airlock so consumers use one predictable filename.
+output_file = os.path.join(output_dir, "dataset.csv")
 df_fragment.to_csv(output_file, index=False)
 
 with open(log_file, "a") as log:
@@ -353,7 +355,7 @@ def visualization_script(
     if has_airlock:
         airlock_block = (
             f'# Option 2: Airlock sample - only the airlocked subset (e.g., 20%) of the processed data\n'
-            f'{p_air}DATA_FILE = "/input/preview-airlock-{cohort_id}/{cohort_id}_data_fragment.csv"\n'
+            f'{p_air}DATA_FILE = "/input/preview-airlock-{cohort_id}/dataset.csv"\n'
             f'{p_air}DATA_SOURCE_NAME = "{cohort_id} airlock sample"\n'
         )
     else:
@@ -658,7 +660,10 @@ def merge_datasets_script(
     - Builds the `studies` dict expected by `cohortpool.pool`, pointing each study to its
       cohort data node and metadata dictionary node inside the DCR (`/input/<node_name>`).
     - Builds the `mappings` list from the cross-study mapping nodes available in the DCR.
-    - Calls `cohortpool.pool(...)` and writes the pooled dataframe to `/output`.
+    - Calls `cohortpool.pool(...)` (longitudinal output format, monthly temporal unit)
+      and writes both the patient-level pooled dataframe (pooled_dataset.csv, read by
+      the downstream airlock/overview nodes) and the longitudinal patient-x-visit
+      dataframe (pooled_longitudinal_dataset.csv) to `/output`.
 
     Args:
         studies_info: List of dicts, one per cohort, each with:
@@ -760,30 +765,37 @@ result = pool(
     studies=studies,
     mappings=mappings,
     output_dir=output_dir,
-    # Quality thresholds. Inclusion is decided on how many pooled patients actually
-    # have a value; min_study_coverage_pct is retained only as a reported metric.
-    min_study_coverage_pct=80,
-    min_data_completeness_pct=50,
+    # Publish the harmonized data in longitudinal (patient x visit) form, with
+    # visit timing expressed in months; the patient-level frame is still produced.
+    output_format="longitudinal",
+    temporal_unit="months",
+    # Quality thresholds: a variable needs values for >=50% of each cohort's
+    # patients, and >=80% of pooled patients overall, to be included.
+    min_completeness_per_cohort_pct=50,
+    min_pooled_completeness_pct=80,
     # Mapping options.
     include_partial=True,
     # Partial-match transformations. Supplying this list REPLACES the built-in default
-    # registry, so the two defaults must be named explicitly or they are lost.
+    # registry, so any default rule must be named explicitly or it is lost.
     partial_rules=[
         "CATEGORY_DECOMPOSE",
         "DATE_TO_PRESENCE",
         "CATEGORICAL_TO_INDICATOR",
+        # A positive occurrence means yes; absence stays missing rather than
+        # being read as no.
         "POSITIVE_ONLY_BINARY",
+        "CATEGORY_RECODE",
+        "CATEGORY_COLLAPSE",
         "DATE_TO_GRANULARITY",
     ],
-    minimum_studies=2,
     # Whether the pooled inputs are shuffled/synthetic samples; affects report
     # warnings only. Set from the DCR wizard's "merge on shuffled samples" switch.
     is_shuffled_data={is_shuffled_data},
 )
 
+# Persist the patient-level pooled dataset. Downstream nodes (the airlock
+# fragment and the overview node) read this file, so keep the name stable.
 pooled_df = result["pooled_dataframe"]
-
-# Persist the pooled dataset so it can be used by downstream nodes / retrieved as a result.
 output_file = os.path.join(output_dir, "pooled_dataset.csv")
 pooled_df.to_csv(output_file, index=False)
 
@@ -791,6 +803,30 @@ with open(log_file, "a") as log:
     log.write("Pooled dataset saved: {{}}\\n".format(output_file))
     log.write("Pooled dataset shape: {{}} rows, {{}} columns\\n".format(len(pooled_df), len(pooled_df.columns)))
     log.write("Columns: {{}}\\n".format(list(pooled_df.columns)))
+
+# Persist the longitudinal (patient x visit) dataset as well. The "pooled_"
+# prefix matters: the overview node treats output-root files starting with
+# "pooled_" as patient-level and excludes them from its metadata export.
+longitudinal_df = result.get("longitudinal_dataframe")
+if longitudinal_df is not None and not longitudinal_df.empty:
+    longitudinal_file = os.path.join(output_dir, "pooled_longitudinal_dataset.csv")
+    longitudinal_df.to_csv(longitudinal_file, index=False)
+    with open(log_file, "a") as log:
+        log.write("Longitudinal dataset saved: {{}}\\n".format(longitudinal_file))
+        log.write("Longitudinal rows (patient x visit): {{}}\\n".format(len(longitudinal_df)))
+        if "pooled_patient_id" in longitudinal_df.columns:
+            log.write("Patients: {{}}\\n".format(longitudinal_df["pooled_patient_id"].nunique()))
+        log.write("Harmonized variables: {{}}\\n".format(len(longitudinal_df.columns)))
+else:
+    with open(log_file, "a") as log:
+        log.write("No longitudinal dataframe in the pool() result.\\n")
+
+# Record any additional output files the package reports having written.
+if "output_files" in result:
+    with open(log_file, "a") as log:
+        log.write("Package output files:\\n")
+        for key, path in result["output_files"].items():
+            log.write("  {{}}: {{}}\\n".format(key, path))
 """
 
 
@@ -979,9 +1015,10 @@ def merged_airlock_example_script(preview_node_name: str) -> str:
     A documentation node: its script carries numbered instructions on how to
     work with the airlocked merged-data fragment in the Development tab (the
     key point being the input path), plus a commented minimal code snippet.
-    Running the node itself only prints a message explaining that the script
-    is meant to be copied into the Development tab. It has no dependencies,
-    so it runs instantly and cannot fail in production mode.
+    The script is comments only — running the node executes nothing and
+    produces no output; its purpose is to be read and copied into the
+    Development tab. It has no dependencies, so it runs instantly and cannot
+    fail in production mode.
 
     Args:
         preview_node_name: Name of the airlock/preview node the instructions
@@ -1023,17 +1060,6 @@ def merged_airlock_example_script(preview_node_name: str) -> str:
 # summary.to_csv("/output/fragment_summary.csv")
 #
 ###############################################################################
-
-message = (
-    "This is a minimal example of how an analysis script can access the merged "
-    "data in the airlock. The contents of this script are intended to be "
-    "copied and pasted into the 'Development' tab, then tested and expanded there."
-)
-print(message)
-
-# Also write the message to the output so the run produces a visible result.
-with open("/output/README.txt", "w") as f:
-    f.write(message + "\\n")
 """
 
 
@@ -1070,10 +1096,20 @@ def merged_data_overview_script(
         The Python script as a string.
     """
     return f"""###############################################################################
-# MERGED DATA — OVERVIEW AND HARMONIZATION REPORTS
+# RUN THE MERGE AND CREATE THE AIRLOCK
 #
-# This script reads the FULL merged (pooled) dataset produced by the
-# "{merge_node_name}" node and writes AGGREGATE information only:
+# A note on the name: the merge itself does NOT happen in this script. The
+# actual merge code lives in the "{merge_node_name}" node, which the platform
+# hides from the interface because no participant has direct access to it (it
+# deliberately has no analysts — its full patient-level output must not be
+# directly retrievable). A hidden node cannot be run by hand, so this node is
+# the runnable handle for the chain: because it depends on "{merge_node_name}"
+# and on the airlock fragment node, running THIS node makes the platform
+# compute the merge and the fragment first, which populates the airlock for
+# Development-mode use.
+#
+# What this script itself does: it reads the FULL merged (pooled) dataset
+# produced by the "{merge_node_name}" node and writes AGGREGATE information only:
 #   - dataset shape (rows, columns) and patients per study
 #   - per-column completeness (non-empty / empty counts)
 #   - ALL metadata the pooling package produced about the merge process

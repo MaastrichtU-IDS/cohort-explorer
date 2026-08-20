@@ -1161,7 +1161,7 @@ async def get_compute_dcr_definition(
         # When the merge pools the SHUFFLED samples (synthetic data, no leak
         # concern) the patient-level pooled files are exported too; with full
         # cohort data they are never exported.
-        merge_check_node_name = "merged-data-overview-and-reports"
+        merge_check_node_name = "run-the-merge-and-create-airlock"
         builder.add_node_definition(
             PythonComputeNodeDefinition(
                 name=merge_check_node_name,
