@@ -4,7 +4,7 @@
 //
 // The user says what they want to learn (an analysis class), picks cohorts and
 // variables, harmonizes variables across cohorts in the Mapping Workbench, and
-// creates a DCR whose generated node computes aggregates only. Results come
+// creates a DCR whose generated node computes figures and tables. Results come
 // back into the explorer (see /guided-results).
 import React, {useEffect, useMemo, useState} from 'react';
 import Link from 'next/link';
@@ -63,7 +63,7 @@ export default function GuidedAnalysisPage() {
   const [mapping, setMapping] = useState<MappingSpec>({name: '', cohorts: [], variables: []});
   const [roleAssignments, setRoleAssignments] = useState<Record<string, string>>({});
   const [title, setTitle] = useState('');
-  const [k, setK] = useState(5);
+  const [k, setK] = useState(0);
   const [bins, setBins] = useState(20);
   const [dcrName, setDcrName] = useState('');
   const [description, setDescription] = useState('');
@@ -174,7 +174,7 @@ export default function GuidedAnalysisPage() {
           <h1 className="text-2xl font-bold">Guided Analysis</h1>
           <p className="text-sm text-base-content/60 max-w-2xl">
             Describe the analysis you want in plain choices. The explorer builds a Data Clean Room that computes it on the
-            real data and returns only aggregate figures and tables — every figure states which variable mapping produced it.
+            real data and returns figures and tables — every figure states which variable mapping produced it.
           </p>
         </div>
         <Link href="/dcrs" className="btn btn-sm btn-ghost">
@@ -279,9 +279,9 @@ export default function GuidedAnalysisPage() {
             <input className="input input-bordered w-full" value={title} placeholder={meta?.label} onChange={e => setTitle(e.target.value)} />
           </label>
           <label className="block text-sm">
-            Small-cell suppression threshold
-            <input type="number" min={1} className="input input-bordered w-32 ml-2" value={k} onChange={e => setK(parseInt(e.target.value || '5', 10))} />
-            <span className="block text-xs text-base-content/60 mt-1">Any count below this number is hidden; histogram bins and table cells below it are blanked. 5 is the usual minimum.</span>
+            Small-cell suppression threshold (optional)
+            <input type="number" min={0} className="input input-bordered w-32 ml-2" value={k} onChange={e => setK(parseInt(e.target.value || '0', 10))} />
+            <span className="block text-xs text-base-content/60 mt-1">0 shows everything (the default). Set e.g. 5 to hide counts, bins and table cells below that number.</span>
           </label>
           <label className="block text-sm">
             Histogram bins (numeric variables)
@@ -306,7 +306,7 @@ export default function GuidedAnalysisPage() {
                 </ul>
               </div>
               <div className="mt-3 text-xs text-base-content/60">
-                Cohorts: {cohorts.join(', ')} · suppression k = {k} · bins = {bins}
+                Cohorts: {cohorts.join(', ')} · {k > 0 ? `suppression k = ${k}` : 'no suppression'} · bins = {bins}
                 {spec.mapping.sources && spec.mapping.sources.length > 0 && <> · cached files consulted: {spec.mapping.sources.join(', ')}</>}
               </div>
             </div>
@@ -315,7 +315,7 @@ export default function GuidedAnalysisPage() {
               <input className="input input-bordered w-full" value={dcrName} placeholder={`Guided: ${spec.analysis.title}`} onChange={e => setDcrName(e.target.value)} />
             </label>
             <div className="rounded-xl bg-amber-50 border border-amber-200 text-amber-900 p-3 text-sm">
-              Creating the room invites the cohorts' data owners, exactly like a regular analysis DCR. The analysis can run
+              Creating the room invites the cohorts&rsquo; data owners, exactly like a regular analysis DCR. The analysis can run
               once they have provisioned their data; you can then view the aggregate results here in the explorer.
             </div>
             <button className="btn btn-primary" onClick={create} disabled={creating}>
@@ -324,7 +324,7 @@ export default function GuidedAnalysisPage() {
           </div>
           <div>
             <button className="btn btn-sm btn-ghost" onClick={() => setShowScript(s => !s)}>
-              {showScript ? 'Hide' : 'Show'} the generated script (for the curious)
+              {showScript ? 'Hide' : 'Show'} the generated script
             </button>
             {showScript && <pre className="mt-2 text-[11px] leading-snug bg-base-200 rounded-lg p-3 overflow-auto max-h-[600px]">{script}</pre>}
           </div>

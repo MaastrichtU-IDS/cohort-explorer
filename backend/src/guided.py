@@ -6,9 +6,9 @@ Backs the /guided-analysis wizard for domain experts who do not program:
     name, code / OMOP id, and "equivalent names": variables in other cohorts
     that share a concept code)
   - evidence-ranked match suggestions for a chosen variable in the other
-    cohorts: shared codes, text similarity (with a small DE/EN clinical synonym
-    table), rows of cached cross-mapping files, and optional AI suggestions via
-    the platform's local LLM
+    cohorts: shared codes, text similarity (language-neutral token matching),
+    rows of cached cross-mapping files, and optional AI suggestions via the
+    platform's local LLM
   - value-level suggestions for categorical variables (category codes, label
     similarity, the cached mapping's value_mapping)
   - persistence of user mapping specs (reusable across DCRs)
@@ -48,49 +48,6 @@ logger = logging.getLogger(__name__)
 MAPPINGS_DIR = os.path.join(settings.data_folder, "guided_mappings")
 RESULTS_DIR = os.path.join(settings.data_folder, "guided_results")
 
-# Small clinical DE/EN/FR synonym table used by the text-similarity evidence.
-# Keys and values are normalized tokens; every token in a group maps to the
-# group's canonical first entry.
-_SYNONYM_GROUPS = [
-    ["sex", "gender", "geschlecht", "sexe", "geslacht"],
-    ["male", "m", "mann", "maennlich", "mannlich", "homme", "man"],
-    ["female", "f", "w", "frau", "weiblich", "femme", "vrouw", "women", "woman"],
-    ["age", "alter", "aetas", "leeftijd"],
-    ["weight", "gewicht", "poids", "bodyweight", "body", "kg"],
-    ["height", "groesse", "grosse", "laenge", "taille", "lengte", "size"],
-    ["bmi", "bodymassindex", "body_mass_index"],
-    ["diabetes", "diabetic", "dm", "zucker", "diabete"],
-    ["smoking", "smoker", "raucher", "tabac", "fumeur", "roken"],
-    ["blood", "blut", "sang"],
-    ["pressure", "druck", "pression"],
-    ["systolic", "systolisch", "sbp", "systolique"],
-    ["diastolic", "diastolisch", "dbp", "diastolique"],
-    ["heart", "herz", "coeur", "cardiac"],
-    ["failure", "insuffizienz", "insuffisance"],
-    ["rate", "frequenz", "frequence", "hr", "pulse", "puls"],
-    ["hemoglobin", "haemoglobin", "hb", "hgb", "hemoglobine"],
-    ["creatinine", "kreatinin", "crea", "creat"],
-    ["sodium", "natrium", "na"],
-    ["potassium", "kalium", "k"],
-    ["cholesterol", "cholesterin"],
-    ["yes", "ja", "oui", "y", "true", "1", "present", "positive"],
-    ["no", "nein", "non", "n", "false", "0", "absent", "negative"],
-    ["unknown", "unbekannt", "inconnu", "missing", "na"],
-    ["date", "datum", "time", "zeit"],
-    ["baseline", "basis", "enrolment", "enrollment", "visit0", "v0", "t0"],
-    ["death", "tod", "deces", "died", "mortality"],
-    ["hospitalization", "hospitalisation", "hospital", "krankenhaus", "admission"],
-    ["nyha", "class", "klasse", "classe"],
-    ["ejection", "fraction", "ef", "lvef", "auswurffraktion"],
-    ["medication", "medikament", "drug", "treatment", "therapie", "therapy"],
-    ["dose", "dosis", "dosage"],
-]
-_SYNONYM: dict[str, str] = {}
-for _group in _SYNONYM_GROUPS:
-    for _tok in _group:
-        _SYNONYM[_tok] = _group[0]
-
-
 # ---------------------------------------------------------------------------
 # Normalization + similarity
 # ---------------------------------------------------------------------------
@@ -107,7 +64,7 @@ def _tokens(text: str) -> list[str]:
     t = re.sub(r"([A-Za-z])(\d)", r"\1 \2", t)
     t = re.sub(r"(\d)([A-Za-z])", r"\1 \2", t)
     toks = [w.lower() for w in re.split(r"[^A-Za-z0-9]+", t) if w]
-    return [_SYNONYM.get(w, w) for w in toks]
+    return toks
 
 
 def _jaccard(a: list[str], b: list[str]) -> float:
@@ -126,7 +83,10 @@ def _ratio(a: str, b: str) -> float:
 
 def text_similarity(v1: dict, v2: dict) -> float:
     """0..1 similarity between two variable summaries using name, label and
-    standard concept name, after normalization and synonym folding."""
+    standard concept name, after token normalization (case, accents, camelCase,
+    separators). Language-neutral by design: cross-language matches come from
+    shared codes, cached mapping files or the AI suggestions, not from a
+    hand-made dictionary."""
     names = _jaccard(_tokens(v1.get("var_name")), _tokens(v2.get("var_name")))
     labels = max(_ratio(v1.get("var_label"), v2.get("var_label")),
                  _jaccard(_tokens(v1.get("var_label")), _tokens(v2.get("var_label"))))
@@ -425,11 +385,9 @@ def suggest(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict
 
 
 def _canonical_value(cat: dict) -> str:
-    label = (cat.get("concept_name") or cat.get("label") or cat.get("value") or "").strip()
-    toks = _tokens(label)
-    if len(toks) == 1 and toks[0] in _SYNONYM.values():
-        return toks[0]
-    return label
+    """Preferred harmonized label for a category: its standard concept name,
+    else its label, else the raw value."""
+    return (cat.get("concept_name") or cat.get("label") or cat.get("value") or "").strip()
 
 
 @router.post("/suggest-values")

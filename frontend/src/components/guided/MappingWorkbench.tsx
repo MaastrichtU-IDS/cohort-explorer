@@ -78,7 +78,7 @@ export function EvidenceBadge({e}: {e: Evidence}) {
     title = `Shared standard code: ${e.detail}`;
   } else if (e.type === 'text') {
     text = `TEXT ${(e.score ?? 0).toFixed(2)}`;
-    title = 'Name/label similarity (after synonym folding)';
+    title = 'Name/label similarity (normalized tokens)';
   } else if (e.type === 'cache') {
     text = `CACHE · ${e.status || '?'}`;
     title = `From cached mapping file ${e.file}`;
@@ -796,7 +796,7 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
             <div className="h-full flex flex-col items-center justify-center text-center text-base-content/50 gap-2 py-16">
               <Link2 size={28} />
               <div className="max-w-md">
-                Search on the left and click a variable to make it the <b>anchor</b> for "{roleDef?.label}".
+                Search on the left and click a variable to make it the <b>anchor</b> for &ldquo;{roleDef?.label}&rdquo;.
                 {multi && ' Matching variables in the other cohorts are then suggested with their evidence.'}
               </div>
             </div>
