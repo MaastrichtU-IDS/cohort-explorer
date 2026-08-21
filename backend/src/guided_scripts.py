@@ -141,6 +141,8 @@ def describe_spec(spec: dict[str, Any]) -> str:
     k = int(a.get("suppression_k", 0) or 0)
     if k > 0:
         parts.append(f"Small cells below {k} are suppressed.")
+    if spec.get("data_source") == "shuffled":
+        parts.append("COMPUTED ON SHUFFLED SAMPLES (code test only; no results can be drawn).")
     return " ".join(parts)
 
 
@@ -189,6 +191,7 @@ NODES = SPEC["nodes"]
 MAPPING = SPEC["mapping"]
 HVARS = {v["harmonized_name"]: v for v in MAPPING.get("variables", [])}
 TITLE = ANALYSIS.get("title") or KIND
+SHUFFLED = SPEC.get("data_source") == "shuffled"
 
 captions = []   # {"figure"/"table": path, "caption": text, "provenance": text}
 notes = []
@@ -346,6 +349,8 @@ def provenance_lines(used):
 
 def footer_text(used):
     head = "Mapping '%s' (by %s)." % (MAPPING.get("name") or "unnamed", MAPPING.get("created_by") or "unknown")
+    if SHUFFLED:
+        head = "SHUFFLED SAMPLES - code test only, columns shuffled independently: no results can be drawn. " + head
     if K > 0:
         head += " Cells with n<%d suppressed." % K
     lines = provenance_lines(used)
@@ -750,6 +755,9 @@ with open(os.path.join(OUT, "provenance.md"), "w") as fh:
     fh.write("# Guided analysis provenance\n\n")
     fh.write("**Analysis:** %s (%s)\n\n" % (TITLE, KIND))
     fh.write("**Cohorts:** %s\n\n" % ", ".join(COHORTS))
+    if SHUFFLED:
+        fh.write("**DATA SOURCE: SHUFFLED SAMPLES.** A small fragment with independently shuffled columns, "
+                 "intended to test that the analysis code runs. No actual results can be drawn from these figures.\n\n")
     fh.write(("**Suppression:** counts below %d suppressed; bins/cells below %d blanked.\n\n" % (K, K)) if K > 0
              else "**Suppression:** none (all counts and values shown).\n\n")
     fh.write("**Mapping:** %s (id %s, by %s, %s)\n\n" % (MAPPING.get("name", "unnamed"), MAPPING.get("id", "-"),
@@ -763,6 +771,7 @@ with open(os.path.join(OUT, "provenance.md"), "w") as fh:
 
 with open(os.path.join(OUT, "summary.json"), "w") as fh:
     json.dump({"title": TITLE, "kind": KIND, "cohorts": COHORTS, "suppression_k": K, "items": captions,
+               "data_source": "shuffled" if SHUFFLED else "full",
                "notes": notes, "mapping_name": MAPPING.get("name"), "mapping_id": MAPPING.get("id")}, fh, indent=2)
 log("done")
 '''

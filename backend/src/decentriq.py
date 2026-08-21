@@ -1049,8 +1049,22 @@ async def get_compute_dcr_definition(
             logging.warning(f"Guided analysis {gi}: none of its cohorts are in this DCR; skipped")
             continue
         gspec["cohorts"] = g_cohorts
+        # Data source: the full cohort data nodes, or — for code-testing only —
+        # the shuffled sample nodes (uploaded by the platform, so the data owners
+        # need not provision anything).
+        use_shuffled = gspec.get("data_source") == "shuffled"
+        if use_shuffled:
+            missing = [c for c in g_cohorts if c not in shuffled_nodes]
+            if missing:
+                msg = (f"Guided analysis {gi}: shuffled samples requested but not available for "
+                       f"{', '.join(missing)}; the analysis uses the full cohort data instead.")
+                logging.warning(msg)
+                merge_warnings.append(msg)
+                use_shuffled = False
+                gspec["data_source"] = "full"
         gspec["nodes"] = {
-            c: {"data": c.replace(" ", "-"), "dictionary": f"{c.replace(' ', '-')}_metadata_dictionary"}
+            c: {"data": shuffled_nodes[c] if use_shuffled else c.replace(" ", "-"),
+                "dictionary": f"{c.replace(' ', '-')}_metadata_dictionary"}
             for c in g_cohorts
         }
         g_node = guided_node_name(gi, gspec)

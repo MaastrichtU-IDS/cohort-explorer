@@ -27,6 +27,9 @@ APP_SETTINGS_FILE = os.path.join(settings.data_folder, "app_settings.json")
 APP_SETTINGS_DEFAULTS = {
     # Whether the "iCARE-AI" nav button is shown to users.
     "ai_nav_enabled": False,
+    # Show the "Flexible DCR / No-code DCR" chooser when creating an analysis DCR.
+    # Off = the traditional wizard opens directly.
+    "dcr_chooser_enabled": True,
 }
 
 
@@ -84,6 +87,7 @@ def get_admin_settings(user: Any = Depends(get_current_user)) -> dict:
     return {
         "timechf_testing_enabled": timechf_testing,
         "ai_nav_enabled": _load_app_settings()["ai_nav_enabled"],
+        "dcr_chooser_enabled": _load_app_settings()["dcr_chooser_enabled"],
     }
 
 
@@ -93,7 +97,8 @@ def get_admin_settings(user: Any = Depends(get_current_user)) -> dict:
 # ------------------------------------------------------------------
 @router.get("/public-settings")
 def get_public_settings(user: Any = Depends(get_current_user)) -> dict:
-    return {"ai_nav_enabled": _load_app_settings()["ai_nav_enabled"]}
+    values = _load_app_settings()
+    return {"ai_nav_enabled": values["ai_nav_enabled"], "dcr_chooser_enabled": values["dcr_chooser_enabled"]}
 
 
 # ------------------------------------------------------------------
@@ -107,6 +112,20 @@ def toggle_ai_nav(user: Any = Depends(get_current_user)) -> dict:
     _save_app_settings(values)
     logging.info("Admin %s set ai_nav_enabled=%s", admin_email, values["ai_nav_enabled"])
     return {"ai_nav_enabled": values["ai_nav_enabled"]}
+
+
+# ------------------------------------------------------------------
+# POST /admin/toggle-dcr-chooser — show/hide the Flexible/No-code chooser
+# when creating an analysis DCR (off = traditional wizard is the default)
+# ------------------------------------------------------------------
+@router.post("/toggle-dcr-chooser")
+def toggle_dcr_chooser(user: Any = Depends(get_current_user)) -> dict:
+    admin_email = _require_admin(user)
+    values = _load_app_settings()
+    values["dcr_chooser_enabled"] = not values["dcr_chooser_enabled"]
+    _save_app_settings(values)
+    logging.info("Admin %s set dcr_chooser_enabled=%s", admin_email, values["dcr_chooser_enabled"])
+    return {"dcr_chooser_enabled": values["dcr_chooser_enabled"]}
 
 
 # ------------------------------------------------------------------

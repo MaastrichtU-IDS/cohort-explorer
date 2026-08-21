@@ -3,7 +3,8 @@
 import React, {useState, useEffect, useMemo, useCallback, useRef} from 'react';
 import Link from 'next/link';
 import {useRouter} from 'next/router';
-import {LogIn, LogOut, Compass, Upload, HardDrive, Map, Box, FileText, Settings} from 'react-feather';
+import {LogIn, LogOut, Compass, Upload, HardDrive, Map, Box, FileText, Settings, Code, MousePointer} from 'react-feather';
+import GuidedWizard from '@/components/guided/GuidedWizard';
 import {useCohorts} from '@/components/CohortsContext';
 import {DarkThemeIcon, LightThemeIcon, SparklesIcon} from '@/components/Icons';
 import {apiUrl} from '@/utils';
@@ -68,6 +69,10 @@ export function Nav() {
   const [cohortSearchQuery, setCohortSearchQuery] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
   const [aiNavEnabled, setAiNavEnabled] = useState(false);
+  // Whether the "Flexible DCR / No-code DCR" chooser opens first when creating
+  // an analysis DCR (admin toggle at /dcr-settings); off = traditional wizard.
+  const [dcrChooserEnabled, setDcrChooserEnabled] = useState(true);
+  const [wizardMode, setWizardMode] = useState<'chooser' | 'flexible' | 'nocode'>('chooser');
   const notificationRef = React.useRef<HTMLDivElement>(null);
 
   // Check admin status
@@ -84,7 +89,7 @@ export function Nav() {
     if (!userEmail) return;
     fetch(`${apiUrl}/admin/public-settings`, {credentials: 'include'})
       .then(res => res.ok ? res.json() : null)
-      .then(data => { if (data) setAiNavEnabled(!!data.ai_nav_enabled); })
+      .then(data => { if (data) { setAiNavEnabled(!!data.ai_nav_enabled); setDcrChooserEnabled(data.dcr_chooser_enabled !== false); } })
       .catch(() => {});
   }, [userEmail]);
 
@@ -338,6 +343,7 @@ export function Nav() {
     }
     setShowModal(true);
     setWizardStep(0);
+    setWizardMode(dcrChooserEnabled ? 'chooser' : 'flexible');
   };
 
   const handleLogout = () => {
@@ -807,12 +813,6 @@ export function Nav() {
               <span className="text-base">My DCRs</span>
             </Link>
           </li>
-          <li>
-            <Link href="/guided-analysis" className={pathname === '/guided-analysis' || pathname === '/guided-results' ? 'active' : ''}>
-              <Compass size={24} />
-              <span className="text-base">Guided Analysis</span>
-            </Link>
-          </li>
           {aiNavEnabled && (
             <li>
               <Link href="/ai" className={pathname === '/ai' || pathname.startsWith('/ai/') ? 'active' : ''}>
@@ -837,7 +837,6 @@ export function Nav() {
             <li><Link href="/cohorts">Explore</Link></li>
             <li><Link href="/mapping">Mapping</Link></li>
             <li><Link href="/dcrs">My DCRs</Link></li>
-            <li><Link href="/guided-analysis">Guided Analysis</Link></li>
             {aiNavEnabled && <li><Link href="/ai">iCARE-AI</Link></li>}
             <li><Link href="/docs_store">Documents</Link></li>
           </ul>
@@ -894,7 +893,7 @@ export function Nav() {
       {/* Popup to publish a Data Clean Room with selected cohorts */}
       {showModal && (
         <div className="modal modal-open">
-          <div className="modal-box max-w-4xl max-h-[85vh]">
+          <div className={`modal-box ${wizardMode === 'nocode' ? 'max-w-7xl w-[96vw] max-h-[92vh]' : 'max-w-4xl max-h-[85vh]'}`}>
             {!userEmail ? (
               /* ========== NOT LOGGED IN ========== */
               <>
@@ -908,6 +907,56 @@ export function Nav() {
                   </a>
                 </div>
               </>
+            ) : wizardMode === 'chooser' ? (
+              /* ========== CHOOSER: which kind of analysis DCR? ========== */
+              <>
+                <div className="flex justify-between items-start mb-4">
+                  <div>
+                    <h3 className="font-bold text-xl">Create an analysis Data Clean Room</h3>
+                    <p className="text-sm text-base-content/60">Two ways to get there. Pick the one that fits how you work.</p>
+                  </div>
+                  <button className="btn btn-sm btn-ghost" onClick={closeWizard}>✕</button>
+                </div>
+                <div className="grid md:grid-cols-2 gap-4">
+                  <button
+                    type="button"
+                    onClick={() => setWizardMode('flexible')}
+                    className="text-left rounded-2xl border-2 border-base-300 hover:border-base-content bg-base-100 p-5 transition-all hover:shadow-lg"
+                  >
+                    <div className="flex items-center gap-3 mb-2">
+                      <span className="w-11 h-11 rounded-xl bg-sky-100 text-sky-900 flex items-center justify-center"><Code size={22} /></span>
+                      <span className="text-lg font-bold">Flexible DCR</span>
+                    </div>
+                    <p className="text-sm text-base-content/80 mb-3">For analysts who program in Python or R. You get the room with the data nodes, starter scripts and airlocks, and write the analysis yourself.</p>
+                    <ul className="text-xs text-base-content/70 space-y-1">
+                      <li>✓ Any analysis you can code; iterate on the script inside the room</li>
+                      <li>✓ Cross-cohort mapping files are generated by the platform and attached to the room</li>
+                      <li>✓ Airlocked, de-identified samples to develop against</li>
+                      <li>– You write and debug the code; results are whatever your script produces</li>
+                    </ul>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setWizardMode('nocode')}
+                    className="text-left rounded-2xl border-2 border-base-300 hover:border-base-content bg-base-100 p-5 transition-all hover:shadow-lg"
+                  >
+                    <div className="flex items-center gap-3 mb-2">
+                      <span className="w-11 h-11 rounded-xl bg-emerald-100 text-emerald-900 flex items-center justify-center"><MousePointer size={22} /></span>
+                      <span className="text-lg font-bold">No-code DCR</span>
+                    </div>
+                    <p className="text-sm text-base-content/80 mb-3">For domain experts who do not program. Choose an analysis type, the cohorts and the variables; the code is pre-built and ready to run.</p>
+                    <ul className="text-xs text-base-content/70 space-y-1">
+                      <li>✓ No programming: point-and-click choices, results shown back here in the explorer</li>
+                      <li>✓ Cross-cohort mapping specified by you in the interface, with suggestions from codes, cached mappings and AI</li>
+                      <li>✓ Every figure states exactly which mapping produced it</li>
+                      <li>– A fixed set of analysis types; the generated script is not edited inside the room</li>
+                    </ul>
+                  </button>
+                </div>
+              </>
+            ) : wizardMode === 'nocode' ? (
+              /* ========== NO-CODE WIZARD ========== */
+              <GuidedWizard embedded onClose={closeWizard} />
             ) : (
               <>
               {/* ========== WIZARD VIEW ========== */}

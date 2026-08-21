@@ -88,6 +88,9 @@ export interface AnalysisSpec {
     roles: Record<string, string>;
   };
   cohorts: string[];
+  // 'full' = the cohorts' real data; 'shuffled' = the platform-uploaded shuffled
+  // samples (code testing only — every figure carries a notice).
+  data_source?: 'full' | 'shuffled';
   mapping: MappingSpec;
 }
 
