@@ -716,6 +716,34 @@ def merge_datasets_script(
     mappings_block = "\n".join(mappings_lines) if mappings_lines else ""
 
     return f"""import os
+
+import numpy as np
+import pandas as pd
+
+# --- Compatibility shim (TEMPORARY) -------------------------------------------
+# The enclave's numpy is the system-provided 1.x, and the system site-packages
+# precede the custom environment on sys.path, so a newer numpy cannot be
+# installed over it. cohortpool's medication normalizer produces pandas
+# nullable columns (Float64/Int64); feeding those into np.isclose under
+# numpy 1.x raises TypeError (isfinite on object arrays) — observed in the
+# enclave at cohortpool pipeline.py:3670. Until cohortpool coerces these
+# itself, wrap np.isclose to convert nullable pandas inputs to plain float64
+# (pd.NA -> NaN) first: identical comparison semantics (equal_nan=False keeps
+# treating missing as non-matching), and a no-op for regular inputs.
+# Remove once the fix lands in cohortpool and the pinned commit is bumped.
+_np_isclose = np.isclose
+
+def _coerce_nullable(x):
+    if isinstance(x, pd.Series) and pd.api.types.is_extension_array_dtype(x.dtype):
+        return pd.to_numeric(x, errors="coerce").astype("float64")
+    return x
+
+def _isclose_compat(a, b, *args, **kwargs):
+    return _np_isclose(_coerce_nullable(a), _coerce_nullable(b), *args, **kwargs)
+
+np.isclose = _isclose_compat
+# ------------------------------------------------------------------------------
+
 from cohortpool import pool
 
 # Output directory (always exists in the Decentriq environment)

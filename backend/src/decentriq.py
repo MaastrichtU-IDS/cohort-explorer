@@ -65,21 +65,16 @@ else:
         "repo will fail in the enclave."
     )
     COHORTPOOL_GITHUB_URL = f"git+https://github.com/komi786/cohortpool.git@{COHORTPOOL_COMMIT}"
-# Install the data stack explicitly into the custom environment instead of
-# inheriting the enclave's system copies. The system numpy is 1.x, and
-# cohortpool is developed/tested against numpy 2.x — nullable pandas dtypes
-# (Float64/Int64, used throughout cohortpool's medication normalizer) crash
-# inside numpy 1.x ufuncs (isfinite/isclose TypeError) but work on 2.x. The
-# whole stack is listed together so every compiled package is built against
-# the same numpy major (mixing numpy 2 with system pandas/matplotlib compiled
-# for numpy 1 would break their C ABI).
-MERGE_ENV_REQUIREMENTS = (
-    f"{COHORTPOOL_GITHUB_URL}\n"
-    "numpy>=2.0,<3.0\n"
-    "pandas>=2.2.2,<3.0\n"
-    "matplotlib>=3.9,<4.0\n"
-    "seaborn>=0.13.2,<0.15\n"
-)
+# NOTE (learned the hard way): the enclave puts its SYSTEM site-packages ahead
+# of the custom environment on sys.path, so requirements here can only ADD
+# packages — they can never override one the base image ships. We tried
+# installing numpy>=2 to escape the system numpy 1.x; it installed fine but the
+# system copy still won (traceback kept showing /system/.../numpy). For now
+# (as of Aug 2026), version-sensitive fixes therefore have to land in
+# cohortpool itself (or be shimmed in the merge script, see
+# merge_datasets_script); stack pins added here will not take effect while
+# that path precedence holds.
+MERGE_ENV_REQUIREMENTS = f"{COHORTPOOL_GITHUB_URL}\n"
 MERGE_NODE_NAME = "merge-datasets"
 # Fixed airlock percentage for the merged/pooled dataset fragment. Deliberately
 # hardcoded (independent of the per-cohort airlock settings); make it a request
