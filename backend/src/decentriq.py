@@ -1037,6 +1037,20 @@ async def get_compute_dcr_definition(
     # It comes after all per-cohort data/visualization nodes and pools every cohort
     # together using the `cohortpool` package installed from GitHub via a custom
     # Python environment.
+    # Human-readable notes about how the merge was assembled (cohorts excluded,
+    # synthetic IDs used, chain omitted). Returned to the caller so the wizard can
+    # show them instead of the merge silently changing shape.
+    merge_warnings: list[str] = []
+    if merge_use_shuffled and not shuffled_nodes:
+        # Contradictory request (the wizard normally prevents it): pooling shuffled
+        # samples was asked for, but no cohort has a shuffled sample node. Rather
+        # than silently pooling nothing, fall back to the full cohort data and say so.
+        msg = ("Merge source 'shuffled samples' was requested but no selected cohort "
+               "has a shuffled sample in this DCR; the merge pools the full cohort "
+               "data instead.")
+        logging.warning(msg)
+        merge_warnings.append(msg)
+        merge_use_shuffled = False
     studies_info = []
     for cohort_id in selected_cohorts.keys():
         raw_data_node_id = cohort_id.replace(" ", "-")
@@ -1044,10 +1058,12 @@ async def get_compute_dcr_definition(
 
         if merge_use_shuffled:
             if cohort_id not in shuffled_nodes:
-                logging.warning(
-                    f"merge_use_shuffled=True but no shuffled sample node exists for "
-                    f"cohort '{cohort_id}'; skipping this cohort in the merge."
-                )
+                # No shuffled sample exists, so there is literally no data node to
+                # pool for this cohort.
+                msg = (f"{cohort_id}: excluded from the merge because it has no "
+                       f"shuffled sample (merge source is 'shuffled samples').")
+                logging.warning(msg)
+                merge_warnings.append(msg)
                 continue
             # Pool the shuffled sample. The fragmentation/shuffle step replaces the
             # original ID column with a synthetic "Synthetic_ID" column.
@@ -1055,16 +1071,17 @@ async def get_compute_dcr_definition(
             patient_id = "Synthetic_ID"
         else:
             # Pool the raw cohort data node; the patient id is the cohort's original
-            # ID variable (discovered via SNOMED/OMOP codes).
+            # ID variable (discovered via SNOMED/OMOP codes). A cohort WITHOUT a
+            # recognisable ID variable is still pooled, with an empty patient_id:
+            # resolving the patient key is the merge algorithm's (cohortpool's)
+            # responsibility, not ours.
             data_node_id = raw_data_node_id
-            patient_id = find_patient_id_variable(cohort_id)
-
-        if not patient_id:
-            logging.warning(
-                f"No patient ID variable found for cohort '{cohort_id}'; "
-                f"skipping this cohort in the merge."
-            )
-            continue
+            patient_id = find_patient_id_variable(cohort_id) or ""
+            if not patient_id:
+                msg = (f"{cohort_id}: no patient-ID variable found (SNOMED 184107009 / "
+                       f"OMOP 4086934); passed to the merge without a patient ID.")
+                logging.warning(msg)
+                merge_warnings.append(msg)
 
         studies_info.append({
             "study_name": cohort_id,
@@ -1156,7 +1173,14 @@ async def get_compute_dcr_definition(
         )
 
         merge_airlock_percentage = MERGED_AIRLOCK_PERCENTAGE
-        merged_patient_id_cols = sorted({s["patient_id"] for s in studies_info if s.get("patient_id")})
+        merged_patient_id_cols = sorted(
+            {s["patient_id"] for s in studies_info if s.get("patient_id")}
+            # For a study passed without a patient_id, cohortpool picks the key
+            # itself from a fixed list of column names; whichever it picks is a
+            # real identifier column that must not reach the airlock, so list them
+            # all for the fragment to drop (matched case-insensitively there).
+            | ({"Synthetic_ID", "patient_id", "id"} if any(not s.get("patient_id") for s in studies_info) else set())
+        )
         # The fragment node has no analysts (and, being a compute node, no data
         # owners): it only runs as part of the chain. (The merge node itself is
         # analyst-less too, except when pooling shuffled samples — see above.)
@@ -1228,11 +1252,11 @@ async def get_compute_dcr_definition(
             f"-> {merge_check_node_name}; example node: {merge_example_node_name}"
         )
     else:
-        logging.info(
-            "Skipping merge-datasets node and its airlock chain: no poolable "
-            "studies (no patient ID variable found, or no shuffled samples when "
-            "pooling shuffled data)"
-        )
+        msg = ("Merge / pooling chain NOT added: no poolable studies"
+               + (" (none of the selected cohorts has a shuffled sample)" if merge_use_shuffled else "")
+               + ".")
+        logging.warning(msg)
+        merge_warnings.append(msg)
 
     # Add users permissions for previews
     # for prev_node in preview_nodes:
@@ -1278,7 +1302,7 @@ async def get_compute_dcr_definition(
     logging.info(f"DCR build completed in {build_time.total_seconds():.3f}s")
     logging.info(f"Total DCR definition creation completed in {total_time.total_seconds():.3f}s for {len(cohorts_request['cohorts'])} cohorts")
     
-    return dcr_definition, dcr_title, participants, mapping_nodes
+    return dcr_definition, dcr_title, participants, mapping_nodes, merge_warnings
 
 
 
@@ -1318,7 +1342,7 @@ async def create_live_compute_dcr(
     logging.info(f"Starting live compute DCR creation for user {user['email']} at {start_time}")
     
     # Step 1: Create the DCR definition (reuse existing logic)
-    dcr_definition, dcr_title, participants, mapping_nodes = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings, dcr_name, excluded_data_owners, selected_mapping_files, include_mapping_upload_slot, research_question, merge_use_shuffled)
+    dcr_definition, dcr_title, participants, mapping_nodes, merge_warnings = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings, dcr_name, excluded_data_owners, selected_mapping_files, include_mapping_upload_slot, research_question, merge_use_shuffled)
     
     # Step 2: Publish the DCR to Decentriq with retry logic for race conditions
     import time
@@ -1594,6 +1618,7 @@ async def create_live_compute_dcr(
             "shuffled_uploads_successful": successful_shuffled_uploads,
             "mapping_upload_results": mapping_upload_results,
             "mapping_uploads_successful": successful_mapping_uploads,
+            "merge_warnings": merge_warnings,
             "participants": participants_json
         }
         
@@ -1794,7 +1819,7 @@ async def api_get_compute_dcr_definition(
         include_shuffled_samples=include_shuffled_samples,
     )
 
-    dcr_definition, _dcr_title, _participants, _mapping_nodes = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, dcr_name=dcr_name)
+    dcr_definition, _dcr_title, _participants, _mapping_nodes, _merge_warnings = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, dcr_name=dcr_name)
 
     # Generate DCR config JSON
     dcr_config_json = { "dataScienceDataRoom": dcr_definition.high_level }

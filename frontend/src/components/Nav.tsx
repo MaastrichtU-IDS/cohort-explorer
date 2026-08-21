@@ -53,6 +53,15 @@ export function Nav() {
   // Whether the merge/pool node should combine the shuffled samples (true) instead
   // of the full cohort data (false, default).
   const [mergeUseShuffled, setMergeUseShuffled] = useState(false);
+  // True when at least one selected cohort still has its shuffled sample enabled
+  // (Data Samples step). Pooling shuffled samples is impossible without any.
+  const anyShuffledEnabled = Object.values(shuffledSampleSettings).some(v => v !== false);
+  // The merge-source toggle lives in a later step and keeps its value across wizard
+  // runs; if shuffled samples get disabled for every cohort, a stale "Shuffled samples"
+  // choice would make the backend pool nothing. Fall back to full cohort data.
+  useEffect(() => {
+    if (!anyShuffledEnabled && mergeUseShuffled) setMergeUseShuffled(false);
+  }, [anyShuffledEnabled, mergeUseShuffled]);
   const [wizardStep, setWizardStep] = useState(0);
   const [researchQuestion, setResearchQuestion] = useState('');
   const [showAddCohortModal, setShowAddCohortModal] = useState(false);
@@ -513,6 +522,16 @@ export function Nav() {
               <p className="mb-2 text-sm">
                 <span className="font-semibold">Cohorts with no shuffled samples:</span> {cohortsWithoutSamples.join(', ')}
               </p>
+            )}
+            {Array.isArray(result.merge_warnings) && result.merge_warnings.length > 0 && (
+              <div className="mt-3 p-3 rounded-lg bg-amber-100 border border-amber-300 text-amber-900 text-sm">
+                <p className="font-semibold mb-1">Merge / pooling notes</p>
+                <ul className="list-disc ml-5 space-y-0.5">
+                  {result.merge_warnings.map((w: string, i: number) => (
+                    <li key={i}>{w}</li>
+                  ))}
+                </ul>
+              </div>
             )}
           </div>
         ));
@@ -1197,16 +1216,23 @@ export function Nav() {
                           </button>
                           <button
                             type="button"
+                            disabled={!anyShuffledEnabled}
+                            title={anyShuffledEnabled ? undefined : 'Enable shuffled samples for at least one cohort (Data Samples step) to pool them'}
                             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                               mergeUseShuffled
                                 ? 'bg-primary text-primary-content'
                                 : 'bg-base-200 text-base-content/70 hover:bg-base-300'
-                            }`}
+                            } disabled:opacity-40 disabled:cursor-not-allowed`}
                             onClick={() => setMergeUseShuffled(true)}
                           >
                             Shuffled samples
                           </button>
                         </div>
+                        {!anyShuffledEnabled && (
+                          <p className="text-xs text-base-content/60 mt-2">
+                            No shuffled samples are included in this DCR, so the merge pools the full cohort data.
+                          </p>
+                        )}
                         {mergeUseShuffled && (
                           <p className="text-xs text-warning mt-2">
                             Make sure shuffled samples are enabled (Data Samples step) for the cohorts you want to pool; cohorts without a shuffled sample will be excluded from the merge.

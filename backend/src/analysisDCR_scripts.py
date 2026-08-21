@@ -763,27 +763,34 @@ mappings = [
 {mappings_block}
 ]
 
-# Preprocess: strip leading/trailing spaces from column names in each study's data CSV.
-# Data owners upload raw CSVs whose headers may contain stray spaces (e.g. "Record ID "
-# vs "Record ID"), which would cause cohortpool's exact column lookup to fail.
+with open(log_file, "w") as log:
+    log.write("Pooling {{}} studies with {{}} mapping file(s)\\n".format(len(studies), len(mappings)))
+    log.write("Studies: {{}}\\n".format(list(studies.keys())))
+
+# Preprocess: strip leading/trailing spaces from column names in each study's data
+# CSV (written to a cleaned copy under /tmp). Data owners upload raw CSVs whose
+# headers may contain stray spaces (e.g. "Record ID " vs "Record ID"), which would
+# make cohortpool's exact column lookup fail. Nothing else is altered: a study
+# whose patient_id is empty (no ID variable identified for the cohort) is passed
+# through as-is — resolving the patient key is the merge algorithm's job.
+import csv as _csv
 for study_id, cfg in studies.items():
     data_path = cfg["data"]
     try:
         cleaned_path = os.path.join("/tmp", os.path.basename(data_path))
-        with open(data_path, "r") as src, open(cleaned_path, "w") as dst:
-            header = src.readline()
-            stripped = ",".join(col.strip() for col in header.rstrip("\\r\\n").split(","))
-            dst.write(stripped + "\\n")
-            for line in src:
-                dst.write(line)
+        with open(data_path, "r", newline="") as src, open(cleaned_path, "w", newline="") as dst:
+            reader = _csv.reader(src)
+            writer = _csv.writer(dst)
+            writer.writerow([col.strip() for col in next(reader)])
+            for row in reader:
+                writer.writerow(row)
         cfg["data"] = cleaned_path
     except Exception as e:
         with open(log_file, "a") as log:
             log.write("Failed to clean columns for {{}}: {{}}\\n".format(study_id, e))
-
-with open(log_file, "w") as log:
-    log.write("Pooling {{}} studies with {{}} mapping file(s)\\n".format(len(studies), len(mappings)))
-    log.write("Studies: {{}}\\n".format(list(studies.keys())))
+    if not cfg.get("patient_id"):
+        with open(log_file, "a") as log:
+            log.write("{{}}: no patient-ID column configured; left to the merge algorithm to resolve\\n".format(study_id))
 
 # Sanity-check the mapping files' harmonization_status values BEFORE pooling.
 # cohortpool silently drops every row whose status is not exactly
