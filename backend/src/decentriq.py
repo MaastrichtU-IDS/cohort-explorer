@@ -65,7 +65,21 @@ else:
         "repo will fail in the enclave."
     )
     COHORTPOOL_GITHUB_URL = f"git+https://github.com/komi786/cohortpool.git@{COHORTPOOL_COMMIT}"
-MERGE_ENV_REQUIREMENTS = f"{COHORTPOOL_GITHUB_URL}\n"
+# Install the data stack explicitly into the custom environment instead of
+# inheriting the enclave's system copies. The system numpy is 1.x, and
+# cohortpool is developed/tested against numpy 2.x — nullable pandas dtypes
+# (Float64/Int64, used throughout cohortpool's medication normalizer) crash
+# inside numpy 1.x ufuncs (isfinite/isclose TypeError) but work on 2.x. The
+# whole stack is listed together so every compiled package is built against
+# the same numpy major (mixing numpy 2 with system pandas/matplotlib compiled
+# for numpy 1 would break their C ABI).
+MERGE_ENV_REQUIREMENTS = (
+    f"{COHORTPOOL_GITHUB_URL}\n"
+    "numpy>=2.0,<3.0\n"
+    "pandas>=2.2.2,<3.0\n"
+    "matplotlib>=3.9,<4.0\n"
+    "seaborn>=0.13.2,<0.15\n"
+)
 MERGE_NODE_NAME = "merge-datasets"
 # Fixed airlock percentage for the merged/pooled dataset fragment. Deliberately
 # hardcoded (independent of the per-cohort airlock settings); make it a request
