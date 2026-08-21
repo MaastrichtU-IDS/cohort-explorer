@@ -807,6 +807,12 @@ export function Nav() {
               <span className="text-base">My DCRs</span>
             </Link>
           </li>
+          <li>
+            <Link href="/guided-analysis" className={pathname === '/guided-analysis' || pathname === '/guided-results' ? 'active' : ''}>
+              <Compass size={24} />
+              <span className="text-base">Guided Analysis</span>
+            </Link>
+          </li>
           {aiNavEnabled && (
             <li>
               <Link href="/ai" className={pathname === '/ai' || pathname.startsWith('/ai/') ? 'active' : ''}>
@@ -831,6 +837,7 @@ export function Nav() {
             <li><Link href="/cohorts">Explore</Link></li>
             <li><Link href="/mapping">Mapping</Link></li>
             <li><Link href="/dcrs">My DCRs</Link></li>
+            <li><Link href="/guided-analysis">Guided Analysis</Link></li>
             {aiNavEnabled && <li><Link href="/ai">iCARE-AI</Link></li>}
             <li><Link href="/docs_store">Documents</Link></li>
           </ul>
