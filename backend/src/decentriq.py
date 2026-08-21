@@ -41,21 +41,30 @@ except PackageNotFoundError:
 
 # Custom Python environment for the "merge-datasets" node.
 # The environment installs the `cohortpool` package directly from GitHub so it is
-# available inside the enclave. Pin to a branch/commit/tag by appending e.g. "@main".
+# available inside the enclave.
 MERGE_ENV_NAME = "cohortpool_env"
+# ALWAYS pin to an exact commit. Decentriq caches built environments by their
+# requirements text, so an unpinned URL keeps serving a stale cohortpool build
+# even in newly created DCRs (this bit us: main had the new pool() API but the
+# enclave kept installing an old snapshot -> TypeError at the pool() call).
+# Bump this SHA deliberately, together with any embedded-script changes the new
+# cohortpool version requires; the changed requirements string forces a fresh
+# environment build.
+COHORTPOOL_COMMIT = "0f53d001a8ccfd1791ea2c50fa58bedee6d01d15"  # cohortpool 0.2.0
 # cohortpool is a private repo, so a GitHub Personal Access Token (PAT) with repo
 # read scope must be embedded in the pip-installable Git URL for the enclave to
 # fetch and install it. The token is loaded from the COHORTPOOL_GITHUB_TOKEN env var.
 if settings.cohortpool_github_token:
     COHORTPOOL_GITHUB_URL = (
         f"git+https://{settings.cohortpool_github_token}@github.com/komi786/cohortpool.git"
+        f"@{COHORTPOOL_COMMIT}"
     )
 else:
     logger.warning(
         "COHORTPOOL_GITHUB_TOKEN is not set; cohortpool install from the private "
         "repo will fail in the enclave."
     )
-    COHORTPOOL_GITHUB_URL = "git+https://github.com/komi786/cohortpool.git"
+    COHORTPOOL_GITHUB_URL = f"git+https://github.com/komi786/cohortpool.git@{COHORTPOOL_COMMIT}"
 MERGE_ENV_REQUIREMENTS = f"{COHORTPOOL_GITHUB_URL}\n"
 MERGE_NODE_NAME = "merge-datasets"
 # Fixed airlock percentage for the merged/pooled dataset fragment. Deliberately
@@ -1494,11 +1503,17 @@ async def create_live_compute_dcr(
                     # Generate encryption key
                     key = dq.Key()
                     
-                    # Generate upload filename in format: mapping__cohortID1__to__cohortID2__cohortID3.json
+                    # Generate upload filename in format: mapping__cohortID1__to__cohortID2__cohortID3.<ext>
+                    # Keep the SOURCE file's extension: the selected mapping files are the
+                    # per-pair *_full.csv files, and labelling CSV content ".json" in the
+                    # Decentriq UI has misled debugging before. (Inside the enclave the
+                    # node mounts extensionless as /input/<node_name>, and cohortpool then
+                    # parses it as delimited text — so CSV content is required regardless.)
                     cohorts = mapping_info.get('cohorts', [])
+                    source_ext = os.path.splitext(filepath)[1] or ".csv"
                     if len(cohorts) >= 2:
                         # First cohort is source, rest are targets joined with __
-                        upload_filename = f"mapping__{cohorts[0]}__to__{'__'.join(cohorts[1:])}.json"
+                        upload_filename = f"mapping__{cohorts[0]}__to__{'__'.join(cohorts[1:])}{source_ext}"
                     else:
                         # Fallback to original filename if cohorts not available
                         upload_filename = os.path.basename(filepath)

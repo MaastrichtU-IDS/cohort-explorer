@@ -660,10 +660,10 @@ def merge_datasets_script(
     - Builds the `studies` dict expected by `cohortpool.pool`, pointing each study to its
       cohort data node and metadata dictionary node inside the DCR (`/input/<node_name>`).
     - Builds the `mappings` list from the cross-study mapping nodes available in the DCR.
-    - Calls `cohortpool.pool(...)` (longitudinal output format, monthly temporal unit)
-      and writes both the patient-level pooled dataframe (pooled_dataset.csv, read by
-      the downstream airlock/overview nodes) and the longitudinal patient-x-visit
-      dataframe (pooled_longitudinal_dataset.csv) to `/output`.
+    - Calls `cohortpool.pool(...)` (longitudinal output format, monthly temporal unit,
+      mirroring the reference run.py usage) and writes the published longitudinal
+      patient-x-visit dataframe to `/output/pooled_dataset.csv` — the stable filename
+      the downstream airlock/overview nodes read.
 
     Args:
         studies_info: List of dicts, one per cohort, each with:
@@ -790,12 +790,11 @@ result = pool(
     studies=studies,
     mappings=mappings,
     output_dir=output_dir,
-    # "both" publishes the longitudinal (patient x visit) view AND the
-    # patient-level view. The patient-level file is required: with
-    # output_format="longitudinal" it is computed but NOT written, so
-    # result["pooled_dataframe"] comes back empty and the downstream airlock
-    # fragment / overview nodes would crash reading an empty pooled_dataset.csv.
-    output_format="both",
+    # "longitudinal" (patient x visit rows) — matching the reference run.py
+    # usage exactly. NOTE: in this mode the patient-level view is computed but
+    # NOT written, so result["pooled_dataframe"] comes back EMPTY; the
+    # longitudinal frame is the published dataset (handled below).
+    output_format="longitudinal",
     temporal_unit="months",
     # Quality thresholds: a variable needs values for >=50% of each cohort's
     # patients, and >=80% of pooled patients overall, to be included.
@@ -821,42 +820,35 @@ result = pool(
     is_shuffled_data={is_shuffled_data},
 )
 
-# Persist the patient-level pooled dataset. Downstream nodes (the airlock
-# fragment and the overview node) read this file, so keep the name stable.
-# Fail loudly if pooling produced nothing: writing an empty CSV would only move
-# the crash into the downstream nodes with a far less useful error.
-pooled_df = result["pooled_dataframe"]
-if pooled_df.empty:
+# Persist the published dataset as pooled_dataset.csv — the stable name the
+# downstream nodes (airlock fragment, overview) read. With
+# output_format="longitudinal" the published frame is the longitudinal one
+# (patient x visit rows); result["pooled_dataframe"] is empty in that mode, so
+# it only serves as a fallback should the output format ever change. Fail
+# loudly if BOTH are empty: writing an empty CSV would only move the crash
+# into the downstream nodes with a far less useful error.
+published_df = result.get("longitudinal_dataframe")
+published_kind = "longitudinal (patient x visit)"
+if published_df is None or published_df.empty:
+    published_df = result["pooled_dataframe"]
+    published_kind = "patient-level"
+if published_df.empty:
     with open(log_file, "a") as log:
-        log.write("ERROR: pooling produced an empty patient-level dataset. "
-                  "Most common cause: no mapping rows were accepted (see the "
-                  "harmonization_status counts above; cohortpool only accepts "
-                  "'Identical Match', 'Compatible Match' and 'Partial Match').\\n")
-    raise RuntimeError("Pooling produced an empty patient-level dataset; see merge_datasets_log.txt")
+        log.write("ERROR: pooling produced no data (longitudinal and patient-level "
+                  "frames both empty). Most common cause: no mapping rows were "
+                  "accepted (see the harmonization_status counts above; cohortpool "
+                  "only accepts 'Identical Match', 'Compatible Match' and "
+                  "'Partial Match').\\n")
+    raise RuntimeError("Pooling produced no data; see merge_datasets_log.txt")
 output_file = os.path.join(output_dir, "pooled_dataset.csv")
-pooled_df.to_csv(output_file, index=False)
+published_df.to_csv(output_file, index=False)
 
 with open(log_file, "a") as log:
-    log.write("Pooled dataset saved: {{}}\\n".format(output_file))
-    log.write("Pooled dataset shape: {{}} rows, {{}} columns\\n".format(len(pooled_df), len(pooled_df.columns)))
-    log.write("Columns: {{}}\\n".format(list(pooled_df.columns)))
-
-# Persist the longitudinal (patient x visit) dataset as well. The "pooled_"
-# prefix matters: the overview node treats output-root files starting with
-# "pooled_" as patient-level and excludes them from its metadata export.
-longitudinal_df = result.get("longitudinal_dataframe")
-if longitudinal_df is not None and not longitudinal_df.empty:
-    longitudinal_file = os.path.join(output_dir, "pooled_longitudinal_dataset.csv")
-    longitudinal_df.to_csv(longitudinal_file, index=False)
-    with open(log_file, "a") as log:
-        log.write("Longitudinal dataset saved: {{}}\\n".format(longitudinal_file))
-        log.write("Longitudinal rows (patient x visit): {{}}\\n".format(len(longitudinal_df)))
-        if "pooled_patient_id" in longitudinal_df.columns:
-            log.write("Patients: {{}}\\n".format(longitudinal_df["pooled_patient_id"].nunique()))
-        log.write("Harmonized variables: {{}}\\n".format(len(longitudinal_df.columns)))
-else:
-    with open(log_file, "a") as log:
-        log.write("No longitudinal dataframe in the pool() result.\\n")
+    log.write("Pooled dataset saved: {{}} ({{}})\\n".format(output_file, published_kind))
+    log.write("Pooled dataset shape: {{}} rows, {{}} columns\\n".format(len(published_df), len(published_df.columns)))
+    if "pooled_patient_id" in published_df.columns:
+        log.write("Patients: {{}}\\n".format(published_df["pooled_patient_id"].nunique()))
+    log.write("Columns: {{}}\\n".format(list(published_df.columns)))
 
 # Record the output files the package reports having written.
 if "output_paths" in result:
