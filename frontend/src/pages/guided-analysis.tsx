@@ -2,25 +2,19 @@
 
 // Guided Analysis — a no-code path to a Data Clean Room for domain experts.
 //
-// The user says what they want to learn (an analysis class), picks cohorts and
-// variables, harmonizes variables across cohorts in the Mapping Workbench, and
-// creates a DCR whose generated node computes figures and tables. Results come
-// back into the explorer (see /guided-results).
-import React, {useEffect, useMemo, useState} from 'react';
+// The user says what they want to learn (an analysis class), picks cohorts,
+// reviews the participants, picks/harmonizes variables in the Mapping
+// Workbench, and creates a DCR whose generated node computes figures and
+// tables. Results come back into the explorer (see /guided-results).
+import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import Link from 'next/link';
-import {ArrowLeft, ArrowRight, BarChart2, Check, Compass, GitMerge, Grid, Layers, TrendingUp, AlertTriangle} from 'react-feather';
+import {ArrowLeft, ArrowRight, BarChart2, Check, Compass, GitMerge, Grid, HelpCircle, Layers, TrendingUp, AlertTriangle, Users} from 'react-feather';
 import {useCohorts} from '@/components/CohortsContext';
+import {ParticipantsModal} from '@/components/ParticipantsModal';
 import MappingWorkbench, {RoleDef, cohortColor} from '@/components/guided/MappingWorkbench';
-import {
-  AnalysisSpec,
-  Kind,
-  KindMeta,
-  MappingSpec,
-  createGuidedDcr,
-  describeSpec,
-  fetchKinds,
-  provenanceLine
-} from '@/components/guided/client';
+import MiniChart from '@/components/guided/MiniChart';
+import {AnalysisSpec, Kind, KindMeta, MappingSpec, createGuidedDcr, describeSpec, fetchKinds, provenanceLine} from '@/components/guided/client';
+import {apiUrl} from '@/utils';
 
 const KIND_ICONS: Record<Kind, any> = {
   distribution: BarChart2,
@@ -52,17 +46,48 @@ const ROLE_LABELS: Record<Kind, RoleDef[]> = {
   ]
 };
 
-const STEPS = ['What to learn', 'Cohorts', 'Variables & harmonization', 'Settings', 'Review & create'];
+const STEPS = ['What to learn', 'Cohorts', 'Participants', 'Variables & harmonization', 'Settings', 'Review & create'];
+
+// "weight by sex in TIME-CHF", "sex across TIME-CHF and Aachen-HF", ...
+function defaultTitle(kind: Kind | null, mapping: MappingSpec, roles: Record<string, string>, cohorts: string[]): string {
+  if (!kind) return '';
+  const name = (role: string) => {
+    const hv = mapping.variables.find(v => v.harmonized_name === roles[role]);
+    if (!hv) return '';
+    // prefer the raw variable name(s) the user picked; fall back to the harmonized label
+    const raw = Array.from(new Set(Object.values(hv.members).map(m => m.var_name).filter(Boolean)));
+    return raw.length === 1 ? raw[0] : hv.label || hv.harmonized_name;
+  };
+  const where = cohorts.length === 1 ? `in ${cohorts[0]}` : `across ${cohorts.slice(0, -1).join(', ')} and ${cohorts[cohorts.length - 1]}`;
+  switch (kind) {
+    case 'distribution':
+      return `${name('variable')} ${where}`;
+    case 'stratified':
+      return `${name('variable')} by ${name('group')} ${where}`;
+    case 'correlation':
+      return `${name('x')} vs ${name('y')} ${where}`;
+    case 'crosstab':
+      return `${name('x')} × ${name('y')} ${where}`;
+    case 'compare':
+      return `${name('variable')} ${where}`;
+    case 'pooled':
+      return `${name('variable')} pooled ${where}${roles.group ? `, by ${name('group')}` : ''}`;
+    default:
+      return '';
+  }
+}
 
 export default function GuidedAnalysisPage() {
   const {cohortsData, userEmail} = useCohorts();
   const [kinds, setKinds] = useState<Record<Kind, KindMeta> | null>(null);
   const [step, setStep] = useState(0);
   const [kind, setKind] = useState<Kind | null>(null);
+  const [explain, setExplain] = useState<Kind | null>(null);
   const [cohorts, setCohorts] = useState<string[]>([]);
   const [mapping, setMapping] = useState<MappingSpec>({name: '', cohorts: [], variables: []});
   const [roleAssignments, setRoleAssignments] = useState<Record<string, string>>({});
   const [title, setTitle] = useState('');
+  const [titleTouched, setTitleTouched] = useState(false);
   const [k, setK] = useState(0);
   const [bins, setBins] = useState(20);
   const [dcrName, setDcrName] = useState('');
@@ -72,6 +97,15 @@ export default function GuidedAnalysisPage() {
   const [creating, setCreating] = useState(false);
   const [created, setCreated] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Participants (same model as the analysis DCR wizard: data owners are
+  // opted in through the modal; additional analysts are added by email).
+  const [participantsPreview, setParticipantsPreview] = useState<any>(null);
+  const [loadingParticipants, setLoadingParticipants] = useState(false);
+  const [showParticipantsModal, setShowParticipantsModal] = useState(false);
+  const [additionalAnalysts, setAdditionalAnalysts] = useState<string[]>([]);
+  const [newAnalystEmail, setNewAnalystEmail] = useState('');
+  const [manuallyIncludedOwners, setManuallyIncludedOwners] = useState<string[]>([]);
 
   useEffect(() => {
     fetchKinds().then(r => setKinds(r.kinds)).catch(() => setKinds(null));
@@ -95,6 +129,53 @@ export default function GuidedAnalysisPage() {
     });
   };
 
+  // Participants preview for the selected cohorts.
+  useEffect(() => {
+    if (cohorts.length === 0) {
+      setParticipantsPreview(null);
+      return;
+    }
+    let cancelled = false;
+    setLoadingParticipants(true);
+    fetch(`${apiUrl}/preview-dcr-participants`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({cohorts: Object.fromEntries(cohorts.map(c => [c, []])), additional_analysts: additionalAnalysts})
+    })
+      .then(r => (r.ok ? r.json() : null))
+      .then(r => {
+        if (!cancelled) setParticipantsPreview(r?.participants || null);
+      })
+      .catch(() => null)
+      .finally(() => {
+        if (!cancelled) setLoadingParticipants(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [cohorts, additionalAnalysts]);
+
+  const dataOwners = useMemo((): {email: string; cohorts: string[]}[] => {
+    if (!participantsPreview) return [];
+    const owners: Record<string, Set<string>> = {};
+    Object.entries(participantsPreview).forEach(([email, roles]: [string, any]) => {
+      (roles.data_owner_of || []).forEach((nodeId: string) => {
+        const cohortName = nodeId.replace(/_metadata_dictionary$/, '').replace(/_shuffled_sample$/, '').replace(/-/g, ' ');
+        (owners[email] = owners[email] || new Set()).add(cohortName);
+      });
+    });
+    return Object.entries(owners).map(([email, set]) => ({email, cohorts: Array.from(set).sort()}));
+  }, [participantsPreview]);
+  const excludedDataOwners = useMemo(() => dataOwners.map(o => o.email).filter(e => !manuallyIncludedOwners.includes(e)), [dataOwners, manuallyIncludedOwners]);
+
+  const addAnalyst = useCallback(() => {
+    const email = newAnalystEmail.trim().toLowerCase();
+    if (email && !additionalAnalysts.includes(email) && email !== userEmail) setAdditionalAnalysts([...additionalAnalysts, email]);
+    setNewAnalystEmail('');
+  }, [newAnalystEmail, additionalAnalysts, userEmail]);
+  const removeAnalyst = useCallback((email: string) => setAdditionalAnalysts(prev => prev.filter(e => e !== email)), []);
+
   const rolesComplete = roles.every(r => {
     if (r.optional) return true;
     const name = roleAssignments[r.key];
@@ -102,16 +183,25 @@ export default function GuidedAnalysisPage() {
     return !!v && cohorts.every(c => v.members[c]?.var_name);
   });
 
+  const autoTitle = defaultTitle(kind, mapping, roleAssignments, cohorts);
+  const effectiveTitle = (titleTouched && title.trim()) || autoTitle || meta?.label || kind || '';
+
   const spec: AnalysisSpec | null = kind
     ? {
-        analysis: {kind, title: title || (meta?.label ?? kind), suppression_k: k, bins, roles: Object.fromEntries(roles.map(r => [r.key, roleAssignments[r.key] || '']).filter(([, v]) => v))},
+        analysis: {
+          kind,
+          title: effectiveTitle,
+          suppression_k: k,
+          bins,
+          roles: Object.fromEntries(roles.map(r => [r.key, roleAssignments[r.key] || '']).filter(([, v]) => v))
+        },
         cohorts,
         mapping: {...mapping, cohorts, created_by: mapping.created_by || userEmail || undefined}
       }
     : null;
 
   useEffect(() => {
-    if (step === 4 && spec) {
+    if (step === 5 && spec) {
       describeSpec(spec)
         .then(r => {
           setDescription(r.description);
@@ -125,7 +215,7 @@ export default function GuidedAnalysisPage() {
   const canNext = () => {
     if (step === 0) return !!kind;
     if (step === 1) return !!meta && cohorts.length >= meta.min_cohorts && cohorts.length <= meta.max_cohorts;
-    if (step === 2) return rolesComplete;
+    if (step === 3) return rolesComplete;
     return true;
   };
 
@@ -138,8 +228,8 @@ export default function GuidedAnalysisPage() {
         cohorts: Object.fromEntries(cohorts.map(c => [c, []])),
         include_shuffled_samples: Object.fromEntries(cohorts.map(c => [c, false])),
         airlock_settings: Object.fromEntries(cohorts.map(c => [c, 0])),
-        additional_analysts: [],
-        excluded_data_owners: [],
+        additional_analysts: additionalAnalysts,
+        excluded_data_owners: excludedDataOwners,
         selected_mapping_files: [],
         include_mapping_upload_slot: false,
         merge_use_shuffled: false,
@@ -173,8 +263,8 @@ export default function GuidedAnalysisPage() {
         <div>
           <h1 className="text-2xl font-bold">Guided Analysis</h1>
           <p className="text-sm text-base-content/60 max-w-2xl">
-            Describe the analysis you want in plain choices. The explorer builds a Data Clean Room that computes it on the
-            real data and returns figures and tables — every figure states which variable mapping produced it.
+            Describe the analysis you want in plain choices. The explorer builds a Data Clean Room that computes it on the real data and
+            returns figures and tables — every figure states which variable mapping produced it.
           </p>
         </div>
         <Link href="/dcrs" className="btn btn-sm btn-ghost">
@@ -185,7 +275,10 @@ export default function GuidedAnalysisPage() {
       {/* Step rail */}
       <ol className="flex flex-wrap gap-1 mb-6">
         {STEPS.map((s, i) => (
-          <li key={s} className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm ${i === step ? 'bg-base-content text-base-100' : i < step ? 'bg-emerald-100 text-emerald-900' : 'bg-base-200 text-base-content/60'}`}>
+          <li
+            key={s}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm ${i === step ? 'bg-base-content text-base-100' : i < step ? 'bg-emerald-100 text-emerald-900' : 'bg-base-200 text-base-content/60'}`}
+          >
             <span className="w-5 h-5 rounded-full bg-base-100/30 flex items-center justify-center text-xs">{i < step ? <Check size={12} /> : i + 1}</span>
             {s}
           </li>
@@ -205,25 +298,48 @@ export default function GuidedAnalysisPage() {
           {kinds &&
             (Object.entries(kinds) as [Kind, KindMeta][]).map(([key, m]) => {
               const Icon = KIND_ICONS[key] || BarChart2;
+              const open = explain === key;
               return (
-                <button
+                <div
                   key={key}
+                  role="button"
+                  tabIndex={0}
                   onClick={() => {
                     setKind(key);
                     setRoleAssignments({});
                     setMapping(mm => ({...mm, variables: []}));
                   }}
-                  className={`text-left rounded-2xl border-2 p-4 transition-all hover:shadow-md ${kind === key ? 'border-base-content bg-base-100' : 'border-base-300 bg-base-100/70'}`}
+                  onKeyDown={e => e.key === 'Enter' && setKind(key)}
+                  className={`text-left rounded-2xl border-2 p-4 transition-all hover:shadow-md cursor-pointer ${kind === key ? 'border-base-content bg-base-100' : 'border-base-300 bg-base-100/70'}`}
                 >
                   <div className="flex items-center gap-2 mb-2">
                     <Icon size={20} />
                     <span className="font-semibold">{m.label}</span>
                   </div>
                   <p className="text-sm text-base-content/70">{m.blurb}</p>
-                  <p className="text-xs text-base-content/50 mt-2">
-                    {m.min_cohorts === m.max_cohorts ? `${m.min_cohorts} cohort` : `${m.min_cohorts}–${m.max_cohorts} cohorts`}
-                  </p>
-                </button>
+                  <div className="flex items-center justify-between mt-2">
+                    <p className="text-xs text-base-content/50">{m.min_cohorts === m.max_cohorts ? `${m.min_cohorts} cohort` : `${m.min_cohorts}–${m.max_cohorts} cohorts`}</p>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-xs gap-1"
+                      onClick={e => {
+                        e.stopPropagation();
+                        setExplain(open ? null : key);
+                      }}
+                    >
+                      <HelpCircle size={13} /> {open ? 'Hide' : 'What is this?'}
+                    </button>
+                  </div>
+                  {open && (
+                    <div className="mt-3 pt-3 border-t border-base-200" onClick={e => e.stopPropagation()}>
+                      <div className="rounded-lg bg-base-200/60 p-2 mb-2">
+                        <MiniChart kind={key} />
+                        <div className="text-[10px] text-center text-base-content/50 mt-1">example of the figure this produces</div>
+                      </div>
+                      <p className="text-sm text-base-content/80 leading-relaxed">{m.explain}</p>
+                    </div>
+                  )}
+                </div>
               );
             })}
           {!kinds && <div className="text-sm text-base-content/50">Loading analysis types…</div>}
@@ -234,7 +350,8 @@ export default function GuidedAnalysisPage() {
       {step === 1 && meta && (
         <div>
           <p className="text-sm text-base-content/60 mb-3">
-            Choose {meta.min_cohorts === meta.max_cohorts ? meta.min_cohorts : `${meta.min_cohorts} to ${meta.max_cohorts}`} cohort{meta.max_cohorts > 1 ? 's' : ''}. Only cohorts with uploaded variables can be analysed.
+            Choose {meta.min_cohorts === meta.max_cohorts ? meta.min_cohorts : `${meta.min_cohorts} to ${meta.max_cohorts}`} cohort{meta.max_cohorts > 1 ? 's' : ''}. Only cohorts with uploaded
+            variables can be analysed.
           </p>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
             {cohortList.map((c: any) => {
@@ -258,25 +375,50 @@ export default function GuidedAnalysisPage() {
         </div>
       )}
 
-      {/* Step 2: variables & harmonization */}
-      {step === 2 && kind && (
-        <MappingWorkbench
-          cohorts={cohorts}
-          roles={roles}
-          mapping={mapping}
-          roleAssignments={roleAssignments}
-          onMappingChange={setMapping}
-          onRolesChange={setRoleAssignments}
-          userEmail={userEmail}
-        />
+      {/* Step 2: participants */}
+      {step === 2 && (
+        <div className="max-w-2xl">
+          <p className="text-sm text-base-content/70 mb-4">
+            The data owners of the selected cohorts are invited to the room and asked to provision their data; you can also invite additional analysts.
+          </p>
+          <button className="btn btn-outline gap-2" onClick={() => setShowParticipantsModal(true)}>
+            <Users size={16} /> Edit participants list
+          </button>
+          <div className="mt-4 p-3 bg-base-200 rounded-lg text-sm space-y-1">
+            <p>
+              <strong>Data owners invited:</strong> {loadingParticipants ? 'loading…' : manuallyIncludedOwners.length > 0 ? manuallyIncludedOwners.join(', ') : 'none yet — open the participants list to include them'}
+            </p>
+            {excludedDataOwners.length > 0 && (
+              <p>
+                <strong>Data owners not invited:</strong> {excludedDataOwners.join(', ')}
+              </p>
+            )}
+            <p>
+              <strong>Additional analysts:</strong> {additionalAnalysts.length > 0 ? additionalAnalysts.join(', ') : 'none'}
+            </p>
+          </div>
+        </div>
       )}
 
-      {/* Step 3: settings */}
-      {step === 3 && (
+      {/* Step 3: variables & harmonization */}
+      {step === 3 && kind && (
+        <MappingWorkbench cohorts={cohorts} roles={roles} mapping={mapping} roleAssignments={roleAssignments} onMappingChange={setMapping} onRolesChange={setRoleAssignments} userEmail={userEmail} />
+      )}
+
+      {/* Step 4: settings */}
+      {step === 4 && (
         <div className="max-w-xl space-y-4">
           <label className="block text-sm">
             Title of the analysis (shown on the figures)
-            <input className="input input-bordered w-full" value={title} placeholder={meta?.label} onChange={e => setTitle(e.target.value)} />
+            <input
+              className="input input-bordered w-full"
+              value={titleTouched ? title : autoTitle}
+              onChange={e => {
+                setTitleTouched(true);
+                setTitle(e.target.value);
+              }}
+            />
+            <span className="block text-xs text-base-content/60 mt-1">Built from the chosen variables and cohorts; edit freely.</span>
           </label>
           <label className="block text-sm">
             Small-cell suppression threshold (optional)
@@ -290,18 +432,21 @@ export default function GuidedAnalysisPage() {
         </div>
       )}
 
-      {/* Step 4: review */}
-      {step === 4 && spec && !created && (
+      {/* Step 5: review */}
+      {step === 5 && spec && !created && (
         <div className="grid lg:grid-cols-2 gap-6">
           <div className="space-y-4">
             <div className="rounded-xl border border-base-300 bg-base-100 p-4">
               <div className="text-[11px] uppercase tracking-wide text-base-content/50">What will be computed</div>
-              <p className="mt-1">{description || '…'}</p>
+              <p className="mt-1 font-semibold">{spec.analysis.title}</p>
+              <p className="text-sm text-base-content/80">{description || '…'}</p>
               <div className="mt-3 text-sm">
                 <div className="font-semibold mb-1">Variables and mapping</div>
                 <ul className="font-mono text-xs space-y-1">
                   {spec.mapping.variables.map(v => (
-                    <li key={v.harmonized_name} className="break-words">{provenanceLine(v)}</li>
+                    <li key={v.harmonized_name} className="break-words">
+                      {provenanceLine(v)}
+                    </li>
                   ))}
                 </ul>
               </div>
@@ -309,14 +454,18 @@ export default function GuidedAnalysisPage() {
                 Cohorts: {cohorts.join(', ')} · {k > 0 ? `suppression k = ${k}` : 'no suppression'} · bins = {bins}
                 {spec.mapping.sources && spec.mapping.sources.length > 0 && <> · cached files consulted: {spec.mapping.sources.join(', ')}</>}
               </div>
+              <div className="mt-2 text-xs text-base-content/60">
+                Participants: {manuallyIncludedOwners.length} data owner{manuallyIncludedOwners.length === 1 ? '' : 's'} invited
+                {additionalAnalysts.length > 0 && <>, analysts: {additionalAnalysts.join(', ')}</>}
+              </div>
             </div>
             <label className="block text-sm">
               Name of the Data Clean Room
               <input className="input input-bordered w-full" value={dcrName} placeholder={`Guided: ${spec.analysis.title}`} onChange={e => setDcrName(e.target.value)} />
             </label>
             <div className="rounded-xl bg-amber-50 border border-amber-200 text-amber-900 p-3 text-sm">
-              Creating the room invites the cohorts&rsquo; data owners, exactly like a regular analysis DCR. The analysis can run
-              once they have provisioned their data; you can then view the aggregate results here in the explorer.
+              Creating the room invites the participants above, exactly like a regular analysis DCR. The analysis can run once the data owners have provisioned their
+              data; you can then view the results here in the explorer.
             </div>
             <button className="btn btn-primary" onClick={create} disabled={creating}>
               {creating ? 'Creating the Data Clean Room…' : 'Create the Data Clean Room'}
@@ -345,9 +494,7 @@ export default function GuidedAnalysisPage() {
               </Link>
             ))}
           </div>
-          {created.merge_warnings && created.merge_warnings.length > 0 && (
-            <ul className="mt-3 text-xs list-disc ml-5">{created.merge_warnings.map((w: string, i: number) => <li key={i}>{w}</li>)}</ul>
-          )}
+          {created.merge_warnings && created.merge_warnings.length > 0 && <ul className="mt-3 text-xs list-disc ml-5">{created.merge_warnings.map((w: string, i: number) => <li key={i}>{w}</li>)}</ul>}
         </div>
       )}
 
@@ -363,6 +510,22 @@ export default function GuidedAnalysisPage() {
             </button>
           )}
         </div>
+      )}
+
+      {showParticipantsModal && (
+        <ParticipantsModal
+          dataOwners={dataOwners}
+          userEmail={userEmail}
+          additionalAnalysts={additionalAnalysts}
+          newAnalystEmail={newAnalystEmail}
+          setNewAnalystEmail={setNewAnalystEmail}
+          addAnalyst={addAnalyst}
+          removeAnalyst={removeAnalyst}
+          manuallyIncludedOwners={manuallyIncludedOwners}
+          setManuallyIncludedOwners={setManuallyIncludedOwners}
+          onClose={() => setShowParticipantsModal(false)}
+          isLoading={loadingParticipants}
+        />
       )}
     </main>
   );

@@ -5,6 +5,7 @@ export type Kind = 'distribution' | 'stratified' | 'correlation' | 'crosstab' | 
 
 export interface KindMeta {
   label: string;
+  explain?: string;
   roles: string[];
   optional_roles?: string[];
   min_cohorts: number;
@@ -136,6 +137,9 @@ async function get<T>(path: string): Promise<T> {
 }
 
 export const fetchKinds = () => get<{kinds: Record<Kind, KindMeta>}>('/api/guided/kinds');
+
+export const fetchAllVariables = (cohortIds: string[]) =>
+  post<{variables: VarInfo[]}>('/api/guided/variables', {cohort_ids: cohortIds});
 
 export const searchVariables = (cohortIds: string[], query: string, mode: 'any' | 'all' | 'exact' = 'any') =>
   post<{results: VarInfo[]; total: number}>('/api/guided/search', {cohort_ids: cohortIds, query, mode});

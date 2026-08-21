@@ -4,39 +4,33 @@ A domain expert assembles a spec in the guided wizard (frontend
 /guided-analysis): an analysis *kind*, the cohorts, and a *mapping* that says
 which variable in each cohort plays which role and how their values/units are
 harmonized. This module turns that spec into the Python script that runs inside
-the Decentriq enclave on the FULL cohort data and writes
-figures (PNG), tables (CSV) and a provenance note. Every figure carries a
-subtext stating exactly which mapping produced it.
+the Decentriq enclave on the FULL cohort data and writes figures (PNG), tables
+(CSV) and a provenance note. Every figure carries a subtext stating exactly
+which mapping produced it.
 
-Outputs are figures and summary tables (no data files). Small-cell suppression
-is OPTIONAL: spec "suppression_k" (default 0 = off) hides counts below k and
-blanks bins/cells below k. Outliers and actual extremes are shown by default —
-the values are not linked to any identifying information.
+The script is COMPOSED from segments so it contains only what the chosen
+analysis needs: single-cohort scripts have no cross-cohort harmonization, a
+distribution script carries no correlation code, scipy is imported only when a
+test is computed, and so on. Logging and robustness (missing codes, unit
+factors, value maps, column lookup) are kept in every variant.
 
-Spec shape (all keys optional unless stated):
+Small-cell suppression is OPTIONAL: spec "suppression_k" (default 0 = off)
+hides counts below k and blanks bins/cells below k. Outliers and actual
+extremes are shown by default.
+
+Spec shape:
 {
-  "analysis": {
-    "kind": "distribution" | "stratified" | "correlation" | "crosstab" | "compare" | "pooled",
-    "title": "Body weight by sex",
-    "suppression_k": 0,
-    "bins": 20,
-    "roles": {"variable": "<harmonized name>", "group": "...", "x": "...", "y": "..."}
-  },
+  "analysis": {"kind": "distribution" | "stratified" | "correlation" | "crosstab" | "compare" | "pooled",
+               "title": "...", "suppression_k": 0, "bins": 20,
+               "roles": {"variable": "<harmonized name>", "group": "...", "x": "...", "y": "..."}},
   "cohorts": ["TIME-CHF", "Aachen-HF"],
   "nodes": {"TIME-CHF": {"data": "TIME-CHF", "dictionary": "TIME-CHF_metadata_dictionary"}, ...},
-  "mapping": {
-    "id": "...", "name": "...", "created_by": "...", "created_at": "...",
-    "variables": [
-      {
-        "harmonized_name": "sex", "label": "Sex", "type": "categorical" | "numeric",
-        "members": {"TIME-CHF": {"var_name": "gender", "unit": ""}, "Aachen-HF": {"var_name": "Geschlecht", "unit": ""}},
-        "value_map": {"TIME-CHF": {"1": "male", "2": "female"}, "Aachen-HF": {"M": "male", "W": "female"}},
-        "unit_conversion": {"Aachen-HF": {"factor": 0.4536, "from": "lb", "to": "kg"}},
-        "evidence": [{"type": "code", "detail": "loinc:46098-0"}, {"type": "cache", "file": "...", "status": "Identical Match"}],
-        "notes": ""
-      }
-    ]
-  }
+  "mapping": {"id", "name", "created_by", "created_at",
+              "variables": [{"harmonized_name", "label", "type": "categorical"|"numeric", "unit",
+                             "members": {cohort: {"var_name", "unit"}},
+                             "value_map": {cohort: {raw: harmonized}},
+                             "unit_conversion": {cohort: {"factor", "from", "to"}},
+                             "evidence": [...]}]}
 }
 """
 
@@ -53,6 +47,11 @@ ANALYSIS_KINDS = {
         "min_cohorts": 1,
         "max_cohorts": 1,
         "blurb": "How is a variable distributed in a cohort? Histogram or bar chart plus a summary table.",
+        "explain": (
+            "Shows how the values of one variable are spread out. For a numeric variable you get a histogram "
+            "(how many patients fall in each range) and a table with mean, standard deviation, median, quartiles, "
+            "minimum and maximum. For a categorical variable you get a bar chart of the counts and percentages per category."
+        ),
     },
     "stratified": {
         "label": "One variable broken down by another",
@@ -60,6 +59,11 @@ ANALYSIS_KINDS = {
         "min_cohorts": 1,
         "max_cohorts": 1,
         "blurb": "Compare the distribution of a variable between groups (e.g. weight by sex, NYHA class by diabetes).",
+        "explain": (
+            "Splits the patients into groups defined by a categorical variable and shows the variable of interest within "
+            "each group. Numeric: one distribution curve per group plus box plots (median, quartiles, outliers) and a "
+            "summary table per group. Categorical: grouped bars and a counts table."
+        ),
     },
     "correlation": {
         "label": "Relationship between two numeric variables",
@@ -67,6 +71,11 @@ ANALYSIS_KINDS = {
         "min_cohorts": 1,
         "max_cohorts": 1,
         "blurb": "Scatter plot, correlation coefficients with confidence intervals and p-values, and binned means.",
+        "explain": (
+            "Plots every patient as a point (x vs y) with a least-squares line, and reports Pearson and Spearman "
+            "correlation coefficients with confidence intervals and p-values. A second panel shows the mean of y within "
+            "deciles of x, which makes a non-linear relationship visible."
+        ),
     },
     "crosstab": {
         "label": "Cross-tabulation of two categorical variables",
@@ -74,6 +83,10 @@ ANALYSIS_KINDS = {
         "min_cohorts": 1,
         "max_cohorts": 1,
         "blurb": "Counts and percentages for every combination of two categorical variables, with a chi-square test.",
+        "explain": (
+            "Counts how many patients fall into each combination of two categorical variables, as a table with row "
+            "percentages and a stacked bar chart, plus a chi-square test of independence (with Cramér's V as an effect size)."
+        ),
     },
     "compare": {
         "label": "Compare one variable across cohorts",
@@ -81,6 +94,11 @@ ANALYSIS_KINDS = {
         "min_cohorts": 2,
         "max_cohorts": 6,
         "blurb": "The same (harmonized) variable side by side in each cohort, with summaries and standardized differences.",
+        "explain": (
+            "Puts the same variable from several cohorts side by side after you have harmonized it (matched the variables "
+            "and aligned their values or units). Numeric: overlaid distribution curves, a summary table per cohort and "
+            "standardized mean differences between cohorts. Categorical: percentage bars per cohort."
+        ),
     },
     "pooled": {
         "label": "Pooled distribution across cohorts",
@@ -89,6 +107,11 @@ ANALYSIS_KINDS = {
         "min_cohorts": 2,
         "max_cohorts": 6,
         "blurb": "Merge a harmonized variable from several cohorts into one distribution, optionally broken down by a harmonized group.",
+        "explain": (
+            "Stacks the harmonized variable from all cohorts into one distribution (coloured by cohort), with a pooled "
+            "summary and per-cohort summaries. Optionally the pooled data is also broken down by a second harmonized "
+            "categorical variable."
+        ),
     },
 }
 
@@ -122,19 +145,19 @@ def describe_spec(spec: dict[str, Any]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# The enclave script. A plain template with ONE placeholder for the JSON spec
-# (no f-string, so braces are safe).
+# Script segments. Plain strings (no f-strings) with __PLACEHOLDERS__.
 # ---------------------------------------------------------------------------
-_SCRIPT_TEMPLATE = r'''###############################################################################
+
+HEADER = r'''###############################################################################
 # GUIDED ANALYSIS — generated by the iCARE4CVD Cohort Explorer
 #
-# This script was assembled from choices made in the guided (no-code) wizard.
-# It reads the full cohort data inside the enclave and writes figures, summary
-# tables and a provenance note.
-#
+# Assembled from the choices made in the guided (no-code) wizard:
 #   __DESCRIPTION__
+#
+# Reads the cohort data inside the enclave and writes figures, summary tables
+# and a provenance note (/output). This script contains only the code paths
+# this analysis needs.
 ###############################################################################
-import csv
 import json
 import math
 import os
@@ -146,8 +169,7 @@ import pandas as pd
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from scipy import stats
-
+__SCIPY_IMPORT__
 SPEC = json.loads(r"""__SPEC_JSON__""")
 
 OUT = "/output"
@@ -166,8 +188,9 @@ COHORTS = SPEC["cohorts"]
 NODES = SPEC["nodes"]
 MAPPING = SPEC["mapping"]
 HVARS = {v["harmonized_name"]: v for v in MAPPING.get("variables", [])}
+TITLE = ANALYSIS.get("title") or KIND
 
-captions = []   # {"figure": ..., "table": ..., "caption": ...}
+captions = []   # {"figure"/"table": path, "caption": text, "provenance": text}
 notes = []
 
 
@@ -199,8 +222,7 @@ def load_missing_codes(dict_path):
                 raw = str(row[miss_col]).strip()
                 if raw and raw.lower() not in ("nan", "na", "none", ""):
                     parts = [p.strip() for p in re.split(r"[|,;]", raw) if p.strip()]
-                    # "999=unknown" style -> keep the code before '='
-                    parts = [p.split("=")[0].strip() for p in parts]
+                    parts = [p.split("=")[0].strip() for p in parts]   # "999=unknown" -> "999"
                     codes[str(row[name_col]).strip()] = set(parts)
     except Exception as e:
         log("dictionary not parsed for missing codes: %s" % e)
@@ -214,62 +236,73 @@ def find_column(df, name):
     return low.get(str(name).lower().strip())
 
 
-# ---- harmonization -----------------------------------------------------------
+def prepare_column(df, hv, cohort, missing):
+    """One harmonized variable's column for one cohort: declared missing codes
+    -> NaN, numeric coercion and unit factor, or value map for categoricals."""
+    member = (hv.get("members") or {}).get(cohort)
+    if not member or not member.get("var_name"):
+        return pd.Series(np.nan, index=df.index)
+    col = find_column(df, member["var_name"])
+    if col is None:
+        log("%s: column '%s' not found for %s" % (cohort, member["var_name"], hv["harmonized_name"]))
+        return pd.Series(np.nan, index=df.index)
+    s = df[col]
+    mc = missing.get(member["var_name"], set())
+    if mc:
+        s = s.mask(s.astype(str).str.strip().isin(mc))
+    if hv.get("type") == "numeric":
+        s = pd.to_numeric(s, errors="coerce")
+        conv = (hv.get("unit_conversion") or {}).get(cohort)
+        if conv and conv.get("factor") not in (None, "", 1, 1.0):
+            s = s * float(conv["factor"])
+            log("%s: %s scaled by %s (%s -> %s)" % (cohort, member["var_name"], conv["factor"], conv.get("from"), conv.get("to")))
+        return s
+    vmap = (hv.get("value_map") or {}).get(cohort) or {}
+    if vmap:
+        norm = {str(k).strip().lower(): v for k, v in vmap.items()}
+        key = s.astype(str).str.strip().str.lower()
+        key2 = key.str.replace(r"\.0$", "", regex=True)     # "1.0" should match "1"
+        mapped = key.map(norm)
+        mapped = mapped.where(mapped.notna(), key2.map(norm))
+        unmapped = int((s.notna() & mapped.isna()).sum())
+        if unmapped:
+            log("%s: %d value(s) of %s not in the value map -> missing" % (cohort, unmapped, member["var_name"]))
+        return mapped.where(s.notna(), np.nan)
+    return s.where(s.notna(), np.nan).astype(object)
 
-def harmonize_cohort(cohort):
-    node = NODES[cohort]
-    df = load_table("/input/" + node["data"])
-    missing = load_missing_codes("/input/" + node["dictionary"]) if node.get("dictionary") else {}
-    out = pd.DataFrame(index=df.index)
-    out["cohort"] = cohort
-    for hname, hv in HVARS.items():
-        member = (hv.get("members") or {}).get(cohort)
-        if not member or not member.get("var_name"):
-            out[hname] = np.nan
-            continue
-        col = find_column(df, member["var_name"])
-        if col is None:
-            log("%s: column '%s' not found for %s" % (cohort, member["var_name"], hname))
-            out[hname] = np.nan
-            continue
-        s = df[col]
-        # declared missing codes -> NaN (compared as stripped strings)
-        mc = missing.get(member["var_name"], set())
-        if mc:
-            s = s.mask(s.astype(str).str.strip().isin(mc))
-        if hv.get("type") == "numeric":
-            s = pd.to_numeric(s, errors="coerce")
-            conv = (hv.get("unit_conversion") or {}).get(cohort)
-            if conv and conv.get("factor") not in (None, "", 1, 1.0):
-                s = s * float(conv["factor"])
-        else:
-            vmap = (hv.get("value_map") or {}).get(cohort) or {}
-            if vmap:
-                norm = {str(k).strip().lower(): v for k, v in vmap.items()}
-                key = s.astype(str).str.strip().str.lower()
-                # numeric-looking codes: "1.0" should match "1"
-                key2 = key.str.replace(r"\.0$", "", regex=True)
-                mapped = key.map(norm)
-                mapped = mapped.where(mapped.notna(), key2.map(norm))
-                s = mapped.where(s.notna(), np.nan)
-            else:
-                s = s.where(s.notna(), np.nan).astype(object)
-        out[hname] = s
-    return out
+'''
 
+LOAD_SINGLE = r'''
+# ---- data (single cohort) ----------------------------------------------------
+COHORT = COHORTS[0]
+_raw = load_table("/input/" + NODES[COHORT]["data"])
+_missing = load_missing_codes("/input/" + NODES[COHORT]["dictionary"]) if NODES[COHORT].get("dictionary") else {}
+data = pd.DataFrame(index=_raw.index)
+data["cohort"] = COHORT
+for _name, _hv in HVARS.items():
+    data[_name] = prepare_column(_raw, _hv, COHORT, _missing)
+log("%s: %d rows loaded; columns prepared: %s" % (COHORT, len(data), list(HVARS.keys())))
 
+'''
+
+LOAD_MULTI = r'''
+# ---- data (harmonized across cohorts) ----------------------------------------
 frames = []
-for c in COHORTS:
-    try:
-        frames.append(harmonize_cohort(c))
-        log("%s: loaded %d rows" % (c, len(frames[-1])))
-    except Exception as e:
-        log("%s: FAILED to load (%s)" % (c, e))
-        raise
+for _c in COHORTS:
+    _raw = load_table("/input/" + NODES[_c]["data"])
+    _missing = load_missing_codes("/input/" + NODES[_c]["dictionary"]) if NODES[_c].get("dictionary") else {}
+    _out = pd.DataFrame(index=_raw.index)
+    _out["cohort"] = _c
+    for _name, _hv in HVARS.items():
+        _out[_name] = prepare_column(_raw, _hv, _c, _missing)
+    frames.append(_out)
+    log("%s: %d rows loaded" % (_c, len(_out)))
 data = pd.concat(frames, ignore_index=True)
 
+'''
 
-# ---- provenance text ---------------------------------------------------------
+PROVENANCE = r'''
+# ---- provenance + output helpers ---------------------------------------------
 
 def provenance_lines(used):
     lines = []
@@ -286,9 +319,7 @@ def provenance_lines(used):
             vmap = (hv.get("value_map") or {}).get(c) or {}
             if vmap:
                 pairs = ", ".join("%s->%s" % (k, v) for k, v in list(vmap.items())[:6])
-                if len(vmap) > 6:
-                    pairs += ", ..."
-                piece += " (%s)" % pairs
+                piece += " (%s%s)" % (pairs, ", ..." if len(vmap) > 6 else "")
             conv = (hv.get("unit_conversion") or {}).get(c)
             if conv and conv.get("factor") not in (None, "", 1, 1.0):
                 piece += " (x%s %s->%s)" % (conv["factor"], conv.get("from", "?"), conv.get("to", "?"))
@@ -314,10 +345,10 @@ def provenance_lines(used):
 
 
 def footer_text(used):
+    head = "Mapping '%s' (by %s)." % (MAPPING.get("name") or "unnamed", MAPPING.get("created_by") or "unknown")
+    if K > 0:
+        head += " Cells with n<%d suppressed." % K
     lines = provenance_lines(used)
-    mname = MAPPING.get("name") or "unnamed"
-    who = MAPPING.get("created_by") or "unknown"
-    head = "Mapping '%s' (by %s)." % (mname, who) + (" Cells with n<%d suppressed." % K if K > 0 else "")
     return head + ("\n" + "\n".join(lines) if lines else "")
 
 
@@ -335,16 +366,9 @@ def save_fig(fig, name, used, caption):
 
 
 def save_table(df, name, caption=None):
-    path = os.path.join(TAB_DIR, name)
-    df.to_csv(path, index=False)
+    df.to_csv(os.path.join(TAB_DIR, name), index=False)
     captions.append({"table": "tables/" + name, "caption": caption or name})
     log("table: " + name)
-
-
-# ---- helpers with suppression ------------------------------------------------
-
-def suppress_count(n):
-    return int(n) if int(n) >= K else None
 
 
 def fmt_count(n):
@@ -356,6 +380,12 @@ def sup_note(what="bins"):
     return " (%s with n<%d blanked)" % (what, K) if K > 0 else ""
 
 
+def axis_label(hv):
+    return "%s%s" % (hv.get("label") or hv["harmonized_name"], " (%s)" % hv["unit"] if hv.get("unit") else "")
+
+'''
+
+H_NUMERIC_SUMMARY = r'''
 def numeric_summary(s, label):
     s = pd.to_numeric(s, errors="coerce")
     valid = s.dropna()
@@ -378,7 +408,9 @@ def numeric_summary(s, label):
         row.update({k: None for k in keys})
     return row
 
+'''
 
+H_CATEGORY_COUNTS = r'''
 def category_counts(s, label=None):
     s = s.dropna().astype(str)
     vc = s.value_counts()
@@ -388,7 +420,9 @@ def category_counts(s, label=None):
                      "percent": round(100.0 * n / len(s), 1) if (K <= 0 or n >= K) and len(s) else None})
     return rows
 
+'''
 
+H_HIST = r'''
 def hist_counts(s, bins):
     s = pd.to_numeric(s, errors="coerce").dropna()
     if len(s) == 0 or (K > 0 and len(s) < K):
@@ -398,8 +432,11 @@ def hist_counts(s, bins):
         counts = np.where(counts >= K, counts, 0)
     return counts, edges
 
+'''
 
+H_SMD = r'''
 def smd(a, b):
+    """Standardized mean difference between two numeric samples."""
     a = pd.to_numeric(a, errors="coerce").dropna()
     b = pd.to_numeric(b, errors="coerce").dropna()
     if len(a) < 2 or len(b) < 2:
@@ -407,84 +444,82 @@ def smd(a, b):
     pooled = math.sqrt((a.var(ddof=1) + b.var(ddof=1)) / 2.0)
     return round(float((a.mean() - b.mean()) / pooled), 3) if pooled > 0 else None
 
+'''
 
-def plain_title(text):
-    return str(text)
+A_DISTRIBUTION = r'''
+# ---- analysis: distribution --------------------------------------------------
 
-
-# ---- analyses ----------------------------------------------------------------
-
-def run_distribution(df, var, label, group_label=None, fname_prefix="distribution"):
+def run_distribution(df, var, label, group_label=None, prefix="distribution"):
     hv = HVARS[var]
-    used = [var]
     if hv.get("type") == "numeric":
         counts, edges = hist_counts(df[var], BINS)
-        rows = [numeric_summary(df[var], group_label or label)]
-        save_table(pd.DataFrame(rows), fname_prefix + "_summary.csv", "Summary of %s" % var)
+        save_table(pd.DataFrame([numeric_summary(df[var], group_label or label)]), prefix + "_summary.csv", "Summary of %s" % var)
         if counts is None:
             notes.append("%s: no values available, figure skipped" % var)
             return
         fig, ax = plt.subplots(figsize=(9, 5.5))
         ax.bar(edges[:-1], counts, width=np.diff(edges), align="edge", color="#3b6ea5", edgecolor="white")
-        ax.set_xlabel("%s%s" % (hv.get("label") or var, " (%s)" % hv.get("unit") if hv.get("unit") else ""))
+        ax.set_xlabel(axis_label(hv))
         ax.set_ylabel("Patients" + sup_note())
-        ax.set_title(plain_title(label))
-        save_fig(fig, fname_prefix + ".png", used, "Distribution of %s" % (hv.get("label") or var))
+        ax.set_title(label)
+        save_fig(fig, prefix + ".png", [var], "Distribution of %s" % (hv.get("label") or var))
     else:
         rows = category_counts(df[var], group_label or label)
-        save_table(pd.DataFrame(rows), fname_prefix + "_counts.csv", "Counts of %s" % var)
+        save_table(pd.DataFrame(rows), prefix + "_counts.csv", "Counts of %s" % var)
         shown = [(r["value"], int(r["count"])) for r in rows if not str(r["count"]).startswith("<")]
-        hidden = len(rows) - len(shown)
         if not shown:
             notes.append("%s: no categories to show" % var)
             return
         fig, ax = plt.subplots(figsize=(9, 5.5))
         ax.bar([v for v, _ in shown], [n for _, n in shown], color="#3b6ea5")
         ax.set_ylabel("Patients")
-        ax.set_title(plain_title(label) + (" (%d small categories hidden)" % hidden if hidden else ""))
+        hidden = len(rows) - len(shown)
+        ax.set_title(label + (" (%d small categories hidden)" % hidden if hidden else ""))
         plt.setp(ax.get_xticklabels(), rotation=30, ha="right")
-        save_fig(fig, fname_prefix + ".png", used, "Distribution of %s" % (hv.get("label") or var))
+        save_fig(fig, prefix + ".png", [var], "Distribution of %s" % (hv.get("label") or var))
 
+'''
 
-def run_stratified(df, var, group, title, fname_prefix="stratified"):
+A_STRATIFIED = r'''
+# ---- analysis: one variable broken down by another ---------------------------
+
+def run_stratified(df, var, group, title, prefix="stratified"):
     hv, gv = HVARS[var], HVARS[group]
     used = [var, group]
-    groups = [g for g in df[group].dropna().astype(str).unique()]
-    groups.sort()
+    groups = sorted(df[group].dropna().astype(str).unique())
     if hv.get("type") == "numeric":
-        rows = []
-        series = []
+        rows, series = [], []
         fig, axes = plt.subplots(1, 2, figsize=(13, 5.5))
         for g in groups:
             s = pd.to_numeric(df.loc[df[group].astype(str) == g, var], errors="coerce").dropna()
             rows.append(numeric_summary(s, g))
             if len(s) > 0 and (K <= 0 or len(s) >= K):
                 series.append((g, s))
-                counts, edges = np.histogram(s, bins=BINS, density=False)
+                counts, edges = np.histogram(s, bins=BINS)
                 if K > 0:
                     counts = np.where(counts >= K, counts, 0)
                 dens = counts.astype(float) / max(counts.sum(), 1) / np.diff(edges)
                 axes[0].step(edges[:-1], dens, where="post", label="%s (n=%d)" % (g, len(s)))
-        save_table(pd.DataFrame(rows), fname_prefix + "_summary.csv", "%s by %s" % (var, group))
-        axes[0].set_xlabel(hv.get("label") or var)
+        save_table(pd.DataFrame(rows), prefix + "_summary.csv", "%s by %s" % (var, group))
+        axes[0].set_xlabel(axis_label(hv))
         axes[0].set_ylabel("Density" + sup_note())
         axes[0].set_title("Distribution per group")
         axes[0].legend(title=gv.get("label") or group)
         if series:
             axes[1].boxplot([s.values for _, s in series], labels=[g for g, _ in series], showfliers=True)
-            axes[1].set_ylabel(hv.get("label") or var)
+            axes[1].set_ylabel(axis_label(hv))
             axes[1].set_title("Box plots (outliers shown)")
             plt.setp(axes[1].get_xticklabels(), rotation=30, ha="right")
-        fig.suptitle(plain_title(title))
-        save_fig(fig, fname_prefix + ".png", used, "%s by %s" % (hv.get("label") or var, gv.get("label") or group))
+        fig.suptitle(title)
+        save_fig(fig, prefix + ".png", used, "%s by %s" % (hv.get("label") or var, gv.get("label") or group))
     else:
         ct = pd.crosstab(df[var].astype(str).where(df[var].notna()), df[group].astype(str).where(df[group].notna()))
-        table = ct.copy().astype(object)
+        table = ct.astype(object).copy()
         for i in table.index:
             for j in table.columns:
                 table.loc[i, j] = fmt_count(ct.loc[i, j])
         table.insert(0, var, table.index)
-        save_table(table.reset_index(drop=True), fname_prefix + "_counts.csv", "%s by %s" % (var, group))
+        save_table(table.reset_index(drop=True), prefix + "_counts.csv", "%s by %s" % (var, group))
         shown = ct.where(ct >= K, 0) if K > 0 else ct
         fig, ax = plt.subplots(figsize=(9, 5.5))
         x = np.arange(len(shown.index))
@@ -494,27 +529,30 @@ def run_stratified(df, var, group, title, fname_prefix="stratified"):
         ax.set_xticks(x + width * (len(shown.columns) - 1) / 2)
         ax.set_xticklabels([str(i) for i in shown.index], rotation=30, ha="right")
         ax.set_ylabel("Patients" + sup_note("cells"))
-        ax.set_title(plain_title(title))
+        ax.set_title(title)
         ax.legend(title=gv.get("label") or group)
-        save_fig(fig, fname_prefix + ".png", used, "%s by %s" % (hv.get("label") or var, gv.get("label") or group))
+        save_fig(fig, prefix + ".png", used, "%s by %s" % (hv.get("label") or var, gv.get("label") or group))
 
+'''
 
-def run_correlation(df, x, y, title, fname_prefix="correlation"):
+A_CORRELATION = r'''
+# ---- analysis: relationship between two numeric variables --------------------
+
+def run_correlation(df, x, y, title, prefix="correlation"):
     hx, hy = HVARS[x], HVARS[y]
-    used = [x, y]
     sub = df[[x, y]].apply(pd.to_numeric, errors="coerce").dropna()
     n = len(sub)
-    rows = [{"n": fmt_count(n)}]
+    row = {"n": fmt_count(n)}
     if n >= 4:
         r_p, p_p = stats.pearsonr(sub[x], sub[y])
         r_s, p_s = stats.spearmanr(sub[x], sub[y])
         z = math.atanh(max(min(float(r_p), 0.999999), -0.999999))
         se = 1.0 / math.sqrt(n - 3)
-        rows[0].update({"pearson_r": round(float(r_p), 3), "pearson_p": float(p_p),
-                        "pearson_ci95_low": round(math.tanh(z - 1.96 * se), 3),
-                        "pearson_ci95_high": round(math.tanh(z + 1.96 * se), 3),
-                        "spearman_rho": round(float(r_s), 3), "spearman_p": float(p_s)})
-    save_table(pd.DataFrame(rows), fname_prefix + "_coefficients.csv", "Correlation of %s and %s" % (x, y))
+        row.update({"pearson_r": round(float(r_p), 3), "pearson_p": float(p_p),
+                    "pearson_ci95_low": round(math.tanh(z - 1.96 * se), 3),
+                    "pearson_ci95_high": round(math.tanh(z + 1.96 * se), 3),
+                    "spearman_rho": round(float(r_s), 3), "spearman_p": float(p_s)})
+    save_table(pd.DataFrame([row]), prefix + "_coefficients.csv", "Correlation of %s and %s" % (x, y))
     if n < 4:
         notes.append("correlation: fewer than 4 complete pairs, figure skipped")
         return
@@ -525,35 +563,37 @@ def run_correlation(df, x, y, title, fname_prefix="correlation"):
         xs = np.linspace(float(sub[x].min()), float(sub[x].max()), 50)
         axes[0].plot(xs, slope * xs + intercept, color="#c0392b", linewidth=1.2, label="least-squares fit")
         axes[0].legend()
-    except Exception:
-        pass
-    axes[0].set_xlabel(hx.get("label") or x)
-    axes[0].set_ylabel(hy.get("label") or y)
+    except Exception as e:
+        log("fit line skipped: %s" % e)
+    axes[0].set_xlabel(axis_label(hx))
+    axes[0].set_ylabel(axis_label(hy))
     axes[0].set_title("Scatter (n=%d)" % n)
-    # binned means: deciles of x
     try:
         q = pd.qcut(sub[x], q=10, duplicates="drop")
         g = sub.groupby(q, observed=True)[y].agg(["mean", "count"])
-        centers = [iv.mid for iv in g.index]
-        ok = (g["count"] >= K) if K > 0 else (g["count"] > 0)
-        axes[1].plot(np.array(centers)[ok.values], g["mean"][ok].values, marker="o", color="#3b6ea5")
-        binned = pd.DataFrame({"x_bin": [str(iv) for iv in g.index], "mean_y": g["mean"].round(3).values,
-                               "n": [fmt_count(c) for c in g["count"].values]})
-        save_table(binned, fname_prefix + "_binned_means.csv", "Mean of %s by deciles of %s" % (y, x))
+        centers = np.array([iv.mid for iv in g.index])
+        ok = (g["count"] >= K).values if K > 0 else (g["count"] > 0).values
+        axes[1].plot(centers[ok], g["mean"].values[ok], marker="o", color="#3b6ea5")
+        save_table(pd.DataFrame({"x_bin": [str(iv) for iv in g.index], "mean_y": g["mean"].round(3).values,
+                                 "n": [fmt_count(c) for c in g["count"].values]}),
+                   prefix + "_binned_means.csv", "Mean of %s by deciles of %s" % (y, x))
     except Exception as e:
-        log("binned means failed: %s" % e)
+        log("binned means skipped: %s" % e)
     axes[1].set_xlabel("%s (deciles)" % (hx.get("label") or x))
     axes[1].set_ylabel("mean %s" % (hy.get("label") or y))
     axes[1].set_title("Binned means")
     fig.suptitle("%s  —  Pearson r=%.2f (p=%.3g), Spearman rho=%.2f (p=%.3g), n=%d" % (
-        plain_title(title), rows[0].get("pearson_r", float("nan")), rows[0].get("pearson_p", float("nan")),
-        rows[0].get("spearman_rho", float("nan")), rows[0].get("spearman_p", float("nan")), n))
-    save_fig(fig, fname_prefix + ".png", used, "Relationship between %s and %s" % (hx.get("label") or x, hy.get("label") or y))
+        title, row.get("pearson_r", float("nan")), row.get("pearson_p", float("nan")),
+        row.get("spearman_rho", float("nan")), row.get("spearman_p", float("nan")), n))
+    save_fig(fig, prefix + ".png", [x, y], "Relationship between %s and %s" % (hx.get("label") or x, hy.get("label") or y))
 
+'''
 
-def run_crosstab(df, x, y, title, fname_prefix="crosstab"):
+A_CROSSTAB = r'''
+# ---- analysis: cross-tabulation ----------------------------------------------
+
+def run_crosstab(df, x, y, title, prefix="crosstab"):
     hx, hy = HVARS[x], HVARS[y]
-    used = [x, y]
     a = df[x].astype(str).where(df[x].notna())
     b = df[y].astype(str).where(df[y].notna())
     ct = pd.crosstab(a, b)
@@ -564,15 +604,14 @@ def run_crosstab(df, x, y, title, fname_prefix="crosstab"):
             n = ct.loc[i, j]
             table.loc[i, j] = ("%d (%.1f%%)" % (n, pct.loc[i, j])) if (K <= 0 or n >= K) else "<%d" % K
     table.insert(0, x + " \\ " + y, table.index)
-    save_table(table.reset_index(drop=True), fname_prefix + "_counts.csv", "%s by %s (row %%)" % (x, y))
-    stat_rows = [{"n": fmt_count(int(ct.values.sum()))}]
+    save_table(table.reset_index(drop=True), prefix + "_counts.csv", "%s by %s (row %%)" % (x, y))
+    stat = {"n": fmt_count(int(ct.values.sum()))}
     if ct.shape[0] > 1 and ct.shape[1] > 1 and ct.values.sum() > 0:
         chi2, p, dof, expected = stats.chi2_contingency(ct.values)
-        v = math.sqrt(chi2 / (ct.values.sum() * (min(ct.shape) - 1))) if min(ct.shape) > 1 else None
-        stat_rows[0].update({"chi_square": round(float(chi2), 3), "dof": int(dof), "p_value": float(p),
-                             "cramers_v": round(v, 3) if v is not None else None,
-                             "note": "expected counts < 5 in some cells" if (expected < 5).any() else ""})
-    save_table(pd.DataFrame(stat_rows), fname_prefix + "_chi_square.csv", "Chi-square test")
+        v = math.sqrt(chi2 / (ct.values.sum() * (min(ct.shape) - 1)))
+        stat.update({"chi_square": round(float(chi2), 3), "dof": int(dof), "p_value": float(p), "cramers_v": round(v, 3),
+                     "note": "expected counts < 5 in some cells" if (expected < 5).any() else ""})
+    save_table(pd.DataFrame([stat]), prefix + "_chi_square.csv", "Chi-square test")
     shown = ct.where(ct >= K, 0) if K > 0 else ct
     fig, ax = plt.subplots(figsize=(9, 5.5))
     bottom = np.zeros(len(shown.index))
@@ -582,43 +621,48 @@ def run_crosstab(df, x, y, title, fname_prefix="crosstab"):
     ax.set_ylabel("Patients" + sup_note("cells"))
     ax.set_xlabel(hx.get("label") or x)
     ax.legend(title=hy.get("label") or y)
-    ax.set_title(plain_title(title))
+    ax.set_title(title)
     plt.setp(ax.get_xticklabels(), rotation=30, ha="right")
-    save_fig(fig, fname_prefix + ".png", used, "%s by %s" % (hx.get("label") or x, hy.get("label") or y))
+    save_fig(fig, prefix + ".png", [x, y], "%s by %s" % (hx.get("label") or x, hy.get("label") or y))
 
+'''
 
-def run_compare(df, var, title, fname_prefix="compare"):
+A_COMPARE = r'''
+# ---- analysis: compare one variable across cohorts ---------------------------
+
+def run_compare(df, var, title, prefix="compare"):
     hv = HVARS[var]
-    used = [var]
     if hv.get("type") == "numeric":
         rows = [numeric_summary(df.loc[df["cohort"] == c, var], c) for c in COHORTS]
-        # pairwise standardized mean differences
         for i in range(len(COHORTS)):
             for j in range(i + 1, len(COHORTS)):
                 rows.append({"group": "SMD %s vs %s" % (COHORTS[i], COHORTS[j]),
                              "mean": smd(df.loc[df["cohort"] == COHORTS[i], var], df.loc[df["cohort"] == COHORTS[j], var])})
-        save_table(pd.DataFrame(rows), fname_prefix + "_summary.csv", "%s per cohort" % var)
-        fig, ax = plt.subplots(figsize=(9, 5.5))
+        save_table(pd.DataFrame(rows), prefix + "_summary.csv", "%s per cohort" % var)
         allv = pd.to_numeric(df[var], errors="coerce").dropna()
-        edges = np.histogram_bin_edges(allv, bins=BINS) if len(allv) else None
+        if len(allv) == 0:
+            notes.append("%s: no values available" % var)
+            return
+        edges = np.histogram_bin_edges(allv, bins=BINS)
+        fig, ax = plt.subplots(figsize=(9, 5.5))
         for c in COHORTS:
             s = pd.to_numeric(df.loc[df["cohort"] == c, var], errors="coerce").dropna()
-            if len(s) > 0 and (K <= 0 or len(s) >= K) and edges is not None:
+            if len(s) > 0 and (K <= 0 or len(s) >= K):
                 counts, _ = np.histogram(s, bins=edges)
                 if K > 0:
                     counts = np.where(counts >= K, counts, 0)
                 dens = counts.astype(float) / max(counts.sum(), 1) / np.diff(edges)
                 ax.step(edges[:-1], dens, where="post", label="%s (n=%d)" % (c, len(s)))
-        ax.set_xlabel("%s%s" % (hv.get("label") or var, " (%s)" % hv.get("unit") if hv.get("unit") else ""))
+        ax.set_xlabel(axis_label(hv))
         ax.set_ylabel("Density" + sup_note())
-        ax.set_title(plain_title(title))
+        ax.set_title(title)
         ax.legend()
-        save_fig(fig, fname_prefix + ".png", used, "%s across cohorts" % (hv.get("label") or var))
+        save_fig(fig, prefix + ".png", [var], "%s across cohorts" % (hv.get("label") or var))
     else:
         rows = []
         for c in COHORTS:
             rows.extend(category_counts(df.loc[df["cohort"] == c, var], c))
-        save_table(pd.DataFrame(rows), fname_prefix + "_counts.csv", "%s per cohort" % var)
+        save_table(pd.DataFrame(rows), prefix + "_counts.csv", "%s per cohort" % var)
         ct = pd.crosstab(df[var].astype(str).where(df[var].notna()), df["cohort"])
         pct = ct.div(ct.sum(axis=0), axis=1) * 100
         if K > 0:
@@ -631,19 +675,25 @@ def run_compare(df, var, title, fname_prefix="compare"):
         ax.set_xticks(x + width * (len(pct.columns) - 1) / 2)
         ax.set_xticklabels([str(i) for i in pct.index], rotation=30, ha="right")
         ax.set_ylabel("% of cohort" + sup_note("cells"))
-        ax.set_title(plain_title(title))
+        ax.set_title(title)
         ax.legend()
-        save_fig(fig, fname_prefix + ".png", used, "%s across cohorts" % (hv.get("label") or var))
+        save_fig(fig, prefix + ".png", [var], "%s across cohorts" % (hv.get("label") or var))
 
+'''
 
-def run_pooled(df, var, group, title, fname_prefix="pooled"):
+A_POOLED = r'''
+# ---- analysis: pooled distribution -------------------------------------------
+
+def run_pooled(df, var, group, title, prefix="pooled"):
     hv = HVARS[var]
     used = [var] + ([group] if group else [])
-    rows = [numeric_summary(df[var], "pooled")] if hv.get("type") == "numeric" else category_counts(df[var], "pooled")
-    for c in COHORTS:
-        sub = df.loc[df["cohort"] == c, var]
-        rows.extend([numeric_summary(sub, c)] if hv.get("type") == "numeric" else category_counts(sub, c))
-    save_table(pd.DataFrame(rows), fname_prefix + "_summary.csv", "Pooled %s" % var)
+    if hv.get("type") == "numeric":
+        rows = [numeric_summary(df[var], "pooled")] + [numeric_summary(df.loc[df["cohort"] == c, var], c) for c in COHORTS]
+    else:
+        rows = category_counts(df[var], "pooled")
+        for c in COHORTS:
+            rows.extend(category_counts(df.loc[df["cohort"] == c, var], c))
+    save_table(pd.DataFrame(rows), prefix + "_summary.csv", "Pooled %s" % var)
     if hv.get("type") == "numeric":
         allv = pd.to_numeric(df[var], errors="coerce").dropna()
         if len(allv) == 0:
@@ -659,11 +709,11 @@ def run_pooled(df, var, group, title, fname_prefix="pooled"):
                 counts = np.where(counts >= K, counts, 0)
             ax.bar(edges[:-1], counts, width=np.diff(edges), align="edge", bottom=bottom, label=c, edgecolor="white")
             bottom = bottom + counts
-        ax.set_xlabel("%s%s" % (hv.get("label") or var, " (%s)" % hv.get("unit") if hv.get("unit") else ""))
+        ax.set_xlabel(axis_label(hv))
         ax.set_ylabel("Patients, stacked by cohort" + sup_note())
-        ax.set_title(plain_title(title))
+        ax.set_title(title)
         ax.legend()
-        save_fig(fig, fname_prefix + ".png", used, "Pooled distribution of %s" % (hv.get("label") or var))
+        save_fig(fig, prefix + ".png", used, "Pooled distribution of %s" % (hv.get("label") or var))
     else:
         ct = pd.crosstab(df[var].astype(str).where(df[var].notna()), df["cohort"])
         shown = ct.where(ct >= K, 0) if K > 0 else ct
@@ -673,39 +723,35 @@ def run_pooled(df, var, group, title, fname_prefix="pooled"):
             ax.bar([str(i) for i in shown.index], shown[c].values, bottom=bottom, label=str(c))
             bottom += shown[c].values
         ax.set_ylabel("Patients, stacked by cohort" + sup_note("cells"))
-        ax.set_title(plain_title(title))
+        ax.set_title(title)
         ax.legend()
         plt.setp(ax.get_xticklabels(), rotation=30, ha="right")
-        save_fig(fig, fname_prefix + ".png", used, "Pooled distribution of %s" % (hv.get("label") or var))
+        save_fig(fig, prefix + ".png", used, "Pooled distribution of %s" % (hv.get("label") or var))
     if group:
-        run_stratified(df, var, group, title + " by " + (HVARS[group].get("label") or group), fname_prefix="pooled_by_group")
+        run_stratified(df, var, group, title + " by " + (HVARS[group].get("label") or group), prefix="pooled_by_group")
 
+'''
 
-# ---- dispatch ----------------------------------------------------------------
+DISPATCH = {
+    "distribution": 'run_distribution(data, ROLES["variable"], TITLE)',
+    "stratified": 'run_stratified(data, ROLES["variable"], ROLES["group"], TITLE)',
+    "correlation": 'run_correlation(data, ROLES["x"], ROLES["y"], TITLE)',
+    "crosstab": 'run_crosstab(data, ROLES["x"], ROLES["y"], TITLE)',
+    "compare": 'run_compare(data, ROLES["variable"], TITLE)',
+    "pooled": 'run_pooled(data, ROLES["variable"], ROLES.get("group"), TITLE)',
+}
 
-title = ANALYSIS.get("title") or KIND
+FOOTER = r'''
+# ---- run ---------------------------------------------------------------------
 log("kind=%s cohorts=%s rows=%d" % (KIND, COHORTS, len(data)))
-if KIND == "distribution":
-    run_distribution(data, ROLES["variable"], title)
-elif KIND == "stratified":
-    run_stratified(data, ROLES["variable"], ROLES["group"], title)
-elif KIND == "correlation":
-    run_correlation(data, ROLES["x"], ROLES["y"], title)
-elif KIND == "crosstab":
-    run_crosstab(data, ROLES["x"], ROLES["y"], title)
-elif KIND == "compare":
-    run_compare(data, ROLES["variable"], title)
-elif KIND == "pooled":
-    run_pooled(data, ROLES["variable"], ROLES.get("group"), title)
-else:
-    raise ValueError("unknown analysis kind: %s" % KIND)
+__DISPATCH__
 
-# ---- provenance + summary ----------------------------------------------------
 with open(os.path.join(OUT, "provenance.md"), "w") as fh:
     fh.write("# Guided analysis provenance\n\n")
-    fh.write("**Analysis:** %s (%s)\n\n" % (title, KIND))
+    fh.write("**Analysis:** %s (%s)\n\n" % (TITLE, KIND))
     fh.write("**Cohorts:** %s\n\n" % ", ".join(COHORTS))
-    fh.write(("**Suppression:** counts below %d are suppressed; bins/cells below %d blanked.\n\n" % (K, K)) if K > 0 else "**Suppression:** none (all counts and values shown).\n\n")
+    fh.write(("**Suppression:** counts below %d suppressed; bins/cells below %d blanked.\n\n" % (K, K)) if K > 0
+             else "**Suppression:** none (all counts and values shown).\n\n")
     fh.write("**Mapping:** %s (id %s, by %s, %s)\n\n" % (MAPPING.get("name", "unnamed"), MAPPING.get("id", "-"),
                                                            MAPPING.get("created_by", "-"), MAPPING.get("created_at", "-")))
     for line in provenance_lines(list(HVARS.keys())):
@@ -716,21 +762,39 @@ with open(os.path.join(OUT, "provenance.md"), "w") as fh:
             fh.write("- %s\n" % n_)
 
 with open(os.path.join(OUT, "summary.json"), "w") as fh:
-    json.dump({"title": title, "kind": KIND, "cohorts": COHORTS, "suppression_k": K,
-               "items": captions, "notes": notes, "mapping_name": MAPPING.get("name"),
-               "mapping_id": MAPPING.get("id")}, fh, indent=2)
+    json.dump({"title": TITLE, "kind": KIND, "cohorts": COHORTS, "suppression_k": K, "items": captions,
+               "notes": notes, "mapping_name": MAPPING.get("name"), "mapping_id": MAPPING.get("id")}, fh, indent=2)
 log("done")
 '''
 
+# Which helper/analysis segments each kind needs.
+_NEEDS = {
+    "distribution": [H_NUMERIC_SUMMARY, H_CATEGORY_COUNTS, H_HIST, A_DISTRIBUTION],
+    "stratified": [H_NUMERIC_SUMMARY, A_STRATIFIED],
+    "correlation": [A_CORRELATION],
+    "crosstab": [A_CROSSTAB],
+    "compare": [H_NUMERIC_SUMMARY, H_CATEGORY_COUNTS, H_SMD, A_COMPARE],
+    "pooled": [H_NUMERIC_SUMMARY, H_CATEGORY_COUNTS, A_STRATIFIED, A_POOLED],
+}
+_USES_SCIPY = {"correlation", "crosstab"}
+
 
 def guided_analysis_script(spec: dict[str, Any]) -> str:
-    """Render the enclave script for one guided-analysis spec."""
-    spec_json = json.dumps(spec, ensure_ascii=False)
-    # The spec is embedded in a raw triple-quoted string; guard the one sequence
-    # that could terminate it early.
-    spec_json = spec_json.replace('"""', '\\"\\"\\"')
-    return (
-        _SCRIPT_TEMPLATE
-        .replace("__SPEC_JSON__", spec_json)
+    """Compose the enclave script for one guided-analysis spec: only the
+    loading mode, helpers and analysis the spec actually uses."""
+    kind = spec.get("analysis", {}).get("kind", "distribution")
+    if kind not in ANALYSIS_KINDS:
+        raise ValueError(f"unknown analysis kind: {kind}")
+    cohorts = spec.get("cohorts") or []
+    spec_json = json.dumps(spec, ensure_ascii=False).replace('"""', '\\"\\"\\"')
+    parts = [
+        HEADER
         .replace("__DESCRIPTION__", describe_spec(spec).replace("\n", " "))
-    )
+        .replace("__SCIPY_IMPORT__", "from scipy import stats\n" if kind in _USES_SCIPY else "")
+        .replace("__SPEC_JSON__", spec_json),
+        LOAD_MULTI if len(cohorts) > 1 else LOAD_SINGLE,
+        PROVENANCE,
+        *_NEEDS[kind],
+        FOOTER.replace("__DISPATCH__", DISPATCH[kind]),
+    ]
+    return "".join(parts)

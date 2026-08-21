@@ -293,6 +293,22 @@ def cached_mappings(cohort_ids: str = "", user: Any = Depends(get_current_user))
     return {"pairs": pairs, "files": files}
 
 
+@router.post("/variables")
+def variables(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Every variable of the given cohorts (for the wizard's searchable
+    dropdowns), each with its equivalents in the other cohorts."""
+    cohort_ids = [str(c) for c in body.get("cohort_ids") or []]
+    index = _index(cohort_ids)
+    out = []
+    for cid, vars_ in index.items():
+        for v in vars_:
+            r = dict(v)
+            r["equivalents"] = _equivalents(index, v)
+            out.append(r)
+    out.sort(key=lambda r: (cohort_ids.index(r["cohort_id"]) if r["cohort_id"] in cohort_ids else 99, r["var_name"].lower()))
+    return {"variables": out}
+
+
 @router.post("/search")
 def search(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[str, Any]:
     cohort_ids = [str(c) for c in body.get("cohort_ids") or []]

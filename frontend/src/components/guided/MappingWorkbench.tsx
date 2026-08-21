@@ -3,14 +3,16 @@
 // Mapping Workbench — the harmonization board of the guided (no-code) wizard.
 //
 // For every role the chosen analysis needs (e.g. "variable of interest",
-// "break down by"), the user builds one HARMONIZED VARIABLE: an anchor variable
-// found by search, plus one member variable per other cohort, linked from
-// evidence-ranked suggestions (shared codes, text similarity, cached mapping
-// files, AI), then a value map (categorical) or unit conversion (numeric).
-// Everything the user decides ends up in the mapping spec, which the enclave
-// script prints under every figure as provenance.
+// "break down by"), the user builds one HARMONIZED VARIABLE directly in the
+// role field: a searchable dropdown over every variable of the selected
+// cohorts picks the anchor; for multi-cohort analyses one more dropdown per
+// other cohort picks the member, with evidence-ranked suggestions (shared
+// codes, text similarity, cached mapping files, AI) listed first; then a value
+// map (categorical) or unit conversion (numeric). Everything the user decides
+// ends up in the mapping spec, which the enclave script prints under every
+// figure as provenance.
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {AlertTriangle, Check, ChevronDown, Database, Link2, Search, Trash2, X, Zap} from 'react-feather';
+import {AlertTriangle, Check, ChevronDown, Database, Trash2, X, Zap} from 'react-feather';
 import {SparklesIcon as Sparkles} from '@/components/Icons';
 import {
   Candidate,
@@ -21,12 +23,12 @@ import {
   VarInfo,
   aiSuggest,
   fetchCachedMappings,
+  fetchAllVariables,
   listMappings,
   loadMapping,
   newHVar,
   provenanceLine,
   saveMapping,
-  searchVariables,
   suggestMatches,
   suggestValues
 } from './client';
@@ -102,111 +104,180 @@ export function EvidenceBadge({e}: {e: Evidence}) {
   );
 }
 
-function MemberChip({cohortId, cohorts, member, onRemove}: {cohortId: string; cohorts: string[]; member: {var_name: string; var_label?: string}; onRemove?: () => void}) {
+// ---- Searchable dropdown over variables ---------------------------------------
+
+function matches(v: VarInfo, q: string): boolean {
+  if (!q) return true;
+  const hay = `${v.var_name} ${v.var_label} ${v.concept_name} ${v.concept_code} ${v.omop_id} ${v.visits || ''}`.toLowerCase();
+  return q
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+    .every(t => hay.includes(t));
+}
+
+function VariableRow({v, cohorts, showCohort, evidence, score}: {v: VarInfo; cohorts: string[]; showCohort: boolean; evidence?: Evidence[]; score?: number}) {
   return (
-    <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border text-sm ${cohortColor(cohorts, cohortId)}`} title={member.var_label}>
-      <span className="font-mono font-semibold">{member.var_name}</span>
-      {member.var_label && <span className="opacity-70 truncate max-w-[220px]">{member.var_label}</span>}
-      {onRemove && (
-        <button onClick={onRemove} className="opacity-60 hover:opacity-100" title="Unlink">
-          <X size={12} />
-        </button>
+    <div className="flex items-start gap-2 w-full">
+      {showCohort && <span className={`mt-0.5 shrink-0 px-1.5 py-0.5 rounded text-[10px] font-semibold border ${cohortColor(cohorts, v.cohort_id)}`}>{v.cohort_id}</span>}
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="font-mono font-semibold text-sm truncate">{v.var_name}</span>
+          <span className="text-[10px] uppercase tracking-wide text-base-content/50">{v.kind}</span>
+          {v.units && <span className="text-[10px] text-base-content/50">{v.units}</span>}
+          {v.visits && v.visits.toLowerCase() !== 'none' && <span className="text-[10px] text-base-content/50">· {v.visits}</span>}
+        </div>
+        <div className="text-xs text-base-content/80 truncate">{v.var_label}</div>
+        {v.concept_name && <div className="text-[11px] text-base-content/50 truncate">{v.concept_name}</div>}
+        {v.equivalents && v.equivalents.length > 0 && (
+          <div className="text-[11px] text-emerald-800 truncate">≈ {v.equivalents.map(e => `${e.var_name} [${e.cohort_id}]`).join(', ')}</div>
+        )}
+      </div>
+      {evidence && (
+        <span className="flex gap-1 shrink-0 flex-wrap justify-end max-w-[180px]">
+          {evidence.slice(0, 3).map((e, i) => (
+            <EvidenceBadge key={i} e={e} />
+          ))}
+        </span>
       )}
-    </span>
+      {score !== undefined && <span className="text-xs tabular-nums text-base-content/50 w-9 text-right shrink-0">{score.toFixed(2)}</span>}
+    </div>
   );
 }
 
-// ---- Search panel ----------------------------------------------------------
-
-function SearchPanel({cohorts, onPick, kindFilter}: {cohorts: string[]; onPick: (v: VarInfo) => void; kindFilter?: 'numeric' | 'categorical'}) {
-  const [query, setQuery] = useState('');
-  const [mode, setMode] = useState<'any' | 'all' | 'exact'>('any');
-  const [cohortFilter, setCohortFilter] = useState<string>('');
-  const [results, setResults] = useState<VarInfo[]>([]);
-  const [loading, setLoading] = useState(false);
-  const timer = useRef<any>(null);
+function VariableCombobox({
+  cohorts,
+  variables,
+  value,
+  onPick,
+  placeholder,
+  suggestions,
+  restrictCohort,
+  kindFilter,
+  onClear
+}: {
+  cohorts: string[];
+  variables: VarInfo[];
+  value?: {cohort_id: string; var_name: string; var_label?: string} | null;
+  onPick: (v: VarInfo, fromSuggestion?: Candidate) => void;
+  placeholder: string;
+  suggestions?: Candidate[];
+  restrictCohort?: string;
+  kindFilter?: 'numeric' | 'categorical';
+  onClear?: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const box = useRef<HTMLDivElement>(null);
+  const input = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => {
-      if (!query.trim()) {
-        setResults([]);
-        return;
-      }
-      setLoading(true);
-      searchVariables(cohortFilter ? [cohortFilter] : cohorts, query, mode)
-        .then(r => setResults(r.results))
-        .catch(() => setResults([]))
-        .finally(() => setLoading(false));
-    }, 250);
-    return () => clearTimeout(timer.current);
-  }, [query, mode, cohortFilter, cohorts]);
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (box.current && !box.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    setTimeout(() => input.current?.focus(), 0);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [open]);
 
-  const shown = kindFilter ? results.filter(r => r.kind === kindFilter) : results;
+  const pool = useMemo(() => {
+    let list = restrictCohort ? variables.filter(v => v.cohort_id === restrictCohort) : variables;
+    if (kindFilter) list = list.filter(v => v.kind === kindFilter);
+    return list.filter(v => matches(v, q));
+  }, [variables, restrictCohort, kindFilter, q]);
+  const suggested = (suggestions || []).filter(c => matches(c, q));
+  const suggestedNames = new Set(suggested.map(c => c.var_name));
+  const rest = pool.filter(v => !(restrictCohort && suggestedNames.has(v.var_name)));
+
+  const grouped = useMemo(() => {
+    const g: Record<string, VarInfo[]> = {};
+    rest.forEach(v => (g[v.cohort_id] = g[v.cohort_id] || []).push(v));
+    return g;
+  }, [rest]);
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="relative">
-        <Search size={15} className="absolute left-3 top-3 text-base-content/40" />
-        <input
-          className="input input-bordered w-full pl-9"
-          placeholder="Search variables: name, label, standard name, code…"
-          value={query}
-          onChange={e => setQuery(e.target.value)}
-        />
-      </div>
-      <div className="flex flex-wrap items-center gap-1.5 mt-2 text-xs">
-        {(['any', 'all', 'exact'] as const).map(m => (
-          <button key={m} onClick={() => setMode(m)} className={`px-2 py-0.5 rounded-full border ${mode === m ? 'bg-base-content text-base-100 border-base-content' : 'border-base-300 hover:bg-base-200'}`}>
-            {m === 'any' ? 'any word' : m === 'all' ? 'all words' : 'exact phrase'}
-          </button>
-        ))}
-        <span className="mx-1 text-base-content/30">|</span>
-        <button onClick={() => setCohortFilter('')} className={`px-2 py-0.5 rounded-full border ${!cohortFilter ? 'bg-base-content text-base-100 border-base-content' : 'border-base-300'}`}>
-          all cohorts
-        </button>
-        {cohorts.map(c => (
-          <button key={c} onClick={() => setCohortFilter(c)} className={`px-2 py-0.5 rounded-full border ${cohortFilter === c ? 'ring-2 ring-offset-1 ring-base-content ' : ''}${cohortColor(cohorts, c)}`}>
-            {c}
-          </button>
-        ))}
-        {kindFilter && <span className="ml-auto text-base-content/50">showing {kindFilter} variables only</span>}
-      </div>
-      <div className="mt-2 flex-1 overflow-y-auto rounded-lg border border-base-300 bg-base-100 min-h-[200px]">
-        {loading && <div className="p-3 text-sm text-base-content/50">Searching…</div>}
-        {!loading && query && shown.length === 0 && <div className="p-3 text-sm text-base-content/50">No variables match.</div>}
-        {!query && (
-          <div className="p-4 text-sm text-base-content/50 leading-relaxed">
-            Type to search across the selected cohorts. Matches are found on the variable name, its label, the
-            standard concept name and codes. Variables in other cohorts that share a standard code are listed as{' '}
-            <em>equivalents</em> under each result.
-          </div>
+    <div ref={box} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className={`w-full text-left input input-bordered h-auto min-h-[2.75rem] py-1.5 flex items-center gap-2 ${value ? '' : 'text-base-content/50'}`}
+      >
+        {value ? (
+          <span className="flex items-center gap-2 min-w-0 flex-1">
+            {!restrictCohort && <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-semibold border ${cohortColor(cohorts, value.cohort_id)}`}>{value.cohort_id}</span>}
+            <span className="font-mono font-semibold text-sm">{value.var_name}</span>
+            {value.var_label && <span className="text-xs text-base-content/70 truncate">{value.var_label}</span>}
+          </span>
+        ) : (
+          <span className="flex-1">{placeholder}</span>
         )}
-        {shown.map(v => (
-          <button
-            key={`${v.cohort_id}::${v.var_name}`}
-            onClick={() => onPick(v)}
-            className="w-full text-left px-3 py-2 border-b border-base-200 hover:bg-base-200/60 transition-colors"
+        {value && onClear && (
+          <span
+            role="button"
+            className="opacity-50 hover:opacity-100"
+            onClick={e => {
+              e.stopPropagation();
+              onClear();
+            }}
+            title="Clear"
           >
-            <div className="flex items-center gap-2">
-              <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border ${cohortColor(cohorts, v.cohort_id)}`}>{v.cohort_id}</span>
-              <span className="font-mono font-semibold text-sm">{v.var_name}</span>
-              <span className="text-[10px] uppercase tracking-wide text-base-content/50">{v.kind}</span>
-              {v.units && <span className="text-[10px] text-base-content/50">{v.units}</span>}
-            </div>
-            <div className="text-sm text-base-content/80 truncate">{v.var_label}</div>
-            <div className="text-xs text-base-content/50 truncate">
-              {v.concept_name && <span>{v.concept_name}</span>}
-              {v.concept_code && <span className="ml-2 font-mono">{v.concept_code}</span>}
-            </div>
-            {v.equivalents && v.equivalents.length > 0 && (
-              <div className="text-xs mt-0.5 text-emerald-800">
-                ≈ {v.equivalents.map(e => `${e.var_name} [${e.cohort_id}]`).join(', ')}
+            <X size={14} />
+          </span>
+        )}
+        <ChevronDown size={16} className="opacity-60 shrink-0" />
+      </button>
+      {open && (
+        <div className="absolute z-30 mt-1 w-full min-w-[520px] max-w-[720px] bg-base-100 border border-base-300 rounded-xl shadow-xl">
+          <div className="p-2 border-b border-base-200">
+            <input ref={input} className="input input-sm input-bordered w-full" placeholder="Type to filter: name, label, standard name, code, visit…" value={q} onChange={e => setQ(e.target.value)} />
+          </div>
+          <div className="max-h-80 overflow-y-auto">
+            {suggested.length > 0 && (
+              <div>
+                <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-base-content/50 bg-base-200/60">Suggested matches</div>
+                {suggested.map(c => (
+                  <button
+                    key={`s-${c.cohort_id}-${c.var_name}`}
+                    type="button"
+                    className="w-full text-left px-3 py-2 hover:bg-base-200 border-b border-base-200/60"
+                    onClick={() => {
+                      onPick(c, c);
+                      setOpen(false);
+                      setQ('');
+                    }}
+                  >
+                    <VariableRow v={c} cohorts={cohorts} showCohort={false} evidence={c.evidence} score={c.score} />
+                  </button>
+                ))}
               </div>
             )}
-          </button>
-        ))}
-      </div>
+            {Object.entries(grouped).map(([cid, list]) => (
+              <div key={cid}>
+                <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-base-content/50 bg-base-200/60">
+                  {restrictCohort ? 'All variables' : cid} <span className="normal-case tracking-normal">({list.length})</span>
+                </div>
+                {list.slice(0, 400).map(v => (
+                  <button
+                    key={`${v.cohort_id}-${v.var_name}`}
+                    type="button"
+                    className="w-full text-left px-3 py-2 hover:bg-base-200 border-b border-base-200/60"
+                    onClick={() => {
+                      onPick(v);
+                      setOpen(false);
+                      setQ('');
+                    }}
+                  >
+                    <VariableRow v={v} cohorts={cohorts} showCohort={false} />
+                  </button>
+                ))}
+                {list.length > 400 && <div className="px-3 py-1 text-xs text-base-content/50">… {list.length - 400} more — type to narrow down</div>}
+              </div>
+            ))}
+            {pool.length === 0 && suggested.length === 0 && <div className="p-3 text-sm text-base-content/50">No variables match.</div>}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -233,12 +304,13 @@ function ValueMapEditor({
   busy: string | null;
 }) {
   const memberCohorts = cohorts.filter(c => hv.members[c]?.var_name);
-  // harmonized values = union over value_map targets (ordered by first appearance)
   const harmonized = useMemo(() => {
     const seen: string[] = [];
-    memberCohorts.forEach(c => Object.values(hv.value_map[c] || {}).forEach(h => {
-      if (h && !seen.includes(h)) seen.push(h);
-    }));
+    memberCohorts.forEach(c =>
+      Object.values(hv.value_map[c] || {}).forEach(h => {
+        if (h && !seen.includes(h)) seen.push(h);
+      })
+    );
     return seen;
   }, [hv.value_map, memberCohorts]);
   const [newValue, setNewValue] = useState('');
@@ -274,10 +346,10 @@ function ValueMapEditor({
   const clusterEvidence = (h: string) => clusters?.find(cl => cl.harmonized.toLowerCase() === h.toLowerCase())?.evidence || [];
 
   return (
-    <div className="mt-3">
+    <div className="mt-4">
       <div className="flex items-center gap-2 flex-wrap">
         <h4 className="font-semibold text-sm">Value mapping</h4>
-        <span className="text-xs text-base-content/50">each row is one harmonized value; assign the raw values of every cohort to it</span>
+        <span className="text-xs text-base-content/50">one row per harmonized value; assign each cohort&rsquo;s raw values to it</span>
         <div className="ml-auto flex gap-2">
           <button className="btn btn-xs btn-outline gap-1" onClick={onSuggest} disabled={busy !== null}>
             <Zap size={12} /> {busy === 'values' ? 'Suggesting…' : 'Suggest from codes, labels & cache'}
@@ -294,8 +366,7 @@ function ValueMapEditor({
               <th className="w-56">Harmonized value</th>
               {memberCohorts.map(c => (
                 <th key={c}>
-                  <span className={`px-1.5 py-0.5 rounded border text-[10px] ${cohortColor(cohorts, c)}`}>{c}</span>{' '}
-                  <span className="font-mono text-xs">{hv.members[c].var_name}</span>
+                  <span className={`px-1.5 py-0.5 rounded border text-[10px] ${cohortColor(cohorts, c)}`}>{c}</span> <span className="font-mono text-xs">{hv.members[c].var_name}</span>
                 </th>
               ))}
               <th className="w-8"></th>
@@ -305,15 +376,13 @@ function ValueMapEditor({
             {harmonized.map(h => (
               <tr key={h}>
                 <td className="align-top">
-                  <input
-                    className="input input-xs input-bordered w-full font-semibold"
-                    defaultValue={h}
-                    onBlur={e => renameHarmonized(h, e.target.value)}
-                  />
+                  <input className="input input-xs input-bordered w-full font-semibold" defaultValue={h} onBlur={e => renameHarmonized(h, e.target.value)} />
                   <div className="flex gap-1 mt-1 flex-wrap">
-                    {clusterEvidence(h).slice(0, 3).map((e, i) => (
-                      <EvidenceBadge key={i} e={e} />
-                    ))}
+                    {clusterEvidence(h)
+                      .slice(0, 3)
+                      .map((e, i) => (
+                        <EvidenceBadge key={i} e={e} />
+                      ))}
                   </div>
                 </td>
                 {memberCohorts.map(c => (
@@ -332,11 +401,7 @@ function ValueMapEditor({
                         );
                       })}
                       {unmapped(c).length > 0 && (
-                        <select
-                          className="select select-xs select-bordered max-w-[160px]"
-                          value=""
-                          onChange={e => e.target.value && setRaw(c, e.target.value, h)}
-                        >
+                        <select className="select select-xs select-bordered max-w-[160px]" value="" onChange={e => e.target.value && setRaw(c, e.target.value, h)}>
                           <option value="">+ add value</option>
                           {unmapped(c).map(cat => (
                             <option key={cat.value} value={cat.value}>
@@ -366,16 +431,14 @@ function ValueMapEditor({
                     value={newValue}
                     onChange={e => setNewValue(e.target.value)}
                     onKeyDown={e => {
-                      if (e.key === 'Enter' && newValue.trim() && memberCohorts[0]) {
-                        // create the row by assigning a placeholder: rows exist only through assignments,
-                        // so we add the value to the first unmapped raw of the first cohort if any.
+                      if (e.key === 'Enter' && newValue.trim()) {
                         const c = memberCohorts.find(cc => unmapped(cc).length > 0);
                         if (c) setRaw(c, unmapped(c)[0].value, newValue.trim());
                         setNewValue('');
                       }
                     }}
                   />
-                  <span className="text-xs text-base-content/50">Enter to add (it is created with the first unassigned raw value; adjust afterwards)</span>
+                  <span className="text-xs text-base-content/50">Enter to add (starts with the first unassigned raw value; adjust afterwards)</span>
                 </div>
               </td>
             </tr>
@@ -401,7 +464,7 @@ function UnitEditor({hv, cohorts, onChange}: {hv: HVar; cohorts: string[]; onCha
   const units = memberCohorts.map(c => (hv.members[c].unit || '').trim()).filter(Boolean);
   const mismatch = new Set(units.map(u => u.toLowerCase())).size > 1;
   return (
-    <div className="mt-3">
+    <div className="mt-4">
       <div className="flex items-center gap-2">
         <h4 className="font-semibold text-sm">Units</h4>
         {mismatch ? (
@@ -421,8 +484,8 @@ function UnitEditor({hv, cohorts, onChange}: {hv: HVar; cohorts: string[]; onCha
           const conv = hv.unit_conversion[c] || {factor: null, from: hv.members[c].unit || '', to: hv.unit || ''};
           return (
             <div key={c} className="text-xs">
-              <span className={`px-1.5 py-0.5 rounded border text-[10px] ${cohortColor(cohorts, c)}`}>{c}</span>{' '}
-              <span className="font-mono">{hv.members[c].var_name}</span> in <b>{hv.members[c].unit || 'unknown unit'}</b>
+              <span className={`px-1.5 py-0.5 rounded border text-[10px] ${cohortColor(cohorts, c)}`}>{c}</span> <span className="font-mono">{hv.members[c].var_name}</span> in{' '}
+              <b>{hv.members[c].unit || 'unknown unit'}</b>
               <div className="flex items-center gap-1 mt-1">
                 × factor
                 <input
@@ -455,121 +518,137 @@ function UnitEditor({hv, cohorts, onChange}: {hv: HVar; cohorts: string[]; onCha
 
 export default function MappingWorkbench({cohorts, roles, mapping, roleAssignments, onMappingChange, onRolesChange, userEmail}: Props) {
   const multi = cohorts.length > 1;
-  const [activeRole, setActiveRole] = useState<string>(roles[0]?.key || '');
-  const [suggestions, setSuggestions] = useState<Record<string, Candidate[]>>({});
-  const [clusters, setClusters] = useState<ValueCluster[] | null>(null);
-  const [categories, setCategories] = useState<Record<string, {value: string; label: string}[]>>({});
+  const [variables, setVariables] = useState<VarInfo[]>([]);
+  const [loadingVars, setLoadingVars] = useState(false);
+  const [suggestions, setSuggestions] = useState<Record<string, Record<string, Candidate[]>>>({}); // hvar -> cohort -> candidates
+  const [clusters, setClusters] = useState<Record<string, ValueCluster[]>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [cacheFiles, setCacheFiles] = useState<{filename: string; source: string; target: string; generated_at: string; size_kb: number}[]>([]);
-  const [useCache, setUseCache] = useState<string[]>([]);
+  const [useCache, setUseCache] = useState<string[]>(mapping.sources || []);
   const [cacheOpen, setCacheOpen] = useState(false);
   const [saved, setSaved] = useState<{id: string; name: string; cohorts: string[]; variables: number; updated_at: string}[]>([]);
   const [saveName, setSaveName] = useState(mapping.name || '');
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
 
-  const activeName = roleAssignments[activeRole];
-  const hvIndex = mapping.variables.findIndex(v => v.harmonized_name === activeName);
-  const hv = hvIndex >= 0 ? mapping.variables[hvIndex] : null;
-  const roleDef = roles.find(r => r.key === activeRole);
-
   useEffect(() => {
-    if (!multi) return;
-    fetchCachedMappings(cohorts).then(r => setCacheFiles(r.files)).catch(() => setCacheFiles([]));
-    listMappings(cohorts).then(r => setSaved(r.mappings)).catch(() => setSaved([]));
+    setLoadingVars(true);
+    fetchAllVariables(cohorts)
+      .then(r => setVariables(r.variables))
+      .catch(e => setError(e.message))
+      .finally(() => setLoadingVars(false));
+    if (multi) {
+      fetchCachedMappings(cohorts).then(r => setCacheFiles(r.files)).catch(() => setCacheFiles([]));
+      listMappings(cohorts).then(r => setSaved(r.mappings)).catch(() => setSaved([]));
+    }
   }, [cohorts, multi]);
 
-  const updateHVar = useCallback(
-    (next: HVar) => {
-      const vars = mapping.variables.slice();
-      const i = vars.findIndex(v => v.harmonized_name === activeName);
-      if (i >= 0) vars[i] = next;
-      else vars.push(next);
-      onMappingChange({...mapping, variables: vars, sources: useCache});
-      if (next.harmonized_name !== activeName) onRolesChange({...roleAssignments, [activeRole]: next.harmonized_name});
+  const categoriesOf = useCallback(
+    (cohort: string, varName: string) => {
+      const v = variables.find(x => x.cohort_id === cohort && x.var_name === varName);
+      return (v?.categories || []).map(c => ({value: c.value, label: c.label}));
     },
-    [mapping, activeName, activeRole, onMappingChange, onRolesChange, roleAssignments, useCache]
+    [variables]
   );
 
-  // Pick an anchor from search: creates the harmonized variable for the active role.
-  const pickAnchor = (v: VarInfo) => {
-    if (roleDef?.kind && v.kind !== roleDef.kind) {
-      setError(`"${roleDef.label}" needs a ${roleDef.kind} variable; ${v.var_name} is ${v.kind}.`);
+  const replaceHVar = useCallback(
+    (oldName: string | undefined, next: HVar, roleKey: string) => {
+      const vars = mapping.variables.filter(x => x.harmonized_name !== oldName && x.harmonized_name !== next.harmonized_name);
+      vars.push(next);
+      onMappingChange({...mapping, variables: vars, sources: useCache});
+      onRolesChange({...roleAssignments, [roleKey]: next.harmonized_name});
+    },
+    [mapping, onMappingChange, onRolesChange, roleAssignments, useCache]
+  );
+
+  const fetchSuggestions = (hv: HVar, files: string[]) => {
+    if (!multi) return;
+    const anchorCohort = Object.keys(hv.members)[0];
+    const targets = cohorts.filter(c => c !== anchorCohort);
+    setBusy(`suggest:${hv.harmonized_name}`);
+    suggestMatches({cohort_id: anchorCohort, var_name: hv.members[anchorCohort].var_name}, targets, files)
+      .then(r => setSuggestions(prev => ({...prev, [hv.harmonized_name]: r.candidates})))
+      .catch(e => setError(e.message))
+      .finally(() => setBusy(null));
+  };
+
+  // Pick the anchor for a role: (re)creates the harmonized variable.
+  const pickAnchor = (roleKey: string, v: VarInfo) => {
+    const role = roles.find(r => r.key === roleKey);
+    if (role?.kind && v.kind !== role.kind) {
+      setError(`"${role.label}" needs a ${role.kind} variable; ${v.var_name} is ${v.kind}.`);
       return;
     }
     setError(null);
+    const old = roleAssignments[roleKey];
     let created = newHVar(v);
-    // keep harmonized names unique
-    const taken = new Set(mapping.variables.filter(x => x.harmonized_name !== activeName).map(x => x.harmonized_name));
+    const taken = new Set(mapping.variables.filter(x => x.harmonized_name !== old).map(x => x.harmonized_name));
     let name = created.harmonized_name;
     let n = 2;
     while (taken.has(name)) name = `${created.harmonized_name}_${n++}`;
     created = {...created, harmonized_name: name};
-    const vars = mapping.variables.filter(x => x.harmonized_name !== activeName);
-    vars.push(created);
-    onMappingChange({...mapping, variables: vars, sources: useCache});
-    onRolesChange({...roleAssignments, [activeRole]: name});
-    setSuggestions({});
-    setClusters(null);
-    setCategories({[v.cohort_id]: v.categories.map(c => ({value: c.value, label: c.label}))});
-    if (multi) {
-      setBusy('suggest');
-      suggestMatches({cohort_id: v.cohort_id, var_name: v.var_name}, cohorts.filter(c => c !== v.cohort_id), useCache)
-        .then(r => setSuggestions(r.candidates))
-        .catch(e => setError(e.message))
-        .finally(() => setBusy(null));
-    }
+    replaceHVar(old, created, roleKey);
+    fetchSuggestions(created, useCache);
   };
 
-  const linkCandidate = (c: Candidate) => {
-    if (!hv) return;
+  const clearRole = (roleKey: string) => {
+    const old = roleAssignments[roleKey];
+    onMappingChange({...mapping, variables: mapping.variables.filter(x => x.harmonized_name !== old), sources: useCache});
+    const next = {...roleAssignments};
+    delete next[roleKey];
+    onRolesChange(next);
+  };
+
+  const updateHVar = (roleKey: string, next: HVar) => replaceHVar(roleAssignments[roleKey], next, roleKey);
+
+  const linkMember = (roleKey: string, hv: HVar, cohortId: string, v: VarInfo, cand?: Candidate) => {
     const next: HVar = {
       ...hv,
-      members: {...hv.members, [c.cohort_id]: {var_name: c.var_name, var_label: c.var_label, unit: c.units, kind: c.kind}},
-      evidence: [...hv.evidence, ...c.evidence.filter(e => e.type !== 'warning').map(e => ({...e, detail: e.detail ? `${e.detail} (${c.cohort_id})` : undefined}))]
+      members: {...hv.members, [cohortId]: {var_name: v.var_name, var_label: v.var_label, unit: v.units, kind: v.kind}},
+      evidence: [
+        ...hv.evidence,
+        ...(cand
+          ? cand.evidence.filter(e => e.type !== 'warning').map(e => ({...e, detail: e.detail ? `${e.detail} (${cohortId})` : undefined}))
+          : [{type: 'manual' as const, detail: `${v.var_name} [${cohortId}] picked from the list`}])
+      ]
     };
     // cached value_mapping arrives with the candidate: pre-fill
-    const cacheEv = c.evidence.find(e => e.type === 'cache' && e.value_mapping);
-    if (cacheEv && cacheEv.value_mapping && hv.type === 'categorical') {
+    const cacheEv = cand?.evidence.find(e => e.type === 'cache' && e.value_mapping);
+    if (cacheEv?.value_mapping && hv.type === 'categorical') {
       const vm = {...next.value_map};
       const anchorCohort = Object.keys(hv.members)[0];
+      const anchorCats = new Set(categoriesOf(anchorCohort, hv.members[anchorCohort].var_name).map(x => x.value));
+      const candCats = new Set(v.categories.map(x => x.value));
       const src = cacheEv.value_mapping.source || {};
       const tgt = cacheEv.value_mapping.target || {};
-      // direction unknown here; assign whichever side's keys exist among the categories
-      const anchorCats = new Set((categories[anchorCohort] || []).map(x => x.value));
-      const candCats = new Set(c.categories.map(x => x.value));
       const assign = (cohort: string, m: Record<string, string>, cats: Set<string>) => {
         const out: Record<string, string> = {...(vm[cohort] || {})};
-        Object.entries(m).forEach(([k, v]) => {
-          if (cats.has(k) && v && v !== 'unknown') out[k] = v;
+        Object.entries(m).forEach(([k, val]) => {
+          if (cats.has(k) && val && val !== 'unknown') out[k] = val;
         });
         vm[cohort] = out;
       };
-      const srcKeys = Object.keys(src);
-      if (srcKeys.some(k => anchorCats.has(k))) {
+      if (Object.keys(src).some(k => anchorCats.has(k))) {
         assign(anchorCohort, src, anchorCats);
-        assign(c.cohort_id, tgt, candCats);
+        assign(cohortId, tgt, candCats);
       } else {
         assign(anchorCohort, tgt, anchorCats);
-        assign(c.cohort_id, src, candCats);
+        assign(cohortId, src, candCats);
       }
       next.value_map = vm;
     }
-    updateHVar(next);
-    setCategories(prev => ({...prev, [c.cohort_id]: c.categories.map(x => ({value: x.value, label: x.label}))}));
+    updateHVar(roleKey, next);
   };
 
-  const unlink = (cohortId: string) => {
-    if (!hv) return;
+  const unlinkMember = (roleKey: string, hv: HVar, cohortId: string) => {
     const members = {...hv.members};
     delete members[cohortId];
     const vm = {...hv.value_map};
     delete vm[cohortId];
-    updateHVar({...hv, members, value_map: vm});
+    updateHVar(roleKey, {...hv, members, value_map: vm});
   };
 
-  const doSuggestValues = () => {
-    if (!hv) return;
+  const doSuggestValues = (roleKey: string, hv: HVar) => {
     const members: Record<string, string> = {};
     cohorts.forEach(c => {
       if (hv.members[c]?.var_name) members[c] = hv.members[c].var_name;
@@ -577,11 +656,7 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
     setBusy('values');
     suggestValues(members, useCache)
       .then(r => {
-        setClusters(r.clusters);
-        const cats: Record<string, {value: string; label: string}[]> = {};
-        Object.entries(r.members).forEach(([c, m]) => (cats[c] = m.categories.map(x => ({value: x.value, label: x.label}))));
-        setCategories(prev => ({...prev, ...cats}));
-        // apply clusters as the value map (user can edit afterwards)
+        setClusters(prev => ({...prev, [hv.harmonized_name]: r.clusters}));
         const vm: Record<string, Record<string, string>> = {};
         r.clusters.forEach(cl => {
           Object.entries(cl.sources).forEach(([c, raws]) => {
@@ -589,66 +664,54 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
             raws.forEach(raw => (vm[c][raw] = cl.harmonized));
           });
         });
-        updateHVar({...hv, value_map: vm, evidence: [...hv.evidence, {type: 'manual', detail: 'value map suggested from codes/labels/cache'}]});
+        updateHVar(roleKey, {...hv, value_map: vm, evidence: [...hv.evidence, {type: 'manual', detail: 'value map suggested from codes/labels/cache'}]});
       })
       .catch(e => setError(e.message))
       .finally(() => setBusy(null));
   };
 
-  const doAiValues = () => {
-    if (!hv) return;
-    const variables: Record<string, any> = {};
+  const doAiValues = (roleKey: string, hv: HVar) => {
+    const vars: Record<string, any> = {};
     cohorts.forEach(c => {
-      if (hv.members[c]?.var_name) variables[c] = {var_name: hv.members[c].var_name, var_label: hv.members[c].var_label, categories: categories[c] || []};
+      if (hv.members[c]?.var_name) vars[c] = {var_name: hv.members[c].var_name, var_label: hv.members[c].var_label, categories: categoriesOf(c, hv.members[c].var_name)};
     });
     setBusy('ai-values');
-    aiSuggest({task: 'values', variables})
+    aiSuggest({task: 'values', variables: vars})
       .then(r => {
         const vmap = r.result?.value_map || {};
         const vm: Record<string, Record<string, string>> = {};
         Object.entries(vmap).forEach(([c, m]: [string, any]) => {
           vm[c] = {};
-          Object.entries(m || {}).forEach(([k, v]) => {
-            if (v) vm[c][k] = String(v);
+          Object.entries(m || {}).forEach(([k, val]) => {
+            if (val) vm[c][k] = String(val);
           });
         });
-        updateHVar({...hv, value_map: vm, evidence: [...hv.evidence, {type: 'ai', detail: `value map proposed by ${r.model}`}]});
+        updateHVar(roleKey, {...hv, value_map: vm, evidence: [...hv.evidence, {type: 'ai', detail: `value map proposed by ${r.model}`}]});
       })
       .catch(e => setError(e.message))
       .finally(() => setBusy(null));
   };
 
-  const doAiMatch = () => {
-    if (!hv) return;
+  const doAiMatch = (hv: HVar) => {
     const anchorCohort = Object.keys(hv.members)[0];
+    const current = suggestions[hv.harmonized_name] || {};
     setBusy('ai-match');
     aiSuggest({
       task: 'match',
       anchor: {cohort_id: anchorCohort, ...hv.members[anchorCohort]},
-      candidates: Object.fromEntries(Object.entries(suggestions).map(([c, list]) => [c, list.slice(0, 12).map(x => ({var_name: x.var_name, var_label: x.var_label, concept_name: x.concept_name, units: x.units}))]))
+      candidates: Object.fromEntries(Object.entries(current).map(([c, list]) => [c, list.slice(0, 12).map(x => ({var_name: x.var_name, var_label: x.var_label, concept_name: x.concept_name, units: x.units}))]))
     })
       .then(r => {
-        const matches = r.result?.matches || {};
-        const next = {...suggestions};
-        Object.entries(matches).forEach(([c, m]: [string, any]) => {
-          if (!m || !m.var_name || !next[c]) return;
-          next[c] = next[c].map(cand =>
-            cand.var_name === m.var_name ? {...cand, evidence: [...cand.evidence, {type: 'ai', detail: m.reason || 'AI suggestion'}], score: Math.max(cand.score || 0, 0.9)} : cand
-          );
-          next[c].sort((a, b) => (b.score || 0) - (a.score || 0));
+        const m = r.result?.matches || {};
+        const next = {...current};
+        Object.entries(m).forEach(([c, pick]: [string, any]) => {
+          if (!pick?.var_name || !next[c]) return;
+          next[c] = next[c]
+            .map(cand => (cand.var_name === pick.var_name ? {...cand, evidence: [...cand.evidence, {type: 'ai' as const, detail: pick.reason || 'AI suggestion'}], score: Math.max(cand.score || 0, 0.9)} : cand))
+            .sort((a, b) => (b.score || 0) - (a.score || 0));
         });
-        setSuggestions(next);
+        setSuggestions(prev => ({...prev, [hv.harmonized_name]: next}));
       })
-      .catch(e => setError(e.message))
-      .finally(() => setBusy(null));
-  };
-
-  const refreshSuggestions = (files: string[]) => {
-    if (!hv || !multi) return;
-    const anchorCohort = Object.keys(hv.members)[0];
-    setBusy('suggest');
-    suggestMatches({cohort_id: anchorCohort, var_name: hv.members[anchorCohort].var_name}, cohorts.filter(c => c !== anchorCohort), files)
-      .then(r => setSuggestions(r.candidates))
       .catch(e => setError(e.message))
       .finally(() => setBusy(null));
   };
@@ -657,7 +720,7 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
     const next = useCache.includes(f) ? useCache.filter(x => x !== f) : [...useCache, f];
     setUseCache(next);
     onMappingChange({...mapping, sources: next});
-    refreshSuggestions(next);
+    mapping.variables.forEach(hv => fetchSuggestions(hv, next));
   };
 
   const doSave = () => {
@@ -676,7 +739,6 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
       .then(spec => {
         onMappingChange({...spec, cohorts});
         setSaveName(spec.name || '');
-        // assign roles by order where names exist
         const assign: Record<string, string> = {...roleAssignments};
         roles.forEach((r, i) => {
           if (!assign[r.key] && spec.variables[i]) assign[r.key] = spec.variables[i].harmonized_name;
@@ -686,57 +748,17 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
       .catch(e => setError(e.message));
   };
 
-  const missingCohorts = hv ? cohorts.filter(c => !hv.members[c]?.var_name) : cohorts;
-
   return (
     <div className="flex flex-col gap-4">
-      {/* Role slots */}
-      <div className="grid gap-2" style={{gridTemplateColumns: `repeat(${Math.min(roles.length, 3)}, minmax(0, 1fr))`}}>
-        {roles.map(r => {
-          const name = roleAssignments[r.key];
-          const v = mapping.variables.find(x => x.harmonized_name === name);
-          const complete = v && cohorts.every(c => v.members[c]?.var_name);
-          return (
-            <button
-              key={r.key}
-              onClick={() => setActiveRole(r.key)}
-              className={`text-left rounded-xl border-2 p-3 transition-colors ${activeRole === r.key ? 'border-base-content bg-base-100' : 'border-base-300 bg-base-100/60 hover:border-base-content/40'}`}
-            >
-              <div className="text-[11px] uppercase tracking-wide text-base-content/50 flex items-center gap-2">
-                {r.label}
-                {r.optional && <span className="normal-case tracking-normal">(optional)</span>}
-                {r.kind && <span className="ml-auto normal-case tracking-normal">{r.kind}</span>}
-              </div>
-              {v ? (
-                <div className="mt-1">
-                  <div className="font-semibold flex items-center gap-2">
-                    {v.label || v.harmonized_name}
-                    {complete ? <Check size={14} className="text-emerald-600" /> : <AlertTriangle size={14} className="text-amber-600" />}
-                  </div>
-                  <div className="flex flex-wrap gap-1 mt-1">
-                    {cohorts.map(c => (
-                      <span key={c} className={`px-1.5 py-0.5 rounded border text-[10px] ${v.members[c]?.var_name ? cohortColor(cohorts, c) : 'bg-base-200 text-base-content/40 border-base-300 line-through'}`}>
-                        {c}: {v.members[c]?.var_name || '—'}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <div className="mt-1 text-sm text-base-content/50">{r.hint || 'Pick a variable from the search'}</div>
-              )}
-            </button>
-          );
-        })}
-      </div>
-
       {error && (
         <div className="alert alert-error text-sm py-2">
           <span>{error}</span>
           <button className="btn btn-ghost btn-xs" onClick={() => setError(null)}>✕</button>
         </div>
       )}
+      {loadingVars && <div className="text-sm text-base-content/50">Loading the variables of {cohorts.join(', ')}…</div>}
 
-      {/* Cached mappings + saved mappings toolbar (multi-cohort only) */}
+      {/* Cached + saved mappings toolbar (multi-cohort only) */}
       {multi && (
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <div className="relative">
@@ -751,13 +773,16 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
                   <label key={f.filename} className="flex items-start gap-2 p-1.5 hover:bg-base-200 rounded cursor-pointer">
                     <input type="checkbox" className="checkbox checkbox-xs mt-0.5" checked={useCache.includes(f.filename)} onChange={() => toggleCache(f.filename)} />
                     <span className="text-xs">
-                      <span className="font-semibold">{f.source} → {f.target}</span> · {f.generated_at.slice(0, 10)} · {f.size_kb} KB
+                      <span className="font-semibold">
+                        {f.source} → {f.target}
+                      </span>{' '}
+                      · {f.generated_at.slice(0, 10)} · {f.size_kb} KB
                       <div className="font-mono text-[10px] text-base-content/50 break-all">{f.filename}</div>
                     </span>
                   </label>
                 ))}
                 <div className="text-[11px] text-base-content/50 p-2 border-t border-base-200 mt-1">
-                  Files you tick become an evidence source: their rows appear as <span className="px-1 rounded bg-violet-600 text-white">CACHE</span> badges and their value mappings pre-fill the value table.
+                  Ticked files become an evidence source: their rows appear as <span className="px-1 rounded bg-violet-600 text-white">CACHE</span> badges in the suggestions and their value mappings pre-fill the value table.
                 </div>
               </div>
             )}
@@ -782,136 +807,117 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
         </div>
       )}
 
-      {/* Main board */}
-      <div className="grid lg:grid-cols-[360px_1fr] gap-4 items-start">
-        <div className="rounded-xl border border-base-300 bg-base-100 p-3 h-[620px]">
-          <div className="text-[11px] uppercase tracking-wide text-base-content/50 mb-2">
-            {hv ? 'Replace the anchor variable' : `Find the variable for "${roleDef?.label}"`}
-          </div>
-          <SearchPanel cohorts={cohorts} onPick={pickAnchor} kindFilter={roleDef?.kind} />
-        </div>
-
-        <div className="rounded-xl border border-base-300 bg-base-100 p-4 min-h-[620px]">
-          {!hv ? (
-            <div className="h-full flex flex-col items-center justify-center text-center text-base-content/50 gap-2 py-16">
-              <Link2 size={28} />
-              <div className="max-w-md">
-                Search on the left and click a variable to make it the <b>anchor</b> for &ldquo;{roleDef?.label}&rdquo;.
-                {multi && ' Matching variables in the other cohorts are then suggested with their evidence.'}
-              </div>
+      {/* One card per role */}
+      {roles.map(role => {
+        const name = roleAssignments[role.key];
+        const hv = mapping.variables.find(x => x.harmonized_name === name) || null;
+        const anchorCohort = hv ? Object.keys(hv.members)[0] : null;
+        const complete = !!hv && cohorts.every(c => hv.members[c]?.var_name);
+        const roleSugg = hv ? suggestions[hv.harmonized_name] || {} : {};
+        const suggesting = !!hv && busy === `suggest:${hv.harmonized_name}`;
+        return (
+          <section key={role.key} className="rounded-xl border border-base-300 bg-base-100 p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-[11px] uppercase tracking-wide text-base-content/60 font-semibold">{role.label}</span>
+              {role.optional && <span className="text-[11px] text-base-content/50">(optional)</span>}
+              {role.kind && <span className="text-[11px] text-base-content/50">· {role.kind} variable</span>}
+              {role.hint && !hv && <span className="text-xs text-base-content/50 ml-2">— {role.hint}</span>}
+              {hv && (complete ? <Check size={14} className="text-emerald-600 ml-auto" /> : <AlertTriangle size={14} className="text-amber-600 ml-auto" />)}
             </div>
-          ) : (
-            <div>
-              <div className="flex flex-wrap items-end gap-3">
-                <label className="text-xs">
-                  Harmonized name
-                  <input
-                    className="input input-sm input-bordered w-52 font-mono"
-                    value={hv.harmonized_name}
-                    onChange={e => updateHVar({...hv, harmonized_name: e.target.value.replace(/[^a-zA-Z0-9_]/g, '_')})}
-                  />
-                </label>
-                <label className="text-xs flex-1 min-w-[200px]">
-                  Label shown on figures
-                  <input className="input input-sm input-bordered w-full" value={hv.label} onChange={e => updateHVar({...hv, label: e.target.value})} />
-                </label>
-                <label className="text-xs">
-                  Type
-                  <select className="select select-sm select-bordered" value={hv.type} onChange={e => updateHVar({...hv, type: e.target.value as any})}>
-                    <option value="categorical">categorical</option>
-                    <option value="numeric">numeric</option>
-                  </select>
-                </label>
-              </div>
 
-              {/* Members per cohort */}
-              <div className="mt-4 space-y-3">
-                {cohorts.map(c => {
+            <div className="grid gap-3" style={{gridTemplateColumns: multi && hv ? `repeat(${Math.min(cohorts.length, 3)}, minmax(0, 1fr))` : '1fr'}}>
+              {!hv ? (
+                <VariableCombobox cohorts={cohorts} variables={variables} value={null} onPick={v => pickAnchor(role.key, v)} placeholder={multi ? 'Choose a variable in any cohort to start from…' : 'Choose a variable…'} kindFilter={role.kind} />
+              ) : (
+                cohorts.map(c => {
                   const m = hv.members[c];
-                  if (m?.var_name) {
-                    return (
-                      <div key={c} className="flex items-center gap-2">
-                        <span className={`w-28 shrink-0 px-1.5 py-0.5 rounded border text-[10px] text-center ${cohortColor(cohorts, c)}`}>{c}</span>
-                        <MemberChip cohortId={c} cohorts={cohorts} member={m} onRemove={Object.keys(hv.members).length > 1 ? () => unlink(c) : undefined} />
-                        {Object.keys(hv.members)[0] === c && <span className="text-[10px] uppercase tracking-wide text-base-content/40">anchor</span>}
-                      </div>
-                    );
-                  }
-                  const cands = suggestions[c] || [];
+                  const isAnchor = c === anchorCohort;
                   return (
-                    <div key={c} className="rounded-lg border border-dashed border-base-300 p-2">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className={`w-28 shrink-0 px-1.5 py-0.5 rounded border text-[10px] text-center ${cohortColor(cohorts, c)}`}>{c}</span>
-                        <span className="text-xs text-base-content/60">
-                          {busy === 'suggest' ? 'looking for matches…' : cands.length ? `${cands.length} suggestion${cands.length > 1 ? 's' : ''} — click to link` : 'no suggestion found; search on the left and pick one'}
-                        </span>
-                        {cands.length > 0 && (
-                          <button className="btn btn-xs btn-ghost gap-1 ml-auto" onClick={doAiMatch} disabled={busy !== null} title="Ask the local model which candidate matches best">
-                            <Sparkles size={12} /> {busy === 'ai-match' ? 'Asking…' : 'Ask iCARE-AI'}
-                          </button>
-                        )}
-                      </div>
-                      <div className="flex flex-col gap-1 max-h-56 overflow-y-auto">
-                        {cands.slice(0, 8).map(cand => (
-                          <button
-                            key={cand.var_name}
-                            onClick={() => linkCandidate(cand)}
-                            className="text-left flex items-start gap-2 px-2 py-1.5 rounded hover:bg-base-200 transition-colors"
-                          >
-                            <span className="font-mono text-sm font-semibold shrink-0">{cand.var_name}</span>
-                            <span className="text-xs text-base-content/70 truncate flex-1">
-                              {cand.var_label}
-                              {cand.units ? ` · ${cand.units}` : ''}
-                              {cand.kind !== hv.type ? ` · ${cand.kind}` : ''}
-                            </span>
-                            <span className="flex gap-1 shrink-0">
-                              {cand.evidence.slice(0, 3).map((e, i) => (
-                                <EvidenceBadge key={i} e={e} />
-                              ))}
-                            </span>
-                            <span className="text-xs tabular-nums text-base-content/50 w-10 text-right">{(cand.score || 0).toFixed(2)}</span>
-                          </button>
-                        ))}
-                      </div>
+                    <div key={c}>
+                      {multi && (
+                        <div className="flex items-center gap-1 mb-1">
+                          <span className={`px-1.5 py-0.5 rounded border text-[10px] font-semibold ${cohortColor(cohorts, c)}`}>{c}</span>
+                          {isAnchor && <span className="text-[10px] uppercase tracking-wide text-base-content/40">anchor</span>}
+                          {!isAnchor && !m?.var_name && (roleSugg[c]?.length || 0) > 0 && (
+                            <button className="btn btn-ghost btn-xs gap-1 ml-auto" onClick={() => doAiMatch(hv)} disabled={busy !== null} title="Ask the local model which candidate matches best">
+                              <Sparkles size={11} /> {busy === 'ai-match' ? 'Asking…' : 'Ask iCARE-AI'}
+                            </button>
+                          )}
+                        </div>
+                      )}
+                      <VariableCombobox
+                        cohorts={cohorts}
+                        variables={variables}
+                        value={m?.var_name ? {cohort_id: c, var_name: m.var_name, var_label: m.var_label} : null}
+                        onPick={(v, cand) => (isAnchor ? pickAnchor(role.key, v) : linkMember(role.key, hv, c, v, cand))}
+                        placeholder={suggesting ? 'Looking for matches…' : (roleSugg[c]?.length || 0) > 0 ? `${roleSugg[c].length} suggested — choose…` : 'Choose the matching variable…'}
+                        suggestions={isAnchor ? undefined : roleSugg[c]}
+                        restrictCohort={c}
+                        kindFilter={isAnchor ? role.kind : undefined}
+                        onClear={isAnchor ? () => clearRole(role.key) : m?.var_name ? () => unlinkMember(role.key, hv, c) : undefined}
+                      />
                     </div>
                   );
-                })}
-              </div>
-
-              {/* Values / units */}
-              {missingCohorts.length === 0 && hv.type === 'categorical' && multi && (
-                <ValueMapEditor
-                  hv={hv}
-                  cohorts={cohorts}
-                  categories={categories}
-                  clusters={clusters}
-                  onChange={vm => updateHVar({...hv, value_map: vm})}
-                  onSuggest={doSuggestValues}
-                  onAi={doAiValues}
-                  busy={busy}
-                />
+                })
               )}
-              {missingCohorts.length === 0 && hv.type === 'numeric' && multi && <UnitEditor hv={hv} cohorts={cohorts} onChange={updateHVar} />}
-              {!multi && hv.type === 'categorical' && (
-                <div className="mt-3 text-xs text-base-content/60">
-                  Categories: {(categories[cohorts[0]] || []).map(c => `${c.value}${c.label && c.label !== c.value ? ` (${c.label})` : ''}`).join(', ') || '—'}
-                </div>
-              )}
-
-              {/* Provenance preview */}
-              <div className="mt-4 rounded-lg bg-base-200 p-3">
-                <div className="text-[11px] uppercase tracking-wide text-base-content/50 mb-1">Provenance line printed under every figure</div>
-                <div className="font-mono text-xs break-words">{provenanceLine(hv)}</div>
-                <div className="flex flex-wrap gap-1 mt-2">
-                  {hv.evidence.slice(-6).map((e, i) => (
-                    <EvidenceBadge key={i} e={e} />
-                  ))}
-                </div>
-              </div>
             </div>
-          )}
-        </div>
-      </div>
+
+            {hv && (
+              <div className="mt-3">
+                <div className="flex flex-wrap items-end gap-3">
+                  <label className="text-xs">
+                    Harmonized name
+                    <input className="input input-sm input-bordered w-52 font-mono" value={hv.harmonized_name} onChange={e => updateHVar(role.key, {...hv, harmonized_name: e.target.value.replace(/[^a-zA-Z0-9_]/g, '_')})} />
+                  </label>
+                  <label className="text-xs flex-1 min-w-[200px]">
+                    Label shown on figures
+                    <input className="input input-sm input-bordered w-full" value={hv.label} onChange={e => updateHVar(role.key, {...hv, label: e.target.value})} />
+                  </label>
+                  <label className="text-xs">
+                    Type
+                    <select className="select select-sm select-bordered" value={hv.type} onChange={e => updateHVar(role.key, {...hv, type: e.target.value as any})}>
+                      <option value="categorical">categorical</option>
+                      <option value="numeric">numeric</option>
+                    </select>
+                  </label>
+                </div>
+
+                {complete && multi && hv.type === 'categorical' && (
+                  <ValueMapEditor
+                    hv={hv}
+                    cohorts={cohorts}
+                    categories={Object.fromEntries(cohorts.map(c => [c, hv.members[c]?.var_name ? categoriesOf(c, hv.members[c].var_name) : []]))}
+                    clusters={clusters[hv.harmonized_name] || null}
+                    onChange={vm => updateHVar(role.key, {...hv, value_map: vm})}
+                    onSuggest={() => doSuggestValues(role.key, hv)}
+                    onAi={() => doAiValues(role.key, hv)}
+                    busy={busy}
+                  />
+                )}
+                {complete && multi && hv.type === 'numeric' && <UnitEditor hv={hv} cohorts={cohorts} onChange={next => updateHVar(role.key, next)} />}
+                {!multi && hv.type === 'categorical' && anchorCohort && (
+                  <div className="mt-2 text-xs text-base-content/60">
+                    Categories:{' '}
+                    {categoriesOf(anchorCohort, hv.members[anchorCohort].var_name)
+                      .map(c => `${c.value}${c.label && c.label !== c.value ? ` (${c.label})` : ''}`)
+                      .join(', ') || '—'}
+                  </div>
+                )}
+
+                <div className="mt-3 rounded-lg bg-base-200 p-2.5">
+                  <div className="text-[10px] uppercase tracking-wide text-base-content/50 mb-1">Provenance line printed under every figure</div>
+                  <div className="font-mono text-xs break-words">{provenanceLine(hv)}</div>
+                  <div className="flex flex-wrap gap-1 mt-1.5">
+                    {hv.evidence.slice(-6).map((e, i) => (
+                      <EvidenceBadge key={i} e={e} />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </section>
+        );
+      })}
     </div>
   );
 }
