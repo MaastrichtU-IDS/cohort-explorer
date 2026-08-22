@@ -15,7 +15,7 @@ import {ArrowLeft, ArrowRight, Check, GitMerge, Grid, HelpCircle, Layers, Trendi
 import {useCohorts} from '@/components/CohortsContext';
 import {ParticipantsModal} from '@/components/ParticipantsModal';
 import MappingWorkbench, {RoleDef, cohortColor} from '@/components/nocode/MappingWorkbench';
-import MiniChart from '@/components/nocode/MiniChart';
+import KindExplainer from '@/components/nocode/KindExplainer';
 import {AnalysisSpec, Kind, KindMeta, MappingSpec, createNocodeDcr, describeSpec, fetchKinds, provenanceLine} from '@/components/nocode/client';
 import {apiUrl} from '@/utils';
 
@@ -331,7 +331,6 @@ export default function NocodeWizard({embedded = false, onClose}: {embedded?: bo
           {kinds &&
             (Object.entries(kinds) as [Kind, KindMeta][]).map(([key, m]) => {
               const Icon = KIND_ICONS[key] || Layers;
-              const open = explain === key;
               return (
                 <div
                   key={key}
@@ -351,31 +350,23 @@ export default function NocodeWizard({embedded = false, onClose}: {embedded?: bo
                   </div>
                   <p className="text-sm text-base-content/70">{m.blurb}</p>
                   <div className="flex items-center justify-between mt-2">
-                    <p className="text-xs text-base-content/50">{m.min_cohorts === m.max_cohorts ? `${m.min_cohorts} cohort` : `${m.min_cohorts}–${m.max_cohorts} cohorts`}</p>
+                    <p className="text-xs text-base-content/50">{m.min_cohorts === m.max_cohorts ? `${m.min_cohorts} cohort` : `${m.min_cohorts} to ${m.max_cohorts} cohorts`}</p>
                     <button
                       type="button"
                       className="btn btn-ghost btn-xs gap-1"
                       onClick={e => {
                         e.stopPropagation();
-                        setExplain(open ? null : key);
+                        setExplain(key);
                       }}
                     >
-                      <HelpCircle size={13} /> {open ? 'Hide' : 'What is this?'}
+                      <HelpCircle size={13} /> What is this?
                     </button>
                   </div>
-                  {open && (
-                    <div className="mt-3 pt-3 border-t border-base-200" onClick={e => e.stopPropagation()}>
-                      <div className="rounded-lg bg-base-200/60 p-2 mb-2">
-                        <MiniChart kind={key} />
-                        <div className="text-[10px] text-center text-base-content/50 mt-1">example of the figure this produces</div>
-                      </div>
-                      <p className="text-sm text-base-content/80 leading-relaxed">{m.explain}</p>
-                    </div>
-                  )}
                 </div>
               );
             })}
           {!kinds && <div className="text-sm text-base-content/50">Loading analysis types…</div>}
+          {explain && kinds && <KindExplainer kind={explain} meta={kinds[explain]} onClose={() => setExplain(null)} />}
         </div>
       )}
 
