@@ -11,20 +11,15 @@
 // explorer (see /nocode-results).
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import Link from 'next/link';
-import {ArrowLeft, ArrowRight, Check, GitMerge, Grid, HelpCircle, Layers, TrendingUp, AlertTriangle, Users} from 'react-feather';
+import {ArrowLeft, ArrowRight, Check, HelpCircle, AlertTriangle, Users} from 'react-feather';
 import {useCohorts} from '@/components/CohortsContext';
 import {ParticipantsModal} from '@/components/ParticipantsModal';
 import MappingWorkbench, {RoleDef, cohortColor} from '@/components/nocode/MappingWorkbench';
 import KindExplainer from '@/components/nocode/KindExplainer';
+import {KindGlyph} from '@/components/nocode/MiniChart';
 import {AnalysisSpec, Kind, KindMeta, MappingSpec, createNocodeDcr, describeSpec, fetchKinds, provenanceLine} from '@/components/nocode/client';
 import {apiUrl} from '@/utils';
 
-const KIND_ICONS: Record<Kind, any> = {
-  stratified: Layers,
-  correlation: TrendingUp,
-  crosstab: Grid,
-  compare: GitMerge
-};
 
 const ROLE_LABELS: Record<Kind, RoleDef[]> = {
   stratified: [
@@ -330,7 +325,6 @@ export default function NocodeWizard({embedded = false, onClose}: {embedded?: bo
         <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
           {kinds &&
             (Object.entries(kinds) as [Kind, KindMeta][]).map(([key, m]) => {
-              const Icon = KIND_ICONS[key] || Layers;
               return (
                 <div
                   key={key}
@@ -344,8 +338,10 @@ export default function NocodeWizard({embedded = false, onClose}: {embedded?: bo
                   onKeyDown={e => e.key === 'Enter' && setKind(key)}
                   className={`text-left rounded-2xl border-2 p-4 transition-all hover:shadow-md cursor-pointer ${kind === key ? 'border-base-content bg-base-100' : 'border-base-300 bg-base-100/70'}`}
                 >
-                  <div className="flex items-center gap-2 mb-2">
-                    <Icon size={20} />
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="rounded-lg bg-base-200/70 px-1.5 py-1 text-base-content/70">
+                      <KindGlyph kind={key} />
+                    </span>
                     <span className="font-semibold">{m.label}</span>
                   </div>
                   <p className="text-sm text-base-content/70">{m.blurb}</p>

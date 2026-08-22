@@ -126,6 +126,97 @@ function Pooled() {
   );
 }
 
+// ---- Glyph-sized variants for the analysis-type cards (no axes, bold strokes)
+
+const GW = 64;
+const GH = 32;
+
+function Glyph({children}: {children: React.ReactNode}) {
+  return (
+    <svg viewBox={`0 0 ${GW} ${GH}`} width="56" height="28" className="shrink-0" aria-hidden="true">
+      <line x1="2" y1={GH - 2} x2={GW - 2} y2={GH - 2} stroke="currentColor" strokeOpacity="0.3" />
+      {children}
+    </svg>
+  );
+}
+
+function curveGlyph(shift: number, width: number, height: number) {
+  const pts: string[] = [];
+  for (let x = 0; x <= 60; x += 3) {
+    const y = height * Math.exp(-Math.pow((x - 30 - shift) / width, 2));
+    pts.push(`${2 + x},${GH - 3 - y}`);
+  }
+  return pts.join(' ');
+}
+
+function StratifiedGlyph() {
+  return (
+    <Glyph>
+      <polyline points={curveGlyph(-7, 9, 24)} fill="none" stroke={BLUE} strokeWidth="2.5" strokeLinecap="round" />
+      <polyline points={curveGlyph(8, 11, 20)} fill="none" stroke={ORANGE} strokeWidth="2.5" strokeLinecap="round" />
+    </Glyph>
+  );
+}
+
+function ScatterGlyph() {
+  const pts: [number, number][] = [
+    [6, 24], [11, 21], [14, 25], [19, 18], [23, 20], [27, 14], [31, 17], [35, 12], [40, 14], [44, 9], [49, 11], [54, 6], [58, 8]
+  ];
+  return (
+    <Glyph>
+      {pts.map(([x, y], i) => (
+        <circle key={i} cx={x} cy={y} r="2" fill={BLUE} fillOpacity="0.85" />
+      ))}
+      <line x1="5" y1="25" x2="59" y2="6" stroke="#c0392b" strokeWidth="2" strokeLinecap="round" />
+    </Glyph>
+  );
+}
+
+function CrosstabGlyph() {
+  const cols = [
+    [14, 7, 4],
+    [6, 11, 9],
+    [4, 7, 14]
+  ];
+  const bw = 14;
+  return (
+    <Glyph>
+      {cols.map((stack, i) => {
+        let y = GH - 2;
+        return stack.map((h, j) => {
+          y -= h;
+          return <rect key={`${i}-${j}`} x={8 + i * (bw + 6)} y={y} width={bw} height={h} fill={[BLUE, ORANGE, GREEN][j]} />;
+        });
+      })}
+    </Glyph>
+  );
+}
+
+function CompareGlyph() {
+  return (
+    <Glyph>
+      <polyline points={curveGlyph(-9, 8, 22)} fill="none" stroke={BLUE} strokeWidth="2.5" strokeLinecap="round" />
+      <polyline points={curveGlyph(1, 7, 25)} fill="none" stroke={ORANGE} strokeWidth="2.5" strokeLinecap="round" />
+      <polyline points={curveGlyph(11, 9, 18)} fill="none" stroke={GREEN} strokeWidth="2.5" strokeLinecap="round" />
+    </Glyph>
+  );
+}
+
+export function KindGlyph({kind}: {kind: Kind}) {
+  switch (kind) {
+    case 'stratified':
+      return <StratifiedGlyph />;
+    case 'correlation':
+      return <ScatterGlyph />;
+    case 'crosstab':
+      return <CrosstabGlyph />;
+    case 'compare':
+      return <CompareGlyph />;
+    default:
+      return null;
+  }
+}
+
 export default function MiniChart({kind}: {kind: Kind}) {
   switch (kind) {
     case 'stratified':
