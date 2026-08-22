@@ -641,7 +641,7 @@ async def get_compute_dcr_definition(
     include_mapping_upload_slot: bool = False,
     research_question: str = None,
     merge_use_shuffled: bool = False,
-    guided_analyses: list[dict] = None,
+    nocode_analyses: list[dict] = None,
 ) -> Any:
     # The creator must never be excluded from their own DCR.
     excluded_data_owners = [e for e in (excluded_data_owners or []) if e != user["email"]]
@@ -1034,19 +1034,19 @@ async def get_compute_dcr_definition(
         for email, roles in participants.items():
             roles["data_owner_of"].add("CrossStudyMappings")
     
-    # ---- Guided (no-code) analysis nodes ---------------------------------------
-    # Each spec from the guided wizard becomes one compute node that runs on the
+    # ---- No-code DCR analysis nodes ---------------------------------------
+    # Each spec from the no-code DCR wizard becomes one compute node that runs on the
     # FULL cohort data and writes aggregates only (figures/tables with small-cell
     # suppression). Every participant can run it; the service account is among
     # the participants, so the explorer can fetch results for the wizard's viewer.
-    from src.guided_scripts import guided_analysis_script, guided_node_name
+    from src.nocode_scripts import nocode_analysis_script, nocode_node_name
 
-    guided_node_names: list[str] = []
-    for gi, gspec in enumerate(guided_analyses or [], start=1):
+    nocode_node_names: list[str] = []
+    for gi, gspec in enumerate(nocode_analyses or [], start=1):
         gspec = dict(gspec)
         g_cohorts = [c for c in (gspec.get("cohorts") or []) if c in selected_cohorts]
         if not g_cohorts:
-            logging.warning(f"Guided analysis {gi}: none of its cohorts are in this DCR; skipped")
+            logging.warning(f"No-code DCR analysis {gi}: none of its cohorts are in this DCR; skipped")
             continue
         gspec["cohorts"] = g_cohorts
         # Data source: the full cohort data nodes, or — for code-testing only —
@@ -1056,7 +1056,7 @@ async def get_compute_dcr_definition(
         if use_shuffled:
             missing = [c for c in g_cohorts if c not in shuffled_nodes]
             if missing:
-                msg = (f"Guided analysis {gi}: shuffled samples requested but not available for "
+                msg = (f"No-code DCR analysis {gi}: shuffled samples requested but not available for "
                        f"{', '.join(missing)}; the analysis uses the full cohort data instead.")
                 logging.warning(msg)
                 merge_warnings.append(msg)
@@ -1067,17 +1067,17 @@ async def get_compute_dcr_definition(
                 "dictionary": f"{c.replace(' ', '-')}_metadata_dictionary"}
             for c in g_cohorts
         }
-        g_node = guided_node_name(gi, gspec)
+        g_node = nocode_node_name(gi, gspec)
         g_deps = list(dict.fromkeys(
             [n["data"] for n in gspec["nodes"].values()] + [n["dictionary"] for n in gspec["nodes"].values()]
         ))
         builder.add_node_definition(
-            PythonComputeNodeDefinition(name=g_node, script=guided_analysis_script(gspec), dependencies=g_deps)
+            PythonComputeNodeDefinition(name=g_node, script=nocode_analysis_script(gspec), dependencies=g_deps)
         )
         for p_email in participants:
             participants[p_email]["analyst_of"].add(g_node)
-        guided_node_names.append(g_node)
-        logging.info(f"Added guided analysis node '{g_node}' ({gspec.get('analysis', {}).get('kind')}) on {g_cohorts}")
+        nocode_node_names.append(g_node)
+        logging.info(f"Added no-code analysis node '{g_node}' ({gspec.get('analysis', {}).get('kind')}) on {g_cohorts}")
 
     # Add the "merge-datasets" node (single node regardless of the number of cohorts).
     # It comes after all per-cohort data/visualization nodes and pools every cohort
@@ -1348,7 +1348,7 @@ async def get_compute_dcr_definition(
     logging.info(f"DCR build completed in {build_time.total_seconds():.3f}s")
     logging.info(f"Total DCR definition creation completed in {total_time.total_seconds():.3f}s for {len(cohorts_request['cohorts'])} cohorts")
     
-    return dcr_definition, dcr_title, participants, mapping_nodes, merge_warnings, guided_node_names
+    return dcr_definition, dcr_title, participants, mapping_nodes, merge_warnings, nocode_node_names
 
 
 
@@ -1365,7 +1365,7 @@ async def create_live_compute_dcr(
     include_mapping_upload_slot: bool = False,
     research_question: str = None,
     merge_use_shuffled: bool = False,
-    guided_analyses: list[dict] = None,
+    nocode_analyses: list[dict] = None,
 ) -> dict[str, Any]:
     """Create and publish a live compute DCR that is immediately available for use.
     
@@ -1389,7 +1389,7 @@ async def create_live_compute_dcr(
     logging.info(f"Starting live compute DCR creation for user {user['email']} at {start_time}")
     
     # Step 1: Create the DCR definition (reuse existing logic)
-    dcr_definition, dcr_title, participants, mapping_nodes, merge_warnings, guided_node_names = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings, dcr_name, excluded_data_owners, selected_mapping_files, include_mapping_upload_slot, research_question, merge_use_shuffled, guided_analyses)
+    dcr_definition, dcr_title, participants, mapping_nodes, merge_warnings, nocode_node_names = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings, dcr_name, excluded_data_owners, selected_mapping_files, include_mapping_upload_slot, research_question, merge_use_shuffled, nocode_analyses)
     
     # Step 2: Publish the DCR to Decentriq with retry logic for race conditions
     import time
@@ -1666,7 +1666,7 @@ async def create_live_compute_dcr(
             "mapping_upload_results": mapping_upload_results,
             "mapping_uploads_successful": successful_mapping_uploads,
             "merge_warnings": merge_warnings,
-            "guided_nodes": guided_node_names,
+            "nocode_nodes": nocode_node_names,
             "participants": participants_json
         }
         
@@ -1738,8 +1738,8 @@ async def api_create_live_compute_dcr(
     # full cohort data.
     merge_use_shuffled = cohorts_request.get("merge_use_shuffled", False)
 
-    # Guided (no-code) analysis specs from the /guided-analysis wizard, if any.
-    guided_analyses = cohorts_request.get("guided_analyses", []) or []
+    # No-code DCR analysis specs from the /nocode-dcr wizard, if any.
+    nocode_analyses = cohorts_request.get("nocode_analyses", []) or []
 
     # Extract session_id from request (frontend-generated UUID correlating wizard events)
     session_id = cohorts_request.get("session_id")
@@ -1786,7 +1786,7 @@ async def api_create_live_compute_dcr(
 
     # Create and publish the live compute DCR
     try:
-        result = await create_live_compute_dcr(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings, dcr_name, excluded_data_owners, selected_mapping_files, include_mapping_upload_slot, research_question, merge_use_shuffled, guided_analyses)
+        result = await create_live_compute_dcr(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings, dcr_name, excluded_data_owners, selected_mapping_files, include_mapping_upload_slot, research_question, merge_use_shuffled, nocode_analyses)
         duration_ms = int((datetime.now() - publish_started_at).total_seconds() * 1000)
         log_dcr_event(
             "dcr_publish_succeeded",
@@ -1870,7 +1870,7 @@ async def api_get_compute_dcr_definition(
         include_shuffled_samples=include_shuffled_samples,
     )
 
-    dcr_definition, _dcr_title, _participants, _mapping_nodes, _merge_warnings, _guided = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, dcr_name=dcr_name)
+    dcr_definition, _dcr_title, _participants, _mapping_nodes, _merge_warnings, _nocode = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, dcr_name=dcr_name)
 
     # Generate DCR config JSON
     dcr_config_json = { "dataScienceDataRoom": dcr_definition.high_level }

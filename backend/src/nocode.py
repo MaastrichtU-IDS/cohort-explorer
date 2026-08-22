@@ -1,6 +1,6 @@
-"""Guided (no-code) analysis API.
+"""No-code DCR analysis API.
 
-Backs the /guided-analysis wizard for domain experts who do not program:
+Backs the /nocode-dcr wizard for domain experts who do not program:
 
   - variable search across the selected cohorts (name, label, standard concept
     name, code / OMOP id, and "equivalent names": variables in other cohorts
@@ -12,10 +12,10 @@ Backs the /guided-analysis wizard for domain experts who do not program:
   - value-level suggestions for categorical variables (category codes, label
     similarity, the cached mapping's value_mapping)
   - persistence of user mapping specs (reusable across DCRs)
-  - running a guided-analysis node via the service account and serving the
+  - running a no-code DCR node via the service account and serving the
     aggregate results (figures/tables) back to the wizard
 
-The enclave script itself is generated in guided_scripts.py.
+The enclave script itself is generated in nocode_scripts.py.
 """
 
 from __future__ import annotations
@@ -40,13 +40,29 @@ from fastapi.responses import FileResponse
 
 from src.auth import get_current_user
 from src.config import settings
-from src.guided_scripts import ANALYSIS_KINDS, describe_spec
+from src.nocode_scripts import ANALYSIS_KINDS, describe_spec
 
-router = APIRouter(prefix="/api/guided", tags=["guided"])
+router = APIRouter(prefix="/api/nocode", tags=["nocode"])
 logger = logging.getLogger(__name__)
 
-MAPPINGS_DIR = os.path.join(settings.data_folder, "guided_mappings")
-RESULTS_DIR = os.path.join(settings.data_folder, "guided_results")
+MAPPINGS_DIR = os.path.join(settings.data_folder, "nocode_mappings")
+RESULTS_DIR = os.path.join(settings.data_folder, "nocode_results")
+
+
+def _migrate_legacy_dirs() -> None:
+    """The feature was first shipped as "guided": move its data folders to the
+    new names once, so saved mappings and fetched results are not orphaned."""
+    for old, new in (("guided_mappings", MAPPINGS_DIR), ("guided_results", RESULTS_DIR)):
+        old_path = os.path.join(settings.data_folder, old)
+        try:
+            if os.path.isdir(old_path) and not os.path.exists(new):
+                os.rename(old_path, new)
+                logger.info("migrated %s -> %s", old_path, new)
+        except Exception as exc:
+            logger.warning("could not migrate %s: %s", old_path, exc)
+
+
+_migrate_legacy_dirs()
 
 # ---------------------------------------------------------------------------
 # Normalization + similarity
@@ -598,9 +614,9 @@ def get_mapping(mid: str, user: Any = Depends(get_current_user)) -> dict[str, An
 @router.post("/describe")
 def describe(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[str, Any]:
     """Plain-language recipe + the generated script (for the review step)."""
-    from src.guided_scripts import guided_analysis_script
+    from src.nocode_scripts import nocode_analysis_script
 
-    return {"description": describe_spec(body), "script": guided_analysis_script(body)}
+    return {"description": describe_spec(body), "script": nocode_analysis_script(body)}
 
 
 # ---------------------------------------------------------------------------
@@ -631,19 +647,21 @@ def _read_summary(dir_: str) -> Optional[dict]:
 
 @router.post("/run/{dcr_id}")
 def run_node(dcr_id: str, body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[str, Any]:
-    """Run one guided-analysis node and pull its output into the explorer."""
+    """Run one no-code DCR node and pull its output into the explorer."""
     import decentriq_platform as dq
 
     node_name = str(body.get("node_name") or "")
-    if not node_name.startswith("guided-"):
-        raise HTTPException(status_code=400, detail="node_name must be a guided-analysis node")
+    # "guided-" is the prefix used by DCRs created before the feature was renamed;
+    # they keep working.
+    if not node_name.startswith(("nocode-", "guided-")):
+        raise HTTPException(status_code=400, detail="node_name must be a no-code DCR node")
     try:
         client = dq.create_client(settings.decentriq_email, settings.decentriq_token)
         dcr = client.retrieve_analytics_dcr(dcr_id)
         node = dcr.get_node(node_name)
         result = node.run_computation_and_get_results_as_zip()
     except Exception as exc:
-        logger.warning("guided run failed for %s/%s: %s", dcr_id, node_name, exc)
+        logger.warning("no-code run failed for %s/%s: %s", dcr_id, node_name, exc)
         raise HTTPException(status_code=502, detail=f"Running the analysis failed: {exc}")
     out_dir = _results_dir(dcr_id, node_name)
     os.makedirs(out_dir, exist_ok=True)

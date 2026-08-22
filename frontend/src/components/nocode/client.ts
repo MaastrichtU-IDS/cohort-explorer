@@ -1,4 +1,4 @@
-// API client + shared types for the guided (no-code) analysis wizard.
+// API client + shared types for the no-code DCR wizard.
 import {apiUrl} from '@/utils';
 
 export type Kind = 'distribution' | 'stratified' | 'correlation' | 'crosstab' | 'compare' | 'pooled';
@@ -139,16 +139,16 @@ async function get<T>(path: string): Promise<T> {
   return res.json();
 }
 
-export const fetchKinds = () => get<{kinds: Record<Kind, KindMeta>}>('/api/guided/kinds');
+export const fetchKinds = () => get<{kinds: Record<Kind, KindMeta>}>('/api/nocode/kinds');
 
 export const fetchAllVariables = (cohortIds: string[]) =>
-  post<{variables: VarInfo[]}>('/api/guided/variables', {cohort_ids: cohortIds});
+  post<{variables: VarInfo[]}>('/api/nocode/variables', {cohort_ids: cohortIds});
 
 export const searchVariables = (cohortIds: string[], query: string, mode: 'any' | 'all' | 'exact' = 'any') =>
-  post<{results: VarInfo[]; total: number}>('/api/guided/search', {cohort_ids: cohortIds, query, mode});
+  post<{results: VarInfo[]; total: number}>('/api/nocode/search', {cohort_ids: cohortIds, query, mode});
 
 export const suggestMatches = (anchor: {cohort_id: string; var_name: string}, targets: string[], cachedFiles: string[]) =>
-  post<{anchor: VarInfo; candidates: Record<string, Candidate[]>}>('/api/guided/suggest', {
+  post<{anchor: VarInfo; candidates: Record<string, Candidate[]>}>('/api/nocode/suggest', {
     anchor,
     targets,
     cached_files: cachedFiles
@@ -156,34 +156,34 @@ export const suggestMatches = (anchor: {cohort_id: string; var_name: string}, ta
 
 export const suggestValues = (members: Record<string, string>, cachedFiles: string[]) =>
   post<{clusters: ValueCluster[]; members: Record<string, {var_name: string; categories: CategoryInfo[]}>}>(
-    '/api/guided/suggest-values',
+    '/api/nocode/suggest-values',
     {members, cached_files: cachedFiles}
   );
 
-export const aiSuggest = (body: any) => post<{task: string; result: any; model: string}>('/api/guided/ai-suggest', body);
+export const aiSuggest = (body: any) => post<{task: string; result: any; model: string}>('/api/nocode/ai-suggest', body);
 
 export const fetchCachedMappings = (cohortIds: string[]) =>
   get<{pairs: any[]; files: {filename: string; source: string; target: string; generated_at: string; size_kb: number}[]}>(
-    `/api/guided/cached-mappings?cohort_ids=${encodeURIComponent(cohortIds.join(','))}`
+    `/api/nocode/cached-mappings?cohort_ids=${encodeURIComponent(cohortIds.join(','))}`
   );
 
-export const saveMapping = (spec: MappingSpec) => post<{ok: boolean; id: string}>('/api/guided/mappings', spec);
+export const saveMapping = (spec: MappingSpec) => post<{ok: boolean; id: string}>('/api/nocode/mappings', spec);
 export const listMappings = (cohortIds: string[]) =>
   get<{mappings: {id: string; name: string; cohorts: string[]; variables: number; created_by: string; updated_at: string}[]}>(
-    `/api/guided/mappings?cohort_ids=${encodeURIComponent(cohortIds.join(','))}`
+    `/api/nocode/mappings?cohort_ids=${encodeURIComponent(cohortIds.join(','))}`
   );
-export const loadMapping = (id: string) => get<MappingSpec>(`/api/guided/mappings/${encodeURIComponent(id)}`);
+export const loadMapping = (id: string) => get<MappingSpec>(`/api/nocode/mappings/${encodeURIComponent(id)}`);
 
-export const describeSpec = (spec: AnalysisSpec) => post<{description: string; script: string}>('/api/guided/describe', spec);
+export const describeSpec = (spec: AnalysisSpec) => post<{description: string; script: string}>('/api/nocode/describe', spec);
 
-export const createGuidedDcr = (body: any) => post<any>('/create-live-compute-dcr', body);
+export const createNocodeDcr = (body: any) => post<any>('/create-live-compute-dcr', body);
 
-export const runGuided = (dcrId: string, nodeName: string) =>
-  post<{ok: boolean; summary: any}>(`/api/guided/run/${encodeURIComponent(dcrId)}`, {node_name: nodeName});
-export const fetchGuidedResults = (dcrId: string, nodeName: string) =>
-  get<any>(`/api/guided/results/${encodeURIComponent(dcrId)}/${encodeURIComponent(nodeName)}`);
+export const runNocode = (dcrId: string, nodeName: string) =>
+  post<{ok: boolean; summary: any}>(`/api/nocode/run/${encodeURIComponent(dcrId)}`, {node_name: nodeName});
+export const fetchNocodeResults = (dcrId: string, nodeName: string) =>
+  get<any>(`/api/nocode/results/${encodeURIComponent(dcrId)}/${encodeURIComponent(nodeName)}`);
 export const resultFileUrl = (dcrId: string, nodeName: string, path: string) =>
-  `${apiUrl}/api/guided/results/${encodeURIComponent(dcrId)}/${encodeURIComponent(nodeName)}/file/${path}`;
+  `${apiUrl}/api/nocode/results/${encodeURIComponent(dcrId)}/${encodeURIComponent(nodeName)}/file/${path}`;
 
 export async function fetchResultBlob(dcrId: string, nodeName: string, path: string): Promise<string> {
   const res = await fetch(resultFileUrl(dcrId, nodeName, path), {credentials: 'include'});

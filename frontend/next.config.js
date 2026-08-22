@@ -11,6 +11,13 @@ const nextConfig = {
       },
     ],
   },
+  async redirects() {
+    // The no-code DCR feature first shipped under "guided" URLs.
+    return [
+      {source: '/guided-analysis', destination: '/nocode-dcr', permanent: true},
+      {source: '/guided-results', destination: '/nocode-results', permanent: true},
+    ];
+  },
   async headers() {
     return [
       {

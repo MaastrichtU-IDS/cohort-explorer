@@ -4,7 +4,7 @@ import React, {useState, useEffect, useMemo, useCallback, useRef} from 'react';
 import Link from 'next/link';
 import {useRouter} from 'next/router';
 import {LogIn, LogOut, Compass, Upload, HardDrive, Map, Box, FileText, Settings, Code, MousePointer} from 'react-feather';
-import GuidedWizard from '@/components/guided/GuidedWizard';
+import NocodeWizard from '@/components/nocode/NocodeWizard';
 import {useCohorts} from '@/components/CohortsContext';
 import {DarkThemeIcon, LightThemeIcon, SparklesIcon} from '@/components/Icons';
 import {apiUrl} from '@/utils';
@@ -956,7 +956,7 @@ export function Nav() {
               </>
             ) : wizardMode === 'nocode' ? (
               /* ========== NO-CODE WIZARD ========== */
-              <GuidedWizard embedded onClose={closeWizard} />
+              <NocodeWizard embedded onClose={closeWizard} />
             ) : (
               <>
               {/* ========== WIZARD VIEW ========== */}

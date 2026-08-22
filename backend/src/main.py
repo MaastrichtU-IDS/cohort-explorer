@@ -22,7 +22,7 @@ from src.upload import router as upload_router
 from src.monitoring import run_periodic_monitoring
 from src.admin import router as admin_router
 from src.docs import router as docs_router
-from src.guided import router as guided_router
+from src.nocode import router as nocode_router
 
 init_triplestore()
 #asyncio.create_task(run_periodic_monitoring())
@@ -84,7 +84,7 @@ app.include_router(auth_router, tags=["authentication"])
 app.include_router(admin_router, tags=["admin"])
 app.include_router(docs_router, prefix="/docs-api", tags=["documents"])
 app.include_router(chat_router, tags=["chat"])
-app.include_router(guided_router, tags=["guided"])
+app.include_router(nocode_router, tags=["nocode"])
 
 
 app.add_middleware(

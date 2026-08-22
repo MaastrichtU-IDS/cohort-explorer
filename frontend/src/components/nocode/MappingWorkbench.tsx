@@ -1,6 +1,6 @@
 'use client';
 
-// Mapping Workbench — the harmonization board of the guided (no-code) wizard.
+// Mapping Workbench — the harmonization board of the no-code DCR wizard.
 //
 // For every role the chosen analysis needs (e.g. "variable of interest",
 // "break down by"), the user builds one HARMONIZED VARIABLE directly in the

@@ -1,6 +1,6 @@
 'use client';
 
-// Results of a guided analysis: runs the generated node through the platform
+// Results of a no-code DCR analysis: runs the generated node through the platform
 // (once the data owners have provisioned their data) and shows the aggregate
 // figures and tables in the explorer, each with its provenance subtext.
 import React, {useEffect, useState} from 'react';
@@ -8,7 +8,7 @@ import Link from 'next/link';
 import {useRouter} from 'next/router';
 import {AlertTriangle, Download, Play, RefreshCw} from 'react-feather';
 import {useCohorts} from '@/components/CohortsContext';
-import {fetchGuidedResults, fetchResultBlob, fetchResultText, resultFileUrl, runGuided} from '@/components/guided/client';
+import {fetchNocodeResults, fetchResultBlob, fetchResultText, resultFileUrl, runNocode} from '@/components/nocode/client';
 
 function CsvTable({text}: {text: string}) {
   const rows = text
@@ -46,7 +46,7 @@ function CsvTable({text}: {text: string}) {
   );
 }
 
-export default function GuidedResultsPage() {
+export default function NocodeResultsPage() {
   const router = useRouter();
   const {userEmail} = useCohorts();
   const dcr = typeof router.query.dcr === 'string' ? router.query.dcr : '';
@@ -76,7 +76,7 @@ export default function GuidedResultsPage() {
   const load = () => {
     if (!dcr || !node) return;
     setStatus('loading');
-    fetchGuidedResults(dcr, node)
+    fetchNocodeResults(dcr, node)
       .then(async s => {
         setSummary(s);
         await loadAssets(s);
@@ -96,7 +96,7 @@ export default function GuidedResultsPage() {
   const run = () => {
     setStatus('running');
     setError(null);
-    runGuided(dcr, node)
+    runNocode(dcr, node)
       .then(async r => {
         setSummary(r.summary);
         await loadAssets(r.summary);
@@ -131,7 +131,7 @@ export default function GuidedResultsPage() {
           </div>
         </div>
         <div className="flex gap-2">
-          <Link href="/guided-analysis" className="btn btn-sm btn-ghost">
+          <Link href="/nocode-dcr" className="btn btn-sm btn-ghost">
             New no-code DCR
           </Link>
           <button className="btn btn-sm btn-primary gap-1" onClick={run} disabled={status === 'running' || status === 'loading'}>

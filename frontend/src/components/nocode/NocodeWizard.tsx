@@ -2,21 +2,21 @@
 
 // No-code DCR wizard — the no-code path to a Data Clean Room for domain
 // experts (the other path being the Flexible DCR, i.e. the traditional wizard). Rendered inside the "Create analysis DCR" modal (Nav.tsx) behind
-// the Flexible / No-code chooser, and on its own page (/guided-analysis).
+// the Flexible / No-code chooser, and on its own page (/nocode-dcr).
 //
 // The user says what they want to learn (an analysis class), picks cohorts,
 // chooses the data source (full data or shuffled samples) and participants,
 // picks/harmonizes variables in the Mapping Workbench, and creates a DCR whose
 // generated node computes figures and tables. Results come back into the
-// explorer (see /guided-results).
+// explorer (see /nocode-results).
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import Link from 'next/link';
 import {ArrowLeft, ArrowRight, BarChart2, Check, Compass, GitMerge, Grid, HelpCircle, Layers, TrendingUp, AlertTriangle, Users} from 'react-feather';
 import {useCohorts} from '@/components/CohortsContext';
 import {ParticipantsModal} from '@/components/ParticipantsModal';
-import MappingWorkbench, {RoleDef, cohortColor} from '@/components/guided/MappingWorkbench';
-import MiniChart from '@/components/guided/MiniChart';
-import {AnalysisSpec, Kind, KindMeta, MappingSpec, createGuidedDcr, describeSpec, fetchKinds, provenanceLine} from '@/components/guided/client';
+import MappingWorkbench, {RoleDef, cohortColor} from '@/components/nocode/MappingWorkbench';
+import MiniChart from '@/components/nocode/MiniChart';
+import {AnalysisSpec, Kind, KindMeta, MappingSpec, createNocodeDcr, describeSpec, fetchKinds, provenanceLine} from '@/components/nocode/client';
 import {apiUrl} from '@/utils';
 
 const KIND_ICONS: Record<Kind, any> = {
@@ -80,7 +80,7 @@ function defaultTitle(kind: Kind | null, mapping: MappingSpec, roles: Record<str
   }
 }
 
-export default function GuidedWizard({embedded = false, onClose}: {embedded?: boolean; onClose?: () => void}) {
+export default function NocodeWizard({embedded = false, onClose}: {embedded?: boolean; onClose?: () => void}) {
   const {cohortsData, userEmail} = useCohorts();
   const [kinds, setKinds] = useState<Record<Kind, KindMeta> | null>(null);
   const [step, setStep] = useState(0);
@@ -261,9 +261,9 @@ export default function GuidedWizard({embedded = false, onClose}: {embedded?: bo
         merge_use_shuffled: false,
         dcr_name: dcrName || `No-code: ${spec.analysis.title}`,
         research_question: description,
-        guided_analyses: [spec]
+        nocode_analyses: [spec]
       };
-      const r = await createGuidedDcr(body);
+      const r = await createNocodeDcr(body);
       setCreated(r);
     } catch (e: any) {
       setError(e.message || 'Creating the DCR failed');
@@ -277,7 +277,7 @@ export default function GuidedWizard({embedded = false, onClose}: {embedded?: bo
       <div className="flex justify-center items-center min-h-[60vh]">
         <div className="alert alert-warning max-w-md">
           <AlertTriangle size={20} />
-          <span>Please log in to use the guided analysis.</span>
+          <span>Please log in to use the no-code DCR analysis.</span>
         </div>
       </div>
     );
@@ -556,8 +556,8 @@ export default function GuidedWizard({embedded = false, onClose}: {embedded?: bo
             <a href={created.dcr_url} target="_blank" rel="noopener noreferrer" className="btn btn-sm btn-outline">
               Open on Decentriq
             </a>
-            {(created.guided_nodes || []).map((n: string) => (
-              <Link key={n} href={`/guided-results?dcr=${encodeURIComponent(created.dcr_id)}&node=${encodeURIComponent(n)}&title=${encodeURIComponent(spec?.analysis.title || '')}`} className="btn btn-sm btn-primary">
+            {(created.nocode_nodes || []).map((n: string) => (
+              <Link key={n} href={`/nocode-results?dcr=${encodeURIComponent(created.dcr_id)}&node=${encodeURIComponent(n)}&title=${encodeURIComponent(spec?.analysis.title || '')}`} className="btn btn-sm btn-primary">
                 Run & view results
               </Link>
             ))}
