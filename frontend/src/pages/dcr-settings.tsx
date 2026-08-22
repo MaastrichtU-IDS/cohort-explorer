@@ -105,7 +105,7 @@ export default function DcrSettingsPage() {
               <input type="checkbox" className={`toggle toggle-primary toggle-lg ${toggling ? 'opacity-50' : ''}`} checked={enabled} onChange={toggle} disabled={toggling} />
               <div>
                 <span className="label-text text-base font-medium">Show the Flexible / No-code chooser</span>
-                <p className="text-xs text-base-content/50 mt-1">{enabled ? 'Enabled — users choose between the two kinds of DCR' : 'Disabled — the traditional wizard is the default'}</p>
+                <p className="text-xs text-base-content/50 mt-1">{enabled ? 'Enabled: users choose between the two kinds of DCR' : 'Disabled: the traditional wizard is the default'}</p>
               </div>
             </label>
           </div>

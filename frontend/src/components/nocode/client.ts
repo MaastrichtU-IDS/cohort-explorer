@@ -1,7 +1,7 @@
 // API client + shared types for the no-code DCR wizard.
 import {apiUrl} from '@/utils';
 
-export type Kind = 'distribution' | 'stratified' | 'correlation' | 'crosstab' | 'compare' | 'pooled';
+export type Kind = 'stratified' | 'correlation' | 'crosstab' | 'compare';
 
 export interface KindMeta {
   label: string;

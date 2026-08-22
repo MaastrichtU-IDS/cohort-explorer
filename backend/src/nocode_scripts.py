@@ -41,18 +41,6 @@ import re
 from typing import Any
 
 ANALYSIS_KINDS = {
-    "distribution": {
-        "label": "Distribution of one variable",
-        "roles": ["variable"],
-        "min_cohorts": 1,
-        "max_cohorts": 1,
-        "blurb": "How is a variable distributed in a cohort? Histogram or bar chart plus a summary table.",
-        "explain": (
-            "Shows how the values of one variable are spread out. For a numeric variable you get a histogram "
-            "(how many patients fall in each range) and a table with mean, standard deviation, median, quartiles, "
-            "minimum and maximum. For a categorical variable you get a bar chart of the counts and percentages per category."
-        ),
-    },
     "stratified": {
         "label": "One variable broken down by another",
         "roles": ["variable", "group"],
@@ -85,35 +73,29 @@ ANALYSIS_KINDS = {
         "blurb": "Counts and percentages for every combination of two categorical variables, with a chi-square test.",
         "explain": (
             "Counts how many patients fall into each combination of two categorical variables, as a table with row "
-            "percentages and a stacked bar chart, plus a chi-square test of independence (with Cramér's V as an effect size)."
+            "percentages and a stacked bar chart, plus a chi-square test of independence (with Cramer's V as an effect size)."
         ),
     },
     "compare": {
-        "label": "Compare one variable across cohorts",
-        "roles": ["variable"],
-        "min_cohorts": 2,
-        "max_cohorts": 6,
-        "blurb": "The same (harmonized) variable side by side in each cohort, with summaries and standardized differences.",
-        "explain": (
-            "Puts the same variable from several cohorts side by side after you have harmonized it (matched the variables "
-            "and aligned their values or units). Numeric: overlaid distribution curves, a summary table per cohort and "
-            "standardized mean differences between cohorts. Categorical: percentage bars per cohort."
-        ),
-    },
-    "pooled": {
-        "label": "Pooled distribution across cohorts",
+        "label": "One variable across cohorts",
         "roles": ["variable"],
         "optional_roles": ["group"],
         "min_cohorts": 2,
         "max_cohorts": 6,
-        "blurb": "Merge a harmonized variable from several cohorts into one distribution, optionally broken down by a harmonized group.",
+        "blurb": "The same (harmonized) variable side by side in each cohort and pooled into one distribution, optionally broken down by a harmonized group.",
         "explain": (
-            "Stacks the harmonized variable from all cohorts into one distribution (coloured by cohort), with a pooled "
-            "summary and per-cohort summaries. Optionally the pooled data is also broken down by a second harmonized "
-            "categorical variable."
+            "After you have harmonized the variable (matched the variables across cohorts and aligned their values or "
+            "units), two views are produced. Side by side: overlaid distribution curves (or percentage bars), a summary "
+            "table per cohort and standardized mean differences between cohorts. Pooled: all cohorts stacked into one "
+            "distribution coloured by cohort, with a pooled summary. Optionally the pooled data is also broken down by a "
+            "second harmonized categorical variable."
         ),
     },
 }
+
+# Kinds that are no longer offered in the wizard but may exist in saved specs
+# and already-created DCRs; the generator still accepts them.
+_LEGACY_KINDS = {"distribution", "pooled"}
 
 
 def _slug(text: str) -> str:
@@ -342,7 +324,7 @@ def provenance_lines(used):
                 ev.append("chosen manually")
         line = "%s := %s" % (hname, " | ".join(members))
         if ev:
-            line += " — evidence: " + "; ".join(ev)
+            line += "; evidence: " + "; ".join(ev)
         lines.append(line)
     return lines
 
@@ -587,7 +569,7 @@ def run_correlation(df, x, y, title, prefix="correlation"):
     axes[1].set_xlabel("%s (deciles)" % (hx.get("label") or x))
     axes[1].set_ylabel("mean %s" % (hy.get("label") or y))
     axes[1].set_title("Binned means")
-    fig.suptitle("%s  —  Pearson r=%.2f (p=%.3g), Spearman rho=%.2f (p=%.3g), n=%d" % (
+    fig.suptitle("%s. Pearson r=%.2f (p=%.3g), Spearman rho=%.2f (p=%.3g), n=%d" % (
         title, row.get("pearson_r", float("nan")), row.get("pearson_p", float("nan")),
         row.get("spearman_rho", float("nan")), row.get("spearman_p", float("nan")), n))
     save_fig(fig, prefix + ".png", [x, y], "Relationship between %s and %s" % (hx.get("label") or x, hy.get("label") or y))
@@ -742,7 +724,7 @@ DISPATCH = {
     "stratified": 'run_stratified(data, ROLES["variable"], ROLES["group"], TITLE)',
     "correlation": 'run_correlation(data, ROLES["x"], ROLES["y"], TITLE)',
     "crosstab": 'run_crosstab(data, ROLES["x"], ROLES["y"], TITLE)',
-    "compare": 'run_compare(data, ROLES["variable"], TITLE)',
+    "compare": 'run_compare(data, ROLES["variable"], TITLE)\nrun_pooled(data, ROLES["variable"], ROLES.get("group"), TITLE)',
     "pooled": 'run_pooled(data, ROLES["variable"], ROLES.get("group"), TITLE)',
 }
 
@@ -782,7 +764,7 @@ _NEEDS = {
     "stratified": [H_NUMERIC_SUMMARY, A_STRATIFIED],
     "correlation": [A_CORRELATION],
     "crosstab": [A_CROSSTAB],
-    "compare": [H_NUMERIC_SUMMARY, H_CATEGORY_COUNTS, H_SMD, A_COMPARE],
+    "compare": [H_NUMERIC_SUMMARY, H_CATEGORY_COUNTS, H_SMD, H_HIST, A_STRATIFIED, A_COMPARE, A_POOLED],
     "pooled": [H_NUMERIC_SUMMARY, H_CATEGORY_COUNTS, A_STRATIFIED, A_POOLED],
 }
 _USES_SCIPY = {"correlation", "crosstab"}
@@ -792,7 +774,7 @@ def nocode_analysis_script(spec: dict[str, Any]) -> str:
     """Compose the enclave script for one no-code-dcr spec: only the
     loading mode, helpers and analysis the spec actually uses."""
     kind = spec.get("analysis", {}).get("kind", "distribution")
-    if kind not in ANALYSIS_KINDS:
+    if kind not in ANALYSIS_KINDS and kind not in _LEGACY_KINDS:
         raise ValueError(f"unknown analysis kind: {kind}")
     cohorts = spec.get("cohorts") or []
     spec_json = json.dumps(spec, ensure_ascii=False).replace('"""', '\\"\\"\\"')

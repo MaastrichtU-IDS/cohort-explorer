@@ -11,7 +11,7 @@
 // explorer (see /nocode-results).
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import Link from 'next/link';
-import {ArrowLeft, ArrowRight, BarChart2, Check, Compass, GitMerge, Grid, HelpCircle, Layers, TrendingUp, AlertTriangle, Users} from 'react-feather';
+import {ArrowLeft, ArrowRight, Check, GitMerge, Grid, HelpCircle, Layers, TrendingUp, AlertTriangle, Users} from 'react-feather';
 import {useCohorts} from '@/components/CohortsContext';
 import {ParticipantsModal} from '@/components/ParticipantsModal';
 import MappingWorkbench, {RoleDef, cohortColor} from '@/components/nocode/MappingWorkbench';
@@ -20,16 +20,13 @@ import {AnalysisSpec, Kind, KindMeta, MappingSpec, createNocodeDcr, describeSpec
 import {apiUrl} from '@/utils';
 
 const KIND_ICONS: Record<Kind, any> = {
-  distribution: BarChart2,
   stratified: Layers,
   correlation: TrendingUp,
   crosstab: Grid,
-  compare: Compass,
-  pooled: GitMerge
+  compare: GitMerge
 };
 
 const ROLE_LABELS: Record<Kind, RoleDef[]> = {
-  distribution: [{key: 'variable', label: 'Variable of interest', hint: 'The variable whose distribution you want to see'}],
   stratified: [
     {key: 'variable', label: 'Variable of interest', hint: 'What is being measured'},
     {key: 'group', label: 'Break down by', hint: 'The grouping variable (e.g. sex, diabetes)', kind: 'categorical'}
@@ -42,9 +39,8 @@ const ROLE_LABELS: Record<Kind, RoleDef[]> = {
     {key: 'x', label: 'Rows', kind: 'categorical'},
     {key: 'y', label: 'Columns', kind: 'categorical'}
   ],
-  compare: [{key: 'variable', label: 'Variable to compare', hint: 'Harmonize it across the cohorts'}],
-  pooled: [
-    {key: 'variable', label: 'Variable to pool', hint: 'Harmonize it across the cohorts'},
+  compare: [
+    {key: 'variable', label: 'Variable to compare and pool', hint: 'Harmonize it across the cohorts'},
     {key: 'group', label: 'Break down by', optional: true, kind: 'categorical', hint: 'Optional harmonized grouping'}
   ]
 };
@@ -63,8 +59,6 @@ function defaultTitle(kind: Kind | null, mapping: MappingSpec, roles: Record<str
   };
   const where = cohorts.length === 1 ? `in ${cohorts[0]}` : `across ${cohorts.slice(0, -1).join(', ')} and ${cohorts[cohorts.length - 1]}`;
   switch (kind) {
-    case 'distribution':
-      return `${name('variable')} ${where}`;
     case 'stratified':
       return `${name('variable')} by ${name('group')} ${where}`;
     case 'correlation':
@@ -72,9 +66,7 @@ function defaultTitle(kind: Kind | null, mapping: MappingSpec, roles: Record<str
     case 'crosstab':
       return `${name('x')} × ${name('y')} ${where}`;
     case 'compare':
-      return `${name('variable')} ${where}`;
-    case 'pooled':
-      return `${name('variable')} pooled ${where}${roles.group ? `, by ${name('group')}` : ''}`;
+      return `${name('variable')} ${where}${roles.group ? `, by ${name('group')}` : ''}`;
     default:
       return '';
   }
@@ -299,7 +291,7 @@ export default function NocodeWizard({embedded = false, onClose}: {embedded?: bo
           <h1 className={embedded ? 'text-xl font-bold' : 'text-2xl font-bold'}>No-code analysis DCR</h1>
           <p className="text-sm text-base-content/60 max-w-2xl">
             Describe the analysis you want in plain choices. The explorer builds a Data Clean Room that computes it on the real data and
-            returns figures and tables — every figure states which variable mapping produced it.
+            returns figures and tables. Every figure states which variable mapping produced it.
           </p>
         </div>
         {onClose ? (
@@ -338,7 +330,7 @@ export default function NocodeWizard({embedded = false, onClose}: {embedded?: bo
         <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
           {kinds &&
             (Object.entries(kinds) as [Kind, KindMeta][]).map(([key, m]) => {
-              const Icon = KIND_ICONS[key] || BarChart2;
+              const Icon = KIND_ICONS[key] || Layers;
               const open = explain === key;
               return (
                 <div
@@ -444,7 +436,7 @@ export default function NocodeWizard({embedded = false, onClose}: {embedded?: bo
                   </div>
                   <div className="rounded-xl bg-base-200 text-base-content/80 p-3 text-sm">
                     Shuffled samples are uploaded by the platform itself, so using them requires neither the permission nor the
-                    participation of the data owners &mdash; the analysis can be run right after the room is created.
+                    participation of the data owners. The analysis can be run right after the room is created.
                   </div>
                 </div>
               )}
@@ -461,7 +453,7 @@ export default function NocodeWizard({embedded = false, onClose}: {embedded?: bo
           </button>
           <div className="mt-4 p-3 bg-base-200 rounded-lg text-sm space-y-1">
             <p>
-              <strong>Data owners invited:</strong> {loadingParticipants ? 'loading…' : manuallyIncludedOwners.length > 0 ? manuallyIncludedOwners.join(', ') : 'none yet — open the participants list to include them'}
+              <strong>Data owners invited:</strong> {loadingParticipants ? 'loading…' : manuallyIncludedOwners.length > 0 ? manuallyIncludedOwners.join(', ') : 'none yet (open the participants list to include them)'}
             </p>
             {excludedDataOwners.length > 0 && (
               <p>
@@ -560,7 +552,7 @@ export default function NocodeWizard({embedded = false, onClose}: {embedded?: bo
         <div className="rounded-2xl bg-emerald-50 border border-emerald-300 text-emerald-900 p-5 max-w-2xl">
           <div className="font-bold text-lg mb-2">✅ Data Clean Room created</div>
           <p className="text-sm mb-3">{created.message}</p>
-          {dataSource === 'shuffled' && <p className="text-sm mb-3 font-semibold">Shuffled samples are in place &mdash; you can run the analysis right away.</p>}
+          {dataSource === 'shuffled' && <p className="text-sm mb-3 font-semibold">Shuffled samples are in place. You can run the analysis right away.</p>}
           <div className="flex flex-wrap gap-2">
             <a href={created.dcr_url} target="_blank" rel="noopener noreferrer" className="btn btn-sm btn-outline">
               Open on Decentriq

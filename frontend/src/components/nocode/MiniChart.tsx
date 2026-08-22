@@ -20,18 +20,6 @@ const BLUE = '#3b6ea5';
 const ORANGE = '#e08a2e';
 const GREEN = '#3a9a6a';
 
-function Histogram() {
-  const heights = [8, 16, 30, 48, 66, 78, 70, 56, 40, 26, 14, 7];
-  const bw = (W - 40) / heights.length;
-  return (
-    <Frame>
-      {heights.map((h, i) => (
-        <rect key={i} x={26 + i * bw} y={92 - h} width={bw - 2} height={h} fill={BLUE} />
-      ))}
-    </Frame>
-  );
-}
-
 function Stratified() {
   // two overlaid density curves + small box plots
   const curve = (shift: number, scale: number) => {
@@ -140,8 +128,6 @@ function Pooled() {
 
 export default function MiniChart({kind}: {kind: Kind}) {
   switch (kind) {
-    case 'distribution':
-      return <Histogram />;
     case 'stratified':
       return <Stratified />;
     case 'correlation':
@@ -149,9 +135,12 @@ export default function MiniChart({kind}: {kind: Kind}) {
     case 'crosstab':
       return <Crosstab />;
     case 'compare':
-      return <Compare />;
-    case 'pooled':
-      return <Pooled />;
+      return (
+        <div className="grid grid-cols-2 gap-1">
+          <Compare />
+          <Pooled />
+        </div>
+      );
     default:
       return null;
   }

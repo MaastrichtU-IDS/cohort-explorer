@@ -271,7 +271,7 @@ function VariableCombobox({
                     <VariableRow v={v} cohorts={cohorts} showCohort={false} />
                   </button>
                 ))}
-                {list.length > 400 && <div className="px-3 py-1 text-xs text-base-content/50">… {list.length - 400} more — type to narrow down</div>}
+                {list.length > 400 && <div className="px-3 py-1 text-xs text-base-content/50">… {list.length - 400} more. Type to narrow down</div>}
               </div>
             ))}
             {pool.length === 0 && suggested.length === 0 && <div className="p-3 text-sm text-base-content/50">No variables match.</div>}
@@ -406,12 +406,12 @@ function ValueMapEditor({
                           {unmapped(c).map(cat => (
                             <option key={cat.value} value={cat.value}>
                               {cat.value}
-                              {cat.label && cat.label !== cat.value ? ` — ${cat.label}` : ''}
+                              {cat.label && cat.label !== cat.value ? ` (${cat.label})` : ''}
                             </option>
                           ))}
                         </select>
                       )}
-                      {rawsFor(c, h).length === 0 && unmapped(c).length === 0 && <span className="text-xs text-base-content/40">—</span>}
+                      {rawsFor(c, h).length === 0 && unmapped(c).length === 0 && <span className="text-xs text-base-content/40">none</span>}
                     </div>
                   </td>
                 ))}
@@ -469,7 +469,7 @@ function UnitEditor({hv, cohorts, onChange}: {hv: HVar; cohorts: string[]; onCha
         <h4 className="font-semibold text-sm">Units</h4>
         {mismatch ? (
           <span className="text-xs text-rose-700 inline-flex items-center gap-1">
-            <AlertTriangle size={12} /> the cohorts declare different units — enter a conversion factor
+            <AlertTriangle size={12} /> the cohorts declare different units: enter a conversion factor
           </span>
         ) : (
           <span className="text-xs text-base-content/50">declared units agree (or are missing); factors are optional</span>
@@ -821,7 +821,7 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
               <span className="text-[11px] uppercase tracking-wide text-base-content/60 font-semibold">{role.label}</span>
               {role.optional && <span className="text-[11px] text-base-content/50">(optional)</span>}
               {role.kind && <span className="text-[11px] text-base-content/50">· {role.kind} variable</span>}
-              {role.hint && !hv && <span className="text-xs text-base-content/50 ml-2">— {role.hint}</span>}
+              {role.hint && !hv && <span className="text-xs text-base-content/50 ml-2">{role.hint}</span>}
               {hv && (complete ? <Check size={14} className="text-emerald-600 ml-auto" /> : <AlertTriangle size={14} className="text-amber-600 ml-auto" />)}
             </div>
 
@@ -850,7 +850,7 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
                         variables={variables}
                         value={m?.var_name ? {cohort_id: c, var_name: m.var_name, var_label: m.var_label} : null}
                         onPick={(v, cand) => (isAnchor ? pickAnchor(role.key, v) : linkMember(role.key, hv, c, v, cand))}
-                        placeholder={suggesting ? 'Looking for matches…' : (roleSugg[c]?.length || 0) > 0 ? `${roleSugg[c].length} suggested — choose…` : 'Choose the matching variable…'}
+                        placeholder={suggesting ? 'Looking for matches…' : (roleSugg[c]?.length || 0) > 0 ? `${roleSugg[c].length} suggested, choose…` : 'Choose the matching variable…'}
                         suggestions={isAnchor ? undefined : roleSugg[c]}
                         restrictCohort={c}
                         kindFilter={isAnchor ? role.kind : undefined}
@@ -900,7 +900,7 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
                     Categories:{' '}
                     {categoriesOf(anchorCohort, hv.members[anchorCohort].var_name)
                       .map(c => `${c.value}${c.label && c.label !== c.value ? ` (${c.label})` : ''}`)
-                      .join(', ') || '—'}
+                      .join(', ') || 'none'}
                   </div>
                 )}
 
