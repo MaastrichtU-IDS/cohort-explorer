@@ -350,7 +350,7 @@ export default function NocodeWizard({embedded = false, onClose}: {embedded?: bo
                   </div>
                   <p className="text-sm text-base-content/70">{m.blurb}</p>
                   <div className="flex items-center justify-between mt-2">
-                    <p className="text-xs text-base-content/50">{m.min_cohorts === m.max_cohorts ? `${m.min_cohorts} cohort` : `${m.min_cohorts} to ${m.max_cohorts} cohorts`}</p>
+                    <p className="text-xs text-base-content/50">{m.min_cohorts === m.max_cohorts ? `${m.min_cohorts} cohort` : `${m.min_cohorts}–${m.max_cohorts} cohorts`}</p>
                     <button
                       type="button"
                       className="btn btn-ghost btn-xs gap-1"

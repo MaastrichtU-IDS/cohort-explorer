@@ -32,6 +32,87 @@ const EXAMPLES: Record<Kind, {question: string; setup: string}[]> = {
   ]
 };
 
+// Statistics each analysis computes. The monospace identifiers are the exact
+// column names of the result tables, so users can recognise them later.
+const STATISTICS: Record<Kind, {group: string; items: {id: string; gloss: string}[]}[]> = {
+  stratified: [
+    {
+      group: 'Numeric variable, per group',
+      items: [
+        {id: 'n', gloss: 'patients with a value'},
+        {id: 'missing', gloss: 'patients without a value'},
+        {id: 'mean', gloss: 'average'},
+        {id: 'sd', gloss: 'standard deviation'},
+        {id: 'median', gloss: 'middle value'},
+        {id: 'q1, q3', gloss: 'quartiles (25th and 75th percentile)'},
+        {id: 'min, max', gloss: 'smallest and largest value'},
+        {id: 'p5, p95', gloss: '5th and 95th percentile'}
+      ]
+    },
+    {
+      group: 'Categorical variable',
+      items: [{id: 'count', gloss: 'patients per combination of category and group'}]
+    }
+  ],
+  correlation: [
+    {
+      group: 'Coefficients',
+      items: [
+        {id: 'n', gloss: 'patients with both values'},
+        {id: 'pearson_r', gloss: 'Pearson correlation (linear relationship, -1 to 1)'},
+        {id: 'pearson_ci95_low, pearson_ci95_high', gloss: '95% confidence interval of Pearson r'},
+        {id: 'pearson_p', gloss: 'p-value of Pearson r'},
+        {id: 'spearman_rho', gloss: 'Spearman rank correlation (monotonic relationship)'},
+        {id: 'spearman_p', gloss: 'p-value of Spearman rho'}
+      ]
+    },
+    {
+      group: 'Binned means',
+      items: [
+        {id: 'x_bin', gloss: 'decile of x'},
+        {id: 'mean_y', gloss: 'average of y within that decile'},
+        {id: 'n', gloss: 'patients in the decile'}
+      ]
+    }
+  ],
+  crosstab: [
+    {
+      group: 'Table',
+      items: [{id: 'count (row %)', gloss: 'patients per combination, with the percentage within the row'}]
+    },
+    {
+      group: 'Test of independence',
+      items: [
+        {id: 'chi_square', gloss: 'chi-square statistic'},
+        {id: 'dof', gloss: 'degrees of freedom'},
+        {id: 'p_value', gloss: 'probability of this association by chance'},
+        {id: 'cramers_v', gloss: 'strength of association (0 = none, 1 = perfect)'},
+        {id: 'note', gloss: 'warning when expected counts are below 5'}
+      ]
+    }
+  ],
+  compare: [
+    {
+      group: 'Numeric variable, per cohort and pooled',
+      items: [
+        {id: 'n, missing', gloss: 'patients with / without a value'},
+        {id: 'mean, sd', gloss: 'average and standard deviation'},
+        {id: 'median, q1, q3', gloss: 'median and quartiles'},
+        {id: 'min, max, p5, p95', gloss: 'extremes and 5th / 95th percentile'},
+        {id: 'SMD', gloss: 'standardized mean difference for every pair of cohorts'}
+      ]
+    },
+    {
+      group: 'Categorical variable',
+      items: [{id: 'count, percent', gloss: 'per category, per cohort and pooled'}]
+    },
+    {
+      group: 'With a break-down variable',
+      items: [{id: 'per group', gloss: 'the statistics above within each group of the pooled data'}]
+    }
+  ]
+};
+
 // Axis and legend labels for the enlarged example figure.
 const FIGURE_LABELS: Record<Kind, {x: string; y: string; legend?: string[]; caption: string}> = {
   stratified: {x: 'variable of interest (e.g. weight, kg)', y: 'density / count', legend: ['group A (e.g. women)', 'group B (e.g. men)'], caption: 'Left: one distribution curve per group. Right: box plots per group with outliers.'},
@@ -57,7 +138,7 @@ export default function KindExplainer({kind, meta, onClose}: {kind: Kind; meta: 
           <div>
             <div className="text-[11px] uppercase tracking-wide text-base-content/50">Analysis type</div>
             <h2 className="text-xl font-bold">{meta.label}</h2>
-            <div className="text-xs text-base-content/50 mt-0.5">{meta.min_cohorts === meta.max_cohorts ? `${meta.min_cohorts} cohort` : `${meta.min_cohorts} to ${meta.max_cohorts} cohorts`}</div>
+            <div className="text-xs text-base-content/50 mt-0.5">{meta.min_cohorts === meta.max_cohorts ? `${meta.min_cohorts} cohort` : `${meta.min_cohorts}–${meta.max_cohorts} cohorts`}</div>
           </div>
           <button type="button" className="btn btn-circle btn-ghost btn-lg -mr-2 -mt-1" onClick={onClose} aria-label="Close">
             <X size={28} />
@@ -93,6 +174,28 @@ export default function KindExplainer({kind, meta, onClose}: {kind: Kind; meta: 
           </div>
 
           <p className="text-sm leading-relaxed text-base-content/90">{meta.explain}</p>
+
+          {STATISTICS[kind] && (
+            <div>
+              <div className="text-[11px] uppercase tracking-wide text-base-content/50 mb-2">Statistics computed</div>
+              <div className="rounded-xl border border-base-300 overflow-hidden">
+                {STATISTICS[kind].map(block => (
+                  <div key={block.group} className="border-b border-base-200 last:border-b-0">
+                    <div className="px-3 py-1.5 bg-base-200/60 text-xs font-semibold">{block.group}</div>
+                    <dl className="px-3 py-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+                      {block.items.map(it => (
+                        <React.Fragment key={it.id}>
+                          <dt className="font-mono text-xs text-base-content/90 pt-0.5 whitespace-nowrap">{it.id}</dt>
+                          <dd className="text-base-content/70">{it.gloss}</dd>
+                        </React.Fragment>
+                      ))}
+                    </dl>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[11px] text-base-content/50 mt-1">The monospace names are the column names you will see in the result tables.</p>
+            </div>
+          )}
 
           {examples.length > 0 && (
             <div>
