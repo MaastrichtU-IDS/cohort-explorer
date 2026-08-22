@@ -42,7 +42,7 @@ from typing import Any
 
 ANALYSIS_KINDS = {
     "stratified": {
-        "label": "One variable broken down by another",
+        "label": "One variable stratified by another",
         "roles": ["variable", "group"],
         "min_cohorts": 1,
         "max_cohorts": 1,
@@ -82,12 +82,12 @@ ANALYSIS_KINDS = {
         "optional_roles": ["group"],
         "min_cohorts": 2,
         "max_cohorts": 6,
-        "blurb": "The same (harmonized) variable side by side in each cohort and pooled into one distribution, optionally broken down by a harmonized group.",
+        "blurb": "The same (harmonized) variable side by side in each cohort and pooled into one distribution, optionally stratified by a harmonized group.",
         "explain": (
             "After you have harmonized the variable (matched the variables across cohorts and aligned their values or "
             "units), two views are produced. Side by side: overlaid distribution curves (or percentage bars), a summary "
             "table per cohort and standardized mean differences between cohorts. Pooled: all cohorts stacked into one "
-            "distribution coloured by cohort, with a pooled summary. Optionally the pooled data is also broken down by a "
+            "distribution coloured by cohort, with a pooled summary. Optionally the pooled data is also stratified by a "
             "second harmonized categorical variable."
         ),
     },

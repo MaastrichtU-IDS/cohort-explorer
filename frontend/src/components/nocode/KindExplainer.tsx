@@ -11,9 +11,9 @@ import MiniChart from './MiniChart';
 // Worked examples per analysis type: what a researcher would actually ask.
 const EXAMPLES: Record<Kind, {question: string; setup: string}[]> = {
   stratified: [
-    {question: 'Is body weight different between men and women?', setup: 'Variable of interest: weight. Break down by: sex.'},
-    {question: 'How is NYHA class distributed in patients with and without diabetes?', setup: 'Variable of interest: NYHA class. Break down by: diabetes.'},
-    {question: 'Does systolic blood pressure differ by smoking status?', setup: 'Variable of interest: systolic BP. Break down by: smoking status.'}
+    {question: 'Is body weight different between men and women?', setup: 'Variable of interest: weight. Stratify by: sex.'},
+    {question: 'How is NYHA class distributed in patients with and without diabetes?', setup: 'Variable of interest: NYHA class. Stratify by: diabetes.'},
+    {question: 'Does systolic blood pressure differ by smoking status?', setup: 'Variable of interest: systolic BP. Stratify by: smoking status.'}
   ],
   correlation: [
     {question: 'Do heavier patients tend to be taller?', setup: 'x: height. y: weight.'},
@@ -28,7 +28,7 @@ const EXAMPLES: Record<Kind, {question: string; setup: string}[]> = {
   compare: [
     {question: 'How does the age distribution of TIME-CHF compare with Aachen-HF?', setup: 'Variable: age, harmonized across the two cohorts.'},
     {question: 'What is the sex distribution in each cohort and in all of them pooled?', setup: 'Variable: sex (e.g. Geschlecht M/W mapped to gender 1/2).'},
-    {question: 'What does LVEF look like across cohorts, separately for diabetics?', setup: 'Variable: LVEF. Break down by: diabetes, harmonized across cohorts.'}
+    {question: 'What does LVEF look like across cohorts, separately for diabetics?', setup: 'Variable: LVEF. Stratify by: diabetes, harmonized across cohorts.'}
   ]
 };
 
@@ -107,7 +107,7 @@ const STATISTICS: Record<Kind, {group: string; items: {id: string; gloss: string
       items: [{id: 'count, percent', gloss: 'per category, per cohort and pooled'}]
     },
     {
-      group: 'With a break-down variable',
+      group: 'With a stratification variable',
       items: [{id: 'per group', gloss: 'the statistics above within each group of the pooled data'}]
     }
   ]

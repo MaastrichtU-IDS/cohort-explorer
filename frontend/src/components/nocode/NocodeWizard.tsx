@@ -11,7 +11,7 @@
 // explorer (see /nocode-results).
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import Link from 'next/link';
-import {ArrowLeft, ArrowRight, Check, HelpCircle, AlertTriangle, Users} from 'react-feather';
+import {ArrowLeft, ArrowRight, Check, Edit2, HelpCircle, AlertTriangle, Users} from 'react-feather';
 import {useCohorts} from '@/components/CohortsContext';
 import {ParticipantsModal, useOwnersIncludedByDefault} from '@/components/ParticipantsModal';
 import MappingWorkbench, {RoleDef} from '@/components/nocode/MappingWorkbench';
@@ -24,7 +24,7 @@ import {apiUrl} from '@/utils';
 const ROLE_LABELS: Record<Kind, RoleDef[]> = {
   stratified: [
     {key: 'variable', label: 'Variable of interest', hint: 'What is being measured'},
-    {key: 'group', label: 'Break down by', hint: 'The grouping variable (e.g. sex, diabetes)', kind: 'categorical'}
+    {key: 'group', label: 'Stratify by', hint: 'The grouping variable (e.g. sex, diabetes)', kind: 'categorical'}
   ],
   correlation: [
     {key: 'x', label: 'First variable (x)', kind: 'numeric'},
@@ -36,7 +36,7 @@ const ROLE_LABELS: Record<Kind, RoleDef[]> = {
   ],
   compare: [
     {key: 'variable', label: 'Variable to compare and pool', hint: 'Harmonize it across the cohorts'},
-    {key: 'group', label: 'Break down by', optional: true, kind: 'categorical', hint: 'Optional harmonized grouping'}
+    {key: 'group', label: 'Stratify by', optional: true, kind: 'categorical', hint: 'Optional harmonized grouping'}
   ]
 };
 
@@ -81,6 +81,7 @@ export default function NocodeWizard({embedded = false, onClose}: {embedded?: bo
   const [k, setK] = useState(0);
   const [bins, setBins] = useState(20);
   const [dcrName, setDcrName] = useState('');
+  const [editingName, setEditingName] = useState(false);
   const [description, setDescription] = useState('');
   const [script, setScript] = useState('');
   const [showScript, setShowScript] = useState(false);
@@ -198,6 +199,10 @@ export default function NocodeWizard({embedded = false, onClose}: {embedded?: bo
   });
 
   const autoTitle = defaultTitle(kind, mapping, roleAssignments, cohorts);
+  // DCR name: "NoCode-" + the analysis title with dashes between words (no
+  // spaces or colons), e.g. NoCode-weight-by-sex-in-TIME-CHF.
+  const dashed = (text: string) => text.replace(/[^\p{L}\p{N}-]+/gu, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+  const autoDcrName = `NoCode-${dashed((titleTouched && title.trim()) || autoTitle || (meta?.label ?? '') || 'analysis')}`;
   const effectiveTitle = (titleTouched && title.trim()) || autoTitle || meta?.label || kind || '';
 
   const spec: AnalysisSpec | null = kind
@@ -227,6 +232,15 @@ export default function NocodeWizard({embedded = false, onClose}: {embedded?: bo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
+  // A step can be jumped to when everything before it is satisfied.
+  const stepAllowed = (i: number) => {
+    if (i <= 0) return true;
+    if (!kind) return false;
+    if (i >= 2 && !(meta && cohorts.length >= meta.min_cohorts && cohorts.length <= meta.max_cohorts)) return false;
+    if (i >= 4 && !rolesComplete) return false;
+    return true;
+  };
+
   const canNext = () => {
     if (step === 0) return !!kind;
     if (step === 1) return !!meta && cohorts.length >= meta.min_cohorts && cohorts.length <= meta.max_cohorts;
@@ -248,7 +262,7 @@ export default function NocodeWizard({embedded = false, onClose}: {embedded?: bo
         selected_mapping_files: [],
         include_mapping_upload_slot: false,
         merge_use_shuffled: false,
-        dcr_name: dcrName || `No-code: ${spec.analysis.title}`,
+        dcr_name: dcrName || autoDcrName,
         research_question: description,
         nocode_analyses: [spec]
       };
@@ -305,12 +319,16 @@ export default function NocodeWizard({embedded = false, onClose}: {embedded?: bo
       {/* Step rail */}
       <ol className="flex flex-wrap gap-1 mb-6">
         {STEPS.map((s, i) => (
-          <li
-            key={s}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm ${i === step ? 'bg-base-content text-base-100' : i < step ? 'bg-emerald-100 text-emerald-900' : 'bg-base-200 text-base-content/60'}`}
-          >
-            <span className="w-5 h-5 rounded-full bg-base-100/30 flex items-center justify-center text-xs">{i < step ? <Check size={12} /> : i + 1}</span>
-            {s}
+          <li key={s}>
+            <button
+              type="button"
+              disabled={created || !stepAllowed(i)}
+              onClick={() => setStep(i)}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm transition-colors disabled:cursor-not-allowed ${i === step ? 'bg-base-content text-base-100' : i < step ? 'bg-emerald-100 text-emerald-900 hover:bg-emerald-200' : stepAllowed(i) ? 'bg-base-200 text-base-content/60 hover:bg-base-300' : 'bg-base-200 text-base-content/40'}`}
+            >
+              <span className="w-5 h-5 rounded-full bg-base-100/30 flex items-center justify-center text-xs">{i < step ? <Check size={12} /> : i + 1}</span>
+              {s}
+            </button>
           </li>
         ))}
       </ol>
@@ -526,10 +544,30 @@ export default function NocodeWizard({embedded = false, onClose}: {embedded?: bo
                 {additionalAnalysts.length > 0 && <>, analysts: {additionalAnalysts.join(', ')}</>}
               </div>
             </div>
-            <label className="block text-sm">
-              Name of the Data Clean Room
-              <input className="input input-bordered w-full" value={dcrName} placeholder={`No-code: ${spec.analysis.title}`} onChange={e => setDcrName(e.target.value)} />
-            </label>
+            <div className="text-sm">
+              <div className="mb-1">Name of the Data Clean Room</div>
+              {editingName ? (
+                <div className="flex gap-2">
+                  <input
+                    className="input input-bordered w-full font-mono"
+                    value={dcrName || autoDcrName}
+                    autoFocus
+                    onChange={e => setDcrName(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && setEditingName(false)}
+                  />
+                  <button className="btn" onClick={() => setEditingName(false)}>
+                    Done
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="font-mono px-3 py-2 rounded-lg bg-base-200 break-all">{dcrName || autoDcrName}</span>
+                  <button className="btn btn-ghost btn-sm gap-1" title="Edit the name" onClick={() => setEditingName(true)}>
+                    <Edit2 size={14} /> Edit
+                  </button>
+                </div>
+              )}
+            </div>
             <div className="rounded-xl bg-amber-50 border border-amber-200 text-amber-900 p-3 text-sm">
               {dataSource === 'shuffled'
                 ? 'The platform uploads the shuffled samples when the room is created, so the analysis can be run immediately afterwards. Figures will be marked as computed on shuffled samples.'
