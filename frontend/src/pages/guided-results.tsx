@@ -123,7 +123,7 @@ export default function GuidedResultsPage() {
     <main className="max-w-6xl mx-auto px-4 py-6">
       <div className="flex flex-wrap items-end justify-between gap-3 mb-4">
         <div>
-          <div className="text-[11px] uppercase tracking-wide text-base-content/50">Guided analysis results</div>
+          <div className="text-[11px] uppercase tracking-wide text-base-content/50">No-code DCR results</div>
           <h1 className="text-2xl font-bold">{summary?.title || title || node}</h1>
           <div className="text-xs text-base-content/50 font-mono mt-1">
             DCR {dcr.slice(0, 12)}… · node {node}
@@ -132,7 +132,7 @@ export default function GuidedResultsPage() {
         </div>
         <div className="flex gap-2">
           <Link href="/guided-analysis" className="btn btn-sm btn-ghost">
-            New guided analysis
+            New no-code DCR
           </Link>
           <button className="btn btn-sm btn-primary gap-1" onClick={run} disabled={status === 'running' || status === 'loading'}>
             {status === 'running' ? (

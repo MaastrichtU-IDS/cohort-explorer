@@ -89,7 +89,7 @@ export default function DcrSettingsPage() {
           <h2 className="card-title text-lg">Analysis DCR entry screen</h2>
           <p className="text-sm text-base-content/70 mb-4">
             When on, &ldquo;Create analysis DCR&rdquo; first asks whether to build a <b>Flexible DCR</b> (write your own Python/R) or a{' '}
-            <b>No-code DCR</b> (guided, point-and-click). When off, the traditional wizard opens directly and the no-code path is not offered.
+            <b>No-code DCR</b> (point-and-click, code pre-built). When off, the traditional wizard opens directly and the no-code path is not offered.
           </p>
           <div className="form-control">
             <label className="label cursor-pointer justify-start gap-4">

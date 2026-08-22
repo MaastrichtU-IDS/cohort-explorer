@@ -1,7 +1,7 @@
 'use client';
 
-// Guided Analysis wizard — the no-code path to a Data Clean Room for domain
-// experts. Rendered inside the "Create analysis DCR" modal (Nav.tsx) behind
+// No-code DCR wizard — the no-code path to a Data Clean Room for domain
+// experts (the other path being the Flexible DCR, i.e. the traditional wizard). Rendered inside the "Create analysis DCR" modal (Nav.tsx) behind
 // the Flexible / No-code chooser, and on its own page (/guided-analysis).
 //
 // The user says what they want to learn (an analysis class), picks cohorts,
@@ -259,7 +259,7 @@ export default function GuidedWizard({embedded = false, onClose}: {embedded?: bo
         selected_mapping_files: [],
         include_mapping_upload_slot: false,
         merge_use_shuffled: false,
-        dcr_name: dcrName || `Guided: ${spec.analysis.title}`,
+        dcr_name: dcrName || `No-code: ${spec.analysis.title}`,
         research_question: description,
         guided_analyses: [spec]
       };
@@ -527,7 +527,7 @@ export default function GuidedWizard({embedded = false, onClose}: {embedded?: bo
             </div>
             <label className="block text-sm">
               Name of the Data Clean Room
-              <input className="input input-bordered w-full" value={dcrName} placeholder={`Guided: ${spec.analysis.title}`} onChange={e => setDcrName(e.target.value)} />
+              <input className="input input-bordered w-full" value={dcrName} placeholder={`No-code: ${spec.analysis.title}`} onChange={e => setDcrName(e.target.value)} />
             </label>
             <div className="rounded-xl bg-amber-50 border border-amber-200 text-amber-900 p-3 text-sm">
               {dataSource === 'shuffled'
