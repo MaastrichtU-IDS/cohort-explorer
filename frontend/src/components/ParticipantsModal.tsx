@@ -1,6 +1,26 @@
-import React from 'react';
+import React, {useEffect, useRef} from 'react';
+import {X} from 'react-feather';
 
 export type DataOwner = { email: string; cohorts: string[] };
+
+// Data owners are INCLUDED by default: whenever an owner email appears for the
+// first time it is added to the included list. Owners the user unticks stay
+// unticked (they have been seen already). Shared by every participants list
+// (flexible DCR wizard, no-code DCR wizard, provision/upload flow).
+export function useOwnersIncludedByDefault(
+  dataOwners: DataOwner[],
+  included: string[],
+  setIncluded: (emails: string[]) => void
+) {
+  const seen = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const fresh = dataOwners.map(o => o.email).filter(e => !seen.current.has(e));
+    if (fresh.length === 0) return;
+    fresh.forEach(e => seen.current.add(e));
+    setIncluded(Array.from(new Set([...included, ...fresh])));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataOwners]);
+}
 
 type Props = {
   dataOwners: DataOwner[];
@@ -30,6 +50,11 @@ export const ParticipantsModal = React.memo(({
   isLoading
 }: Props) => {
   const isExcluded = (email: string) => !manuallyIncludedOwners.includes(email);
+  // Keep the invite field in view: on open, and again after every add/remove.
+  const inviteRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    inviteRef.current?.scrollIntoView({block: 'end'});
+  }, [isLoading, dataOwners.length, additionalAnalysts.length]);
   const toggleDataOwner = (email: string) => {
     if (manuallyIncludedOwners.includes(email)) {
       setManuallyIncludedOwners(manuallyIncludedOwners.filter(e => e !== email));
@@ -40,7 +65,12 @@ export const ParticipantsModal = React.memo(({
   return (
     <div className="modal modal-open">
       <div className="modal-box flex flex-col max-h-[90vh]">
-        <h3 className="font-bold text-lg mb-4 shrink-0">DCR Participants</h3>
+        <div className="flex items-center justify-between mb-4 shrink-0">
+          <h3 className="font-bold text-lg">DCR Participants</h3>
+          <button type="button" className="btn btn-sm btn-circle btn-ghost" onClick={onClose} aria-label="Close">
+            <X size={20} />
+          </button>
+        </div>
 
         <div className="space-y-4 overflow-y-auto flex-1">
           {/* Data owners */}
@@ -114,7 +144,7 @@ export const ParticipantsModal = React.memo(({
 
           {/* Add new analyst */}
           <div className="divider">Add Analyst</div>
-          <div className="flex gap-2">
+          <div className="flex gap-2" ref={inviteRef}>
             <input
               type="text"
               placeholder="Enter email address"

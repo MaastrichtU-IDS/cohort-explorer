@@ -5,7 +5,7 @@ import {ArrowLeft, Check, SkipForward, Upload, AlertTriangle, Info as InfoIcon, 
 import {useCohorts} from '@/components/CohortsContext';
 import {TrashIcon} from '@/components/Icons';
 import {apiUrl} from '@/utils';
-import {ParticipantsModal} from '@/components/ParticipantsModal';
+import {ParticipantsModal, useOwnersIncludedByDefault} from '@/components/ParticipantsModal';
 
 // Helper component for wizard steps
 const WizardSteps = ({currentStep}: {currentStep: number}) => {
@@ -145,6 +145,8 @@ export default function UploadPage() {
     return [];
   }, [participantsPreview]);
 
+  // Data owners are included by default; unticked ones are sent as excluded.
+  useOwnersIncludedByDefault(dataOwners, manuallyIncludedOwners, setManuallyIncludedOwners);
   const excludedDataOwners = useMemo(
     () => dataOwners.map(o => o.email).filter(e => !manuallyIncludedOwners.includes(e)),
     [dataOwners, manuallyIncludedOwners]

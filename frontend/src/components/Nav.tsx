@@ -8,7 +8,7 @@ import NocodeWizard from '@/components/nocode/NocodeWizard';
 import {useCohorts} from '@/components/CohortsContext';
 import {DarkThemeIcon, LightThemeIcon, SparklesIcon} from '@/components/Icons';
 import {apiUrl} from '@/utils';
-import {ParticipantsModal} from '@/components/ParticipantsModal';
+import {ParticipantsModal, useOwnersIncludedByDefault} from '@/components/ParticipantsModal';
 
 // Not used: Next Auth.js: https://authjs.dev/getting-started/providers/oauth-tutorial
 // Auth0: https://github.com/nextauthjs/next-auth/blob/main/packages/core/src/providers/auth0.ts
@@ -777,9 +777,10 @@ export function Nav() {
     return [];
   }, [participantsPreview]);
 
-  // Derive the list of excluded data owners. By default ALL data owners are
-  // excluded; the user can opt them back in via the participants modal which
-  // adds them to manuallyIncludedOwners.
+  // Data owners are included by default (see useOwnersIncludedByDefault); the
+  // user can untick them in the participants modal. Whoever is not in
+  // manuallyIncludedOwners is sent as excluded.
+  useOwnersIncludedByDefault(dataOwners, manuallyIncludedOwners, setManuallyIncludedOwners);
   const excludedDataOwners = useMemo(
     () => dataOwners.map(o => o.email).filter(e => !manuallyIncludedOwners.includes(e)),
     [dataOwners, manuallyIncludedOwners]

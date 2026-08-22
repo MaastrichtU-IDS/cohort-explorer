@@ -13,8 +13,8 @@ import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import Link from 'next/link';
 import {ArrowLeft, ArrowRight, Check, HelpCircle, AlertTriangle, Users} from 'react-feather';
 import {useCohorts} from '@/components/CohortsContext';
-import {ParticipantsModal} from '@/components/ParticipantsModal';
-import MappingWorkbench, {RoleDef, cohortColor} from '@/components/nocode/MappingWorkbench';
+import {ParticipantsModal, useOwnersIncludedByDefault} from '@/components/ParticipantsModal';
+import MappingWorkbench, {RoleDef} from '@/components/nocode/MappingWorkbench';
 import KindExplainer from '@/components/nocode/KindExplainer';
 import {KindGlyph} from '@/components/nocode/MiniChart';
 import {AnalysisSpec, Kind, KindMeta, MappingSpec, createNocodeDcr, describeSpec, fetchKinds, provenanceLine} from '@/components/nocode/client';
@@ -179,6 +179,8 @@ export default function NocodeWizard({embedded = false, onClose}: {embedded?: bo
     });
     return Object.entries(owners).map(([email, set]) => ({email, cohorts: Array.from(set).sort()}));
   }, [participantsPreview]);
+  // Data owners are included by default; unticked ones are sent as excluded.
+  useOwnersIncludedByDefault(dataOwners, manuallyIncludedOwners, setManuallyIncludedOwners);
   const excludedDataOwners = useMemo(() => dataOwners.map(o => o.email).filter(e => !manuallyIncludedOwners.includes(e)), [dataOwners, manuallyIncludedOwners]);
 
   const addAnalyst = useCallback(() => {
@@ -382,7 +384,7 @@ export default function NocodeWizard({embedded = false, onClose}: {embedded?: bo
                   key={c.id}
                   disabled={disabled}
                   onClick={() => toggleCohort(c.id)}
-                  className={`text-left rounded-xl border-2 px-3 py-2 transition-colors disabled:opacity-40 ${on ? `${cohortColor(cohorts, c.id)} border-current` : 'border-base-300 bg-base-100 hover:border-base-content/40'}`}
+                  className={`text-left rounded-xl border-2 px-3 py-2 transition-colors disabled:opacity-40 ${on ? 'bg-amber-100 border-amber-400 text-amber-900' : 'border-base-300 bg-base-100 hover:border-base-content/40'}`}
                 >
                   <div className="font-semibold">{c.id}</div>
                   <div className="text-xs opacity-70">
@@ -440,7 +442,7 @@ export default function NocodeWizard({embedded = false, onClose}: {embedded?: bo
           </button>
           <div className="mt-4 p-3 bg-base-200 rounded-lg text-sm space-y-1">
             <p>
-              <strong>Data owners invited:</strong> {loadingParticipants ? 'loading…' : manuallyIncludedOwners.length > 0 ? manuallyIncludedOwners.join(', ') : 'none yet (open the participants list to include them)'}
+              <strong>Data owners invited:</strong> {loadingParticipants ? 'loading…' : manuallyIncludedOwners.length > 0 ? manuallyIncludedOwners.join(', ') : 'none (open the participants list to include them)'}
             </p>
             {excludedDataOwners.length > 0 && (
               <p>
