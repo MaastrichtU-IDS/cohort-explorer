@@ -10,6 +10,26 @@ import {AlertTriangle, Download, Play, RefreshCw} from 'react-feather';
 import {useCohorts} from '@/components/CohortsContext';
 import {fetchNocodeResults, fetchResultBlob, fetchResultText, resultFileUrl, runNocode} from '@/components/nocode/client';
 
+function StatsBlock({text}: {text: string}) {
+  const rows = text
+    .trim()
+    .split(/\r?\n/)
+    .map(l => {
+      const i = l.indexOf(':');
+      return i > 0 ? [l.slice(0, i).trim(), l.slice(i + 1).trim()] : [l, ''];
+    });
+  return (
+    <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1 text-sm max-w-xl">
+      {rows.map(([k, v], i) => (
+        <React.Fragment key={i}>
+          <dt className="font-mono text-xs pt-0.5 text-base-content/80">{k}</dt>
+          <dd className="tabular-nums">{v}</dd>
+        </React.Fragment>
+      ))}
+    </dl>
+  );
+}
+
 function CsvTable({text}: {text: string}) {
   const rows = text
     .trim()
@@ -65,6 +85,7 @@ export default function NocodeResultsPage() {
       try {
         if (item.figure) imgs[item.figure] = await fetchResultBlob(dcr, node, item.figure);
         if (item.table) tabs[item.table] = await fetchResultText(dcr, node, item.table);
+        if (item.text) tabs[item.text] = await fetchResultText(dcr, node, item.text);
       } catch {
         /* skip */
       }
@@ -201,6 +222,14 @@ export default function NocodeResultsPage() {
                   {item.provenance && (
                     <pre className="mt-2 text-[11px] leading-snug whitespace-pre-wrap text-base-content/60 bg-base-200 rounded p-2">{item.provenance}</pre>
                   )}
+                </div>
+              )}
+              {item.text && (
+                <div>
+                  {tables[item.text] ? <StatsBlock text={tables[item.text]} /> : <div className="text-sm text-base-content/50">Loading…</div>}
+                  <a className="btn btn-xs btn-ghost gap-1 mt-1" href={resultFileUrl(dcr, node, item.text)} target="_blank" rel="noreferrer">
+                    <Download size={12} /> {item.text}
+                  </a>
                 </div>
               )}
               {item.table && (

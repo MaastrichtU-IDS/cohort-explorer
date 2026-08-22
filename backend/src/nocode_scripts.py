@@ -358,6 +358,22 @@ def save_table(df, name, caption=None):
     log("table: " + name)
 
 
+def save_stats(values, name, caption=None):
+    """A handful of named statistics (one 'row') as a plain-text file: one
+    'name: value' line each. CSV is overkill for a single row."""
+    lines = []
+    for key, val in values.items():
+        if val is None or val == "":
+            continue
+        if isinstance(val, float):
+            val = ("%.4g" % val) if (abs(val) < 1e-3 and val != 0) else ("%.4f" % val).rstrip("0").rstrip(".")
+        lines.append("%s: %s" % (key, val))
+    with open(os.path.join(TAB_DIR, name), "w") as fh:
+        fh.write("\n".join(lines) + "\n")
+    captions.append({"text": "tables/" + name, "caption": caption or name})
+    log("stats: " + name)
+
+
 def fmt_count(n):
     return str(int(n)) if (K <= 0 or int(n) >= K) else "<%d" % K
 
@@ -539,7 +555,7 @@ def run_correlation(df, x, y, title, prefix="correlation"):
                     "pearson_ci95_low": round(math.tanh(z - 1.96 * se), 3),
                     "pearson_ci95_high": round(math.tanh(z + 1.96 * se), 3),
                     "spearman_rho": round(float(r_s), 3), "spearman_p": float(p_s)})
-    save_table(pd.DataFrame([row]), prefix + "_coefficients.csv", "Correlation of %s and %s" % (x, y))
+    save_stats(row, prefix + "_coefficients.txt", "Correlation of %s and %s" % (x, y))
     if n < 4:
         notes.append("correlation: fewer than 4 complete pairs, figure skipped")
         return
@@ -598,7 +614,7 @@ def run_crosstab(df, x, y, title, prefix="crosstab"):
         v = math.sqrt(chi2 / (ct.values.sum() * (min(ct.shape) - 1)))
         stat.update({"chi_square": round(float(chi2), 3), "dof": int(dof), "p_value": float(p), "cramers_v": round(v, 3),
                      "note": "expected counts < 5 in some cells" if (expected < 5).any() else ""})
-    save_table(pd.DataFrame([stat]), prefix + "_chi_square.csv", "Chi-square test")
+    save_stats(stat, prefix + "_chi_square.txt", "Chi-square test of independence")
     shown = ct.where(ct >= K, 0) if K > 0 else ct
     fig, ax = plt.subplots(figsize=(9, 5.5))
     bottom = np.zeros(len(shown.index))

@@ -194,7 +194,7 @@ export default function KindExplainer({kind, meta, onClose}: {kind: Kind; meta: 
                 ))}
               </div>
               <p className="text-[11px] text-base-content/50 mt-1">
-                The names in typewriter font are the exact column headers of the result tables (CSV files) this analysis produces, so you can look them up there.
+                The names in typewriter font are exactly how these statistics are labelled in the results this analysis produces (column headers of the tables, line labels of the summaries), so you can look them up there.
               </p>
             </div>
           )}
