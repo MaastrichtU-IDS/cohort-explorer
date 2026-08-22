@@ -374,8 +374,11 @@ export default function NocodeWizard({embedded = false, onClose}: {embedded?: bo
       {/* Step 1: cohorts */}
       {step === 1 && meta && (
         <div>
-          <div className="flex justify-end mb-3">
-            <button className="btn btn-primary btn-sm gap-1" disabled={!canNext()} onClick={() => setStep(s => s + 1)}>
+          <div className="flex justify-between mb-3">
+            <button className="btn btn-ghost gap-1" onClick={() => setStep(s => s - 1)}>
+              <ArrowLeft size={16} /> Back
+            </button>
+            <button className="btn btn-primary gap-1" disabled={!canNext()} onClick={() => setStep(s => s + 1)}>
               Next <ArrowRight size={16} />
             </button>
           </div>
