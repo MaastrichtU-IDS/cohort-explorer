@@ -645,6 +645,11 @@ async def get_compute_dcr_definition(
 ) -> Any:
     # The creator must never be excluded from their own DCR.
     excluded_data_owners = [e for e in (excluded_data_owners or []) if e != user["email"]]
+    # A no-code room contains only its data/dictionary nodes (plus shuffled
+    # samples if chosen) and the generated analysis node(s): none of the
+    # programmer furniture (starter visualization scripts, the merge/pooling
+    # chain with its airlock) that a flexible room gets.
+    nocode_room = bool(nocode_analyses)
     start_time = datetime.now()
     logging.info(f"Starting DCR definition creation for user {user['email']} at {start_time}")
     
@@ -813,7 +818,7 @@ async def get_compute_dcr_definition(
         # dedicated visualization script that defaults to the shuffled sample.
         # This is added FIRST (before airlock and full-dataset scripts) so it appears
         # at the top of the cohort's compute scripts list.
-        if shuffled_node_added:
+        if shuffled_node_added and not nocode_room:
             shuffled_viz_node_name = f"test-visualize-shuffled-sample-of-{cohort_id}"
             shuffled_viz_dependencies = [shuffled_node_id, metadata_node_id]
             # Note: fragment_node_name is not yet defined here, so we pass None.
@@ -929,32 +934,34 @@ async def get_compute_dcr_definition(
 
         # Add a visualization script that reads the FULL cohort dataset (the original
         # unprocessed data). The node name makes the data source explicit.
-        visualization_node_name = f"visualize-full-dataset-of-{cohort_id}"
+        # (Not in no-code rooms: it is a starter script for programmers.)
+        if not nocode_room:
+            visualization_node_name = f"visualize-full-dataset-of-{cohort_id}"
 
-        # Visualization script dependencies depend on whether airlock is enabled
-        if fragment_node_name:
-            viz_dependencies = [data_node_id, metadata_node_id, fragment_node_name]
-        else:
-            viz_dependencies = [data_node_id, metadata_node_id]
+            # Visualization script dependencies depend on whether airlock is enabled
+            if fragment_node_name:
+                viz_dependencies = [data_node_id, metadata_node_id, fragment_node_name]
+            else:
+                viz_dependencies = [data_node_id, metadata_node_id]
 
-        viz_script = visualization_script(
-            fragment_node_name,
-            cohort_id,
-            cohort_var_names,
-            mapping_files_for_viz,
-            include_mapping_upload_slot,
-            data_source="full",
-        )
-        builder.add_node_definition(
-            PythonComputeNodeDefinition(
-                name=visualization_node_name,
-                script=viz_script,
-                dependencies=viz_dependencies
+            viz_script = visualization_script(
+                fragment_node_name,
+                cohort_id,
+                cohort_var_names,
+                mapping_files_for_viz,
+                include_mapping_upload_slot,
+                data_source="full",
             )
-        )
-        # Add all participants as analysts of the visualization script
-        for p_email in participants:
-            participants[p_email]["analyst_of"].add(visualization_node_name)
+            builder.add_node_definition(
+                PythonComputeNodeDefinition(
+                    name=visualization_node_name,
+                    script=viz_script,
+                    dependencies=viz_dependencies
+                )
+            )
+            # Add all participants as analysts of the visualization script
+            for p_email in participants:
+                participants[p_email]["analyst_of"].add(visualization_node_name)
 
 
 
@@ -1087,6 +1094,10 @@ async def get_compute_dcr_definition(
     # synthetic IDs used, chain omitted). Returned to the caller so the wizard can
     # show them instead of the merge silently changing shape.
     merge_warnings: list[str] = []
+    if nocode_room:
+        # No merge/pooling chain (and therefore no merged-data airlock) in a
+        # no-code room: cross-cohort harmonization happens inside its own node.
+        merge_use_shuffled = False
     if merge_use_shuffled and not shuffled_nodes:
         # Contradictory request (the wizard normally prevents it): pooling shuffled
         # samples was asked for, but no cohort has a shuffled sample node. Rather
@@ -1098,7 +1109,7 @@ async def get_compute_dcr_definition(
         merge_warnings.append(msg)
         merge_use_shuffled = False
     studies_info = []
-    for cohort_id in selected_cohorts.keys():
+    for cohort_id in ([] if nocode_room else list(selected_cohorts.keys())):
         raw_data_node_id = cohort_id.replace(" ", "-")
         metadata_node_id = f"{cohort_id.replace(' ', '-')}_metadata_dictionary"
 
@@ -1297,6 +1308,8 @@ async def get_compute_dcr_definition(
             f"({merge_airlock_percentage}% fragment) -> {merge_preview_node_name} "
             f"-> {merge_check_node_name}; example node: {merge_example_node_name}"
         )
+    elif nocode_room:
+        logging.info("No-code room: merge/pooling chain intentionally not added")
     else:
         msg = ("Merge / pooling chain NOT added: no poolable studies"
                + (" (none of the selected cohorts has a shuffled sample)" if merge_use_shuffled else "")
