@@ -272,6 +272,15 @@ export default function NocodeWizard({embedded = false, onClose}: {embedded?: bo
     }
   };
 
+  // userEmail is '' while the session is still being verified (see
+  // CohortsContext): show a spinner rather than flashing the login notice.
+  if (userEmail === '') {
+    return (
+      <div className="flex justify-center items-center min-h-[60vh]">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
   if (!userEmail) {
     return (
       <div className="flex justify-center items-center min-h-[60vh]">
