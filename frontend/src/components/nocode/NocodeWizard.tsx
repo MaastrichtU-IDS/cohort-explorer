@@ -40,7 +40,7 @@ const ROLE_LABELS: Record<Kind, RoleDef[]> = {
   ]
 };
 
-const STEPS = ['What to learn', 'Cohorts', 'Data & participants', 'Variables & harmonization', 'Settings', 'Review & create'];
+const STEPS = ['Choose analysis type', 'Cohorts', 'Data & participants', 'Variables & harmonization', 'Settings', 'Review & create'];
 
 // "weight by sex in TIME-CHF", "sex across TIME-CHF and Aachen-HF", ...
 function defaultTitle(kind: Kind | null, mapping: MappingSpec, roles: Record<string, string>, cohorts: string[]): string {
