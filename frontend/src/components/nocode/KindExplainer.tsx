@@ -134,7 +134,7 @@ export default function KindExplainer({kind, meta, onClose}: {kind: Kind; meta: 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4" onMouseDown={onClose} role="dialog" aria-modal="true" aria-label={meta.label}>
       <div className="bg-base-100 rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto" onMouseDown={e => e.stopPropagation()}>
-        <div className="flex items-start justify-between gap-4 px-6 pt-5 pb-3 border-b border-base-200">
+        <div className="sticky top-0 z-10 bg-base-100 flex items-start justify-between gap-4 px-6 pt-5 pb-3 border-b border-base-200">
           <div>
             <div className="text-[11px] uppercase tracking-wide text-base-content/50">Analysis type</div>
             <h2 className="text-xl font-bold">{meta.label}</h2>
@@ -193,7 +193,9 @@ export default function KindExplainer({kind, meta, onClose}: {kind: Kind; meta: 
                   </div>
                 ))}
               </div>
-              <p className="text-[11px] text-base-content/50 mt-1">The monospace names are the column names you will see in the result tables.</p>
+              <p className="text-[11px] text-base-content/50 mt-1">
+                The names in typewriter font are the exact column headers of the result tables (CSV files) this analysis produces, so you can look them up there.
+              </p>
             </div>
           )}
 
@@ -210,6 +212,12 @@ export default function KindExplainer({kind, meta, onClose}: {kind: Kind; meta: 
               </ul>
             </div>
           )}
+        </div>
+
+        <div className="sticky bottom-0 bg-base-100 border-t border-base-200 px-6 py-4">
+          <button type="button" className="btn btn-primary btn-block btn-lg" onClick={onClose}>
+            Close
+          </button>
         </div>
       </div>
     </div>
