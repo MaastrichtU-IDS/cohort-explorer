@@ -324,7 +324,7 @@ export default function NocodeWizard({embedded = false, onClose}: {embedded?: bo
 
       {/* Step 0: kind */}
       {step === 0 && (
-        <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
+        <div className="grid md:grid-cols-2 gap-3">
           {kinds &&
             (Object.entries(kinds) as [Kind, KindMeta][]).map(([key, m]) => {
               return (
@@ -365,12 +365,20 @@ export default function NocodeWizard({embedded = false, onClose}: {embedded?: bo
             })}
           {!kinds && <div className="text-sm text-base-content/50">Loading analysis types…</div>}
           {explain && kinds && <KindExplainer kind={explain} meta={kinds[explain]} onClose={() => setExplain(null)} />}
+          {kinds && (
+            <p className="md:col-span-2 text-sm text-base-content/50 mt-1">More analysis types will be added over time. If you need one that is not listed, let us know.</p>
+          )}
         </div>
       )}
 
       {/* Step 1: cohorts */}
       {step === 1 && meta && (
         <div>
+          <div className="flex justify-end mb-3">
+            <button className="btn btn-primary btn-sm gap-1" disabled={!canNext()} onClick={() => setStep(s => s + 1)}>
+              Next <ArrowRight size={16} />
+            </button>
+          </div>
           <p className="text-sm text-base-content/60 mb-3">
             Choose {meta.min_cohorts === meta.max_cohorts ? meta.min_cohorts : `${meta.min_cohorts} to ${meta.max_cohorts}`} cohort{meta.max_cohorts > 1 ? 's' : ''}. Only cohorts with uploaded
             variables can be analysed.

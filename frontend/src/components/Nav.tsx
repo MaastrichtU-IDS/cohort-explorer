@@ -943,6 +943,7 @@ export function Nav() {
                     <div className="flex items-center gap-3 mb-2">
                       <span className="w-11 h-11 rounded-xl bg-emerald-100 text-emerald-900 flex items-center justify-center"><MousePointer size={22} /></span>
                       <span className="text-lg font-bold">No-code DCR</span>
+                      <span className="badge badge-warning badge-sm font-semibold uppercase tracking-wide">Beta</span>
                     </div>
                     <p className="text-sm text-base-content/80 mb-3">For domain experts who do not program. Choose an analysis type, the cohorts and the variables; the code is pre-built and ready to run.</p>
                     <ul className="text-xs text-base-content/70 space-y-1">

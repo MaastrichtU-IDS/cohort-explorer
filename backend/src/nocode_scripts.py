@@ -77,7 +77,7 @@ ANALYSIS_KINDS = {
         ),
     },
     "compare": {
-        "label": "One variable across cohorts",
+        "label": "Harmonized variable across multiple cohorts",
         "roles": ["variable"],
         "optional_roles": ["group"],
         "min_cohorts": 2,
