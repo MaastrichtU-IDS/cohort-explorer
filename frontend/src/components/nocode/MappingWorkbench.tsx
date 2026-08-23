@@ -12,7 +12,7 @@
 // ends up in the mapping spec, which the enclave script prints under every
 // figure as provenance.
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {AlertTriangle, Check, ChevronDown, Database, Trash2, X, Zap} from 'react-feather';
+import {AlertTriangle, Check, ChevronDown, Database, Edit2, HelpCircle, Trash2, X, Zap} from 'react-feather';
 import {SparklesIcon as Sparkles} from '@/components/Icons';
 import {
   Candidate,
@@ -21,6 +21,7 @@ import {
   MappingSpec,
   ValueCluster,
   VarInfo,
+  aiName,
   aiSuggest,
   categoryLine,
   edaLine,
@@ -306,6 +307,28 @@ function ValueMapEditor({
   busy: string | null;
 }) {
   const memberCohorts = cohorts.filter(c => hv.members[c]?.var_name);
+  const [infoOpen, setInfoOpen] = useState(false);
+
+  // Model: every raw value of every cohort is always present in value_map,
+  // either assigned to a harmonized value (row) or mapped to "" = treated as
+  // missing. Raw values that are not in the map yet get their own row, named
+  // after their label.
+  useEffect(() => {
+    let changed = false;
+    const vm: Record<string, Record<string, string>> = {};
+    memberCohorts.forEach(c => {
+      vm[c] = {...(hv.value_map[c] || {})};
+      (categories[c] || []).forEach(cat => {
+        if (!(cat.value in vm[c])) {
+          vm[c][cat.value] = (cat.label && cat.label.trim()) || cat.value;
+          changed = true;
+        }
+      });
+    });
+    if (changed) onChange(vm);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hv.members, categories]);
+
   const harmonized = useMemo(() => {
     const seen: string[] = [];
     memberCohorts.forEach(c =>
@@ -315,43 +338,58 @@ function ValueMapEditor({
     );
     return seen;
   }, [hv.value_map, memberCohorts]);
-  const [newValue, setNewValue] = useState('');
 
+  const labelOf = (c: string, raw: string) => (categories[c] || []).find(x => x.value === raw)?.label;
   const rawsFor = (c: string, h: string) => Object.entries(hv.value_map[c] || {}).filter(([, v]) => v === h).map(([k]) => k);
-  const unmapped = (c: string) => (categories[c] || []).filter(cat => !(hv.value_map[c] || {})[cat.value]);
+  const missingOf = (c: string) => Object.entries(hv.value_map[c] || {}).filter(([, v]) => v === '').map(([k]) => k);
+  const elsewhere = (c: string, h: string) => Object.entries(hv.value_map[c] || {}).filter(([, v]) => v !== h).map(([k, v]) => ({raw: k, where: v}));
 
-  const setRaw = (c: string, raw: string, h: string | null) => {
-    const vm = {...hv.value_map, [c]: {...(hv.value_map[c] || {})}};
-    if (h) vm[c][raw] = h;
-    else delete vm[c][raw];
+  const setRaw = (c: string, raw: string, h: string) => {
+    const vm = {...hv.value_map, [c]: {...(hv.value_map[c] || {}), [raw]: h}};
     onChange(vm);
   };
   const renameHarmonized = (from: string, to: string) => {
-    if (!to.trim() || from === to) return;
+    const name = to.trim();
+    if (!name || from === name) return;
     const vm: Record<string, Record<string, string>> = {};
     memberCohorts.forEach(c => {
       vm[c] = {};
-      Object.entries(hv.value_map[c] || {}).forEach(([k, v]) => (vm[c][k] = v === from ? to : v));
+      Object.entries(hv.value_map[c] || {}).forEach(([k, v]) => (vm[c][k] = v === from ? name : v));
     });
     onChange(vm);
   };
-  const removeHarmonized = (h: string) => {
+  const dropRow = (h: string) => {
+    // Every raw value of the row is then treated as missing.
     const vm: Record<string, Record<string, string>> = {};
     memberCohorts.forEach(c => {
       vm[c] = {};
-      Object.entries(hv.value_map[c] || {}).forEach(([k, v]) => {
-        if (v !== h) vm[c][k] = v;
+      Object.entries(hv.value_map[c] || {}).forEach(([k, v]) => (vm[c][k] = v === h ? '' : v));
+    });
+    onChange(vm);
+  };
+  const splitOut = (c: string, raw: string) => setRaw(c, raw, (labelOf(c, raw) && labelOf(c, raw)!.trim()) || raw);
+
+  // Evidence is attached to the VALUES of a row (via the suggestion clusters),
+  // so renaming the harmonized value does not lose it.
+  const rowEvidence = (h: string): Evidence[] => {
+    if (!clusters) return [];
+    const out: Evidence[] = [];
+    clusters.forEach(cl => {
+      const overlaps = memberCohorts.some(c => (cl.sources[c] || []).some(raw => rawsFor(c, h).includes(raw)));
+      if (overlaps) cl.evidence.forEach(e => {
+        if (e.type !== 'label' && !out.some(x => x.type === e.type && x.detail === e.detail && x.file === e.file)) out.push(e);
       });
     });
-    onChange(vm);
+    return out;
   };
-  const clusterEvidence = (h: string) => clusters?.find(cl => cl.harmonized.toLowerCase() === h.toLowerCase())?.evidence || [];
+
+  const anyMissing = memberCohorts.some(c => missingOf(c).length > 0);
 
   return (
     <div className="mt-4 ml-3 pl-4 border-l-2 border-base-300 max-w-4xl">
       <div className="flex items-center gap-2 flex-wrap">
         <h4 className="font-semibold text-sm">Value mapping</h4>
-        <span className="text-xs text-base-content/50">one row per harmonized value; assign each cohort&rsquo;s raw values to it</span>
+        <span className="text-xs text-base-content/50">every raw value of every cohort is listed; move values between rows to align them</span>
         <div className="ml-auto flex gap-2">
           <button className="btn btn-xs btn-outline gap-1" onClick={onSuggest} disabled={busy !== null}>
             <Zap size={12} /> {busy === 'values' ? 'Suggesting…' : 'Suggest from codes, labels & computed mappings'}
@@ -365,96 +403,120 @@ function ValueMapEditor({
         <table className="table table-sm">
           <thead>
             <tr>
-              <th className="w-56">Harmonized value</th>
+              <th className="w-56">
+                <span className="inline-flex items-center gap-1">
+                  Harmonized value
+                  <button type="button" className="text-base-content/50 hover:text-base-content" onClick={() => setInfoOpen(o => !o)} title="What is this?">
+                    <HelpCircle size={13} />
+                  </button>
+                </span>
+                {infoOpen && (
+                  <div className="mt-1 font-normal normal-case text-[11px] leading-snug text-base-content/70 bg-base-200 rounded p-2 whitespace-normal">
+                    The name the merged variable will carry for the values of this row, in the figures and tables. It is only a label: changing it does not change
+                    which raw values are aligned together. Any name you like works.
+                  </div>
+                )}
+              </th>
               {memberCohorts.map(c => (
                 <th key={c}>
-                  <span className={`px-1.5 py-0.5 rounded border text-[10px] ${cohortColor(cohorts, c)}`}>{c}</span> <span className="font-mono text-xs">{hv.members[c].var_name}</span>
+                  <span className={`px-1.5 py-0.5 rounded border text-[10px] ${cohortColor(cohorts, c)}`}>{c}</span>{' '}
+                  <span className="font-mono text-xs">{hv.members[c].var_name}</span>
                 </th>
               ))}
               <th className="w-8"></th>
             </tr>
           </thead>
           <tbody>
-            {harmonized.map(h => (
-              <tr key={h}>
-                <td className="align-top">
-                  <input className="input input-xs input-bordered w-full font-semibold" defaultValue={h} onBlur={e => renameHarmonized(h, e.target.value)} />
-                  <div className="flex gap-1 mt-1 flex-wrap">
-                    {clusterEvidence(h)
-                      .slice(0, 3)
-                      .map((e, i) => (
-                        <EvidenceBadge key={i} e={e} />
-                      ))}
-                  </div>
-                </td>
-                {memberCohorts.map(c => (
-                  <td key={c} className="align-top">
-                    <div className="flex flex-wrap gap-1">
-                      {rawsFor(c, h).map(raw => {
-                        const cat = (categories[c] || []).find(x => x.value === raw);
-                        return (
-                          <span key={raw} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-base-200 text-xs" title={cat?.label}>
-                            <span className="font-mono">{raw}</span>
-                            {cat?.label && cat.label !== raw && <span className="opacity-60">{cat.label}</span>}
-                            <button onClick={() => setRaw(c, raw, null)} className="opacity-50 hover:opacity-100">
-                              <X size={10} />
-                            </button>
-                          </span>
-                        );
-                      })}
-                      {unmapped(c).length > 0 && (
-                        <select className="select select-xs select-bordered max-w-[160px]" value="" onChange={e => e.target.value && setRaw(c, e.target.value, h)}>
-                          <option value="">+ add value</option>
-                          {unmapped(c).map(cat => (
-                            <option key={cat.value} value={cat.value}>
-                              {cat.value}
-                              {cat.label && cat.label !== cat.value ? ` (${cat.label})` : ''}
-                            </option>
+            {harmonized.map(h => {
+              const ev = rowEvidence(h);
+              return (
+                <React.Fragment key={h}>
+                  <tr className={ev.length ? 'border-b-0' : ''}>
+                    <td className="align-top">
+                      <input className="input input-xs input-bordered w-full font-semibold" defaultValue={h} onBlur={e => renameHarmonized(h, e.target.value)} />
+                    </td>
+                    {memberCohorts.map(c => {
+                      const here = rawsFor(c, h);
+                      const others = elsewhere(c, h);
+                      return (
+                        <td key={c} className="align-top">
+                          <div className="flex flex-wrap gap-1">
+                            {here.map(raw => (
+                              <span key={raw} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-base-200 text-xs" title={labelOf(c, raw)}>
+                                <span className="font-mono">{raw}</span>
+                                {labelOf(c, raw) && labelOf(c, raw) !== raw && <span className="opacity-60">{labelOf(c, raw)}</span>}
+                                {here.length > 1 && (
+                                  <button onClick={() => splitOut(c, raw)} className="opacity-50 hover:opacity-100" title="Move to its own row">
+                                    ↗
+                                  </button>
+                                )}
+                                <button onClick={() => setRaw(c, raw, '')} className="opacity-50 hover:opacity-100" title="Treat as missing">
+                                  <X size={10} />
+                                </button>
+                              </span>
+                            ))}
+                            {others.length > 0 && (
+                              <select className="select select-xs select-bordered max-w-[180px]" value="" onChange={e => e.target.value && setRaw(c, e.target.value, h)} title="Move a value of this cohort into this row">
+                                <option value="">{here.length ? '+ add' : 'choose a value…'}</option>
+                                {others.map(o => (
+                                  <option key={o.raw} value={o.raw}>
+                                    {o.raw}
+                                    {labelOf(c, o.raw) && labelOf(c, o.raw) !== o.raw ? ` (${labelOf(c, o.raw)})` : ''}
+                                    {o.where ? ` — now in "${o.where}"` : ' — missing'}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
+                            {here.length === 0 && others.length === 0 && <span className="text-xs text-base-content/40">no values</span>}
+                          </div>
+                        </td>
+                      );
+                    })}
+                    <td className="align-top">
+                      <button className="btn btn-ghost btn-xs" onClick={() => dropRow(h)} title="Remove this row (its values are treated as missing)">
+                        <Trash2 size={12} />
+                      </button>
+                    </td>
+                  </tr>
+                  {ev.length > 0 && (
+                    <tr>
+                      <td></td>
+                      <td colSpan={memberCohorts.length + 1} className="pt-0">
+                        <div className="flex items-center gap-1 flex-wrap text-[10px] text-base-content/50">
+                          matched by
+                          {ev.slice(0, 4).map((e, i) => (
+                            <EvidenceBadge key={i} e={e} />
                           ))}
-                        </select>
-                      )}
-                      {rawsFor(c, h).length === 0 && unmapped(c).length === 0 && <span className="text-xs text-base-content/40">none</span>}
-                    </div>
-                  </td>
-                ))}
-                <td className="align-top">
-                  <button className="btn btn-ghost btn-xs" onClick={() => removeHarmonized(h)} title="Remove this harmonized value">
-                    <Trash2 size={12} />
-                  </button>
-                </td>
-              </tr>
-            ))}
-            <tr>
-              <td colSpan={memberCohorts.length + 2}>
-                <div className="flex items-center gap-2">
-                  <input
-                    className="input input-xs input-bordered w-56"
-                    placeholder="new harmonized value…"
-                    value={newValue}
-                    onChange={e => setNewValue(e.target.value)}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter' && newValue.trim()) {
-                        const c = memberCohorts.find(cc => unmapped(cc).length > 0);
-                        if (c) setRaw(c, unmapped(c)[0].value, newValue.trim());
-                        setNewValue('');
-                      }
-                    }}
-                  />
-                  <span className="text-xs text-base-content/50">Enter to add (starts with the first unassigned raw value; adjust afterwards)</span>
-                </div>
-              </td>
-            </tr>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
+              );
+            })}
           </tbody>
         </table>
       </div>
-      <div className="mt-2 flex flex-wrap gap-4 text-xs">
-        {memberCohorts.map(c => (
-          <div key={c}>
-            <span className="font-semibold">{c} unassigned → missing:</span>{' '}
-            {unmapped(c).length === 0 ? <span className="text-emerald-700">none</span> : unmapped(c).map(cat => cat.value).join(', ')}
-          </div>
-        ))}
-      </div>
+      {anyMissing && (
+        <div className="mt-2 text-xs space-y-1">
+          {memberCohorts.map(c =>
+            missingOf(c).length === 0 ? null : (
+              <div key={c} className="flex flex-wrap items-center gap-1">
+                <span className="font-semibold">{c} values treated as missing:</span>
+                {missingOf(c).map(raw => (
+                  <span key={raw} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-rose-50 border border-rose-200 text-rose-900">
+                    <span className="font-mono">{raw}</span>
+                    {labelOf(c, raw) && labelOf(c, raw) !== raw && <span className="opacity-60">{labelOf(c, raw)}</span>}
+                    <button onClick={() => splitOut(c, raw)} className="opacity-60 hover:opacity-100" title="Restore as its own row">
+                      restore
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -526,6 +588,11 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
   const [clusters, setClusters] = useState<Record<string, ValueCluster[]>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [forceOpen, setForceOpen] = useState<Record<string, boolean>>({}); // harmonized_name -> show editor despite type mismatch
+  // Short harmonized names: asked from iCARE-AI (or a heuristic) once per
+  // completed harmonized variable, keyed by the set of member variables.
+  const namedFor = useRef<Record<string, string>>({}); // role key -> member signature already named
+  const [editingName, setEditingName] = useState<string | null>(null); // role key being renamed
+  const [nameDraft, setNameDraft] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [cacheFiles, setCacheFiles] = useState<{filename: string; source: string; target: string; generated_at: string; size_kb: number}[]>([]);
   const [useCache, setUseCache] = useState<string[]>(mapping.sources || []);
@@ -568,12 +635,26 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
     [variables]
   );
 
+  const rekey = <T,>(setter: React.Dispatch<React.SetStateAction<Record<string, T>>>, from: string, to: string) =>
+    setter(prev => {
+      if (!(from in prev) || from === to) return prev;
+      const {[from]: moved, ...rest} = prev;
+      return {...rest, [to]: moved};
+    });
+
   const replaceHVar = useCallback(
     (oldName: string | undefined, next: HVar, roleKey: string) => {
       const vars = mapping.variables.filter(x => x.harmonized_name !== oldName && x.harmonized_name !== next.harmonized_name);
       vars.push(next);
       onMappingChange({...mapping, variables: vars, sources: useCache});
       onRolesChange({...roleAssignments, [roleKey]: next.harmonized_name});
+      // Per-variable UI state is keyed by the harmonized name: follow a rename.
+      if (oldName && oldName !== next.harmonized_name) {
+        rekey(setSuggestions, oldName, next.harmonized_name);
+        rekey(setClusters, oldName, next.harmonized_name);
+        rekey(setForceOpen, oldName, next.harmonized_name);
+        rekey(setShowProvenance, oldName, next.harmonized_name);
+      }
     },
     [mapping, onMappingChange, onRolesChange, roleAssignments, useCache]
   );
@@ -751,6 +832,33 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
       .finally(() => setBusy(null));
   };
 
+  useEffect(() => {
+    if (!multi) return;
+    roles.forEach(r => {
+      const name = roleAssignments[r.key];
+      const hv = mapping.variables.find(x => x.harmonized_name === name);
+      if (!hv) return;
+      const members = cohorts.filter(c => hv.members[c]?.var_name).map(c => ({cohort_id: c, var_name: hv.members[c].var_name, var_label: hv.members[c].var_label}));
+      if (members.length < cohorts.length) return;
+      const signature = members.map(m => `${m.cohort_id}:${m.var_name}`).join('|');
+      if (namedFor.current[r.key] === signature) return;
+      namedFor.current[r.key] = signature;
+      aiName(members)
+        .then(res => {
+          // the user may have moved on: apply to the current state of this role
+          const current = mapping.variables.find(x => x.harmonized_name === roleAssignments[r.key]);
+          if (!current) return;
+          const taken = new Set(mapping.variables.filter(x => x.harmonized_name !== current.harmonized_name).map(x => x.harmonized_name));
+          let newName = res.name;
+          let n = 2;
+          while (taken.has(newName)) newName = `${res.name}_${n++}`;
+          replaceHVar(current.harmonized_name, {...current, harmonized_name: newName, label: res.label || current.label}, r.key);
+        })
+        .catch(() => null);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapping.variables, roleAssignments, cohorts, multi]);
+
   const toggleCache = (f: string) => {
     const next = useCache.includes(f) ? useCache.filter(x => x !== f) : [...useCache, f];
     setUseCache(next);
@@ -885,6 +993,49 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
 
             {hv && (
               <div className="mt-3">
+                <div className="flex items-center gap-2 text-xs text-base-content/70">
+                  <span>Harmonized variable:</span>
+                  {editingName === role.key ? (
+                    <>
+                      <input
+                        className="input input-xs input-bordered font-mono w-64"
+                        value={nameDraft}
+                        autoFocus
+                        onChange={e => setNameDraft(e.target.value.replace(/[^a-zA-Z0-9_]/g, '_'))}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') {
+                            if (nameDraft.trim()) updateHVar(role.key, {...hv, harmonized_name: nameDraft.trim()});
+                            setEditingName(null);
+                          }
+                          if (e.key === 'Escape') setEditingName(null);
+                        }}
+                      />
+                      <button
+                        className="btn btn-xs"
+                        onClick={() => {
+                          if (nameDraft.trim()) updateHVar(role.key, {...hv, harmonized_name: nameDraft.trim()});
+                          setEditingName(null);
+                        }}
+                      >
+                        Done
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="font-mono text-base-content">{hv.harmonized_name}</span>
+                      <button
+                        className="btn btn-ghost btn-xs gap-1"
+                        title="Rename the harmonized variable (a label only; it does not change the mapping)"
+                        onClick={() => {
+                          setNameDraft(hv.harmonized_name);
+                          setEditingName(role.key);
+                        }}
+                      >
+                        <Edit2 size={12} /> rename
+                      </button>
+                    </>
+                  )}
+                </div>
 
                 {(() => {
                   // Members whose dictionary type differs from the anchor's: a mapping

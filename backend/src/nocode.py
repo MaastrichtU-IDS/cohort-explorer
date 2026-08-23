@@ -622,6 +622,70 @@ def suggest_values(body: dict[str, Any], user: Any = Depends(get_current_user)) 
     return {"clusters": clusters, "members": {cid: {"var_name": v["var_name"], "categories": v["categories"]} for cid, v in vars_.items()}}
 
 
+def _heuristic_name(members: list[dict]) -> tuple[str, str]:
+    """Short harmonized name from the member variables: tokens shared by all
+    names, else the anchor's name without visit digits; always suffixed
+    _harmonized. Label = the shortest label."""
+    names = [str(m.get("var_name") or "") for m in members if m.get("var_name")]
+    token_sets = [set(_tokens(n)) - {"v", "visit", "m", "month", "baseline"} for n in names]
+    token_sets = [t for t in token_sets if t]
+    shared = set.intersection(*token_sets) if len(token_sets) > 1 else (token_sets[0] if token_sets else set())
+    shared = [t for t in shared if not t.isdigit()]
+    if shared:
+        base = "_".join(sorted(shared, key=lambda t: names[0].lower().find(t)))
+    else:
+        base = re.sub(r"\d+$", "", _ascii(names[0]).lower()) if names else "variable"
+        base = re.sub(r"[^a-z0-9]+", "_", base).strip("_") or "variable"
+    name = (base[:24].rstrip("_") + "_harmonized")
+    labels = [str(m.get("var_label") or "") for m in members if m.get("var_label")]
+    label = min(labels, key=len) if labels else base.replace("_", " ")
+    return name, label
+
+
+@router.post("/ai-name")
+def ai_name(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """A short harmonized variable name (snake_case, suffixed _harmonized) and a
+    short label for a set of mapped variables. Uses the local LLM when chat is
+    configured, else a heuristic; always returns something usable."""
+    members = [m for m in (body.get("variables") or []) if isinstance(m, dict)]
+    name, label = _heuristic_name(members)
+    if not settings.chat_enabled or not members:
+        return {"name": name, "label": label, "source": "heuristic"}
+    from src.chat import _get_openai_client
+
+    prompt = (
+        "These variables from different clinical cohorts have been mapped to one harmonized variable:\n"
+        f"{json.dumps(members, ensure_ascii=False)}\n\n"
+        "Propose ONE short name for the harmonized variable, in the style of the variable names themselves "
+        "(abbreviations are fine), snake_case, at most 20 characters before the suffix, and ending with "
+        "'_harmonized' (e.g. nyha_harmonized, ntprobnp_harmonized, lvef_harmonized). Also propose a short "
+        "human-readable label (at most 6 words). Return STRICT JSON only: {\"name\": \"...\", \"label\": \"...\"}"
+    )
+    try:
+        client = _get_openai_client()
+        resp = client.chat.completions.create(
+            model=settings.litellm_model,
+            messages=[{"role": "system", "content": "Answer with JSON only, no prose, no code fences."},
+                      {"role": "user", "content": prompt}],
+            temperature=0.1,
+        )
+        content = (resp.choices[0].message.content or "").strip()
+        content = re.sub(r"^```(?:json)?|```$", "", content, flags=re.M).strip()
+        start, end = content.find("{"), content.rfind("}")
+        parsed = json.loads(content[start:end + 1]) if start >= 0 else {}
+        ai_name_ = re.sub(r"[^a-z0-9_]+", "_", str(parsed.get("name") or "").lower()).strip("_")
+        if ai_name_:
+            if not ai_name_.endswith("_harmonized"):
+                ai_name_ = ai_name_[:24].rstrip("_") + "_harmonized"
+            name = ai_name_[:40]
+        if parsed.get("label"):
+            label = str(parsed["label"])[:80]
+        return {"name": name, "label": label, "source": "ai", "model": settings.litellm_model}
+    except Exception as exc:
+        logger.warning("ai-name failed, using heuristic: %s", exc)
+        return {"name": name, "label": label, "source": "heuristic"}
+
+
 @router.post("/ai-suggest")
 def ai_suggest(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[str, Any]:
     """Ask the platform's local LLM for match or value-map suggestions.

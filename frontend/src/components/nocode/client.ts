@@ -221,6 +221,9 @@ export const suggestValues = (members: Record<string, string>, cachedFiles: stri
     {members, cached_files: cachedFiles}
   );
 
+export const aiName = (variables: {cohort_id: string; var_name: string; var_label?: string}[]) =>
+  post<{name: string; label: string; source: string}>('/api/nocode/ai-name', {variables});
+
 export const aiSuggest = (body: any) => post<{task: string; result: any; model: string}>('/api/nocode/ai-suggest', body);
 
 export const fetchCachedMappings = (cohortIds: string[]) =>
@@ -295,7 +298,7 @@ export function provenanceLine(hv: HVar): string {
       const vm = hv.value_map?.[cohort] || {};
       const pairs = Object.entries(vm);
       if (pairs.length) {
-        piece += ` (${pairs.slice(0, 6).map(([k, v]) => `${k}→${v}`).join(', ')}${pairs.length > 6 ? ', …' : ''})`;
+        piece += ` (${pairs.slice(0, 6).map(([k, v]) => `${k}→${v || '(missing)'}`).join(', ')}${pairs.length > 6 ? ', …' : ''})`;
       }
       const conv = hv.unit_conversion?.[cohort];
       if (conv && conv.factor && conv.factor !== 1) piece += ` (×${conv.factor} ${conv.from || '?'}→${conv.to || '?'})`;

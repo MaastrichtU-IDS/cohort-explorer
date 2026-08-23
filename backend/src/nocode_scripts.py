@@ -294,6 +294,7 @@ def prepare_column(df, hv, cohort, missing):
         key2 = key.str.replace(r"\.0$", "", regex=True)     # "1.0" should match "1"
         mapped = key.map(norm)
         mapped = mapped.where(mapped.notna(), key2.map(norm))
+        mapped = mapped.replace("", np.nan)        # "" in the value map = treated as missing
         unmapped = int((s.notna() & mapped.isna()).sum())
         if unmapped:
             log("%s: %d value(s) of %s not in the value map -> missing" % (cohort, unmapped, member["var_name"]))
@@ -348,7 +349,7 @@ def provenance_lines(used):
             piece = "%s [%s]" % (m["var_name"], c)
             vmap = (hv.get("value_map") or {}).get(c) or {}
             if vmap:
-                pairs = ", ".join("%s->%s" % (k, v) for k, v in list(vmap.items())[:6])
+                pairs = ", ".join("%s->%s" % (k, v or "(missing)") for k, v in list(vmap.items())[:6])
                 piece += " (%s%s)" % (pairs, ", ..." if len(vmap) > 6 else "")
             conv = (hv.get("unit_conversion") or {}).get(c)
             if conv and conv.get("factor") not in (None, "", 1, 1.0):
