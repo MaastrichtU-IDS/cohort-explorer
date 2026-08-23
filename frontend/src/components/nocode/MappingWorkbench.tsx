@@ -328,10 +328,10 @@ function ValueMapEditor({
   // Cells with an open "+ add" picker (key: cohort|row). A filled cell hides
   // its picker behind a small + so the table stays readable.
   const [openAdd, setOpenAdd] = useState<Record<string, boolean>>({});
-  // Has the mapping been worked on (a suggestion run, iCARE-AI asked, a
-  // computed mapping applied, or a manual move)? Until then the two buttons
-  // shimmer to invite a click.
-  const touched = !!hv.value_map_edited || hv.evidence.some(e => (e.detail || '').startsWith('value map') || (e.type === 'cache' && !!e.value_mapping));
+  // A suggestion run, iCARE-AI asked, or a computed mapping applied: the two
+  // buttons stop shimmering then, or once every row has a value of every cohort
+  // (the user filled the fields by hand). See `shimmer` below.
+  const suggested = hv.evidence.some(e => (e.detail || '').startsWith('value map') || (e.type === 'cache' && !!e.value_mapping));
 
   // Model: every recorded value of every cohort is always present in value_map,
   // either assigned to a harmonized value (row) or mapped to "" = excluded.
@@ -416,6 +416,8 @@ function ValueMapEditor({
   };
 
   const anyExcluded = memberCohorts.some(c => missingOf(c).length > 0);
+  const allFilled = harmonized.length > 0 && harmonized.every(h => memberCohorts.every(c => rawsFor(c, h).length > 0));
+  const shimmer = !suggested && !allFilled && busy === null;
 
   return (
     <div className="mt-4 ml-3 pl-4 border-l-2 border-base-300 max-w-4xl">
@@ -423,10 +425,10 @@ function ValueMapEditor({
         <h4 className="font-semibold text-sm">Value mapping</h4>
         <span className="text-xs text-base-content/50">every raw value of every cohort is listed; move values between rows to align them</span>
         <div className="ml-auto flex gap-2">
-          <button className={`btn btn-sm btn-outline gap-1.5 ${!touched && busy === null ? 'shimmer-warm' : ''}`} onClick={onSuggest} disabled={busy !== null}>
+          <button className={`btn btn-sm btn-outline gap-1.5 ${shimmer ? 'shimmer-warm' : ''}`} onClick={onSuggest} disabled={busy !== null}>
             <Zap size={14} /> {busy === 'values' ? 'Suggesting…' : 'Suggest from codes, labels & computed mappings'}
           </button>
-          <button className={`btn btn-sm btn-outline btn-warning gap-1.5 ${!touched && busy === null ? 'shimmer-warm' : ''}`} onClick={onAi} disabled={busy !== null}>
+          <button className={`btn btn-sm btn-outline btn-warning gap-1.5 ${shimmer ? 'shimmer-warm' : ''}`} onClick={onAi} disabled={busy !== null}>
             <Sparkles size={14} /> {busy === 'ai-values' ? 'Asking…' : 'Ask iCARE-AI'}
           </button>
         </div>
@@ -717,16 +719,6 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
   const [error, setError] = useState<string | null>(null);
   const [cacheFiles, setCacheFiles] = useState<{filename: string; source: string; target: string; generated_at: string; size_kb: number}[]>([]);
   const [useCache, setUseCache] = useState<string[]>(mapping.sources || []);
-  const [cacheOpen, setCacheOpen] = useState(false);
-  const cacheBox = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!cacheOpen) return;
-    const onDoc = (e: MouseEvent) => {
-      if (cacheBox.current && !cacheBox.current.contains(e.target as Node)) setCacheOpen(false);
-    };
-    document.addEventListener('mousedown', onDoc);
-    return () => document.removeEventListener('mousedown', onDoc);
-  }, [cacheOpen]);
   const [showProvenance, setShowProvenance] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
@@ -736,8 +728,17 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
       .catch(e => setError(e.message))
       .finally(() => setLoadingVars(false));
     if (multi) {
-      fetchCachedMappings(cohorts).then(r => setCacheFiles(r.files)).catch(() => setCacheFiles([]));
+      fetchCachedMappings(cohorts)
+        .then(r => {
+          setCacheFiles(r.files);
+          // Every computed mapping for these cohorts is consulted by default.
+          const all = r.files.map(f => f.filename);
+          setUseCache(all);
+          onMappingChange({...mapping, sources: all});
+        })
+        .catch(() => setCacheFiles([]));
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cohorts, multi]);
 
   // Cohorts ordered by how many variables they expose (most first), so the
@@ -1013,40 +1014,29 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
       )}
       {loadingVars && <div className="text-sm text-base-content/50">Loading the variables of {cohorts.join(', ')}…</div>}
 
-      {/* Computed mappings toolbar (multi-cohort only) */}
+      {/* Computed mappings (multi-cohort only): always visible, all consulted by default */}
       {multi && (
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          <div className="relative" ref={cacheBox}>
-            <button className="btn btn-sm btn-outline gap-1" onClick={() => setCacheOpen(o => !o)}>
-              <Database size={14} /> Computed mappings {useCache.length > 0 && <span className="badge badge-sm badge-primary">{useCache.length} in use</span>}
-              <ChevronDown size={14} />
-            </button>
-            {cacheOpen && (
-              <div className="absolute z-20 mt-1 w-[520px] max-h-80 overflow-y-auto bg-base-100 border border-base-300 rounded-lg shadow-xl p-2">
-                <div className="flex items-center justify-between px-1 pb-1 mb-1 border-b border-base-200">
-                  <span className="text-xs font-semibold">Computed mappings for these cohorts</span>
-                  <button type="button" className="btn btn-xs btn-ghost gap-1" onClick={() => setCacheOpen(false)}>
-                    <X size={12} /> Close
-                  </button>
-                </div>
-                {cacheFiles.length === 0 && <div className="text-xs text-base-content/50 p-2">No computed mappings for these cohorts. Generate them from the Mapping page.</div>}
-                {cacheFiles.map(f => (
-                  <label key={f.filename} className="flex items-start gap-2 p-1.5 hover:bg-base-200 rounded cursor-pointer">
-                    <input type="checkbox" className="checkbox checkbox-xs mt-0.5" checked={useCache.includes(f.filename)} onChange={() => toggleCache(f.filename)} />
-                    <span className="text-xs">
-                      <span className="font-semibold">
-                        {f.source} → {f.target}
-                      </span>
-                      <div className="font-mono text-[10px] text-base-content/50 break-all">{f.filename}</div>
-                    </span>
-                  </label>
-                ))}
-                <div className="text-[11px] text-base-content/50 p-2 border-t border-base-200 mt-1">
-                  Ticked computed mappings become an evidence source: their rows appear as <span className="px-1 rounded bg-violet-600 text-white">COMPUTED</span> badges in the suggestions and their value mappings pre-fill the value table.
-                </div>
-              </div>
-            )}
+        <div className="rounded-lg border border-base-300 bg-base-100 px-3 py-2 text-xs">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="inline-flex items-center gap-1 font-semibold">
+              <Database size={13} /> Computed mappings for these cohorts
+            </span>
+            <span className="text-base-content/50">ticked ones feed the suggestions and pre-fill the value tables</span>
           </div>
+          {cacheFiles.length === 0 ? (
+            <div className="text-base-content/50 mt-1">None yet for these cohorts. Generate them from the Mapping page.</div>
+          ) : (
+            <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5">
+              {cacheFiles.map(f => (
+                <label key={f.filename} className="inline-flex items-center gap-1.5 cursor-pointer" title={f.filename}>
+                  <input type="checkbox" className="checkbox checkbox-xs" checked={useCache.includes(f.filename)} onChange={() => toggleCache(f.filename)} />
+                  <span className="font-semibold">
+                    {f.source} → {f.target}
+                  </span>
+                </label>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

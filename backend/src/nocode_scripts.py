@@ -403,7 +403,15 @@ data = pd.concat(frames, ignore_index=True)
 PROVENANCE = r'''
 # ---- provenance + output helpers ---------------------------------------------
 
-def provenance_lines(used):
+def short_cohort(c):
+    """'TIME-CHF' -> 'TIME': a two-part cohort name keeps its first part."""
+    parts = str(c).split("-")
+    return parts[0] if len(parts) == 2 and parts[0] else str(c)
+
+
+def provenance_lines(used, detailed=False):
+    """Compact (figure footers): 'hname: TIME::BNP1 -- CHECK::NTBNP (same LOINC 33762-6)'.
+    Detailed (provenance.md): full cohort names, value maps, unit factors, all evidence."""
     lines = []
     for hname in used:
         hv = HVARS.get(hname)
@@ -414,20 +422,28 @@ def provenance_lines(used):
             m = (hv.get("members") or {}).get(c)
             if not m or not m.get("var_name"):
                 continue
-            piece = "%s [%s]" % (m["var_name"], c)
-            vmap = (hv.get("value_map") or {}).get(c) or {}
-            if vmap:
-                pairs = ", ".join("%s->%s" % ("(missing)" if k == "__MISSING__" else k, v or "(excluded)") for k, v in list(vmap.items())[:6])
-                piece += " (%s%s)" % (pairs, ", ..." if len(vmap) > 6 else "")
             conv = (hv.get("unit_conversion") or {}).get(c)
-            if conv and conv.get("factor") not in (None, "", 1, 1.0):
-                piece += " (x%s %s->%s)" % (conv["factor"], conv.get("from", "?"), conv.get("to", "?"))
+            has_factor = conv and conv.get("factor") not in (None, "", 1, 1.0)
+            if detailed:
+                piece = "%s [%s]" % (m["var_name"], c)
+                vmap = (hv.get("value_map") or {}).get(c) or {}
+                if vmap:
+                    pairs = ", ".join("%s->%s" % ("(missing)" if k == "__MISSING__" else k, v or "(excluded)") for k, v in vmap.items())
+                    piece += " (%s)" % pairs
+                if has_factor:
+                    piece += " (x%s %s->%s)" % (conv["factor"], conv.get("from", "?"), conv.get("to", "?"))
+            else:
+                piece = "%s::%s" % (short_cohort(c), m["var_name"])
+                if has_factor:
+                    piece += " (x%s)" % conv["factor"]
             members.append(piece)
         ev = []
         for e in hv.get("evidence") or []:
             t = e.get("type")
             if t == "code":
-                ev.append("same %s %s" % (e.get("system") or "code", e.get("detail", "")))
+                ev.append(("same %s %s" % (e.get("system") or "code", e.get("detail", ""))).strip())
+            elif not detailed:
+                continue
             elif t == "cache":
                 ev.append("computed mapping %s (%s)" % (e.get("file", ""), e.get("status", "")))
             elif t == "text":
@@ -436,9 +452,15 @@ def provenance_lines(used):
                 ev.append("AI suggestion")
             elif t == "manual":
                 ev.append("chosen manually")
-        line = "%s := %s" % (hname, " | ".join(members))
-        if ev:
-            line += "; evidence: " + "; ".join(ev)
+        ev = list(dict.fromkeys(ev))
+        if detailed:
+            line = "%s := %s" % (hname, " | ".join(members))
+            if ev:
+                line += "; evidence: " + "; ".join(ev)
+        else:
+            line = "%s: %s" % (hname, " -- ".join(members))
+            if ev:
+                line += " (%s)" % "; ".join(ev)
         lines.append(line)
     return lines
 
@@ -891,7 +913,7 @@ with open(os.path.join(OUT, "provenance.md"), "w") as fh:
              else "**Suppression:** none (all counts and values shown).\n\n")
     fh.write("**Mapping:** %s (id %s, by %s, %s)\n\n" % (MAPPING.get("name", "unnamed"), MAPPING.get("id", "-"),
                                                            MAPPING.get("created_by", "-"), MAPPING.get("created_at", "-")))
-    for line in provenance_lines(list(HVARS.keys())):
+    for line in provenance_lines(list(HVARS.keys()), detailed=True):
         fh.write("- %s\n" % line)
     if notes:
         fh.write("\n**Notes:**\n")

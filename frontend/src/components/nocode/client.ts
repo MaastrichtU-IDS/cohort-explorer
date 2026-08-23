@@ -322,19 +322,24 @@ export function newHVar(anchor: VarInfo): HVar {
 
 // Human-readable provenance line, mirroring what the enclave script prints
 // under every figure.
+// 'TIME-CHF' -> 'TIME': a two-part cohort name keeps its first part.
+export const shortCohort = (c: string) => {
+  const parts = c.split('-');
+  return parts.length === 2 && parts[0] ? parts[0] : c;
+};
+
+// The compact line printed under the figures (mirrors provenance_lines in the
+// enclave script): "hname: TIME::BNP1 -- CHECK::NTBNP (same LOINC 33762-6)".
+// Value maps and the other evidence go to provenance.md, not the figures.
 export function provenanceLine(hv: HVar): string {
   const members = Object.entries(hv.members)
     .filter(([, m]) => m && m.var_name)
     .map(([cohort, m]) => {
-      let piece = `${m.var_name} [${cohort}]`;
-      const vm = hv.value_map?.[cohort] || {};
-      const pairs = Object.entries(vm);
-      if (pairs.length) {
-        piece += ` (${pairs.slice(0, 6).map(([k, v]) => `${displayRaw(k)}→${v || '(excluded)'}`).join(', ')}${pairs.length > 6 ? ', …' : ''})`;
-      }
+      let piece = `${shortCohort(cohort)}::${m.var_name}`;
       const conv = hv.unit_conversion?.[cohort];
-      if (conv && conv.factor && conv.factor !== 1) piece += ` (×${conv.factor} ${conv.from || '?'}→${conv.to || '?'})`;
+      if (conv && conv.factor && conv.factor !== 1) piece += ` (x${conv.factor})`;
       return piece;
     });
-  return `${hv.harmonized_name} := ${members.join(' | ')}`;
+  const codes = Array.from(new Set(hv.evidence.filter(e => e.type === 'code').map(e => `same ${e.system || 'code'} ${e.detail || ''}`.trim())));
+  return `${hv.harmonized_name}: ${members.join(' -- ')}${codes.length ? ` (${codes.join('; ')})` : ''}`;
 }
