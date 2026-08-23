@@ -409,9 +409,10 @@ def short_cohort(c):
     return parts[0] if len(parts) == 2 and parts[0] else str(c)
 
 
-def provenance_lines(used, detailed=False):
-    """Compact (figure footers): 'hname: TIME::BNP1 -- CHECK::NTBNP (same LOINC 33762-6)'.
-    Detailed (provenance.md): full cohort names, value maps, unit factors, all evidence."""
+def provenance_lines(used, with_values=False):
+    """Compact record of a harmonized variable, one line each:
+    'hname: TIME::BNP1 -- Aachen::NT.pro.BNP (x0.001) (same LOINC 33762-6)'.
+    with_values adds each cohort's value map in braces, {1>I, 2>II, (missing)>(excluded)}."""
     lines = []
     for hname in used:
         hv = HVARS.get(hname)
@@ -422,57 +423,38 @@ def provenance_lines(used, detailed=False):
             m = (hv.get("members") or {}).get(c)
             if not m or not m.get("var_name"):
                 continue
+            piece = "%s::%s" % (short_cohort(c), m["var_name"])
             conv = (hv.get("unit_conversion") or {}).get(c)
-            has_factor = conv and conv.get("factor") not in (None, "", 1, 1.0)
-            if detailed:
-                piece = "%s [%s]" % (m["var_name"], c)
-                vmap = (hv.get("value_map") or {}).get(c) or {}
-                if vmap:
-                    pairs = ", ".join("%s->%s" % ("(missing)" if k == "__MISSING__" else k, v or "(excluded)") for k, v in vmap.items())
-                    piece += " (%s)" % pairs
-                if has_factor:
-                    piece += " (x%s %s->%s)" % (conv["factor"], conv.get("from", "?"), conv.get("to", "?"))
-            else:
-                piece = "%s::%s" % (short_cohort(c), m["var_name"])
-                if has_factor:
-                    piece += " (x%s)" % conv["factor"]
+            if conv and conv.get("factor") not in (None, "", 1, 1.0):
+                piece += " (x%s)" % conv["factor"]
+            vmap = (hv.get("value_map") or {}).get(c) or {}
+            if with_values and vmap:
+                piece += " {%s}" % ", ".join("%s>%s" % ("(missing)" if k == "__MISSING__" else k, v or "(excluded)")
+                                             for k, v in vmap.items())
             members.append(piece)
-        ev = []
+        codes = []
         for e in hv.get("evidence") or []:
-            t = e.get("type")
-            if t == "code":
-                ev.append(("same %s %s" % (e.get("system") or "code", e.get("detail", ""))).strip())
-            elif not detailed:
-                continue
-            elif t == "cache":
-                ev.append("computed mapping %s (%s)" % (e.get("file", ""), e.get("status", "")))
-            elif t == "text":
-                ev.append("text match %d%%" % round(float(e.get("score", 0)) * 100))
-            elif t == "ai":
-                ev.append("AI suggestion")
-            elif t == "manual":
-                ev.append("chosen manually")
-        ev = list(dict.fromkeys(ev))
-        if detailed:
-            line = "%s := %s" % (hname, " | ".join(members))
-            if ev:
-                line += "; evidence: " + "; ".join(ev)
-        else:
-            line = "%s: %s" % (hname, " -- ".join(members))
-            if ev:
-                line += " (%s)" % "; ".join(ev)
+            if e.get("type") == "code":
+                tag = ("same %s %s" % (e.get("system") or "code", e.get("detail", ""))).strip()
+                if tag not in codes:
+                    codes.append(tag)
+        line = "%s: %s" % (hname, " -- ".join(members))
+        if codes:
+            line += " (%s)" % "; ".join(codes)
         lines.append(line)
     return lines
 
 
 def footer_text(used):
-    head = "Mapping '%s' (by %s)." % (MAPPING.get("name") or "unnamed", MAPPING.get("created_by") or "unknown")
+    """Figure subtext: the shuffled-samples banner and suppression note when
+    they apply, then the compact mapping lines."""
+    head = ""
     if SHUFFLED:
-        head = "SHUFFLED SAMPLES - code test only, columns shuffled independently: no results can be drawn. " + head
+        head = "SHUFFLED SAMPLES - code test only, columns shuffled independently: no results can be drawn."
     if K > 0:
         head += " Cells with n<%d suppressed." % K
     lines = provenance_lines(used)
-    return head + ("\n" + "\n".join(lines) if lines else "")
+    return "\n".join(([head.strip()] if head.strip() else []) + lines)
 
 
 def save_fig(fig, name, used, caption):
@@ -568,18 +550,6 @@ def category_counts(s, label=None):
 
 '''
 
-H_HIST = r'''
-def hist_counts(s, bins):
-    s = pd.to_numeric(s, errors="coerce").dropna()
-    if len(s) == 0 or (K > 0 and len(s) < K):
-        return None, None
-    counts, edges = np.histogram(s, bins=bins)
-    if K > 0:
-        counts = np.where(counts >= K, counts, 0)
-    return counts, edges
-
-'''
-
 H_SMD = r'''
 def smd(a, b):
     """Standardized mean difference between two numeric samples."""
@@ -592,37 +562,480 @@ def smd(a, b):
 
 '''
 
+H_FIGSETS = r'''
+# ---- figure sets -------------------------------------------------------------
+# Every analysis draws several views of the same numbers, because no single
+# chart suits every variable: a box plot squashes a skewed biomarker, a
+# histogram hides the medians, a violin needs enough patients. The file
+# figures_guide.txt lists what was produced and what each view is suited for.
+
+GUIDE = []   # (figure file, title, explanation lines)
+PALETTE = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+
+
+def guide(name, title, *lines):
+    GUIDE.append(("figures/" + name, title, [l for l in lines if l]))
+
+
+def skewed(values):
+    """Strongly right-skewed positive data (biomarkers, durations, costs):
+    such variables are also drawn on a log axis."""
+    v = pd.to_numeric(pd.Series(values), errors="coerce").dropna()
+    if len(v) < 10 or (v <= 0).any():
+        return False
+    med = float(v.median())
+    return med > 0 and float(v.max()) / med > 10 and float(v.skew()) > 2
+
+
+def group_series(df, var, groupcol, order=None):
+    """[(group, values)] for the groups of groupcol (in `order` when given),
+    small groups suppressed when K > 0."""
+    g = df[groupcol].astype(str).where(df[groupcol].notna())
+    present = set(g.dropna())
+    names = ([x for x in order if x in present] + sorted(present - set(order))) if order else sorted(present)
+    out = []
+    for name in names:
+        s = pd.to_numeric(df.loc[g == name, var], errors="coerce").dropna()
+        if len(s) > 0 and (K <= 0 or len(s) >= K):
+            out.append((name, s))
+    return out
+
+
+def group_order(gv):
+    """Harmonized values in the order of the value mapping (the order the user
+    saw in the workbench), so ordered classes keep their order."""
+    seen = []
+    for vm in (gv.get("value_map") or {}).values():
+        for k, v in vm.items():
+            if v and v not in seen:
+                seen.append(v)
+    return seen or None
+
+
+def log_axis(ax, axis, label):
+    if axis == "y":
+        ax.set_yscale("log")
+        ax.set_ylabel(label + ", log scale")
+    else:
+        ax.set_xscale("log")
+        ax.set_xlabel(label + ", log scale")
+
+
+def tick_names(ax, names, ns=None):
+    ax.set_xticks(range(1, len(names) + 1))
+    ax.set_xticklabels(["%s (n=%d)" % (g, n) for g, n in zip(names, ns)] if ns else names, rotation=30, ha="right")
+
+
+def figures_numeric_by_group(df, var, groupcol, group_label, title, prefix, used, order=None):
+    """Views of one numeric variable across groups: box plots with and without
+    outliers, cumulative curves, violins, medians with IQR, histograms, and
+    (several cohorts pooled) one box per cohort within each group."""
+    hv = HVARS[var]
+    series = group_series(df, var, groupcol, order)
+    if not series:
+        notes.append("%s by %s: no group with enough values, figures skipped" % (var, groupcol))
+        return
+    label = axis_label(hv)
+    allv = pd.concat([s for _, s in series])
+    logy = skewed(allv)
+    names = [g for g, _ in series]
+    ns = [len(s) for _, s in series]
+    small = [g for g, s in series if len(s) < 10]
+    log_note = "Log scale: the values are strongly right-skewed, a linear axis would squash most of the data against zero." if logy else ""
+    small_note = ("Groups with fewer than 10 patients (%s): their shapes and quartiles are unreliable." % ", ".join(small)) if small else ""
+    width = max(7, 1.5 * len(series) + 3)
+
+    fig, ax = plt.subplots(figsize=(width, 5.5))
+    ax.boxplot([s.values for _, s in series], showfliers=True)
+    tick_names(ax, names, ns)
+    ax.set_ylabel(label)
+    if logy:
+        log_axis(ax, "y", label)
+    ax.set_title("Box plots, outliers shown")
+    fig.suptitle(title)
+    save_fig(fig, prefix + "_box.png", used, "%s: box plots, outliers shown" % title)
+    guide(prefix + "_box.png", "Box plots, outliers shown",
+          "Median, quartiles and whiskers (1.5 x IQR) per group; circles are the values beyond the whiskers.",
+          "Suited for: comparing typical values and spread between groups, and seeing how extreme the extremes are.",
+          "Less suited when: a few very large values dominate the axis; then read the version without outliers.",
+          log_note, small_note)
+
+    fig, ax = plt.subplots(figsize=(width, 5.5))
+    ax.boxplot([s.values for _, s in series], showfliers=False)
+    tick_names(ax, names, ns)
+    ax.set_ylabel(label)
+    if logy:
+        log_axis(ax, "y", label)
+    ax.set_title("Box plots, outliers hidden")
+    fig.suptitle(title)
+    save_fig(fig, prefix + "_box_no_outliers.png", used, "%s: box plots, outliers hidden" % title)
+    guide(prefix + "_box_no_outliers.png", "Box plots, outliers hidden",
+          "Same boxes and whiskers, the axis limited to the whiskers so the boxes themselves are readable.",
+          "Suited for: comparing medians and interquartile ranges when outliers would otherwise compress the picture.",
+          "Less suited when: the extremes are the point of the question; they are not drawn here.", log_note)
+
+    fig, ax = plt.subplots(figsize=(9, 5.5))
+    lo, hi = float(allv.min()), float(allv.max())
+    grid = np.logspace(np.log10(lo), np.log10(hi), 200) if logy and lo > 0 else np.linspace(lo, hi, 200)
+    for g, s in series:
+        xs = np.sort(s.values)
+        ax.plot(grid, np.searchsorted(xs, grid, side="right") / len(xs), label="%s (n=%d)" % (g, len(s)))
+    ax.set_xlabel(label)
+    ax.set_ylabel("Fraction of patients at or below the value")
+    ax.set_ylim(0, 1.02)
+    if logy:
+        log_axis(ax, "x", label)
+    ax.grid(True, alpha=0.3)
+    ax.legend(title=group_label)
+    ax.set_title("Cumulative distribution per group")
+    fig.suptitle(title)
+    save_fig(fig, prefix + "_ecdf.png", used, "%s: cumulative distributions" % title)
+    guide(prefix + "_ecdf.png", "Cumulative distribution per group (ECDF)",
+          "For every value on the x axis, the fraction of the group at or below it (evaluated on a 200-point grid).",
+          "Suited for: comparing whole distributions without bins or smoothing, and reading off any percentile "
+          "(where a curve crosses 0.5 is the group's median).",
+          "Less suited when: the audience is unused to cumulative curves; box plots are quicker to read.", log_note)
+
+    big = [(g, s) for g, s in series if len(s) >= 5]
+    if big:
+        fig, ax = plt.subplots(figsize=(width, 5.5))
+        data = [np.log10(s.values) if logy else s.values for _, s in big]
+        ax.violinplot(data, showmedians=True, showextrema=False)
+        tick_names(ax, [g for g, _ in big], [len(s) for _, s in big])
+        ax.set_ylabel(("log10 " + label) if logy else label)
+        ax.set_title("Violin plots (smoothed shape, median marked)")
+        fig.suptitle(title)
+        save_fig(fig, prefix + "_violin.png", used, "%s: violin plots" % title)
+        guide(prefix + "_violin.png", "Violin plots",
+              "The smoothed shape of each group's distribution (mirrored), with the median as a line.",
+              "Suited for: spotting two-peaked or lopsided distributions that a box plot hides.",
+              "Less suited when: groups are small (under about 30 patients); the smoothing then invents shape." +
+              (" Groups with fewer than 5 patients are left out." if len(big) < len(series) else ""),
+              "Drawn on log10 values." if logy else "", small_note)
+
+    fig, ax = plt.subplots(figsize=(width, 5.5))
+    x = np.arange(len(series))
+    meds = [float(s.median()) for _, s in series]
+    q1 = [float(s.quantile(0.25)) for _, s in series]
+    q3 = [float(s.quantile(0.75)) for _, s in series]
+    ax.fill_between(x, q1, q3, alpha=0.2, color=PALETTE[0], label="interquartile range")
+    ax.plot(x, meds, marker="o", color=PALETTE[0], label="median")
+    ax.set_xticks(x)
+    ax.set_xticklabels(["%s (n=%d)" % (g, n) for g, n in zip(names, ns)], rotation=30, ha="right")
+    ax.set_ylabel(label)
+    if logy:
+        log_axis(ax, "y", label)
+    ax.legend()
+    ax.set_title("Median and interquartile range across groups")
+    fig.suptitle(title)
+    save_fig(fig, prefix + "_medians.png", used, "%s: medians across groups" % title)
+    guide(prefix + "_medians.png", "Median and interquartile range across groups",
+          "One point per group (its median) with the interquartile range as a band, in the order of the value mapping.",
+          "Suited for: ordered groups (stages, classes, age bands), where the line shows the trend.",
+          "Less suited when: the groups have no natural order; the connecting line then means nothing, read it as dots.", log_note)
+
+    fig, ax = plt.subplots(figsize=(9, 5.5))
+    edges = np.logspace(np.log10(lo), np.log10(hi), BINS + 1) if logy and lo > 0 and hi > lo else np.histogram_bin_edges(allv, bins=BINS)
+    for g, s in series:
+        counts, _ = np.histogram(s, bins=edges)
+        if K > 0:
+            counts = np.where(counts >= K, counts, 0)
+        ax.step(edges[:-1], 100.0 * counts / max(counts.sum(), 1), where="post", label="%s (n=%d)" % (g, len(s)))
+    ax.set_xlabel(label)
+    ax.set_ylabel("% of the group per bin" + sup_note())
+    if logy:
+        log_axis(ax, "x", label)
+    ax.legend(title=group_label)
+    ax.set_title("Histograms per group (%d bins)" % BINS)
+    fig.suptitle(title)
+    save_fig(fig, prefix + "_hist.png", used, "%s: histograms" % title)
+    guide(prefix + "_hist.png", "Histograms per group",
+          "The share of each group falling in each of %d bins, drawn as steps so the groups can be overlaid." % BINS,
+          "Suited for: seeing where the bulk of each group lies and how the groups overlap.",
+          "Less suited when: groups are small or many; the steps then cross and become hard to follow.",
+          "Bins are equal on the log scale." if logy else "")
+
+    if "cohort" in df.columns and groupcol != "cohort" and df["cohort"].nunique() > 1:
+        present = [c for c in COHORTS if (df["cohort"] == c).any()]
+        w = 0.8 / len(present)
+        fig, ax = plt.subplots(figsize=(max(9, 2.0 * len(series) + 3), 5.5))
+        for k, c in enumerate(present):
+            data, positions = [], []
+            for i, (g, _) in enumerate(series):
+                s = pd.to_numeric(df.loc[(df["cohort"] == c) & (df[groupcol].astype(str) == g), var], errors="coerce").dropna()
+                if len(s) > 0 and (K <= 0 or len(s) >= K):
+                    data.append(s.values)
+                    positions.append(i + k * w)
+            if data:
+                bp = ax.boxplot(data, positions=positions, widths=w * 0.9, showfliers=False, patch_artist=True)
+                for box in bp["boxes"]:
+                    box.set_facecolor(PALETTE[k % len(PALETTE)])
+                    box.set_alpha(0.6)
+            ax.plot([], [], color=PALETTE[k % len(PALETTE)], linewidth=8, alpha=0.6, label=c)
+        ax.set_xticks(np.arange(len(series)) + w * (len(present) - 1) / 2)
+        ax.set_xticklabels(names, rotation=30, ha="right")
+        ax.set_ylabel(label)
+        if logy:
+            log_axis(ax, "y", label)
+        ax.legend(title="cohort")
+        ax.set_title("Per cohort within each group (outliers hidden)")
+        fig.suptitle(title)
+        save_fig(fig, prefix + "_box_by_cohort.png", used, "%s: per cohort within each group" % title)
+        guide(prefix + "_box_by_cohort.png", "Per cohort within each group",
+              "One box per cohort inside every group, outliers hidden.",
+              "Suited for: checking that the pooled pattern holds in each cohort rather than being driven by one of them.",
+              "Less suited when: a cohort contributes only a few patients to a group; its box is then just noise.", log_note)
+
+    if len(series) >= 2 and all(len(s) >= 2 for _, s in series):
+        try:
+            h, p = stats.kruskal(*[s.values for _, s in series])
+            n_total, k = int(sum(ns)), len(series)
+            save_stats({"groups": k, "n": n_total, "kruskal_wallis_H": round(float(h), 3), "p_value": float(p),
+                        "epsilon_squared": round((float(h) - k + 1) / (n_total - k), 3) if n_total > k else None,
+                        "reading": "Kruskal-Wallis asks whether the groups differ in their distribution (rank-based, "
+                                   "no normality assumed); epsilon squared is the effect size (0 none, 1 complete separation)."},
+                       prefix + "_tests.txt", "%s: test of group differences" % title)
+        except Exception as e:
+            log("Kruskal-Wallis skipped: %s" % e)
+
+
+def figures_categorical_by_group(ct, x_label, y_label, title, prefix, used):
+    """Views of a contingency table (rows = the categories on the x axis,
+    columns = the categories stacked or grouped): stacked counts, shares,
+    grouped bars, and a heat map with counts and row percentages."""
+    shown = ct.where(ct >= K, 0) if K > 0 else ct
+    rows = [str(i) for i in shown.index]
+    cols = [str(c) for c in shown.columns]
+    if len(rows) == 0 or len(cols) == 0:
+        notes.append("%s: nothing to draw" % title)
+        return
+    width = max(7, 0.9 * len(rows) + 4)
+
+    fig, ax = plt.subplots(figsize=(width, 5.5))
+    bottom = np.zeros(len(rows))
+    for c in shown.columns:
+        ax.bar(rows, shown[c].values, bottom=bottom, label=str(c))
+        bottom += shown[c].values
+    ax.set_ylabel("Patients" + sup_note("cells"))
+    ax.set_xlabel(x_label)
+    ax.legend(title=y_label)
+    ax.set_title("Stacked counts")
+    fig.suptitle(title)
+    plt.setp(ax.get_xticklabels(), rotation=30, ha="right")
+    save_fig(fig, prefix + "_stacked.png", used, "%s: stacked counts" % title)
+    guide(prefix + "_stacked.png", "Stacked counts",
+          "Number of patients per %s, split by %s." % (x_label, y_label),
+          "Suited for: seeing group sizes and the raw composition at once.",
+          "Less suited when: the groups differ a lot in size; compare shares in the 100% stacked version instead.")
+
+    pct = shown.div(shown.sum(axis=1).replace(0, np.nan), axis=0) * 100
+    fig, ax = plt.subplots(figsize=(width, 5.5))
+    bottom = np.zeros(len(rows))
+    for c in shown.columns:
+        vals = pct[c].fillna(0).values
+        ax.bar(rows, vals, bottom=bottom, label=str(c))
+        bottom += vals
+    ax.set_ylabel("%% of the patients in each %s" % x_label)
+    ax.set_xlabel(x_label)
+    ax.set_ylim(0, 100)
+    ax.legend(title=y_label)
+    ax.set_title("Shares (100% stacked)")
+    fig.suptitle(title)
+    plt.setp(ax.get_xticklabels(), rotation=30, ha="right")
+    save_fig(fig, prefix + "_stacked_pct.png", used, "%s: shares" % title)
+    guide(prefix + "_stacked_pct.png", "Shares, 100% stacked",
+          "The composition of each %s in percent, so groups of different sizes can be compared." % x_label,
+          "Suited for: comparing proportions between groups.",
+          "Less suited when: group sizes matter for the reading; the counts are in the stacked version and the table.")
+
+    fig, ax = plt.subplots(figsize=(max(width, 0.4 * len(rows) * len(cols) + 3), 5.5))
+    x = np.arange(len(rows))
+    w = 0.8 / max(len(cols), 1)
+    for k, c in enumerate(shown.columns):
+        ax.bar(x + k * w, shown[c].values, width=w, label=str(c))
+    ax.set_xticks(x + w * (len(cols) - 1) / 2)
+    ax.set_xticklabels(rows, rotation=30, ha="right")
+    ax.set_ylabel("Patients" + sup_note("cells"))
+    ax.set_xlabel(x_label)
+    ax.legend(title=y_label)
+    ax.set_title("Grouped counts")
+    fig.suptitle(title)
+    save_fig(fig, prefix + "_grouped.png", used, "%s: grouped counts" % title)
+    guide(prefix + "_grouped.png", "Grouped counts",
+          "The same counts side by side instead of stacked.",
+          "Suited for: comparing one category of %s across the groups (bars of the same colour)." % y_label,
+          "Less suited when: there are many categories; the bars become thin.")
+
+    fig, ax = plt.subplots(figsize=(max(6, 0.9 * len(cols) + 3), max(4, 0.6 * len(rows) + 2)))
+    im = ax.imshow(pct.fillna(0).values, cmap="Blues", aspect="auto", vmin=0, vmax=100)
+    ax.set_xticks(range(len(cols)))
+    ax.set_xticklabels(cols, rotation=30, ha="right")
+    ax.set_yticks(range(len(rows)))
+    ax.set_yticklabels(rows)
+    ax.set_xlabel(y_label)
+    ax.set_ylabel(x_label)
+    for i in range(len(rows)):
+        for j in range(len(cols)):
+            n = int(shown.iloc[i, j])
+            v = pct.iloc[i, j]
+            txt = "%d\n(%.0f%%)" % (n, v) if not np.isnan(v) else ("<%d" % K if K > 0 else "0")
+            ax.text(j, i, txt, ha="center", va="center", fontsize=8, color="white" if (not np.isnan(v) and v > 55) else "black")
+    fig.colorbar(im, ax=ax, label="% of the row")
+    ax.set_title("Heat map: counts and row percentages")
+    fig.suptitle(title)
+    save_fig(fig, prefix + "_heatmap.png", used, "%s: heat map" % title)
+    guide(prefix + "_heatmap.png", "Heat map with counts and row percentages",
+          "Every cell of the table as a coloured tile (row percentage) with the count and percentage written in it.",
+          "Suited for: tables with many categories, where bars get crowded; finding the dominant cells at a glance.",
+          "Less suited when: there are only two or three categories; bars are then simpler.")
+
+
+def figures_numeric_pair(df, x, y, title, prefix, used):
+    """Views of two numeric variables: scatter with fit, density (hexagonal
+    bins), binned medians with IQR, and the binned medians per cohort."""
+    hx, hy = HVARS[x], HVARS[y]
+    sub = df[[x, y] + (["cohort"] if "cohort" in df.columns else [])].copy()
+    sub[x] = pd.to_numeric(sub[x], errors="coerce")
+    sub[y] = pd.to_numeric(sub[y], errors="coerce")
+    sub = sub.dropna(subset=[x, y])
+    n = len(sub)
+    if n < 4:
+        notes.append("%s vs %s: fewer than 4 complete pairs, figures skipped" % (x, y))
+        return
+    lx, ly = axis_label(hx), axis_label(hy)
+    logx, logy = skewed(sub[x]), skewed(sub[y])
+    log_note = ("Log scale on %s: strongly right-skewed values." % " and ".join([a for a, f in (("x", logx), ("y", logy)) if f])) if (logx or logy) else ""
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+    ax.scatter(sub[x], sub[y], s=10, alpha=0.5, color=PALETTE[0], edgecolors="none")
+    try:
+        fx = np.log10(sub[x]) if logx else sub[x]
+        fy = np.log10(sub[y]) if logy else sub[y]
+        slope, intercept = np.polyfit(fx, fy, 1)
+        xs = np.linspace(float(fx.min()), float(fx.max()), 50)
+        ys = slope * xs + intercept
+        ax.plot(10 ** xs if logx else xs, 10 ** ys if logy else ys, color="#c0392b", linewidth=1.2,
+                label="least-squares fit" + (" (on log values)" if (logx or logy) else ""))
+        ax.legend()
+    except Exception as e:
+        log("fit line skipped: %s" % e)
+    ax.set_xlabel(lx)
+    ax.set_ylabel(ly)
+    if logx:
+        log_axis(ax, "x", lx)
+    if logy:
+        log_axis(ax, "y", ly)
+    ax.set_title("Scatter with fitted line (n=%d)" % n)
+    fig.suptitle(title)
+    save_fig(fig, prefix + "_scatter.png", used, "%s: scatter" % title)
+    guide(prefix + "_scatter.png", "Scatter with fitted line",
+          "One dot per patient and the least-squares line.",
+          "Suited for: seeing the shape of the relationship (linear, curved, none) and unusual patients.",
+          "Less suited when: there are thousands of patients; dots pile up and the density plot is clearer.", log_note)
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+    hx_vals = np.log10(sub[x]) if logx else sub[x]
+    hy_vals = np.log10(sub[y]) if logy else sub[y]
+    hb = ax.hexbin(hx_vals, hy_vals, gridsize=25, cmap="Blues", mincnt=max(1, K))
+    fig.colorbar(hb, ax=ax, label="patients per cell" + (" (cells with n<%d blank)" % K if K > 0 else ""))
+    ax.set_xlabel(("log10 " + lx) if logx else lx)
+    ax.set_ylabel(("log10 " + ly) if logy else ly)
+    ax.set_title("Density (hexagonal bins)")
+    fig.suptitle(title)
+    save_fig(fig, prefix + "_density.png", used, "%s: density" % title)
+    guide(prefix + "_density.png", "Density, hexagonal bins",
+          "Patients counted in hexagonal cells; darker means more patients.",
+          "Suited for: large samples where a scatter turns into a blob; shows where most patients are.",
+          "Less suited when: the sample is small; most cells then hold one or two patients.", log_note)
+
+    try:
+        q = pd.qcut(sub[x], q=10, duplicates="drop")
+        g = sub.groupby(q, observed=True)[y]
+        agg = g.agg(["median", "mean", "count"])
+        agg["q1"] = g.quantile(0.25)
+        agg["q3"] = g.quantile(0.75)
+        centers = np.array([iv.mid for iv in agg.index])
+        ok = (agg["count"] >= K).values if K > 0 else (agg["count"] > 0).values
+        fig, ax = plt.subplots(figsize=(8, 6))
+        ax.fill_between(centers[ok], agg["q1"].values[ok], agg["q3"].values[ok], alpha=0.2, color=PALETTE[0], label="interquartile range")
+        ax.plot(centers[ok], agg["median"].values[ok], marker="o", color=PALETTE[0], label="median")
+        ax.plot(centers[ok], agg["mean"].values[ok], marker="s", linestyle="--", color=PALETTE[1], label="mean")
+        ax.set_xlabel("%s (deciles)" % lx)
+        ax.set_ylabel(ly)
+        if logx:
+            log_axis(ax, "x", lx)
+        if logy:
+            log_axis(ax, "y", ly)
+        ax.legend()
+        ax.set_title("Binned medians and means")
+        fig.suptitle(title)
+        save_fig(fig, prefix + "_binned.png", used, "%s: binned medians" % title)
+        guide(prefix + "_binned.png", "Binned medians and means",
+              "Patients split into deciles of %s; for each, the median (with IQR band) and the mean of %s." % (lx, ly),
+              "Suited for: reading the typical %s at each level of %s without the noise of single patients; "
+              "curved relationships show up here." % (ly, lx),
+              "Less suited when: the sample is small; ten bins then hold only a handful of patients each.", log_note)
+        save_table(pd.DataFrame({"x_bin": [str(iv) for iv in agg.index], "median_y": agg["median"].round(3).values,
+                                 "mean_y": agg["mean"].round(3).values, "q1_y": agg["q1"].round(3).values,
+                                 "q3_y": agg["q3"].round(3).values, "n": [fmt_count(c) for c in agg["count"].values]}),
+                   prefix + "_binned.csv", "%s by deciles of %s" % (y, x))
+        if "cohort" in sub.columns and sub["cohort"].nunique() > 1:
+            edges_x = [iv.left for iv in agg.index] + [agg.index[-1].right]
+            fig, ax = plt.subplots(figsize=(8, 6))
+            for k, c in enumerate([c for c in COHORTS if (sub["cohort"] == c).any()]):
+                part = sub[sub["cohort"] == c]
+                gc = part.groupby(pd.cut(part[x], bins=edges_x, include_lowest=True), observed=True)[y].agg(["median", "count"])
+                ok_c = (gc["count"] >= K).values if K > 0 else (gc["count"] > 0).values
+                cc = np.array([iv.mid for iv in gc.index])
+                ax.plot(cc[ok_c], gc["median"].values[ok_c], marker="o", color=PALETTE[k % len(PALETTE)], label="%s (n=%d)" % (c, len(part)))
+            ax.set_xlabel("%s (pooled deciles)" % lx)
+            ax.set_ylabel("median %s" % ly)
+            if logx:
+                log_axis(ax, "x", lx)
+            if logy:
+                log_axis(ax, "y", ly)
+            ax.legend(title="cohort")
+            ax.set_title("Binned medians per cohort")
+            fig.suptitle(title)
+            save_fig(fig, prefix + "_binned_by_cohort.png", used, "%s: binned medians per cohort" % title)
+            guide(prefix + "_binned_by_cohort.png", "Binned medians per cohort",
+                  "The binned medians drawn separately for each cohort, on the same bins.",
+                  "Suited for: checking that the relationship is the same in every cohort before trusting the pooled one.",
+                  "Less suited when: a cohort is small; its line then jumps around.", log_note)
+    except Exception as e:
+        log("binned views skipped: %s" % e)
+
+
+def write_guide():
+    if not GUIDE:
+        return
+    with open(os.path.join(OUT, "figures_guide.txt"), "w") as fh:
+        fh.write("FIGURES PRODUCED AND WHAT EACH IS SUITED FOR\n")
+        fh.write("Analysis: %s\n\n" % TITLE)
+        for f, t, lines in GUIDE:
+            fh.write("%s  --  %s\n" % (f, t))
+            for l in lines:
+                fh.write("    %s\n" % l)
+            fh.write("\n")
+    captions.insert(0, {"doc": "figures_guide.txt", "caption": "Figures produced and what each is suited for"})
+
+'''
+
 A_DISTRIBUTION = r'''
-# ---- analysis: distribution --------------------------------------------------
+# ---- analysis: distribution (legacy kind) ------------------------------------
 
 def run_distribution(df, var, label, group_label=None, prefix="distribution"):
     hv = HVARS[var]
     if hv.get("type") == "numeric":
-        counts, edges = hist_counts(df[var], BINS)
         save_table(pd.DataFrame([numeric_summary(df[var], group_label or label)]), prefix + "_summary.csv", "Summary of %s" % var)
-        if counts is None:
-            notes.append("%s: no values available, figure skipped" % var)
-            return
-        fig, ax = plt.subplots(figsize=(9, 5.5))
-        ax.bar(edges[:-1], counts, width=np.diff(edges), align="edge", color="#3b6ea5", edgecolor="white")
-        ax.set_xlabel(axis_label(hv))
-        ax.set_ylabel("Patients" + sup_note())
-        ax.set_title(label)
-        save_fig(fig, prefix + ".png", [var], "Distribution of %s" % (hv.get("label") or var))
+        tmp = df[[var]].copy()
+        tmp["__all__"] = "all patients"
+        figures_numeric_by_group(tmp, var, "__all__", "", label, prefix, [var])
     else:
         rows = category_counts(df[var], group_label or label)
         save_table(pd.DataFrame(rows), prefix + "_counts.csv", "Counts of %s" % var)
-        shown = [(r["value"], int(r["count"])) for r in rows if not str(r["count"]).startswith("<")]
-        if not shown:
-            notes.append("%s: no categories to show" % var)
-            return
-        fig, ax = plt.subplots(figsize=(9, 5.5))
-        ax.bar([v for v, _ in shown], [n for _, n in shown], color="#3b6ea5")
-        ax.set_ylabel("Patients")
-        hidden = len(rows) - len(shown)
-        ax.set_title(label + (" (%d small categories hidden)" % hidden if hidden else ""))
-        plt.setp(ax.get_xticklabels(), rotation=30, ha="right")
-        save_fig(fig, prefix + ".png", [var], "Distribution of %s" % (hv.get("label") or var))
+        ct = pd.crosstab(df[var].astype(str).where(df[var].notna()), pd.Series(["patients"] * len(df), index=df.index))
+        figures_categorical_by_group(ct, hv.get("label") or var, "", label, prefix, [var])
 
 '''
 
@@ -632,56 +1045,23 @@ A_STRATIFIED = r'''
 def run_stratified(df, var, group, title, prefix="stratified"):
     hv, gv = HVARS[var], HVARS[group]
     used = [var, group]
-    groups = sorted(df[group].dropna().astype(str).unique())
+    order = group_order(gv)
+    glabel = gv.get("label") or group
     if hv.get("type") == "numeric":
-        rows, series = [], []
-        fig, axes = plt.subplots(1, 2, figsize=(13, 5.5))
-        for g in groups:
-            s = pd.to_numeric(df.loc[df[group].astype(str) == g, var], errors="coerce").dropna()
-            rows.append(numeric_summary(s, g))
-            if len(s) > 0 and (K <= 0 or len(s) >= K):
-                series.append((g, s))
-                counts, edges = np.histogram(s, bins=BINS)
-                if K > 0:
-                    counts = np.where(counts >= K, counts, 0)
-                dens = counts.astype(float) / max(counts.sum(), 1) / np.diff(edges)
-                axes[0].step(edges[:-1], dens, where="post", label="%s (n=%d)" % (g, len(s)))
+        rows = [numeric_summary(s, g) for g, s in group_series(df, var, group, order)]
         save_table(pd.DataFrame(rows), prefix + "_summary.csv", "%s by %s" % (var, group))
-        axes[0].set_xlabel(axis_label(hv))
-        axes[0].set_ylabel("Density" + sup_note())
-        axes[0].set_title("Distribution per group")
-        axes[0].legend(title=gv.get("label") or group)
-        if series:
-            # tick labels set explicitly: the boxplot() keyword for them was
-            # renamed in matplotlib 3.9 and the enclave's version is not pinned
-            axes[1].boxplot([s.values for _, s in series], showfliers=True)
-            axes[1].set_xticks(range(1, len(series) + 1))
-            axes[1].set_xticklabels([g for g, _ in series])
-            axes[1].set_ylabel(axis_label(hv))
-            axes[1].set_title("Box plots (outliers shown)")
-            plt.setp(axes[1].get_xticklabels(), rotation=30, ha="right")
-        fig.suptitle(title)
-        save_fig(fig, prefix + ".png", used, "%s by %s" % (hv.get("label") or var, gv.get("label") or group))
+        figures_numeric_by_group(df, var, group, glabel, title, prefix, used, order)
     else:
-        ct = pd.crosstab(df[var].astype(str).where(df[var].notna()), df[group].astype(str).where(df[group].notna()))
+        ct = pd.crosstab(df[group].astype(str).where(df[group].notna()), df[var].astype(str).where(df[var].notna()))
+        if order:
+            ct = ct.reindex([g for g in order if g in ct.index] + [g for g in ct.index if g not in order])
         table = ct.astype(object).copy()
         for i in table.index:
             for j in table.columns:
                 table.loc[i, j] = fmt_count(ct.loc[i, j])
-        table.insert(0, var, table.index)
+        table.insert(0, group + " \\ " + var, table.index)
         save_table(table.reset_index(drop=True), prefix + "_counts.csv", "%s by %s" % (var, group))
-        shown = ct.where(ct >= K, 0) if K > 0 else ct
-        fig, ax = plt.subplots(figsize=(9, 5.5))
-        x = np.arange(len(shown.index))
-        width = 0.8 / max(len(shown.columns), 1)
-        for k, g in enumerate(shown.columns):
-            ax.bar(x + k * width, shown[g].values, width=width, label=str(g))
-        ax.set_xticks(x + width * (len(shown.columns) - 1) / 2)
-        ax.set_xticklabels([str(i) for i in shown.index], rotation=30, ha="right")
-        ax.set_ylabel("Patients" + sup_note("cells"))
-        ax.set_title(title)
-        ax.legend(title=gv.get("label") or group)
-        save_fig(fig, prefix + ".png", used, "%s by %s" % (hv.get("label") or var, gv.get("label") or group))
+        figures_categorical_by_group(ct, glabel, hv.get("label") or var, title, prefix, used)
 
 '''
 
@@ -689,7 +1069,6 @@ A_CORRELATION = r'''
 # ---- analysis: relationship between two numeric variables --------------------
 
 def run_correlation(df, x, y, title, prefix="correlation"):
-    hx, hy = HVARS[x], HVARS[y]
     sub = df[[x, y]].apply(pd.to_numeric, errors="coerce").dropna()
     n = len(sub)
     row = {"n": fmt_count(n)}
@@ -701,41 +1080,11 @@ def run_correlation(df, x, y, title, prefix="correlation"):
         row.update({"pearson_r": round(float(r_p), 3), "pearson_p": float(p_p),
                     "pearson_ci95_low": round(math.tanh(z - 1.96 * se), 3),
                     "pearson_ci95_high": round(math.tanh(z + 1.96 * se), 3),
-                    "spearman_rho": round(float(r_s), 3), "spearman_p": float(p_s)})
+                    "spearman_rho": round(float(r_s), 3), "spearman_p": float(p_s),
+                    "reading": "Pearson measures a straight-line relationship, Spearman any monotone one; "
+                               "both run from -1 to 1, 0 meaning none."})
     save_stats(row, prefix + "_coefficients.txt", "Correlation of %s and %s" % (x, y))
-    if n < 4:
-        notes.append("correlation: fewer than 4 complete pairs, figure skipped")
-        return
-    fig, axes = plt.subplots(1, 2, figsize=(13, 5.5))
-    axes[0].scatter(sub[x], sub[y], s=10, alpha=0.5, color="#3b6ea5", edgecolors="none")
-    try:
-        slope, intercept = np.polyfit(sub[x], sub[y], 1)
-        xs = np.linspace(float(sub[x].min()), float(sub[x].max()), 50)
-        axes[0].plot(xs, slope * xs + intercept, color="#c0392b", linewidth=1.2, label="least-squares fit")
-        axes[0].legend()
-    except Exception as e:
-        log("fit line skipped: %s" % e)
-    axes[0].set_xlabel(axis_label(hx))
-    axes[0].set_ylabel(axis_label(hy))
-    axes[0].set_title("Scatter (n=%d)" % n)
-    try:
-        q = pd.qcut(sub[x], q=10, duplicates="drop")
-        g = sub.groupby(q, observed=True)[y].agg(["mean", "count"])
-        centers = np.array([iv.mid for iv in g.index])
-        ok = (g["count"] >= K).values if K > 0 else (g["count"] > 0).values
-        axes[1].plot(centers[ok], g["mean"].values[ok], marker="o", color="#3b6ea5")
-        save_table(pd.DataFrame({"x_bin": [str(iv) for iv in g.index], "mean_y": g["mean"].round(3).values,
-                                 "n": [fmt_count(c) for c in g["count"].values]}),
-                   prefix + "_binned_means.csv", "Mean of %s by deciles of %s" % (y, x))
-    except Exception as e:
-        log("binned means skipped: %s" % e)
-    axes[1].set_xlabel("%s (deciles)" % (hx.get("label") or x))
-    axes[1].set_ylabel("mean %s" % (hy.get("label") or y))
-    axes[1].set_title("Binned means")
-    fig.suptitle("%s. Pearson r=%.2f (p=%.3g), Spearman rho=%.2f (p=%.3g), n=%d" % (
-        title, row.get("pearson_r", float("nan")), row.get("pearson_p", float("nan")),
-        row.get("spearman_rho", float("nan")), row.get("spearman_p", float("nan")), n))
-    save_fig(fig, prefix + ".png", [x, y], "Relationship between %s and %s" % (hx.get("label") or x, hy.get("label") or y))
+    figures_numeric_pair(df, x, y, title, prefix, [x, y])
 
 '''
 
@@ -747,6 +1096,11 @@ def run_crosstab(df, x, y, title, prefix="crosstab"):
     a = df[x].astype(str).where(df[x].notna())
     b = df[y].astype(str).where(df[y].notna())
     ct = pd.crosstab(a, b)
+    ox, oy = group_order(hx), group_order(hy)
+    if ox:
+        ct = ct.reindex([g for g in ox if g in ct.index] + [g for g in ct.index if g not in ox])
+    if oy:
+        ct = ct[[g for g in oy if g in ct.columns] + [g for g in ct.columns if g not in oy]]
     table = ct.astype(object).copy()
     pct = ct.div(ct.sum(axis=1), axis=0) * 100
     for i in table.index:
@@ -760,20 +1114,11 @@ def run_crosstab(df, x, y, title, prefix="crosstab"):
         chi2, p, dof, expected = stats.chi2_contingency(ct.values)
         v = math.sqrt(chi2 / (ct.values.sum() * (min(ct.shape) - 1)))
         stat.update({"chi_square": round(float(chi2), 3), "dof": int(dof), "p_value": float(p), "cramers_v": round(v, 3),
-                     "note": "expected counts < 5 in some cells" if (expected < 5).any() else ""})
+                     "note": "expected counts < 5 in some cells" if (expected < 5).any() else "",
+                     "reading": "Chi-square asks whether the two variables are independent; Cramer's V is the "
+                                "strength of association (0 none, 1 complete)."})
     save_stats(stat, prefix + "_chi_square.txt", "Chi-square test of independence")
-    shown = ct.where(ct >= K, 0) if K > 0 else ct
-    fig, ax = plt.subplots(figsize=(9, 5.5))
-    bottom = np.zeros(len(shown.index))
-    for col in shown.columns:
-        ax.bar([str(i) for i in shown.index], shown[col].values, bottom=bottom, label=str(col))
-        bottom += shown[col].values
-    ax.set_ylabel("Patients" + sup_note("cells"))
-    ax.set_xlabel(hx.get("label") or x)
-    ax.legend(title=hy.get("label") or y)
-    ax.set_title(title)
-    plt.setp(ax.get_xticklabels(), rotation=30, ha="right")
-    save_fig(fig, prefix + ".png", [x, y], "%s by %s" % (hx.get("label") or x, hy.get("label") or y))
+    figures_categorical_by_group(ct, hx.get("label") or x, hy.get("label") or y, title, prefix, [x, y])
 
 '''
 
@@ -789,45 +1134,18 @@ def run_compare(df, var, title, prefix="compare"):
                 rows.append({"group": "SMD %s vs %s" % (COHORTS[i], COHORTS[j]),
                              "mean": smd(df.loc[df["cohort"] == COHORTS[i], var], df.loc[df["cohort"] == COHORTS[j], var])})
         save_table(pd.DataFrame(rows), prefix + "_summary.csv", "%s per cohort" % var)
-        allv = pd.to_numeric(df[var], errors="coerce").dropna()
-        if len(allv) == 0:
-            notes.append("%s: no values available" % var)
-            return
-        edges = np.histogram_bin_edges(allv, bins=BINS)
-        fig, ax = plt.subplots(figsize=(9, 5.5))
-        for c in COHORTS:
-            s = pd.to_numeric(df.loc[df["cohort"] == c, var], errors="coerce").dropna()
-            if len(s) > 0 and (K <= 0 or len(s) >= K):
-                counts, _ = np.histogram(s, bins=edges)
-                if K > 0:
-                    counts = np.where(counts >= K, counts, 0)
-                dens = counts.astype(float) / max(counts.sum(), 1) / np.diff(edges)
-                ax.step(edges[:-1], dens, where="post", label="%s (n=%d)" % (c, len(s)))
-        ax.set_xlabel(axis_label(hv))
-        ax.set_ylabel("Density" + sup_note())
-        ax.set_title(title)
-        ax.legend()
-        save_fig(fig, prefix + ".png", [var], "%s across cohorts" % (hv.get("label") or var))
+        figures_numeric_by_group(df, var, "cohort", "cohort", title, prefix, [var], COHORTS)
     else:
         rows = []
         for c in COHORTS:
             rows.extend(category_counts(df.loc[df["cohort"] == c, var], c))
         save_table(pd.DataFrame(rows), prefix + "_counts.csv", "%s per cohort" % var)
-        ct = pd.crosstab(df[var].astype(str).where(df[var].notna()), df["cohort"])
-        pct = ct.div(ct.sum(axis=0), axis=1) * 100
-        if K > 0:
-            pct = pct.where(ct >= K, 0)
-        fig, ax = plt.subplots(figsize=(9, 5.5))
-        x = np.arange(len(pct.index))
-        width = 0.8 / max(len(pct.columns), 1)
-        for k, c in enumerate(pct.columns):
-            ax.bar(x + k * width, pct[c].values, width=width, label=str(c))
-        ax.set_xticks(x + width * (len(pct.columns) - 1) / 2)
-        ax.set_xticklabels([str(i) for i in pct.index], rotation=30, ha="right")
-        ax.set_ylabel("% of cohort" + sup_note("cells"))
-        ax.set_title(title)
-        ax.legend()
-        save_fig(fig, prefix + ".png", [var], "%s across cohorts" % (hv.get("label") or var))
+        ct = pd.crosstab(df["cohort"], df[var].astype(str).where(df[var].notna()))
+        ct = ct.reindex([c for c in COHORTS if c in ct.index])
+        order = group_order(hv)
+        if order:
+            ct = ct[[g for g in order if g in ct.columns] + [g for g in ct.columns if g not in order]]
+        figures_categorical_by_group(ct, "cohort", hv.get("label") or var, title, prefix, [var])
 
 '''
 
@@ -849,7 +1167,9 @@ def run_pooled(df, var, group, title, prefix="pooled"):
         if len(allv) == 0:
             notes.append("pooled: no values available")
             return
-        edges = np.histogram_bin_edges(allv, bins=BINS)
+        logx = skewed(allv)
+        lo, hi = float(allv.min()), float(allv.max())
+        edges = np.logspace(np.log10(lo), np.log10(hi), BINS + 1) if logx and lo > 0 and hi > lo else np.histogram_bin_edges(allv, bins=BINS)
         fig, ax = plt.subplots(figsize=(9, 5.5))
         bottom = np.zeros(len(edges) - 1)
         for c in COHORTS:
@@ -860,25 +1180,27 @@ def run_pooled(df, var, group, title, prefix="pooled"):
             ax.bar(edges[:-1], counts, width=np.diff(edges), align="edge", bottom=bottom, label=c, edgecolor="white")
             bottom = bottom + counts
         ax.set_xlabel(axis_label(hv))
+        if logx:
+            log_axis(ax, "x", axis_label(hv))
         ax.set_ylabel("Patients, stacked by cohort" + sup_note())
-        ax.set_title(title)
+        ax.set_title("Pooled histogram, stacked by cohort")
+        fig.suptitle(title)
         ax.legend()
-        save_fig(fig, prefix + ".png", used, "Pooled distribution of %s" % (hv.get("label") or var))
+        save_fig(fig, prefix + "_hist.png", used, "%s: pooled histogram" % title)
+        guide(prefix + "_hist.png", "Pooled histogram, stacked by cohort",
+              "All cohorts together in %d bins, each bar split by cohort." % BINS,
+              "Suited for: the overall distribution of the pooled data and each cohort's contribution to it.",
+              "Less suited when: comparing cohort shapes; the per-cohort box plots and cumulative curves do that.",
+              "Bins are equal on the log scale: the values are strongly right-skewed." if logx else "")
     else:
         ct = pd.crosstab(df[var].astype(str).where(df[var].notna()), df["cohort"])
-        shown = ct.where(ct >= K, 0) if K > 0 else ct
-        fig, ax = plt.subplots(figsize=(9, 5.5))
-        bottom = np.zeros(len(shown.index))
-        for c in shown.columns:
-            ax.bar([str(i) for i in shown.index], shown[c].values, bottom=bottom, label=str(c))
-            bottom += shown[c].values
-        ax.set_ylabel("Patients, stacked by cohort" + sup_note("cells"))
-        ax.set_title(title)
-        ax.legend()
-        plt.setp(ax.get_xticklabels(), rotation=30, ha="right")
-        save_fig(fig, prefix + ".png", used, "Pooled distribution of %s" % (hv.get("label") or var))
+        order = group_order(hv)
+        if order:
+            ct = ct.reindex([g for g in order if g in ct.index] + [g for g in ct.index if g not in order])
+        ct = ct[[c for c in COHORTS if c in ct.columns]]
+        figures_categorical_by_group(ct, hv.get("label") or var, "cohort", title, prefix, used)
     if group:
-        run_stratified(df, var, group, title + " by " + (HVARS[group].get("label") or group), prefix="pooled_by_group")
+        run_stratified(df, var, group, title, prefix="pooled_by_group")
 
 '''
 
@@ -902,18 +1224,19 @@ if len(set(_used)) != len(_used):
     raise ValueError("The same harmonized variable is used in two roles of the analysis: %s" % ROLES)
 __DISPATCH__
 
+write_guide()
+
 with open(os.path.join(OUT, "provenance.md"), "w") as fh:
-    fh.write("# No-code DCR analysis provenance\n\n")
+    fh.write("# Mapping record\n\n")
     fh.write("**Analysis:** %s (%s)\n\n" % (TITLE, KIND))
     fh.write("**Cohorts:** %s\n\n" % ", ".join(COHORTS))
     if SHUFFLED:
         fh.write("**DATA SOURCE: SHUFFLED SAMPLES.** A small fragment with independently shuffled columns, "
                  "intended to test that the analysis code runs. No actual results can be drawn from these figures.\n\n")
-    fh.write(("**Suppression:** counts below %d suppressed; bins/cells below %d blanked.\n\n" % (K, K)) if K > 0
-             else "**Suppression:** none (all counts and values shown).\n\n")
-    fh.write("**Mapping:** %s (id %s, by %s, %s)\n\n" % (MAPPING.get("name", "unnamed"), MAPPING.get("id", "-"),
-                                                           MAPPING.get("created_by", "-"), MAPPING.get("created_at", "-")))
-    for line in provenance_lines(list(HVARS.keys()), detailed=True):
+    if K > 0:
+        fh.write("**Suppression:** counts below %d suppressed; bins/cells below %d blanked.\n\n" % (K, K))
+    fh.write("**Variables** (harmonized name: cohort::source variable, unit factor, {value map}):\n\n")
+    for line in provenance_lines(list(HVARS.keys()), with_values=True):
         fh.write("- %s\n" % line)
     if notes:
         fh.write("\n**Notes:**\n")
@@ -923,20 +1246,21 @@ with open(os.path.join(OUT, "provenance.md"), "w") as fh:
 with open(os.path.join(OUT, "summary.json"), "w") as fh:
     json.dump({"title": TITLE, "kind": KIND, "cohorts": COHORTS, "suppression_k": K, "items": captions,
                "data_source": "shuffled" if SHUFFLED else "full",
-               "notes": notes, "mapping_name": MAPPING.get("name"), "mapping_id": MAPPING.get("id")}, fh, indent=2)
+               "notes": notes}, fh, indent=2)
 log("done")
 '''
 
 # Which helper/analysis segments each kind needs.
 _NEEDS = {
-    "distribution": [H_NUMERIC_SUMMARY, H_CATEGORY_COUNTS, H_HIST, A_DISTRIBUTION],
-    "stratified": [H_NUMERIC_SUMMARY, A_STRATIFIED],
-    "correlation": [A_CORRELATION],
-    "crosstab": [A_CROSSTAB],
-    "compare": [H_NUMERIC_SUMMARY, H_CATEGORY_COUNTS, H_SMD, H_HIST, A_STRATIFIED, A_COMPARE, A_POOLED],
-    "pooled": [H_NUMERIC_SUMMARY, H_CATEGORY_COUNTS, A_STRATIFIED, A_POOLED],
+    "distribution": [H_NUMERIC_SUMMARY, H_CATEGORY_COUNTS, H_FIGSETS, A_DISTRIBUTION],
+    "stratified": [H_NUMERIC_SUMMARY, H_FIGSETS, A_STRATIFIED],
+    "correlation": [H_FIGSETS, A_CORRELATION],
+    "crosstab": [H_FIGSETS, A_CROSSTAB],
+    "compare": [H_NUMERIC_SUMMARY, H_CATEGORY_COUNTS, H_SMD, H_FIGSETS, A_STRATIFIED, A_COMPARE, A_POOLED],
+    "pooled": [H_NUMERIC_SUMMARY, H_CATEGORY_COUNTS, H_FIGSETS, A_STRATIFIED, A_POOLED],
 }
-_USES_SCIPY = {"correlation", "crosstab"}
+# scipy is part of the enclave image and every figure set uses it (Kruskal-Wallis, chi-square, correlations).
+_USES_SCIPY = set(ANALYSIS_KINDS) | _LEGACY_KINDS
 
 
 def nocode_analysis_script(spec: dict[str, Any]) -> str:

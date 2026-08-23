@@ -86,6 +86,7 @@ export default function NocodeResultsPage() {
         if (item.figure) imgs[item.figure] = await fetchResultBlob(dcr, node, item.figure);
         if (item.table) tabs[item.table] = await fetchResultText(dcr, node, item.table);
         if (item.text) tabs[item.text] = await fetchResultText(dcr, node, item.text);
+        if (item.doc) tabs[item.doc] = await fetchResultText(dcr, node, item.doc);
       } catch {
         /* skip */
       }
@@ -210,7 +211,20 @@ export default function NocodeResultsPage() {
           )}
           {(summary.items || []).map((item: any, i: number) => (
             <section key={i} className="rounded-xl border border-base-300 bg-base-100 p-4">
-              <h2 className="font-semibold mb-2">{item.caption}</h2>
+              {!item.doc && <h2 className="font-semibold mb-2">{item.caption}</h2>}
+              {item.doc && (
+                <details open>
+                  <summary className="font-semibold cursor-pointer">{item.caption}</summary>
+                  {tables[item.doc] ? (
+                    <pre className="mt-2 text-xs leading-relaxed whitespace-pre-wrap text-base-content/80">{tables[item.doc]}</pre>
+                  ) : (
+                    <div className="text-sm text-base-content/50 mt-2">Loading…</div>
+                  )}
+                  <a className="btn btn-xs btn-ghost gap-1 mt-1" href={resultFileUrl(dcr, node, item.doc)} target="_blank" rel="noreferrer">
+                    <Download size={12} /> {item.doc}
+                  </a>
+                </details>
+              )}
               {item.figure && (
                 <div>
                   {images[item.figure] ? (
@@ -244,7 +258,7 @@ export default function NocodeResultsPage() {
           ))}
           {summary.provenance_md && (
             <section className="rounded-xl border border-base-300 bg-base-100 p-4">
-              <h2 className="font-semibold mb-2">Provenance</h2>
+              <h2 className="font-semibold mb-2">Mapping record</h2>
               <pre className="text-xs whitespace-pre-wrap text-base-content/70">{summary.provenance_md}</pre>
             </section>
           )}
