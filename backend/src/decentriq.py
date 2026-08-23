@@ -650,6 +650,10 @@ async def get_compute_dcr_definition(
     # programmer furniture (starter visualization scripts, the merge/pooling
     # chain with its airlock) that a flexible room gets.
     nocode_room = bool(nocode_analyses)
+    # A no-code room on shuffled samples needs no full-data nodes at all (the
+    # sample nodes are uploaded by the platform); and no room of this kind needs
+    # dictionary nodes: the variables' metadata is baked into the analysis spec.
+    nocode_shuffled = nocode_room and all((spec or {}).get("data_source") == "shuffled" for spec in nocode_analyses)
     start_time = datetime.now()
     logging.info(f"Starting DCR definition creation for user {user['email']} at {start_time}")
     
@@ -745,19 +749,22 @@ async def get_compute_dcr_definition(
     for cohort_id, cohort in selected_cohorts.items():
         # Create data node for cohort (using RawDataNodeDefinition instead of TableDataNodeDefinition)
         data_node_id = cohort_id.replace(" ", "-")
-        builder.add_node_definition(
-            RawDataNodeDefinition(name=data_node_id, is_required=False)
-        )
-        data_nodes.append(data_node_id)
+        if not nocode_shuffled:
+            builder.add_node_definition(
+                RawDataNodeDefinition(name=data_node_id, is_required=False)
+            )
+            data_nodes.append(data_node_id)
 
         # Add a node for the cohort's metadata dictionary
         metadata_node_id = f"{cohort_id.replace(' ', '-')}_metadata_dictionary"
         
         # Use RawDataNodeDefinition (same as data nodes) so the file is mounted
         # directly at /input/<node_name> rather than as a directory.
-        builder.add_node_definition(
-            RawDataNodeDefinition(name=metadata_node_id, is_required=False)
-        )
+        # (Not in no-code rooms: the variables' metadata is baked into the spec.)
+        if not nocode_room:
+            builder.add_node_definition(
+                RawDataNodeDefinition(name=metadata_node_id, is_required=False)
+            )
         metadata_nodes.append(metadata_node_id)
         
         # Add the requester as data owner of the metadata dictionary node
@@ -1070,14 +1077,16 @@ async def get_compute_dcr_definition(
                 use_shuffled = False
                 gspec["data_source"] = "full"
         gspec["nodes"] = {
-            c: {"data": shuffled_nodes[c] if use_shuffled else c.replace(" ", "-"),
-                "dictionary": f"{c.replace(' ', '-')}_metadata_dictionary"}
+            c: {"data": shuffled_nodes[c] if use_shuffled else c.replace(" ", "-"), "dictionary": None}
             for c in g_cohorts
         }
+        # The few variables the analysis touches are described in the spec
+        # itself (units, value maps, and now the declared missing-value codes
+        # read from the dictionary on this server): no dictionary node needed.
+        from src.nocode_scripts import bake_variable_metadata
+        gspec = bake_variable_metadata(gspec, all_cohorts)
         g_node = nocode_node_name(gi, gspec)
-        g_deps = list(dict.fromkeys(
-            [n["data"] for n in gspec["nodes"].values()] + [n["dictionary"] for n in gspec["nodes"].values()]
-        ))
+        g_deps = list(dict.fromkeys(n["data"] for n in gspec["nodes"].values()))
         builder.add_node_definition(
             PythonComputeNodeDefinition(name=g_node, script=nocode_analysis_script(gspec), dependencies=g_deps)
         )
@@ -1341,6 +1350,18 @@ async def get_compute_dcr_definition(
     logging.info("=" * 80)
     logging.info("PARTICIPANT PERMISSIONS SUMMARY")
     logging.info("=" * 80)
+    # Permissions may reference nodes that were deliberately not created (no-code
+    # rooms skip dictionary nodes, and full-data nodes when pooling shuffled
+    # samples). Keep only permissions on nodes that exist, and drop participants
+    # who end up with no role at all (except the creator and the service account).
+    defined_nodes = {n.name for n in builder.node_definitions}
+    for p_email in list(participants.keys()):
+        perm = participants[p_email]
+        perm["data_owner_of"] = {n for n in perm["data_owner_of"] if n in defined_nodes}
+        perm["analyst_of"] = {n for n in perm["analyst_of"] if n in defined_nodes}
+        if not perm["data_owner_of"] and not perm["analyst_of"] and p_email not in (user["email"], settings.decentriq_email):
+            logging.info(f"Participant {p_email} has no role in this room; not invited")
+            del participants[p_email]
     for p_email, p_perm in participants.items():
         logging.info(f"\nParticipant: {p_email}")
         logging.info(f"  Data Owner Of ({len(p_perm['data_owner_of'])} nodes): {sorted(list(p_perm['data_owner_of']))}")
@@ -1453,6 +1474,10 @@ async def create_live_compute_dcr(
         metadata_upload_results = {}
         
         for cohort_id in cohorts_request["cohorts"].keys():
+            if nocode_analyses:
+                # No-code rooms have no dictionary nodes (metadata is baked into the spec).
+                metadata_upload_results[cohort_id] = "not_needed"
+                continue
             try:
                 cohort = all_cohorts.get(cohort_id)
                 if not cohort:
@@ -1665,8 +1690,14 @@ async def create_live_compute_dcr(
             }
         
         mapping_msg = f" Mapping files uploaded: {successful_mapping_uploads}/{len(mapping_nodes)}." if mapping_nodes else ""
+        # No-code rooms have no dictionary nodes, so the metadata count is meaningless there.
+        wants_shuffled = any(include_shuffled_samples.values()) if isinstance(include_shuffled_samples, dict) else bool(include_shuffled_samples)
+        nocode_message = f"No-code DCR created successfully for {len(cohort_ids)} cohort(s)."
+        if wants_shuffled:
+            nocode_message += f" Shuffled samples uploaded for {successful_shuffled_uploads}/{len(cohort_ids)} cohorts."
         return {
-            "message": f"Live compute DCR created successfully for {len(cohort_ids)} cohort(s). Metadata uploaded for {successful_metadata_uploads}/{len(cohort_ids)} cohorts. Shuffled samples uploaded for {successful_shuffled_uploads}/{len(cohort_ids)} cohorts.{mapping_msg}",
+            "message": nocode_message if nocode_analyses else
+                f"Live compute DCR created successfully for {len(cohort_ids)} cohort(s). Metadata uploaded for {successful_metadata_uploads}/{len(cohort_ids)} cohorts. Shuffled samples uploaded for {successful_shuffled_uploads}/{len(cohort_ids)} cohorts.{mapping_msg}",
             "dcr_id": dcr.id,
             "dcr_url": dcr_url,
             "dcr_title": dcr_title,

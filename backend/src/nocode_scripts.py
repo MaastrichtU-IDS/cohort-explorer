@@ -98,6 +98,49 @@ ANALYSIS_KINDS = {
 _LEGACY_KINDS = {"distribution", "pooled"}
 
 
+def _parse_missing_codes(raw: Any) -> list[str]:
+    raw = str(raw or "").strip()
+    if not raw or raw.lower() in ("nan", "na", "none"):
+        return []
+    parts = [p.strip() for p in re.split(r"[|,;]", raw) if p.strip()]
+    return [p.split("=")[0].strip() for p in parts]   # "999=unknown" -> "999"
+
+
+def bake_variable_metadata(spec: dict[str, Any], cohorts_by_id: dict[str, Any]) -> dict[str, Any]:
+    """Copy, for every member variable, the declared missing-value codes from
+    the cohort's data dictionary (on the explorer server) into the spec, so the
+    enclave script needs no dictionary node at all: the handful of variables it
+    touches are fully described at DCR-creation time."""
+    import csv
+
+    dict_rows: dict[str, dict[str, dict]] = {}   # cohort -> lower var name -> row
+    for cohort_id in spec.get("cohorts") or []:
+        cohort = cohorts_by_id.get(cohort_id)
+        if cohort is None:
+            continue
+        try:
+            path = cohort.metadata_filepath
+            with open(path, newline="", encoding="utf-8-sig") as fh:
+                reader = csv.DictReader(fh)
+                cols = {(c or "").strip().upper(): c for c in (reader.fieldnames or [])}
+                name_col = cols.get("VARIABLENAME") or cols.get("VARIABLE NAME")
+                miss_col = cols.get("MISSING")
+                rows = {}
+                if name_col:
+                    for r in reader:
+                        rows[str(r.get(name_col) or "").strip().lower()] = {"missing": r.get(miss_col, "") if miss_col else ""}
+                dict_rows[cohort_id] = rows
+        except Exception:
+            dict_rows[cohort_id] = {}
+    for hv in (spec.get("mapping") or {}).get("variables") or []:
+        for cohort_id, member in (hv.get("members") or {}).items():
+            if not member or not member.get("var_name"):
+                continue
+            row = dict_rows.get(cohort_id, {}).get(str(member["var_name"]).strip().lower())
+            member["missing_codes"] = _parse_missing_codes(row["missing"]) if row else []
+    return spec
+
+
 def _slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", str(text).lower()).strip("-") or "analysis"
 
@@ -232,7 +275,9 @@ def prepare_column(df, hv, cohort, missing):
         log("%s: column '%s' not found for %s" % (cohort, member["var_name"], hv["harmonized_name"]))
         return pd.Series(np.nan, index=df.index)
     s = df[col]
-    mc = missing.get(member["var_name"], set())
+    # Declared missing-value codes: baked into the spec at DCR creation; the
+    # dictionary lookup only serves specs that still carry a dictionary node.
+    mc = set(member.get("missing_codes") or []) or missing.get(member["var_name"], set())
     if mc:
         s = s.mask(s.astype(str).str.strip().isin(mc))
     if hv.get("type") == "numeric":
