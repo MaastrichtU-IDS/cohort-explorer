@@ -914,7 +914,6 @@ export function Nav() {
                 <div className="flex justify-between items-start mb-4">
                   <div>
                     <h3 className="font-bold text-xl">Create an analysis Data Clean Room</h3>
-                    <p className="text-sm text-base-content/60">Two ways to get there. Pick the one that fits how you work.</p>
                   </div>
                   <button className="btn btn-sm btn-ghost" onClick={closeWizard}>✕</button>
                 </div>
