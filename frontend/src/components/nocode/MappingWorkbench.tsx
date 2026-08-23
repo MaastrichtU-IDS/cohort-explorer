@@ -27,11 +27,8 @@ import {
   unitVisitLines,
   fetchCachedMappings,
   fetchAllVariables,
-  listMappings,
-  loadMapping,
   newHVar,
   provenanceLine,
-  saveMapping,
   suggestMatches,
   suggestValues
 } from './client';
@@ -550,9 +547,6 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
     return () => document.removeEventListener('mousedown', onDoc);
   }, [cacheOpen]);
   const [showProvenance, setShowProvenance] = useState<Record<string, boolean>>({});
-  const [saved, setSaved] = useState<{id: string; name: string; cohorts: string[]; variables: number; updated_at: string}[]>([]);
-  const [saveName, setSaveName] = useState(mapping.name || '');
-  const [saveMsg, setSaveMsg] = useState<string | null>(null);
 
   useEffect(() => {
     setLoadingVars(true);
@@ -562,7 +556,6 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
       .finally(() => setLoadingVars(false));
     if (multi) {
       fetchCachedMappings(cohorts).then(r => setCacheFiles(r.files)).catch(() => setCacheFiles([]));
-      listMappings(cohorts).then(r => setSaved(r.mappings)).catch(() => setSaved([]));
     }
   }, [cohorts, multi]);
 
@@ -746,31 +739,6 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
     mapping.variables.forEach(hv => fetchSuggestions(hv, next));
   };
 
-  const doSave = () => {
-    const name = saveName.trim() || `mapping ${cohorts.join(' + ')}`;
-    saveMapping({...mapping, name, cohorts, sources: useCache, created_by: mapping.created_by || userEmail || undefined})
-      .then(r => {
-        onMappingChange({...mapping, name, id: r.id, sources: useCache});
-        setSaveMsg(`Saved as "${name}"`);
-        listMappings(cohorts).then(x => setSaved(x.mappings)).catch(() => null);
-      })
-      .catch(e => setSaveMsg(e.message));
-  };
-
-  const doLoad = (id: string) => {
-    loadMapping(id)
-      .then(spec => {
-        onMappingChange({...spec, cohorts});
-        setSaveName(spec.name || '');
-        const assign: Record<string, string> = {...roleAssignments};
-        roles.forEach((r, i) => {
-          if (!assign[r.key] && spec.variables[i]) assign[r.key] = spec.variables[i].harmonized_name;
-        });
-        onRolesChange(assign);
-      })
-      .catch(e => setError(e.message));
-  };
-
   return (
     <div className="flex flex-col gap-4">
       {error && (
@@ -781,7 +749,7 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
       )}
       {loadingVars && <div className="text-sm text-base-content/50">Loading the variables of {cohorts.join(', ')}…</div>}
 
-      {/* Cached + saved mappings toolbar (multi-cohort only) */}
+      {/* Computed mappings toolbar (multi-cohort only) */}
       {multi && (
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <div className="relative" ref={cacheBox}>
@@ -815,23 +783,6 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
                 </div>
               </div>
             )}
-          </div>
-          {saved.length > 0 && (
-            <select className="select select-sm select-bordered" value="" onChange={e => e.target.value && doLoad(e.target.value)}>
-              <option value="">Load a saved mapping…</option>
-              {saved.map(m => (
-                <option key={m.id} value={m.id}>
-                  {m.name} ({m.variables} vars, {m.cohorts.join('+')}, {m.updated_at?.slice(0, 10)})
-                </option>
-              ))}
-            </select>
-          )}
-          <div className="ml-auto flex items-center gap-2">
-            <input className="input input-sm input-bordered w-64" placeholder="name this harmonization to reuse it later" value={saveName} onChange={e => setSaveName(e.target.value)} />
-            <button className="btn btn-sm btn-outline" onClick={doSave} disabled={mapping.variables.length === 0} title="Store the harmonized variables, value maps and unit conversions you defined, so they can be loaded into a later no-code DCR">
-              Save for reuse
-            </button>
-            {saveMsg && <span className="text-xs text-base-content/60">{saveMsg}</span>}
           </div>
         </div>
       )}
