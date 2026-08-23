@@ -189,6 +189,15 @@ def _load_eda(cohort_id: str) -> dict[str, dict]:
     return out
 
 
+def _code_system(code: str) -> str:
+    """Human name of a CURIE's vocabulary: 'snomed:184107009' -> 'SNOMED'."""
+    prefix = str(code or "").split(":")[0].strip().lower()
+    names = {"snomed": "SNOMED", "loinc": "LOINC", "rxnorm": "RxNorm", "atc": "ATC", "icd10": "ICD-10",
+             "icd10cm": "ICD-10-CM", "icd9": "ICD-9", "ucum": "UCUM", "omop": "OMOP", "hpo": "HPO", "ncit": "NCIT",
+             "mesh": "MeSH", "cpt": "CPT", "ndc": "NDC", "read": "Read"}
+    return names.get(prefix, prefix.upper() or "code")
+
+
 # ---------------------------------------------------------------------------
 # Variable index
 # ---------------------------------------------------------------------------
@@ -475,10 +484,10 @@ def suggest(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict
             evidence = []
             score = 0.0
             if a["concept_code"] and _norm_code(a["concept_code"]) == _norm_code(b["concept_code"]):
-                evidence.append({"type": "code", "detail": a["concept_code"]})
+                evidence.append({"type": "code", "system": _code_system(a["concept_code"]), "detail": a["concept_code"]})
                 score = max(score, 1.0)
             elif a["omop_id"] and _norm_code(a["omop_id"]) == _norm_code(b["omop_id"]):
-                evidence.append({"type": "code", "detail": "OMOP %s" % a["omop_id"]})
+                evidence.append({"type": "code", "system": "OMOP ID", "detail": a["omop_id"]})
                 score = max(score, 0.95)
             ts = text_similarity(a, b)
             if ts >= 0.45:
@@ -556,7 +565,7 @@ def suggest_values(body: dict[str, Any], user: Any = Depends(get_current_user)) 
         for cid, cat in items:
             if (cid, cat["value"]) in placed:
                 continue
-            place(cid, cat["value"], name, {"type": "code", "detail": code})
+            place(cid, cat["value"], name, {"type": "code", "system": "OMOP ID" if code.isdigit() else _code_system(code), "detail": code})
             placed.add((cid, cat["value"]))
 
     # 2. cached value_mapping (source raw -> harmonized label, target raw -> harmonized label)

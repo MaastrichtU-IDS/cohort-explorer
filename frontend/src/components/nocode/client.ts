@@ -103,6 +103,7 @@ export function unitVisitLines(v: {units?: string; visits?: string}): string[] {
 export interface Evidence {
   type: 'code' | 'text' | 'cache' | 'ai' | 'manual' | 'warning' | 'label';
   detail?: string;
+  system?: string; // for code evidence: 'SNOMED', 'LOINC', 'OMOP ID', ...
   score?: number;
   file?: string;
   status?: string;

@@ -76,11 +76,12 @@ export function EvidenceBadge({e}: {e: Evidence}) {
   let text = e.type.toUpperCase();
   let title = '';
   if (e.type === 'code') {
-    text = 'CODE';
-    title = `Shared standard code: ${e.detail}`;
+    const sys = e.system || 'code';
+    text = sys === 'OMOP ID' ? 'SAME OMOP ID' : `SAME ${sys.toUpperCase()} CODE`;
+    title = `Both variables carry ${sys} ${e.detail}`;
   } else if (e.type === 'text') {
-    text = `TEXT ${(e.score ?? 0).toFixed(2)}`;
-    title = 'Name/label similarity (normalized tokens)';
+    text = `TEXT MATCH ${Math.round((e.score ?? 0) * 100)}%`;
+    title = 'Similarity of names, labels and standard names (normalized tokens)';
   } else if (e.type === 'cache') {
     text = `COMPUTED · ${e.status || '?'}`;
     title = `From the computed mapping file ${e.file}`;

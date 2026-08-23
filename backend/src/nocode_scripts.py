@@ -358,11 +358,11 @@ def provenance_lines(used):
         for e in hv.get("evidence") or []:
             t = e.get("type")
             if t == "code":
-                ev.append("shared code %s" % e.get("detail", ""))
+                ev.append("same %s %s" % (e.get("system") or "code", e.get("detail", "")))
             elif t == "cache":
                 ev.append("computed mapping %s (%s)" % (e.get("file", ""), e.get("status", "")))
             elif t == "text":
-                ev.append("text similarity %.2f" % float(e.get("score", 0)))
+                ev.append("text match %d%%" % round(float(e.get("score", 0)) * 100))
             elif t == "ai":
                 ev.append("AI suggestion")
             elif t == "manual":
