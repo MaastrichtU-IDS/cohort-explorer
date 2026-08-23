@@ -67,8 +67,8 @@ export const ParticipantsModal = React.memo(({
   // that is itself a modal, the wizard's transformed box would otherwise become
   // the containing block of this fixed-position overlay and clip it.
   const modal = (
-    <div className="modal modal-open z-[10000]">
-      <div className="modal-box flex flex-col max-h-[90vh]">
+    <div className="modal modal-open z-[10000]" onMouseDown={onClose}>
+      <div className="modal-box flex flex-col max-h-[90vh]" onMouseDown={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4 shrink-0">
           <h3 className="font-bold text-lg">DCR Participants</h3>
           <button type="button" className="btn btn-sm btn-circle btn-ghost" onClick={onClose} aria-label="Close">

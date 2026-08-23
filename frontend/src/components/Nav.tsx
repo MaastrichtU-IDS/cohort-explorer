@@ -1450,8 +1450,8 @@ export function Nav() {
 
       {/* Add Cohort Modal */}
       {showAddCohortModal && (
-        <div className="modal modal-open">
-          <div className="modal-box max-w-2xl">
+        <div className="modal modal-open" onMouseDown={() => { setShowAddCohortModal(false); setCohortSearchQuery(''); }}>
+          <div className="modal-box max-w-2xl" onMouseDown={e => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-bold text-lg">Add/Remove Cohorts</h3>
               <button className="btn btn-sm btn-ghost" onClick={() => { setShowAddCohortModal(false); setCohortSearchQuery(''); }}>✕</button>
