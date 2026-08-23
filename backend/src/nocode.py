@@ -636,7 +636,7 @@ def _heuristic_name(members: list[dict]) -> tuple[str, str]:
     else:
         base = re.sub(r"\d+$", "", _ascii(names[0]).lower()) if names else "variable"
         base = re.sub(r"[^a-z0-9]+", "_", base).strip("_") or "variable"
-    name = (base[:24].rstrip("_") + "_harmonized")
+    name = (base[:24].rstrip("_") + "_pooled")
     labels = [str(m.get("var_label") or "") for m in members if m.get("var_label")]
     label = min(labels, key=len) if labels else base.replace("_", " ")
     return name, label
@@ -656,10 +656,10 @@ def ai_name(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict
     prompt = (
         "These variables from different clinical cohorts have been mapped to one harmonized variable:\n"
         f"{json.dumps(members, ensure_ascii=False)}\n\n"
-        "Propose ONE short name for the harmonized variable, in the style of the variable names themselves "
-        "(abbreviations are fine), snake_case, at most 20 characters before the suffix, and ending with "
-        "'_harmonized' (e.g. nyha_harmonized, ntprobnp_harmonized, lvef_harmonized). Also propose a short "
-        "human-readable label (at most 6 words). Return STRICT JSON only: {\"name\": \"...\", \"label\": \"...\"}"
+        "Propose ONE short name for the merged variable, in the style of the variable names themselves "
+        "(abbreviations are fine), snake_case, at most 20 characters, and ending with '_pooled' "
+        "(e.g. nyha_pooled, ntprobnp_pooled, lvef_pooled). Also propose a short human-readable label "
+        "(at most 6 words). Return STRICT JSON only: {\"name\": \"...\", \"label\": \"...\"}"
     )
     try:
         client = _get_openai_client()
@@ -675,8 +675,7 @@ def ai_name(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict
         parsed = json.loads(content[start:end + 1]) if start >= 0 else {}
         ai_name_ = re.sub(r"[^a-z0-9_]+", "_", str(parsed.get("name") or "").lower()).strip("_")
         if ai_name_:
-            if not ai_name_.endswith("_harmonized"):
-                ai_name_ = ai_name_[:24].rstrip("_") + "_harmonized"
+            ai_name_ = re.sub(r"_(pooled|harmonized)$", "", ai_name_)[:24].rstrip("_") + "_pooled"
             name = ai_name_[:40]
         if parsed.get("label"):
             label = str(parsed["label"])[:80]

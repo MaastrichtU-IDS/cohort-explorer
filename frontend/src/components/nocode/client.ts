@@ -128,6 +128,24 @@ export interface HVar {
   unit_conversion: Record<string, {factor: number | null; from: string; to: string}>;
   evidence: Evidence[];
   notes?: string;
+  // True once the user moved a raw value between rows (or to/from missing):
+  // the value alignment is then a judgement, not just what the codes dictate.
+  value_map_edited?: boolean;
+}
+
+// "_pooled" when the alignment is natural (numeric without unit conversion;
+// categorical with every row matched by a standard code and untouched),
+// "_harmonized" when a real harmonization decision was made.
+export function nameSuffix(hv: HVar, rowsMatchedByCode: boolean): '_pooled' | '_harmonized' {
+  if (hv.type === 'numeric') {
+    const converted = Object.values(hv.unit_conversion || {}).some(c => c && c.factor !== null && c.factor !== undefined && c.factor !== 1);
+    return converted ? '_harmonized' : '_pooled';
+  }
+  return hv.value_map_edited || !rowsMatchedByCode ? '_harmonized' : '_pooled';
+}
+
+export function withSuffix(name: string, suffix: '_pooled' | '_harmonized'): string {
+  return name.replace(/_(pooled|harmonized)$/, '') + suffix;
 }
 
 export interface MappingSpec {

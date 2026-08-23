@@ -24,6 +24,8 @@ import {
   aiName,
   aiSuggest,
   categoryLine,
+  nameSuffix,
+  withSuffix,
   edaLine,
   unitVisitLines,
   fetchCachedMappings,
@@ -301,7 +303,7 @@ function ValueMapEditor({
   cohorts: string[];
   categories: Record<string, {value: string; label: string}[]>;
   clusters: ValueCluster[] | null;
-  onChange: (vm: Record<string, Record<string, string>>) => void;
+  onChange: (vm: Record<string, Record<string, string>>, manualMove?: boolean) => void;
   onSuggest: () => void;
   onAi: () => void;
   busy: string | null;
@@ -346,7 +348,7 @@ function ValueMapEditor({
 
   const setRaw = (c: string, raw: string, h: string) => {
     const vm = {...hv.value_map, [c]: {...(hv.value_map[c] || {}), [raw]: h}};
-    onChange(vm);
+    onChange(vm, true);
   };
   const renameHarmonized = (from: string, to: string) => {
     const name = to.trim();
@@ -365,7 +367,7 @@ function ValueMapEditor({
       vm[c] = {};
       Object.entries(hv.value_map[c] || {}).forEach(([k, v]) => (vm[c][k] = v === h ? '' : v));
     });
-    onChange(vm);
+    onChange(vm, true);
   };
   const splitOut = (c: string, raw: string) => setRaw(c, raw, (labelOf(c, raw) && labelOf(c, raw)!.trim()) || raw);
 
@@ -497,6 +499,11 @@ function ValueMapEditor({
           </tbody>
         </table>
       </div>
+      {!anyMissing && memberCohorts.every(c => (categories[c] || []).length > 0) && (
+        <div className="mt-2 text-xs text-emerald-700 inline-flex items-center gap-1">
+          <Check size={12} /> All values of every cohort are mapped; none will be treated as missing.
+        </div>
+      )}
       {anyMissing && (
         <div className="mt-2 text-xs space-y-1">
           {memberCohorts.map(c =>
@@ -635,6 +642,20 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
     [variables]
   );
 
+  // Every row of the value map rests on a shared standard code (from the
+  // value-suggestion clusters) — the "natural" alignment that earns "_pooled".
+  const rowsMatchedByCode = (hv: HVar): boolean => {
+    if (hv.type !== 'categorical') return true;
+    const cl = clusters[hv.harmonized_name] || [];
+    if (cl.length === 0) return false;
+    const memberCohorts = cohorts.filter(c => hv.members[c]?.var_name);
+    const rows = new Set<string>();
+    memberCohorts.forEach(c => Object.values(hv.value_map[c] || {}).forEach(h => h && rows.add(h)));
+    return Array.from(rows).every(h =>
+      cl.some(x => x.evidence.some(e => e.type === 'code') && memberCohorts.some(c => (x.sources[c] || []).some(raw => (hv.value_map[c] || {})[raw] === h)))
+    );
+  };
+
   const rekey = <T,>(setter: React.Dispatch<React.SetStateAction<Record<string, T>>>, from: string, to: string) =>
     setter(prev => {
       if (!(from in prev) || from === to) return prev;
@@ -762,7 +783,9 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
             raws.forEach(raw => (vm[c][raw] = cl.harmonized));
           });
         });
-        updateHVar(roleKey, {...hv, value_map: vm, evidence: [...hv.evidence, {type: 'manual', detail: 'value map suggested from codes, labels and computed mappings'}]});
+        const next: HVar = {...hv, value_map: vm, value_map_edited: false, evidence: [...hv.evidence, {type: 'manual', detail: 'value map suggested from codes, labels and computed mappings'}]};
+        const allByCode = r.clusters.length > 0 && r.clusters.every(cl => cl.evidence.some(e => e.type === 'code'));
+        updateHVar(roleKey, {...next, harmonized_name: withSuffix(next.harmonized_name, nameSuffix(next, allByCode))});
       })
       .catch(e => setError(e.message))
       .finally(() => setBusy(null));
@@ -849,9 +872,10 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
           const current = mapping.variables.find(x => x.harmonized_name === roleAssignments[r.key]);
           if (!current) return;
           const taken = new Set(mapping.variables.filter(x => x.harmonized_name !== current.harmonized_name).map(x => x.harmonized_name));
-          let newName = res.name;
+          const base = withSuffix(res.name, nameSuffix(current, rowsMatchedByCode(current)));
+          let newName = base;
           let n = 2;
-          while (taken.has(newName)) newName = `${res.name}_${n++}`;
+          while (taken.has(newName)) newName = `${base}_${n++}`;
           replaceHVar(current.harmonized_name, {...current, harmonized_name: newName, label: res.label || current.label}, r.key);
         })
         .catch(() => null);
@@ -1080,13 +1104,19 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
                           cohorts={cohorts}
                           categories={Object.fromEntries(cohorts.map(c => [c, hv.members[c]?.var_name ? categoriesOf(c, hv.members[c].var_name) : []]))}
                           clusters={clusters[hv.harmonized_name] || null}
-                          onChange={vm => updateHVar(role.key, {...hv, value_map: vm})}
+                          onChange={(vm, manualMove) => {
+                            const next: HVar = {...hv, value_map: vm, value_map_edited: hv.value_map_edited || !!manualMove};
+                            const byCode = rowsMatchedByCode(next);
+                            updateHVar(role.key, {...next, harmonized_name: withSuffix(next.harmonized_name, nameSuffix(next, byCode))});
+                          }}
                           onSuggest={() => doSuggestValues(role.key, hv)}
                           onAi={() => doAiValues(role.key, hv)}
                           busy={busy}
                         />
                       )}
-                      {complete && multi && hv.type === 'numeric' && <UnitEditor hv={hv} cohorts={cohorts} onChange={next => updateHVar(role.key, next)} />}
+                      {complete && multi && hv.type === 'numeric' && (
+                        <UnitEditor hv={hv} cohorts={cohorts} onChange={next => updateHVar(role.key, {...next, harmonized_name: withSuffix(next.harmonized_name, nameSuffix(next, true))})} />
+                      )}
                     </>
                   );
                 })()}
