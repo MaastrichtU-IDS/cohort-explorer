@@ -540,6 +540,16 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
   const [cacheFiles, setCacheFiles] = useState<{filename: string; source: string; target: string; generated_at: string; size_kb: number}[]>([]);
   const [useCache, setUseCache] = useState<string[]>(mapping.sources || []);
   const [cacheOpen, setCacheOpen] = useState(false);
+  const cacheBox = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!cacheOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (cacheBox.current && !cacheBox.current.contains(e.target as Node)) setCacheOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [cacheOpen]);
+  const [showProvenance, setShowProvenance] = useState<Record<string, boolean>>({});
   const [saved, setSaved] = useState<{id: string; name: string; cohorts: string[]; variables: number; updated_at: string}[]>([]);
   const [saveName, setSaveName] = useState(mapping.name || '');
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
@@ -774,13 +784,19 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
       {/* Cached + saved mappings toolbar (multi-cohort only) */}
       {multi && (
         <div className="flex flex-wrap items-center gap-2 text-sm">
-          <div className="relative">
+          <div className="relative" ref={cacheBox}>
             <button className="btn btn-sm btn-outline gap-1" onClick={() => setCacheOpen(o => !o)}>
               <Database size={14} /> Computed mappings {useCache.length > 0 && <span className="badge badge-sm badge-primary">{useCache.length} in use</span>}
               <ChevronDown size={14} />
             </button>
             {cacheOpen && (
-              <div className="absolute z-20 mt-1 w-[520px] max-h-72 overflow-y-auto bg-base-100 border border-base-300 rounded-lg shadow-xl p-2">
+              <div className="absolute z-20 mt-1 w-[520px] max-h-80 overflow-y-auto bg-base-100 border border-base-300 rounded-lg shadow-xl p-2">
+                <div className="flex items-center justify-between px-1 pb-1 mb-1 border-b border-base-200">
+                  <span className="text-xs font-semibold">Computed mappings for these cohorts</span>
+                  <button type="button" className="btn btn-xs btn-ghost gap-1" onClick={() => setCacheOpen(false)}>
+                    <X size={12} /> Close
+                  </button>
+                </div>
                 {cacheFiles.length === 0 && <div className="text-xs text-base-content/50 p-2">No computed mappings for these cohorts. Generate them from the Mapping page.</div>}
                 {cacheFiles.map(f => (
                   <label key={f.filename} className="flex items-start gap-2 p-1.5 hover:bg-base-200 rounded cursor-pointer">
@@ -789,7 +805,7 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
                       <span className="font-semibold">
                         {f.source} → {f.target}
                       </span>{' '}
-                      · {f.generated_at.slice(0, 10)} · {f.size_kb} KB
+                      · {f.generated_at.slice(0, 10)}
                       <div className="font-mono text-[10px] text-base-content/50 break-all">{f.filename}</div>
                     </span>
                   </label>
@@ -811,9 +827,9 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
             </select>
           )}
           <div className="ml-auto flex items-center gap-2">
-            <input className="input input-sm input-bordered w-56" placeholder="name this mapping to save it" value={saveName} onChange={e => setSaveName(e.target.value)} />
-            <button className="btn btn-sm btn-outline" onClick={doSave} disabled={mapping.variables.length === 0}>
-              Save mapping
+            <input className="input input-sm input-bordered w-64" placeholder="name this harmonization to reuse it later" value={saveName} onChange={e => setSaveName(e.target.value)} />
+            <button className="btn btn-sm btn-outline" onClick={doSave} disabled={mapping.variables.length === 0} title="Store the harmonized variables, value maps and unit conversions you defined, so they can be loaded into a later no-code DCR">
+              Save for reuse
             </button>
             {saveMsg && <span className="text-xs text-base-content/60">{saveMsg}</span>}
           </div>
@@ -891,22 +907,6 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
 
             {hv && (
               <div className="mt-3">
-                <div className="flex flex-wrap items-end gap-3">
-                  <label className="text-xs">
-                    Harmonized name
-                    <input className="input input-sm input-bordered w-52 font-mono" value={hv.harmonized_name} onChange={e => updateHVar(role.key, {...hv, harmonized_name: e.target.value.replace(/[^a-zA-Z0-9_]/g, '_')})} />
-                  </label>
-                  <label className="text-xs flex-1 min-w-[200px]">
-                    Label shown on figures
-                    <input className="input input-sm input-bordered w-full" value={hv.label} onChange={e => updateHVar(role.key, {...hv, label: e.target.value})} />
-                  </label>
-                  <div className="text-xs">
-                    Type (from the dictionary)
-                    <div className="mt-1">
-                      <span className="badge badge-outline badge-lg font-mono">{hv.type}</span>
-                    </div>
-                  </div>
-                </div>
 
                 {(() => {
                   // Members whose dictionary type differs from the anchor's: a mapping
@@ -970,14 +970,25 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
                   </div>
                 )}
 
-                <div className="mt-3 rounded-lg bg-base-200 p-2.5">
-                  <div className="text-[10px] uppercase tracking-wide text-base-content/50 mb-1">Provenance line printed under every figure</div>
-                  <div className="font-mono text-xs break-words">{provenanceLine(hv)}</div>
-                  <div className="flex flex-wrap gap-1 mt-1.5">
-                    {hv.evidence.slice(-6).map((e, i) => (
-                      <EvidenceBadge key={i} e={e} />
-                    ))}
-                  </div>
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    className="text-xs text-base-content/60 hover:text-base-content inline-flex items-center gap-1"
+                    onClick={() => setShowProvenance(prev => ({...prev, [hv.harmonized_name]: !prev[hv.harmonized_name]}))}
+                  >
+                    <ChevronDown size={12} className={showProvenance[hv.harmonized_name] ? 'rotate-180 transition-transform' : 'transition-transform'} />
+                    {showProvenance[hv.harmonized_name] ? 'Hide' : 'Show'} how this mapping will be printed under the figures
+                  </button>
+                  {showProvenance[hv.harmonized_name] && (
+                    <div className="mt-2 rounded-lg bg-base-200 p-2.5">
+                      <div className="font-mono text-xs break-words">{provenanceLine(hv)}</div>
+                      <div className="flex flex-wrap gap-1 mt-1.5">
+                        {hv.evidence.slice(-6).map((e, i) => (
+                          <EvidenceBadge key={i} e={e} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
