@@ -22,6 +22,8 @@ import {
   ValueCluster,
   VarInfo,
   aiSuggest,
+  edaLine,
+  unitVisitLine,
   fetchCachedMappings,
   fetchAllVariables,
   listMappings,
@@ -124,11 +126,11 @@ function VariableRow({v, cohorts, showCohort, evidence, score}: {v: VarInfo; coh
         <div className="flex items-center gap-2">
           <span className="font-mono font-semibold text-sm truncate">{v.var_name}</span>
           <span className="text-[10px] uppercase tracking-wide text-base-content/50">{v.kind}</span>
-          {v.units && <span className="text-[10px] text-base-content/50">{v.units}</span>}
-          {v.visits && v.visits.toLowerCase() !== 'none' && <span className="text-[10px] text-base-content/50">· {v.visits}</span>}
+          {unitVisitLine(v) && <span className="text-[10px] text-base-content/60 bg-base-200 rounded px-1">{unitVisitLine(v)}</span>}
         </div>
         <div className="text-xs text-base-content/80 truncate">{v.var_label}</div>
         {v.concept_name && <div className="text-[11px] text-base-content/50 truncate">{v.concept_name}</div>}
+        {edaLine(v) && <div className="text-[11px] text-base-content/50 truncate tabular-nums">{edaLine(v)}</div>}
         {v.equivalents && v.equivalents.length > 0 && (
           <div className="text-[11px] text-emerald-800 truncate">≈ {v.equivalents.map(e => `${e.var_name} [${e.cohort_id}]`).join(', ')}</div>
         )}
@@ -864,6 +866,21 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
                         kindFilter={isAnchor ? role.kind : undefined}
                         onClear={isAnchor ? () => clearRole(role.key) : m?.var_name ? () => unlinkMember(role.key, hv, c) : undefined}
                       />
+                      {m?.var_name &&
+                        (() => {
+                          const info = variables.find(x => x.cohort_id === c && x.var_name === m.var_name);
+                          if (!info) return null;
+                          const uv = unitVisitLine(info);
+                          const st = edaLine(info);
+                          if (!uv && !st) return null;
+                          return (
+                            <div className="mt-1 px-1 text-[11px] text-base-content/60 tabular-nums leading-snug">
+                              {uv && <span className="text-base-content/70">{uv}</span>}
+                              {uv && st && <span className="mx-1">·</span>}
+                              {st && <span>{st}</span>}
+                            </div>
+                          );
+                        })()}
                     </div>
                   );
                 })

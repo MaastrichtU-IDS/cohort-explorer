@@ -38,8 +38,57 @@ export interface VarInfo {
   visits?: string;
   count?: number | null;
   categories: CategoryInfo[];
+  // From the cohort's EDA profiling output, when it exists (normalized over both
+  // EDA formats). Lets the user spot scale/unit differences across cohorts.
+  eda?: EdaStats | null;
   score?: number;
   equivalents?: {cohort_id: string; var_name: string; var_label: string}[];
+}
+
+export interface EdaStats {
+  n?: number | null;
+  missing_pct?: number | null;
+  mean?: number | null;
+  std?: number | null;
+  median?: number | null;
+  min?: number | null;
+  max?: number | null;
+  q1?: number | null;
+  q3?: number | null;
+  n_unique?: number | null;
+  type?: string | null;
+}
+
+const fmtNum = (x: number | null | undefined): string | null => {
+  if (x === null || x === undefined || Number.isNaN(x)) return null;
+  const abs = Math.abs(x);
+  const digits = abs >= 100 ? 0 : abs >= 10 ? 1 : 2;
+  return x.toLocaleString(undefined, {maximumFractionDigits: digits});
+};
+
+// One muted line summarising a variable's scale: "n 1,245 · mean 78.4 (sd 12.3) · 38 to 160".
+export function edaLine(v: {kind: string; eda?: EdaStats | null}): string {
+  const e = v.eda;
+  if (!e) return '';
+  const parts: string[] = [];
+  if (e.n != null) parts.push(`n ${fmtNum(e.n)}`);
+  if (e.missing_pct != null && e.missing_pct > 0) parts.push(`${fmtNum(e.missing_pct)}% missing`);
+  if (v.kind === 'numeric') {
+    if (e.mean != null) parts.push(`mean ${fmtNum(e.mean)}${e.std != null ? ` (sd ${fmtNum(e.std)})` : ''}`);
+    if (e.median != null) parts.push(`median ${fmtNum(e.median)}`);
+    if (e.min != null && e.max != null) parts.push(`${fmtNum(e.min)} to ${fmtNum(e.max)}`);
+  } else if (e.n_unique != null) {
+    parts.push(`${fmtNum(e.n_unique)} distinct values`);
+  }
+  return parts.join(' · ');
+}
+
+// "kg · baseline time" style line for unit and visit, empty when neither is known.
+export function unitVisitLine(v: {units?: string; visits?: string}): string {
+  const parts: string[] = [];
+  if (v.units) parts.push(v.units);
+  if (v.visits && v.visits.toLowerCase() !== 'none') parts.push(v.visits);
+  return parts.join(' · ');
 }
 
 export interface Evidence {

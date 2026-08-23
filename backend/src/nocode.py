@@ -117,6 +117,73 @@ def _norm_code(code: Any) -> str:
 
 
 # ---------------------------------------------------------------------------
+# EDA statistics (from the cohort's profiling output, when it exists)
+# ---------------------------------------------------------------------------
+
+_eda_cache: dict[str, tuple[float, dict]] = {}
+
+
+def _num(v: Any) -> Optional[float]:
+    try:
+        if v is None or v == "" or (isinstance(v, str) and v.strip().lower() in ("nan", "n/a", "none", "—")):
+            return None
+        return float(str(v).replace(",", ""))
+    except (TypeError, ValueError):
+        return None
+
+
+def _load_eda(cohort_id: str) -> dict[str, dict]:
+    """{lower-cased variable name -> normalized stats} for a cohort, or {} when
+    no EDA output exists. Handles both EDA formats (v1 flat keys such as
+    'std dev' / 'count missing'; v2 numeric keys under 'variables')."""
+    path = os.path.join(settings.data_folder, f"dcr_output_{cohort_id}", f"eda_output_{cohort_id}.json")
+    if not os.path.exists(path):
+        return {}
+    mtime = os.path.getmtime(path)
+    cached = _eda_cache.get(path)
+    if cached and cached[0] == mtime:
+        return cached[1]
+    try:
+        with open(path, encoding="utf-8") as fh:
+            raw = json.load(fh)
+    except Exception as exc:
+        logger.warning("EDA output for %s unreadable: %s", cohort_id, exc)
+        return {}
+    entries = raw.get("variables") if isinstance(raw, dict) and isinstance(raw.get("variables"), dict) else raw
+    out: dict[str, dict] = {}
+    if isinstance(entries, dict):
+        for name, e in entries.items():
+            if not isinstance(e, dict):
+                continue
+            missing_pct = None
+            if e.get("completeness") is not None:
+                c = _num(e.get("completeness"))
+                if c is not None:
+                    missing_pct = round(100 - (c * 100 if c <= 1 else c), 1)
+            elif e.get("count missing"):
+                m = re.search(r"\((\d+\.?\d*)%\)", str(e.get("count missing")))
+                if m:
+                    missing_pct = float(m.group(1))
+            stats = {
+                "n": _num(e.get("n")) if e.get("n") is not None else _num(e.get("count of observations (ex. missing/empty)")),
+                "missing_pct": missing_pct,
+                "mean": _num(e.get("mean")),
+                "std": _num(e.get("std")) if e.get("std") is not None else _num(e.get("std dev")),
+                "median": _num(e.get("median")),
+                "min": _num(e.get("min")),
+                "max": _num(e.get("max")),
+                "q1": _num(e.get("q1")),
+                "q3": _num(e.get("q3")),
+                "n_unique": _num(e.get("n_unique")),
+                "type": e.get("type") or (e.get("metadata") or {}).get("type") if isinstance(e.get("metadata"), dict) else e.get("type"),
+            }
+            if any(v is not None for k, v in stats.items() if k != "type"):
+                out[str(name).strip().lower()] = stats
+    _eda_cache[path] = (mtime, out)
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Variable index
 # ---------------------------------------------------------------------------
 
@@ -168,7 +235,13 @@ def _index(cohort_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
         cohort = all_cohorts.get(cid)
         if not cohort:
             continue
-        out[cid] = [_var_summary(cid, v) for v in (getattr(cohort, "variables", {}) or {}).values()]
+        eda = _load_eda(cid)
+        summaries = []
+        for v in (getattr(cohort, "variables", {}) or {}).values():
+            summ = _var_summary(cid, v)
+            summ["eda"] = eda.get(summ["var_name"].strip().lower())
+            summaries.append(summ)
+        out[cid] = summaries
     return out
 
 
