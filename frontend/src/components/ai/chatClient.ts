@@ -11,6 +11,56 @@ export interface ChatMessage {
   // bubble lets the user toggle between the two variants.
   summary?: string;
   detailed?: string;
+  // Catalog searches run for this turn (planning round): rendered as a
+  // dedicated search panel above the assistant's answer.
+  searches?: SearchRun[];
+  searchTerms?: string[];
+}
+
+// ---- Catalog search (the chat's search tool) --------------------------------
+
+export interface SearchVariable {
+  var_name: string;
+  var_label?: string;
+  concept_name?: string;
+  omop_domain?: string;
+  var_type?: string;
+  units?: string;
+  visits?: string;
+  categorical?: boolean;
+  equivalents?: {cohort_id: string; var_name: string}[];
+}
+
+export interface SearchCohort {
+  cohort_id: string;
+  matches: number;
+  in_selection?: boolean;
+  variables: SearchVariable[];
+}
+
+export interface SearchRun {
+  term: string;
+  total_matches: number;
+  cohorts_matched: number;
+  cohorts: SearchCohort[];
+}
+
+// Planning round: the model proposes search terms for the question; the server
+// runs them through the catalog search and returns the structured results.
+export async function planSearch(question: string, cohortIds: string[], history: ChatMessage[]): Promise<{needed: boolean; terms: string[]; searches: SearchRun[]}> {
+  const res = await fetch(`${apiUrl}/api/chat/plan-search`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      question,
+      cohort_ids: cohortIds,
+      history: history.map(m => ({role: m.role, content: m.role === 'assistant' ? m.detailed || m.content : m.content}))
+    })
+  });
+  if (!res.ok) throw new Error(`Search planning failed (${res.status})`);
+  const j = await res.json();
+  return {needed: !!j.needed, terms: j.terms || [], searches: Array.isArray(j.searches) ? j.searches : []};
 }
 
 export type AnswerStyle = 'summary' | 'detailed';
@@ -32,6 +82,9 @@ export interface SendOptions {
   // Answer style: the backend appends a matching instruction (short summary vs
   // in-depth). Omit for the default, unconstrained style.
   style?: AnswerStyle;
+  // Structured results of the planning round's catalog searches: injected into
+  // the model's context server-side, identical to what the search panel shows.
+  searchResults?: SearchRun[];
   onChunk: (delta: string) => void;
   signal?: AbortSignal;
 }
@@ -60,7 +113,8 @@ export async function streamChat(opts: SendOptions): Promise<void> {
       focus: opts.focus || null,
       system_prompt: opts.systemPrompt || null,
       context: opts.contextOverride || null,
-      style: opts.style || null
+      style: opts.style || null,
+      search_results: opts.searchResults && opts.searchResults.length > 0 ? opts.searchResults : null
     })
   });
 

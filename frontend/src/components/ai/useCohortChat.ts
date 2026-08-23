@@ -3,7 +3,9 @@ import {useCallback, useEffect, useRef, useState} from 'react';
 import {
   ArrivalPath,
   ChatMessage,
+  SearchRun,
   fetchChatConfig,
+  planSearch,
   saveConversation,
   streamChat
 } from '@/components/ai/chatClient';
@@ -131,6 +133,34 @@ export function useCohortChat(): UseCohortChat {
       const controller = new AbortController();
       abortRef.current = controller;
 
+      // Planning round: does this question involve finding cohorts/variables?
+      // If so the model proposes terms, the server runs the catalog search, the
+      // results appear in the search panel and go into both answers' context.
+      let searches: SearchRun[] = [];
+      let searchTerms: string[] = [];
+      if (!overrides?.contextOverride) {
+        try {
+          const plan = await planSearch(content, selected, base);
+          if (plan.needed && plan.searches.length > 0) {
+            searches = plan.searches;
+            searchTerms = plan.terms;
+            setMessages(prev => {
+              const next = [...prev];
+              const last = next[next.length - 1];
+              if (last && last.role === 'assistant') next[next.length - 1] = {...last, searches, searchTerms};
+              return next;
+            });
+          }
+        } catch {
+          /* planning is best-effort: the answer falls back to single-round retrieval */
+        }
+        if (controller.signal.aborted) {
+          setIsStreaming(false);
+          abortRef.current = null;
+          return;
+        }
+      }
+
       // Accumulate each variant locally too, so we can persist the final
       // transcript without reading React state back out.
       const acc: {summary: string; detailed: string} = {summary: '', detailed: ''};
@@ -143,6 +173,7 @@ export function useCohortChat(): UseCohortChat {
           systemPrompt: overrides?.systemPrompt,
           contextOverride: overrides?.contextOverride,
           style,
+          searchResults: searches,
           signal: controller.signal,
           onChunk: delta => {
             acc[style] += delta;
@@ -181,7 +212,8 @@ export function useCohortChat(): UseCohortChat {
           role: 'assistant',
           content: acc.detailed || acc.summary,
           summary: acc.summary,
-          detailed: acc.detailed
+          detailed: acc.detailed,
+          ...(searches.length > 0 ? {searches, searchTerms} : {})
         };
         const transcript: ChatMessage[] = [...base, {role: 'user', content}, assistant];
         if (conversationIdRef.current) {

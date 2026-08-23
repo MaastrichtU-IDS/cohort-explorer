@@ -73,6 +73,12 @@ SYSTEM_PROMPT = (
     "understand and compare cardiovascular research cohorts and their variables. "
     f"\n\n{PLATFORM_OVERVIEW}\n\n"
     "Answer using ONLY the cohort context provided in this conversation. "
+    "SEARCH RESULTS: when the conversation includes CATALOG SEARCH RESULTS (produced by the "
+    "platform's built-in search tool, shown to the user in a search panel), any question about "
+    "which cohorts or variables meet certain criteria MUST be answered from those results: "
+    "name ALL the matching cohorts with their counts, list at most 10-15 variables per cohort, "
+    "always state the full match counts so it is clear there are more, and use the "
+    "equivalent-by-standard-code links to point out cross-cohort correspondences. "
     "IMPORTANT: focus your search, comparisons and suggestions on cohorts that "
     "have variables (metadata) uploaded to the Explorer — these are the only "
     "cohorts whose data can actually be explored here. Cohorts with 0 uploaded "
@@ -421,24 +427,39 @@ def _assemble_payload(body: dict[str, Any]) -> tuple[list[dict[str, str]], str, 
         context = context_override.strip()[:MAX_CONTEXT_CHARS]
     else:
         context = build_context([str(c) for c in cohort_ids], focus)
-        # Single-round retrieval: mirror the cohorts-page search (OR mode) over
-        # the user's question and inject matching variable details, excluding
-        # terms that are too broad. See chat_retrieval.py.
-        try:
-            from src.chat_retrieval import retrieve_for_question
-            from src.cohort_cache import get_cohorts_from_cache
+        # Search results from the planning round (see /api/chat/plan-search):
+        # the client runs the plan once per user turn and passes the structured
+        # results into both style variants, so the model and the user's search
+        # panel see exactly the same thing.
+        search_results = body.get("search_results")
+        if isinstance(search_results, list) and search_results:
+            try:
+                from src.chat_retrieval import format_search_context
 
-            last_user = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
-            if last_user:
-                section = retrieve_for_question(
-                    last_user,
-                    get_cohorts_from_cache(""),
-                    restrict_to=[str(c) for c in cohort_ids],
-                )
+                section = format_search_context(search_results)
                 if section:
                     context = f"{context}\n\n{section}"
-        except Exception as exc:
-            logger.warning("Question-based variable retrieval failed: %s", exc)
+            except Exception as exc:
+                logger.warning("Search-results formatting failed: %s", exc)
+        else:
+            # Fallback single-round retrieval: mirror the cohorts-page search
+            # (OR mode) over the user's question and inject matching variable
+            # details, excluding terms that are too broad. See chat_retrieval.py.
+            try:
+                from src.chat_retrieval import retrieve_for_question
+                from src.cohort_cache import get_cohorts_from_cache
+
+                last_user = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
+                if last_user:
+                    section = retrieve_for_question(
+                        last_user,
+                        get_cohorts_from_cache(""),
+                        restrict_to=[str(c) for c in cohort_ids],
+                    )
+                    if section:
+                        context = f"{context}\n\n{section}"
+            except Exception as exc:
+                logger.warning("Question-based variable retrieval failed: %s", exc)
 
         # Cross-cohort mapping files: inject cached mappings for the selected
         # pairs, and tell the model plainly which pairs have none yet.
@@ -496,6 +517,65 @@ def chat(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[st
     except Exception as exc:
         logger.warning("Chat completion failed: %s", exc)
         raise HTTPException(status_code=502, detail=f"Upstream model error: {exc}")
+
+
+SEARCH_PLANNER_PROMPT = (
+    "You plan catalog searches for iCARE-AI, an assistant over a catalog of cardiovascular "
+    "research cohorts and their variables. Given the user's question (and the conversation so "
+    "far), decide whether answering involves IDENTIFYING COHORTS OR VARIABLES that meet some "
+    "criteria (a topic, a measurement, a condition, a kind of data). If it does, the built-in "
+    "search tool MUST be used: propose 1 to 6 search terms. Terms should be short (1-3 words) "
+    "and concrete, and should COVER RELATED TERMINOLOGY: synonyms, common abbreviations and "
+    "closely related measurements (e.g. for kidney function: creatinine, eGFR, urea; for "
+    "ejection fraction: LVEF, ejection fraction; German or other-language names are found via "
+    "concept names, so English terms suffice). If the question needs no catalog search (small "
+    "talk, platform how-to, questions about already-shown results), return an empty list.\n"
+    'Return STRICT JSON only: {"searches": ["term", ...]}'
+)
+
+
+@router.post("/api/chat/plan-search")
+def plan_search(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Planning round for the chat's search tool: the model proposes search
+    terms for the user's question; the terms are run through the catalog search
+    (see chat_retrieval.run_chat_searches) and the structured results are
+    returned — the client shows them in the search panel and passes them back
+    into the answer requests so both see the same thing."""
+    from src.chat_retrieval import run_chat_searches
+    from src.cohort_cache import get_cohorts_from_cache
+
+    question = _clean(body.get("question"))
+    if not question:
+        return {"needed": False, "terms": [], "searches": []}
+    cohort_ids = [str(c) for c in (body.get("cohort_ids") or []) if c]
+    history = _normalize_messages(body.get("history"))[-6:]
+    convo = "\n".join(f"{m['role']}: {m['content'][:400]}" for m in history)
+    client = _get_openai_client()
+    try:
+        resp = client.chat.completions.create(
+            model=settings.litellm_model,
+            messages=[
+                {"role": "system", "content": SEARCH_PLANNER_PROMPT},
+                {"role": "user", "content": (f"Conversation so far:\n{convo}\n\n" if convo else "") + f"Question: {question}"},
+            ],
+            temperature=0.0,
+        )
+        content = (resp.choices[0].message.content or "").strip()
+        content = re.sub(r"^```(?:json)?|```$", "", content, flags=re.M).strip()
+        start, end = content.find("{"), content.rfind("}")
+        parsed = json.loads(content[start:end + 1]) if start >= 0 else {}
+        terms = [str(t).strip() for t in (parsed.get("searches") or []) if str(t).strip()][:6]
+    except Exception as exc:
+        logger.warning("Search planning failed: %s", exc)
+        return {"needed": False, "terms": [], "searches": [], "error": str(exc)}
+    if not terms:
+        return {"needed": False, "terms": [], "searches": []}
+    try:
+        runs = run_chat_searches(terms, get_cohorts_from_cache(""), restrict_to=cohort_ids or None)
+    except Exception as exc:
+        logger.warning("Chat search execution failed: %s", exc)
+        return {"needed": False, "terms": terms, "searches": [], "error": str(exc)}
+    return {"needed": True, "terms": terms, "searches": runs, "model": settings.litellm_model}
 
 
 # ---- Conversation starters ---------------------------------------------------

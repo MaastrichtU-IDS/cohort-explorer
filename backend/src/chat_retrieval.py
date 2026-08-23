@@ -211,6 +211,159 @@ def retrieve_for_question(
     return "\n".join(parts)
 
 
+# ---- Model-driven catalog search (the chat's "search tool") ------------------
+# The chat's planning round proposes search terms; each term is run here with
+# the same matching as the cohorts-page search (all words of the term must
+# appear in the variable's searchable text). Results are structured so the UI
+# can render them in a dedicated search-results panel, and formatted for the
+# model with explicit totals (ALL matching cohorts; per-cohort counts).
+
+SEARCH_VARS_SHOWN_PER_COHORT = 12
+# Variable details are expanded only for this many cohorts per term (the user's
+# selected cohorts first, then by match count) — ALL matching cohorts are still
+# named with their counts.
+SEARCH_COHORTS_DETAILED = 6
+SEARCH_EQUIVALENTS_SHOWN = 6
+SEARCH_CONTEXT_CHAR_CAP = 40000
+
+
+def _var_public(var: Any) -> dict[str, Any]:
+    """The variable fields the search panel shows (no values, aggregate-free)."""
+    return {
+        "var_name": _clean(getattr(var, "var_name", "")),
+        "var_label": _clean(getattr(var, "var_label", "")),
+        "concept_name": _clean(getattr(var, "concept_name", "")) or _clean(getattr(var, "mapped_label", "")),
+        "omop_domain": _clean(getattr(var, "omop_domain", "")),
+        "var_type": _clean(getattr(var, "var_type", "")),
+        "units": _clean(getattr(var, "units", "")),
+        "visits": _clean(getattr(var, "visits", "")),
+        "categorical": bool(getattr(var, "categories", None)),
+    }
+
+
+def _norm_code(value: Any) -> str:
+    text = _clean(value).lower()
+    return text.split(":", 1)[-1].strip() if ":" in text else text
+
+
+def _equivalents_map(entries: list[tuple[str, str, Any]]) -> dict[str, list[tuple[str, str]]]:
+    """code/OMOP id -> [(cohort_id, var_name)]: variables sharing a standard code."""
+    by_code: dict[str, list[tuple[str, str]]] = {}
+    for cohort_id, _blob, var in entries:
+        for raw in (getattr(var, "concept_code", None), getattr(var, "omop_id", None)):
+            code = _norm_code(raw)
+            if code:
+                by_code.setdefault(code, []).append((cohort_id, _clean(getattr(var, "var_name", ""))))
+    return by_code
+
+
+def run_chat_searches(
+    terms: list[str],
+    all_cohorts: dict[str, Any],
+    restrict_to: Optional[list[str]] = None,
+) -> list[dict[str, Any]]:
+    """Run each term through the catalog search. A variable matches a term when
+    every word of the term appears in its searchable text. Returns, per term,
+    ALL matching cohorts with their counts and up to SEARCH_VARS_SHOWN_PER_COHORT
+    variables each, with cross-cohort equivalents (shared standard codes)."""
+    entries = _get_index(all_cohorts)
+    eq_map = _equivalents_map(entries)
+    restrict = {str(c) for c in (restrict_to or [])}
+    runs: list[dict[str, Any]] = []
+    for raw_term in terms[:8]:
+        words = [w for w in _normalize(str(raw_term)).split() if len(w) >= 2 and w not in QUERY_STOPWORDS]
+        if not words:
+            continue
+        by_cohort: dict[str, list[Any]] = {}
+        for cohort_id, blob, var in entries:
+            if all(w in blob for w in words):
+                by_cohort.setdefault(cohort_id, []).append(var)
+        cohorts_out = []
+        ranked = sorted(by_cohort.items(), key=lambda kv: (kv[0] not in restrict if restrict else False, -len(kv[1])))
+        detailed_ids = {cid for cid, _ in ranked[:SEARCH_COHORTS_DETAILED]}
+        for cohort_id, vars_ in sorted(by_cohort.items(), key=lambda kv: -len(kv[1])):
+            shown = []
+            for var in (vars_[:SEARCH_VARS_SHOWN_PER_COHORT] if cohort_id in detailed_ids else []):
+                d = _var_public(var)
+                eqs = []
+                for raw in (getattr(var, "concept_code", None), getattr(var, "omop_id", None)):
+                    code = _norm_code(raw)
+                    for other_cohort, other_name in eq_map.get(code, []):
+                        if other_cohort != cohort_id and (other_cohort, other_name) not in eqs:
+                            eqs.append((other_cohort, other_name))
+                if eqs:
+                    d["equivalents"] = [{"cohort_id": c, "var_name": n} for c, n in eqs[:SEARCH_EQUIVALENTS_SHOWN]]
+                shown.append(d)
+            cohorts_out.append({
+                "cohort_id": cohort_id,
+                "matches": len(vars_),
+                "in_selection": (not restrict) or cohort_id in restrict,
+                "variables": shown,
+            })
+        runs.append({
+            "term": str(raw_term),
+            "total_matches": sum(c["matches"] for c in cohorts_out),
+            "cohorts_matched": len(cohorts_out),
+            "cohorts": cohorts_out,
+        })
+    return runs
+
+
+def format_search_context(runs: list[dict[str, Any]]) -> str:
+    """The search results as the model sees them, totals spelled out."""
+    if not runs:
+        return ""
+    parts = [
+        "CATALOG SEARCH RESULTS (from the platform's built-in search tool; the user sees these "
+        "same results in a search panel above your answer):"
+    ]
+    for run in runs:
+        coh = run.get("cohorts") or []
+        if not coh:
+            parts.append(f'## Search "{run.get("term")}": no matching variables in any cohort.')
+            continue
+        counts = ", ".join(f"{c['cohort_id']} ({c['matches']})" for c in coh)
+        parts.append(
+            f'## Search "{run.get("term")}": {run.get("total_matches")} matching variables across '
+            f"{len(coh)} cohort(s) — ALL matching cohorts with their counts: {counts}"
+        )
+        for c in coh:
+            shown = c.get("variables") or []
+            if not shown:
+                continue
+            head = f"### {c['cohort_id']} — showing {len(shown)} of {c['matches']} matching variables:"
+            parts.append(head)
+            for v in shown:
+                bits = [v.get("var_name") or "?"]
+                if v.get("var_label") and (v.get("var_label") or "").lower() != (v.get("var_name") or "").lower():
+                    bits.append(v["var_label"])
+                meta = [m for m in (v.get("var_type"), v.get("units"), v.get("omop_domain"),
+                                     "categorical" if v.get("categorical") else "") if m]
+                if meta:
+                    bits.append("[" + ", ".join(meta) + "]")
+                if v.get("concept_name"):
+                    bits.append(f"(concept: {v['concept_name']})")
+                if v.get("equivalents"):
+                    eq = ", ".join(f"{e['cohort_id']}::{e['var_name']}" for e in v["equivalents"])
+                    bits.append(f"EQUIVALENT BY STANDARD CODE to: {eq}")
+                parts.append("  - " + " — ".join(bits[:2]) + (" " + " ".join(bits[2:]) if len(bits) > 2 else ""))
+            if c["matches"] > len(shown):
+                parts.append(f"  (+{c['matches'] - len(shown)} more matching variables in {c['cohort_id']} not listed here)")
+    text_so_far = "\n".join(parts)
+    if len(text_so_far) > SEARCH_CONTEXT_CHAR_CAP:
+        parts = [text_so_far[:SEARCH_CONTEXT_CHAR_CAP],
+                 "(search results truncated for length — the cohort counts above are complete)"]
+    parts.append(
+        "HOW TO USE THESE RESULTS: base your answer on them, not on memory. When the user asks "
+        "which cohorts have something, name ALL the matching cohorts listed above with their "
+        "counts — never drop any. When listing variables, name at most 10-15 per cohort and "
+        "ALWAYS state the full counts explicitly (e.g. \"TIME-CHF has 57 matching variables; "
+        "here are 12\"), so the user knows there are more. Use the EQUIVALENT BY STANDARD CODE "
+        "links to point out which variables correspond across cohorts."
+    )
+    return "\n".join(parts)
+
+
 # ---- Catalog size estimates (admin diagnostics) ------------------------------
 
 def _estimate_tokens(text: str) -> int:

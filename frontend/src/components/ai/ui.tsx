@@ -2,7 +2,7 @@
 
 // Small shared UI atoms for the experimental AI chat layouts.
 import React, {useEffect, useRef, useState} from 'react';
-import {ChatMessage} from '@/components/ai/chatClient';
+import {ChatMessage, SearchCohort, SearchRun} from '@/components/ai/chatClient';
 import {apiUrl} from '@/utils';
 
 // Very small, safe markdown-ish renderer: escapes HTML then applies headings,
@@ -165,6 +165,94 @@ function VariantToggle({
   );
 }
 
+// ---- Catalog search panel ----------------------------------------------------
+// The chat's search tool ran for this turn: a dedicated display, distinct from
+// the chat bubbles, showing exactly what the model was given — every matching
+// cohort with its counts, a capped variable list per cohort, and the
+// equivalent-by-code links across cohorts.
+
+function SearchCohortBlock({cohort, defaultOpen}: {cohort: SearchCohort; defaultOpen: boolean}) {
+  const shown = cohort.variables || [];
+  return (
+    <details className="rounded-lg border border-base-300 bg-base-100" open={defaultOpen}>
+      <summary className="cursor-pointer select-none px-3 py-1.5 text-sm flex items-center gap-2">
+        <span className="font-semibold">{cohort.cohort_id}</span>
+        <span className="text-xs text-base-content/60">
+          {cohort.matches} matching variable{cohort.matches === 1 ? '' : 's'}
+          {cohort.matches > shown.length && <> · showing {shown.length}</>}
+        </span>
+      </summary>
+      <ul className="px-3 pb-2 space-y-1">
+        {shown.map(v => (
+          <li key={v.var_name} className="text-xs leading-snug">
+            <span className="font-mono font-semibold">{v.var_name}</span>
+            {v.var_label && v.var_label.toLowerCase() !== v.var_name.toLowerCase() && <span className="text-base-content/70"> — {v.var_label}</span>}
+            {(v.var_type || v.units || v.omop_domain || v.categorical) && (
+              <span className="text-base-content/50"> [{[v.var_type, v.units, v.omop_domain, v.categorical ? 'categorical' : ''].filter(Boolean).join(', ')}]</span>
+            )}
+            {v.equivalents && v.equivalents.length > 0 && (
+              <span className="text-violet-700"> ⇄ {v.equivalents.map(e => `${e.cohort_id}::${e.var_name}`).join(', ')}</span>
+            )}
+          </li>
+        ))}
+        {cohort.matches > shown.length && (
+          <li className="text-xs text-base-content/50 italic">+{cohort.matches - shown.length} more matching variables in this cohort (see the explore page for the full list)</li>
+        )}
+      </ul>
+    </details>
+  );
+}
+
+export function SearchResultsPanel({runs}: {runs: SearchRun[]}) {
+  if (!runs || runs.length === 0) return null;
+  return (
+    <div className="rounded-2xl border border-sky-200 bg-sky-50/60 px-4 py-3 space-y-3">
+      <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide font-semibold text-sky-900/70">
+        <span aria-hidden>🔎</span> Catalog search — run by the assistant with the platform&rsquo;s search tool
+      </div>
+      {runs.map(run => (
+        <div key={run.term} className="space-y-1.5">
+          <div className="text-sm">
+            <span className="px-2 py-0.5 rounded-full bg-sky-100 border border-sky-300 text-sky-900 font-mono text-xs">{run.term}</span>{' '}
+            {run.total_matches === 0 ? (
+              <span className="text-base-content/60">no matching variables in any cohort</span>
+            ) : (
+              <span className="text-base-content/80">
+                <b>{run.total_matches}</b> matching variable{run.total_matches === 1 ? '' : 's'} across <b>{run.cohorts.length}</b> cohort
+                {run.cohorts.length === 1 ? '' : 's'}:
+              </span>
+            )}
+          </div>
+          {run.cohorts.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 text-xs">
+              {run.cohorts.map(c => (
+                <span key={c.cohort_id} className="px-1.5 py-0.5 rounded bg-base-100 border border-base-300">
+                  {c.cohort_id} <b>{c.matches}</b>
+                </span>
+              ))}
+            </div>
+          )}
+          <div className="space-y-1">
+            {run.cohorts
+              .filter(c => c.variables.length > 0)
+              .map((c, i) => (
+                <SearchCohortBlock key={c.cohort_id} cohort={c} defaultOpen={i === 0 && runs.length === 1} />
+              ))}
+            {run.cohorts.some(c => c.matches > 0 && c.variables.length === 0) && (
+              <div className="text-xs text-base-content/50 italic">
+                Variable details are expanded for the top cohorts only; the counts above cover every matching cohort (full lists on the explore page).
+              </div>
+            )}
+          </div>
+        </div>
+      ))}
+      <div className="text-[11px] text-base-content/50">
+        Every matching cohort is listed; variable lists are capped per cohort — the counts show how many more there are.
+      </div>
+    </div>
+  );
+}
+
 export function MessageBubble({message, streaming}: {message: ChatMessage; streaming?: boolean}) {
   const isUser = message.role === 'user';
   // Assistant turns carry two answer variants (short summary / in-depth);
@@ -224,7 +312,10 @@ export function MessageList({messages, streaming}: {messages: ChatMessage[]; str
   return (
     <div className="space-y-4">
       {messages.map((m, i) => (
-        <MessageBubble key={i} message={m} streaming={streaming && i === messages.length - 1} />
+        <React.Fragment key={i}>
+          {m.role === 'assistant' && m.searches && m.searches.length > 0 && <SearchResultsPanel runs={m.searches} />}
+          <MessageBubble message={m} streaming={streaming && i === messages.length - 1} />
+        </React.Fragment>
       ))}
       <div ref={endRef} />
     </div>
