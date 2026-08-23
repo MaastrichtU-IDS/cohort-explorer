@@ -300,8 +300,8 @@ export default function NocodeWizard({embedded = false, onClose}: {embedded?: bo
         <div>
           <h1 className={embedded ? 'text-xl font-bold' : 'text-2xl font-bold'}>No-code analysis DCR</h1>
           <p className="text-sm text-base-content/60 max-w-2xl">
-            Describe the analysis you want in plain choices. The explorer builds a Data Clean Room that computes it on the real data and
-            returns figures and tables. Every figure states which variable mapping produced it.
+            Describe the analysis you want in plain choices. The explorer builds a Data Clean Room that computes it on the real data
+            using the mapping you specify, if applicable.
           </p>
         </div>
         {onClose ? (
