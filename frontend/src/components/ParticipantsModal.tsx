@@ -1,4 +1,5 @@
 import React, {useEffect, useRef} from 'react';
+import {createPortal} from 'react-dom';
 import {X} from 'react-feather';
 
 export type DataOwner = { email: string; cohorts: string[] };
@@ -62,8 +63,11 @@ export const ParticipantsModal = React.memo(({
       setManuallyIncludedOwners([...manuallyIncludedOwners, email]);
     }
   };
-  return (
-    <div className="modal modal-open">
+  // Rendered through a portal on <body>: when this list is opened from a wizard
+  // that is itself a modal, the wizard's transformed box would otherwise become
+  // the containing block of this fixed-position overlay and clip it.
+  const modal = (
+    <div className="modal modal-open z-[10000]">
       <div className="modal-box flex flex-col max-h-[90vh]">
         <div className="flex items-center justify-between mb-4 shrink-0">
           <h3 className="font-bold text-lg">DCR Participants</h3>
@@ -171,6 +175,7 @@ export const ParticipantsModal = React.memo(({
       </div>
     </div>
   );
+  return typeof document === 'undefined' ? modal : createPortal(modal, document.body);
 });
 
 ParticipantsModal.displayName = 'ParticipantsModal';
