@@ -11,7 +11,7 @@
 // explorer (see /nocode-results).
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import Link from 'next/link';
-import {ArrowLeft, ArrowRight, Check, Edit2, HelpCircle, AlertTriangle, Users} from 'react-feather';
+import {ArrowLeft, ArrowRight, Check, Edit2, HelpCircle, AlertTriangle, Users, X} from 'react-feather';
 import {useCohorts} from '@/components/CohortsContext';
 import {ParticipantsModal, useOwnersIncludedByDefault} from '@/components/ParticipantsModal';
 import MappingWorkbench, {RoleDef} from '@/components/nocode/MappingWorkbench';
@@ -295,7 +295,7 @@ export default function NocodeWizard({embedded = false, onClose}: {embedded?: bo
   }
 
   return (
-    <main className={embedded ? '' : 'max-w-7xl mx-auto px-4 py-6'}>
+    <main className={embedded ? 'relative' : 'relative max-w-7xl mx-auto px-4 py-6'}>
       <div className="flex items-end justify-between flex-wrap gap-3 mb-4">
         <div>
           <h1 className={embedded ? 'text-xl font-bold' : 'text-2xl font-bold'}>No-code analysis DCR</h1>
@@ -305,8 +305,8 @@ export default function NocodeWizard({embedded = false, onClose}: {embedded?: bo
           </p>
         </div>
         {onClose ? (
-          <button className="btn btn-sm btn-ghost" onClick={onClose}>
-            ✕
+          <button className="btn btn-circle btn-ghost btn-lg absolute top-2 right-2 z-10" onClick={onClose} aria-label="Close">
+            <X size={28} />
           </button>
         ) : (
           <Link href="/dcrs" className="btn btn-sm btn-ghost">

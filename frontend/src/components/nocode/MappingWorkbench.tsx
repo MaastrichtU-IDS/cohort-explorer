@@ -51,16 +51,8 @@ interface Props {
   userEmail?: string | null;
 }
 
-// Distinct, stable colour per cohort (full class strings for Tailwind's JIT).
-const COHORT_COLORS = [
-  'bg-sky-100 text-sky-900 border-sky-300',
-  'bg-emerald-100 text-emerald-900 border-emerald-300',
-  'bg-amber-100 text-amber-900 border-amber-300',
-  'bg-rose-100 text-rose-900 border-rose-300',
-  'bg-violet-100 text-violet-900 border-violet-300',
-  'bg-teal-100 text-teal-900 border-teal-300'
-];
-export const cohortColor = (cohorts: string[], id: string) => COHORT_COLORS[Math.max(0, cohorts.indexOf(id)) % COHORT_COLORS.length];
+// One colour for every cohort tag (the cohort is identified by its name, not a hue).
+export const cohortColor = (_cohorts: string[], _id: string) => 'bg-amber-100 text-amber-900 border-amber-300';
 
 const EVIDENCE_STYLE: Record<string, string> = {
   code: 'bg-emerald-600 text-white',
@@ -560,6 +552,14 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
     }
   }, [cohorts, multi]);
 
+  // Cohorts ordered by how many variables they expose (most first), so the
+  // first field offers the most options.
+  const orderedCohorts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    variables.forEach(v => (counts[v.cohort_id] = (counts[v.cohort_id] || 0) + 1));
+    return [...cohorts].sort((a, b) => (counts[b] || 0) - (counts[a] || 0));
+  }, [cohorts, variables]);
+
   const categoriesOf = useCallback(
     (cohort: string, varName: string) => {
       const v = variables.find(x => x.cohort_id === cohort && x.var_name === varName);
@@ -773,8 +773,7 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
                     <span className="text-xs">
                       <span className="font-semibold">
                         {f.source} → {f.target}
-                      </span>{' '}
-                      · {f.generated_at.slice(0, 10)}
+                      </span>
                       <div className="font-mono text-[10px] text-base-content/50 break-all">{f.filename}</div>
                     </span>
                   </label>
@@ -806,11 +805,20 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
               {hv && (complete ? <Check size={14} className="text-emerald-600 ml-auto" /> : <AlertTriangle size={14} className="text-amber-600 ml-auto" />)}
             </div>
 
-            <div className="grid gap-3" style={{gridTemplateColumns: multi && hv ? `repeat(${Math.min(cohorts.length, 3)}, minmax(0, 1fr))` : '1fr'}}>
+            <div className="grid gap-3" style={{gridTemplateColumns: multi ? `repeat(${Math.min(cohorts.length, 3)}, minmax(0, 1fr))` : '1fr'}}>
               {!hv ? (
-                <VariableCombobox cohorts={cohorts} variables={variables} value={null} onPick={v => pickAnchor(role.key, v)} placeholder={multi ? 'Choose a variable in any cohort to start from…' : 'Choose a variable…'} kindFilter={role.kind} />
+                // One field per cohort from the start; picking in any of them makes
+                // that variable the anchor and suggests matches for the other cohorts.
+                orderedCohorts.map(c => (
+                  <div key={c}>
+                    <div className="flex items-center gap-1 mb-1">
+                      <span className={`px-1.5 py-0.5 rounded border text-[10px] font-semibold ${cohortColor(cohorts, c)}`}>{c}</span>
+                    </div>
+                    <VariableCombobox cohorts={cohorts} variables={variables} value={null} onPick={v => pickAnchor(role.key, v)} placeholder="Choose a variable…" restrictCohort={c} kindFilter={role.kind} />
+                  </div>
+                ))
               ) : (
-                cohorts.map(c => {
+                orderedCohorts.map(c => {
                   const m = hv.members[c];
                   const isAnchor = c === anchorCohort;
                   return (
