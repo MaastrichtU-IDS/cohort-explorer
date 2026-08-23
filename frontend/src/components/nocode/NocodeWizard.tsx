@@ -40,7 +40,7 @@ const ROLE_LABELS: Record<Kind, RoleDef[]> = {
   ]
 };
 
-const STEPS = ['Choose analysis type', 'Cohorts', 'Data & participants', 'Variables & harmonization', 'Settings', 'Review & create'];
+const STEPS = ['Choose analysis type', 'Cohorts', 'Data & participants', 'Variables & harmonization', 'Review & create'];
 
 // "weight by sex in TIME-CHF", "sex across TIME-CHF and Aachen-HF", ...
 function defaultTitle(kind: Kind | null, mapping: MappingSpec, roles: Record<string, string>, cohorts: string[]): string {
@@ -76,10 +76,9 @@ export default function NocodeWizard({embedded = false, onClose}: {embedded?: bo
   const [cohorts, setCohorts] = useState<string[]>([]);
   const [mapping, setMapping] = useState<MappingSpec>({name: '', cohorts: [], variables: []});
   const [roleAssignments, setRoleAssignments] = useState<Record<string, string>>({});
-  const [title, setTitle] = useState('');
-  const [titleTouched, setTitleTouched] = useState(false);
-  const [k, setK] = useState(0);
-  const [bins, setBins] = useState(20);
+  // Fixed for now (no settings step): no small-cell suppression, 20 histogram bins.
+  const k = 0;
+  const bins = 20;
   const [dcrName, setDcrName] = useState('');
   const [editingName, setEditingName] = useState(false);
   const [description, setDescription] = useState('');
@@ -202,8 +201,8 @@ export default function NocodeWizard({embedded = false, onClose}: {embedded?: bo
   // DCR name: "NoCode-" + the analysis title with dashes between words (no
   // spaces or colons), e.g. NoCode-weight-by-sex-in-TIME-CHF.
   const dashed = (text: string) => text.replace(/[^\p{L}\p{N}-]+/gu, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
-  const autoDcrName = `NoCode-${dashed((titleTouched && title.trim()) || autoTitle || (meta?.label ?? '') || 'analysis')}`;
-  const effectiveTitle = (titleTouched && title.trim()) || autoTitle || meta?.label || kind || '';
+  const autoDcrName = `NoCode-${dashed(autoTitle || (meta?.label ?? '') || 'analysis')}`;
+  const effectiveTitle = autoTitle || meta?.label || kind || '';
 
   const spec: AnalysisSpec | null = kind
     ? {
@@ -221,7 +220,7 @@ export default function NocodeWizard({embedded = false, onClose}: {embedded?: bo
     : null;
 
   useEffect(() => {
-    if (step === 5 && spec) {
+    if (step === 4 && spec) {
       describeSpec(spec)
         .then(r => {
           setDescription(r.description);
@@ -490,35 +489,8 @@ export default function NocodeWizard({embedded = false, onClose}: {embedded?: bo
         <MappingWorkbench cohorts={cohorts} roles={roles} mapping={mapping} roleAssignments={roleAssignments} onMappingChange={setMapping} onRolesChange={setRoleAssignments} userEmail={userEmail} />
       )}
 
-      {/* Step 4: settings */}
-      {step === 4 && (
-        <div className="max-w-xl space-y-4">
-          <label className="block text-sm">
-            Title of the analysis (shown on the figures)
-            <input
-              className="input input-bordered w-full"
-              value={titleTouched ? title : autoTitle}
-              onChange={e => {
-                setTitleTouched(true);
-                setTitle(e.target.value);
-              }}
-            />
-            <span className="block text-xs text-base-content/60 mt-1">Built from the chosen variables and cohorts; edit freely.</span>
-          </label>
-          <label className="block text-sm">
-            Small-cell suppression threshold (optional)
-            <input type="number" min={0} className="input input-bordered w-32 ml-2" value={k} onChange={e => setK(parseInt(e.target.value || '0', 10))} />
-            <span className="block text-xs text-base-content/60 mt-1">0 shows everything (the default). Set e.g. 5 to hide counts, bins and table cells below that number.</span>
-          </label>
-          <label className="block text-sm">
-            Histogram bins (numeric variables)
-            <input type="number" min={5} max={100} className="input input-bordered w-32 ml-2" value={bins} onChange={e => setBins(parseInt(e.target.value || '20', 10))} />
-          </label>
-        </div>
-      )}
-
-      {/* Step 5: review */}
-      {step === 5 && spec && !created && (
+      {/* Step 4: review */}
+      {step === 4 && spec && !created && (
         <div className="grid lg:grid-cols-2 gap-6">
           <div className="space-y-4">
             <div className="rounded-xl border border-base-300 bg-base-100 p-4">
