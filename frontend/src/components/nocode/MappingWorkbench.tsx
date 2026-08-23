@@ -57,8 +57,18 @@ interface Props {
   userEmail?: string | null;
 }
 
-// One colour for every cohort tag (the cohort is identified by its name, not a hue).
-export const cohortColor = (_cohorts: string[], _id: string) => 'bg-amber-100 text-amber-900 border-amber-300';
+// One hue per cohort, by its position in the selection. Kept away from the
+// platform's own colours: no light blues (the accent), no indigo/violet (the
+// primary buttons), no greens (the completed steps), no black.
+const COHORT_HUES = [
+  'bg-amber-100 text-amber-900 border-amber-300',
+  'bg-rose-100 text-rose-900 border-rose-300',
+  'bg-fuchsia-100 text-fuchsia-900 border-fuchsia-300',
+  'bg-orange-100 text-orange-900 border-orange-300',
+  'bg-stone-200 text-stone-800 border-stone-400',
+  'bg-red-100 text-red-900 border-red-300'
+];
+export const cohortColor = (cohorts: string[], id: string) => COHORT_HUES[Math.max(0, cohorts.indexOf(id)) % COHORT_HUES.length];
 
 const EVIDENCE_STYLE: Record<string, string> = {
   code: 'bg-emerald-600 text-white',
