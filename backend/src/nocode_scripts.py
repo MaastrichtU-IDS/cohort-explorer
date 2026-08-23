@@ -360,7 +360,7 @@ def provenance_lines(used):
             if t == "code":
                 ev.append("shared code %s" % e.get("detail", ""))
             elif t == "cache":
-                ev.append("cached mapping %s (%s)" % (e.get("file", ""), e.get("status", "")))
+                ev.append("computed mapping %s (%s)" % (e.get("file", ""), e.get("status", "")))
             elif t == "text":
                 ev.append("text similarity %.2f" % float(e.get("score", 0)))
             elif t == "ai":

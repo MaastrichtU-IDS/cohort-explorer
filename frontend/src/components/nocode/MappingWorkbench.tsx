@@ -22,8 +22,9 @@ import {
   ValueCluster,
   VarInfo,
   aiSuggest,
+  categoryLine,
   edaLine,
-  unitVisitLine,
+  unitVisitLines,
   fetchCachedMappings,
   fetchAllVariables,
   listMappings,
@@ -84,8 +85,8 @@ export function EvidenceBadge({e}: {e: Evidence}) {
     text = `TEXT ${(e.score ?? 0).toFixed(2)}`;
     title = 'Name/label similarity (normalized tokens)';
   } else if (e.type === 'cache') {
-    text = `CACHE · ${e.status || '?'}`;
-    title = `From cached mapping file ${e.file}`;
+    text = `COMPUTED · ${e.status || '?'}`;
+    title = `From the computed mapping file ${e.file}`;
   } else if (e.type === 'ai') {
     text = 'AI';
     title = e.detail || 'Suggested by iCARE-AI';
@@ -126,11 +127,12 @@ function VariableRow({v, cohorts, showCohort, evidence, score}: {v: VarInfo; coh
         <div className="flex items-center gap-2">
           <span className="font-mono font-semibold text-sm truncate">{v.var_name}</span>
           <span className="text-[10px] uppercase tracking-wide text-base-content/50">{v.kind}</span>
-          {unitVisitLine(v) && <span className="text-[10px] text-base-content/60 bg-base-200 rounded px-1">{unitVisitLine(v)}</span>}
+          {unitVisitLines(v).length > 0 && <span className="text-[10px] text-base-content/60 bg-base-200 rounded px-1">{unitVisitLines(v).join(' · ')}</span>}
         </div>
         <div className="text-xs text-base-content/80 truncate">{v.var_label}</div>
         {v.concept_name && <div className="text-[11px] text-base-content/50 truncate">{v.concept_name}</div>}
         {edaLine(v) && <div className="text-[11px] text-base-content/50 truncate tabular-nums">{edaLine(v)}</div>}
+        {categoryLine(v) && <div className="text-[11px] text-base-content/50 truncate tabular-nums">{categoryLine(v)}</div>}
         {v.equivalents && v.equivalents.length > 0 && (
           <div className="text-[11px] text-emerald-800 truncate">≈ {v.equivalents.map(e => `${e.var_name} [${e.cohort_id}]`).join(', ')}</div>
         )}
@@ -356,13 +358,13 @@ function ValueMapEditor({
   const clusterEvidence = (h: string) => clusters?.find(cl => cl.harmonized.toLowerCase() === h.toLowerCase())?.evidence || [];
 
   return (
-    <div className="mt-4">
+    <div className="mt-4 ml-3 pl-4 border-l-2 border-base-300 max-w-4xl">
       <div className="flex items-center gap-2 flex-wrap">
         <h4 className="font-semibold text-sm">Value mapping</h4>
         <span className="text-xs text-base-content/50">one row per harmonized value; assign each cohort&rsquo;s raw values to it</span>
         <div className="ml-auto flex gap-2">
           <button className="btn btn-xs btn-outline gap-1" onClick={onSuggest} disabled={busy !== null}>
-            <Zap size={12} /> {busy === 'values' ? 'Suggesting…' : 'Suggest from codes, labels & cache'}
+            <Zap size={12} /> {busy === 'values' ? 'Suggesting…' : 'Suggest from codes, labels & computed mappings'}
           </button>
           <button className="btn btn-xs btn-outline btn-warning gap-1" onClick={onAi} disabled={busy !== null}>
             <Sparkles size={12} /> {busy === 'ai-values' ? 'Asking…' : 'Ask iCARE-AI'}
@@ -474,7 +476,7 @@ function UnitEditor({hv, cohorts, onChange}: {hv: HVar; cohorts: string[]; onCha
   const units = memberCohorts.map(c => (hv.members[c].unit || '').trim()).filter(Boolean);
   const mismatch = new Set(units.map(u => u.toLowerCase())).size > 1;
   return (
-    <div className="mt-4">
+    <div className="mt-4 ml-3 pl-4 border-l-2 border-base-300 max-w-3xl">
       <div className="flex items-center gap-2">
         <h4 className="font-semibold text-sm">Units</h4>
         {mismatch ? (
@@ -533,6 +535,7 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
   const [suggestions, setSuggestions] = useState<Record<string, Record<string, Candidate[]>>>({}); // hvar -> cohort -> candidates
   const [clusters, setClusters] = useState<Record<string, ValueCluster[]>>({});
   const [busy, setBusy] = useState<string | null>(null);
+  const [forceOpen, setForceOpen] = useState<Record<string, boolean>>({}); // harmonized_name -> show editor despite type mismatch
   const [error, setError] = useState<string | null>(null);
   const [cacheFiles, setCacheFiles] = useState<{filename: string; source: string; target: string; generated_at: string; size_kb: number}[]>([]);
   const [useCache, setUseCache] = useState<string[]>(mapping.sources || []);
@@ -674,7 +677,7 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
             raws.forEach(raw => (vm[c][raw] = cl.harmonized));
           });
         });
-        updateHVar(roleKey, {...hv, value_map: vm, evidence: [...hv.evidence, {type: 'manual', detail: 'value map suggested from codes/labels/cache'}]});
+        updateHVar(roleKey, {...hv, value_map: vm, evidence: [...hv.evidence, {type: 'manual', detail: 'value map suggested from codes, labels and computed mappings'}]});
       })
       .catch(e => setError(e.message))
       .finally(() => setBusy(null));
@@ -773,12 +776,12 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <div className="relative">
             <button className="btn btn-sm btn-outline gap-1" onClick={() => setCacheOpen(o => !o)}>
-              <Database size={14} /> Cached mapping files {useCache.length > 0 && <span className="badge badge-sm badge-primary">{useCache.length} in use</span>}
+              <Database size={14} /> Computed mappings {useCache.length > 0 && <span className="badge badge-sm badge-primary">{useCache.length} in use</span>}
               <ChevronDown size={14} />
             </button>
             {cacheOpen && (
               <div className="absolute z-20 mt-1 w-[520px] max-h-72 overflow-y-auto bg-base-100 border border-base-300 rounded-lg shadow-xl p-2">
-                {cacheFiles.length === 0 && <div className="text-xs text-base-content/50 p-2">No cached mapping files for these cohorts. Generate them from the Mapping page.</div>}
+                {cacheFiles.length === 0 && <div className="text-xs text-base-content/50 p-2">No computed mappings for these cohorts. Generate them from the Mapping page.</div>}
                 {cacheFiles.map(f => (
                   <label key={f.filename} className="flex items-start gap-2 p-1.5 hover:bg-base-200 rounded cursor-pointer">
                     <input type="checkbox" className="checkbox checkbox-xs mt-0.5" checked={useCache.includes(f.filename)} onChange={() => toggleCache(f.filename)} />
@@ -792,7 +795,7 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
                   </label>
                 ))}
                 <div className="text-[11px] text-base-content/50 p-2 border-t border-base-200 mt-1">
-                  Ticked files become an evidence source: their rows appear as <span className="px-1 rounded bg-violet-600 text-white">CACHE</span> badges in the suggestions and their value mappings pre-fill the value table.
+                  Ticked computed mappings become an evidence source: their rows appear as <span className="px-1 rounded bg-violet-600 text-white">COMPUTED</span> badges in the suggestions and their value mappings pre-fill the value table.
                 </div>
               </div>
             )}
@@ -870,14 +873,13 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
                         (() => {
                           const info = variables.find(x => x.cohort_id === c && x.var_name === m.var_name);
                           if (!info) return null;
-                          const uv = unitVisitLine(info);
-                          const st = edaLine(info);
-                          if (!uv && !st) return null;
+                          const lines = [...unitVisitLines(info), edaLine(info), categoryLine(info)].filter(Boolean);
+                          if (lines.length === 0) return null;
                           return (
-                            <div className="mt-1 px-1 text-[11px] text-base-content/60 tabular-nums leading-snug">
-                              {uv && <span className="text-base-content/70">{uv}</span>}
-                              {uv && st && <span className="mx-1">·</span>}
-                              {st && <span>{st}</span>}
+                            <div className="mt-1 px-1 text-[11px] text-base-content/60 tabular-nums leading-snug space-y-0.5">
+                              {lines.map((l, i) => (
+                                <div key={i} className={i < unitVisitLines(info).length ? 'text-base-content/70' : ''}>{l}</div>
+                              ))}
                             </div>
                           );
                         })()}
@@ -906,19 +908,59 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
                   </div>
                 </div>
 
-                {complete && multi && hv.type === 'categorical' && (
-                  <ValueMapEditor
-                    hv={hv}
-                    cohorts={cohorts}
-                    categories={Object.fromEntries(cohorts.map(c => [c, hv.members[c]?.var_name ? categoriesOf(c, hv.members[c].var_name) : []]))}
-                    clusters={clusters[hv.harmonized_name] || null}
-                    onChange={vm => updateHVar(role.key, {...hv, value_map: vm})}
-                    onSuggest={() => doSuggestValues(role.key, hv)}
-                    onAi={() => doAiValues(role.key, hv)}
-                    busy={busy}
-                  />
-                )}
-                {complete && multi && hv.type === 'numeric' && <UnitEditor hv={hv} cohorts={cohorts} onChange={next => updateHVar(role.key, next)} />}
+                {(() => {
+                  // Members whose dictionary type differs from the anchor's: a mapping
+                  // between a categorical and a numeric variable is unlikely to be right.
+                  const kindOf = (c: string) =>
+                    (hv.members[c]?.kind as string | undefined) || variables.find(x => x.cohort_id === c && x.var_name === hv.members[c]?.var_name)?.kind || '';
+                  const withKind = cohorts.filter(c => hv.members[c]?.var_name && kindOf(c));
+                  const anchorKind = anchorCohort ? kindOf(anchorCohort) : '';
+                  const mismatched = withKind.filter(c => c !== anchorCohort && anchorKind && kindOf(c) !== anchorKind);
+                  if (mismatched.length === 0) return null;
+                  return (
+                    <div className="mt-3 rounded-xl border border-rose-300 bg-rose-50 text-rose-900 p-3 text-sm">
+                      <div className="font-semibold mb-1">This mapping is unlikely to be correct due to a type difference</div>
+                      <ul className="list-disc ml-5 space-y-0.5">
+                        {mismatched.map(c => (
+                          <li key={c}>
+                            <span className="font-mono">{hv.members[anchorCohort!].var_name}</span> [{anchorCohort}] is {anchorKind} while{' '}
+                            <span className="font-mono">{hv.members[c].var_name}</span> [{c}] is {kindOf(c)}
+                          </li>
+                        ))}
+                      </ul>
+                      {!forceOpen[hv.harmonized_name] && (
+                        <button className="btn btn-xs btn-outline btn-error mt-2" onClick={() => setForceOpen(prev => ({...prev, [hv.harmonized_name]: true}))}>
+                          Show the {hv.type === 'categorical' ? 'value mapping' : 'unit settings'} anyway
+                        </button>
+                      )}
+                    </div>
+                  );
+                })()}
+                {(() => {
+                  const kindOf = (c: string) =>
+                    (hv.members[c]?.kind as string | undefined) || variables.find(x => x.cohort_id === c && x.var_name === hv.members[c]?.var_name)?.kind || '';
+                  const anchorKind = anchorCohort ? kindOf(anchorCohort) : '';
+                  const hasMismatch = cohorts.some(c => hv.members[c]?.var_name && c !== anchorCohort && anchorKind && kindOf(c) && kindOf(c) !== anchorKind);
+                  const editorsVisible = !hasMismatch || !!forceOpen[hv.harmonized_name];
+                  if (!editorsVisible) return null;
+                  return (
+                    <>
+                      {complete && multi && hv.type === 'categorical' && (
+                        <ValueMapEditor
+                          hv={hv}
+                          cohorts={cohorts}
+                          categories={Object.fromEntries(cohorts.map(c => [c, hv.members[c]?.var_name ? categoriesOf(c, hv.members[c].var_name) : []]))}
+                          clusters={clusters[hv.harmonized_name] || null}
+                          onChange={vm => updateHVar(role.key, {...hv, value_map: vm})}
+                          onSuggest={() => doSuggestValues(role.key, hv)}
+                          onAi={() => doAiValues(role.key, hv)}
+                          busy={busy}
+                        />
+                      )}
+                      {complete && multi && hv.type === 'numeric' && <UnitEditor hv={hv} cohorts={cohorts} onChange={next => updateHVar(role.key, next)} />}
+                    </>
+                  );
+                })()}
                 {!multi && hv.type === 'categorical' && anchorCohort && (
                   <div className="mt-2 text-xs text-base-content/60">
                     Categories:{' '}

@@ -175,9 +175,15 @@ def _load_eda(cohort_id: str) -> dict[str, dict]:
                 "q1": _num(e.get("q1")),
                 "q3": _num(e.get("q3")),
                 "n_unique": _num(e.get("n_unique")),
+                # categorical frequencies (EDA v2): [{value, label, count, pct}]
+                "distribution": [
+                    {"value": str(d.get("value", "")), "label": str(d.get("label", "") or d.get("value", "")),
+                     "count": _num(d.get("count")), "pct": _num(d.get("pct"))}
+                    for d in (e.get("distribution") or []) if isinstance(d, dict)
+                ][:12] or None,
                 "type": e.get("type") or (e.get("metadata") or {}).get("type") if isinstance(e.get("metadata"), dict) else e.get("type"),
             }
-            if any(v is not None for k, v in stats.items() if k != "type"):
+            if any(v is not None for k, v in stats.items() if k not in ("type", "distribution")) or stats["distribution"]:
                 out[str(name).strip().lower()] = stats
     _eda_cache[path] = (mtime, out)
     return out

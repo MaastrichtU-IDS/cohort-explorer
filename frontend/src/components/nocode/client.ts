@@ -57,6 +57,7 @@ export interface EdaStats {
   q3?: number | null;
   n_unique?: number | null;
   type?: string | null;
+  distribution?: {value: string; label: string; count?: number | null; pct?: number | null}[] | null;
 }
 
 const fmtNum = (x: number | null | undefined): string | null => {
@@ -83,12 +84,20 @@ export function edaLine(v: {kind: string; eda?: EdaStats | null}): string {
   return parts.join(' · ');
 }
 
-// "kg · baseline time" style line for unit and visit, empty when neither is known.
-export function unitVisitLine(v: {units?: string; visits?: string}): string {
-  const parts: string[] = [];
-  if (v.units) parts.push(v.units);
-  if (v.visits && v.visits.toLowerCase() !== 'none') parts.push(v.visits);
-  return parts.join(' · ');
+// Categorical frequencies as "I 12% · II 45% · III 35% · IV 8%" (up to 8 shown).
+export function categoryLine(v: {kind: string; eda?: EdaStats | null}): string {
+  const d = v.eda?.distribution;
+  if (!d || d.length === 0) return '';
+  const shown = d.slice(0, 8).map(x => `${x.label && x.label !== x.value ? `${x.value} ${x.label}` : x.value}${x.pct != null ? ` ${fmtNum(x.pct)}%` : ''}`);
+  return shown.join(' · ') + (d.length > 8 ? ` · +${d.length - 8} more` : '');
+}
+
+// Explicit "unit: kg" / "visit: baseline time" lines (only the ones that are known).
+export function unitVisitLines(v: {units?: string; visits?: string}): string[] {
+  const lines: string[] = [];
+  if (v.units) lines.push(`unit: ${v.units}`);
+  if (v.visits && v.visits.toLowerCase() !== 'none') lines.push(`visit: ${v.visits}`);
+  return lines;
 }
 
 export interface Evidence {
