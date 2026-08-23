@@ -131,7 +131,16 @@ def _var_summary(cohort_id: str, v: Any) -> dict[str, Any]:
             "concept_name": getattr(c, "mapped_label", None),
         })
     var_type = (getattr(v, "var_type", "") or "").upper()
-    kind = "categorical" if cats or var_type in ("STR", "STRING", "TEXT", "CAT", "CATEGORICAL", "BOOL", "BOOLEAN") else "numeric"
+    # The kind is a fact of the dictionary, never a user choice: categorical only
+    # when categories are declared; numeric for numeric VARTYPEs; everything else
+    # (free text, identifiers, dates, undeclared strings) is "other" and is not
+    # offered for analysis roles.
+    if cats:
+        kind = "categorical"
+    elif var_type in ("INT", "INTEGER", "FLOAT", "DOUBLE", "NUMERIC", "NUMBER", "DECIMAL", "REAL", "LONG"):
+        kind = "numeric"
+    else:
+        kind = "other"
     return {
         "cohort_id": cohort_id,
         "var_name": getattr(v, "var_name", ""),
@@ -382,6 +391,8 @@ def suggest(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict
             continue
         cands = []
         for b in index.get(cid, []):
+            if b["kind"] == "other":
+                continue
             evidence = []
             score = 0.0
             if a["concept_code"] and _norm_code(a["concept_code"]) == _norm_code(b["concept_code"]):

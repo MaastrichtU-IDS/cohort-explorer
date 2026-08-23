@@ -26,7 +26,9 @@ export interface VarInfo {
   var_name: string;
   var_label: string;
   var_type: string;
-  kind: 'categorical' | 'numeric';
+  // From the dictionary: categorical = categories declared; numeric = numeric VARTYPE;
+  // other = free text / identifier / date, not usable in an analysis role.
+  kind: 'categorical' | 'numeric' | 'other';
   units: string;
   unit_concept_name?: string;
   concept_code: string;
@@ -215,7 +217,7 @@ export function newHVar(anchor: VarInfo): HVar {
   return {
     harmonized_name: slugName(base).slice(0, 40),
     label: anchor.concept_name || anchor.var_label || anchor.var_name,
-    type: anchor.kind,
+    type: anchor.kind === 'categorical' ? 'categorical' : 'numeric',
     unit: anchor.units || '',
     members: {[anchor.cohort_id]: {var_name: anchor.var_name, var_label: anchor.var_label, unit: anchor.units, kind: anchor.kind}},
     value_map: {},

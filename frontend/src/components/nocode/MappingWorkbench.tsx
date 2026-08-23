@@ -183,6 +183,7 @@ function VariableCombobox({
 
   const pool = useMemo(() => {
     let list = restrictCohort ? variables.filter(v => v.cohort_id === restrictCohort) : variables;
+    list = list.filter(v => v.kind !== 'other');
     if (kindFilter) list = list.filter(v => v.kind === kindFilter);
     return list.filter(v => matches(v, q));
   }, [variables, restrictCohort, kindFilter, q]);
@@ -275,6 +276,13 @@ function VariableCombobox({
               </div>
             ))}
             {pool.length === 0 && suggested.length === 0 && <div className="p-3 text-sm text-base-content/50">No variables match.</div>}
+            <div className="px-3 py-1.5 text-[11px] text-base-content/50 border-t border-base-200">
+              {kindFilter === 'categorical'
+                ? 'Only categorical variables are listed (categories declared in the dictionary).'
+                : kindFilter === 'numeric'
+                  ? 'Only numeric variables are listed (numeric type in the dictionary).'
+                  : 'Free-text, identifier and date variables are not listed: they cannot be analysed here.'}
+            </div>
           </div>
         </div>
       )}
@@ -873,13 +881,12 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
                     Label shown on figures
                     <input className="input input-sm input-bordered w-full" value={hv.label} onChange={e => updateHVar(role.key, {...hv, label: e.target.value})} />
                   </label>
-                  <label className="text-xs">
-                    Type
-                    <select className="select select-sm select-bordered" value={hv.type} onChange={e => updateHVar(role.key, {...hv, type: e.target.value as any})}>
-                      <option value="categorical">categorical</option>
-                      <option value="numeric">numeric</option>
-                    </select>
-                  </label>
+                  <div className="text-xs">
+                    Type (from the dictionary)
+                    <div className="mt-1">
+                      <span className="badge badge-outline badge-lg font-mono">{hv.type}</span>
+                    </div>
+                  </div>
                 </div>
 
                 {complete && multi && hv.type === 'categorical' && (
