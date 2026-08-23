@@ -109,7 +109,19 @@ def text_similarity(v1: dict, v2: dict) -> float:
     cn1, cn2 = _ascii(v1.get("concept_name") or "").lower(), _ascii(v2.get("concept_name") or "").lower()
     concept = 1.0 if cn1 and cn1 == cn2 else (_ratio(cn1, cn2) if cn1 and cn2 else 0.0)
     cross = max(_ratio(v1.get("var_label"), v2.get("var_name")), _ratio(v1.get("var_name"), v2.get("var_label")))
-    return round(max(0.45 * names + 0.55 * labels, concept, 0.5 * labels + 0.5 * concept, 0.8 * cross), 3)
+    # Abbreviations and concatenations ("NTBNP" vs "BNP1" / "NT pro-BNP"): compare
+    # the squashed, digit-stripped forms of names and labels by containment.
+    def squash(text: Any) -> str:
+        return re.sub(r"[^a-z]", "", _ascii(text).lower())
+    s1 = {squash(v1.get("var_name")), squash(v1.get("var_label")), squash(v1.get("concept_name"))} - {""}
+    s2 = {squash(v2.get("var_name")), squash(v2.get("var_label")), squash(v2.get("concept_name"))} - {""}
+    contain = 0.0
+    for x in s1:
+        for y in s2:
+            short, long_ = (x, y) if len(x) <= len(y) else (y, x)
+            if len(short) >= 3 and short in long_:
+                contain = max(contain, 0.5 + 0.5 * len(short) / len(long_))
+    return round(max(0.45 * names + 0.55 * labels, concept, 0.5 * labels + 0.5 * concept, 0.8 * cross, contain), 3)
 
 
 def _norm_code(code: Any) -> str:
@@ -624,12 +636,25 @@ def ai_suggest(body: dict[str, Any], user: Any = Depends(get_current_user)) -> d
     client = _get_openai_client()
     if task == "match":
         prompt = (
-            "You align variables across clinical cohort datasets. Given an ANCHOR variable and CANDIDATE "
-            "variables from other cohorts (names, labels, standard concept names, units, categories), pick "
-            "for each cohort the candidate most likely measuring the same thing, or null if none does. "
-            "Return STRICT JSON: {\"matches\": {\"<cohort_id>\": {\"var_name\": ..., \"confidence\": 0-1, \"reason\": \"...\"}}}\n\n"
+            "You align variables across clinical cohort datasets (cardiovascular research cohorts). "
+            "You are given one ANCHOR variable and, for each other cohort, the FULL list of that cohort's "
+            "variables (name, label, standard concept name, unit, type). For each cohort, pick the variable "
+            "that most likely measures the same clinical quantity as the anchor, or null if none does.\n\n"
+            "How to recognise the same quantity:\n"
+            "- Variable names are often abbreviations or concatenations: NTBNP, NT_proBNP, ntprobnp, BNP1 and "
+            "'NT pro-BNP at visit month 1' all refer to NT-proBNP; LVEF, EF, ejectionfraction refer to ejection fraction.\n"
+            "- Trailing digits or suffixes usually encode the visit (BNP1 = BNP at visit 1, Hb12 = haemoglobin at month 12), "
+            "not a different quantity; prefer the candidate at the same or the nearest visit.\n"
+            "- Labels and standard concept names may be in another language (Geschlecht = sex, Gewicht = weight, "
+            "Kreatinin = creatinine) or use synonyms (gender/sex, weight/body mass).\n"
+            "- Units must be compatible (pg/mL vs ng/L is the same quantity; mg/dL vs mmol/L can still be the same analyte).\n"
+            "- A different TYPE (numeric vs categorical) is a strong sign it is NOT the same variable, unless one is a "
+            "binned version of the other.\n"
+            "- Do not match on a shared generic word alone (e.g. 'date', 'visit', 'score').\n\n"
+            "Return STRICT JSON only: {\"matches\": {\"<cohort_id>\": {\"var_name\": \"<exact name from the list>\", "
+            "\"confidence\": 0-1, \"reason\": \"<one short sentence>\"} or null}}\n\n"
             f"ANCHOR: {json.dumps(body.get('anchor'), ensure_ascii=False)}\n\n"
-            f"CANDIDATES: {json.dumps(body.get('candidates'), ensure_ascii=False)[:12000]}"
+            f"VARIABLES PER COHORT: {json.dumps(body.get('candidates'), ensure_ascii=False)[:60000]}"
         )
     else:
         prompt = (

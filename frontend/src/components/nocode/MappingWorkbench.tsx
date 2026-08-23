@@ -716,16 +716,34 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
     aiSuggest({
       task: 'match',
       anchor: {cohort_id: anchorCohort, ...hv.members[anchorCohort]},
-      candidates: Object.fromEntries(Object.entries(current).map(([c, list]) => [c, list.slice(0, 12).map(x => ({var_name: x.var_name, var_label: x.var_label, concept_name: x.concept_name, units: x.units}))]))
+      candidates: Object.fromEntries(
+        cohorts
+          .filter(c => c !== anchorCohort)
+          .map(c => [
+            c,
+            variables
+              .filter(v => v.cohort_id === c && v.kind !== 'other')
+              .map(v => ({var_name: v.var_name, var_label: v.var_label, concept_name: v.concept_name || undefined, units: v.units || undefined, type: v.kind}))
+          ])
+      )
     })
       .then(r => {
         const m = r.result?.matches || {};
         const next = {...current};
         Object.entries(m).forEach(([c, pick]: [string, any]) => {
-          if (!pick?.var_name || !next[c]) return;
-          next[c] = next[c]
-            .map(cand => (cand.var_name === pick.var_name ? {...cand, evidence: [...cand.evidence, {type: 'ai' as const, detail: pick.reason || 'AI suggestion'}], score: Math.max(cand.score || 0, 0.9)} : cand))
-            .sort((a, b) => (b.score || 0) - (a.score || 0));
+          if (!pick?.var_name) return;
+          const list = next[c] ? [...next[c]] : [];
+          const aiEvidence = {type: 'ai' as const, detail: pick.reason || 'AI suggestion'};
+          const existing = list.find(cand => cand.var_name === pick.var_name);
+          if (existing) {
+            next[c] = list
+              .map(cand => (cand.var_name === pick.var_name ? {...cand, evidence: [...cand.evidence, aiEvidence], score: Math.max(cand.score || 0, 0.9)} : cand))
+              .sort((a, b) => (b.score || 0) - (a.score || 0));
+          } else {
+            // Not among the scorer's candidates: add it from the cohort's variable list.
+            const v = variables.find(x => x.cohort_id === c && x.var_name === pick.var_name);
+            if (v) next[c] = [{...v, evidence: [aiEvidence], score: Math.max(0.9, Number(pick.confidence) || 0)}, ...list];
+          }
         });
         setSuggestions(prev => ({...prev, [hv.harmonized_name]: next}));
       })
