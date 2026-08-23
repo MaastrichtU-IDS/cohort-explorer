@@ -146,9 +146,19 @@ def _slug(text: str) -> str:
 
 
 def nocode_node_name(index: int, spec: dict[str, Any]) -> str:
-    kind = spec.get("analysis", {}).get("kind", "analysis")
-    title = spec.get("analysis", {}).get("title") or kind
-    return f"nocode-{index}-{_slug(kind)}-{_slug(title)[:40]}"
+    """Short node name focused on the analysis type, e.g. nocode-pool-and-stratify."""
+    a = spec.get("analysis", {})
+    kind = a.get("kind", "analysis")
+    roles = a.get("roles", {}) or {}
+    label = {
+        "stratified": "stratify",
+        "correlation": "correlate",
+        "crosstab": "crosstab",
+        "compare": "pool-and-stratify" if roles.get("group") else "pool-and-compare",
+        "pooled": "pool",
+        "distribution": "distribution",
+    }.get(kind, _slug(kind))
+    return f"nocode-{label}" if index <= 1 else f"nocode-{index}-{label}"
 
 
 def describe_spec(spec: dict[str, Any]) -> str:
@@ -157,9 +167,9 @@ def describe_spec(spec: dict[str, Any]) -> str:
     a = spec.get("analysis", {})
     kind = a.get("kind", "")
     roles = a.get("roles", {})
-    cohorts = spec.get("cohorts", [])
     meta = ANALYSIS_KINDS.get(kind, {})
-    parts = [f"{meta.get('label', kind)} in {', '.join(cohorts)}."]
+    # The cohort names are deliberately not repeated here: they are visible in the DCR's data section.
+    parts = [f"{meta.get('label', kind)}."]
     for role, hv in roles.items():
         if hv:
             parts.append(f"{role}: {hv}")
@@ -230,11 +240,39 @@ def log(msg):
 # ---- loading -----------------------------------------------------------------
 
 def load_table(path):
-    """CSV first, then SPSS; RawDataNodeDefinition mounts the uploaded file as-is."""
-    try:
-        return pd.read_csv(path, low_memory=False)
-    except Exception:
-        return pd.read_spss(path)
+    """Read a cohort data node. RawDataNodeDefinition mounts the uploaded file
+    as-is at /input/<node>. Tries CSV (several encodings, separator detected),
+    then SPSS if the file is one, and fails with the real reasons."""
+    if not os.path.exists(path):
+        raise FileNotFoundError(
+            "%s does not exist inside the enclave: the data of this cohort has not been "
+            "provisioned by its data owner yet (or the node is empty)." % path)
+    if os.path.isdir(path):
+        files = sorted(os.listdir(path))
+        log("%s is a directory with %d file(s); using the first" % (path, len(files)))
+        if not files:
+            raise FileNotFoundError("%s is an empty directory" % path)
+        path = os.path.join(path, files[0])
+    with open(path, "rb") as fh:
+        head = fh.read(4)
+    if head.startswith(b"$FL2") or head.startswith(b"$FL3"):
+        return pd.read_spss(path, convert_categoricals=False)
+    errors = []
+    # utf-8-sig reads plain UTF-8 too and drops a byte-order mark; latin-1
+    # decodes any byte sequence, so it is the last resort.
+    for enc in ("utf-8-sig", "latin-1"):
+        try:
+            with open(path, "r", encoding=enc) as fh:
+                header = fh.readline()
+            # separator = the candidate that occurs most in the header line
+            counts = dict((sep, header.count(sep)) for sep in (",", ";", "\t", "|"))
+            sep = max(counts, key=counts.get) if any(counts.values()) else ","
+            df = pd.read_csv(path, sep=sep, encoding=enc, low_memory=False)
+            log("%s: read as CSV (%s, separator %r), %d rows x %d columns" % (os.path.basename(path), enc, sep, df.shape[0], df.shape[1]))
+            return df
+        except Exception as e:
+            errors.append("%s: %s" % (enc, str(e)[:160]))
+    raise ValueError("Could not read %s as CSV. Attempts: %s" % (path, " | ".join(errors)))
 
 
 def load_missing_codes(dict_path):
@@ -279,7 +317,11 @@ def prepare_column(df, hv, cohort, missing):
     # dictionary lookup only serves specs that still carry a dictionary node.
     mc = set(member.get("missing_codes") or []) or missing.get(member["var_name"], set())
     if mc:
-        s = s.mask(s.astype(str).str.strip().isin(mc))
+        # Compare as text, with and without a trailing ".0": a numeric column
+        # with blanks is read as float, so the code 999 arrives as "999.0".
+        mc = set(str(c).strip() for c in mc) | set(re.sub(r"\.0$", "", str(c).strip()) for c in mc)
+        key = s.astype(str).str.strip()
+        s = s.mask(key.isin(mc) | key.str.replace(r"\.0$", "", regex=True).isin(mc))
     if hv.get("type") == "numeric":
         s = pd.to_numeric(s, errors="coerce")
         conv = (hv.get("unit_conversion") or {}).get(cohort)
@@ -288,10 +330,10 @@ def prepare_column(df, hv, cohort, missing):
             log("%s: %s scaled by %s (%s -> %s)" % (cohort, member["var_name"], conv["factor"], conv.get("from"), conv.get("to")))
         return s
     vmap = dict((hv.get("value_map") or {}).get(cohort) or {})
-    # "__MISSING__" stands for empty cells, NaN and the dictionary's declared
-    # missing codes (masked above). Mapped to "" (default) they are excluded;
-    # mapped to a harmonized value they become that category (e.g. "Missing",
-    # or "no" where absence of a record means no).
+    # "__MISSING__" carries the policy for empty cells, NaN and the dictionary's
+    # declared missing codes (masked above): "" (default) = those patients are
+    # excluded; a name (the wizard uses "<value missing>") = they are kept as
+    # that one category, the same in every cohort.
     missing_target = vmap.pop("__MISSING__", "") or ""
     is_missing = s.isna() | (s.astype(str).str.strip() == "")
     if vmap:
@@ -360,7 +402,7 @@ def provenance_lines(used):
             piece = "%s [%s]" % (m["var_name"], c)
             vmap = (hv.get("value_map") or {}).get(c) or {}
             if vmap:
-                pairs = ", ".join("%s->%s" % ("(empty)" if k == "__MISSING__" else k, v or "(excluded)") for k, v in list(vmap.items())[:6])
+                pairs = ", ".join("%s->%s" % ("(missing)" if k == "__MISSING__" else k, v or "(excluded)") for k, v in list(vmap.items())[:6])
                 piece += " (%s%s)" % (pairs, ", ..." if len(vmap) > 6 else "")
             conv = (hv.get("unit_conversion") or {}).get(c)
             if conv and conv.get("factor") not in (None, "", 1, 1.0):
@@ -400,7 +442,14 @@ def save_fig(fig, name, used, caption):
     txt = footer_text(used)
     wrapped = "\n".join(textwrap.fill(l, 150) for l in txt.split("\n"))
     n_lines = wrapped.count("\n") + 1
-    fig.subplots_adjust(bottom=0.12 + 0.025 * n_lines)
+    # Reserve a band at the bottom for the footer and lay the axes out above
+    # it (tight_layout accounts for rotated tick labels and axis titles).
+    footer_in = 0.2 + 0.12 * n_lines
+    band = min(0.5, footer_in / fig.get_size_inches()[1])
+    try:
+        fig.tight_layout(rect=[0, band, 1, 1])
+    except Exception:
+        fig.subplots_adjust(bottom=band + 0.12)
     fig.text(0.01, 0.01, wrapped, fontsize=6.5, va="bottom", ha="left", color="#444444", family="monospace")
     path = os.path.join(FIG_DIR, name)
     fig.savefig(path, dpi=150)
@@ -566,7 +615,11 @@ def run_stratified(df, var, group, title, prefix="stratified"):
         axes[0].set_title("Distribution per group")
         axes[0].legend(title=gv.get("label") or group)
         if series:
-            axes[1].boxplot([s.values for _, s in series], labels=[g for g, _ in series], showfliers=True)
+            # tick labels set explicitly: the boxplot() keyword for them was
+            # renamed in matplotlib 3.9 and the enclave's version is not pinned
+            axes[1].boxplot([s.values for _, s in series], showfliers=True)
+            axes[1].set_xticks(range(1, len(series) + 1))
+            axes[1].set_xticklabels([g for g, _ in series])
             axes[1].set_ylabel(axis_label(hv))
             axes[1].set_title("Box plots (outliers shown)")
             plt.setp(axes[1].get_xticklabels(), rotation=30, ha="right")
@@ -804,6 +857,12 @@ DISPATCH = {
 FOOTER = r'''
 # ---- run ---------------------------------------------------------------------
 log("kind=%s cohorts=%s rows=%d" % (KIND, COHORTS, len(data)))
+_used = [v for v in ROLES.values() if v]
+for _v in _used:
+    if _v not in HVARS:
+        raise ValueError("The analysis refers to '%s', which is not among the harmonized variables %s" % (_v, list(HVARS)))
+if len(set(_used)) != len(_used):
+    raise ValueError("The same harmonized variable is used in two roles of the analysis: %s" % ROLES)
 __DISPATCH__
 
 with open(os.path.join(OUT, "provenance.md"), "w") as fh:

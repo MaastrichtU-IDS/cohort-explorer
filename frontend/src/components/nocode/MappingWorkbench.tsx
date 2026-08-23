@@ -25,6 +25,7 @@ import {
   aiSuggest,
   categoryLine,
   MISSING_KEY,
+  MISSING_LABEL,
   displayRaw,
   nameSuffix,
   withSuffix,
@@ -314,45 +315,49 @@ function ValueMapEditor({
 }) {
   const memberCohorts = cohorts.filter(c => hv.members[c]?.var_name);
   const [infoOpen, setInfoOpen] = useState(false);
-  // Every cohort also has the pseudo-value "(empty/missing)"; by default it is
-  // excluded (mapped to ""), and can be restored as its own category or moved
-  // into any row like a real value.
-  const allValues = (c: string) => [...(categories[c] || []), {value: MISSING_KEY, label: 'empty or missing'}];
 
-  // Model: every raw value of every cohort is always present in value_map,
-  // either assigned to a harmonized value (row) or mapped to "" = treated as
-  // missing. Raw values that are not in the map yet get their own row, named
-  // after their label.
+  // Model: every recorded value of every cohort is always present in value_map,
+  // either assigned to a harmonized value (row) or mapped to "" = excluded.
+  // Raw values that are not in the map yet get their own row, named after their
+  // label. The MISSING_KEY entry is not a value of the table: it carries the
+  // policy for empty/coded-missing values ("" = exclude, MISSING_LABEL = keep
+  // as one category), see MissingPolicy below.
   useEffect(() => {
     let changed = false;
     const vm: Record<string, Record<string, string>> = {};
     memberCohorts.forEach(c => {
       vm[c] = {...(hv.value_map[c] || {})};
-      allValues(c).forEach(cat => {
+      (categories[c] || []).forEach(cat => {
         if (!(cat.value in vm[c])) {
-          vm[c][cat.value] = cat.value === MISSING_KEY ? '' : (cat.label && cat.label.trim()) || cat.value;
+          vm[c][cat.value] = (cat.label && cat.label.trim()) || cat.value;
           changed = true;
         }
       });
+      if (!(MISSING_KEY in vm[c])) {
+        vm[c][MISSING_KEY] = '';
+        changed = true;
+      }
     });
     if (changed) onChange(vm);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hv.members, categories]);
 
+  const recorded = (c: string) => Object.entries(hv.value_map[c] || {}).filter(([k]) => k !== MISSING_KEY);
   const harmonized = useMemo(() => {
     const seen: string[] = [];
     memberCohorts.forEach(c =>
-      Object.values(hv.value_map[c] || {}).forEach(h => {
+      recorded(c).forEach(([, h]) => {
         if (h && !seen.includes(h)) seen.push(h);
       })
     );
     return seen;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hv.value_map, memberCohorts]);
 
-  const labelOf = (c: string, raw: string) => (raw === MISSING_KEY ? (missingPct?.[c] != null ? `${Math.round(missingPct[c]!)}% of rows` : undefined) : (categories[c] || []).find(x => x.value === raw)?.label);
-  const rawsFor = (c: string, h: string) => Object.entries(hv.value_map[c] || {}).filter(([, v]) => v === h).map(([k]) => k);
-  const missingOf = (c: string) => Object.entries(hv.value_map[c] || {}).filter(([, v]) => v === '').map(([k]) => k);
-  const elsewhere = (c: string, h: string) => Object.entries(hv.value_map[c] || {}).filter(([, v]) => v !== h).map(([k, v]) => ({raw: k, where: v}));
+  const labelOf = (c: string, raw: string) => (categories[c] || []).find(x => x.value === raw)?.label;
+  const rawsFor = (c: string, h: string) => recorded(c).filter(([, v]) => v === h).map(([k]) => k);
+  const missingOf = (c: string) => recorded(c).filter(([, v]) => v === '').map(([k]) => k);
+  const elsewhere = (c: string, h: string) => recorded(c).filter(([, v]) => v !== h).map(([k, v]) => ({raw: k, where: v}));
 
   const setRaw = (c: string, raw: string, h: string) => {
     const vm = {...hv.value_map, [c]: {...(hv.value_map[c] || {}), [raw]: h}};
@@ -369,7 +374,7 @@ function ValueMapEditor({
     onChange(vm);
   };
   const dropRow = (h: string) => {
-    // Every raw value of the row is then treated as missing.
+    // Every raw value of the row is then excluded from the analysis.
     const vm: Record<string, Record<string, string>> = {};
     memberCohorts.forEach(c => {
       vm[c] = {};
@@ -377,7 +382,7 @@ function ValueMapEditor({
     });
     onChange(vm, true);
   };
-  const splitOut = (c: string, raw: string) => setRaw(c, raw, raw === MISSING_KEY ? 'Missing' : (labelOf(c, raw) && labelOf(c, raw)!.trim()) || raw);
+  const splitOut = (c: string, raw: string) => setRaw(c, raw, (labelOf(c, raw) && labelOf(c, raw)!.trim()) || raw);
 
   // Evidence is attached to the VALUES of a row (via the suggestion clusters),
   // so renaming the harmonized value does not lose it.
@@ -393,9 +398,7 @@ function ValueMapEditor({
     return out;
   };
 
-  const realMissing = (c: string) => missingOf(c).filter(raw => raw !== MISSING_KEY);
-  const anyRealMissing = memberCohorts.some(c => realMissing(c).length > 0);
-  const emptiesExcluded = memberCohorts.filter(c => missingOf(c).includes(MISSING_KEY));
+  const anyExcluded = memberCohorts.some(c => missingOf(c).length > 0);
 
   return (
     <div className="mt-4 ml-3 pl-4 border-l-2 border-base-300 max-w-4xl">
@@ -454,7 +457,7 @@ function ValueMapEditor({
                         <td key={c} className="align-top">
                           <div className="flex flex-wrap gap-1">
                             {here.map(raw => (
-                              <span key={raw} className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs ${raw === MISSING_KEY ? 'bg-slate-200 italic' : 'bg-base-200'}`} title={labelOf(c, raw)}>
+                              <span key={raw} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-base-200" title={labelOf(c, raw)}>
                                 <span className="font-mono">{displayRaw(raw)}</span>
                                 {labelOf(c, raw) && labelOf(c, raw) !== raw && <span className="opacity-60">{labelOf(c, raw)}</span>}
                                 {here.length > 1 && (
@@ -462,7 +465,7 @@ function ValueMapEditor({
                                     ↗
                                   </button>
                                 )}
-                                <button onClick={() => setRaw(c, raw, '')} className="opacity-50 hover:opacity-100" title="Treat as missing">
+                                <button onClick={() => setRaw(c, raw, '')} className="opacity-50 hover:opacity-100" title="Exclude this value from the analysis">
                                   <X size={10} />
                                 </button>
                               </span>
@@ -485,7 +488,7 @@ function ValueMapEditor({
                       );
                     })}
                     <td className="align-top">
-                      <button className="btn btn-ghost btn-xs" onClick={() => dropRow(h)} title="Remove this row (its values are treated as missing)">
+                      <button className="btn btn-ghost btn-xs" onClick={() => dropRow(h)} title="Remove this row (its values are excluded from the analysis)">
                         <Trash2 size={12} />
                       </button>
                     </td>
@@ -510,16 +513,16 @@ function ValueMapEditor({
         </table>
       </div>
       <div className="mt-2 text-xs space-y-1">
-        {!anyRealMissing && memberCohorts.every(c => (categories[c] || []).length > 0) && (
+        {!anyExcluded && memberCohorts.every(c => (categories[c] || []).length > 0) && (
           <div className="text-emerald-700 inline-flex items-center gap-1">
             <Check size={12} /> All recorded values of every cohort are mapped.
           </div>
         )}
         {memberCohorts.map(c =>
-          realMissing(c).length === 0 ? null : (
+          missingOf(c).length === 0 ? null : (
             <div key={c} className="flex flex-wrap items-center gap-1">
-              <span className="font-semibold">{c} values treated as missing:</span>
-              {realMissing(c).map(raw => (
+              <span className="font-semibold">{c} values excluded from the analysis:</span>
+              {missingOf(c).map(raw => (
                 <span key={raw} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-rose-50 border border-rose-200 text-rose-900">
                   <span className="font-mono">{raw}</span>
                   {labelOf(c, raw) && labelOf(c, raw) !== raw && <span className="opacity-60">{labelOf(c, raw)}</span>}
@@ -531,22 +534,55 @@ function ValueMapEditor({
             </div>
           )
         )}
-        {emptiesExcluded.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1 text-base-content/70">
-            <span className="font-semibold">Empty/missing values</span> are excluded from the analysis in{' '}
-            {emptiesExcluded.map((c, i) => (
-              <span key={c} className="inline-flex items-center gap-1">
-                <span className="font-mono">{c}</span>
-                {missingPct?.[c] != null && <span className="opacity-60">({Math.round(missingPct[c]!)}% of rows)</span>}
-                <button onClick={() => splitOut(c, MISSING_KEY)} className="link link-hover text-base-content" title="Keep them as a category named 'Missing'">
-                  keep as a category
-                </button>
-                {i < emptiesExcluded.length - 1 ? ',' : ''}
-              </span>
-            ))}
-            <span className="opacity-60">. You can also move (empty/missing) into any row above.</span>
-          </div>
-        )}
+      </div>
+      <MissingPolicy hv={hv} cohorts={memberCohorts} missingPct={missingPct} onChange={vm => onChange(vm)} />
+    </div>
+  );
+}
+
+// ---- Empty / coded-missing values: one policy, applied to every cohort ---------
+
+function MissingPolicy({
+  hv,
+  cohorts,
+  missingPct,
+  onChange
+}: {
+  hv: HVar;
+  cohorts: string[];
+  missingPct?: Record<string, number | null | undefined>;
+  onChange: (vm: Record<string, Record<string, string>>) => void;
+}) {
+  // Two choices only: exclude those patients, or keep them as one category
+  // named MISSING_LABEL in every cohort (empty cells and the dictionary's
+  // declared missing codes alike), so the category is harmonized by construction.
+  const included = cohorts.length > 0 && cohorts.every(c => (hv.value_map[c] || {})[MISSING_KEY] === MISSING_LABEL);
+  const setPolicy = (include: boolean) => {
+    const vm: Record<string, Record<string, string>> = {...hv.value_map};
+    cohorts.forEach(c => {
+      vm[c] = {...(vm[c] || {}), [MISSING_KEY]: include ? MISSING_LABEL : ''};
+    });
+    onChange(vm);
+  };
+  const pcts = cohorts.filter(c => missingPct?.[c] != null).map(c => `${c} ${Math.round(missingPct![c]!)}%`);
+  return (
+    <div className="mt-3 text-xs rounded-lg border border-base-300 bg-base-100 px-3 py-2">
+      <div className="font-semibold">
+        Patients with an empty or coded-missing value
+        {pcts.length > 0 && <span className="font-normal text-base-content/60"> ({pcts.join(', ')} of rows)</span>}
+      </div>
+      <div className="text-[11px] text-base-content/60 mb-1.5">Empty cells and the dictionary&rsquo;s declared missing codes are treated alike, identically in every cohort.</div>
+      <div className="flex flex-wrap gap-x-5 gap-y-1">
+        <label className="inline-flex items-center gap-1.5 cursor-pointer">
+          <input type="radio" className="radio radio-xs" checked={!included} onChange={() => setPolicy(false)} />
+          <span>Exclude them from the analysis</span>
+        </label>
+        <label className="inline-flex items-center gap-1.5 cursor-pointer">
+          <input type="radio" className="radio radio-xs" checked={included} onChange={() => setPolicy(true)} />
+          <span>
+            Include them as the category <span className="font-mono">{MISSING_LABEL}</span>
+          </span>
+        </label>
       </div>
     </div>
   );
@@ -674,7 +710,8 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
     if (cl.length === 0) return false;
     const memberCohorts = cohorts.filter(c => hv.members[c]?.var_name);
     const rows = new Set<string>();
-    memberCohorts.forEach(c => Object.values(hv.value_map[c] || {}).forEach(h => h && rows.add(h)));
+    // The MISSING_KEY entry carries the empty/missing policy, not a row of the table.
+    memberCohorts.forEach(c => Object.entries(hv.value_map[c] || {}).forEach(([k, h]) => k !== MISSING_KEY && h && rows.add(h)));
     return Array.from(rows).every(h =>
       cl.some(x => x.evidence.some(e => e.type === 'code') && memberCohorts.some(c => (x.sources[c] || []).some(raw => (hv.value_map[c] || {})[raw] === h)))
     );
@@ -1153,23 +1190,12 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
                         .map(c => `${c.value}${c.label && c.label !== c.value ? ` (${c.label})` : ''}`)
                         .join(', ') || 'none'}
                     </div>
-                    <label className="inline-flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        className="checkbox checkbox-xs"
-                        checked={!!(hv.value_map[anchorCohort] || {})[MISSING_KEY]}
-                        onChange={e =>
-                          updateHVar(role.key, {...hv, value_map: {...hv.value_map, [anchorCohort]: {...(hv.value_map[anchorCohort] || {}), [MISSING_KEY]: e.target.checked ? 'Missing' : ''}}})
-                        }
-                      />
-                      <span>
-                        Keep empty/missing values as a category named &ldquo;Missing&rdquo;
-                        {(() => {
-                          const pct = variables.find(x => x.cohort_id === anchorCohort && x.var_name === hv.members[anchorCohort].var_name)?.eda?.missing_pct;
-                          return pct != null ? ` (${Math.round(pct)}% of rows)` : '';
-                        })()}
-                      </span>
-                    </label>
+                    <MissingPolicy
+                      hv={hv}
+                      cohorts={[anchorCohort]}
+                      missingPct={{[anchorCohort]: variables.find(x => x.cohort_id === anchorCohort && x.var_name === hv.members[anchorCohort].var_name)?.eda?.missing_pct}}
+                      onChange={vm => updateHVar(role.key, {...hv, value_map: vm})}
+                    />
                   </div>
                 )}
 

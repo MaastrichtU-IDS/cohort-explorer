@@ -68,8 +68,11 @@ const fmtNum = (x: number | null | undefined): string | null => {
 };
 
 // Pseudo raw value standing for empty cells, NaN and declared missing codes.
+// Pseudo-key in value_map carrying the policy for empty / coded-missing values:
+// "" = those patients are excluded, MISSING_LABEL = kept as one category.
 export const MISSING_KEY = '__MISSING__';
-export const displayRaw = (raw: string) => (raw === MISSING_KEY ? '(empty/missing)' : raw);
+export const MISSING_LABEL = '<value missing>';
+export const displayRaw = (raw: string) => (raw === MISSING_KEY ? '(missing)' : raw);
 
 // One muted line summarising a variable's scale: "n 1,245 · mean 78.4 (sd 12.3) · 38 to 160".
 export function edaLine(v: {kind: string; eda?: EdaStats | null}): string {
