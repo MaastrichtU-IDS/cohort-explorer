@@ -411,8 +411,8 @@ def short_cohort(c):
 
 def provenance_lines(used, with_values=False):
     """Compact record of a harmonized variable, one line each:
-    'hname: TIME::BNP1 -- Aachen::NT.pro.BNP (x0.001) (same LOINC 33762-6)'.
-    with_values adds each cohort's value map in braces, {1>I, 2>II, (missing)>(excluded)}."""
+    'hname: TIME::BNP1 -- Aachen::NT.pro.BNP (x0.001) (same LOINC code)'.
+    with_values adds each cohort's value map in braces, {1 -> I, (missing) -> (excluded)}."""
     lines = []
     for hname in used:
         hv = HVARS.get(hname)
@@ -429,13 +429,15 @@ def provenance_lines(used, with_values=False):
                 piece += " (x%s)" % conv["factor"]
             vmap = (hv.get("value_map") or {}).get(c) or {}
             if with_values and vmap:
-                piece += " {%s}" % ", ".join("%s>%s" % ("(missing)" if k == "__MISSING__" else k, v or "(excluded)")
+                piece += " {%s}" % ", ".join("%s -> %s" % ("(missing)" if k == "__MISSING__" else k, v or "(excluded)")
                                              for k, v in vmap.items())
             members.append(piece)
         codes = []
         for e in hv.get("evidence") or []:
             if e.get("type") == "code":
-                tag = ("same %s %s" % (e.get("system") or "code", e.get("detail", ""))).strip()
+                sysname = e.get("system") or ""
+                # just the vocabulary, not the code itself: "same SNOMED code"
+                tag = ("same %s" % sysname) if sysname.upper().endswith("ID") else ("same %s code" % sysname).replace("  ", " ").strip()
                 if tag not in codes:
                     codes.append(tag)
         line = "%s: %s" % (hname, " -- ".join(members))

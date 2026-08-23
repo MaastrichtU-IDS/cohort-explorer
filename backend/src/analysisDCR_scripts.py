@@ -315,8 +315,10 @@ def visualization_script(
     This script:
     - Reads the selected data source (full dataset, airlock sample, or shuffled sample)
     - Selects user-specified columns
-    - Creates histograms for numeric data and bar charts for categorical data
-    - Saves visualization to PNG
+    - Draws one PNG panel per variable: histogram (log axis when skewed),
+      cumulative distribution and box plots with/without outliers for numeric
+      variables; counts and shares for categorical ones
+    - Writes figures_guide.txt describing what each view is suited for
     - Includes commented section with mapping file paths and instructions
 
     Args:
@@ -559,8 +561,20 @@ with open(log_file, "a") as log:
 # Cohort name for filenames
 COHORT_NAME = "{cohort_id}"
 
-# Create PNG charts - one per variable
+# Create PNG charts - one panel of several views per variable. No single chart
+# suits every variable (a box plot squashes a skewed biomarker, a histogram
+# hides the median), so numeric variables get four views side by side and
+# categorical ones two; figures_guide.txt explains what each view is suited for.
 saved_charts = []
+guide_entries = []
+
+def _is_skewed(vals):
+    # Strongly right-skewed positive data (biomarkers, durations): also worth a log axis
+    if len(vals) < 10 or (vals <= 0).any():
+        return False
+    med = float(vals.median())
+    return med > 0 and float(vals.max()) / med > 10 and float(vals.skew()) > 2
+
 for col in selected_columns:
     col_data = df[col].dropna()
     
@@ -569,11 +583,8 @@ for col in selected_columns:
         log.write("  Non-null values: {{}}\\n".format(len(col_data)))
         log.write("  Data type: {{}}\\n".format(df[col].dtype))
     
-    # Create a new figure for each variable
     # Convert cm to inches for matplotlib (1 inch = 2.54 cm)
     chart_width_inches = CHART_WIDTH_CM / 2.54
-    chart_height_inches = chart_width_inches / 2.5
-    fig, ax = plt.subplots(figsize=(chart_width_inches, chart_height_inches))
     
     # Check if numeric or categorical
     # Treat as categorical if: (1) metadata says it's categorical, (2) it's binary (0/1), or (3) pandas says it's not numeric
@@ -602,32 +613,84 @@ for col in selected_columns:
         return '\\n'.join(lines)
 
     if pd.api.types.is_numeric_dtype(col_data) and not is_binary and not is_categorical_in_metadata:
-        # Histogram for numeric data
-        ax.hist(col_data, bins=HISTOGRAM_BINS, edgecolor='black', alpha=0.7)
-        ax.set_xlabel(col)
-        ax.set_ylabel('Frequency')
-        ax.set_title(_build_title('Numeric'))
+        vals = pd.to_numeric(col_data, errors='coerce').dropna()
+        if len(vals) == 0:
+            with open(log_file, "a") as log:
+                log.write("  No numeric values, skipped\\n\\n")
+            continue
+        skew = _is_skewed(vals)
+        fig, axes = plt.subplots(2, 2, figsize=(chart_width_inches, chart_width_inches * 0.8))
+        lo, hi = float(vals.min()), float(vals.max())
 
-        # Add statistics
-        mean_val = col_data.mean()
-        median_val = col_data.median()
-        std_val = col_data.std()
+        # (1) histogram with mean and median
+        ax = axes[0][0]
+        edges = np.logspace(np.log10(lo), np.log10(hi), HISTOGRAM_BINS + 1) if skew and lo > 0 and hi > lo else HISTOGRAM_BINS
+        ax.hist(vals, bins=edges, edgecolor='black', alpha=0.7)
+        mean_val, median_val = vals.mean(), vals.median()
         ax.axvline(mean_val, color='red', linestyle='--', label='Mean: {{:.2f}}'.format(mean_val))
         ax.axvline(median_val, color='green', linestyle='--', label='Median: {{:.2f}}'.format(median_val))
-        ax.legend()
+        if skew:
+            ax.set_xscale('log')
+        ax.set_xlabel(col + (', log scale' if skew else ''))
+        ax.set_ylabel('Patients')
+        ax.legend(fontsize=8)
+        ax.set_title('Histogram', fontsize=10)
 
+        # (2) cumulative distribution (evaluated on a 200-point grid)
+        ax = axes[0][1]
+        grid = np.logspace(np.log10(lo), np.log10(hi), 200) if skew and lo > 0 else np.linspace(lo, hi, 200)
+        xs = np.sort(vals.values)
+        ax.plot(grid, np.searchsorted(xs, grid, side='right') / len(xs))
+        if skew:
+            ax.set_xscale('log')
+        ax.set_xlabel(col + (', log scale' if skew else ''))
+        ax.set_ylabel('Fraction at or below')
+        ax.set_ylim(0, 1.02)
+        ax.grid(True, alpha=0.3)
+        ax.set_title('Cumulative distribution', fontsize=10)
+
+        # (3) box plot with outliers / (4) without
+        for ax, fliers, sub in ((axes[1][0], True, 'Box plot, outliers shown'), (axes[1][1], False, 'Box plot, outliers hidden')):
+            ax.boxplot([vals.values], showfliers=fliers)
+            ax.set_xticks([1])
+            ax.set_xticklabels(['n={{}}'.format(len(vals))])
+            ax.set_ylabel(col + (', log scale' if skew else ''))
+            if skew:
+                ax.set_yscale('log')
+            ax.set_title(sub, fontsize=10)
+
+        fig.suptitle(_build_title('Numeric'), fontsize=10)
+        guide_entries.append((col, 'numeric', len(vals), skew, None))
         with open(log_file, "a") as log:
-            log.write("  Mean: {{:.4f}}, Median: {{:.4f}}, Std: {{:.4f}}\\n".format(mean_val, median_val, std_val))
+            log.write("  Mean: {{:.4f}}, Median: {{:.4f}}, Std: {{:.4f}}{{}}\\n".format(
+                mean_val, median_val, vals.std(), " (log scale: right-skewed)" if skew else ""))
     else:
-        # Bar chart for categorical/binary data
-        value_counts = col_data.value_counts().head(MAX_CATEGORIES)
-        ax.barh(range(len(value_counts)), value_counts.values)
-        ax.set_yticks(range(len(value_counts)))
-        ax.set_yticklabels([str(v)[:30] for v in value_counts.index])  # Truncate long labels
-        ax.set_xlabel('Count')
+        # Categorical / binary: counts and shares side by side
+        value_counts = col_data.astype(str).value_counts()
+        shown = value_counts.head(MAX_CATEGORIES)
+        fig, axes = plt.subplots(1, 2, figsize=(chart_width_inches, chart_width_inches * 0.45))
+        ypos = range(len(shown))
+        # "2.0" -> "2": a numeric column with blanks is read as float
+        labels = [(str(v)[:-2] if str(v).endswith('.0') else str(v))[:30] for v in shown.index]
+        ax = axes[0]
+        ax.barh(ypos, shown.values)
+        ax.set_yticks(ypos)
+        ax.set_yticklabels(labels)
+        ax.invert_yaxis()
+        ax.set_xlabel('Patients')
+        ax.set_title('Counts', fontsize=10)
+        ax = axes[1]
+        pct = 100.0 * shown.values / max(len(col_data), 1)
+        ax.barh(ypos, pct)
+        ax.set_yticks(ypos)
+        ax.set_yticklabels(labels)
+        ax.invert_yaxis()
+        ax.set_xlabel('% of patients with a value')
+        ax.set_title('Shares', fontsize=10)
         data_type = 'Binary' if is_binary else 'Categorical'
-        ax.set_title(_build_title(data_type))
-        
+        fig.suptitle(_build_title(data_type), fontsize=10)
+        hidden = len(value_counts) - len(shown)
+        guide_entries.append((col, data_type.lower(), len(col_data), False, hidden))
         with open(log_file, "a") as log:
             log.write("  Unique values: {{}}\\n".format(df[col].nunique()))
             log.write("  Top 5 values: {{}}\\n".format(dict(value_counts.head(5))))
@@ -642,6 +705,32 @@ for col in selected_columns:
     
     with open(log_file, "a") as log:
         log.write("  Saved to: {{}}\\n\\n".format(output_filename))
+
+# Guide: what was produced and what each view is suited for
+with open(os.path.join(output_dir, "figures_guide.txt"), "w") as gf:
+    gf.write("FIGURES PRODUCED AND WHAT EACH VIEW IS SUITED FOR\\n")
+    gf.write("Data source: {{}}\\n\\n".format(DATA_SOURCE_NAME))
+    gf.write("Each numeric variable gets one image with four views:\\n")
+    gf.write("  Histogram -- where the values pile up; the mean and median are marked.\\n")
+    gf.write("    Less suited when the data are strongly skewed and the axis is linear; skewed\\n")
+    gf.write("    variables are therefore drawn on a log axis (noted per variable below).\\n")
+    gf.write("  Cumulative distribution -- the fraction of patients at or below each value;\\n")
+    gf.write("    any percentile can be read off (the curve crosses 0.5 at the median).\\n")
+    gf.write("  Box plot, outliers shown -- median, quartiles, whiskers (1.5 x IQR) and each\\n")
+    gf.write("    value beyond them; shows how extreme the extremes are.\\n")
+    gf.write("  Box plot, outliers hidden -- the same box with the axis limited to the\\n")
+    gf.write("    whiskers, so the box stays readable when outliers are far out.\\n\\n")
+    gf.write("Each categorical or binary variable gets one image with two views:\\n")
+    gf.write("  Counts -- patients per category (top {{}} categories).\\n".format(MAX_CATEGORIES))
+    gf.write("  Shares -- the same as percentages of the patients with a value.\\n\\n")
+    gf.write("Variables:\\n")
+    for col, kind, n, skew, hidden in guide_entries:
+        note = ""
+        if skew:
+            note = "; log scale (strongly right-skewed)"
+        if hidden:
+            note = "; {{}} rare categories not drawn".format(hidden)
+        gf.write("  {{}}_{{}}.png  --  {{}}, n={{}}{{}}\\n".format(col, COHORT_NAME, kind, n, note))
 
 with open(log_file, "a") as log:
     log.write("Visualization complete. {{}} PNG charts saved: {{}}\\n".format(len(saved_charts), saved_charts))

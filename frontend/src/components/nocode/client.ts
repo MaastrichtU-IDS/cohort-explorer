@@ -329,7 +329,7 @@ export const shortCohort = (c: string) => {
 };
 
 // The compact line printed under the figures (mirrors provenance_lines in the
-// enclave script): "hname: TIME::BNP1 -- CHECK::NTBNP (same LOINC 33762-6)".
+// enclave script): "hname: TIME::BNP1 -- CHECK::NTBNP (same LOINC code)".
 // Value maps and the other evidence go to provenance.md, not the figures.
 export function provenanceLine(hv: HVar): string {
   const members = Object.entries(hv.members)
@@ -340,6 +340,8 @@ export function provenanceLine(hv: HVar): string {
       if (conv && conv.factor && conv.factor !== 1) piece += ` (x${conv.factor})`;
       return piece;
     });
-  const codes = Array.from(new Set(hv.evidence.filter(e => e.type === 'code').map(e => `same ${e.system || 'code'} ${e.detail || ''}`.trim())));
+  const codes = Array.from(
+    new Set(hv.evidence.filter(e => e.type === 'code').map(e => ((e.system || '').toUpperCase().endsWith('ID') ? `same ${e.system}` : `same ${e.system || ''} code`.replace(/\s+/g, ' ').trim())))
+  );
   return `${hv.harmonized_name}: ${members.join(' -- ')}${codes.length ? ` (${codes.join('; ')})` : ''}`;
 }
